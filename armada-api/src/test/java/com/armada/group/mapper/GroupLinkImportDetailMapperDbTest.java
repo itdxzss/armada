@@ -7,6 +7,7 @@ import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -130,5 +131,45 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
         assertThat(detailMapper.countByQuery(query)).isEqualTo(2);
         assertThat(detailMapper.selectPage(query)).hasSize(2);
+    }
+
+    @Test
+    void selectFailed_byLabelId_returnsFailedRows() {
+        // I-5:验 selectFailed(labelId路径,batchId=null) 能查到失败行
+        GroupLinkLabel label = insertLabel("labelId路径失败行测试分组");
+        GroupLinkImportBatch batch = insertBatch(label.getId(), "label_failed_test.txt");
+
+        List<GroupLinkImportDetail> details = List.of(
+                buildDetail(batch.getId(), 1, "chat.whatsapp.com/LF1", 1, null),       // SUCCESS - 不应返回
+                buildDetail(batch.getId(), 2, "chat.whatsapp.com/LF2", 3, "批内重复"),  // DUPLICATE - 应返回
+                buildDetail(batch.getId(), 3, "chat.whatsapp.com/LF3", 4, "格式错误")   // FORMAT_ERROR - 应返回
+        );
+        detailMapper.batchInsert(details);
+
+        List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(label.getId(), null);
+        assertThat(failed).hasSize(2);
+        failed.forEach(r -> assertThat(r.getResult()).isGreaterThanOrEqualTo(3));
+    }
+
+    @Test
+    void selectFailed_isolatesByTenant() {
+        // I-5 + C-2:跨租户隔离 — 租户2插入的失败行对租户1不可见
+        // 先切到租户2,插入一条失败行
+        TenantContext.set(2L);
+        GroupLinkLabel label2 = insertLabel("租户2失败行测试分组");
+        GroupLinkImportBatch batch2 = insertBatch(label2.getId(), "tenant2_failed.txt");
+        detailMapper.batchInsert(List.of(
+                buildDetail(batch2.getId(), 1, "chat.whatsapp.com/T2F1", 3, "租户2批内重复")
+        ));
+
+        // 切回租户1,用最弱条件(labelId=null, batchId=null)查询,断言查不到租户2的数据
+        TenantContext.set(1L);
+        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(null, null);
+        boolean containsTenant2Row = rows.stream()
+                .anyMatch(r -> "chat.whatsapp.com/T2F1".equals(r.getRawUrl()));
+        assertThat(containsTenant2Row).isFalse();
+
+        // 测试方法末尾重置回租户1(防串),@AfterEach 也会 clear
+        TenantContext.set(1L);
     }
 }

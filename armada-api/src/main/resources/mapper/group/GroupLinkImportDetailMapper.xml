@@ -48,6 +48,7 @@
     FROM group_link_import_detail d
     JOIN group_link_import_batch b ON d.batch_id = b.id
     WHERE b.deleted_at IS NULL
+      AND d.tenant_id = b.tenant_id
       AND d.result &gt;= 3
       <if test="batchId != null">AND d.batch_id = #{batchId}</if>
       <if test="labelId != null">AND b.label_id = #{labelId}</if>

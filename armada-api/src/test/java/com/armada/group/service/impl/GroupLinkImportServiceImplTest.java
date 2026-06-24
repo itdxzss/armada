@@ -1,0 +1,212 @@
+package com.armada.group.service.impl;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.armada.group.mapper.GroupLinkImportBatchMapper;
+import com.armada.group.mapper.GroupLinkImportDetailMapper;
+import com.armada.group.mapper.GroupLinkLabelMapper;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.GroupLinkImportResult;
+import com.armada.group.model.dto.GroupLinkImportDTO;
+import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupLinkImportBatch;
+import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.shared.exception.BusinessException;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+/**
+ * GroupLinkImportServiceImpl 业务规则单测(mock mapper,验四态 + 校验逻辑;真库另由 DbTest 覆盖)。
+ */
+@ExtendWith(MockitoExtension.class)
+class GroupLinkImportServiceImplTest {
+
+    @Mock
+    private GroupLinkLabelMapper labelMapper;
+
+    @Mock
+    private GroupLinkMapper groupLinkMapper;
+
+    @Mock
+    private GroupLinkImportBatchMapper importBatchMapper;
+
+    @Mock
+    private GroupLinkImportDetailMapper detailMapper;
+
+    @InjectMocks
+    private GroupLinkImportServiceImpl service;
+
+    /** 辅助:构造一个有效的 label stub */
+    private void stubValidLabel(Long labelId) {
+        GroupLinkLabel label = new GroupLinkLabel();
+        label.setId(labelId);
+        when(labelMapper.selectById(labelId)).thenReturn(label);
+    }
+
+    /** 辅助:让 importBatchMapper.insert 填充自增 id */
+    private void stubBatchInsert(Long batchId) {
+        doAnswer(inv -> {
+            GroupLinkImportBatch b = inv.getArgument(0);
+            b.setId(batchId);
+            return 1;
+        }).when(importBatchMapper).insert(any());
+    }
+
+    /** 辅助:让 groupLinkMapper.insert 填充自增 id */
+    private void stubLinkInsert(Long linkId) {
+        doAnswer(inv -> {
+            GroupLink g = inv.getArgument(0);
+            g.setId(linkId);
+            return 1;
+        }).when(groupLinkMapper).insert(any());
+    }
+
+    // ---- 四态测试 ----
+
+    @Test
+    void newUrl_inserts_andDetailSuccess() {
+        stubValidLabel(1L);
+        stubBatchInsert(10L);
+        stubLinkInsert(100L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(1L, "batch1", null,
+                        List.of("https://chat.whatsapp.com/AbcDef")));
+
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.inserted()).isEqualTo(1);
+        assertThat(result.adopted()).isEqualTo(0);
+        assertThat(result.failed()).isEqualTo(0);
+        assertThat(result.batchId()).isEqualTo(10L);
+        verify(groupLinkMapper).insert(any());
+        verify(detailMapper).batchInsert(any());
+    }
+
+    @Test
+    void existingUrl_adopts_changesLabel_andDetailAdopted() {
+        stubValidLabel(2L);
+        stubBatchInsert(20L);
+        GroupLink existing = new GroupLink();
+        existing.setId(200L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(2L, "batch2", null,
+                        List.of("https://chat.whatsapp.com/AbcDef")));
+
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.adopted()).isEqualTo(1);
+        assertThat(result.inserted()).isEqualTo(0);
+        verify(groupLinkMapper).adoptToLabel(eq(200L), eq(2L), eq(20L), eq(null));
+        verify(groupLinkMapper, never()).insert(any());
+    }
+
+    @Test
+    void batchDuplicate_skipped_andDetailDuplicate() {
+        stubValidLabel(3L);
+        stubBatchInsert(30L);
+        stubLinkInsert(300L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+
+        // 同一 url 出现两次
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(3L, "batch3", null,
+                        List.of("https://chat.whatsapp.com/SameCode",
+                                "https://chat.whatsapp.com/SameCode")));
+
+        assertThat(result.total()).isEqualTo(2);
+        assertThat(result.inserted()).isEqualTo(1);  // 第一条 SUCCESS
+        assertThat(result.duplicated()).isEqualTo(1); // 第二条 DUPLICATE
+        // insert 只调用一次(去重后只有一条进 persist)
+        verify(groupLinkMapper).insert(any());
+    }
+
+    @Test
+    void badFormat_failed_andDetailFormatError() {
+        stubValidLabel(4L);
+        stubBatchInsert(40L);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(4L, "batch4", null,
+                        List.of("not-a-whatsapp-link")));
+
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.errors()).hasSize(1);
+        assertThat(result.errors().get(0)).contains("第 1 行");
+        verify(groupLinkMapper, never()).insert(any());
+    }
+
+    @Test
+    void counts_areWrittenBackToBatch() {
+        stubValidLabel(5L);
+        stubBatchInsert(50L);
+        stubLinkInsert(500L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+
+        service.importLinks(new GroupLinkImportDTO(5L, "batch5", null,
+                List.of("https://chat.whatsapp.com/Code1",
+                        "bad-url",
+                        "https://chat.whatsapp.com/Code1")));  // 重复
+
+        // 验 updateCounts 被调用(统计已在 VO 中断言)
+        verify(importBatchMapper).updateCounts(any());
+    }
+
+    // ---- 校验失败 ----
+
+    @Test
+    void labelNotExists_throws() {
+        when(labelMapper.selectById(anyLong())).thenReturn(null);
+
+        assertThatThrownBy(() -> service.importLinks(
+                new GroupLinkImportDTO(99L, "x", null, List.of("https://chat.whatsapp.com/X"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("分组不存在");
+        verify(importBatchMapper, never()).insert(any());
+    }
+
+    @Test
+    void nullLabelId_throws() {
+        assertThatThrownBy(() -> service.importLinks(
+                new GroupLinkImportDTO(null, "x", null, List.of("https://chat.whatsapp.com/X"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("分组不存在");
+    }
+
+    @Test
+    void emptyLines_throws() {
+        stubValidLabel(1L);
+
+        assertThatThrownBy(() -> service.importLinks(
+                new GroupLinkImportDTO(1L, "x", null, List.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不可为空");
+        verify(importBatchMapper, never()).insert(any());
+    }
+
+    @Test
+    void nullLines_throws() {
+        stubValidLabel(1L);
+
+        assertThatThrownBy(() -> service.importLinks(
+                new GroupLinkImportDTO(1L, "x", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不可为空");
+    }
+}

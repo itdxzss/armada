@@ -63,9 +63,12 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         mapper.insert(label);
         Long labelId = label.getId();
 
-        // 通过 GroupLinkMapper softDelete 验证:先插2活跃+1软删的group_link
-        // 由于 group_link 的 INSERT 需要完整mapper(Phase 3),这里用 softDeleteByLabelIds 验证无活跃链接
-        // 验 linkCount=0(无群链接时)
+        // 插 2 条活跃 + 1 条软删 group_link,验 linkCount=2(聚合只数活跃)
+        insertActiveLink("chat.whatsapp.com/Count1", labelId);
+        insertActiveLink("chat.whatsapp.com/Count2", labelId);
+        Long softDeletedId = insertActiveLink("chat.whatsapp.com/CountDeleted", labelId);
+        groupLinkMapper.softDeleteByIds(java.util.List.of(softDeletedId));
+
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
         query.setId(labelId);
         query.setPage(1);
@@ -77,7 +80,17 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         List<GroupLinkLabelVoRow> rows = mapper.selectPage(query);
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).getName()).isEqualTo("聚合测试分组");
-        assertThat(rows.get(0).getLinkCount()).isEqualTo(0L);
+        // 验证聚合只数活跃链接(2条),软删的不计
+        assertThat(rows.get(0).getLinkCount()).isEqualTo(2L);
+    }
+
+    /** 插入一条活跃 group_link 并返回 id。 */
+    private Long insertActiveLink(String url, Long labelId) {
+        com.armada.group.model.entity.GroupLink link = new com.armada.group.model.entity.GroupLink();
+        link.setLinkUrl(url);
+        link.setLabelId(labelId);
+        groupLinkMapper.insert(link);
+        return link.getId();
     }
 
     @Test

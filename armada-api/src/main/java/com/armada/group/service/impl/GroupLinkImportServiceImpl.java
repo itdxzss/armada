@@ -43,9 +43,15 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupLinkImportServiceImpl.class);
 
+    /** 存储层时间字段解释时区:数据库存 UTC。 */
+    private static final ZoneId ZONE_UTC = ZoneId.of("UTC");
+
+    /** 导出输出时区:上海时间。 */
+    private static final ZoneId ZONE_CN = ZoneId.of("Asia/Shanghai");
+
     /** 导出失败明细时,时间格式化 pattern(Asia/Shanghai)。 */
     private static final DateTimeFormatter EXPORT_TIME_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZONE_CN);
 
     private final GroupLinkLabelMapper labelMapper;
     private final GroupLinkMapper groupLinkMapper;
@@ -151,12 +157,15 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     @Override
     public List<String[]> exportFailed(Long labelId, Long batchId) {
+        if (labelId == null && batchId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "labelId 与 batchId 至少提供一个");
+        }
         List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(labelId, batchId);
         List<String[]> result = new ArrayList<>(rows.size());
         for (GroupLinkImportDetailVoRow row : rows) {
             String timeStr = row.getCreatedAt() == null
                     ? ""
-                    : EXPORT_TIME_FMT.format(row.getCreatedAt().atZone(ZoneId.of("UTC")));
+                    : EXPORT_TIME_FMT.format(row.getCreatedAt().atZone(ZONE_UTC));
             result.add(new String[]{
                     String.valueOf(row.getLineNo()),
                     nullToEmpty(row.getGroupName()),

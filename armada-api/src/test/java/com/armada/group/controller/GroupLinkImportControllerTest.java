@@ -38,6 +38,13 @@ class GroupLinkImportControllerTest {
     }
 
     @Test
+    void escapeCsvRow_fieldWithCarriageReturn_wrapsInQuotes() {
+        String line = GroupLinkImportController.escapeCsvRow(
+                new String[]{"4", "群\r名", "", "", ""});
+        assertThat(line).isEqualTo("4,\"群\r名\",,,");
+    }
+
+    @Test
     void escapeCsvRow_nullField_treatedAsEmpty() {
         String line = GroupLinkImportController.escapeCsvRow(
                 new String[]{"1", null, null, null, null});

@@ -62,16 +62,17 @@ public class GroupLinkImportController {
 
         List<String[]> rows = service.exportFailed(labelId, batchId);
 
-        PrintWriter writer = resp.getWriter();
-        // UTF-8 BOM:防 Excel 打开中文乱码
-        writer.write('﻿');
-        // 表头
-        writer.println(escapeCsvRow(new String[]{"行号", "群名称", "群链接", "失败原因", "导入时间"}));
-        // 数据行
-        for (String[] row : rows) {
-            writer.println(escapeCsvRow(row));
+        try (PrintWriter writer = resp.getWriter()) {
+            // UTF-8 BOM,防 Excel 打开中文 CSV 乱码
+            writer.write("﻿");
+            // 表头
+            writer.println(escapeCsvRow(new String[]{"行号", "群名称", "群链接", "失败原因", "导入时间"}));
+            // 数据行
+            for (String[] row : rows) {
+                writer.println(escapeCsvRow(row));
+            }
+            writer.flush();
         }
-        writer.flush();
     }
 
     /**

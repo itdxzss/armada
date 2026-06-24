@@ -239,6 +239,8 @@ class GroupLinkImportServiceImplTest {
         PageResult<GroupLinkImportDetailVO> result = service.listDetails(query);
 
         assertThat(result.total()).isEqualTo(1L);
+        assertThat(result.page()).isEqualTo(1);
+        assertThat(result.pageSize()).isEqualTo(10);
         assertThat(result.list()).hasSize(1);
         assertThat(result.list().get(0).lineNo()).isEqualTo(1);
         verify(detailMapper).countByQuery(query);
@@ -313,5 +315,12 @@ class GroupLinkImportServiceImplTest {
         List<String[]> rows = service.exportFailed(99L, null);
 
         assertThat(rows).isEmpty();
+    }
+
+    @Test
+    void exportFailed_bothNull_throws() {
+        assertThatThrownBy(() -> service.exportFailed(null, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("至少提供一个");
     }
 }

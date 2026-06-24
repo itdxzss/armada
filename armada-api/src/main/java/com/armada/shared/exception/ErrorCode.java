@@ -18,7 +18,10 @@ public enum ErrorCode {
     TENANT_MISSING(40101, "缺少租户标识,请重新登录"),
 
     /** 租户码无效或租户已停用。 */
-    TENANT_NOT_FOUND(40102, "租户不存在或已停用");
+    TENANT_NOT_FOUND(40102, "租户不存在或已停用"),
+
+    /** 登录校验失败(租户码或密码错误,统一提示不暴露细节)。 */
+    LOGIN_FAILED(40103, "租户码或密码错误");
 
     private final int code;
     private final String defaultMessage;

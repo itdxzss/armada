@@ -20,3 +20,8 @@ mybatis-plus:
 
 server:
   port: 8080
+
+armada:
+  # 先测阶段统一登录密码(临时垫片,JWT 接上后删除);可用环境变量 DEV_LOGIN_PASSWORD 覆盖。
+  dev-login:
+    password: ${DEV_LOGIN_PASSWORD:armada123}

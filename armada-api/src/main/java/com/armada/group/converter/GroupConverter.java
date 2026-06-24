@@ -2,6 +2,8 @@ package com.armada.group.converter;
 
 import com.armada.group.model.vo.GroupLinkLabelVO;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
+import com.armada.group.model.vo.GroupLinkVO;
+import com.armada.group.model.vo.GroupLinkVoRow;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -30,6 +32,22 @@ public interface GroupConverter {
      * @return 前端出参列表
      */
     List<GroupLinkLabelVO> toLabelVOList(List<GroupLinkLabelVoRow> rows);
+
+    /**
+     * Mapper 投影行 → 群链接出参 VO(时间字段由 {@link #toEpochMilli} 自动转换)。
+     *
+     * @param row Mapper 查询投影
+     * @return 前端出参
+     */
+    GroupLinkVO toGroupLinkVO(GroupLinkVoRow row);
+
+    /**
+     * 批量转换群链接。
+     *
+     * @param rows Mapper 查询投影列表
+     * @return 前端出参列表
+     */
+    List<GroupLinkVO> toGroupLinkVOList(List<GroupLinkVoRow> rows);
 
     /**
      * {@code LocalDateTime} → epoch 毫秒(UTC 解释);供 MapStruct 按类型自动选用。

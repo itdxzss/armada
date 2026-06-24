@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVO;
+import com.armada.group.model.vo.GroupLinkVO;
+import com.armada.group.model.vo.GroupLinkVoRow;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
@@ -49,5 +51,36 @@ class GroupConverterTest {
     void toEpochMilli_interpretsAsUtc() {
         assertThat(converter.toEpochMilli(LocalDateTime.of(2024, 6, 1, 0, 0, 0)))
                 .isEqualTo(EPOCH_2024_06_01_UTC);
+    }
+
+    @Test
+    void toGroupLinkVO_epochMillis() {
+        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
+        GroupLinkVoRow row = new GroupLinkVoRow();
+        row.setId(10L);
+        row.setUrl("https://chat.whatsapp.com/test");
+        row.setGroupName("测试群");
+        row.setSourceFileName("links.txt");
+        row.setCreatedAt(t);
+
+        GroupLinkVO vo = converter.toGroupLinkVO(row);
+
+        assertThat(vo.id()).isEqualTo(10L);
+        assertThat(vo.url()).isEqualTo("https://chat.whatsapp.com/test");
+        assertThat(vo.groupName()).isEqualTo("测试群");
+        assertThat(vo.sourceFileName()).isEqualTo("links.txt");
+        assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
+    }
+
+    @Test
+    void toGroupLinkVO_nullTime_returnsNullEpoch() {
+        GroupLinkVoRow row = new GroupLinkVoRow();
+        row.setId(1L);
+        row.setUrl("https://chat.whatsapp.com/abc");
+        row.setCreatedAt(null);
+
+        GroupLinkVO vo = converter.toGroupLinkVO(row);
+
+        assertThat(vo.createdAt()).isNull();
     }
 }

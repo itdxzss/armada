@@ -1,0 +1,4 @@
+# 强制源码按文本处理:防 UTF-8 中文注释偶发被 git 误判为 binary,保证 diff/代码审查可读。
+*.java text
+*.xml  text
+*.sql  text

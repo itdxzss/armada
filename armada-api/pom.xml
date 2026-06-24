@@ -64,6 +64,13 @@
             <version>${mapstruct.version}</version>
         </dependency>
 
+        <!-- 群链接导入:解析 TXT/CSV/Excel(EasyExcel 维护版,流式不OOM) -->
+        <dependency>
+            <groupId>cn.idev.excel</groupId>
+            <artifactId>fastexcel</artifactId>
+            <version>1.3.0</version>
+        </dependency>
+
         <!-- 测试 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -1,17 +1,31 @@
 package com.armada.group.mapper;
 
+import com.armada.group.model.entity.GroupLinkImportBatch;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * 群链接导入批次数据访问。
- *
- * <p>本阶段(Phase 2)仅放 {@code softDeleteByLabelIds},用于分组批量删除时级联软删批次。
- * Phase 3 会追加 insert / updateCounts 等方法。</p>
+ * 群链接导入批次数据访问。tenant_id 由租户行隔离拦截器自动注入,SQL 不手写 tenant_id 过滤。
  */
 @Mapper
 public interface GroupLinkImportBatchMapper {
+
+    /**
+     * 插入新导入批次(id/tenant_id/时间由库生成或拦截器注入)。
+     *
+     * @param row 批次实体
+     * @return 影响行数
+     */
+    int insert(GroupLinkImportBatch row);
+
+    /**
+     * 回写批次统计计数(total/inserted/adopted/skipped/failed)。
+     *
+     * @param row 含 id 及各计数字段
+     * @return 影响行数
+     */
+    int updateCounts(GroupLinkImportBatch row);
 
     /**
      * 按所属分组 ID 批量软删除导入批次(分组被删时级联调用)。

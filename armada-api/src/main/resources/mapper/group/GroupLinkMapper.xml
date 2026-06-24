@@ -2,11 +2,73 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkMapper">
 
-  <!-- Phase 2 stub: 仅 softDeleteByLabelIds;Phase 3 追加其余方法 -->
+  <!-- 含软删记录,供 upsert 复活判断 -->
+  <select id="selectAnyByUrl" resultType="com.armada.group.model.entity.GroupLink">
+    SELECT * FROM group_link WHERE link_url = #{url} LIMIT 1
+  </select>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, created_by)
+    VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId}, #{createdBy})
+  </insert>
+
+  <!-- 复活 + 收编到本分组 + 更新来源批次/群名(群名空不覆盖) -->
+  <update id="adoptToLabel">
+    UPDATE group_link
+    SET deleted_at = NULL,
+        label_id = #{labelId},
+        import_batch_id = #{batchId},
+        group_name = COALESCE(#{groupName}, group_name)
+    WHERE id = #{id}
+  </update>
+
+  <!-- 单表筛选片段:仅用于 countByLabel(无 JOIN) -->
+  <sql id="byLabelFilter">
+    deleted_at IS NULL AND label_id = #{labelId}
+    <if test="keyword != null and keyword != ''">
+      AND (link_url LIKE CONCAT('%', #{keyword}, '%') OR group_name LIKE CONCAT('%', #{keyword}, '%'))
+    </if>
+  </sql>
+
+  <select id="countByLabel" resultType="long">
+    SELECT COUNT(*) FROM group_link WHERE <include refid="byLabelFilter"/>
+  </select>
+
+  <!-- JOIN 查询时需要用别名 g. 限定列,防止 deleted_at/label_id 歧义 -->
+  <select id="selectPageByLabel" resultType="com.armada.group.model.vo.GroupLinkVoRow">
+    SELECT g.id, g.link_url AS url, g.group_name AS groupName,
+           b.source_file_name AS sourceFileName, g.created_at AS createdAt
+    FROM group_link g
+    LEFT JOIN group_link_import_batch b ON g.import_batch_id = b.id
+    WHERE g.deleted_at IS NULL AND g.label_id = #{labelId}
+    <if test="keyword != null and keyword != ''">
+      AND (g.link_url LIKE CONCAT('%', #{keyword}, '%') OR g.group_name LIKE CONCAT('%', #{keyword}, '%'))
+    </if>
+    ORDER BY g.created_at DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+  <update id="migrateToLabel">
+    UPDATE group_link SET label_id = #{labelId}
+    WHERE deleted_at IS NULL AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </update>
+
+  <update id="softDeleteByIds">
+    UPDATE group_link SET deleted_at = NOW()
+    WHERE deleted_at IS NULL AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </update>
+
   <update id="softDeleteByLabelIds">
     UPDATE group_link SET deleted_at = NOW()
     WHERE deleted_at IS NULL AND label_id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
+
+  <select id="countActiveByIds" resultType="int">
+    SELECT COUNT(*) FROM group_link WHERE deleted_at IS NULL AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </select>
 
 </mapper>

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.resource.mapper.IpProxyMapper">
+
+    <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
+    <sql id="Columns">
+        id, tenant_id, host, port, protocol, username, password, region,
+        status, source, ownership, remark, created_at, updated_at, created_by, deleted_at
+    </sql>
+
+    <!-- 共享筛选片段:selectPage 与 countPage 复用,保证页码/总数口径一致;tenant_id 由拦截器注入 -->
+    <sql id="FilterWhere">
+        <where>
+            deleted_at IS NULL
+            <if test="q.region != null and q.region != ''">AND region = #{q.region}</if>
+            <if test="q.protocol != null">AND protocol = #{q.protocol}</if>
+            <if test="q.source != null and q.source != ''">AND source LIKE CONCAT('%', #{q.source}, '%')</if>
+            <if test="q.keyword != null and q.keyword != ''">
+                AND (
+                    host LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR username LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR source LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR region LIKE CONCAT('%', #{q.keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectPage" resultType="com.armada.resource.model.entity.IpProxy">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        <include refid="FilterWhere"/>
+        ORDER BY id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="countPage" resultType="long">
+        SELECT COUNT(*)
+        FROM ip_proxy
+        <include refid="FilterWhere"/>
+    </select>
+
+    <insert id="insert" parameterType="com.armada.resource.model.entity.IpProxy"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ip_proxy
+            (host, port, protocol, username, password, region, status, source, ownership, remark, created_by)
+        VALUES
+            (#{host}, #{port}, #{protocol}, #{username}, #{password}, #{region},
+             #{status}, #{source}, #{ownership}, #{remark}, #{createdBy})
+    </insert>
+
+    <select id="countActiveByFullTuple" resultType="long">
+        SELECT COUNT(*)
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+          AND host = #{host}
+          AND port = #{port}
+          AND username = #{username}
+          AND password = #{password}
+    </select>
+
+    <update id="softDeleteByIds">
+        UPDATE ip_proxy
+        SET deleted_at = NOW()
+        WHERE deleted_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+</mapper>

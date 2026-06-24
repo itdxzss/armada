@@ -83,7 +83,17 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
             log.info("WS链接分组已创建 id={} name={}", row.getId(), dto.name());
         }
 
-        return new GroupLinkLabelVO(row.getId(), dto.name(), dto.region(), dto.remark(), 0L, null, null);
+        // 读回库行,确保 createdAt/updatedAt 返回真实数据库写入时间(非 null)
+        GroupLinkLabel saved = labelMapper.selectById(row.getId());
+        return new GroupLinkLabelVO(
+                saved.getId(),
+                dto.name(),
+                dto.region(),
+                dto.remark(),
+                0L,
+                saved.getCreatedAt() == null ? null : saved.getCreatedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli(),
+                saved.getUpdatedAt() == null ? null : saved.getUpdatedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        );
     }
 
     @Override

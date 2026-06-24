@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 public class GroupLinkVoRow {
 
     private Long id;
+    /** {@code link_url} 列通过 SELECT {@code AS url} 映射到此字段(非 underscore 自动转换)。 */
     private String url;
     private String groupName;
     private String sourceFileName;

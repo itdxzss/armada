@@ -20,6 +20,7 @@ import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.service.impl.GroupLinkLabelServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -106,6 +107,14 @@ class GroupLinkLabelServiceImplTest {
         deleted.setId(10L);
         deleted.setName("复活分组");
         when(labelMapper.selectDeletedByName("复活分组")).thenReturn(deleted);
+        // 读回行:含真实时间戳
+        GroupLinkLabel saved = new GroupLinkLabel();
+        saved.setId(10L);
+        saved.setName("复活分组");
+        saved.setRegion("印度");
+        saved.setCreatedAt(LocalDateTime.of(2024, 1, 1, 0, 0, 0));
+        saved.setUpdatedAt(LocalDateTime.of(2024, 6, 1, 12, 0, 0));
+        when(labelMapper.selectById(10L)).thenReturn(saved);
 
         GroupLinkLabelVO vo = service.create(new GroupLinkLabelDTO("复活分组", "印度", "备注"));
 
@@ -113,17 +122,35 @@ class GroupLinkLabelServiceImplTest {
         verify(labelMapper).updateProfile(any());
         verify(labelMapper, never()).insert(any());
         assertThat(vo.id()).isEqualTo(10L);
+        assertThat(vo.createdAt()).isNotNull();
+        assertThat(vo.updatedAt()).isNotNull();
     }
 
     @Test
     void create_newName_inserts() {
         when(labelMapper.selectActiveByName("新分组")).thenReturn(null);
         when(labelMapper.selectDeletedByName("新分组")).thenReturn(null);
+        // insert 填充自增 id(doAnswer 模拟 MyBatis useGeneratedKeys)
+        org.mockito.Mockito.doAnswer(inv -> {
+            GroupLinkLabel row = inv.getArgument(0);
+            row.setId(99L);
+            return 1;
+        }).when(labelMapper).insert(any());
+        // 读回行:含真实时间戳
+        GroupLinkLabel saved = new GroupLinkLabel();
+        saved.setId(99L);
+        saved.setName("新分组");
+        saved.setRegion("巴基斯坦");
+        saved.setCreatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
+        saved.setUpdatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
+        when(labelMapper.selectById(99L)).thenReturn(saved);
 
         GroupLinkLabelVO vo = service.create(new GroupLinkLabelDTO("新分组", "巴基斯坦", null));
 
         verify(labelMapper).insert(any());
         assertThat(vo.name()).isEqualTo("新分组");
+        assertThat(vo.createdAt()).isNotNull();
+        assertThat(vo.updatedAt()).isNotNull();
     }
 
     // ---- update ----

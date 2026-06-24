@@ -30,7 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 /**
  * 群链接导入业务实现。
@@ -207,9 +206,9 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         if (dto.labelId() == null || labelMapper.selectById(dto.labelId()) == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "目标分组不存在");
         }
+        // 只做 null/empty 检查,不做 join(join 在 importLinks 调用方处理,避免重复计算)
         List<String> lines = dto.lines();
-        String joined = lines == null ? "" : String.join("\n", lines);
-        if (!StringUtils.hasText(joined)) {
+        if (lines == null || lines.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接内容与上传文件不可为空");
         }
     }

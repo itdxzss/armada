@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupLinkMapper">
+
+  <!-- Phase 2 stub: 仅 softDeleteByLabelIds;Phase 3 追加其余方法 -->
+  <update id="softDeleteByLabelIds">
+    UPDATE group_link SET deleted_at = NOW()
+    WHERE deleted_at IS NULL AND label_id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </update>
+
+</mapper>

@@ -39,8 +39,13 @@ public class PageQuery {
         setPageSize(pageSize);
     }
 
+    /** SQL 下推用的 OFFSET(同 {@link #offset()};供 MyBatis 反射访问)。 */
+    public int getOffset() {
+        return (page - 1) * pageSize;
+    }
+
     /** SQL 下推用的 OFFSET。 */
     public int offset() {
-        return (page - 1) * pageSize;
+        return getOffset();
     }
 }

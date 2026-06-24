@@ -2,7 +2,6 @@ spring:
   application:
     name: armada-api
   jackson:
-    property-naming-strategy: SNAKE_CASE
     default-property-inclusion: non_null
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/armada?useSSL=false&serverTimezone=UTC&characterEncoding=utf8mb4}

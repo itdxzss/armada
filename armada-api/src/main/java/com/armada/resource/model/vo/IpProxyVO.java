@@ -3,7 +3,7 @@ package com.armada.resource.model.vo;
 /**
  * IP 代理列表出参（返回前端的视图对象）。
  *
- * <p>字段 camelCase，经全局 Jackson SNAKE_CASE 自动转 snake（如 {@code proxyAddress}→{@code proxy_address}）。
+ * <p>字段 camelCase，出参 JSON 即 camelCase（全局 Jackson 默认命名,无 snake 转换）。
  * {@code protocol/status/ownership} 出码 + 配套 {@code *Label} 中文（后端用枚举算好，前端不维护映射）。
  * {@code createdAt} 为 epoch 毫秒，前端按 Asia/Shanghai 展示。{@code password} 已脱敏。</p>
  */

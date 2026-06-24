@@ -53,8 +53,8 @@ public class GroupLinkController {
      */
     @PostMapping("/import")
     public ApiResponse<GroupLinkImportResultVO> importLinks(
-            @RequestParam("label_id") Long labelId,
-            @RequestParam("batch_name") String batchName,
+            @RequestParam("labelId") Long labelId,
+            @RequestParam("batchName") String batchName,
             @RequestParam(value = "text", required = false) String text,
             @RequestParam(value = "file", required = false) MultipartFile file) {
         List<String> lines = extractor.extract(file, text);

@@ -1,6 +1,5 @@
 package com.armada.shared.response;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
@@ -17,13 +16,13 @@ public record PageResult<T>(
         int page,
 
         /** 每页条数。 */
-        @JsonProperty("page_size") int pageSize,
+        int pageSize,
 
         /** 总条数。 */
         long total,
 
         /** 总页数(由 total 与 pageSize 推导,不手算)。 */
-        @JsonProperty("total_pages") int totalPages) {
+        int totalPages) {
 
     /**
      * 构造分页结果,{@code totalPages} 自动推导。

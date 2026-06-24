@@ -34,11 +34,6 @@ public class PageQuery {
         this.pageSize = pageSize <= 0 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, MAX_PAGE_SIZE);
     }
 
-    /** 兼容前端 snake_case 入参 {@code page_size}。 */
-    public void setPage_size(int pageSize) {
-        setPageSize(pageSize);
-    }
-
     /** SQL 下推用的 OFFSET(同 {@link #offset()};供 MyBatis 反射访问)。 */
     public int getOffset() {
         return (page - 1) * pageSize;

@@ -38,9 +38,22 @@ public final class LineImporter {
      */
     public record LineOutcome<T, R>(int lineNo, String raw, Kind kind, String reason, T record, R persistResult) {}
 
-    /** 行解析器:行原文 → 记录;不合格抛 {@link ImportLineException}(带原因)。 */
+    /**
+     * 行解析器:行原文 → 记录;不合格抛 {@link ImportLineException}(带原因)。
+     *
+     * @param <T> 解析后的记录类型
+     */
     @FunctionalInterface
-    public interface LineParser<T> { T parse(String line); }
+    public interface LineParser<T> {
+        /**
+         * 将单行原文解析为记录。
+         *
+         * @param line 行原文(已 trim,非空)
+         * @return 解析后的记录
+         * @throws ImportLineException 行不合格时
+         */
+        T parse(String line);
+    }
 
     /**
      * 跑一次逐行导入,返回每行产出。

@@ -107,7 +107,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         }
     }
 
-    /** 解析+校验一行；不合格抛 {@link ImportLineException}（被 LineImporter 计入失败行）。 */
+    /** 解析+校验一行；不合格抛 {@link ImportLineException}（被 LineImporter 产出 {@code Kind.FAILED} outcome）。 */
     private static ProxyLine parseProxyLine(String line) {
         String[] parts = line.split(":", -1);
         if (parts.length != IMPORT_FIELDS) {

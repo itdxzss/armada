@@ -32,4 +32,8 @@ class LineImporterTest {
     void nullTextYieldsEmpty() {
         assertTrue(LineImporter.run(null, s -> s, s -> s, s -> 1).isEmpty());
     }
+
+    @Test void blankOnlyTextYieldsEmpty() {
+        assertTrue(LineImporter.run("\n  \n", s -> s, s -> s, s -> 1).isEmpty());
+    }
 }

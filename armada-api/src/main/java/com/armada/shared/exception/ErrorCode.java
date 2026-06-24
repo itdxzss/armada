@@ -12,7 +12,13 @@ public enum ErrorCode {
     NOT_FOUND(40401, "资源不存在"),
 
     /** 资源冲突(如名称重复)。 */
-    CONFLICT(40901, "资源冲突");
+    CONFLICT(40901, "资源冲突"),
+
+    /** 缺少租户标识(请求未带 X-Tenant-Code)。 */
+    TENANT_MISSING(40101, "缺少租户标识,请重新登录"),
+
+    /** 租户码无效或租户已停用。 */
+    TENANT_NOT_FOUND(40102, "租户不存在或已停用");
 
     private final int code;
     private final String defaultMessage;

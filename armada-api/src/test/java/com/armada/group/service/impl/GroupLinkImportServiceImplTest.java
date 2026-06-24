@@ -11,17 +11,23 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
+import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.vo.GroupLinkImportDetailVO;
+import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.response.PageResult;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +52,9 @@ class GroupLinkImportServiceImplTest {
 
     @Mock
     private GroupLinkImportDetailMapper detailMapper;
+
+    @Mock
+    private GroupConverter converter;
 
     @InjectMocks
     private GroupLinkImportServiceImpl service;
@@ -208,5 +217,101 @@ class GroupLinkImportServiceImplTest {
                 new GroupLinkImportDTO(1L, "x", null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不可为空");
+    }
+
+    // ---- listDetails 测试 ----
+
+    @Test
+    void listDetails_delegatesCountAndPage() {
+        GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.setPage(1);
+        query.setPageSize(10);
+        GroupLinkImportDetailVoRow voRow = new GroupLinkImportDetailVoRow();
+        voRow.setLineNo(1);
+        voRow.setResult(1);
+        voRow.setCreatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
+        GroupLinkImportDetailVO detailVO = new GroupLinkImportDetailVO(1, null, null, null, 1, null, 1717200000000L);
+
+        when(detailMapper.countByQuery(query)).thenReturn(1L);
+        when(detailMapper.selectPage(query)).thenReturn(List.of(voRow));
+        when(converter.toImportDetailVOList(any())).thenReturn(List.of(detailVO));
+
+        PageResult<GroupLinkImportDetailVO> result = service.listDetails(query);
+
+        assertThat(result.total()).isEqualTo(1L);
+        assertThat(result.list()).hasSize(1);
+        assertThat(result.list().get(0).lineNo()).isEqualTo(1);
+        verify(detailMapper).countByQuery(query);
+        verify(detailMapper).selectPage(query);
+        verify(converter).toImportDetailVOList(any());
+    }
+
+    @Test
+    void listDetails_zeroTotal_skipsSelectPage() {
+        GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        when(detailMapper.countByQuery(query)).thenReturn(0L);
+
+        PageResult<GroupLinkImportDetailVO> result = service.listDetails(query);
+
+        assertThat(result.total()).isEqualTo(0L);
+        assertThat(result.list()).isEmpty();
+        verify(detailMapper, never()).selectPage(any());
+    }
+
+    // ---- exportFailed 测试 ----
+
+    @Test
+    void exportFailed_mapsRowsToStringArrays() {
+        GroupLinkImportDetailVoRow row = new GroupLinkImportDetailVoRow();
+        row.setLineNo(3);
+        row.setGroupName("群A");
+        row.setRawUrl("chat.whatsapp.com/BadLink");
+        row.setFailReason("格式错误");
+        row.setResult(4);
+        row.setCreatedAt(LocalDateTime.of(2024, 6, 1, 12, 0, 0));  // UTC 12:00 → Asia/Shanghai 20:00
+
+        when(detailMapper.selectFailed(null, 10L)).thenReturn(List.of(row));
+
+        List<String[]> rows = service.exportFailed(null, 10L);
+
+        assertThat(rows).hasSize(1);
+        String[] csvRow = rows.get(0);
+        assertThat(csvRow[0]).isEqualTo("3");
+        assertThat(csvRow[1]).isEqualTo("群A");
+        assertThat(csvRow[2]).isEqualTo("chat.whatsapp.com/BadLink");
+        assertThat(csvRow[3]).isEqualTo("格式错误");
+        // UTC 2024-06-01 12:00:00 → Asia/Shanghai 2024-06-01 20:00:00
+        assertThat(csvRow[4]).isEqualTo("2024-06-01 20:00:00");
+    }
+
+    @Test
+    void exportFailed_nullFields_returnEmptyStrings() {
+        GroupLinkImportDetailVoRow row = new GroupLinkImportDetailVoRow();
+        row.setLineNo(1);
+        row.setGroupName(null);
+        row.setRawUrl(null);
+        row.setFailReason(null);
+        row.setResult(3);
+        row.setCreatedAt(null);
+
+        when(detailMapper.selectFailed(1L, null)).thenReturn(List.of(row));
+
+        List<String[]> rows = service.exportFailed(1L, null);
+
+        assertThat(rows).hasSize(1);
+        String[] csvRow = rows.get(0);
+        assertThat(csvRow[1]).isEmpty();   // groupName
+        assertThat(csvRow[2]).isEmpty();   // rawUrl
+        assertThat(csvRow[3]).isEmpty();   // failReason
+        assertThat(csvRow[4]).isEmpty();   // time
+    }
+
+    @Test
+    void exportFailed_emptyResult_returnsEmptyList() {
+        when(detailMapper.selectFailed(99L, null)).thenReturn(List.of());
+
+        List<String[]> rows = service.exportFailed(99L, null);
+
+        assertThat(rows).isEmpty();
     }
 }

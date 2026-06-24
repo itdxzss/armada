@@ -2,12 +2,15 @@ package com.armada.group.converter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.group.model.vo.GroupLinkImportDetailVO;
+import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
@@ -82,5 +85,61 @@ class GroupConverterTest {
         GroupLinkVO vo = converter.toGroupLinkVO(row);
 
         assertThat(vo.createdAt()).isNull();
+    }
+
+    @Test
+    void toImportDetailVO_epochMillis() {
+        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
+        GroupLinkImportDetailVoRow row = new GroupLinkImportDetailVoRow();
+        row.setLineNo(3);
+        row.setGroupName("测试群");
+        row.setRawUrl("https://chat.whatsapp.com/AbcDef");
+        row.setSourceFileName("links.txt");
+        row.setResult(4);
+        row.setFailReason("格式错误");
+        row.setCreatedAt(t);
+
+        GroupLinkImportDetailVO vo = converter.toImportDetailVO(row);
+
+        assertThat(vo.lineNo()).isEqualTo(3);
+        assertThat(vo.groupName()).isEqualTo("测试群");
+        assertThat(vo.rawUrl()).isEqualTo("https://chat.whatsapp.com/AbcDef");
+        assertThat(vo.sourceFileName()).isEqualTo("links.txt");
+        assertThat(vo.result()).isEqualTo(4);
+        assertThat(vo.failReason()).isEqualTo("格式错误");
+        assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
+    }
+
+    @Test
+    void toImportDetailVO_nullTime_returnsNullEpoch() {
+        GroupLinkImportDetailVoRow row = new GroupLinkImportDetailVoRow();
+        row.setLineNo(1);
+        row.setResult(1);
+        row.setCreatedAt(null);
+
+        GroupLinkImportDetailVO vo = converter.toImportDetailVO(row);
+
+        assertThat(vo.createdAt()).isNull();
+    }
+
+    @Test
+    void toImportDetailVOList_convertsAll() {
+        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
+        GroupLinkImportDetailVoRow row1 = new GroupLinkImportDetailVoRow();
+        row1.setLineNo(1);
+        row1.setResult(1);
+        row1.setCreatedAt(t);
+        GroupLinkImportDetailVoRow row2 = new GroupLinkImportDetailVoRow();
+        row2.setLineNo(2);
+        row2.setResult(4);
+        row2.setFailReason("格式错误");
+        row2.setCreatedAt(t);
+
+        List<GroupLinkImportDetailVO> vos = converter.toImportDetailVOList(List.of(row1, row2));
+
+        assertThat(vos).hasSize(2);
+        assertThat(vos.get(0).lineNo()).isEqualTo(1);
+        assertThat(vos.get(1).result()).isEqualTo(4);
+        assertThat(vos.get(1).failReason()).isEqualTo("格式错误");
     }
 }

@@ -1,22 +1,29 @@
 package com.armada.group.service.impl;
 
+import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
+import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
+import com.armada.group.model.vo.GroupLinkImportDetailVO;
+import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkUrls;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.response.PageResult;
 import com.armada.shared.util.LineImporter;
 import com.armada.shared.util.LineImporter.Kind;
 import com.armada.shared.util.LineImporter.LineOutcome;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -36,19 +43,26 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupLinkImportServiceImpl.class);
 
+    /** 导出失败明细时,时间格式化 pattern(Asia/Shanghai)。 */
+    private static final DateTimeFormatter EXPORT_TIME_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
+
     private final GroupLinkLabelMapper labelMapper;
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkImportBatchMapper importBatchMapper;
     private final GroupLinkImportDetailMapper detailMapper;
+    private final GroupConverter converter;
 
     public GroupLinkImportServiceImpl(GroupLinkLabelMapper labelMapper,
                                       GroupLinkMapper groupLinkMapper,
                                       GroupLinkImportBatchMapper importBatchMapper,
-                                      GroupLinkImportDetailMapper detailMapper) {
+                                      GroupLinkImportDetailMapper detailMapper,
+                                      GroupConverter converter) {
         this.labelMapper = labelMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.importBatchMapper = importBatchMapper;
         this.detailMapper = detailMapper;
+        this.converter = converter;
     }
 
     @Override
@@ -124,6 +138,39 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
         return new GroupLinkImportResultVO(batch.getId(), outcomes.size(),
                 inserted, adopted, duplicated, failed, errors);
+    }
+
+    @Override
+    public PageResult<GroupLinkImportDetailVO> listDetails(GroupLinkImportDetailQuery query) {
+        long total = detailMapper.countByQuery(query);
+        List<GroupLinkImportDetailVO> list = total == 0
+                ? List.of()
+                : converter.toImportDetailVOList(detailMapper.selectPage(query));
+        return PageResult.of(list, query.getPage(), query.getPageSize(), total);
+    }
+
+    @Override
+    public List<String[]> exportFailed(Long labelId, Long batchId) {
+        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(labelId, batchId);
+        List<String[]> result = new ArrayList<>(rows.size());
+        for (GroupLinkImportDetailVoRow row : rows) {
+            String timeStr = row.getCreatedAt() == null
+                    ? ""
+                    : EXPORT_TIME_FMT.format(row.getCreatedAt().atZone(ZoneId.of("UTC")));
+            result.add(new String[]{
+                    String.valueOf(row.getLineNo()),
+                    nullToEmpty(row.getGroupName()),
+                    nullToEmpty(row.getRawUrl()),
+                    nullToEmpty(row.getFailReason()),
+                    timeStr
+            });
+        }
+        return result;
+    }
+
+    /** null → 空字符串(CSV 字段禁返 null)。 */
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     /**

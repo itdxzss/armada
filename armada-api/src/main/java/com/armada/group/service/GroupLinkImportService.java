@@ -1,7 +1,11 @@
 package com.armada.group.service;
 
 import com.armada.group.model.dto.GroupLinkImportDTO;
+import com.armada.group.model.dto.GroupLinkImportDetailQuery;
+import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.shared.response.PageResult;
+import java.util.List;
 
 /**
  * 群链接导入业务接口。
@@ -16,4 +20,22 @@ public interface GroupLinkImportService {
      * @return 导入汇总结果 VO
      */
     GroupLinkImportResultVO importLinks(GroupLinkImportDTO dto);
+
+    /**
+     * 导入明细分页列表(JOIN batch 取 sourceFileName/labelId)。
+     *
+     * @param query 查询条件(labelId/batchId/result/page/pageSize)
+     * @return 分页明细 VO
+     */
+    PageResult<GroupLinkImportDetailVO> listDetails(GroupLinkImportDetailQuery query);
+
+    /**
+     * 导出失败/重复明细(result≥3),返回 CSV 数据行列表(不含表头)。
+     * 每行格式:String[]{ 行号, 群名称, 群链接, 失败原因, 导入时间(Asia/Shanghai 可读串) }。
+     *
+     * @param labelId 分组 ID(可选,与 batchId 至少提供一个)
+     * @param batchId 批次 ID(可选)
+     * @return CSV 数据行列表(每行为 String 数组)
+     */
+    List<String[]> exportFailed(Long labelId, Long batchId);
 }

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.mapper.MarketingTemplateMapper">
+
+    <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
+    <sql id="Columns">
+        id, tenant_id, template_name, link_mode, text_type, image_file_id,
+        content, body_text, buttons, promotion_link, remark,
+        created_at, updated_at, created_by, deleted_at
+    </sql>
+
+    <!-- 共享筛选片段:selectPage 与 countPage 复用,保证页码/总数口径一致;tenant_id 由拦截器注入 -->
+    <sql id="FilterWhere">
+        <where>
+            deleted_at IS NULL
+            <if test="q.id != null">AND id = #{q.id}</if>
+            <if test="q.keyword != null and q.keyword != ''">AND template_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
+            <if test="q.textType != null and q.textType != ''">AND text_type = #{q.textType}</if>
+            <if test="q.linkMode != null">AND link_mode = #{q.linkMode}</if>
+        </where>
+    </sql>
+
+    <select id="selectPage" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
+        FROM marketing_template
+        <include refid="FilterWhere"/>
+        ORDER BY id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="countPage" resultType="long">
+        SELECT COUNT(*)
+        FROM marketing_template
+        <include refid="FilterWhere"/>
+    </select>
+
+    <select id="selectById" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
+        FROM marketing_template
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="existsByName" resultType="boolean">
+        SELECT EXISTS(
+            SELECT 1 FROM marketing_template
+            WHERE template_name = #{name} AND deleted_at IS NULL
+            <if test="excludeId != null">AND id != #{excludeId}</if>
+        )
+    </select>
+
+    <insert id="insert" parameterType="com.armada.marketing.model.entity.MarketingTemplate"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_template
+            (template_name, link_mode, text_type, image_file_id, content, body_text,
+             buttons, promotion_link, remark, created_by)
+        VALUES
+            (#{templateName}, #{linkMode}, #{textType}, #{imageFileId}, #{content}, #{bodyText},
+             #{buttons}, #{promotionLink}, #{remark}, #{createdBy})
+    </insert>
+
+    <update id="updateById" parameterType="com.armada.marketing.model.entity.MarketingTemplate">
+        UPDATE marketing_template
+        SET template_name = #{templateName},
+            link_mode     = #{linkMode},
+            text_type     = #{textType},
+            image_file_id = #{imageFileId},
+            content       = #{content},
+            body_text     = #{bodyText},
+            buttons       = #{buttons},
+            promotion_link = #{promotionLink},
+            remark        = #{remark}
+        WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
+    <update id="softDeleteByIds">
+        UPDATE marketing_template
+        SET deleted_at = NOW()
+        WHERE deleted_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+</mapper>

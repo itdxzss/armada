@@ -129,6 +129,15 @@ class GroupLinkLabelServiceImplTest {
     // ---- update ----
 
     @Test
+    void update_blankName_throws() {
+        assertThatThrownBy(() -> service.update(1L, new GroupLinkLabelDTO("  ", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("名称不能为空");
+        verify(labelMapper, never()).selectById(any());
+        verify(labelMapper, never()).updateProfile(any());
+    }
+
+    @Test
     void update_notFound_throws() {
         when(labelMapper.selectById(42L)).thenReturn(null);
 

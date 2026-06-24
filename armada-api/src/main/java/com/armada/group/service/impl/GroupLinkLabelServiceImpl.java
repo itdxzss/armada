@@ -89,6 +89,9 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, GroupLinkLabelDTO dto) {
+        if (!StringUtils.hasText(dto.name())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
+        }
         GroupLinkLabel cur = labelMapper.selectById(id);
         if (cur == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);

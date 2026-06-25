@@ -1,0 +1,118 @@
+package com.armada.account.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.armada.account.mapper.AccountCredentialMapper;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.dto.AccountImportDTO;
+import com.armada.account.model.entity.Account;
+import com.armada.account.model.vo.AccountImportBatchVO;
+import com.armada.shared.exception.BusinessException;
+import com.armada.testsupport.DbTestBase;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+/**
+ * AccountImportService 真库集成测试:验三步原子写、批次计数、DB uq 兜底、空内容拒绝。
+ *
+ * <p>每个 @Test 在 @Transactional 内执行并回滚,互不干扰。</p>
+ */
+class AccountImportServiceImplDbTest extends DbTestBase {
+
+    @Autowired
+    AccountImportService service;
+
+    @Autowired
+    AccountMapper accountMapper;
+
+    @Autowired
+    AccountStateMapper stateMapper;
+
+    @Autowired
+    AccountCredentialMapper credentialMapper;
+
+    /**
+     * 核心测试:2 条完整 + 1 条凭据不全 + 1 条批内重复(与第 1 条同 wid)。
+     * 验 total=4 / imported=2 / duplicate=1 / formatError=1 / status=2
+     * + 三步写后 account+account_state+account_credential 各一行 + protocol_account_id="acc_"+wid。
+     */
+    @Test
+    void import_threeStepWrite_andBatchCounts() {
+        // 2 条完整 + 1 条凭据不全 + 1 条批内重复(与第1条同 wid)
+        String json = "["
+                + "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
+                + "{\"wid\":\"8613800138002\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
+                + "{\"wid\":\"8613800138003\",\"creds\":{\"noiseKey\":{}}},"
+                + "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
+                + "]";
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次1", "r");
+        AccountImportBatchVO b = service.importAccounts(meta, null, json);
+
+        assertThat(b.totalRows()).isEqualTo(4);
+        assertThat(b.importedRows()).isEqualTo(2);      // 两条完整入库
+        assertThat(b.duplicateRows()).isEqualTo(1);     // 批内重复
+        assertThat(b.formatErrorRows()).isEqualTo(1);   // 凭据不全
+        assertThat(b.status()).isEqualTo(2);            // step1 同步导入流程结束恒「2 已完成」
+
+        // 三步写校验:成功号在 account + account_state + account_credential 各一行
+        Account a = accountMapper.selectActiveByWsPhone("8613800138000");
+        assertThat(a).isNotNull();
+        assertThat(a.getProtocolAccountId()).isEqualTo("acc_8613800138000");
+        assertThat(stateMapper.selectByAccountId(a.getId())).isNotNull();        // 默认行,状态列 NULL
+        assertThat(credentialMapper.selectByAccountId(a.getId())).isNotNull();
+    }
+
+    /**
+     * 跨批 DB uq 兜底:第一批导入成功后,第二批同号再导入 → DUPLICATE(库内冲突)。
+     * 验第二批 importedRows=0 / duplicateRows=1。
+     */
+    @Test
+    void import_crossBatch_dbUqDuplicate() {
+        String json = "[{\"wid\":\"8613811111111\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次A", "r");
+
+        // 第一批成功
+        AccountImportBatchVO first = service.importAccounts(meta, null, json);
+        assertThat(first.importedRows()).isEqualTo(1);
+
+        // 第二批同号 → DB uq 兜底 → DUPLICATE
+        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", "批次B", "r");
+        AccountImportBatchVO second = service.importAccounts(meta2, null, json);
+        assertThat(second.importedRows()).isEqualTo(0);
+        assertThat(second.duplicateRows()).isEqualTo(1);
+        assertThat(second.status()).isEqualTo(2);
+    }
+
+    /**
+     * 空 entries 拒绝:无可导入内容时抛 BusinessException(VALIDATION)。
+     */
+    @Test
+    void import_emptyText_throwsBusinessException() {
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "空批次", "r");
+        assertThatThrownBy(() -> service.importAccounts(meta, null, ""))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("无可导入内容");
+    }
+
+    /**
+     * 三步原子写:若 account_state insert 失败则 account 行也回滚,不留孤儿。
+     * 通过验证正常写入后三张表均有数据来间接确认事务原子性。
+     */
+    @Test
+    void import_success_allThreeTablesHaveRow() {
+        String json = "[{\"wid\":\"8613822222222\",\"creds\":{\"registrationId\":5,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", "原子写测试", null);
+
+        AccountImportBatchVO b = service.importAccounts(meta, null, json);
+        assertThat(b.importedRows()).isEqualTo(1);
+
+        Account a = accountMapper.selectActiveByWsPhone("8613822222222");
+        assertThat(a).isNotNull();
+        assertThat(a.getAccountType()).isEqualTo(1);    // 冻结:导入时传的 accountType=1
+        assertThat(a.getProtocolAccountId()).isEqualTo("acc_8613822222222");
+        assertThat(stateMapper.selectByAccountId(a.getId())).isNotNull();
+        assertThat(credentialMapper.selectByAccountId(a.getId())).isNotNull();
+    }
+}

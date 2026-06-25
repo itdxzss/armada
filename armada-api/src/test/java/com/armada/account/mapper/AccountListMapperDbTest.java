@@ -1,0 +1,242 @@
+package com.armada.account.mapper;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.vo.AccountListVoRow;
+import com.armada.testsupport.DbTestBase;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+/**
+ * 账号列表查询 Mapper 真库测试:验 countPage/selectPage 的三表 LEFT JOIN、8 维筛选下推、
+ * groupName 来自 JOIN、状态列 step1 全 NULL。
+ * 每个 @Test 在 @Transactional 内执行并回滚,数据互不干扰。
+ */
+class AccountListMapperDbTest extends DbTestBase {
+
+    @Autowired
+    AccountMapper accountMapper;
+
+    @Autowired
+    AccountStateMapper stateMapper;
+
+    @Autowired
+    AccountGroupMapper groupMapper;
+
+    // ---- 辅助方法 ----
+
+    /**
+     * 构造最小合法 Account 并插入,返回落库后的实体(id 已回填)。
+     * 不设 accountGroupId,由调用方按需覆盖。
+     */
+    private Account insertAccount(String wsPhone, long now) {
+        Account a = new Account();
+        a.setWsPhone(wsPhone);
+        a.setAccountType(1);   // 个人号
+        a.setOwnership(1);     // 自有
+        a.setPriority(0);
+        a.setCreatedAt(now);
+        a.setUpdatedAt(now);
+        accountMapper.insert(a);
+        return a;
+    }
+
+    /**
+     * 为已插入的 Account 插入默认状态行(step1 全 NULL 状态列)。
+     */
+    private void insertDefaultState(Long accountId, long now) {
+        AccountState s = new AccountState();
+        s.setAccountId(accountId);
+        s.setProxyFailureCount(0);
+        s.setPullIntoGroupCount(0);
+        s.setCreatedAt(now);
+        s.setUpdatedAt(now);
+        stateMapper.insert(s);
+    }
+
+    /**
+     * 创建一个账号分组并插入,返回其 id。
+     */
+    private Long insertGroup(String name, long now) {
+        AccountGroup g = new AccountGroup();
+        g.setName(name);
+        g.setSystemBuiltin(0);
+        g.setCreatedAt(now);
+        g.setUpdatedAt(now);
+        groupMapper.insert(g);
+        return g.getId();
+    }
+
+    // ---- 测试用例 ----
+
+    /**
+     * 插入 2 个账号 + 默认状态行,selectPage 应返回至少 2 行,countPage 至少 2;
+     * 状态列全为 NULL(step1 导入初态);其中挂了分组的账号 groupName 来自 JOIN。
+     */
+    @Test
+    void listAccounts_twoRows_stateNullAndGroupNameJoined() {
+        long now = System.currentTimeMillis();
+
+        // 创建分组并关联第 1 个账号
+        Long groupId = insertGroup("列表测试分组-" + now, now);
+        Account a1 = insertAccount("86139" + (now % 100000000L), now);
+        // 回写 accountGroupId:先 insert 再 update account_group_id
+        // 直接通过 a1 重新 insert 一条带 groupId 的账号更简洁:先删旧再建带组的
+        // 实际更优:账号 insert 时就带 accountGroupId
+        Account a2WithGroup = new Account();
+        a2WithGroup.setWsPhone("86138" + (now % 100000000L));
+        a2WithGroup.setAccountType(2);
+        a2WithGroup.setOwnership(1);
+        a2WithGroup.setAccountGroupId(groupId);
+        a2WithGroup.setPriority(0);
+        a2WithGroup.setCreatedAt(now - 1000);
+        a2WithGroup.setUpdatedAt(now - 1000);
+        accountMapper.insert(a2WithGroup);
+        insertDefaultState(a2WithGroup.getId(), now);
+
+        insertDefaultState(a1.getId(), now);
+
+        AccountQuery q = new AccountQuery();
+        // 使用默认分页(page=1, pageSize=10)
+
+        long total = accountMapper.countPage(q);
+        assertThat(total).isGreaterThanOrEqualTo(2);
+
+        List<AccountListVoRow> page = accountMapper.selectPage(q);
+        assertThat(page).hasSizeGreaterThanOrEqualTo(2);
+
+        // 验有分组账号的 groupName
+        AccountListVoRow withGroup = page.stream()
+                .filter(r -> r.getId().equals(a2WithGroup.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("未找到带分组账号"));
+        assertThat(withGroup.getGroupName()).isEqualTo("列表测试分组-" + now);
+        assertThat(withGroup.getAccountGroupId()).isEqualTo(groupId);
+
+        // 验无分组账号 groupName 为 null
+        AccountListVoRow noGroup = page.stream()
+                .filter(r -> r.getId().equals(a1.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("未找到无分组账号"));
+        assertThat(noGroup.getGroupName()).isNull();
+
+        // step1 状态列全 NULL
+        page.stream()
+            .filter(r -> r.getId().equals(a1.getId()) || r.getId().equals(a2WithGroup.getId()))
+            .forEach(r -> {
+                assertThat(r.getAccountState()).isNull();
+                assertThat(r.getLoginState()).isNull();
+                assertThat(r.getRiskStatus()).isNull();
+            });
+    }
+
+    /**
+     * phone 开头模糊筛选:只有前缀匹配的账号出现在结果中。
+     */
+    @Test
+    void listAccounts_filterByPhonePrefix_onlyMatchingReturned() {
+        long now = System.currentTimeMillis();
+        // 使用时间戳保证唯一性
+        String prefixA = "8613" + (now % 10000000L);
+        String prefixB = "8614" + (now % 10000000L);
+
+        Account aA = insertAccount(prefixA + "1", now);
+        Account aB = insertAccount(prefixB + "2", now);
+        insertDefaultState(aA.getId(), now);
+        insertDefaultState(aB.getId(), now);
+
+        AccountQuery q = new AccountQuery();
+        q.setPhone(prefixA);
+
+        long total = accountMapper.countPage(q);
+        assertThat(total).isGreaterThanOrEqualTo(1);
+
+        List<AccountListVoRow> page = accountMapper.selectPage(q);
+        // 所有结果 wsPhone 均以 prefixA 开头
+        page.forEach(r -> assertThat(r.getWsPhone()).startsWith(prefixA));
+        // prefixB 的账号不出现
+        boolean hasBPhone = page.stream()
+                .anyMatch(r -> r.getId().equals(aB.getId()));
+        assertThat(hasBPhone).isFalse();
+    }
+
+    /**
+     * accountGroupId 等值筛选:只返回该分组账号;另一分组账号不出现。
+     */
+    @Test
+    void listAccounts_filterByGroupId_onlyGroupAccountsReturned() {
+        long now = System.currentTimeMillis();
+        Long groupX = insertGroup("分组X-" + now, now);
+        Long groupY = insertGroup("分组Y-" + now, now);
+
+        Account ax = new Account();
+        ax.setWsPhone("86131" + (now % 10000000L));
+        ax.setAccountType(1);
+        ax.setOwnership(1);
+        ax.setAccountGroupId(groupX);
+        ax.setPriority(0);
+        ax.setCreatedAt(now);
+        ax.setUpdatedAt(now);
+        accountMapper.insert(ax);
+        insertDefaultState(ax.getId(), now);
+
+        Account ay = new Account();
+        ay.setWsPhone("86132" + (now % 10000000L));
+        ay.setAccountType(1);
+        ay.setOwnership(1);
+        ay.setAccountGroupId(groupY);
+        ay.setPriority(0);
+        ay.setCreatedAt(now);
+        ay.setUpdatedAt(now);
+        accountMapper.insert(ay);
+        insertDefaultState(ay.getId(), now);
+
+        AccountQuery q = new AccountQuery();
+        q.setAccountGroupId(groupX);
+
+        long total = accountMapper.countPage(q);
+        assertThat(total).isGreaterThanOrEqualTo(1);
+
+        List<AccountListVoRow> page = accountMapper.selectPage(q);
+        // 所有结果均属 groupX
+        page.forEach(r -> assertThat(r.getAccountGroupId()).isEqualTo(groupX));
+        // groupY 账号不出现
+        boolean hasGroupY = page.stream().anyMatch(r -> r.getId().equals(ay.getId()));
+        assertThat(hasGroupY).isFalse();
+    }
+
+    /**
+     * countPage 与 selectPage 数量一致(同 query,同 filter)。
+     */
+    @Test
+    void countPage_matchesSelectPage_size() {
+        long now = System.currentTimeMillis();
+        Long group = insertGroup("分组-count-" + now, now);
+
+        for (int i = 0; i < 3; i++) {
+            Account a = new Account();
+            a.setWsPhone("86199" + now + i);
+            a.setAccountType(1);
+            a.setOwnership(1);
+            a.setAccountGroupId(group);
+            a.setPriority(0);
+            a.setCreatedAt(now);
+            a.setUpdatedAt(now);
+            accountMapper.insert(a);
+            insertDefaultState(a.getId(), now);
+        }
+
+        AccountQuery q = new AccountQuery();
+        q.setAccountGroupId(group);
+        q.setPageSize(500);
+
+        long count = accountMapper.countPage(q);
+        List<AccountListVoRow> rows = accountMapper.selectPage(q);
+        assertThat(rows).hasSize((int) count);
+    }
+}

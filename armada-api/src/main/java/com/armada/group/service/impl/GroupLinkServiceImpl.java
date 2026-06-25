@@ -40,6 +40,12 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.converter = converter;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:按 labelId 分页列出该分组下的群链接;先取总数,为 0 时直接返回空页;
+     * 分页/筛选全部 SQL 下推,不在内存裁剪。</p>
+     */
     @Override
     public PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query) {
         long total = groupLinkMapper.countByLabel(query);
@@ -50,6 +56,13 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:① linkIds 数量须在 1..{@value #BATCH_MAX} 之间、目标分组须存在;
+     * ② 迁移前校验 linkIds 全部活跃——活跃数与请求数不一致即整体取消(避免把已删链接误迁);
+     * ③ 仅改 group_link.label_id 重挂分组,不动链接的来源批次。全程 {@code @Transactional}。</p>
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int migrate(List<Long> linkIds, Long targetLabelId) {
@@ -74,6 +87,12 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         return n;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:ids 数量须在 1..{@value #BATCH_MAX} 之间,超限拒绝防锁竞争;
+     * 软删(置 deleted_at)选中的群链接,返回实际软删行数。</p>
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int batchDelete(List<Long> ids) {

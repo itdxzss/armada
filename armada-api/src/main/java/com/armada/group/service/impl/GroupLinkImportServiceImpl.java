@@ -70,33 +70,56 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         this.converter = converter;
     }
 
+    /**
+     * 把一批群邀请链接文本导入到某个分组(labelId),整体一个事务:批次头 + 全部明细 + group_link
+     * 落库要么一起提交、要么一起回滚({@code rollbackFor = Exception.class})。
+     *
+     * <p>每行最终落到 4 个互斥类别之一:
+     * <ul>
+     *   <li><b>SUCCESS</b>  新链接,插入 group_link</li>
+     *   <li><b>ADOPTED</b>  链接已存在(含软删),收编到本次分组(复活 + 改归属)</li>
+     *   <li><b>DUPLICATE</b> 本批内同一归一化 url 重复出现,跳过</li>
+     *   <li><b>FORMAT_ERROR</b> 不是合法 WhatsApp 邀请链接,记为失败行</li>
+     * </ul>
+     * 空行不计入任何统计(被 {@link LineImporter} 跳过)。</p>
+     *
+     * @param dto 含目标分组 labelId、批次名、以及已由 Controller 解析好的行列表 lines
+     * @return 汇总 VO:批次 id + 各类别计数 + 失败行的人读错误信息列表
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public GroupLinkImportResultVO importLinks(GroupLinkImportDTO dto) {
+        // 1) 校验:labelId 必须存在的分组,lines 非空(否则抛 VALIDATION)
         validateRequest(dto);
 
+        // 2) dto.lines() 已是行列表;LineImporter 的入参是单段文本,这里用换行重新拼回,
+        //    交给 LineImporter 内部再按 \R 拆行(它的契约是"文本进")。
         String joined = String.join("\n", dto.lines());
 
-        // 建导入批次记录(先插后更新计数)
+        // 3) 先插批次头拿到自增 id(计数列留到末尾再 updateCounts 回写)
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
         batch.setLabelId(dto.labelId());
         batch.setBatchName(dto.batchName());
         importBatchMapper.insert(batch);
 
-        // 逐行归一化+批内去重+upsert
+        // 4) 逐行处理 = 通用骨架 LineImporter.run(文本, 解析器, 去重键, 落库器):
+        //    - 解析器 GroupLinkUrls::normalize: 行 → 归一化 url;非法链接抛异常 → 该行 FAILED
+        //    - 去重键 url -> url:        归一化后的 url 本身就是批内去重键 → 重复行 DUPLICATE
+        //    - 落库器 persist(...):       未失败/未重复的行才执行,做 insert 或收编 → PERSISTED
+        //    泛型 LineOutcome<String, Persisted>:String = 解析记录(归一化 url),Persisted = persist 返回值。
         List<LineOutcome<String, Persisted>> outcomes = LineImporter.run(
                 joined,
                 GroupLinkUrls::normalize,
                 url -> url,
                 url -> persist(dto.labelId(), batch.getId(), url));
 
-        // 映射明细行 + 汇总统计
+        // 5) 遍历每行产出:① 组装一条明细行 ② 按类别累加四个计数器
         List<GroupLinkImportDetail> details = new ArrayList<>(outcomes.size());
-        int inserted = 0;
-        int adopted = 0;
-        int duplicated = 0;
-        int failed = 0;
-        List<String> errors = new ArrayList<>();
+        int inserted = 0;    // SUCCESS:新插入
+        int adopted = 0;     // ADOPTED:收编已有
+        int duplicated = 0;  // DUPLICATE:批内重复
+        int failed = 0;      // FORMAT_ERROR:格式错误
+        List<String> errors = new ArrayList<>();  // 失败行的人读提示,回给前端展示
 
         for (LineOutcome<String, Persisted> o : outcomes) {
             GroupLinkImportDetail d = new GroupLinkImportDetail();
@@ -105,15 +128,18 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             d.setRawUrl(o.raw());
 
             if (o.kind() == Kind.FAILED) {
+                // 解析阶段抛出 ImportLineException 的行:格式错误
                 d.setResult(GroupLinkImportResult.FORMAT_ERROR.code());
                 d.setFailReason(o.reason());
                 failed++;
                 errors.add("第 " + o.lineNo() + " 行：" + o.reason());
             } else if (o.kind() == Kind.DUPLICATE) {
+                // 同一归一化 url 在本批已出现过
                 d.setResult(GroupLinkImportResult.DUPLICATE.code());
                 d.setFailReason("批内重复");
                 duplicated++;
             } else {
+                // PERSISTED:已落库,从 persist 返回值取 result(SUCCESS / ADOPTED)与 group_link id
                 Persisted p = o.persistResult();
                 d.setResult(p.result().code());
                 d.setGroupLinkId(p.linkId());
@@ -126,11 +152,12 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             details.add(d);
         }
 
+        // 6) 一次性批量插明细行
         if (!details.isEmpty()) {
             detailMapper.batchInsert(details);
         }
 
-        // 回写统计计数
+        // 7) 把统计计数回写到批次头(totalRows 只含非空行,空行已被 LineImporter 跳过)
         batch.setTotalRows(outcomes.size());
         batch.setInsertedRows(inserted);
         batch.setAdoptedRows(adopted);
@@ -141,6 +168,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         log.info("群链接导入 labelId={} batchId={} total={} inserted={} adopted={} dup={} failed={}",
                 dto.labelId(), batch.getId(), outcomes.size(), inserted, adopted, duplicated, failed);
 
+        // 8) 返回汇总 VO
         return new GroupLinkImportResultVO(batch.getId(), outcomes.size(),
                 inserted, adopted, duplicated, failed, errors);
     }

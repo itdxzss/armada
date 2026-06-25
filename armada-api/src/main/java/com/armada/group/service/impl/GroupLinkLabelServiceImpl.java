@@ -47,6 +47,12 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         this.converter = converter;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:先取总数,为 0 时直接返回空页、省掉一次必然空结果的列表查询;
+     * 分页与筛选全部由 Mapper 的 SQL 下推,不在内存里裁剪。</p>
+     */
     @Override
     public PageResult<GroupLinkLabelVO> list(GroupLinkLabelQuery query) {
         long total = labelMapper.countPage(query);
@@ -57,6 +63,15 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:① 名称非空且活分组内不可重名;② 若命中同名的【软删】分组则复活它
+     * (复原 deleted_at + 更新基本信息)而非插新行——配合 group_link_label 的 plain 唯一键,
+     * 避免同名占键冲突;否则插入新行;③ 落库后按主键回查一次,拿到库表 DEFAULT 生成的
+     * createdAt/updatedAt 再组装出参(否则这两个服务端时间戳为 null)。全程 {@code @Transactional},
+     * 任一步失败整体回滚。</p>
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public GroupLinkLabelVO create(GroupLinkLabelDTO dto) {
@@ -96,6 +111,12 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:校验名称非空、分组存在;重名校验排除自身(同名但 id 相同视为未改名),
+     * 仅当命中【他人】的同名活分组才报重复。只更新名称/区域/备注三项基本信息。</p>
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, GroupLinkLabelDTO dto) {
@@ -119,6 +140,13 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         log.info("WS链接分组已更新 id={} name={}", id, dto.name());
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:ids 数量须在 1..{@value #BATCH_DELETE_MAX} 之间,超限拒绝以防一次删太多引发锁竞争;
+     * 按【群链接 → 导入批次 → 分组】顺序级联软删(均置 deleted_at),保证下游先于父级失效。
+     * 返回实际软删的分组行数。</p>
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int batchDelete(List<Long> ids) {

@@ -2,6 +2,7 @@ package com.armada.account.controller;
 
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.AccountImportDetailQuery;
+import com.armada.account.model.dto.AccountImportForm;
 import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportBatchVoRow;
@@ -43,31 +44,18 @@ public class AccountImportController {
     /**
      * C1 上传导入账号(multipart/form-data)。
      *
-     * <p>file 与 text 二选一;两者均为空时由 Service 抛 BusinessException。</p>
+     * <p>导入元信息封装为 {@link AccountImportForm}({@code @ModelAttribute} 绑定);上传文件单独以
+     * {@code @RequestParam} 接收。表单 {@code text} 与 {@code file} 二选一,均空时由 Service 抛
+     * BusinessException。</p>
      *
-     * @param accountGroupId 目标分组 ID(可选)
-     * @param importFormat   导入格式:1六段 2JSON 3全参
-     * @param deviceOs       机型:1安卓 2苹果(可选)
-     * @param accountType    账号类型:1个人 2商业
-     * @param ipRegion       IP 国家/地区(可选)
-     * @param batchName      批次名称
-     * @param remark         备注(可选)
-     * @param file           上传文件(可选)
-     * @param text           文本内容(可选)
+     * @param form 导入元信息表单(分组/格式/机型/类型/IP/批次名/备注/文本)
+     * @param file 上传文件(可选;与 form.text 二选一)
      * @return 导入批次 VO(含计数统计及批次 ID)
      */
-    @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE, MediaType.APPLICATION_FORM_URLENCODED_VALUE,
-            MediaType.ALL_VALUE})
+    @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE, MediaType.APPLICATION_FORM_URLENCODED_VALUE})
     public ApiResponse<AccountImportBatchVO> importAccounts(
-            @RequestParam(value = "accountGroupId", required = false) Long accountGroupId,
-            @RequestParam("importFormat") Integer importFormat,
-            @RequestParam(value = "deviceOs", required = false) Integer deviceOs,
-            @RequestParam("accountType") Integer accountType,
-            @RequestParam(value = "ipRegion", required = false) String ipRegion,
-            @RequestParam("batchName") String batchName,
-            @RequestParam(value = "remark", required = false) String remark,
-            @RequestParam(value = "file", required = false) MultipartFile file,
-            @RequestParam(value = "text", required = false) String text) {
+            @ModelAttribute AccountImportForm form,
+            @RequestParam(value = "file", required = false) MultipartFile file) {
 
         byte[] fileBytes;
         try {
@@ -78,10 +66,9 @@ public class AccountImportController {
 
         String sourceFileName = (file != null && !file.isEmpty()) ? file.getOriginalFilename() : null;
         AccountImportDTO meta = new AccountImportDTO(
-                accountGroupId, importFormat, deviceOs, accountType, ipRegion, batchName, remark,
-                sourceFileName);
-        AccountImportBatchVO batchVO = service.importAccounts(meta, fileBytes, text);
-        return ApiResponse.ok(batchVO);
+                form.getAccountGroupId(), form.getImportFormat(), form.getDeviceOs(), form.getAccountType(),
+                form.getIpRegion(), form.getBatchName(), form.getRemark(), sourceFileName);
+        return ApiResponse.ok(service.importAccounts(meta, fileBytes, form.getText()));
     }
 
     /**

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountImportBatchMapper">
+
+  <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at。tenant_id 由拦截器注入。 -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_import_batch (
+      account_group_id, batch_name, source_file_name,
+      import_format, device_os, account_type, ip_region,
+      total_rows, imported_rows, duplicate_rows, format_error_rows,
+      status, created_at, created_by
+    ) VALUES (
+      #{accountGroupId}, #{batchName}, #{sourceFileName},
+      #{importFormat}, #{deviceOs}, #{accountType}, #{ipRegion},
+      #{totalRows}, #{importedRows}, #{duplicateRows}, #{formatErrorRows},
+      #{status}, #{createdAt}, #{createdBy}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.account.model.entity.AccountImportBatch">
+    SELECT * FROM account_import_batch
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </select>
+
+</mapper>

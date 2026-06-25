@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountStateMapper">
+
+  <!--
+    step1 导入时插入默认状态行:
+    account_state/login_state/risk_status/mute_status 不写(DB NULL=未上报);
+    proxy_failure_count/pull_into_group_count 写 0(与 DB DEFAULT 对齐但明确传值);
+    tenant_id 由拦截器注入。
+  -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_state (
+      account_id,
+      proxy_failure_count, pull_into_group_count,
+      created_at, updated_at
+    ) VALUES (
+      #{accountId},
+      #{proxyFailureCount}, #{pullIntoGroupCount},
+      #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectByAccountId" resultType="com.armada.account.model.entity.AccountState">
+    SELECT * FROM account_state
+    WHERE account_id = #{accountId}
+    LIMIT 1
+  </select>
+
+</mapper>

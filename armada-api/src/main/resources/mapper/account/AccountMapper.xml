@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountMapper">
+
+  <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at。tenant_id 由拦截器注入。 -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account (
+      ws_phone, account_type, device_os, number_source, channel_name,
+      ownership, lease_until, account_group_id,
+      protocol_id, protocol_account_id, protocol_address,
+      priority, dispatched_at, remark,
+      created_at, updated_at, created_by
+    ) VALUES (
+      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName},
+      #{ownership}, #{leaseUntil}, #{accountGroupId},
+      #{protocolId}, #{protocolAccountId}, #{protocolAddress},
+      #{priority}, #{dispatchedAt}, #{remark},
+      #{createdAt}, #{updatedAt}, #{createdBy}
+    )
+  </insert>
+
+  <!-- deleted_at IS NULL 等价于 is_active=1(虚拟列);LIMIT 1 防意外 -->
+  <select id="selectActiveByWsPhone" resultType="com.armada.account.model.entity.Account">
+    SELECT * FROM account
+    WHERE ws_phone = #{wsPhone}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+</mapper>

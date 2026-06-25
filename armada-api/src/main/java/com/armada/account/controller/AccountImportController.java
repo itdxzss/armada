@@ -4,8 +4,8 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportForm;
 import com.armada.account.model.dto.AccountImportQuery;
+import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVO;
-import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountImportDetailVO;
 import com.armada.account.service.AccountImportService;
 import com.armada.shared.exception.BusinessException;
@@ -78,7 +78,7 @@ public class AccountImportController {
      * @return 分页批次列表
      */
     @GetMapping
-    public ApiResponse<PageResult<AccountImportBatchVoRow>> listBatches(
+    public ApiResponse<PageResult<AccountImportBatchListVO>> listBatches(
             @ModelAttribute AccountImportQuery query) {
         return ApiResponse.ok(service.listBatches(query));
     }

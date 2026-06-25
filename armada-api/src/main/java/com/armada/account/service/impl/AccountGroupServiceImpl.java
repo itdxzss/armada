@@ -35,6 +35,12 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     /** 系统默认分组名称。 */
     private static final String SYSTEM_GROUP_NAME = "系统默认分组";
 
+    /** system_builtin=1:系统内置分组(不可改名/不可删除)。 */
+    private static final int SYSTEM_BUILTIN_YES = 1;
+
+    /** system_builtin=0:用户自建分组。 */
+    private static final int SYSTEM_BUILTIN_NO = 0;
+
     private final AccountGroupMapper mapper;
     private final AccountConverter converter;
 
@@ -56,7 +62,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         List<AccountGroupVO> rows = total == 0
                 ? List.of()
                 : converter.toGroupVOList(mapper.selectPage(query));
-        log.debug("账号分组列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
+        log.info("账号分组列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
@@ -80,7 +86,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         AccountGroup row = new AccountGroup();
         row.setName(dto.name());
         row.setRemark(dto.remark());
-        row.setSystemBuiltin(0);
+        row.setSystemBuiltin(SYSTEM_BUILTIN_NO);
 
         if (deleted != null) {
             // 复活软删分组:复原 deleted_at + 更新基本信息
@@ -133,7 +139,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         if (cur == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);
         }
-        if (Integer.valueOf(1).equals(cur.getSystemBuiltin())) {
+        if (Integer.valueOf(SYSTEM_BUILTIN_YES).equals(cur.getSystemBuiltin())) {
             throw new BusinessException(ErrorCode.VALIDATION, "系统默认分组不允许修改名称");
         }
         AccountGroup other = mapper.selectActiveByName(dto.name());
@@ -168,7 +174,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             if (group == null) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);
             }
-            if (Integer.valueOf(1).equals(group.getSystemBuiltin())) {
+            if (Integer.valueOf(SYSTEM_BUILTIN_YES).equals(group.getSystemBuiltin())) {
                 throw new BusinessException(ErrorCode.VALIDATION, "系统默认分组不允许删除");
             }
             long count = mapper.countAccountsByGroupId(id);
@@ -199,7 +205,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         long now = System.currentTimeMillis();
         AccountGroup row = new AccountGroup();
         row.setName(SYSTEM_GROUP_NAME);
-        row.setSystemBuiltin(1);
+        row.setSystemBuiltin(SYSTEM_BUILTIN_YES);
         row.setRemark("系统自动创建,不可删除");
         row.setCreatedAt(now);
         row.setUpdatedAt(now);

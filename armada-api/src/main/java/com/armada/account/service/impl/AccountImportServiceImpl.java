@@ -1,5 +1,6 @@
 package com.armada.account.service.impl;
 
+import com.armada.account.converter.AccountConverter;
 import com.armada.account.mapper.AccountImportBatchMapper;
 import com.armada.account.mapper.AccountImportDetailMapper;
 import com.armada.account.model.dto.AccountImportDTO;
@@ -10,6 +11,7 @@ import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.entity.ParsedEntry;
+import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountImportDetailVO;
@@ -65,17 +67,20 @@ public class AccountImportServiceImpl implements AccountImportService {
     private final AccountImportRowWriter rowWriter;
     private final AccountImportBatchMapper batchMapper;
     private final AccountImportDetailMapper detailMapper;
+    private final AccountConverter converter;
 
     public AccountImportServiceImpl(AccountImportParser parser,
                                     AccountGroupService groupService,
                                     AccountImportRowWriter rowWriter,
                                     AccountImportBatchMapper batchMapper,
-                                    AccountImportDetailMapper detailMapper) {
+                                    AccountImportDetailMapper detailMapper,
+                                    AccountConverter converter) {
         this.parser = parser;
         this.groupService = groupService;
         this.rowWriter = rowWriter;
         this.batchMapper = batchMapper;
         this.detailMapper = detailMapper;
+        this.converter = converter;
     }
 
     /**
@@ -290,9 +295,10 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** {@inheritDoc} */
     @Override
-    public PageResult<AccountImportBatchVoRow> listBatches(AccountImportQuery query) {
+    public PageResult<AccountImportBatchListVO> listBatches(AccountImportQuery query) {
         long total = batchMapper.countPage(query);
-        List<AccountImportBatchVoRow> list = batchMapper.selectPage(query);
+        List<AccountImportBatchVoRow> rows = batchMapper.selectPage(query);
+        List<AccountImportBatchListVO> list = converter.toBatchListVOList(rows);
         return PageResult.of(list, query.getPage(), query.getPageSize(), total);
     }
 

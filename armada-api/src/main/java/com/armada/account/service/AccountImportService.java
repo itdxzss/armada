@@ -3,7 +3,7 @@ package com.armada.account.service;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportQuery;
-import com.armada.account.model.vo.AccountImportBatchVoRow;
+import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportDetailVO;
 import com.armada.shared.exception.BusinessException;
@@ -37,9 +37,9 @@ public interface AccountImportService {
      * <p>SQL 下推分页,结果按创建时间倒序排列。所有筛选条件均可选,默认返回当前租户全部批次。</p>
      *
      * @param query 批次列表查询参数(含分页/筛选字段)
-     * @return 分页结果,元素为 AccountImportBatchVoRow
+     * @return 分页结果,元素为 AccountImportBatchListVO(record VO,含 groupName)
      */
-    PageResult<AccountImportBatchVoRow> listBatches(AccountImportQuery query);
+    PageResult<AccountImportBatchListVO> listBatches(AccountImportQuery query);
 
     /**
      * 分页查询指定批次的导入明细列表。

@@ -2,6 +2,8 @@ package com.armada.account.converter;
 
 import com.armada.account.model.vo.AccountGroupVO;
 import com.armada.account.model.vo.AccountGroupVoRow;
+import com.armada.account.model.vo.AccountImportBatchListVO;
+import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountListVoRow;
 import java.util.List;
@@ -34,6 +36,24 @@ public interface AccountConverter {
      * @return 前端出参列表
      */
     List<AccountGroupVO> toGroupVOList(List<AccountGroupVoRow> rows);
+
+    /**
+     * 批次列表投影行 → 批次列表出参 VO。
+     *
+     * <p>直映所有字段,groupName 来自 LEFT JOIN account_group(分组被软删时为 null)。</p>
+     *
+     * @param row Mapper 批次列表查询投影
+     * @return 批次列表出参 VO
+     */
+    AccountImportBatchListVO toBatchListVO(AccountImportBatchVoRow row);
+
+    /**
+     * 批次列表投影行批量 → 批次列表出参 VO 列表。
+     *
+     * @param rows Mapper 批次列表查询投影列表
+     * @return 批次列表出参 VO 列表
+     */
+    List<AccountImportBatchListVO> toBatchListVOList(List<AccountImportBatchVoRow> rows);
 
     /**
      * 账号列表投影行 → 列表出参 VO。

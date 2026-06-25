@@ -50,4 +50,16 @@ public interface AccountGroupService {
      * @return 系统内置分组实体
      */
     AccountGroup ensureSystemGroup();
+
+    /**
+     * 断言分组存在并返回分组实体;不存在则抛 NOT_FOUND 业务异常。
+     *
+     * <p>用于导入前置校验:调用方传入了 accountGroupId 时须确认该组确实存在,
+     * 防止账号入库后出现悬空引用(无审计锚点的孤儿账号)。</p>
+     *
+     * @param id 分组主键(调用方保证非 null)
+     * @return 对应的活跃分组实体
+     * @throws com.armada.shared.exception.BusinessException 当分组不存在时抛 NOT_FOUND
+     */
+    AccountGroup requireExisting(Long id);
 }

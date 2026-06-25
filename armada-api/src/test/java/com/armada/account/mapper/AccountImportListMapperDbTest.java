@@ -50,11 +50,11 @@ class AccountImportListMapperDbTest extends DbTestBase {
         return g.getId();
     }
 
-    private Long createBatch(Long groupId, String batchName, int total,
+    private Long createBatch(Long groupId, String sourceFileName, int total,
                               int imported, int duplicate, int formatError, long now) {
         AccountImportBatch b = new AccountImportBatch();
         b.setAccountGroupId(groupId);
-        b.setBatchName(batchName);
+        b.setSourceFileName(sourceFileName);
         b.setImportFormat(2);
         b.setDeviceOs(1);
         b.setAccountType(2);
@@ -124,11 +124,11 @@ class AccountImportListMapperDbTest extends DbTestBase {
         List<AccountImportBatchVoRow> page = batchMapper.selectPage(q);
         assertThat(page).isNotEmpty();
 
-        // 找到我们插入的批次(按批次名)
+        // 找到我们插入的批次(按 source_file_name)
         AccountImportBatchVoRow found = page.stream()
-                .filter(r -> "批次A".equals(r.getBatchName()))
+                .filter(r -> "批次A".equals(r.getSourceFileName()))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("未找到批次A"));
+                .orElseThrow(() -> new AssertionError("未找到批次A(sourceFileName=批次A)"));
         assertThat(found.getGroupName()).isEqualTo("测试分组-list");
         assertThat(found.getTotalRows()).isEqualTo(4);
         assertThat(found.getImportedRows()).isEqualTo(1);
@@ -155,8 +155,8 @@ class AccountImportListMapperDbTest extends DbTestBase {
         assertThat(total).isGreaterThanOrEqualTo(1);
 
         List<AccountImportBatchVoRow> page = batchMapper.selectPage(q);
-        boolean hasGroupA = page.stream().anyMatch(r -> "批次-groupA".equals(r.getBatchName()));
-        boolean hasGroupB = page.stream().anyMatch(r -> "批次-groupB".equals(r.getBatchName()));
+        boolean hasGroupA = page.stream().anyMatch(r -> "批次-groupA".equals(r.getSourceFileName()));
+        boolean hasGroupB = page.stream().anyMatch(r -> "批次-groupB".equals(r.getSourceFileName()));
         assertThat(hasGroupA).isTrue();
         assertThat(hasGroupB).isFalse();
     }

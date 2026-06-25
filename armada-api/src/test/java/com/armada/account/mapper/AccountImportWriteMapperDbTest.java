@@ -122,7 +122,7 @@ class AccountImportWriteMapperDbTest extends DbTestBase {
         // 建批次
         AccountImportBatch batch = new AccountImportBatch();
         batch.setAccountGroupId(groupId);
-        batch.setBatchName("测试批次");
+        batch.setSourceFileName("测试批次");
         batch.setImportFormat(2);
         batch.setTotalRows(1);
         batch.setImportedRows(1);

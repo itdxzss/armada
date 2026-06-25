@@ -10,10 +10,7 @@ public class AccountImportBatchVoRow {
     /** 批次主键。 */
     private Long id;
 
-    /** 批次名称。 */
-    private String batchName;
-
-    /** 上传文件原名;纯文本导入为 null。 */
+    /** 来源文件名;文件导入时为原始文件名,纯文本粘贴时为「导入」兜底串。 */
     private String sourceFileName;
 
     /** 导入格式:1六段 2JSON 3全参。 */
@@ -64,14 +61,6 @@ public class AccountImportBatchVoRow {
 
     public void setId(Long id) {
         this.id = id;
-    }
-
-    public String getBatchName() {
-        return batchName;
-    }
-
-    public void setBatchName(String batchName) {
-        this.batchName = batchName;
     }
 
     public String getSourceFileName() {

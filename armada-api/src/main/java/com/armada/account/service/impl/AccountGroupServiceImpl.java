@@ -192,6 +192,20 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     /**
      * {@inheritDoc}
      *
+     * <p>实现要点:用 mapper.selectById 查活跃分组;为 null 则抛 NOT_FOUND;否则直接返回。</p>
+     */
+    @Override
+    public AccountGroup requireExisting(Long id) {
+        AccountGroup group = mapper.selectById(id);
+        if (group == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "目标分组不存在: " + id);
+        }
+        return group;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>实现要点:查 system_builtin=1 的分组;不存在则 insert 一条;
      * 并发场景撞 uq_tenant_name 唯一键时捕获 DuplicateKeyException 并重查。</p>
      */

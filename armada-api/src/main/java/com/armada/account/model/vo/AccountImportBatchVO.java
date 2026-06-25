@@ -7,8 +7,7 @@ package com.armada.account.model.vo;
  * 字段全部 camelCase(全局无 Jackson 命名策略,默认即 camelCase)。</p>
  *
  * @param id               批次主键
- * @param batchName        批次名称
- * @param sourceFileName   上传文件原名;纯文本导入为 null
+ * @param sourceFileName   来源文件名;文件导入时为原始文件名,纯文本粘贴时为「导入」兜底串
  * @param importFormat     导入格式编码:1六段 2JSON 3全参
  * @param deviceOs         机型:1安卓 2苹果
  * @param accountType      账号类型:1个人 2商业
@@ -25,7 +24,6 @@ package com.armada.account.model.vo;
  */
 public record AccountImportBatchVO(
         Long id,
-        String batchName,
         String sourceFileName,
         Integer importFormat,
         Integer deviceOs,

@@ -10,6 +10,7 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.testsupport.DbTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,7 +48,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 + "{\"wid\":\"8613800138003\",\"creds\":{\"noiseKey\":{}}},"
                 + "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
                 + "]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次1", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
 
         assertThat(b.totalRows()).isEqualTo(4);
@@ -71,14 +72,14 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_crossBatch_dbUqDuplicate() {
         String json = "[{\"wid\":\"8613811111111\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次A", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
 
         // 第一批成功
         AccountImportBatchVO first = service.importAccounts(meta, null, json);
         assertThat(first.importedRows()).isEqualTo(1);
 
         // 第二批同号 → DB uq 兜底 → DUPLICATE
-        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", "批次B", "r", null);
+        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
         AccountImportBatchVO second = service.importAccounts(meta2, null, json);
         assertThat(second.importedRows()).isEqualTo(0);
         assertThat(second.duplicateRows()).isEqualTo(1);
@@ -90,7 +91,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_emptyText_throwsBusinessException() {
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "空批次", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
         assertThatThrownBy(() -> service.importAccounts(meta, null, ""))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("无可导入内容");
@@ -103,7 +104,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_success_allThreeTablesHaveRow() {
         String json = "[{\"wid\":\"8613822222222\",\"creds\":{\"registrationId\":5,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", "原子写测试", null, null);
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
         assertThat(b.importedRows()).isEqualTo(1);
@@ -123,7 +124,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_deviceOsNull_doesNotNpe() {
         String json = "[{\"wid\":\"8613833333333\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
         // deviceOs=null 模拟用户未选机型
-        var meta = new AccountImportDTO(null, 2, null, 1, "美国", "无机型批次", null, null);
+        var meta = new AccountImportDTO(null, 2, null, 1, "美国", null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
         assertThat(b.importedRows()).isEqualTo(1);
@@ -131,5 +132,61 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         Account a = accountMapper.selectActiveByWsPhone("8613833333333");
         assertThat(a).isNotNull();
         assertThat(a.getDeviceOs()).isNull();   // device_os 列 DEFAULT NULL,允许 null
+    }
+
+    // ---- source_file_name 兜底回归测试 ----
+
+    /**
+     * P0-1a:文件导入(sourceFileName 有值) → source_file_name = 文件名,账号正常入库。
+     */
+    @Test
+    void import_withFileName_sourceFileNameIsFileName() {
+        String json = "[{\"wid\":\"8613841000001\",\"creds\":{\"registrationId\":11,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        // sourceFileName 有值,模拟文件上传
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, "accounts_20240624.json");
+
+        AccountImportBatchVO b = service.importAccounts(meta, null, json);
+
+        assertThat(b.importedRows()).isEqualTo(1);
+        // 文件名直接作为 source_file_name
+        assertThat(b.sourceFileName()).isEqualTo("accounts_20240624.json");
+        // 账号已入库
+        assertThat(accountMapper.selectActiveByWsPhone("8613841000001")).isNotNull();
+    }
+
+    /**
+     * P0-1b:纯文本粘贴(sourceFileName=null) → source_file_name 兜底为「导入」,账号正常入库。
+     */
+    @Test
+    void import_noFileName_sourceFileNameFallsBackToDefault() {
+        String json = "[{\"wid\":\"8613842000002\",\"creds\":{\"registrationId\":12,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        // sourceFileName=null,模拟纯文本粘贴
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
+
+        AccountImportBatchVO b = service.importAccounts(meta, null, json);
+
+        assertThat(b.importedRows()).isEqualTo(1);
+        // 无文件名时兜底为「导入」常量
+        assertThat(b.sourceFileName()).isEqualTo("导入");
+        // 账号已入库
+        assertThat(accountMapper.selectActiveByWsPhone("8613842000002")).isNotNull();
+    }
+
+    /**
+     * P0-2:传不存在的 accountGroupId → 抛 NOT_FOUND 业务异常,且账号一条未写(无孤儿)。
+     */
+    @Test
+    void import_nonExistentGroupId_throwsNotFound_noAccountWritten() {
+        String json = "[{\"wid\":\"8613843000003\",\"creds\":{\"registrationId\":13,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        // 9999999L 必然不存在
+        var meta = new AccountImportDTO(9999999L, 2, 1, 1, "美国", null, null);
+
+        assertThatThrownBy(() -> service.importAccounts(meta, null, json))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getCode())
+                        .isEqualTo(ErrorCode.NOT_FOUND.code()));
+
+        // 账号一条未写:无孤儿
+        assertThat(accountMapper.selectActiveByWsPhone("8613843000003")).isNull();
     }
 }

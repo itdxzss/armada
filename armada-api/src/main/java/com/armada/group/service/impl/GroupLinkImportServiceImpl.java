@@ -99,7 +99,8 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         // 3) 先插批次头拿到自增 id(计数列留到末尾再 updateCounts 回写)
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
         batch.setLabelId(dto.labelId());
-        batch.setBatchName(dto.batchName());
+        // 批次名称(来源文件/批次名称)非必填:留空(null/空白)统一存 NULL,不存空白串
+        batch.setBatchName(blankToNull(dto.batchName()));
         importBatchMapper.insert(batch);
 
         // 4) 逐行处理 = 通用骨架 LineImporter.run(文本, 解析器, 去重键, 落库器):
@@ -210,6 +211,11 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
     /** null → 空字符串(CSV 字段禁返 null)。 */
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    /** 空/空白 → null(批次名非必填,留空存 NULL 而非空白串)。 */
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     /**

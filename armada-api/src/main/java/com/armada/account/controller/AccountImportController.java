@@ -48,7 +48,7 @@ public class AccountImportController {
      * {@code @RequestParam} 接收。表单 {@code text} 与 {@code file} 二选一,均空时由 Service 抛
      * BusinessException。</p>
      *
-     * @param form 导入元信息表单(分组/格式/机型/类型/IP/批次名/备注/文本)
+     * @param form 导入元信息表单(分组/格式/机型/类型/IP/备注/文本)
      * @param file 上传文件(可选;与 form.text 二选一)
      * @return 导入批次 VO(含计数统计及批次 ID)
      */
@@ -67,7 +67,7 @@ public class AccountImportController {
         String sourceFileName = (file != null && !file.isEmpty()) ? file.getOriginalFilename() : null;
         AccountImportDTO meta = new AccountImportDTO(
                 form.getAccountGroupId(), form.getImportFormat(), form.getDeviceOs(), form.getAccountType(),
-                form.getIpRegion(), form.getBatchName(), form.getRemark(), sourceFileName);
+                form.getIpRegion(), form.getRemark(), sourceFileName);
         return ApiResponse.ok(service.importAccounts(meta, fileBytes, form.getText()));
     }
 

@@ -78,7 +78,7 @@ shared/
 **platform/**(基础设施适配,原 infra)
 ```
 platform/
-  protocol/     协议层(laqunxitong)HTTP 客户端 + 防腐层(内部结构见 §4.2)
+  protocol/     协议层(armada-protocol)HTTP 客户端 + 防腐层(内部结构见 §4.2)
   kafka/        Kafka 消费/生产(含状态回写 handler;整体平移 —— 决策 A)
   proxy/        运行时 IP 出口解析/分配适配器(决策 B:与 resource/proxy 业务CRUD 拆开)
   upload/       文件上传
@@ -128,6 +128,12 @@ platform/protocol/
 
 **吞吐分类 pacing 归属**(见 contract §11):①CPU 握手 → 此处不设 cap,归协议层 OnlineGate + 横向扩 worker;②封号 → `resilience/PerAccountRateLimiter`;③IO → 业务侧有界宽松并发。批量 = port `submitBatchOnline` 调 lqxt batch 端点 + 终态走 `platform/kafka`。
 配置(base-url/X-Api-Key/连接池):放 `boot/config` 或内聚于 `platform/protocol/http/`,择一。
+
+### 决策记录(协议契约绑定 · 0625)
+- **目标协议层 = 自有 `armada-protocol` 仓库**(非 wheel 共用的 laqunxitong)。armada-protocol 今天的代码与 laqunxitong 逐字节一致(重构未开始),其 `openapi/protocol-v1.yaml`(1.0.0-draft)是干净目标契约、尚未真正实现。
+- **绑定方式(已确认 · Option 1)**:`port/` + `model/` 对齐 **protocol-v1.yaml 目标形态**(usability 综合判定 / reconnect、alive 一等公民 / resolve owner 等);`http/` adapter 翻译到 armada-protocol **当前实际 serves 的端点(= laqunxitong as-is)**。armada-protocol 重构逐步逼近 v1.yaml 时,**只收窄 adapter 的翻译层,port 与业务域不动**——即 §4.2 防腐层哲学(port=理想、adapter=吸收现实落差)的落地。
+- **配置落点(择一已定)**:内聚于 `platform/protocol/http/`,协议配置随防腐层走,不进全局 `boot/config`。
+- **首期范围**:只落 `AccountLifecyclePort`(online/offline/logout/status/probe),account 模块第一个接协议;其余能力族(GroupPort/MessagePort/ContactPort/ProxyPort)按业务块增量补。
 
 ## 5. 对象集(已定)
 

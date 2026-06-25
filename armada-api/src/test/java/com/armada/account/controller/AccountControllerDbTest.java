@@ -60,7 +60,6 @@ class AccountControllerDbTest {
                 .param("importFormat", "2")
                 .param("deviceOs", "1")
                 .param("accountType", "1")
-                .param("batchName", "ctrl-acc-" + wsPhone)
                 .param("text", text)
                 .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(jsonPath("$.code").value(0));

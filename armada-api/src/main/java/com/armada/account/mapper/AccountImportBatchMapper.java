@@ -25,6 +25,23 @@ public interface AccountImportBatchMapper {
     AccountImportBatch selectById(@Param("id") Long id);
 
     /**
+     * 回填批次三计数列(循环完成后补写)。
+     *
+     * <p>批次行在账号逐行写入前已由 insert 先行落库(审计锚点),循环结束后再回填
+     * imported/duplicate/formatError 三个计数。id 条件精确定位,租户拦截器自动注入。</p>
+     *
+     * @param batchId      批次主键
+     * @param imported     成功入库行数
+     * @param duplicate    重复行数(批内 + 库内)
+     * @param formatError  格式/凭据不全行数
+     * @return 更新行数(正常为 1)
+     */
+    int updateCounts(@Param("batchId") Long batchId,
+                     @Param("imported") int imported,
+                     @Param("duplicate") int duplicate,
+                     @Param("formatError") int formatError);
+
+    /**
      * 按筛选条件统计批次总数(SQL 下推,与 selectPage 共享 filter 片段)。
      *
      * @param query 批次列表查询参数

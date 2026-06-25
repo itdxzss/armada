@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -198,6 +199,22 @@ class GroupLinkImportServiceImplTest {
 
         // 验 updateCounts 被调用(统计已在 VO 中断言)
         verify(importBatchMapper).updateCounts(any());
+    }
+
+    @Test
+    void blankBatchName_storedAsNull() {
+        // 批次名称(来源文件/批次名称)非必填:用户留空(空白串)时,落库应为 null,而非空白字符串。
+        stubValidLabel(7L);
+        stubBatchInsert(70L);
+        stubLinkInsert(700L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+
+        service.importLinks(new GroupLinkImportDTO(7L, "   ", null,
+                List.of("https://chat.whatsapp.com/Blank")));
+
+        ArgumentCaptor<GroupLinkImportBatch> captor = ArgumentCaptor.forClass(GroupLinkImportBatch.class);
+        verify(importBatchMapper).insert(captor.capture());
+        assertThat(captor.getValue().getBatchName()).isNull();
     }
 
     // ---- 校验失败 ----

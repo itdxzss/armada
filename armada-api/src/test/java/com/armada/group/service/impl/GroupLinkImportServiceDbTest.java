@@ -157,6 +157,20 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     }
 
     @Test
+    void importLinks_nullBatchName_succeeds() {
+        // 批次名称(来源文件/批次名称)非必填:不填(null)也应导入成功,batch_name 列须可空。
+        GroupLinkLabel label = insertLabel("集成测试分组-空批次名");
+
+        GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
+                label.getId(), null, null,
+                List.of("https://chat.whatsapp.com/NullBatchName")));
+
+        assertThat(result.batchId()).isNotNull();
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.inserted()).isEqualTo(1);
+    }
+
+    @Test
     void importLinks_mixedOutcomes_batchCountsCorrect() {
         GroupLinkLabel label = insertLabel("集成测试分组-混合");
 

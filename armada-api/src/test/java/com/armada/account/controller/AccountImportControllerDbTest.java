@@ -57,7 +57,6 @@ class AccountImportControllerDbTest {
                         .param("importFormat", "2")
                         .param("deviceOs", "1")
                         .param("accountType", "1")
-                        .param("batchName", "ctrl-test-text")
                         .param("text", VALID_JSON_TEXT)
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
@@ -82,7 +81,6 @@ class AccountImportControllerDbTest {
                         .param("importFormat", "2")
                         .param("deviceOs", "1")
                         .param("accountType", "1")
-                        .param("batchName", "ctrl-test-file")
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
@@ -100,7 +98,6 @@ class AccountImportControllerDbTest {
                         .param("importFormat", "2")
                         .param("deviceOs", "1")
                         .param("accountType", "1")
-                        .param("batchName", "ctrl-test-empty")
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(40001));
@@ -120,7 +117,6 @@ class AccountImportControllerDbTest {
                 .param("importFormat", "2")
                 .param("deviceOs", "1")
                 .param("accountType", "1")
-                .param("batchName", "list-test-batch")
                 .param("text", VALID_JSON_TEXT)
                 .header(TENANT_HEADER, TENANT_CODE));
 
@@ -149,7 +145,6 @@ class AccountImportControllerDbTest {
                         .param("importFormat", "2")
                         .param("deviceOs", "1")
                         .param("accountType", "1")
-                        .param("batchName", "detail-list-test")
                         .param("text", VALID_JSON_TEXT)
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andReturn();
@@ -184,7 +179,6 @@ class AccountImportControllerDbTest {
                         .param("importFormat", "2")
                         .param("deviceOs", "1")
                         .param("accountType", "1")
-                        .param("batchName", "export-test")
                         .param("text", VALID_JSON_TEXT)
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andReturn();

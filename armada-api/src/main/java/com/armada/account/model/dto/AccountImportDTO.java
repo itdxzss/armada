@@ -12,9 +12,9 @@ package com.armada.account.model.dto;
  * @param deviceOs       机型:1安卓 2苹果(选填,可为 null)
  * @param accountType    账号类型:1个人 2商业;导入即冻结,后续操作不得改写
  * @param ipRegion       导入时选择的 IP 国家/地区名称
- * @param batchName      批次名称
  * @param remark         备注(可为 null)
- * @param sourceFileName 来源文件名;文件导入时由 Controller 从 MultipartFile 取得,文本粘贴时为 null
+ * @param sourceFileName 来源文件名;文件导入时由 Controller 从 MultipartFile 取得,文本粘贴时为 null;
+ *                       纯文本粘贴时为 null,Service 层兜底写入「导入」常量串
  */
 public record AccountImportDTO(
         Long accountGroupId,
@@ -22,7 +22,6 @@ public record AccountImportDTO(
         Integer deviceOs,
         Integer accountType,
         String ipRegion,
-        String batchName,
         String remark,
         String sourceFileName
 ) {

@@ -52,7 +52,7 @@ class AccountTenantIsolationDbTest extends DbTestBase {
     private Long importOneAccount(String wsPhone) {
         String json = "[{\"wid\":\"" + wsPhone + "\","
                 + "\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "ct-batch-" + wsPhone, "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
         assertThat(batch.importedRows()).as("导入应成功 1 行,wsPhone=%s", wsPhone).isEqualTo(1);
         Account a = accountMapper.selectActiveByWsPhone(wsPhone);
@@ -116,7 +116,7 @@ class AccountTenantIsolationDbTest extends DbTestBase {
         // 租户 1 导入
         TenantContext.set(1L);
         AccountImportBatchVO batchT1 = importService.importAccounts(
-                new AccountImportDTO(null, 2, 1, 2, "印度", "ct-t1-" + sharedPhone, "r", null),
+                new AccountImportDTO(null, 2, 1, 2, "印度", "r", null),
                 null,
                 "[{\"wid\":\"" + sharedPhone + "\","
                         + "\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]"
@@ -127,7 +127,7 @@ class AccountTenantIsolationDbTest extends DbTestBase {
         TenantContext.set(2L);
         try {
             AccountImportBatchVO batchT2 = importService.importAccounts(
-                    new AccountImportDTO(null, 2, 1, 2, "印度", "ct-t2-" + sharedPhone, "r", null),
+                    new AccountImportDTO(null, 2, 1, 2, "印度", "r", null),
                     null,
                     "[{\"wid\":\"" + sharedPhone + "\","
                             + "\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]"

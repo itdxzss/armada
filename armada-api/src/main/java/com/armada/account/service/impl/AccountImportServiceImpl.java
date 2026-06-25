@@ -33,13 +33,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 /**
  * 账号导入业务实现。
  *
- * <p>流程:parser.parse → seenWid HashSet 批内去重 → 逐条分类 → 对成功行调
- * {@link AccountImportRowWriter#writeOne}(独立 Bean,确保 @Transactional 通过代理生效)→
- * 写 account_import_batch(status=2 已完成) → 批量写 account_import_detail → 回查返回 VO。</p>
+ * <p>流程:前置校验(format/accountType/分组存在) → parser.parse → 空内容拒
+ * → <b>先 insert 批次行(审计锚点,total 已知、三计数先 0)</b> → seenWid HashSet 批内去重 → 逐条分类
+ * → 对成功行调 {@link AccountImportRowWriter#writeOne}(独立 Bean,确保 @Transactional 通过代理生效)
+ * → batchMapper.updateCounts 回填三计数 → 批量写 account_import_detail → 回查返回 VO。</p>
+ *
+ * <p>审计锚点先于账号入库的好处:校验失败前置即拒,账号一条不写;
+ * 批次行已存在后续任意意外也不会产生「无审计孤儿账号」。</p>
  *
  * <p>单行三步原子写(account + account_state + account_credential)封装在 {@link AccountImportRowWriter}
  * 而非本类私有方法,规避 Spring 同类自调用导致 @Transactional 失效的 self-invocation 陷阱。</p>
@@ -51,6 +56,9 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** 批次状态:已完成(step1 同步导入即结束,成败不进 status、看计数列)。 */
     private static final int BATCH_STATUS_DONE = 2;
+
+    /** source_file_name 兜底值:纯文本粘贴时无文件名,用此常量串标识来源,保证标识列非空。 */
+    private static final String SOURCE_FILE_DEFAULT = "导入";
 
     /** CSV 导出时间列格式(北京时间可读串,CSV 给人看)。 */
     private static final DateTimeFormatter CSV_DATETIME_FMT =
@@ -89,14 +97,14 @@ public class AccountImportServiceImpl implements AccountImportService {
      *
      * <p>整体流程:</p>
      * <ol>
-     *   <li>必填校验 + 按格式(JSON / 全参)解析成条目列表;内容为空直接拒。</li>
-     *   <li>解析目标分组:调用方指定了就用,否则懒建 / 取系统默认分组。</li>
+     *   <li>必填校验(importFormat/accountType)+ 目标分组存在性校验(accountGroupId 非 null 时)。</li>
+     *   <li>按格式解析条目列表;内容为空直接拒。</li>
+     *   <li><b>先 insert 批次行</b>(total 已知,三计数先 0),拿到 batch.id —— 审计锚点先于账号入库。</li>
      *   <li>逐条分类并处理:<b>凭据不全 / 格式错误 / 批内同号重复</b> → 只记一条失败明细、不建号;
      *       <b>合格条目</b> → 调 {@link AccountImportRowWriter#writeOne} 在一个事务里写三张表
      *       (account 身份行 + account_state 默认行 + account_credential 凭据);
      *       若撞库内唯一键(并发下同号已存在)记为「重复」。</li>
-     *   <li>写一条批次汇总(status 恒为 2「已完成」—— step1 同步导入即结束,成败不进 status、看计数列)
-     *       + 批量写每条明细,回查批次组装 VO 返回。</li>
+     *   <li>updateCounts 回填三计数 + 批量插明细 + 回查 VO 返回。</li>
      * </ol>
      *
      * <p>三个计数列的口径:</p>
@@ -106,6 +114,12 @@ public class AccountImportServiceImpl implements AccountImportService {
      *   <li>{@code formatErrorRows} = 不合格条数 = 格式错误 + 凭据不全(明细 {@code parseResult} 用 3 / 4 区分);</li>
      * </ul>
      * <p>登录相关计数(loginSuccess / failed / abnormal)step1 不写(NULL),留 step3 接协议层 Kafka 回填。</p>
+     *
+     * @param meta      导入元信息(格式/类型/分组/来源文件名等)
+     * @param fileBytes 文件字节(文件导入时);文本粘贴时为 null
+     * @param text      粘贴文本(文本导入时);文件导入时为 null
+     * @return 批次结果 VO(含计数、状态)
+     * @throws BusinessException 当参数不合法、分组不存在、内容为空时抛 VALIDATION 或 NOT_FOUND
      */
     @Override
     public AccountImportBatchVO importAccounts(AccountImportDTO meta, byte[] fileBytes, String text) {
@@ -115,16 +129,23 @@ public class AccountImportServiceImpl implements AccountImportService {
         }
         ImportFormat format = ImportFormat.fromCode(meta.importFormat());
 
+        // 目标分组:明确传入则校验存在,否则懒建系统默认分组
+        Long resolvedGroupId = meta.accountGroupId() != null
+                ? groupService.requireExisting(meta.accountGroupId()).getId()
+                : groupService.ensureSystemGroup().getId();
+
         List<ParsedEntry> entries = parser.parse(format, fileBytes, text);
         // 空 entries 或 parser 检测到「输入内容为空」(fileBytes/text 均空时 parser 产出该错误条目)
         if (entries.isEmpty() || isNoContentResult(entries)) {
             throw new BusinessException(ErrorCode.VALIDATION, "无可导入内容");
         }
 
-        // 目标分组:明确传入则用,否则懒建系统默认分组
-        Long resolvedGroupId = meta.accountGroupId() != null
-                ? meta.accountGroupId()
-                : groupService.ensureSystemGroup().getId();
+        long now = System.currentTimeMillis();   // 本批统一时间戳(批次/明细/账号行共用,epoch 毫秒)
+
+        // 审计锚点先行:批次行在任何账号入库前已存在;total 已知,三计数先写 0 循环后回填。
+        // login_* step1 不写=NULL,留 step3 回填。insert 后自增 id 回填到 batch.id。
+        AccountImportBatch batch = buildBatch(meta, resolvedGroupId, entries.size(), now);
+        batchMapper.insert(batch);
 
         List<AccountImportDetail> details = new ArrayList<>(entries.size());
         Set<String> seenWid = new HashSet<>();   // 批内去重集合:本批已出现过的 wid(手机号)
@@ -132,7 +153,6 @@ public class AccountImportServiceImpl implements AccountImportService {
         int duplicateCount = 0;                  // 重复(批内 + 库内)
         int formatErrorCount = 0;                // 不合格(格式错误 + 凭据不全)
 
-        long now = System.currentTimeMillis();   // 本批统一时间戳(批次/明细/账号行共用,epoch 毫秒)
         int lineNo = 0;
         // 逐条:先分类,只有合格条目才落库;无论成败都为每条收集一行明细 + 累计对应计数
         for (ParsedEntry entry : entries) {
@@ -166,26 +186,22 @@ public class AccountImportServiceImpl implements AccountImportService {
             }
 
             // 无论成败,每条都落一行明细(失败行 accountId 为 null,failReason 带原因供前端/CSV 展示)
-            details.add(buildDetail(lineNo, entry.getWid(), accountId,
-                    new RowClassification(result, failReason), now));
+            AccountImportDetail detail = buildDetail(lineNo, entry.getWid(), accountId,
+                    new RowClassification(result, failReason), now);
+            detail.setBatchId(batch.getId());
+            details.add(detail);
         }
 
-        // 写批次汇总行:total=解析总条数,带上三类计数;status=2 已完成(同步导入即结束),
-        // 登录级计数 login_*(成功/失败/异常)step1 不写=NULL,留 step3 回填。insert 后回填自增 id
-        ImportCounts counts = new ImportCounts(entries.size(), importedCount, duplicateCount, formatErrorCount);
-        AccountImportBatch batch = buildBatch(meta, resolvedGroupId, counts, now);
-        batchMapper.insert(batch);
+        // 回填三计数(循环完成后实际数值已知)
+        batchMapper.updateCounts(batch.getId(), importedCount, duplicateCount, formatErrorCount);
 
-        // 把刚拿到的批次 id 回填到每条明细,再一次性批量插入(明细与批次同批落库)
-        for (AccountImportDetail d : details) {
-            d.setBatchId(batch.getId());
-        }
+        // 批量插明细
         detailMapper.batchInsert(details);
 
         log.info("[AccountImportService] 导入完成 batchId={} total={} imported={} duplicate={} formatError={}",
                 batch.getId(), entries.size(), importedCount, duplicateCount, formatErrorCount);
 
-        // 回查批次行组装 VO
+        // 回查批次行组装 VO(三计数已由 updateCounts 更新)
         AccountImportBatch saved = batchMapper.selectById(batch.getId());
         return toVO(saved);
     }
@@ -236,20 +252,32 @@ public class AccountImportServiceImpl implements AccountImportService {
         return d;
     }
 
-    private AccountImportBatch buildBatch(AccountImportDTO meta, Long groupId,
-                                           ImportCounts counts, long now) {
+    /**
+     * 构建批次 shell 行(total 已知、三计数先 0)。
+     * 三计数由循环结束后的 updateCounts 回填。
+     *
+     * <p>source_file_name 作为来源标识:文件导入用原始文件名;纯文本粘贴无文件名时
+     * 兜底为 {@link #SOURCE_FILE_DEFAULT} 常量串,保证标识列非空。</p>
+     *
+     * @param meta    导入元信息
+     * @param groupId 已解析的目标分组 ID
+     * @param total   解析总行数
+     * @param now     本批统一时间戳(epoch 毫秒)
+     * @return 待 insert 的批次实体(三计数均为 0)
+     */
+    private AccountImportBatch buildBatch(AccountImportDTO meta, Long groupId, int total, long now) {
         AccountImportBatch b = new AccountImportBatch();
         b.setAccountGroupId(groupId);
-        b.setBatchName(meta.batchName());
-        b.setSourceFileName(meta.sourceFileName());
+        b.setSourceFileName(StringUtils.hasText(meta.sourceFileName())
+                ? meta.sourceFileName() : SOURCE_FILE_DEFAULT);
         b.setImportFormat(meta.importFormat());
         b.setDeviceOs(meta.deviceOs());
         b.setAccountType(meta.accountType());
         b.setIpRegion(meta.ipRegion());
-        b.setTotalRows(counts.total());
-        b.setImportedRows(counts.imported());
-        b.setDuplicateRows(counts.duplicate());
-        b.setFormatErrorRows(counts.formatError());
+        b.setTotalRows(total);
+        b.setImportedRows(0);
+        b.setDuplicateRows(0);
+        b.setFormatErrorRows(0);
         // login_* 不写(step1=NULL)
         b.setStatus(BATCH_STATUS_DONE);   // 已完成;step1 同步导入即结束
         b.setCreatedAt(now);
@@ -259,7 +287,6 @@ public class AccountImportServiceImpl implements AccountImportService {
     private AccountImportBatchVO toVO(AccountImportBatch b) {
         return new AccountImportBatchVO(
                 b.getId(),
-                b.getBatchName(),
                 b.getSourceFileName(),
                 b.getImportFormat(),
                 b.getDeviceOs(),
@@ -287,10 +314,6 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** 单行分类结果内部载体(不抽公共类,无其他调用点)。 */
     private record RowClassification(ImportResult result, String failReason) {
-    }
-
-    /** 批次计数封装(total/imported/duplicate/formatError),用于收拢 buildBatch 参数至 ≤5。 */
-    private record ImportCounts(int total, int imported, int duplicate, int formatError) {
     }
 
     /** {@inheritDoc} */

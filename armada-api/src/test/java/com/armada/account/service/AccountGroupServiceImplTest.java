@@ -317,4 +317,28 @@ class AccountGroupServiceImplTest {
         verify(mapper).softDeleteByIds(anyList(), anyLong());
         assertThat(result).isEqualTo(2);
     }
+
+    // ---- requireExisting ----
+
+    @Test
+    void requireExisting_returnsGroup_whenPresent() {
+        AccountGroup g = new AccountGroup();
+        g.setId(7L);
+        when(mapper.selectById(7L)).thenReturn(g);
+
+        AccountGroup result = service.requireExisting(7L);
+
+        assertThat(result.getId()).isEqualTo(7L);
+        verify(mapper).selectById(7L);
+    }
+
+    @Test
+    void requireExisting_throwsNotFound_whenMissing() {
+        when(mapper.selectById(999L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.requireExisting(999L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("目标分组不存在");
+        verify(mapper).selectById(999L);
+    }
 }

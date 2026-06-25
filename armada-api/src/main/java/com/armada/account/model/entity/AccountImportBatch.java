@@ -15,10 +15,7 @@ public class AccountImportBatch {
     /** 导入目标分组(→account_group.id)。 */
     private Long accountGroupId;
 
-    /** 批次/任务名。 */
-    private String batchName;
-
-    /** 上传文件原名;纯文本导入=NULL。 */
+    /** 上传文件原名;纯文本导入时为「导入」兜底串。 */
     private String sourceFileName;
 
     /** 导入格式:1六段 2JSON 3全参。 */
@@ -88,14 +85,6 @@ public class AccountImportBatch {
 
     public void setAccountGroupId(Long accountGroupId) {
         this.accountGroupId = accountGroupId;
-    }
-
-    public String getBatchName() {
-        return batchName;
-    }
-
-    public void setBatchName(String batchName) {
-        this.batchName = batchName;
     }
 
     public String getSourceFileName() {

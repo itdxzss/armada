@@ -21,8 +21,6 @@ public class AccountImportForm {
     private Integer accountType;
     /** IP 国家/地区;可空。 */
     private String ipRegion;
-    /** 批次名称。 */
-    private String batchName;
     /** 备注;可空。 */
     private String remark;
     /** 文本粘贴内容(与上传文件二选一);可空。 */
@@ -66,14 +64,6 @@ public class AccountImportForm {
 
     public void setIpRegion(String ipRegion) {
         this.ipRegion = ipRegion;
-    }
-
-    public String getBatchName() {
-        return batchName;
-    }
-
-    public void setBatchName(String batchName) {
-        this.batchName = batchName;
     }
 
     public String getRemark() {

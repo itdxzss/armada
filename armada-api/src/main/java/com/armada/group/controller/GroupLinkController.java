@@ -46,7 +46,7 @@ public class GroupLinkController {
      * B1 导入群链接(multipart:text 手填 + 文件上传)。
      *
      * @param labelId   目标WS链接分组 ID
-     * @param batchName 批次名称
+     * @param batchName 批次名称(来源文件/批次名称,非必填;留空存 NULL)
      * @param text      手填多行文本(可选)
      * @param file      上传文件 TXT/CSV/Excel(可选)
      * @return 导入汇总结果
@@ -54,7 +54,7 @@ public class GroupLinkController {
     @PostMapping("/import")
     public ApiResponse<GroupLinkImportResultVO> importLinks(
             @RequestParam("labelId") Long labelId,
-            @RequestParam("batchName") String batchName,
+            @RequestParam(value = "batchName", required = false) String batchName,
             @RequestParam(value = "text", required = false) String text,
             @RequestParam(value = "file", required = false) MultipartFile file) {
         List<String> lines = extractor.extract(file, text);

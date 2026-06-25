@@ -5,17 +5,29 @@
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at。tenant_id 由拦截器注入。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account_import_batch (
-      account_group_id, batch_name, source_file_name,
+      account_group_id, source_file_name,
       import_format, device_os, account_type, ip_region,
       total_rows, imported_rows, duplicate_rows, format_error_rows,
       status, created_at, created_by
     ) VALUES (
-      #{accountGroupId}, #{batchName}, #{sourceFileName},
+      #{accountGroupId}, #{sourceFileName},
       #{importFormat}, #{deviceOs}, #{accountType}, #{ipRegion},
       #{totalRows}, #{importedRows}, #{duplicateRows}, #{formatErrorRows},
       #{status}, #{createdAt}, #{createdBy}
     )
   </insert>
+
+  <!--
+    回填三计数:批次行已先行落库(审计锚点),循环结束后补写 imported/duplicate/format_error 三列。
+    id 条件精确定位一行,租户拦截器自动注入 tenant_id,无需 LIMIT,不加 @InterceptorIgnore。
+  -->
+  <update id="updateCounts">
+    UPDATE account_import_batch
+    SET imported_rows     = #{imported},
+        duplicate_rows    = #{duplicate},
+        format_error_rows = #{formatError}
+    WHERE id = #{batchId}
+  </update>
 
   <select id="selectById" resultType="com.armada.account.model.entity.AccountImportBatch">
     SELECT * FROM account_import_batch
@@ -49,7 +61,7 @@
     时间列 b.created_at 为 BIGINT,直接映射到 Long。
   -->
   <select id="selectPage" resultType="com.armada.account.model.vo.AccountImportBatchVoRow">
-    SELECT b.id, b.batch_name AS batchName, b.source_file_name AS sourceFileName,
+    SELECT b.id, b.source_file_name AS sourceFileName,
            b.import_format AS importFormat, b.device_os AS deviceOs,
            b.account_type AS accountType, b.ip_region AS ipRegion,
            b.total_rows AS totalRows, b.imported_rows AS importedRows,

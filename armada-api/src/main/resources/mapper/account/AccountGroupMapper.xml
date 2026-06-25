@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountGroupMapper">
+
+  <!-- 共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入 -->
+  <sql id="filter">
+    deleted_at IS NULL
+    <if test="keyword != null and keyword != ''">AND name LIKE CONCAT('%', #{keyword}, '%')</if>
+    <if test="id != null">AND id = #{id}</if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*) FROM account_group WHERE <include refid="filter"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.account.model.vo.AccountGroupVoRow">
+    SELECT g.id, g.name, g.remark, g.system_builtin AS systemBuiltin,
+           (SELECT COUNT(*) FROM account a WHERE a.account_group_id = g.id AND a.deleted_at IS NULL) AS accountCount,
+           g.created_at AS createdAt, g.updated_at AS updatedAt
+    FROM account_group g
+    WHERE <include refid="filter"/>
+    ORDER BY g.created_at DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+  <select id="selectActiveByName" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group WHERE name = #{name} AND deleted_at IS NULL LIMIT 1
+  </select>
+
+  <select id="selectDeletedByName" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group WHERE name = #{name} AND deleted_at IS NOT NULL LIMIT 1
+  </select>
+
+  <select id="selectById" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group WHERE id = #{id} AND deleted_at IS NULL
+  </select>
+
+  <select id="selectSystemBuiltin" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group WHERE system_builtin = 1 AND deleted_at IS NULL LIMIT 1
+  </select>
+
+  <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_group (name, remark, system_builtin, created_at, updated_at, created_by)
+    VALUES (#{name}, #{remark}, #{systemBuiltin}, #{createdAt}, #{updatedAt}, #{createdBy})
+  </insert>
+
+  <update id="reviveById">
+    UPDATE account_group SET deleted_at = NULL WHERE id = #{id}
+  </update>
+
+  <update id="updateProfile">
+    UPDATE account_group
+    SET name = #{name}, remark = #{remark}, updated_at = #{updatedAt}
+    WHERE id = #{id} AND deleted_at IS NULL
+  </update>
+
+  <!-- deletedAt 由调用方传入(System.currentTimeMillis()),不用 NOW() -->
+  <update id="softDeleteByIds">
+    UPDATE account_group SET deleted_at = #{deletedAt}
+    WHERE deleted_at IS NULL AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </update>
+
+  <select id="countAccountsByGroupId" resultType="long">
+    SELECT COUNT(*) FROM account WHERE account_group_id = #{groupId} AND deleted_at IS NULL
+  </select>
+
+</mapper>

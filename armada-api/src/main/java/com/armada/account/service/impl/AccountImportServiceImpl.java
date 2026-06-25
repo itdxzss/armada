@@ -84,6 +84,10 @@ public class AccountImportServiceImpl implements AccountImportService {
      */
     @Override
     public AccountImportBatchVO importAccounts(AccountImportDTO meta, byte[] fileBytes, String text) {
+        // 必填字段前置校验:importFormat/accountType 为 null 时拆箱会 NPE
+        if (meta.importFormat() == null || meta.accountType() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "导入格式/账号类型不能为空");
+        }
         ImportFormat format = ImportFormat.fromCode(meta.importFormat());
 
         List<ParsedEntry> entries = parser.parse(format, fileBytes, text);
@@ -211,6 +215,7 @@ public class AccountImportServiceImpl implements AccountImportService {
         AccountImportBatch b = new AccountImportBatch();
         b.setAccountGroupId(groupId);
         b.setBatchName(meta.batchName());
+        b.setSourceFileName(meta.sourceFileName());
         b.setImportFormat(meta.importFormat());
         b.setDeviceOs(meta.deviceOs());
         b.setAccountType(meta.accountType());

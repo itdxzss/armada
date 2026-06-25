@@ -52,7 +52,7 @@ public class AccountImportRowWriter {
      * @param entry        解析条目(data 字段序列化为 creds_json;日志只打 maskPhone,不打明文)
      * @param accountGroupId 目标分组 ID(已由调用方解析;NOT NULL)
      * @param importFormat 导入格式编码(写入 account_credential.cred_format)
-     * @param deviceOs     机型编码
+     * @param deviceOs     机型编码(选填,null 表示用户未选机型)
      * @param accountType  账号类型:导入即冻结,不可后续改写
      * @return 新写入的 account.id
      * @throws org.springframework.dao.DuplicateKeyException 若 uq_tenant_phone 冲突(跨批重复)
@@ -62,7 +62,7 @@ public class AccountImportRowWriter {
                          ParsedEntry entry,
                          Long accountGroupId,
                          int importFormat,
-                         int deviceOs,
+                         Integer deviceOs,
                          int accountType) {
         long now = System.currentTimeMillis();
 
@@ -90,7 +90,7 @@ public class AccountImportRowWriter {
 
     // ---- 私有构建方法 ----
 
-    private Account buildAccount(String wid, Long accountGroupId, int deviceOs, int accountType, long now) {
+    private Account buildAccount(String wid, Long accountGroupId, Integer deviceOs, int accountType, long now) {
         Account a = new Account();
         a.setWsPhone(wid);
         // 铁律:account_type 导入即冻结

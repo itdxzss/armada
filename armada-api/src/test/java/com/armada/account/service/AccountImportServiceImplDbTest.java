@@ -47,7 +47,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 + "{\"wid\":\"8613800138003\",\"creds\":{\"noiseKey\":{}}},"
                 + "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
                 + "]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次1", "r");
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次1", "r", null);
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
 
         assertThat(b.totalRows()).isEqualTo(4);
@@ -71,14 +71,14 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_crossBatch_dbUqDuplicate() {
         String json = "[{\"wid\":\"8613811111111\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次A", "r");
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "批次A", "r", null);
 
         // 第一批成功
         AccountImportBatchVO first = service.importAccounts(meta, null, json);
         assertThat(first.importedRows()).isEqualTo(1);
 
         // 第二批同号 → DB uq 兜底 → DUPLICATE
-        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", "批次B", "r");
+        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", "批次B", "r", null);
         AccountImportBatchVO second = service.importAccounts(meta2, null, json);
         assertThat(second.importedRows()).isEqualTo(0);
         assertThat(second.duplicateRows()).isEqualTo(1);
@@ -90,7 +90,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_emptyText_throwsBusinessException() {
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "空批次", "r");
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "空批次", "r", null);
         assertThatThrownBy(() -> service.importAccounts(meta, null, ""))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("无可导入内容");
@@ -103,7 +103,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_success_allThreeTablesHaveRow() {
         String json = "[{\"wid\":\"8613822222222\",\"creds\":{\"registrationId\":5,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", "原子写测试", null);
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", "原子写测试", null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
         assertThat(b.importedRows()).isEqualTo(1);
@@ -114,5 +114,22 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         assertThat(a.getProtocolAccountId()).isEqualTo("acc_8613822222222");
         assertThat(stateMapper.selectByAccountId(a.getId())).isNotNull();
         assertThat(credentialMapper.selectByAccountId(a.getId())).isNotNull();
+    }
+
+    /**
+     * deviceOs=null(用户未选机型)导入不 NPE:验 importedRows=1 且 account.deviceOs 为 null。
+     */
+    @Test
+    void import_deviceOsNull_doesNotNpe() {
+        String json = "[{\"wid\":\"8613833333333\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        // deviceOs=null 模拟用户未选机型
+        var meta = new AccountImportDTO(null, 2, null, 1, "美国", "无机型批次", null, null);
+
+        AccountImportBatchVO b = service.importAccounts(meta, null, json);
+        assertThat(b.importedRows()).isEqualTo(1);
+
+        Account a = accountMapper.selectActiveByWsPhone("8613833333333");
+        assertThat(a).isNotNull();
+        assertThat(a.getDeviceOs()).isNull();   // device_os 列 DEFAULT NULL,允许 null
     }
 }

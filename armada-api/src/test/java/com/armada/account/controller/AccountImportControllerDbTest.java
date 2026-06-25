@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.boot.Application;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -39,6 +40,9 @@ class AccountImportControllerDbTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     // -----------------------------------------------------------------------
     // C1: POST /api/account-imports — text 导入
@@ -83,7 +87,7 @@ class AccountImportControllerDbTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.importedRows").value(1))
-                // sourceFileName 由 Service 落库, DTO 目前无该字段,Controller 正确传 fileBytes 即可
+                .andExpect(jsonPath("$.data.sourceFileName").value("import.json"))  // 文件导入 sourceFileName 非空
                 .andExpect(jsonPath("$.data.status").value(2));
     }
 
@@ -152,8 +156,7 @@ class AccountImportControllerDbTest {
 
         String body = importResult.getResponse().getContentAsString();
         // 从响应中提取 data.id (batchId)
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        Long batchId = mapper.readTree(body).path("data").path("id").longValue();
+        Long batchId = objectMapper.readTree(body).path("data").path("id").longValue();
         assertThat(batchId).isPositive();
 
         // 查明细
@@ -186,8 +189,7 @@ class AccountImportControllerDbTest {
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andReturn();
 
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        Long batchId = mapper.readTree(importResult.getResponse().getContentAsString())
+        Long batchId = objectMapper.readTree(importResult.getResponse().getContentAsString())
                 .path("data").path("id").longValue();
         assertThat(batchId).isPositive();
 

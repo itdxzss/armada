@@ -9,11 +9,12 @@ package com.armada.account.model.dto;
  *
  * @param accountGroupId 目标分组 ID;为 null 时由 Service 自动取系统默认分组
  * @param importFormat   导入格式编码:1六段 2JSON 3全参,对应 {@link com.armada.account.model.entity.ImportFormat}
- * @param deviceOs       机型:1安卓 2苹果
+ * @param deviceOs       机型:1安卓 2苹果(选填,可为 null)
  * @param accountType    账号类型:1个人 2商业;导入即冻结,后续操作不得改写
  * @param ipRegion       导入时选择的 IP 国家/地区名称
  * @param batchName      批次名称
  * @param remark         备注(可为 null)
+ * @param sourceFileName 来源文件名;文件导入时由 Controller 从 MultipartFile 取得,文本粘贴时为 null
  */
 public record AccountImportDTO(
         Long accountGroupId,
@@ -22,6 +23,7 @@ public record AccountImportDTO(
         Integer accountType,
         String ipRegion,
         String batchName,
-        String remark
+        String remark,
+        String sourceFileName
 ) {
 }

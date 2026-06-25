@@ -76,8 +76,10 @@ public class AccountImportController {
             throw new BusinessException(ErrorCode.VALIDATION, "文件读取失败");
         }
 
+        String sourceFileName = (file != null && !file.isEmpty()) ? file.getOriginalFilename() : null;
         AccountImportDTO meta = new AccountImportDTO(
-                accountGroupId, importFormat, deviceOs, accountType, ipRegion, batchName, remark);
+                accountGroupId, importFormat, deviceOs, accountType, ipRegion, batchName, remark,
+                sourceFileName);
         AccountImportBatchVO batchVO = service.importAccounts(meta, fileBytes, text);
         return ApiResponse.ok(batchVO);
     }
@@ -128,8 +130,10 @@ public class AccountImportController {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("text/csv;charset=UTF-8"));
-        headers.setContentDispositionFormData("attachment",
-                "account-import-" + batchId + ".csv");
+        headers.setContentDisposition(
+                org.springframework.http.ContentDisposition.attachment()
+                        .filename("account-import-" + batchId + ".csv", java.nio.charset.StandardCharsets.UTF_8)
+                        .build());
 
         return ResponseEntity.ok().headers(headers).body(body);
     }

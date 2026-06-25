@@ -100,3 +100,27 @@ itdxzss/protocol-layer  (或 armada-protocol)   ← 仓库根
 - 两仓内容除 README 外逐字节一致,且都含 `protocol-layer/` + `openapi/`。
 - 任一仓库干净克隆后 `npm ci && npm run lint` 通过。
 - 老 `laqunxitong/` 工作区未被改动(git status 与迁移前一致)。
+
+## 9. 实施补记(2026-06-25,已完成)
+
+实际执行中相对设计有两处必要调整,均已落实并验证:
+
+1. **baileys 补丁 + 打补丁机制是未提交 WIP,需补齐三件套。**
+   探查发现 `patches/baileys+7.0.0-rc11.patch`、`scripts.postinstall=patch-package`、
+   `devDependencies.patch-package` 三者**全部只存在于 laqunxitong 未提交工作区,从未进 main**。
+   仅靠 main 快照,`npm ci` 不会应用补丁。按用户决策(补丁须随 npm ci 自动生效、与生产一致),
+   补齐三件套:拷入补丁文件 + 在 package.json 加 `postinstall: patch-package` +
+   `devDependencies.patch-package ^8.0.1` + 重生成 package-lock.json。
+   注:main 快照不含 `link-preview-js`(属 link-card WIP 的依赖),正确排除,tsc 通过。
+
+2. **每仓 2 个 commit(非 1 个)。** 为避免 force-push(需用户同意),补丁机制作为第二个 commit,
+   而非 amend 进初始 commit。如需压成单个初始 commit,可后续 force-push(届时单独取得同意)。
+
+最终状态:`itdxzss/protocol-layer`(`3b875fd` 初始 + `c342905` patch-package)、
+`itdxzss/armada-protocol`(`76ff84a` + `c628126`),两仓均 private、各 2 commit、除 README 外逐字节一致。
+端到端验证:全新克隆 → `npm ci`(postinstall 应用 `baileys@7.0.0-rc11 ✔`)→ 补丁生效
+(`await uploadPreKeysToServerIfRequired` 0 次 / `void` 1 次)→ `tsc --noEmit` 退出 0。
+laqunxitong 全程只读零改动(porcelain-md5 迁移前后一致)。
+
+**遗留(本次范围外)**:`npm ci` 报 baileys@7.0.0-rc11 存在已知零日(消息伪造,GHSA-qvv5-jq5g-4cgg),
+建议后续升级 baileys 版本(wheel/armada 两仓同步评估)。

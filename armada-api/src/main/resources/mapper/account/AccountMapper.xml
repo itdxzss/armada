@@ -36,7 +36,7 @@
     <if test="phone != null and phone != ''">AND a.ws_phone LIKE CONCAT(#{phone}, '%')</if>
     <if test="accountType != null">AND a.account_type = #{accountType}</if>
     <if test="protocolId != null and protocolId != ''">AND a.protocol_id = #{protocolId}</if>
-    <if test="numberSource != null and numberSource != ''">AND a.number_source = #{numberSource}</if>
+    <if test="numberSource != null">AND a.number_source = #{numberSource}</if>
     <if test="accountGroupId != null">AND a.account_group_id = #{accountGroupId}</if>
     <if test="accountState != null">AND s.account_state = #{accountState}</if>
     <if test="riskStatus != null">AND s.risk_status = #{riskStatus}</if>
@@ -46,6 +46,7 @@
     SELECT COUNT(*)
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    LEFT JOIN account_group g ON g.id = a.account_group_id AND g.deleted_at IS NULL
     WHERE <include refid="filter"/>
   </select>
 

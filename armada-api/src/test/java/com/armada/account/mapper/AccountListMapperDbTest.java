@@ -11,6 +11,7 @@ import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 账号列表查询 Mapper 真库测试:验 countPage/selectPage 的三表 LEFT JOIN、8 维筛选下推、
@@ -27,6 +28,9 @@ class AccountListMapperDbTest extends DbTestBase {
 
     @Autowired
     AccountGroupMapper groupMapper;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     // ---- 辅助方法 ----
 
@@ -208,6 +212,55 @@ class AccountListMapperDbTest extends DbTestBase {
         // groupY 账号不出现
         boolean hasGroupY = page.stream().anyMatch(r -> r.getId().equals(ay.getId()));
         assertThat(hasGroupY).isFalse();
+    }
+
+    /**
+     * accountState 筛选:写入一个 state=2(正常)账号,按 accountState=2 筛选只命中该行。
+     * 同时验证 numberSource=1(TINYINT)写入后 selectPage 读出为 Integer(1),不抛 TypeException。
+     */
+    @Test
+    void listAccounts_filterByAccountState_onlyMatchingReturned() {
+        long now = System.currentTimeMillis();
+
+        // 目标账号:number_source=1(买量),state=2(正常)
+        Account target = new Account();
+        target.setWsPhone("86177" + (now % 10000000L));
+        target.setAccountType(1);
+        target.setOwnership(1);
+        target.setNumberSource(1);  // Integer,验 TINYINT→Integer 无 TypeException
+        target.setPriority(0);
+        target.setCreatedAt(now);
+        target.setUpdatedAt(now);
+        accountMapper.insert(target);
+
+        // 插入默认状态行,再 UPDATE account_state 列(insert XML 只写固定列,用 JdbcTemplate 补)
+        insertDefaultState(target.getId(), now);
+        jdbc.update("UPDATE account_state SET account_state = 2 WHERE account_id = ?", target.getId());
+
+        // 另一个账号:state=1(新增)
+        Account other = insertAccount("86178" + (now % 10000000L), now);
+        insertDefaultState(other.getId(), now);
+        jdbc.update("UPDATE account_state SET account_state = 1 WHERE account_id = ?", other.getId());
+
+        AccountQuery q = new AccountQuery();
+        q.setAccountState(2);
+
+        long count = accountMapper.countPage(q);
+        assertThat(count).isGreaterThanOrEqualTo(1);
+
+        List<AccountListVoRow> page = accountMapper.selectPage(q);
+        // 目标账号存在于结果
+        AccountListVoRow row = page.stream()
+                .filter(r -> r.getId().equals(target.getId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("未找到 state=2 的目标账号"));
+        assertThat(row.getAccountState()).isEqualTo(2);
+        // 验 numberSource=1 读出为 Integer(不炸 TypeException)
+        assertThat(row.getNumberSource()).isEqualTo(1);
+
+        // state=1 的账号不出现
+        boolean hasOther = page.stream().anyMatch(r -> r.getId().equals(other.getId()));
+        assertThat(hasOther).isFalse();
     }
 
     /**

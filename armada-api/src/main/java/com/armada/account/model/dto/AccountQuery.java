@@ -28,7 +28,7 @@ public class AccountQuery extends PageQuery {
     private Long accountGroupId;
 
     /** 来源:1买量 2裂变 3自购(可选)。 */
-    private String numberSource;
+    private Integer numberSource;
 
     public String getPhone() {
         return phone;
@@ -78,11 +78,11 @@ public class AccountQuery extends PageQuery {
         this.accountGroupId = accountGroupId;
     }
 
-    public String getNumberSource() {
+    public Integer getNumberSource() {
         return numberSource;
     }
 
-    public void setNumberSource(String numberSource) {
+    public void setNumberSource(Integer numberSource) {
         this.numberSource = numberSource;
     }
 }

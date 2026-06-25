@@ -22,7 +22,7 @@ public class AccountListVoRow {
     private Integer deviceOs;
 
     /** 来源:1买量 2裂变 3自购。 */
-    private String numberSource;
+    private Integer numberSource;
 
     /** 推广渠道名。 */
     private String channelName;
@@ -126,11 +126,11 @@ public class AccountListVoRow {
         this.deviceOs = deviceOs;
     }
 
-    public String getNumberSource() {
+    public Integer getNumberSource() {
         return numberSource;
     }
 
-    public void setNumberSource(String numberSource) {
+    public void setNumberSource(Integer numberSource) {
         this.numberSource = numberSource;
     }
 

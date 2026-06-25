@@ -3,6 +3,7 @@ package com.armada.account.mapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.vo.AccountListVoRow;
+import com.armada.account.model.vo.AccountStatsVoRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -41,4 +42,12 @@ public interface AccountMapper {
      * @return 当前页账号 VoRow 列表
      */
     List<AccountListVoRow> selectPage(AccountQuery query);
+
+    /**
+     * 平台级账号统计卡:本租户全量单条聚合 SQL。
+     * tenant_id 由租户行隔离拦截器自动注入,SQL 不手写。
+     *
+     * @return 统计卡聚合行(total/online/offline/banned/risk/assigned)
+     */
+    AccountStatsVoRow statsSummary();
 }

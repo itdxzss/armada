@@ -80,4 +80,24 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+
+  <!--
+    平台级统计卡:本租户全量单条聚合 SQL。
+    tenant_id 由拦截器注入,不手写。
+    risk_status &gt; 1:XML 里 > 须转义为 &gt; 否则运行时 XML 解析炸 crash-loop。
+    状态列来自 LEFT JOIN account_state,若无状态行则 COALESCE(SUM(...), 0) = 0。
+  -->
+  <select id="statsSummary" resultType="com.armada.account.model.vo.AccountStatsVoRow">
+    SELECT
+      COUNT(*)                                                            AS total,
+      COALESCE(SUM(CASE WHEN s.login_state = 1    THEN 1 ELSE 0 END), 0) AS online,
+      COALESCE(SUM(CASE WHEN s.login_state = 2    THEN 1 ELSE 0 END), 0) AS offline,
+      COALESCE(SUM(CASE WHEN s.account_state = 3  THEN 1 ELSE 0 END), 0) AS banned,
+      COALESCE(SUM(CASE WHEN s.risk_status &gt; 1 THEN 1 ELSE 0 END), 0) AS risk,
+      COALESCE(SUM(CASE WHEN a.dispatched_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS assigned
+    FROM account a
+    LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+  </select>
+
 </mapper>

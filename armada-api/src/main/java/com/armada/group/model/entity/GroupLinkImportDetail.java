@@ -25,13 +25,13 @@ public class GroupLinkImportDetail {
     /** 群名称(可空)。 */
     private String groupName;
 
-    /** 导入结果:1=成功新增 2=收编 3=批内重复 4=格式错误。 */
+    /** 导入结果:1=成功(新增/复活) 2=已存在 3=批内重复 4=格式错误。 */
     private int result;
 
     /** 失败原因(result≥3时)。 */
     private String failReason;
 
-    /** 成功/收编时关联 group_link.id。 */
+    /** 成功/已存在时关联 group_link.id(成功=新建或复活的行;已存在=命中的现有行)。 */
     private Long groupLinkId;
 
     /** 创建时间(UTC)。 */

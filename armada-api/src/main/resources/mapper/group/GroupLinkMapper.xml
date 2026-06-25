@@ -12,7 +12,7 @@
     VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId}, #{createdBy})
   </insert>
 
-  <!-- 复活 + 收编到本分组 + 更新来源批次/群名(群名空不覆盖) -->
+  <!-- 复活软删链接 + 归到本分组 + 更新来源批次/群名(群名空不覆盖) -->
   <update id="adoptToLabel">
     UPDATE group_link
     SET deleted_at = NULL,

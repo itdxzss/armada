@@ -13,7 +13,7 @@ import java.util.List;
 public interface GroupLinkImportService {
 
     /**
-     * 同步导入群链接(upsert-by-url):新链接插入,已存在链接收编到目标分组。
+     * 同步导入群链接(upsert-by-url):新链接插入;同 url 已活跃存在则记「已存在」不导入(原链接不动,换组走迁移);同 url 为软删则复活到目标分组。
      * 逐行归一化、批内去重,最终写 batch + detail 两表并回写统计。
      *
      * @param dto 导入请求(含 labelId/batchName/lines)

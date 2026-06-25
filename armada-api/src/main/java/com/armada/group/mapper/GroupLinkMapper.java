@@ -30,7 +30,7 @@ public interface GroupLinkMapper {
     int insert(GroupLink row);
 
     /**
-     * 收编已存在链接:复活(deleted_at=NULL) + 改归属分组 + 更新来源批次 + COALESCE 群名(空不覆盖)。
+     * 复活软删链接并归到目标分组:复活(deleted_at=NULL) + 改归属分组 + 更新来源批次 + COALESCE 群名(空不覆盖)。
      *
      * @param id        群链接 ID
      * @param labelId   目标分组 ID

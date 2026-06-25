@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 
 /**
  * group 域对象转换(MapStruct,编译期生成)。
@@ -52,11 +53,14 @@ public interface GroupConverter {
     List<GroupLinkVO> toGroupLinkVOList(List<GroupLinkVoRow> rows);
 
     /**
-     * Mapper 投影行 → 导入明细出参 VO(时间字段由 {@link #toEpochMilli} 自动转换)。
+     * Mapper 投影行 → 导入明细出参 VO(时间字段由 {@link #toEpochMilli} 自动转换;
+     * {@code resultLabel} 由 result 码经 {@link com.armada.group.model.GroupLinkImportResult} 算出中文标签)。
      *
      * @param row Mapper 查询投影
      * @return 前端出参
      */
+    @Mapping(target = "resultLabel",
+            expression = "java(com.armada.group.model.GroupLinkImportResult.fromCode(row.getResult()).label())")
     GroupLinkImportDetailVO toImportDetailVO(GroupLinkImportDetailVoRow row);
 
     /**

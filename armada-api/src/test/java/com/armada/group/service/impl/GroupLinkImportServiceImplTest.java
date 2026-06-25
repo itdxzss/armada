@@ -253,7 +253,7 @@ class GroupLinkImportServiceImplTest {
         voRow.setLineNo(1);
         voRow.setResult(1);
         voRow.setCreatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
-        GroupLinkImportDetailVO detailVO = new GroupLinkImportDetailVO(1, null, null, null, 1, null, 1717200000000L);
+        GroupLinkImportDetailVO detailVO = new GroupLinkImportDetailVO(1, null, null, null, 1, "成功", null, 1717200000000L);
 
         when(detailMapper.countByQuery(query)).thenReturn(1L);
         when(detailMapper.selectPage(query)).thenReturn(List.of(voRow));

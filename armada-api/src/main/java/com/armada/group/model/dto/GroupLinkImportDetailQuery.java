@@ -13,7 +13,7 @@ public class GroupLinkImportDetailQuery extends PageQuery {
     /** 所属批次 ID(按批次查)。 */
     private Long batchId;
 
-    /** 导入结果过滤(1=成功 2=收编 3=批内重复 4=格式错误)。 */
+    /** 导入结果过滤(1=成功 2=已存在 3=批内重复 4=格式错误)。 */
     private Integer result;
 
     public Long getLabelId() {

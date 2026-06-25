@@ -20,12 +20,15 @@ public record GroupLinkImportDetailVO(
         String sourceFileName,
 
         /**
-         * 导入结果码:1=成功新增 2=收编 3=批内重复 4=格式错误。
-         * 前端负责将数值映射为可读标签。
+         * 导入结果码:1=成功(新增/复活) 2=已存在 3=批内重复 4=格式错误。
+         * 配套 {@code resultLabel} 中文标签由后端算好,前端直接展示、无需自行映射。
          */
         int result,
 
-        /** 失败原因(result≥3 时有值,其余为 null)。 */
+        /** 导入结果中文标签(后端按 result 码算好:成功/已存在/批内重复/格式错误),前端「状态」列直接展示。 */
+        String resultLabel,
+
+        /** 失败/已存在原因(成功行为 null;已存在/批内重复/格式错误行有值)。 */
         String failReason,
 
         /** 创建时间,epoch 毫秒(UTC)。 */

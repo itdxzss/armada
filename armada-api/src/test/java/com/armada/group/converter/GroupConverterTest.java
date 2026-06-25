@@ -106,6 +106,7 @@ class GroupConverterTest {
         assertThat(vo.rawUrl()).isEqualTo("https://chat.whatsapp.com/AbcDef");
         assertThat(vo.sourceFileName()).isEqualTo("links.txt");
         assertThat(vo.result()).isEqualTo(4);
+        assertThat(vo.resultLabel()).isEqualTo("格式错误");  // 后端按 result 码算好中文标签
         assertThat(vo.failReason()).isEqualTo("格式错误");
         assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
     }
@@ -139,7 +140,9 @@ class GroupConverterTest {
 
         assertThat(vos).hasSize(2);
         assertThat(vos.get(0).lineNo()).isEqualTo(1);
+        assertThat(vos.get(0).resultLabel()).isEqualTo("成功");      // result=1
         assertThat(vos.get(1).result()).isEqualTo(4);
+        assertThat(vos.get(1).resultLabel()).isEqualTo("格式错误");  // result=4
         assertThat(vos.get(1).failReason()).isEqualTo("格式错误");
     }
 }

@@ -21,6 +21,9 @@ public class TenantAuthServiceImpl implements TenantAuthService {
 
     private static final Logger log = LoggerFactory.getLogger(TenantAuthServiceImpl.class);
 
+    /** 先测阶段占位 token 的前缀,拼在租户码前(非真鉴权凭据);接 JWT 后随登录改造整体删除。 */
+    private static final String DEV_TOKEN_PREFIX = "dev-";
+
     private final TenantMapper tenantMapper;
     private final String devPassword;
 
@@ -31,6 +34,13 @@ public class TenantAuthServiceImpl implements TenantAuthService {
         this.devPassword = devPassword;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:参数缺失 / 密码不符 / 租户不存在或停用,一律抛同一个 {@code LOGIN_FAILED},
+     * 不区分失败原因——防止有人借不同报错枚举出有效租户码(fail-closed);配置未设密码(空)时一律拒绝,
+     * 杜绝空密码登录。日志只打 tenantCode、绝不打密码(脱敏)。</p>
+     */
     @Override
     public TenantLoginVO login(TenantLoginRequest request) {
         if (request == null || request.tenantCode() == null || request.password() == null) {
@@ -47,6 +57,7 @@ public class TenantAuthServiceImpl implements TenantAuthService {
             throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
         log.info("login.ok tenantId={} tenantCode={}", tenant.getId(), tenant.getTenantCode());
-        return new TenantLoginVO(tenant.getTenantCode(), tenant.getName(), "dev-" + tenant.getTenantCode());
+        return new TenantLoginVO(
+                tenant.getTenantCode(), tenant.getName(), DEV_TOKEN_PREFIX + tenant.getTenantCode());
     }
 }

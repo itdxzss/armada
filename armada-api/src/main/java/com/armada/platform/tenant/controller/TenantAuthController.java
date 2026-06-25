@@ -20,6 +20,15 @@ public class TenantAuthController {
         this.authService = authService;
     }
 
+    /**
+     * 租户登录:校验租户码 + 密码,成功返回租户信息与占位 token。
+     *
+     * <p>失败由 Service 抛 {@code LOGIN_FAILED},经全局异常处理转成 {@code code≠0} 的 {@link ApiResponse}。
+     * 本端点在 {@code /api/public/**} 排除名单内,不过租户拦截器(登录时还没有租户上下文)。</p>
+     *
+     * @param request 登录入参(租户码 + 密码)
+     * @return 登录结果(租户码、租户名、占位 token)
+     */
     @PostMapping("/login")
     public ApiResponse<TenantLoginVO> login(@RequestBody TenantLoginRequest request) {
         return ApiResponse.ok(authService.login(request));

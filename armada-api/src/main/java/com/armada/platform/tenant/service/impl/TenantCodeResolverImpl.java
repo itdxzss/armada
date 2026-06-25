@@ -16,11 +16,18 @@ public class TenantCodeResolverImpl implements TenantCodeResolver {
         this.tenantMapper = tenantMapper;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:租户码为 null/空白直接返回空、不触库;{@code selectActiveByCode} 只命中启用
+     * (status=1)的租户,停用租户视同未知——fail-closed,不让停用租户的请求落到任何业务数据上。</p>
+     */
     @Override
     public Optional<Long> resolveTenantId(String tenantCode) {
         if (tenantCode == null || tenantCode.isBlank()) {
             return Optional.empty();
         }
+        // 前端头可能带首尾空白,统一 trim 后再按租户码精确匹配。
         Tenant tenant = tenantMapper.selectActiveByCode(tenantCode.trim());
         return tenant == null ? Optional.empty() : Optional.of(tenant.getId());
     }

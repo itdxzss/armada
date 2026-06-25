@@ -78,7 +78,7 @@ shared/
 **platform/**(基础设施适配,原 infra)
 ```
 platform/
-  protocol/     协议层(laqunxitong)HTTP 客户端 + 防腐层
+  protocol/     协议层(laqunxitong)HTTP 客户端 + 防腐层(内部结构见 §4.2)
   kafka/        Kafka 消费/生产(含状态回写 handler;整体平移 —— 决策 A)
   proxy/        运行时 IP 出口解析/分配适配器(决策 B:与 resource/proxy 业务CRUD 拆开)
   upload/       文件上传
@@ -99,6 +99,35 @@ boot/
 - **C(已确认)** 租户拦截器 = MyBatis-Plus `TenantLineInnerInterceptor`:给每条 SQL 自动注入 `AND tenant_id=当前租户`,实现 SaaS 行级数据隔离;租户从 `TenantContext`(ThreadLocal)取,无上下文回退 `-1`(兜底查不到)。
   - 落点:配置类 `TenantLineConfig` / `MybatisPlusConfig`(含 `IGNORED_TABLES` 白名单)→ `platform/persistence/`;`TenantContext`(纯 ThreadLocal)→ `shared/tenant/`;
   - **34 处 `@InterceptorIgnore(tenantLine)` 随各自 mapper 进业务域,逐字保留 —— 迁移红线**(漏标 / 白名单漏表 → 启动 crash-loop 全站 502)。
+
+## 4.2 platform/protocol 内部结构(防腐层细化 · 0624)
+
+> 出站命令通道。入站 Kafka 事件在 `platform/kafka`(§4.1 决策 A);两者合为完整防腐层(命令出去 / 状态回来)。
+> 依据:`armada/docs/business/platform-protocol-contract.md`(wheel↔lqxt 实证契约 §9-11)。
+
+```
+platform/protocol/
+  port/          ← 防腐层唯一对外接口(业务域只能 import 这个包)
+                   AccountLifecyclePort(online/offline/logout/status/probe/submitBatchOnline)
+                   MessagePort · GroupPort · ContactPort · ProxyPort —— 按能力分,不要 god-port
+  model/         ← 协议层专用出入参(record),翻译边界,不外泄业务域
+                   command/(LoadConnectRequest…)  result/(OnlineResult/AccountStatus…)
+  http/          ← port 的 HTTP 实现(adapter,可替换:将来 NATS/whatsmeow 换这里)
+                   ProtocolHttpExecutor(连接池 Apache HC/超时/2xx 校验/错误码映射)
+                   HttpAccountLifecycleClient / HttpMessageClient / HttpGroupClient / …
+  resilience/    ← 横切一处收口(装饰器,实现同 port、包住 http impl)
+                   PerAccountRateLimiter(②封号轴 per-发言号令牌桶,按动作分阈值)
+                   ProtocolCircuitBreaker · 按吞吐类隔离的有界 executor(bulkhead)
+  ProtocolErrorCode / ProtocolException
+```
+
+**三条规约(ArchUnit 守,见 §10 规则 4)**:
+1. 业务域只依赖 `port/`,看不到 `http`/`model`/`resilience`——协议层换传输/换库(HTTP→NATS、Baileys→whatsmeow)业务零改。
+2. 协议 wire DTO 关在 `model/` 不外泄;port 签名用业务可懂的参数,adapter 内翻译(杜绝 wheel 那种协议 DTO 漏进 service)。
+3. 限流/熔断/bulkhead 全在 `resilience/` 一处收口——②封号轴 per-号令牌桶包在 port 外,所有调用方(营销/拉群/补拉手)自动被同一套限速管住(杜绝 wheel 各写各的 + 漏 per-号)。
+
+**吞吐分类 pacing 归属**(见 contract §11):①CPU 握手 → 此处不设 cap,归协议层 OnlineGate + 横向扩 worker;②封号 → `resilience/PerAccountRateLimiter`;③IO → 业务侧有界宽松并发。批量 = port `submitBatchOnline` 调 lqxt batch 端点 + 终态走 `platform/kafka`。
+配置(base-url/X-Api-Key/连接池):放 `boot/config` 或内聚于 `platform/protocol/http/`,择一。
 
 ## 5. 对象集(已定)
 
@@ -176,6 +205,7 @@ account/
   1. 跨域只调对方 **Service**,不碰对方 controller / mapper / entity;
   2. controller → service → mapper 单向;**controller 不直接调 mapper**;
   3. 依赖方向:业务域可依赖 `shared`/`platform`;`shared` 不依赖 `platform` 与业务域;`platform` 不依赖业务域。
+  4. 协议层调用只依赖 `platform/protocol/port`:业务域(及其它包)**不得 import** `platform/protocol/http`、`…model`、`…resilience`——防腐层实现细节与 wire DTO 不外泄(见 §4.2)。
 - 时机:迁移结构完成、编译与测试全绿后引入,一次性锁定结构。
 
 ## 11. 迁移方式:模型 B —— 全栈纵切、按业务逐块重建(#7 + #8)

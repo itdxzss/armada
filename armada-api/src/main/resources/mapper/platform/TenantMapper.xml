@@ -2,6 +2,10 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.platform.tenant.mapper.TenantMapper">
 
+    <!--
+      登录解析阶段无租户上下文;tenant 表已登记 MyBatisConfig.IGNORED_TABLES,不会被注入 AND tenant_id=?。
+      status = 1 表示启用租户(0=停用),停用租户视同不存在。
+    -->
     <select id="selectActiveByCode" resultType="com.armada.platform.tenant.model.entity.Tenant">
         SELECT id, tenant_code, name, status, created_at, updated_at
         FROM tenant

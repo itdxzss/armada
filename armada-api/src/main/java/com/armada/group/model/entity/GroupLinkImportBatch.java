@@ -28,7 +28,10 @@ public class GroupLinkImportBatch {
     /** 新增行数。 */
     private int insertedRows;
 
-    /** 收编行数。 */
+    /**
+     * 已存在行数(EXISTS:同 url 已活跃存在、未导入)。
+     * 注:沿用既有 {@code adopted_rows} 列暂存(「收编」已废);列名改 {@code exists_rows} 待与 account 迁移序列协调后做(TODO)。
+     */
     private int adoptedRows;
 
     /** 批内重复跳过行数。 */

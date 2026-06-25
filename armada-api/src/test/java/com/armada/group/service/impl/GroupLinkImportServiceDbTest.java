@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * GroupLinkImportService 真库集成测试:验三表落库、计数回写、upsert-by-url 收编。
+ * GroupLinkImportService 真库集成测试:验三表落库、计数回写、upsert-by-url(已存在不动 / 软删复活)。
  * 每个 @Test 在 @Transactional 内执行并回滚,数据互不干扰。
  */
 class GroupLinkImportServiceDbTest extends DbTestBase {
@@ -66,7 +66,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         // 返回值正确
         assertThat(result.total()).isEqualTo(2);
         assertThat(result.inserted()).isEqualTo(2);
-        assertThat(result.adopted()).isEqualTo(0);
+        assertThat(result.exists()).isEqualTo(0);
         assertThat(result.duplicated()).isEqualTo(0);
         assertThat(result.failed()).isEqualTo(0);
         assertThat(result.batchId()).isNotNull();
@@ -91,41 +91,69 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     }
 
     @Test
-    void importLinks_existingUrl_adopted_changesToTargetLabel() {
-        GroupLinkLabel labelA = insertLabel("集成测试分组-收编源");
-        GroupLinkLabel labelB = insertLabel("集成测试分组-收编目标");
+    void importLinks_existingActiveUrl_reportsExists_labelUnchanged() {
+        GroupLinkLabel labelA = insertLabel("集成测试分组-已存在源");
+        GroupLinkLabel labelB = insertLabel("集成测试分组-已存在目标");
 
-        // 先导入到 labelA
+        // 先导入到 labelA(活跃)
         importService.importLinks(new GroupLinkImportDTO(
                 labelA.getId(), "第一次导入", null,
-                List.of("https://chat.whatsapp.com/AdoptMe")));
+                List.of("https://chat.whatsapp.com/ExistMe")));
 
-        GroupLink before = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/AdoptMe");
+        GroupLink before = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ExistMe");
         assertThat(before).isNotNull();
         assertThat(before.getLabelId()).isEqualTo(labelA.getId());
 
-        // 再导入到 labelB — 同 url 应走 ADOPTED
+        // 再导入到 labelB — 同 url 已活跃存在 → 已存在,不导入、原链接不动
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
                 labelB.getId(), "第二次导入", null,
-                List.of("https://chat.whatsapp.com/AdoptMe")));
+                List.of("https://chat.whatsapp.com/ExistMe")));
 
         assertThat(result.total()).isEqualTo(1);
-        assertThat(result.adopted()).isEqualTo(1);
+        assertThat(result.exists()).isEqualTo(1);
         assertThat(result.inserted()).isEqualTo(0);
 
-        // label_id 已改为 labelB
-        GroupLink after = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/AdoptMe");
+        // label_id 仍是 labelA(未被搬走)
+        GroupLink after = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ExistMe");
         assertThat(after).isNotNull();
-        assertThat(after.getLabelId()).isEqualTo(labelB.getId());
+        assertThat(after.getLabelId()).isEqualTo(labelA.getId());
 
-        // detail result = ADOPTED(code=2)
+        // detail result = EXISTS(code=2)
         GroupLinkImportDetailQuery q = new GroupLinkImportDetailQuery();
         q.setBatchId(result.batchId());
         q.setPage(1);
         q.setPageSize(10);
         List<GroupLinkImportDetailVoRow> details = detailMapper.selectPage(q);
         assertThat(details).hasSize(1);
-        assertThat(details.get(0).getResult()).isEqualTo(GroupLinkImportResult.ADOPTED.code());
+        assertThat(details.get(0).getResult()).isEqualTo(GroupLinkImportResult.EXISTS.code());
+    }
+
+    @Test
+    void importLinks_softDeletedUrl_revivesAsSuccess() {
+        GroupLinkLabel labelA = insertLabel("集成测试分组-复活源");
+        GroupLinkLabel labelB = insertLabel("集成测试分组-复活目标");
+
+        // 先导入到 labelA,再软删该链接
+        importService.importLinks(new GroupLinkImportDTO(
+                labelA.getId(), "第一次导入", null,
+                List.of("https://chat.whatsapp.com/ReviveMe")));
+        GroupLink imported = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveMe");
+        groupLinkMapper.softDeleteByIds(List.of(imported.getId()));
+
+        // 再导入同 url 到 labelB — 软删行应被复活、归到 labelB,记成功
+        GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
+                labelB.getId(), "第二次导入", null,
+                List.of("https://chat.whatsapp.com/ReviveMe")));
+
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.inserted()).isEqualTo(1);  // 复活计入成功
+        assertThat(result.exists()).isEqualTo(0);
+
+        // 复活:deletedAt 清空 + label_id 改为 labelB
+        GroupLink revived = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveMe");
+        assertThat(revived).isNotNull();
+        assertThat(revived.getDeletedAt()).isNull();
+        assertThat(revived.getLabelId()).isEqualTo(labelB.getId());
     }
 
     @Test
@@ -143,14 +171,14 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
                 label.getId(), "混合批次", null,
                 List.of(
                         "https://chat.whatsapp.com/BrandNew",        // SUCCESS
-                        "https://chat.whatsapp.com/AlreadyExists",   // ADOPTED
+                        "https://chat.whatsapp.com/AlreadyExists",   // EXISTS(已存在,活跃)
                         "https://chat.whatsapp.com/BrandNew",        // DUPLICATE
                         "not-a-whatsapp-link"                         // FORMAT_ERROR
                 )));
 
         assertThat(result.total()).isEqualTo(4);
         assertThat(result.inserted()).isEqualTo(1);
-        assertThat(result.adopted()).isEqualTo(1);
+        assertThat(result.exists()).isEqualTo(1);
         assertThat(result.duplicated()).isEqualTo(1);
         assertThat(result.failed()).isEqualTo(1);
         assertThat(result.errors()).hasSize(1);

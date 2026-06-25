@@ -68,7 +68,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
         List<GroupLinkImportDetail> details = List.of(
                 buildDetail(batch.getId(), 1, "chat.whatsapp.com/Detail1", 1, null),   // SUCCESS
-                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Detail2", 2, null),   // ADOPTED
+                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Detail2", 2, null),   // EXISTS(已存在)
                 buildDetail(batch.getId(), 3, "chat.whatsapp.com/Detail3", 3, "批内重复") // DUPLICATE
         );
         int inserted = detailMapper.batchInsert(details);
@@ -96,7 +96,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         GroupLinkLabel label = insertLabel("失败导出测试分组");
         GroupLinkImportBatch batch = insertBatch(label.getId(), "failed_test.txt");
 
-        // result=1 SUCCESS, result=2 ADOPTED, result=3 DUPLICATE, result=4 FORMAT_ERROR
+        // result=1 SUCCESS, result=2 EXISTS(已存在), result=3 DUPLICATE, result=4 FORMAT_ERROR
         List<GroupLinkImportDetail> details = List.of(
                 buildDetail(batch.getId(), 1, "chat.whatsapp.com/Ok1", 1, null),
                 buildDetail(batch.getId(), 2, "chat.whatsapp.com/Ok2", 2, null),

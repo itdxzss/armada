@@ -99,7 +99,7 @@ class GroupLinkImportServiceImplTest {
 
         assertThat(result.total()).isEqualTo(1);
         assertThat(result.inserted()).isEqualTo(1);
-        assertThat(result.adopted()).isEqualTo(0);
+        assertThat(result.exists()).isEqualTo(0);
         assertThat(result.failed()).isEqualTo(0);
         assertThat(result.batchId()).isEqualTo(10L);
         verify(groupLinkMapper).insert(any());
@@ -107,11 +107,12 @@ class GroupLinkImportServiceImplTest {
     }
 
     @Test
-    void existingUrl_adopts_changesLabel_andDetailAdopted() {
+    void existingActiveUrl_reportsExists_andDoesNotTouchLink() {
         stubValidLabel(2L);
         stubBatchInsert(20L);
         GroupLink existing = new GroupLink();
         existing.setId(200L);
+        existing.setDeletedAt(null);  // 活跃链接
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
 
         GroupLinkImportResultVO result = service.importLinks(
@@ -119,8 +120,30 @@ class GroupLinkImportServiceImplTest {
                         List.of("https://chat.whatsapp.com/AbcDef")));
 
         assertThat(result.total()).isEqualTo(1);
-        assertThat(result.adopted()).isEqualTo(1);
+        assertThat(result.exists()).isEqualTo(1);
         assertThat(result.inserted()).isEqualTo(0);
+        // 已存在的活跃链接:既不插入,也不改归属(不调 adoptToLabel)
+        verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any());
+        verify(groupLinkMapper, never()).insert(any());
+    }
+
+    @Test
+    void existingSoftDeletedUrl_revives_asSuccess() {
+        stubValidLabel(2L);
+        stubBatchInsert(20L);
+        GroupLink existing = new GroupLink();
+        existing.setId(200L);
+        existing.setDeletedAt(LocalDateTime.now());  // 软删链接
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(2L, "batch2", null,
+                        List.of("https://chat.whatsapp.com/AbcDef")));
+
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.inserted()).isEqualTo(1);  // 复活计入成功
+        assertThat(result.exists()).isEqualTo(0);
+        // 软删链接:复活并改归属本分组
         verify(groupLinkMapper).adoptToLabel(eq(200L), eq(2L), eq(20L), eq(null));
         verify(groupLinkMapper, never()).insert(any());
     }

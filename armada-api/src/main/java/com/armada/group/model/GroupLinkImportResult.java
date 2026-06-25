@@ -2,10 +2,10 @@ package com.armada.group.model;
 
 /** 群链接逐行导入结果。 */
 public enum GroupLinkImportResult {
-    /** 成功:新链接,已入 group_link。 */
+    /** 成功:新链接插入 group_link;或复活之前软删的同 url 链接到本分组。 */
     SUCCESS(1),
-    /** 收编:已存在的链接,归到本次目标分组(改 label_id 或复活)。 */
-    ADOPTED(2),
+    /** 已存在:同 url 已活跃存在(在某分组),不导入、原链接不动。换组请走「迁移分组」。 */
+    EXISTS(2),
     /** 重复:本批次内同 url 出现多次,跳过。 */
     DUPLICATE(3),
     /** 格式错误:不符合 WhatsApp 邀请链接格式。 */

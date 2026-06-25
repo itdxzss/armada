@@ -76,11 +76,28 @@ public class AccountImportServiceImpl implements AccountImportService {
     }
 
     /**
-     * {@inheritDoc}
+     * 导入账号:把上传文件 / 粘贴文本解析成多条账号,逐条分类后对合格条目做「三步原子写」,
+     * 最后落一条批次汇总 + 每条明细,返回批次结果。(接口契约见 {@link AccountImportService#importAccounts})
      *
-     * <p>计数口径:imported=SUCCESS;duplicate=批内重复∪DB uq 冲突;
-     * formatError=FORMAT_ERROR∪CRED_INCOMPLETE(明细 parse_result 值区分 3/4)。
-     * login_* 不写(NULL),step3 Kafka 回填。</p>
+     * <p>整体流程:</p>
+     * <ol>
+     *   <li>必填校验 + 按格式(JSON / 全参)解析成条目列表;内容为空直接拒。</li>
+     *   <li>解析目标分组:调用方指定了就用,否则懒建 / 取系统默认分组。</li>
+     *   <li>逐条分类并处理:<b>凭据不全 / 格式错误 / 批内同号重复</b> → 只记一条失败明细、不建号;
+     *       <b>合格条目</b> → 调 {@link AccountImportRowWriter#writeOne} 在一个事务里写三张表
+     *       (account 身份行 + account_state 默认行 + account_credential 凭据);
+     *       若撞库内唯一键(并发下同号已存在)记为「重复」。</li>
+     *   <li>写一条批次汇总(status 恒为 2「已完成」—— step1 同步导入即结束,成败不进 status、看计数列)
+     *       + 批量写每条明细,回查批次组装 VO 返回。</li>
+     * </ol>
+     *
+     * <p>三个计数列的口径:</p>
+     * <ul>
+     *   <li>{@code importedRows} = 成功入库条数;</li>
+     *   <li>{@code duplicateRows} = 重复条数 = 批内同号重复 + 库内已存在(并发撞唯一键);</li>
+     *   <li>{@code formatErrorRows} = 不合格条数 = 格式错误 + 凭据不全(明细 {@code parseResult} 用 3 / 4 区分);</li>
+     * </ul>
+     * <p>登录相关计数(loginSuccess / failed / abnormal)step1 不写(NULL),留 step3 接协议层 Kafka 回填。</p>
      */
     @Override
     public AccountImportBatchVO importAccounts(AccountImportDTO meta, byte[] fileBytes, String text) {
@@ -102,22 +119,26 @@ public class AccountImportServiceImpl implements AccountImportService {
                 : groupService.ensureSystemGroup().getId();
 
         List<AccountImportDetail> details = new ArrayList<>(entries.size());
-        Set<String> seenWid = new HashSet<>();
-        int importedCount = 0;
-        int duplicateCount = 0;
-        int formatErrorCount = 0;
+        Set<String> seenWid = new HashSet<>();   // 批内去重集合:本批已出现过的 wid(手机号)
+        int importedCount = 0;                   // 成功入库
+        int duplicateCount = 0;                  // 重复(批内 + 库内)
+        int formatErrorCount = 0;                // 不合格(格式错误 + 凭据不全)
 
-        long now = System.currentTimeMillis();
+        long now = System.currentTimeMillis();   // 本批统一时间戳(批次/明细/账号行共用,epoch 毫秒)
         int lineNo = 0;
+        // 逐条:先分类,只有合格条目才落库;无论成败都为每条收集一行明细 + 累计对应计数
         for (ParsedEntry entry : entries) {
             lineNo++;
+            // classify 内部判定:parseError 含"凭据不全"→CRED_INCOMPLETE;其它 parseError→FORMAT_ERROR;
+            // wid 已在 seenWid→DUPLICATE(批内重复);否则 SUCCESS 并把 wid 记入 seenWid(防本批后续同号)
             RowClassification classification = classify(entry, seenWid);
             ImportResult result = classification.result();
             Long accountId = null;
             String failReason = classification.failReason();
 
             if (result == ImportResult.SUCCESS) {
-                // 三步原子写(DuplicateKeyException = 库内重复)
+                // 合格条目:三表原子写(account + account_state + account_credential 在 writeOne 的同一事务里);
+                // 撞 DB 唯一键 uq_tenant_phone(并发下同号已先入库)→ 整行回滚,本条改记「库内重复」
                 try {
                     accountId = rowWriter.writeOne(
                             entry.getWid(),
@@ -135,21 +156,24 @@ public class AccountImportServiceImpl implements AccountImportService {
                             maskPhone(entry.getWid()), lineNo);
                 }
             } else if (result == ImportResult.DUPLICATE) {
+                // 批内重复(同号在本批前面已出现过):不建号,只计数
                 duplicateCount++;
             } else {
-                // FORMAT_ERROR 或 CRED_INCOMPLETE
+                // 解析阶段即判失败(FORMAT_ERROR 格式错误 / CRED_INCOMPLETE 凭据不全):不建号,只计数
                 formatErrorCount++;
             }
 
+            // 无论成败,每条都落一行明细(失败行 accountId 为 null,failReason 带原因供前端/CSV 展示)
             details.add(buildDetail(lineNo, entry.getWid(), accountId, result, failReason, now));
         }
 
-        // 写批次行(status=2 已完成;login_* 不写=NULL)
+        // 写批次汇总行:total=解析总条数,带上三类计数;status=2 已完成(同步导入即结束),
+        // 登录级计数 login_*(成功/失败/异常)step1 不写=NULL,留 step3 回填。insert 后回填自增 id
         AccountImportBatch batch = buildBatch(meta, resolvedGroupId, entries.size(),
                 importedCount, duplicateCount, formatErrorCount, now);
         batchMapper.insert(batch);
 
-        // 批量写明细
+        // 把刚拿到的批次 id 回填到每条明细,再一次性批量插入(明细与批次同批落库)
         for (AccountImportDetail d : details) {
             d.setBatchId(batch.getId());
         }

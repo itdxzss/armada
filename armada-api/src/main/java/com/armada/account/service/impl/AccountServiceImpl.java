@@ -5,6 +5,7 @@ import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVO;
@@ -33,10 +34,11 @@ public class AccountServiceImpl implements AccountService {
     private static final Logger log = LoggerFactory.getLogger(AccountServiceImpl.class);
 
     /**
-     * 可删除账号状态集合:封禁(3)/ 导出(4)/ 解绑(5)。
-     * 对应 account_state 表 account_state 列口径,禁止魔法值直接散落。
+     * 可删除账号状态集合:封禁 / 导出 / 解绑。
+     * 对应 account_state 表 account_state 列口径,使用 {@link AccountStateCode} 常量替代魔法值。
      */
-    private static final Set<Integer> DELETABLE_STATES = Set.of(3, 4, 5);
+    private static final Set<Integer> DELETABLE_STATES = Set.of(
+            AccountStateCode.BANNED, AccountStateCode.EXPORTED, AccountStateCode.UNBOUND);
 
     private final AccountMapper accountMapper;
     private final AccountGroupMapper accountGroupMapper;

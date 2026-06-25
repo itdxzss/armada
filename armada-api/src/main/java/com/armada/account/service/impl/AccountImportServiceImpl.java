@@ -47,6 +47,9 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountImportServiceImpl.class);
 
+    /** 批次状态:已完成(step1 同步导入即结束,成败不进 status、看计数列)。 */
+    private static final int BATCH_STATUS_DONE = 2;
+
     /** CSV 导出时间列格式(北京时间可读串,CSV 给人看)。 */
     private static final DateTimeFormatter CSV_DATETIME_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
@@ -140,13 +143,7 @@ public class AccountImportServiceImpl implements AccountImportService {
                 // 合格条目:三表原子写(account + account_state + account_credential 在 writeOne 的同一事务里);
                 // 撞 DB 唯一键 uq_tenant_phone(并发下同号已先入库)→ 整行回滚,本条改记「库内重复」
                 try {
-                    accountId = rowWriter.writeOne(
-                            entry.getWid(),
-                            entry,
-                            resolvedGroupId,
-                            meta.importFormat(),
-                            meta.deviceOs(),
-                            meta.accountType());
+                    accountId = rowWriter.writeOne(entry.getWid(), entry, resolvedGroupId, meta);
                     importedCount++;
                 } catch (DuplicateKeyException e) {
                     result = ImportResult.DUPLICATE;
@@ -164,13 +161,14 @@ public class AccountImportServiceImpl implements AccountImportService {
             }
 
             // 无论成败,每条都落一行明细(失败行 accountId 为 null,failReason 带原因供前端/CSV 展示)
-            details.add(buildDetail(lineNo, entry.getWid(), accountId, result, failReason, now));
+            details.add(buildDetail(lineNo, entry.getWid(), accountId,
+                    new RowClassification(result, failReason), now));
         }
 
         // 写批次汇总行:total=解析总条数,带上三类计数;status=2 已完成(同步导入即结束),
         // 登录级计数 login_*(成功/失败/异常)step1 不写=NULL,留 step3 回填。insert 后回填自增 id
-        AccountImportBatch batch = buildBatch(meta, resolvedGroupId, entries.size(),
-                importedCount, duplicateCount, formatErrorCount, now);
+        ImportCounts counts = new ImportCounts(entries.size(), importedCount, duplicateCount, formatErrorCount);
+        AccountImportBatch batch = buildBatch(meta, resolvedGroupId, counts, now);
         batchMapper.insert(batch);
 
         // 把刚拿到的批次 id 回填到每条明细,再一次性批量插入(明细与批次同批落库)
@@ -220,22 +218,21 @@ public class AccountImportServiceImpl implements AccountImportService {
         return new RowClassification(ImportResult.SUCCESS, null);
     }
 
-    private AccountImportDetail buildDetail(int lineNo, String wsPhone, Long accountId,
-                                             ImportResult result, String failReason, long now) {
+    private AccountImportDetail buildDetail(int lineNo, String wsPhone,
+                                             Long accountId, RowClassification cls, long now) {
         AccountImportDetail d = new AccountImportDetail();
         d.setLineNo(lineNo);
         d.setWsPhone(wsPhone);
         d.setAccountId(accountId);
-        d.setParseResult(result.getCode());
-        d.setFailReason(failReason);
+        d.setParseResult(cls.result().getCode());
+        d.setFailReason(cls.failReason());
         // loginResult 不写(NULL=未登录/步骤1)
         d.setCreatedAt(now);
         return d;
     }
 
     private AccountImportBatch buildBatch(AccountImportDTO meta, Long groupId,
-                                           int total, int imported, int duplicate,
-                                           int formatError, long now) {
+                                           ImportCounts counts, long now) {
         AccountImportBatch b = new AccountImportBatch();
         b.setAccountGroupId(groupId);
         b.setBatchName(meta.batchName());
@@ -244,12 +241,12 @@ public class AccountImportServiceImpl implements AccountImportService {
         b.setDeviceOs(meta.deviceOs());
         b.setAccountType(meta.accountType());
         b.setIpRegion(meta.ipRegion());
-        b.setTotalRows(total);
-        b.setImportedRows(imported);
-        b.setDuplicateRows(duplicate);
-        b.setFormatErrorRows(formatError);
+        b.setTotalRows(counts.total());
+        b.setImportedRows(counts.imported());
+        b.setDuplicateRows(counts.duplicate());
+        b.setFormatErrorRows(counts.formatError());
         // login_* 不写(step1=NULL)
-        b.setStatus(2);   // 已完成;step1 同步导入即结束
+        b.setStatus(BATCH_STATUS_DONE);   // 已完成;step1 同步导入即结束
         b.setCreatedAt(now);
         return b;
     }
@@ -285,6 +282,10 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** 单行分类结果内部载体(不抽公共类,无其他调用点)。 */
     private record RowClassification(ImportResult result, String failReason) {
+    }
+
+    /** 批次计数封装(total/imported/duplicate/formatError),用于收拢 buildBatch 参数至 ≤5。 */
+    private record ImportCounts(int total, int imported, int duplicate, int formatError) {
     }
 
     /** {@inheritDoc} */

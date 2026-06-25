@@ -214,7 +214,8 @@ class AccountImportParserTest {
     @Test
     void importFormat_fromCode_unknownThrows() {
         assertThatThrownBy(() -> ImportFormat.fromCode(99))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("未知导入格式编码");
     }
 
     // ---- 工具方法 ----

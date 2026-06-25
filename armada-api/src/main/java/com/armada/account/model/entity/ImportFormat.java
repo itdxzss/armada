@@ -1,5 +1,8 @@
 package com.armada.account.model.entity;
 
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+
 /**
  * 账号导入文件格式枚举。
  *
@@ -47,7 +50,7 @@ public enum ImportFormat {
      *
      * @param code 整型编码
      * @return 对应枚举值
-     * @throws IllegalArgumentException 如果编码不存在
+     * @throws com.armada.shared.exception.BusinessException 如果编码不存在(VALIDATION 错误码,可恢复业务异常)
      */
     public static ImportFormat fromCode(int code) {
         for (ImportFormat f : values()) {
@@ -55,6 +58,6 @@ public enum ImportFormat {
                 return f;
             }
         }
-        throw new IllegalArgumentException("未知 ImportFormat code: " + code);
+        throw new BusinessException(ErrorCode.VALIDATION, "未知导入格式编码: " + code);
     }
 }

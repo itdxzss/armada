@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountState;
@@ -28,6 +29,12 @@ public class AccountImportRowWriter {
 
     private static final Logger log = LoggerFactory.getLogger(AccountImportRowWriter.class);
 
+    /** 账号所有权:自有账号(非平台池借用)。 */
+    private static final int OWNERSHIP_SELF = 1;
+
+    /** 账号调度优先级:默认值(值越小优先级越低)。 */
+    private static final int DEFAULT_PRIORITY = 0;
+
     private final AccountMapper accountMapper;
     private final AccountStateMapper stateMapper;
     private final AccountCredentialMapper credentialMapper;
@@ -48,12 +55,10 @@ public class AccountImportRowWriter {
      * <p>全部在同一事务内执行。任何一步失败(包括 uq_tenant_phone 冲突)整体回滚,
      * 不留孤儿行。成功后返回新账号 ID。</p>
      *
-     * @param wid          WA 手机号(纯数字,用于 wsPhone 和 protocolAccountId)
-     * @param entry        解析条目(data 字段序列化为 creds_json;日志只打 maskPhone,不打明文)
+     * @param wid            WA 手机号(纯数字,用于 wsPhone 和 protocolAccountId)
+     * @param entry          解析条目(data 字段序列化为 creds_json;日志只打 maskPhone,不打明文)
      * @param accountGroupId 目标分组 ID(已由调用方解析;NOT NULL)
-     * @param importFormat 导入格式编码(写入 account_credential.cred_format)
-     * @param deviceOs     机型编码(选填,null 表示用户未选机型)
-     * @param accountType  账号类型:导入即冻结,不可后续改写
+     * @param meta           导入元信息 DTO:importFormat/deviceOs/accountType 从此取(导入即冻结)
      * @return 新写入的 account.id
      * @throws org.springframework.dao.DuplicateKeyException 若 uq_tenant_phone 冲突(跨批重复)
      */
@@ -61,13 +66,11 @@ public class AccountImportRowWriter {
     public Long writeOne(String wid,
                          ParsedEntry entry,
                          Long accountGroupId,
-                         int importFormat,
-                         Integer deviceOs,
-                         int accountType) {
+                         AccountImportDTO meta) {
         long now = System.currentTimeMillis();
 
         // 步骤 ①:插入 account 主行
-        Account account = buildAccount(wid, accountGroupId, deviceOs, accountType, now);
+        Account account = buildAccount(wid, accountGroupId, meta.deviceOs(), meta.accountType(), now);
         accountMapper.insert(account);
         Long accountId = account.getId();
 
@@ -77,7 +80,7 @@ public class AccountImportRowWriter {
 
         // 步骤 ③:插入 account_credential(creds_json 由 data 序列化;日志只打 maskPhone+长度)
         String credsJson = serializeCredsJson(entry, wid);
-        AccountCredential credential = buildCredential(accountId, wid, importFormat, credsJson, now);
+        AccountCredential credential = buildCredential(accountId, wid, meta.importFormat(), credsJson, now);
         credentialMapper.insert(credential);
 
         log.info("[AccountImportRowWriter] 三步写成功 maskPhone={}*** accountId={} credsLen={}",
@@ -96,8 +99,8 @@ public class AccountImportRowWriter {
         // 铁律:account_type 导入即冻结
         a.setAccountType(accountType);
         a.setDeviceOs(deviceOs);
-        a.setOwnership(1);           // 默认「自有」
-        a.setPriority(0);
+        a.setOwnership(OWNERSHIP_SELF);
+        a.setPriority(DEFAULT_PRIORITY);
         a.setAccountGroupId(accountGroupId);
         a.setProtocolAccountId("acc_" + wid);
         a.setCreatedAt(now);

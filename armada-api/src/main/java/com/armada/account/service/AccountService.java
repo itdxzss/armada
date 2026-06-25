@@ -1,13 +1,34 @@
 package com.armada.account.service;
 
+import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.vo.AccountListVO;
+import com.armada.account.model.vo.AccountStatsVO;
+import com.armada.shared.response.PageResult;
 import java.util.List;
 
 /**
  * 账号业务接口(账号列表菜单)。
- *
- * <p>step1 仅暴露迁移分组与批量删除两个变更方法;list/stats 方法由 1.3.4 继续补充。</p>
  */
 public interface AccountService {
+
+    /**
+     * 账号分页列表(SQL 下推筛选,不走内存分页)。
+     *
+     * <p>实现:countPage→total==0 短路→selectPage→converter→PageResult.of。</p>
+     *
+     * @param query 查询参数(含分页/筛选字段)
+     * @return 分页账号列表
+     */
+    PageResult<AccountListVO> listAccounts(AccountQuery query);
+
+    /**
+     * 账号统计卡(平台级单条聚合 SQL)。
+     *
+     * <p>unassigned = total - assigned 在 Service 层派生。</p>
+     *
+     * @return 统计卡数据
+     */
+    AccountStatsVO getStats();
 
     /**
      * 批量迁移分组:将指定账号迁移到目标分组。

@@ -1,11 +1,19 @@
 package com.armada.account.service.impl;
 
+import com.armada.account.converter.AccountConverter;
 import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.vo.AccountListVO;
+import com.armada.account.model.vo.AccountListVoRow;
+import com.armada.account.model.vo.AccountStatsVO;
+import com.armada.account.model.vo.AccountStatsVoRow;
 import com.armada.account.service.AccountService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.response.PageResult;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -32,10 +40,50 @@ public class AccountServiceImpl implements AccountService {
 
     private final AccountMapper accountMapper;
     private final AccountGroupMapper accountGroupMapper;
+    private final AccountConverter accountConverter;
 
-    public AccountServiceImpl(AccountMapper accountMapper, AccountGroupMapper accountGroupMapper) {
+    public AccountServiceImpl(AccountMapper accountMapper,
+                              AccountGroupMapper accountGroupMapper,
+                              AccountConverter accountConverter) {
         this.accountMapper = accountMapper;
         this.accountGroupMapper = accountGroupMapper;
+        this.accountConverter = accountConverter;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现:countPage→total==0 短路(返回空页)→selectPage→converter→PageResult.of。</p>
+     */
+    @Override
+    public PageResult<AccountListVO> listAccounts(AccountQuery query) {
+        long total = accountMapper.countPage(query);
+        if (total == 0) {
+            return PageResult.of(Collections.emptyList(), query.getPage(), query.getPageSize(), 0);
+        }
+        List<AccountListVoRow> rows = accountMapper.selectPage(query);
+        List<AccountListVO> list = accountConverter.toAccountListVOList(rows);
+        return PageResult.of(list, query.getPage(), query.getPageSize(), total);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>unassigned = total - assigned 在此派生,Mapper 聚合 SQL 不含此列。</p>
+     */
+    @Override
+    public AccountStatsVO getStats() {
+        AccountStatsVoRow row = accountMapper.statsSummary();
+        long unassigned = row.getTotal() - row.getAssigned();
+        return new AccountStatsVO(
+                row.getTotal(),
+                row.getOnline(),
+                row.getOffline(),
+                row.getBanned(),
+                row.getRisk(),
+                row.getAssigned(),
+                unassigned
+        );
     }
 
     /**

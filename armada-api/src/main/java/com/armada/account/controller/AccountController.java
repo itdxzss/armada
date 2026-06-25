@@ -1,0 +1,97 @@
+package com.armada.account.controller;
+
+import com.armada.account.model.dto.AccountGroupDTO;
+import com.armada.account.model.dto.AccountIdsDTO;
+import com.armada.account.model.dto.AccountMigrateGroupDTO;
+import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.vo.AccountListVO;
+import com.armada.account.model.vo.AccountStatsVO;
+import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountService;
+import com.armada.shared.response.ApiResponse;
+import com.armada.shared.response.PageResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 账号列表端点(账号列表菜单)。
+ *
+ * <p>Controller 只做参数接收、上下文衔接与响应组装,业务规则全部在 Service。</p>
+ */
+@RestController
+@RequestMapping("/api/accounts")
+public class AccountController {
+
+    private final AccountService accountService;
+    private final AccountGroupService accountGroupService;
+
+    public AccountController(AccountService accountService, AccountGroupService accountGroupService) {
+        this.accountService = accountService;
+        this.accountGroupService = accountGroupService;
+    }
+
+    /**
+     * A1 账号分页列表(SQL 下推筛选)。
+     *
+     * @param query 查询参数(分页 + 可选筛选字段)
+     * @return 分页账号列表
+     */
+    @GetMapping
+    public ApiResponse<PageResult<AccountListVO>> list(@ModelAttribute AccountQuery query) {
+        return ApiResponse.ok(accountService.listAccounts(query));
+    }
+
+    /**
+     * A2 账号统计卡(平台级聚合)。
+     *
+     * @return 统计卡数据(total/online/offline/banned/risk/assigned/unassigned)
+     */
+    @GetMapping("/stats")
+    public ApiResponse<AccountStatsVO> stats() {
+        return ApiResponse.ok(accountService.getStats());
+    }
+
+    /**
+     * A3 批量迁移分组。
+     *
+     * <p>若 accountGroupId 为 null 且 newGroupName 非空,先新建分组再迁移;
+     * 否则直接用 accountGroupId 迁移。</p>
+     *
+     * @param dto 迁移请求(ids + 目标分组 ID 或新分组名)
+     * @return 空成功响应
+     */
+    @PostMapping("/batch-migrate-group")
+    public ApiResponse<Void> batchMigrateGroup(@RequestBody AccountMigrateGroupDTO dto) {
+        Long resolvedGroupId;
+        if (dto.accountGroupId() == null
+                && dto.newGroupName() != null
+                && !dto.newGroupName().isBlank()) {
+            // 先新建分组,取回 id
+            resolvedGroupId = accountGroupService
+                    .create(new AccountGroupDTO(dto.newGroupName(), dto.newGroupRemark()))
+                    .id();
+        } else {
+            resolvedGroupId = dto.accountGroupId();
+        }
+        accountService.migrateGroup(dto.ids(), resolvedGroupId);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * A4 批量软删除账号(全或无严格口径)。
+     *
+     * <p>仅封禁/导出/解绑状态且不在任务中的账号可删除;任一不满足整批拒删抛 BusinessException。</p>
+     *
+     * @param request 账号 ID 列表
+     * @return 空成功响应
+     */
+    @PostMapping("/batch-delete")
+    public ApiResponse<Void> batchDelete(@RequestBody AccountIdsDTO request) {
+        accountService.batchDelete(request.ids());
+        return ApiResponse.ok();
+    }
+}

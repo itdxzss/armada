@@ -188,7 +188,7 @@ class AccountImportParserTest {
         // wid 不是合法手机号
         String json = "[{\"wid\":\"abc\"}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
-        assertThat(entries.get(0).getParseError()).isNotNull();
+        assertThat(entries.get(0).getParseError()).isNotNull().contains("wid");
     }
 
     // ---- 非法 JSON ----

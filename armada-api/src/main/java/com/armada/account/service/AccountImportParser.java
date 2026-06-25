@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -99,7 +100,7 @@ public class AccountImportParser {
         if (isZipBytes(fileBytes)) {
             return parseJsonZip(fileBytes);
         }
-        return parseJsonText(new String(fileBytes), "file-input");
+        return parseJsonText(new String(fileBytes, StandardCharsets.UTF_8), "file-input");
     }
 
     /**
@@ -163,7 +164,7 @@ public class AccountImportParser {
                 String entryName = ze.getName();
                 byte[] content = zis.readAllBytes();
                 zis.closeEntry();
-                result.addAll(parseJsonText(new String(content), entryName));
+                result.addAll(parseJsonText(new String(content, StandardCharsets.UTF_8), entryName));
             }
         } catch (IOException e) {
             log.warn("[AccountImportParser] zip 解压失败 error={}", e.getMessage());
@@ -197,7 +198,7 @@ public class AccountImportParser {
      */
     private List<ParsedEntry> parseParams(byte[] fileBytes, String text) {
         String src = (text != null && !text.isEmpty()) ? text
-                : (fileBytes != null ? new String(fileBytes) : "");
+                : (fileBytes != null ? new String(fileBytes, StandardCharsets.UTF_8) : "");
         if (src.isEmpty()) {
             return makeErrorEntry("", "输入内容为空");
         }

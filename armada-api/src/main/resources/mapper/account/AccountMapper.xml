@@ -105,30 +105,40 @@
     批量查删除闸门:取 account_state + dispatched_at,供严格口径校验。
     LEFT JOIN account_state:step1 导入后状态列全 NULL,正常投影。
     tenant_id 由拦截器注入,不手写。
+    ids 空保护:空列表直接返回空结果,避免裸 IN () MySQL 语法错。
   -->
   <select id="selectStatesByIds" resultType="com.armada.account.model.entity.AccountDeleteGateRow">
+    <if test="ids != null and ids.size() &gt; 0">
     SELECT a.id, s.account_state AS accountState, a.dispatched_at AS dispatchedAt
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
       AND a.id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT NULL AS id, NULL AS accountState, NULL AS dispatchedAt FROM DUAL WHERE 1=0
+    </if>
   </select>
 
-  <!-- 批量迁移分组:仅更新未软删行。updatedAt 由调用方传入。 -->
+  <!-- 批量迁移分组:仅更新未软删行。updatedAt 由调用方传入。ids 空时不执行 UPDATE。 -->
   <update id="migrateGroup">
+    <if test="ids != null and ids.size() &gt; 0">
     UPDATE account SET account_group_id = #{accountGroupId}, updated_at = #{updatedAt}
     WHERE deleted_at IS NULL
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
   </update>
 
-  <!-- 批量软删除:仅更新 deleted_at IS NULL 的行,防重复删。 -->
+  <!-- 批量软删除:仅更新 deleted_at IS NULL 的行,防重复删。ids 空时不执行 UPDATE。 -->
   <update id="batchSoftDelete">
+    <if test="ids != null and ids.size() &gt; 0">
     UPDATE account SET deleted_at = #{deletedAt}
     WHERE deleted_at IS NULL
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
   </update>
 
 </mapper>

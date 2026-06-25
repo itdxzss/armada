@@ -10,6 +10,7 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -115,6 +116,27 @@ class AccountMutationDbTest extends DbTestBase {
         assertThat(accountMapper.selectActiveByWsPhone("8613800138020")).isNull();
     }
 
+    // ──────────────────────────── 删除:混合批全或无 ────────────────────────────
+
+    /**
+     * I-1 混合批全或无:ids=[可删号(state=4), 不可删号(state=NULL)]
+     * → batchDelete 整批抛 VALIDATION("仅导出/封禁/解绑..."),
+     * 且可删的那条没被软删(selectActiveByWsPhone 仍非空)。
+     */
+    @Test
+    void batchDelete_mixedBatch_rejectsAll() {
+        Long deletableId = importOneAccount("8613800139001");
+        setAccountState(deletableId, 4);            // 导出,可删
+        Long pendingId   = importOneAccount("8613800139002"); // state=NULL,不可删
+
+        assertThatThrownBy(() -> accountService.batchDelete(List.of(deletableId, pendingId)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("仅导出/封禁/解绑");
+
+        // 全或无:可删的那条也不应被软删
+        assertThat(accountMapper.selectActiveByWsPhone("8613800139001")).isNotNull();
+    }
+
     // ──────────────────────────── 迁移分组 ────────────────────────────
 
     /**
@@ -127,6 +149,7 @@ class AccountMutationDbTest extends DbTestBase {
 
         AccountGroup targetGroup = insertGroup("测试迁移目标分组");
 
+        long beforeMigrate = System.currentTimeMillis();
         accountService.migrateGroup(List.of(id1, id2), targetGroup.getId());
 
         // 验两条账号的 account_group_id 已更新
@@ -136,17 +159,25 @@ class AccountMutationDbTest extends DbTestBase {
                 id1, id2, targetGroup.getId()
         );
         assertThat(updatedIds).containsExactlyInAnyOrder(id1, id2);
+
+        // M-1:updated_at 须在迁移后(即 >= beforeMigrate)
+        Long updatedAt1 = jdbcTemplate.queryForObject(
+                "SELECT updated_at FROM account WHERE id = ?", Long.class, id1);
+        assertThat(updatedAt1).isNotNull().isGreaterThanOrEqualTo(beforeMigrate);
     }
 
     // ──────────────────────────── 迁移分组:目标不存在 ────────────────────────────
 
     /**
-     * migrateGroup 目标分组不存在 → 抛 NOT_FOUND。
+     * migrateGroup 目标分组不存在 → 抛 NOT_FOUND(ErrorCode.NOT_FOUND.code() = 40401)。
      */
     @Test
     void migrateGroup_rejectsNonExistentGroup() {
         Long id = importOneAccount("8613800138040");
         assertThatThrownBy(() -> accountService.migrateGroup(List.of(id), 999_999_999L))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("目标分组不存在")
+                .extracting(e -> ((BusinessException) e).getCode())
+                .isEqualTo(ErrorCode.NOT_FOUND.code());
     }
 }

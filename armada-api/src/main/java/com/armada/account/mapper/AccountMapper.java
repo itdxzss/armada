@@ -2,6 +2,7 @@ package com.armada.account.mapper;
 
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountDeleteGateRow;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVoRow;
 import java.util.List;
@@ -50,4 +51,36 @@ public interface AccountMapper {
      * @return 统计卡聚合行(total/online/offline/banned/risk/assigned)
      */
     AccountStatsVoRow statsSummary();
+
+    /**
+     * 批量查删除闸门数据:取 account_state + dispatched_at,供严格口径校验。
+     * LEFT JOIN account_state:step1 导入后状态列全 NULL,正常投影。
+     *
+     * @param ids 账号 ID 列表
+     * @return 每个 id 对应一行(id/accountState/dispatchedAt)
+     */
+    List<AccountDeleteGateRow> selectStatesByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 批量迁移分组:UPDATE account SET account_group_id=#{accountGroupId}, updated_at=#{updatedAt}。
+     * 仅更新未软删行。
+     *
+     * @param ids            账号 ID 列表
+     * @param accountGroupId 目标分组 ID
+     * @param updatedAt      更新时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int migrateGroup(@Param("ids") List<Long> ids,
+                     @Param("accountGroupId") Long accountGroupId,
+                     @Param("updatedAt") long updatedAt);
+
+    /**
+     * 批量软删除账号:UPDATE account SET deleted_at=#{deletedAt}。
+     * 仅更新未软删行(deleted_at IS NULL)。
+     *
+     * @param ids       账号 ID 列表
+     * @param deletedAt 软删时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int batchSoftDelete(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 }

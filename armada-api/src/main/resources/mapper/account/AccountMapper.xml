@@ -100,4 +100,35 @@
     WHERE a.deleted_at IS NULL
   </select>
 
+
+  <!--
+    批量查删除闸门:取 account_state + dispatched_at,供严格口径校验。
+    LEFT JOIN account_state:step1 导入后状态列全 NULL,正常投影。
+    tenant_id 由拦截器注入,不手写。
+  -->
+  <select id="selectStatesByIds" resultType="com.armada.account.model.entity.AccountDeleteGateRow">
+    SELECT a.id, s.account_state AS accountState, a.dispatched_at AS dispatchedAt
+    FROM account a
+    LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </select>
+
+  <!-- 批量迁移分组:仅更新未软删行。updatedAt 由调用方传入。 -->
+  <update id="migrateGroup">
+    UPDATE account SET account_group_id = #{accountGroupId}, updated_at = #{updatedAt}
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </update>
+
+  <!-- 批量软删除:仅更新 deleted_at IS NULL 的行,防重复删。 -->
+  <update id="batchSoftDelete">
+    UPDATE account SET deleted_at = #{deletedAt}
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+  </update>
+
 </mapper>

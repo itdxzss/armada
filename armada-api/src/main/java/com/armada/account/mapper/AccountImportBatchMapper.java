@@ -1,6 +1,9 @@
 package com.armada.account.mapper;
 
+import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.entity.AccountImportBatch;
+import com.armada.account.model.vo.AccountImportBatchVoRow;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -20,4 +23,20 @@ public interface AccountImportBatchMapper {
      * 按主键查批次行。
      */
     AccountImportBatch selectById(@Param("id") Long id);
+
+    /**
+     * 按筛选条件统计批次总数(SQL 下推,与 selectPage 共享 filter 片段)。
+     *
+     * @param query 批次列表查询参数
+     * @return 符合条件的批次总数
+     */
+    long countPage(AccountImportQuery query);
+
+    /**
+     * 按筛选条件分页查询批次列表(LEFT JOIN account_group 取组名)。
+     *
+     * @param query 批次列表查询参数(含 offset / pageSize)
+     * @return 当前页批次 VoRow 列表
+     */
+    List<AccountImportBatchVoRow> selectPage(AccountImportQuery query);
 }

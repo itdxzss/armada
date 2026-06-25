@@ -23,4 +23,45 @@
       AND deleted_at IS NULL
   </select>
 
+  <!--
+    共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。
+    注意:&gt;= / &lt;= 为 XML 转义,防止 DTD 解析异常。
+  -->
+  <sql id="filter">
+    b.deleted_at IS NULL
+    <if test="id != null">AND b.id = #{id}</if>
+    <if test="sourceFileName != null and sourceFileName != ''">AND b.source_file_name LIKE CONCAT('%', #{sourceFileName}, '%')</if>
+    <if test="importFormat != null">AND b.import_format = #{importFormat}</if>
+    <if test="accountGroupId != null">AND b.account_group_id = #{accountGroupId}</if>
+    <if test="deviceOs != null">AND b.device_os = #{deviceOs}</if>
+    <if test="accountType != null">AND b.account_type = #{accountType}</if>
+    <if test="status != null">AND b.status = #{status}</if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM account_import_batch b
+    WHERE <include refid="filter"/>
+  </select>
+
+  <!--
+    LEFT JOIN account_group:分组被软删时 groupName 为 null,不过滤该批次。
+    时间列 b.created_at 为 BIGINT,直接映射到 Long。
+  -->
+  <select id="selectPage" resultType="com.armada.account.model.vo.AccountImportBatchVoRow">
+    SELECT b.id, b.batch_name AS batchName, b.source_file_name AS sourceFileName,
+           b.import_format AS importFormat, b.device_os AS deviceOs,
+           b.account_type AS accountType, b.ip_region AS ipRegion,
+           b.total_rows AS totalRows, b.imported_rows AS importedRows,
+           b.duplicate_rows AS duplicateRows, b.format_error_rows AS formatErrorRows,
+           b.login_success AS loginSuccess, b.login_failed AS loginFailed,
+           b.login_abnormal AS loginAbnormal, b.status,
+           g.name AS groupName, b.created_at AS createdAt
+    FROM account_import_batch b
+    LEFT JOIN account_group g ON b.account_group_id = g.id AND g.deleted_at IS NULL
+    WHERE <include refid="filter"/>
+    ORDER BY b.created_at DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
 </mapper>

@@ -3,17 +3,26 @@ package com.armada.account.service.impl;
 import com.armada.account.mapper.AccountImportBatchMapper;
 import com.armada.account.mapper.AccountImportDetailMapper;
 import com.armada.account.model.dto.AccountImportDTO;
+import com.armada.account.model.dto.AccountImportDetailQuery;
+import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.entity.ParsedEntry;
 import com.armada.account.model.vo.AccountImportBatchVO;
+import com.armada.account.model.vo.AccountImportBatchVoRow;
+import com.armada.account.model.vo.AccountImportDetailVO;
+import com.armada.account.model.vo.AccountImportDetailVoRow;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountImportParser;
 import com.armada.account.service.AccountImportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.response.PageResult;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +46,16 @@ import org.springframework.stereotype.Service;
 public class AccountImportServiceImpl implements AccountImportService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountImportServiceImpl.class);
+
+    /** CSV 导出时间列格式(北京时间可读串,CSV 给人看)。 */
+    private static final DateTimeFormatter CSV_DATETIME_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
+
+    /** CSV 导出 UTF-8 BOM 头(Excel 中文不乱码)。 */
+    private static final String CSV_BOM = "﻿";
+
+    /** CSV 表头 5 列。 */
+    private static final String CSV_HEADER = "账号,状态,失败原因,分组,创建时间";
 
     private final AccountImportParser parser;
     private final AccountGroupService groupService;
@@ -237,5 +256,103 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** 单行分类结果内部载体(不抽公共类,无其他调用点)。 */
     private record RowClassification(ImportResult result, String failReason) {
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public PageResult<AccountImportBatchVoRow> listBatches(AccountImportQuery query) {
+        long total = batchMapper.countPage(query);
+        List<AccountImportBatchVoRow> list = batchMapper.selectPage(query);
+        return PageResult.of(list, query.getPage(), query.getPageSize(), total);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>parseResultLabel 在 Service 层填充(VoRow 从 DB 取 parseResult 整型),避免 Mapper 层承担业务翻译。</p>
+     */
+    @Override
+    public PageResult<AccountImportDetailVO> listDetails(AccountImportDetailQuery query) {
+        if (query.getBatchId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "batchId 不能为空");
+        }
+        long total = detailMapper.countByBatch(query);
+        List<AccountImportDetailVoRow> rows = detailMapper.selectPageByBatch(query);
+        List<AccountImportDetailVO> vos = rows.stream()
+                .map(this::toDetailVO)
+                .toList();
+        return PageResult.of(vos, query.getPage(), query.getPageSize(), total);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>CSV 5 列:账号/状态(中文标签)/失败原因/分组/创建时间(北京时间);UTF-8 BOM 头。</p>
+     */
+    @Override
+    public String exportDetailsCsv(Long batchId, String scope) {
+        if (batchId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "batchId 不能为空");
+        }
+        String resolvedScope = (scope == null || scope.isBlank()) ? "all" : scope;
+        List<AccountImportDetailVoRow> rows = detailMapper.selectAllByBatch(batchId, resolvedScope);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(CSV_BOM).append(CSV_HEADER).append("\n");
+        for (AccountImportDetailVoRow r : rows) {
+            sb.append(csvEscape(r.getWsPhone())).append(",");
+            sb.append(csvEscape(resolveLabel(r.getParseResult()))).append(",");
+            sb.append(csvEscape(r.getFailReason())).append(",");
+            sb.append(csvEscape(r.getGroupName())).append(",");
+            sb.append(csvEscape(formatEpoch(r.getCreatedAt()))).append("\n");
+        }
+        return sb.toString();
+    }
+
+    /** 将 AccountImportDetailVoRow 转换为 AccountImportDetailVO(填充 parseResultLabel)。 */
+    private AccountImportDetailVO toDetailVO(AccountImportDetailVoRow r) {
+        return new AccountImportDetailVO(
+                r.getId(),
+                r.getLineNo(),
+                r.getWsPhone(),
+                r.getAccountId(),
+                r.getParseResult(),
+                resolveLabel(r.getParseResult()),
+                r.getFailReason(),
+                r.getLoginResult(),
+                r.getCreatedAt()
+        );
+    }
+
+    /**
+     * 按 parse_result 整型值解析中文标签;未匹配返回「未知」防止空串。
+     */
+    private String resolveLabel(int parseResult) {
+        ImportResult result = ImportResult.fromCode(parseResult);
+        return result != null ? result.getLabel() : "未知";
+    }
+
+    /**
+     * 将 epoch 毫秒格式化为北京时间可读串(CSV 给人看,非 epoch)。
+     * epoch 为 null 或 0 时返回空串。
+     */
+    private String formatEpoch(Long epochMillis) {
+        if (epochMillis == null || epochMillis == 0L) {
+            return "";
+        }
+        return CSV_DATETIME_FMT.format(Instant.ofEpochMilli(epochMillis));
+    }
+
+    /**
+     * CSV 字段转义:null → 空串;含逗号/引号/换行时用双引号包裹,内部引号双写。
+     */
+    private String csvEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }

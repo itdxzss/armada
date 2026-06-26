@@ -2,9 +2,12 @@ package com.armada.task.service.impl;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.response.PageResult;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
 import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.JoinTaskFilter;
+import com.armada.task.model.dto.JoinTaskQuery;
 import com.armada.task.model.dto.PlanRow;
 import com.armada.task.model.dto.SelectedAccount;
 import com.armada.task.model.entity.JoinTask;
@@ -12,6 +15,8 @@ import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.task.model.enums.DistributionMode;
 import com.armada.task.model.enums.JoinResultStatus;
 import com.armada.task.model.enums.JoinTaskStatus;
+import com.armada.task.model.vo.JoinResultRowVO;
+import com.armada.task.model.vo.JoinTaskDetailVO;
 import com.armada.task.model.vo.JoinTaskVO;
 import com.armada.task.service.JoinTaskService;
 import com.armada.task.service.JsonIds;
@@ -156,5 +161,81 @@ public class JoinTaskServiceImpl implements JoinTaskService {
                 t.getTotal(), t.getExecuted(), t.getSuccess(), t.getFailed(), t.getPending(),
                 t.getIntervalLabel(), t.getDistributionMode(), t.getFailurePolicy(),
                 t.isRetryEnabled(), t.getRetryLimit(), t.getStatus(), t.getCreatedBy(), t.getCreatedAt());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:total==0 时短路返回空列表,避免无谓的 SELECT;SQL 下推分页(禁内存分页)。</p>
+     */
+    @Override
+    public PageResult<JoinTaskVO> listTasks(JoinTaskQuery query) {
+        JoinTaskFilter filter = query.toFilter();
+        long total = joinTaskMapper.countPage(filter);
+        List<JoinTaskVO> rows = total == 0
+                ? List.of()
+                : joinTaskMapper.selectPage(filter, query.getOffset(), query.getPageSize())
+                        .stream().map(JoinTaskServiceImpl::toVO).toList();
+        log.info("进群任务列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
+        return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:直接委托 Mapper 的 selectDistinctIntervals,SQL 层已去重排序。</p>
+     */
+    @Override
+    public List<String> intervalOptions() {
+        List<String> options = joinTaskMapper.selectDistinctIntervals();
+        log.info("进群任务间隔下拉查询 选项数={}", options.size());
+        return options;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:按主键查当前租户下有效任务(deleted_at IS NULL);不存在时抛 NOT_FOUND。</p>
+     */
+    @Override
+    public JoinTaskDetailVO getDetail(Long id) {
+        JoinTask t = joinTaskMapper.selectByTenantAndId(id);
+        if (t == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
+        }
+        log.info("进群任务详情查询 id={}", id);
+        return toDetailVO(t);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:委托 resultMapper 按 joinTaskId 查明细(ORDER BY id ASC),群链接原样出参(系统不脱敏)。</p>
+     */
+    @Override
+    public List<JoinResultRowVO> results(Long joinTaskId) {
+        List<JoinResultRowVO> rows = resultMapper.selectResultsByTask(joinTaskId)
+                .stream().map(JoinTaskServiceImpl::toResultRowVO).toList();
+        log.info("进群任务明细查询 joinTaskId={} 行数={}", joinTaskId, rows.size());
+        return rows;
+    }
+
+    /** 实体 → 详情 VO(JSON 快照列解析回 List)。 */
+    private static JoinTaskDetailVO toDetailVO(JoinTask t) {
+        return new JoinTaskDetailVO(
+                t.getId(), t.getName(),
+                JsonIds.parseLongs(t.getAccountGroupIds()), t.getAccountGroupNames(),
+                JsonIds.parseLongs(t.getSelectedAccountIds()), t.getLinksText(),
+                t.getDistributionMode(), t.getAccountsPerLink(), t.getExecutorAccountCount(), t.getLinksPerAccount(),
+                t.getFixedIntervalMinSec(), t.getFixedIntervalMaxSec(), t.getMultiIntervalMinSec(), t.getMultiIntervalMaxSec(),
+                t.getIntervalLabel(), t.isRetryEnabled(), t.getRetryLimit(), t.getFailurePolicy(),
+                t.getTotal(), t.getExecuted(), t.getSuccess(), t.getFailed(), t.getPending(),
+                t.getStatus(), t.getCreatedBy(), t.getCreatedAt(), t.getUpdatedAt());
+    }
+
+    /** 明细实体 → 明细行 VO(群链接原样直出,不脱敏)。 */
+    private static JoinResultRowVO toResultRowVO(JoinTaskResult r) {
+        return new JoinResultRowVO(r.getAccount(), r.getLink(),
+                r.getStatus(), r.getReason(), r.isAdmin());
     }
 }

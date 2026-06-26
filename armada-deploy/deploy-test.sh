@@ -198,7 +198,7 @@ print_plan
 
 if [ "${DRY_RUN}" = 1 ]; then
   info "[dry-run] would test SSH connectivity"
-  [ "${BUILD_BE}" = 1 ] && info "[dry-run] would run: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests package)"
+  [ "${BUILD_BE}" = 1 ] && info "[dry-run] would run: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
     if [ "${PNPM_AVAILABLE}" = 1 ]; then
       info "[dry-run] would run: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"
@@ -227,7 +227,7 @@ fi
 
 if [ "${BUILD_BE}" = 1 ]; then
   info "Building backend jar..."
-  (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests package)
+  (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests clean package)
   [ -f "${JAR_PATH}" ] || die "backend jar not found after build: ${JAR_PATH}"
   ok "backend jar ready: ${JAR_PATH}"
 fi

@@ -86,6 +86,8 @@ done
 BUILD_BE=0
 BUILD_FE=0
 SERVICES=""
+PNPM_AVAILABLE=0
+FRONTEND_BUILD_MODE=""
 case "${SCOPE}" in
   all)
     BUILD_BE=1
@@ -142,7 +144,14 @@ if [ "${BUILD_BE}" = 1 ]; then
   command -v mvn >/dev/null 2>&1 || die "mvn is required for backend build"
 fi
 if [ "${BUILD_FE}" = 1 ]; then
-  command -v pnpm >/dev/null 2>&1 || die "pnpm is required for frontend build"
+  if command -v pnpm >/dev/null 2>&1 && pnpm --version >/dev/null 2>&1; then
+    PNPM_AVAILABLE=1
+    FRONTEND_BUILD_MODE="pnpm install --frozen-lockfile && pnpm build"
+  elif [ -d "${FRONTEND_DIR}/node_modules" ]; then
+    FRONTEND_BUILD_MODE="npm run build (using existing node_modules; pnpm unavailable)"
+  else
+    die "pnpm is unavailable and ${FRONTEND_DIR}/node_modules is missing"
+  fi
 fi
 command -v rsync >/dev/null 2>&1 || die "rsync is required"
 command -v ssh >/dev/null 2>&1 || die "ssh is required"
@@ -179,6 +188,9 @@ print_plan() {
   if [ "${BUILD_BE}" = 1 ]; then
     printf '  backend JDK  : %s\n' "${JDK17_HOME}"
   fi
+  if [ "${BUILD_FE}" = 1 ]; then
+    printf '  frontend     : %s\n' "${FRONTEND_BUILD_MODE}"
+  fi
   echo
 }
 
@@ -187,7 +199,13 @@ print_plan
 if [ "${DRY_RUN}" = 1 ]; then
   info "[dry-run] would test SSH connectivity"
   [ "${BUILD_BE}" = 1 ] && info "[dry-run] would run: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests package)"
-  [ "${BUILD_FE}" = 1 ] && info "[dry-run] would run: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"
+  if [ "${BUILD_FE}" = 1 ]; then
+    if [ "${PNPM_AVAILABLE}" = 1 ]; then
+      info "[dry-run] would run: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"
+    else
+      info "[dry-run] would run: (cd ${FRONTEND_DIR} && npm run build)"
+    fi
+  fi
   info "[dry-run] would rsync deploy files and artifacts to ${REMOTE_DIR}"
   info "[dry-run] would run remote docker compose up -d --build ${SERVICES}"
   ok "dry run complete"
@@ -216,7 +234,12 @@ fi
 
 if [ "${BUILD_FE}" = 1 ]; then
   info "Building frontend dist..."
-  (cd "${FRONTEND_DIR}" && pnpm install --frozen-lockfile && pnpm build)
+  if [ "${PNPM_AVAILABLE}" = 1 ]; then
+    (cd "${FRONTEND_DIR}" && pnpm install --frozen-lockfile && pnpm build)
+  else
+    warn "pnpm is unavailable; using existing node_modules with npm run build"
+    (cd "${FRONTEND_DIR}" && npm run build)
+  fi
   [ -d "${FRONTEND_DIR}/dist" ] || die "frontend dist not found after build: ${FRONTEND_DIR}/dist"
   ok "frontend dist ready: ${FRONTEND_DIR}/dist"
 fi

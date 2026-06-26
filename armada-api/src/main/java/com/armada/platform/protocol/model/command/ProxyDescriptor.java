@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.port.account.command;
+package com.armada.platform.protocol.model.command;
 
 /**
  * 上线用代理出口描述(防腐层语义)。

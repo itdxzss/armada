@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.port.account.command;
+package com.armada.platform.protocol.model.command;
 
 /**
  * 上线凭据格式(防腐层语义)。

@@ -2,11 +2,11 @@ package com.armada.account.service.impl;
 
 import com.armada.account.service.AccountOnlinePlan;
 import com.armada.account.service.AccountOnlineService;
-import com.armada.platform.protocol.port.account.AccountLifecyclePort;
-import com.armada.platform.protocol.port.account.command.CredentialFormat;
-import com.armada.platform.protocol.port.account.command.OnlineCommand;
-import com.armada.platform.protocol.port.account.command.ProxyDescriptor;
-import com.armada.platform.protocol.port.account.result.OnlineAccepted;
+import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.OnlineCommand;
+import com.armada.platform.protocol.model.command.ProxyDescriptor;
+import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.platform.proxy.ProxyResolver;
 import com.armada.shared.exception.BusinessException;

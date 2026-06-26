@@ -1,7 +1,7 @@
-package com.armada.platform.protocol.port.account;
+package com.armada.platform.protocol.port;
 
-import com.armada.platform.protocol.port.account.command.OnlineCommand;
-import com.armada.platform.protocol.port.account.result.OnlineAccepted;
+import com.armada.platform.protocol.model.command.OnlineCommand;
+import com.armada.platform.protocol.model.result.OnlineAccepted;
 
 /**
  * 账号生命周期协议端口(防腐层对外接口)。

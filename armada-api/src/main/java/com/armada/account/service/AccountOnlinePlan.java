@@ -1,6 +1,6 @@
 package com.armada.account.service;
 
-import com.armada.platform.protocol.port.account.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.proxy.ProxyEndpoint;
 
 /**

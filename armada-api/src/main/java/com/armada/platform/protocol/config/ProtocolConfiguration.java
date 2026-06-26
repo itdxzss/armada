@@ -2,7 +2,7 @@ package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
-import com.armada.platform.protocol.port.account.AccountLifecyclePort;
+import com.armada.platform.protocol.port.AccountLifecyclePort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.port.account.result;
+package com.armada.platform.protocol.model.result;
 
 /**
  * 协议层状态来源(防腐层语义)。

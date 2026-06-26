@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.port.account.result;
+package com.armada.platform.protocol.model.result;
 
 import java.time.Instant;
 

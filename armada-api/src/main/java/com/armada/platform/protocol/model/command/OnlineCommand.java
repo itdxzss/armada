@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.port.account.command;
+package com.armada.platform.protocol.model.command;
 
 /**
  * 账号上线(load+connect)命令(防腐层语义)。
@@ -6,7 +6,7 @@ package com.armada.platform.protocol.port.account.command;
  * <p>本端口选择 inline creds 方案:armada 以 account_credential.creds_json 为上线命令输入。
  * 账号编排(⑤口)从 account_credential 取出凭据、
  * 由 ProxyResolver 取出出口,组成本命令交给
- * {@link com.armada.platform.protocol.port.account.AccountLifecyclePort#online}。
+ * {@link com.armada.platform.protocol.port.AccountLifecyclePort#online}。
  * 协议层收到后发起 Noise 握手,HTTP 同步只回"已受理",真正 ONLINE 由 Kafka
  * account.state_changed 异步回写(②口)。</p>
  *

@@ -1,6 +1,6 @@
 package com.armada.account.service;
 
-import com.armada.platform.protocol.port.account.result.OnlineAccepted;
+import com.armada.platform.protocol.model.result.OnlineAccepted;
 
 /**
  * 账号上线编排服务。

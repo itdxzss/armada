@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.port.account.result;
+package com.armada.platform.protocol.model.result;
 
 /**
  * 上线受理回执里的归属路由信息(防腐层语义)。

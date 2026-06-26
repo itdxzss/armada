@@ -4,6 +4,8 @@ import com.armada.task.model.dto.SelectedAccount;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
@@ -12,6 +14,7 @@ import java.util.stream.Collectors;
 /** id 列表 ↔ JSON 串互转(用于 account_group_ids/selected_account_ids 快照列)。 */
 public final class JsonIds {
 
+    private static final Logger log = LoggerFactory.getLogger(JsonIds.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private JsonIds() {
@@ -25,6 +28,7 @@ public final class JsonIds {
         try {
             return MAPPER.writeValueAsString(ids);
         } catch (JsonProcessingException e) {
+            log.warn("JsonIds 序列化失败,降级返回[]", e);
             return "[]";
         }
     }
@@ -38,6 +42,7 @@ public final class JsonIds {
             return MAPPER.readValue(json, new TypeReference<List<Long>>() {
             });
         } catch (JsonProcessingException e) {
+            log.warn("JsonIds 解析失败,降级返回空列表: {}", json, e);
             return List.of();
         }
     }

@@ -1,6 +1,6 @@
 package com.armada.platform.proxy;
 
-import com.armada.platform.protocol.port.account.command.ProxyDescriptor;
+import com.armada.platform.protocol.model.command.ProxyDescriptor;
 import com.armada.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 

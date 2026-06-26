@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.boot.Application;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.SelectedAccount;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -61,8 +61,8 @@ class JoinTaskControllerDbTest {
      * @param name 任务名称
      * @return 入参对象
      */
-    private CreateJoinTaskRequest buildValidRequest(String name) {
-        return new CreateJoinTaskRequest(
+    private CreateJoinTaskDTO buildValidRequest(String name) {
+        return new CreateJoinTaskDTO(
                 name,
                 List.of(10L),
                 List.of("测试分组A"),
@@ -204,7 +204,7 @@ class JoinTaskControllerDbTest {
         Long id = createTask("原名任务");
 
         String newName = "改名后任务";
-        CreateJoinTaskRequest updateReq = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO updateReq = new CreateJoinTaskDTO(
                 newName,
                 List.of(10L),
                 List.of("测试分组A"),

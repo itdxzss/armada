@@ -26,7 +26,7 @@ import java.util.List;
  * @param retryLimit           重试次数上限
  * @param failurePolicy        失败处理策略快照(标签/JSON,编辑回填)
  */
-public record CreateJoinTaskRequest(
+public record CreateJoinTaskDTO(
         String name,
         List<Long> accountGroupIds,
         List<String> accountGroupNames,

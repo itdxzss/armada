@@ -4,7 +4,7 @@ import com.armada.boot.Application;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.JoinTaskQuery;
 import com.armada.task.model.dto.SelectedAccount;
 import com.armada.task.model.vo.JoinResultRowVO;
@@ -45,7 +45,7 @@ class JoinTaskReadDbTest extends DbTestBase {
 
     /** 建方式一任务:甲,2 链接 accountsPerLink=2,3 账号,interval=10-20s。 */
     private JoinTaskVO createJia() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "进群任务甲",
                 List.of(10L),
                 List.of("测试分组A"),
@@ -62,7 +62,7 @@ class JoinTaskReadDbTest extends DbTestBase {
 
     /** 建方式二任务:乙,2 链接 executorAccountCount=2 linksPerAccount=3,interval=5-15s。 */
     private JoinTaskVO createYi() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "进群任务乙",
                 null, null,
                 List.of(new SelectedAccount(1L, "acc1"),
@@ -152,7 +152,7 @@ class JoinTaskReadDbTest extends DbTestBase {
         createJia();   // 10-20s
         createYi();   // 5-15s
         // 额外再建一个 10-20s
-        CreateJoinTaskRequest extra = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO extra = new CreateJoinTaskDTO(
                 "额外10-20s任务",
                 null, null,
                 List.of(new SelectedAccount(1L, "acc1")),

@@ -2,7 +2,7 @@ package com.armada.task.controller;
 
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.JoinTaskIdsDTO;
 import com.armada.task.model.dto.JoinTaskQuery;
 import com.armada.task.model.vo.JoinResultRowVO;
@@ -62,7 +62,7 @@ public class JoinTaskController {
      * @return 新建任务列表行视图
      */
     @PostMapping
-    public ApiResponse<JoinTaskVO> create(@RequestBody CreateJoinTaskRequest req) {
+    public ApiResponse<JoinTaskVO> create(@RequestBody CreateJoinTaskDTO req) {
         return ApiResponse.ok(service.createTask(req));
     }
 
@@ -85,7 +85,7 @@ public class JoinTaskController {
      * @return 编辑后的任务详情
      */
     @PutMapping("/{id}")
-    public ApiResponse<JoinTaskDetailVO> update(@PathVariable Long id, @RequestBody CreateJoinTaskRequest req) {
+    public ApiResponse<JoinTaskDetailVO> update(@PathVariable Long id, @RequestBody CreateJoinTaskDTO req) {
         return ApiResponse.ok(service.updateTask(id, req));
     }
 

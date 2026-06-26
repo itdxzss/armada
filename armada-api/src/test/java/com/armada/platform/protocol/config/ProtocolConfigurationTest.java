@@ -1,7 +1,7 @@
 package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
-import com.armada.platform.protocol.port.account.AccountLifecyclePort;
+import com.armada.platform.protocol.port.AccountLifecyclePort;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

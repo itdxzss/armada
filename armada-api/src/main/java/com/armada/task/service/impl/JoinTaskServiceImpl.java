@@ -5,7 +5,8 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
+import com.armada.task.model.dto.DistributionParams;
 import com.armada.task.model.dto.JoinTaskFilter;
 import com.armada.task.model.dto.JoinTaskQuery;
 import com.armada.task.model.dto.PlanRow;
@@ -58,7 +59,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public JoinTaskVO createTask(CreateJoinTaskRequest req) {
+    public JoinTaskVO createTask(CreateJoinTaskDTO req) {
         if (req == null || req.name() == null || req.name().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务名称不能为空");
         }
@@ -89,12 +90,15 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public JoinTaskDetailVO updateTask(Long id, CreateJoinTaskRequest req) {
+    public JoinTaskDetailVO updateTask(Long id, CreateJoinTaskDTO req) {
         JoinTask existing = joinTaskMapper.selectByTenantAndId(id);
         if (existing == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
         }
-        if (!JoinTaskStatus.DRAFT.equals(existing.getStatus()) || existing.getExecuted() > 0) {
+        if (!JoinTaskStatus.DRAFT.equals(existing.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务非草稿状态,不能编辑");
+        }
+        if (existing.getExecuted() > 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务已执行,不能编辑");
         }
         if (req == null || req.name() == null || req.name().isBlank()) {
@@ -131,13 +135,14 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      * 据请求把配置列 + 计数(total/pending)+ updated_at 写入 task,并返回据此生成的计划行。
      * create 与 update 共用;不写 executed/success/failed/status/created_at(各由调用方按场景定)。
      */
-    private List<PlanRow> populateConfigAndPlan(JoinTask task, CreateJoinTaskRequest req, long now) {
+    private List<PlanRow> populateConfigAndPlan(JoinTask task, CreateJoinTaskDTO req, long now) {
         String mode = DistributionMode.FIXED_ACCOUNT_MULTI_LINK.equals(req.distributionMode())
                 ? DistributionMode.FIXED_ACCOUNT_MULTI_LINK : DistributionMode.FIXED_ACCOUNTS_PER_LINK;
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
         List<SelectedAccount> accounts = req.selectedAccounts() == null ? List.of() : req.selectedAccounts();
-        List<PlanRow> rows = PlanRowGenerator.generate(mode, accounts, links.valid(), links.invalid(),
-                n(req.accountsPerLink()), n(req.executorAccountCount()), n(req.linksPerAccount()));
+        DistributionParams params = new DistributionParams(mode, n(req.accountsPerLink()),
+                n(req.executorAccountCount()), n(req.linksPerAccount()));
+        List<PlanRow> rows = PlanRowGenerator.generate(params, accounts, links.valid(), links.invalid());
         int total = (int) rows.stream().filter(r -> JoinResultStatus.PENDING.equals(r.status())).count();
 
         task.setName(req.name().trim());
@@ -198,7 +203,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     }
 
     /** 进群间隔展示标签:方式二取 multi 区间,否则取 fixed 区间,形如 "10-20s"。 */
-    private static String intervalLabel(String mode, CreateJoinTaskRequest req) {
+    private static String intervalLabel(String mode, CreateJoinTaskDTO req) {
         int lo;
         int hi;
         if (DistributionMode.FIXED_ACCOUNT_MULTI_LINK.equals(mode)) {

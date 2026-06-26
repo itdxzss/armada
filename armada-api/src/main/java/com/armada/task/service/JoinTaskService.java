@@ -3,7 +3,7 @@ package com.armada.task.service;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.JoinTaskQuery;
 import com.armada.task.model.vo.JoinResultRowVO;
 import com.armada.task.model.vo.JoinTaskDetailVO;
@@ -26,7 +26,7 @@ public interface JoinTaskService {
      * @return 建成后的任务列表行视图(含 id、计数、状态)
      * @throws BusinessException 任务名称为空时抛 {@link ErrorCode#VALIDATION}
      */
-    JoinTaskVO createTask(CreateJoinTaskRequest req);
+    JoinTaskVO createTask(CreateJoinTaskDTO req);
 
     /**
      * 分页查询进群任务列表。
@@ -71,7 +71,7 @@ public interface JoinTaskService {
      * @return 编辑后的任务详情
      * @throws BusinessException 任务不存在抛 {@link ErrorCode#NOT_FOUND};已执行或任务名为空抛 {@link ErrorCode#VALIDATION}
      */
-    JoinTaskDetailVO updateTask(Long id, CreateJoinTaskRequest req);
+    JoinTaskDetailVO updateTask(Long id, CreateJoinTaskDTO req);
 
     /**
      * 批量软删进群任务(置 deleted_at,幂等)。

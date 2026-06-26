@@ -6,7 +6,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.SelectedAccount;
 import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.entity.JoinTaskResult;
@@ -56,7 +56,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
      */
     @Test
     void case1_fixedAccountsPerLink_countAndRows() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "方式一测试任务",
                 List.of(10L),
                 List.of("测试分组A"),
@@ -97,7 +97,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
      */
     @Test
     void case2_fixedAccountMultiLink_rows() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "方式二测试任务",
                 null, null,
                 List.of(new SelectedAccount(1L, "911"),
@@ -130,7 +130,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
      */
     @Test
     void case3_invalidLinkNotCountedInTotal() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "无效链接测试",
                 null, null,
                 List.of(new SelectedAccount(1L, "911")),
@@ -164,7 +164,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
      */
     @Test
     void case4_blankNameThrowsValidation() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 " ",
                 null, null, null, null, null,
                 null, null, null,
@@ -183,7 +183,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
      */
     @Test
     void case5_selectedAccountIdsAndGroupIdsPersisted() {
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "快照落库测试",
                 List.of(1L, 2L, 3L),
                 List.of("G1", "G2", "G3"),
@@ -210,7 +210,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
     @Test
     void case6_crossTenantIsolation() {
         // 在租户 1 下建任务(BeforeEach 已 set(1L))
-        CreateJoinTaskRequest req = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "租户隔离测试",
                 null, null,
                 List.of(new SelectedAccount(1L, "911")),
@@ -228,6 +228,8 @@ class JoinTaskCreateDbTest extends DbTestBase {
         try {
             JoinTask result = joinTaskMapper.selectByTenantAndId(taskId);
             assertThat(result).isNull();
+            // join_task_result 也被租户拦截器隔离
+            assertThat(resultMapper.selectResultsByTask(taskId)).isEmpty();
         } finally {
             // 复位租户 1(AfterEach 会 clear,保险起见也显式复位)
             TenantContext.set(1L);

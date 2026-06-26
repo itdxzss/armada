@@ -4,7 +4,7 @@ import com.armada.boot.Application;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.JoinTaskMapper;
-import com.armada.task.model.dto.CreateJoinTaskRequest;
+import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.SelectedAccount;
 import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.enums.DistributionMode;
@@ -89,8 +89,8 @@ class JoinTaskMutationDbTest extends DbTestBase {
     }
 
     /** 合法的 updateTask 入参(链接可少但 name 非空)。 */
-    private static CreateJoinTaskRequest anyValidReq() {
-        return new CreateJoinTaskRequest(
+    private static CreateJoinTaskDTO anyValidReq() {
+        return new CreateJoinTaskDTO(
                 "合法任务名",
                 null, null,
                 List.of(new SelectedAccount(1L, "911")),
@@ -116,7 +116,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
     @Test
     void case1_updateTask_configAndPlanRebuilt() {
         // 建任务(方式一,2 链接,accountsPerLink=2,3 账号 → 4 PENDING 行)
-        CreateJoinTaskRequest createReq = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO createReq = new CreateJoinTaskDTO(
                 "原始任务名",
                 List.of(10L),
                 List.of("测试分组A"),
@@ -133,7 +133,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
 
         // 编辑:改名 + 换方式二 + 只 1 条有效链接
         // executorAccountCount=2,linksPerAccount=3,但只有 1 条链接 → 每账号只进 1 条 → total=2
-        CreateJoinTaskRequest updateReq = new CreateJoinTaskRequest(
+        CreateJoinTaskDTO updateReq = new CreateJoinTaskDTO(
                 "新任务名称",
                 List.of(10L),
                 List.of("测试分组A"),
@@ -178,7 +178,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 .satisfies(ex -> {
                     BusinessException be = (BusinessException) ex;
                     assertThat(be.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
-                    assertThat(be.getMessage()).contains("不能编辑");
+                    assertThat(be.getMessage()).contains("已执行");
                 });
     }
 
@@ -200,7 +200,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 .satisfies(ex -> {
                     BusinessException be = (BusinessException) ex;
                     assertThat(be.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
-                    assertThat(be.getMessage()).contains("不能编辑");
+                    assertThat(be.getMessage()).contains("非草稿");
                 });
     }
 
@@ -230,7 +230,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
     @Test
     void case5_batchDelete_idempotentAndNotFound() {
         JoinTaskVO t1 = service.createTask(anyValidReq());
-        JoinTaskVO t2 = service.createTask(new CreateJoinTaskRequest(
+        JoinTaskVO t2 = service.createTask(new CreateJoinTaskDTO(
                 "第二个任务",
                 null, null,
                 List.of(new SelectedAccount(1L, "922")),

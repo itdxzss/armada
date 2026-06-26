@@ -141,7 +141,7 @@ class JoinTaskMapperDbTest extends DbTestBase {
 
         // 2g. 分页：每页 2，offset=0 取恰好 2 条（LIMIT 生效），按 id DESC
         JoinTaskFilter all = new JoinTaskFilter(null, null, null, null, null, null, null);
-        assertThat(mapper.countPage(all)).isGreaterThanOrEqualTo(3);
+        assertThat(mapper.countPage(all)).isEqualTo(3);
         List<JoinTask> page0 = mapper.selectPage(all, 0, 2);
         assertThat(page0).hasSize(2);
         assertThat(page0.get(0).getId()).isGreaterThan(page0.get(1).getId()); // ORDER BY id DESC

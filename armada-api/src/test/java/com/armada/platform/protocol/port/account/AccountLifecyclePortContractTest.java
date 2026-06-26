@@ -1,11 +1,12 @@
 package com.armada.platform.protocol.port.account;
 
-import com.armada.platform.protocol.port.account.command.CredentialFormat;
-import com.armada.platform.protocol.port.account.command.OnlineCommand;
-import com.armada.platform.protocol.port.account.command.ProxyDescriptor;
-import com.armada.platform.protocol.port.account.result.OnlineAccepted;
-import com.armada.platform.protocol.port.account.result.OnlineRouting;
-import com.armada.platform.protocol.port.account.result.StateSource;
+import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.OnlineCommand;
+import com.armada.platform.protocol.model.command.ProxyDescriptor;
+import com.armada.platform.protocol.model.result.OnlineAccepted;
+import com.armada.platform.protocol.model.result.OnlineRouting;
+import com.armada.platform.protocol.model.result.StateSource;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

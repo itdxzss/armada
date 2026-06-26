@@ -1,7 +1,5 @@
 package com.armada.marketing.model.entity;
 
-import java.time.LocalDateTime;
-
 /**
  * 营销模板实体,映射 marketing_template 表一行。普通类 + getter/setter(无 Lombok),Mapper 直出。
  *
@@ -43,17 +41,17 @@ public class MarketingTemplate {
     /** 备注。 */
     private String remark;
 
-    /** 创建时间。 */
-    private LocalDateTime createdAt;
+    /** 创建时间(epoch毫秒)。 */
+    private Long createdAt;
 
-    /** 更新时间。 */
-    private LocalDateTime updatedAt;
+    /** 更新时间(epoch毫秒)。 */
+    private Long updatedAt;
 
     /** 创建人 user_id。 */
     private Long createdBy;
 
-    /** 软删除时间;NULL=未删。 */
-    private LocalDateTime deletedAt;
+    /** 软删除时间(epoch毫秒);NULL=未删。 */
+    private Long deletedAt;
 
     public Long getId() {
         return id;
@@ -143,19 +141,19 @@ public class MarketingTemplate {
         this.remark = remark;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Long getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Long updatedAt) {
         this.updatedAt = updatedAt;
     }
 
@@ -167,11 +165,11 @@ public class MarketingTemplate {
         this.createdBy = createdBy;
     }
 
-    public LocalDateTime getDeletedAt() {
+    public Long getDeletedAt() {
         return deletedAt;
     }
 
-    public void setDeletedAt(LocalDateTime deletedAt) {
+    public void setDeletedAt(Long deletedAt) {
         this.deletedAt = deletedAt;
     }
 }

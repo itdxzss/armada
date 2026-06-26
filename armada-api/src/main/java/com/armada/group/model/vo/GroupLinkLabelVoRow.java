@@ -1,11 +1,9 @@
 package com.armada.group.model.vo;
 
-import java.time.LocalDateTime;
-
 /**
  * Mapper 投影:group_link_label + 聚合链接数,用于列表分页。
  * 普通类 + getter/setter,供 MyBatis resultType 直接映射(underscore-to-camelCase 自动转换)。
- * 时间字段为 LocalDateTime(UTC),由 GroupConverter 转成 epoch 毫秒出参。
+ * 时间字段为 Long epoch 毫秒,由 GroupConverter 直映出参。
  */
 public class GroupLinkLabelVoRow {
 
@@ -14,8 +12,8 @@ public class GroupLinkLabelVoRow {
     private String region;
     private String remark;
     private long linkCount;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private Long createdAt;
+    private Long updatedAt;
 
     public Long getId() {
         return id;
@@ -57,19 +55,19 @@ public class GroupLinkLabelVoRow {
         this.linkCount = linkCount;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Long getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Long updatedAt) {
         this.updatedAt = updatedAt;
     }
 }

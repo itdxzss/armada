@@ -46,6 +46,9 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         GroupLinkLabel label = new GroupLinkLabel();
         label.setName(name);
         label.setRegion("测试区域");
+        long now = System.currentTimeMillis();
+        label.setCreatedAt(now);
+        label.setUpdatedAt(now);
         labelMapper.insert(label);
         return label;
     }
@@ -138,7 +141,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
                 labelA.getId(), "第一次导入", null,
                 List.of("https://chat.whatsapp.com/ReviveMe")));
         GroupLink imported = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveMe");
-        groupLinkMapper.softDeleteByIds(List.of(imported.getId()));
+        groupLinkMapper.softDeleteByIds(List.of(imported.getId()), System.currentTimeMillis());
 
         // 再导入同 url 到 labelB — 软删行应被复活、归到 labelB,记成功
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
@@ -179,6 +182,9 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         pre.setLinkUrl("chat.whatsapp.com/AlreadyExists");
         pre.setLabelId(label.getId());
         pre.setImportBatchId(null);
+        long now = System.currentTimeMillis();
+        pre.setCreatedAt(now);
+        pre.setUpdatedAt(now);
         groupLinkMapper.insert(pre);
 
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(

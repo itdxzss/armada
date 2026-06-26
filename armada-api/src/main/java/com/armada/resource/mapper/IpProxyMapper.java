@@ -29,5 +29,5 @@ public interface IpProxyMapper {
             @Param("username") String username, @Param("password") String password);
 
     /** 批量软删除。 */
-    int softDeleteByIds(@Param("ids") List<Long> ids);
+    int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 }

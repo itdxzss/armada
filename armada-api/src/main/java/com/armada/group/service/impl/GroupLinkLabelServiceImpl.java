@@ -68,8 +68,7 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
      *
      * <p>实现要点:① 名称非空且活分组内不可重名;② 若命中同名的【软删】分组则复活它
      * (复原 deleted_at + 更新基本信息)而非插新行——配合 group_link_label 的 plain 唯一键,
-     * 避免同名占键冲突;否则插入新行;③ 落库后按主键回查一次,拿到库表 DEFAULT 生成的
-     * createdAt/updatedAt 再组装出参(否则这两个服务端时间戳为 null)。全程 {@code @Transactional},
+     * 避免同名占键冲突;否则插入新行;③ 时间由应用层写入 epoch 毫秒。全程 {@code @Transactional},
      * 任一步失败整体回滚。</p>
      */
     @Override
@@ -86,14 +85,18 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         row.setName(dto.name());
         row.setRegion(dto.region());
         row.setRemark(dto.remark());
+        long now = System.currentTimeMillis();
 
         if (deleted != null) {
             // 复活软删分组:复原 deleted_at + 更新基本信息
             row.setId(deleted.getId());
-            labelMapper.reviveById(deleted.getId());
+            row.setUpdatedAt(now);
+            labelMapper.reviveById(deleted.getId(), now);
             labelMapper.updateProfile(row);
             log.info("WS链接分组复活 id={} name={}", deleted.getId(), dto.name());
         } else {
+            row.setCreatedAt(now);
+            row.setUpdatedAt(now);
             labelMapper.insert(row);
             log.info("WS链接分组已创建 id={} name={}", row.getId(), dto.name());
         }
@@ -106,8 +109,8 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
                 dto.region(),
                 dto.remark(),
                 0L,
-                saved.getCreatedAt() == null ? null : saved.getCreatedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli(),
-                saved.getUpdatedAt() == null ? null : saved.getUpdatedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+                saved.getCreatedAt(),
+                saved.getUpdatedAt()
         );
     }
 
@@ -136,6 +139,7 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         row.setName(dto.name());
         row.setRegion(dto.region());
         row.setRemark(dto.remark());
+        row.setUpdatedAt(System.currentTimeMillis());
         labelMapper.updateProfile(row);
         log.info("WS链接分组已更新 id={} name={}", id, dto.name());
     }
@@ -155,9 +159,10 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
                     "ids 数量须为 1.." + BATCH_DELETE_MAX);
         }
         // 级联软删:群链接 → 导入批次 → 分组
-        groupLinkMapper.softDeleteByLabelIds(ids);
-        importBatchMapper.softDeleteByLabelIds(ids);
-        int n = labelMapper.softDeleteByIds(ids);
+        long now = System.currentTimeMillis();
+        groupLinkMapper.softDeleteByLabelIds(ids, now);
+        importBatchMapper.softDeleteByLabelIds(ids, now);
+        int n = labelMapper.softDeleteByIds(ids, now);
         log.info("WS链接分组批量删除 count={} ids={}", n, ids);
         return n;
     }

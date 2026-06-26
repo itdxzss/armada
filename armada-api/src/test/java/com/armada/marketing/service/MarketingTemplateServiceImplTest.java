@@ -3,6 +3,7 @@ package com.armada.marketing.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -112,7 +113,7 @@ class MarketingTemplateServiceImplTest {
     @Test
     void batchDelete_empty_noop() {
         service.batchDelete(List.of());
-        verify(mapper, never()).softDeleteByIds(any());
+        verify(mapper, never()).softDeleteByIds(any(), anyLong());
     }
 
     @Test

@@ -82,7 +82,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "部分群链接不存在或已删除,迁移取消(期望 " + linkIds.size() + " 条,活跃 " + activeCount + " 条)");
         }
-        int n = groupLinkMapper.migrateToLabel(linkIds, targetLabelId);
+        int n = groupLinkMapper.migrateToLabel(linkIds, targetLabelId, System.currentTimeMillis());
         log.info("群链接批量迁移 count={} targetLabelId={}", n, targetLabelId);
         return n;
     }
@@ -99,7 +99,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (ids == null || ids.isEmpty() || ids.size() > BATCH_MAX) {
             throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
         }
-        int n = groupLinkMapper.softDeleteByIds(ids);
+        int n = groupLinkMapper.softDeleteByIds(ids, System.currentTimeMillis());
         log.info("群链接批量删除 count={} ids={}", n, ids);
         return n;
     }

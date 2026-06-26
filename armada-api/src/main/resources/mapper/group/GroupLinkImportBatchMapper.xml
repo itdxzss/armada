@@ -4,9 +4,9 @@
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_link_import_batch (label_id, batch_name, source_file_name,
-      total_rows, inserted_rows, adopted_rows, skipped_rows, failed_rows, created_by)
+      total_rows, inserted_rows, adopted_rows, skipped_rows, failed_rows, created_at, created_by)
     VALUES (#{labelId}, #{batchName}, #{sourceFileName},
-      #{totalRows}, #{insertedRows}, #{adoptedRows}, #{skippedRows}, #{failedRows}, #{createdBy})
+      #{totalRows}, #{insertedRows}, #{adoptedRows}, #{skippedRows}, #{failedRows}, #{createdAt}, #{createdBy})
   </insert>
 
   <update id="updateCounts">
@@ -20,7 +20,7 @@
   </update>
 
   <update id="softDeleteByLabelIds">
-    UPDATE group_link_import_batch SET deleted_at = NOW()
+    UPDATE group_link_import_batch SET deleted_at = #{deletedAt}
     WHERE deleted_at IS NULL AND label_id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>

@@ -35,6 +35,9 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         label.setName(name);
         label.setRegion("印度");
         label.setRemark("测试");
+        long now = System.currentTimeMillis();
+        label.setCreatedAt(now);
+        label.setUpdatedAt(now);
         labelMapper.insert(label);
         return label;
     }
@@ -44,6 +47,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         batch.setLabelId(labelId);
         batch.setBatchName("测试批次");
         batch.setSourceFileName(fileName);
+        batch.setCreatedAt(System.currentTimeMillis());
         batchMapper.insert(batch);
         return batch;
     }
@@ -56,6 +60,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         detail.setGroupName("测试群");
         detail.setResult(result);
         detail.setFailReason(failReason);
+        detail.setCreatedAt(System.currentTimeMillis());
         return detail;
     }
 

@@ -12,7 +12,7 @@ import org.apache.ibatis.annotations.Param;
 public interface GroupLinkImportBatchMapper {
 
     /**
-     * 插入新导入批次(id/tenant_id/时间由库生成或拦截器注入)。
+     * 插入新导入批次(id/tenant_id 由库或拦截器注入,时间由调用方传入)。
      *
      * @param row 批次实体
      * @return 影响行数
@@ -33,5 +33,5 @@ public interface GroupLinkImportBatchMapper {
      * @param labelIds 分组 ID 列表
      * @return 更新行数
      */
-    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds);
+    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds, @Param("deletedAt") long deletedAt);
 }

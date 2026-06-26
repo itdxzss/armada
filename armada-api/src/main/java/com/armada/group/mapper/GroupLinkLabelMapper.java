@@ -28,15 +28,15 @@ public interface GroupLinkLabelMapper {
     /** 按 ID 查活跃分组。 */
     GroupLinkLabel selectById(@Param("id") Long id);
 
-    /** 插入新分组(id/tenant_id/时间由库生成或拦截器注入)。 */
+    /** 插入新分组(id/tenant_id 由库或拦截器注入,时间由调用方传入)。 */
     int insert(GroupLinkLabel row);
 
     /** 复活软删分组(deleted_at=NULL)。 */
-    int reviveById(@Param("id") Long id);
+    int reviveById(@Param("id") Long id, @Param("updatedAt") long updatedAt);
 
     /** 更新分组基本信息(name/region/remark)。 */
     int updateProfile(GroupLinkLabel row);
 
     /** 批量软删除。 */
-    int softDeleteByIds(@Param("ids") List<Long> ids);
+    int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 }

@@ -1,7 +1,5 @@
 package com.armada.platform.tenant.model.entity;
 
-import java.time.LocalDateTime;
-
 /**
  * 租户实体,映射 tenant 表一行。普通类 + getter/setter(无 Lombok),Mapper 直出。
  *
@@ -22,11 +20,11 @@ public class Tenant {
     /** 状态:1=启用 0=停用。停用租户视同不存在,不可登录、其下业务一律拒绝。 */
     private Integer status;
 
-    /** 创建时间(UTC)。 */
-    private LocalDateTime createdAt;
+    /** 创建时间(epoch毫秒)。 */
+    private Long createdAt;
 
-    /** 更新时间(UTC)。 */
-    private LocalDateTime updatedAt;
+    /** 更新时间(epoch毫秒)。 */
+    private Long updatedAt;
 
     public Long getId() {
         return id;
@@ -60,19 +58,19 @@ public class Tenant {
         this.status = status;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Long getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Long updatedAt) {
         this.updatedAt = updatedAt;
     }
 }

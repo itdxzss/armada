@@ -38,22 +38,22 @@
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link_label (name, region, remark, created_by)
-    VALUES (#{name}, #{region}, #{remark}, #{createdBy})
+    INSERT INTO group_link_label (name, region, remark, created_at, updated_at, created_by)
+    VALUES (#{name}, #{region}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
 
   <update id="reviveById">
-    UPDATE group_link_label SET deleted_at = NULL WHERE id = #{id}
+    UPDATE group_link_label SET deleted_at = NULL, updated_at = #{updatedAt} WHERE id = #{id}
   </update>
 
   <update id="updateProfile">
     UPDATE group_link_label
-    SET name = #{name}, region = #{region}, remark = #{remark}
+    SET name = #{name}, region = #{region}, remark = #{remark}, updated_at = #{updatedAt}
     WHERE id = #{id} AND deleted_at IS NULL
   </update>
 
   <update id="softDeleteByIds">
-    UPDATE group_link_label SET deleted_at = NOW()
+    UPDATE group_link_label SET deleted_at = #{deletedAt}
     WHERE deleted_at IS NULL AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>

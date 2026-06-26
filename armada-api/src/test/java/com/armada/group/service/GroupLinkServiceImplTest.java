@@ -3,6 +3,7 @@ package com.armada.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -111,7 +112,7 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.migrate(List.of(1L, 2L), 99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("目标分组不存在");
-        verify(groupLinkMapper, never()).migrateToLabel(any(), any());
+        verify(groupLinkMapper, never()).migrateToLabel(any(), any(), anyLong());
     }
 
     @Test
@@ -125,7 +126,7 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.migrate(ids, 5L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("部分群链接不存在或已删除");
-        verify(groupLinkMapper, never()).migrateToLabel(any(), any());
+        verify(groupLinkMapper, never()).migrateToLabel(any(), any(), anyLong());
     }
 
     @Test
@@ -135,12 +136,12 @@ class GroupLinkServiceImplTest {
         when(labelMapper.selectById(5L)).thenReturn(label);
         List<Long> ids = List.of(1L, 2L);
         when(groupLinkMapper.countActiveByIds(ids)).thenReturn(2);
-        when(groupLinkMapper.migrateToLabel(ids, 5L)).thenReturn(2);
+        when(groupLinkMapper.migrateToLabel(eq(ids), eq(5L), anyLong())).thenReturn(2);
 
         int result = service.migrate(ids, 5L);
 
         assertThat(result).isEqualTo(2);
-        verify(groupLinkMapper).migrateToLabel(ids, 5L);
+        verify(groupLinkMapper).migrateToLabel(eq(ids), eq(5L), anyLong());
     }
 
     // ---- batchDelete ----
@@ -167,11 +168,11 @@ class GroupLinkServiceImplTest {
     @Test
     void batchDelete_valid_softDeletes() {
         List<Long> ids = List.of(1L, 2L, 3L);
-        when(groupLinkMapper.softDeleteByIds(ids)).thenReturn(3);
+        when(groupLinkMapper.softDeleteByIds(eq(ids), anyLong())).thenReturn(3);
 
         int result = service.batchDelete(ids);
 
         assertThat(result).isEqualTo(3);
-        verify(groupLinkMapper).softDeleteByIds(ids);
+        verify(groupLinkMapper).softDeleteByIds(eq(ids), anyLong());
     }
 }

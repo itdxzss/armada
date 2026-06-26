@@ -1,11 +1,9 @@
 package com.armada.group.model.vo;
 
-import java.time.LocalDateTime;
-
 /**
  * Mapper 投影:group_link_import_detail JOIN group_link_import_batch,用于明细分页列表及失败导出。
  * 普通类 + getter/setter,供 MyBatis resultType 直接映射(underscore-to-camelCase 自动转换)。
- * 时间字段为 LocalDateTime(UTC),由 Converter 转成 epoch 毫秒出参。
+ * 时间字段为 Long epoch 毫秒,由 Converter 直映出参。
  */
 public class GroupLinkImportDetailVoRow {
 
@@ -15,7 +13,7 @@ public class GroupLinkImportDetailVoRow {
     private String sourceFileName;
     private int result;
     private String failReason;
-    private LocalDateTime createdAt;
+    private Long createdAt;
 
     public int getLineNo() {
         return lineNo;
@@ -65,11 +63,11 @@ public class GroupLinkImportDetailVoRow {
         this.failReason = failReason;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 }

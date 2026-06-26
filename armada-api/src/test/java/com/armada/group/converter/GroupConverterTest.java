@@ -8,34 +8,28 @@ import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
-/**
- * GroupConverter 单测:验时间字段(库内 UTC 墙钟)→ 出参 epoch 毫秒的口径正确。
- */
+/** GroupConverter 单测:时间字段已是 epoch 毫秒,转换层直映。 */
 class GroupConverterTest {
 
     private final GroupConverter converter = Mappers.getMapper(GroupConverter.class);
 
     /** 2024-06-01T00:00:00 按 UTC 解释 = 1717200000000 毫秒。 */
-    private static final long EPOCH_2024_06_01_UTC = LocalDateTime.of(2024, 6, 1, 0, 0, 0)
-            .toInstant(ZoneOffset.UTC).toEpochMilli();
+    private static final long EPOCH_2024_06_01_UTC = 1_717_200_000_000L;
 
     @Test
     void toLabelVO_epochMillis() {
-        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
         GroupLinkLabelVoRow row = new GroupLinkLabelVoRow();
         row.setId(1L);
         row.setName("印度");
         row.setRegion("印度");
         row.setRemark("r");
         row.setLinkCount(5L);
-        row.setCreatedAt(t);
-        row.setUpdatedAt(t);
+        row.setCreatedAt(EPOCH_2024_06_01_UTC);
+        row.setUpdatedAt(EPOCH_2024_06_01_UTC);
 
         GroupLinkLabelVO vo = converter.toLabelVO(row);
 
@@ -46,25 +40,13 @@ class GroupConverterTest {
     }
 
     @Test
-    void toEpochMilli_null_returnsNull() {
-        assertThat(converter.toEpochMilli(null)).isNull();
-    }
-
-    @Test
-    void toEpochMilli_interpretsAsUtc() {
-        assertThat(converter.toEpochMilli(LocalDateTime.of(2024, 6, 1, 0, 0, 0)))
-                .isEqualTo(EPOCH_2024_06_01_UTC);
-    }
-
-    @Test
     void toGroupLinkVO_epochMillis() {
-        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
         GroupLinkVoRow row = new GroupLinkVoRow();
         row.setId(10L);
         row.setUrl("https://chat.whatsapp.com/test");
         row.setGroupName("测试群");
         row.setSourceFileName("links.txt");
-        row.setCreatedAt(t);
+        row.setCreatedAt(EPOCH_2024_06_01_UTC);
 
         GroupLinkVO vo = converter.toGroupLinkVO(row);
 
@@ -89,7 +71,6 @@ class GroupConverterTest {
 
     @Test
     void toImportDetailVO_epochMillis() {
-        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
         GroupLinkImportDetailVoRow row = new GroupLinkImportDetailVoRow();
         row.setLineNo(3);
         row.setGroupName("测试群");
@@ -97,7 +78,7 @@ class GroupConverterTest {
         row.setSourceFileName("links.txt");
         row.setResult(4);
         row.setFailReason("格式错误");
-        row.setCreatedAt(t);
+        row.setCreatedAt(EPOCH_2024_06_01_UTC);
 
         GroupLinkImportDetailVO vo = converter.toImportDetailVO(row);
 
@@ -125,16 +106,15 @@ class GroupConverterTest {
 
     @Test
     void toImportDetailVOList_convertsAll() {
-        LocalDateTime t = LocalDateTime.of(2024, 6, 1, 0, 0, 0);
         GroupLinkImportDetailVoRow row1 = new GroupLinkImportDetailVoRow();
         row1.setLineNo(1);
         row1.setResult(1);
-        row1.setCreatedAt(t);
+        row1.setCreatedAt(EPOCH_2024_06_01_UTC);
         GroupLinkImportDetailVoRow row2 = new GroupLinkImportDetailVoRow();
         row2.setLineNo(2);
         row2.setResult(4);
         row2.setFailReason("格式错误");
-        row2.setCreatedAt(t);
+        row2.setCreatedAt(EPOCH_2024_06_01_UTC);
 
         List<GroupLinkImportDetailVO> vos = converter.toImportDetailVOList(List.of(row1, row2));
 

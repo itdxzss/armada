@@ -22,7 +22,7 @@ public interface GroupLinkMapper {
     GroupLink selectAnyByUrl(@Param("url") String url);
 
     /**
-     * 插入新群链接(id/tenant_id/时间由库生成或拦截器注入)。
+     * 插入新群链接(id/tenant_id 由库或拦截器注入,时间由调用方传入)。
      *
      * @param row 群链接实体
      * @return 影响行数
@@ -39,7 +39,8 @@ public interface GroupLinkMapper {
      * @return 影响行数
      */
     int adoptToLabel(@Param("id") Long id, @Param("labelId") Long labelId,
-                     @Param("batchId") Long batchId, @Param("groupName") String groupName);
+                     @Param("batchId") Long batchId, @Param("groupName") String groupName,
+                     @Param("updatedAt") long updatedAt);
 
     /**
      * 按分组分页总数(与 selectPageByLabel 共用 filter,口径一致)。
@@ -64,7 +65,8 @@ public interface GroupLinkMapper {
      * @param labelId 目标分组 ID
      * @return 影响行数
      */
-    int migrateToLabel(@Param("ids") List<Long> ids, @Param("labelId") Long labelId);
+    int migrateToLabel(@Param("ids") List<Long> ids, @Param("labelId") Long labelId,
+                       @Param("updatedAt") long updatedAt);
 
     /**
      * 按 ID 批量软删除群链接。
@@ -72,7 +74,7 @@ public interface GroupLinkMapper {
      * @param ids 群链接 ID 列表
      * @return 影响行数
      */
-    int softDeleteByIds(@Param("ids") List<Long> ids);
+    int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 
     /**
      * 按所属分组 ID 批量软删除群链接(分组被删时级联调用)。
@@ -80,7 +82,7 @@ public interface GroupLinkMapper {
      * @param labelIds 分组 ID 列表
      * @return 更新行数
      */
-    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds);
+    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds, @Param("deletedAt") long deletedAt);
 
     /**
      * 计算 ID 列表中活跃链接数(迁移/删除存在性校验)。

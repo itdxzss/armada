@@ -63,9 +63,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:校验通过后落库,再按主键回查一次来构建出参——INSERT 不回写
-     * {@code created_at}/{@code updated_at}(由库表 {@code DEFAULT CURRENT_TIMESTAMP} 生成)、
-     * {@code useGeneratedKeys} 也只回填 {@code id},不回查就拿不到这两个服务端时间戳。
+     * <p>实现要点:校验通过后由应用层写入 epoch 毫秒审计时间,再按主键回查一次来构建出参。
      * 全程 {@code @Transactional}:按钮 JSON 序列化或名称唯一键冲突时整体回滚。</p>
      */
     @Override
@@ -73,6 +71,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     public MarketingTemplateVO create(MarketingTemplateDTO dto) {
         validate(dto, null);
         MarketingTemplate entity = converter.toEntity(dto);
+        long now = System.currentTimeMillis();
+        entity.setCreatedAt(now);
+        entity.setUpdatedAt(now);
         mapper.insert(entity);
         log.info("营销模板已创建 id={} name={} linkMode={}",
                 entity.getId(), entity.getTemplateName(), entity.getLinkMode());
@@ -84,7 +85,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      *
      * <p>实现要点:先确认模板存在再校验;{@code id} 来自路径参数而非请求体,DTO 转换不携带它,
      * 须显式 {@code setId} 后 UPDATE 的 WHERE 才能命中目标行。更新后回查一次,
-     * 让出参带上库表 {@code ON UPDATE CURRENT_TIMESTAMP} 刚刷新的 {@code updated_at}。</p>
+     * 让出参带上应用层写入的 {@code updated_at}。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -93,6 +94,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         validate(dto, id);
         MarketingTemplate entity = converter.toEntity(dto);
         entity.setId(id);
+        entity.setUpdatedAt(System.currentTimeMillis());
         mapper.updateById(entity);
         log.info("营销模板已更新 id={} name={}", id, entity.getTemplateName());
         return converter.toVO(mapper.selectById(id));
@@ -102,8 +104,8 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      * {@inheritDoc}
      *
      * <p>实现要点:刻意逐字段复制业务列(不走 converter、也不整体拷贝实体),只搬模板配置;
-     * {@code id}/{@code tenant_id}/审计列(创建更新时间、创建人)一律不带——这些由 INSERT、
-     * 租户拦截器、库表默认值在新行上重新生成。名称追加「{@value #CLONE_SUFFIX}」后缀并先查重,
+     * {@code id}/{@code tenant_id}/创建人一律不带——这些由 INSERT 和租户拦截器在新行上生成。
+     * 名称追加「{@value #CLONE_SUFFIX}」后缀并先查重,
      * 避免对同一模板连续复制产生同名冲突。</p>
      */
     @Override
@@ -125,6 +127,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setButtons(origin.getButtons());
         copy.setPromotionLink(origin.getPromotionLink());
         copy.setRemark(origin.getRemark());
+        long now = System.currentTimeMillis();
+        copy.setCreatedAt(now);
+        copy.setUpdatedAt(now);
         mapper.insert(copy);
         log.info("营销模板已复制 sourceId={} newId={} name={}", id, copy.getId(), cloneName);
         return converter.toVO(mapper.selectById(copy.getId()));
@@ -143,7 +148,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
             return;
         }
         // 跨域:被删模板关联的营销任务需停止——待 marketing/task 域建成后接入(当前一期模板先行)。
-        mapper.softDeleteByIds(ids);
+        mapper.softDeleteByIds(ids, System.currentTimeMillis());
         log.info("营销模板批量软删除 count={} ids={}", ids.size(), ids);
     }
 

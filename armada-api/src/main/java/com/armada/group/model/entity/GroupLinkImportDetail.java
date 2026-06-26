@@ -1,7 +1,5 @@
 package com.armada.group.model.entity;
 
-import java.time.LocalDateTime;
-
 /**
  * 群链接导入明细实体,映射 group_link_import_detail 表一行。普通类 + getter/setter(无 Lombok)。
  */
@@ -34,8 +32,8 @@ public class GroupLinkImportDetail {
     /** 成功/已存在时关联 group_link.id(成功=新建或复活的行;已存在=命中的现有行)。 */
     private Long groupLinkId;
 
-    /** 创建时间(UTC)。 */
-    private LocalDateTime createdAt;
+    /** 创建时间(epoch毫秒)。 */
+    private Long createdAt;
 
     public Long getId() {
         return id;
@@ -109,11 +107,11 @@ public class GroupLinkImportDetail {
         this.groupLinkId = groupLinkId;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 }

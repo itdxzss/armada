@@ -9,8 +9,6 @@ import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import org.mapstruct.Mapper;
 
@@ -44,17 +42,6 @@ public interface MarketingTemplateConverter {
         } catch (JsonProcessingException e) {
             throw new BusinessException(ErrorCode.VALIDATION, "消息按钮序列化失败");
         }
-    }
-
-    /**
-     * {@code LocalDateTime} → epoch 毫秒(供 toVO 的 createdAt/updatedAt 字段),MapStruct 按类型自动选用。
-     *
-     * <p>库表 {@code DATETIME} 配 {@code serverTimezone=UTC} 存的是 UTC 墙钟,MyBatis 读成不带时区的
-     * {@code LocalDateTime},故必须按 {@code ZoneOffset.UTC} 解释才能得到真实时刻;
-     * 用本地默认时区(孟买服务器为 IST)会整体偏移 5.5/8 小时。</p>
-     */
-    default Long toEpochMilli(LocalDateTime time) {
-        return time == null ? null : time.toInstant(ZoneOffset.UTC).toEpochMilli();
     }
 
     /** JSON 字符串 → List<MessageButton>(供 toVO 的 buttons 字段);坏数据返回空列表不抛。 */

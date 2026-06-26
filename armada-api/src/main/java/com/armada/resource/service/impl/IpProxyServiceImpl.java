@@ -81,7 +81,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         if (ids == null || ids.isEmpty()) {
             return;
         }
-        int count = mapper.softDeleteByIds(ids);
+        int count = mapper.softDeleteByIds(ids, System.currentTimeMillis());
         log.info("IP代理批量软删除 count={} ids={}", count, ids);
     }
 
@@ -144,6 +144,9 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setSource(dto.source());
         row.setStatus(IpProxyStatus.IDLE.code());
         row.setOwnership(ProxyOwnership.OWNED.code());
+        long now = System.currentTimeMillis();
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
         mapper.insert(row);
         return true;
     }

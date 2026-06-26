@@ -44,10 +44,11 @@
     <insert id="insert" parameterType="com.armada.resource.model.entity.IpProxy"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO ip_proxy
-            (host, port, protocol, username, password, region, status, source, ownership, remark, created_by)
+            (host, port, protocol, username, password, region, status, source, ownership, remark,
+             created_at, updated_at, created_by)
         VALUES
             (#{host}, #{port}, #{protocol}, #{username}, #{password}, #{region},
-             #{status}, #{source}, #{ownership}, #{remark}, #{createdBy})
+             #{status}, #{source}, #{ownership}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
     <select id="countActiveByFullTuple" resultType="long">
@@ -62,7 +63,7 @@
 
     <update id="softDeleteByIds">
         UPDATE ip_proxy
-        SET deleted_at = NOW()
+        SET deleted_at = #{deletedAt}
         WHERE deleted_at IS NULL AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>

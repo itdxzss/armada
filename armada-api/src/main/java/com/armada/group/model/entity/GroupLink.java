@@ -1,7 +1,5 @@
 package com.armada.group.model.entity;
 
-import java.time.LocalDateTime;
-
 /**
  * 群链接实体,映射 group_link 表一行。普通类 + getter/setter(无 Lombok),Mapper 直出。
  */
@@ -28,17 +26,17 @@ public class GroupLink {
     /** 备注(纯导入备注)。 */
     private String remark;
 
-    /** 创建时间(UTC)。 */
-    private LocalDateTime createdAt;
+    /** 创建时间(epoch毫秒)。 */
+    private Long createdAt;
 
-    /** 更新时间(UTC)。 */
-    private LocalDateTime updatedAt;
+    /** 更新时间(epoch毫秒)。 */
+    private Long updatedAt;
 
     /** 创建人 user_id。 */
     private Long createdBy;
 
-    /** 软删除时间;NULL=未删。 */
-    private LocalDateTime deletedAt;
+    /** 软删除时间(epoch毫秒);NULL=未删。 */
+    private Long deletedAt;
 
     public Long getId() {
         return id;
@@ -96,19 +94,19 @@ public class GroupLink {
         this.remark = remark;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 
-    public LocalDateTime getUpdatedAt() {
+    public Long getUpdatedAt() {
         return updatedAt;
     }
 
-    public void setUpdatedAt(LocalDateTime updatedAt) {
+    public void setUpdatedAt(Long updatedAt) {
         this.updatedAt = updatedAt;
     }
 
@@ -120,11 +118,11 @@ public class GroupLink {
         this.createdBy = createdBy;
     }
 
-    public LocalDateTime getDeletedAt() {
+    public Long getDeletedAt() {
         return deletedAt;
     }
 
-    public void setDeletedAt(LocalDateTime deletedAt) {
+    public void setDeletedAt(Long deletedAt) {
         this.deletedAt = deletedAt;
     }
 }

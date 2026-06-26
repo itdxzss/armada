@@ -8,8 +8,8 @@
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, created_by)
-    VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId}, #{createdBy})
+    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, created_at, updated_at, created_by)
+    VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId}, #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
 
   <!-- 复活软删链接 + 归到本分组 + 更新来源批次/群名(群名空不覆盖) -->
@@ -18,7 +18,8 @@
     SET deleted_at = NULL,
         label_id = #{labelId},
         import_batch_id = #{batchId},
-        group_name = COALESCE(#{groupName}, group_name)
+        group_name = COALESCE(#{groupName}, group_name),
+        updated_at = #{updatedAt}
     WHERE id = #{id}
   </update>
 
@@ -49,19 +50,19 @@
   </select>
 
   <update id="migrateToLabel">
-    UPDATE group_link SET label_id = #{labelId}
+    UPDATE group_link SET label_id = #{labelId}, updated_at = #{updatedAt}
     WHERE deleted_at IS NULL AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 
   <update id="softDeleteByIds">
-    UPDATE group_link SET deleted_at = NOW()
+    UPDATE group_link SET deleted_at = #{deletedAt}
     WHERE deleted_at IS NULL AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 
   <update id="softDeleteByLabelIds">
-    UPDATE group_link SET deleted_at = NOW()
+    UPDATE group_link SET deleted_at = #{deletedAt}
     WHERE deleted_at IS NULL AND label_id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>

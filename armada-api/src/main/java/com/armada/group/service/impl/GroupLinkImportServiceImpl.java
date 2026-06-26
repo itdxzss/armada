@@ -22,6 +22,7 @@ import com.armada.shared.response.PageResult;
 import com.armada.shared.util.LineImporter;
 import com.armada.shared.util.LineImporter.Kind;
 import com.armada.shared.util.LineImporter.LineOutcome;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -41,9 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupLinkImportServiceImpl.class);
-
-    /** 存储层时间字段解释时区:数据库存 UTC。 */
-    private static final ZoneId ZONE_UTC = ZoneId.of("UTC");
 
     /** 导出输出时区:上海时间。 */
     private static final ZoneId ZONE_CN = ZoneId.of("Asia/Shanghai");
@@ -101,6 +99,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         batch.setLabelId(dto.labelId());
         // 批次名称(来源文件/批次名称)非必填:留空(null/空白)统一存 NULL,不存空白串
         batch.setBatchName(blankToNull(dto.batchName()));
+        batch.setCreatedAt(System.currentTimeMillis());
         importBatchMapper.insert(batch);
 
         // 4) 逐行处理 = 通用骨架 LineImporter.run(文本, 解析器, 去重键, 落库器):
@@ -127,6 +126,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             d.setBatchId(batch.getId());
             d.setLineNo(o.lineNo());
             d.setRawUrl(o.raw());
+            d.setCreatedAt(System.currentTimeMillis());
 
             if (o.kind() == Kind.FAILED) {
                 // 解析阶段抛出 ImportLineException 的行:格式错误
@@ -196,7 +196,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         for (GroupLinkImportDetailVoRow row : rows) {
             String timeStr = row.getCreatedAt() == null
                     ? ""
-                    : EXPORT_TIME_FMT.format(row.getCreatedAt().atZone(ZONE_UTC));
+                    : EXPORT_TIME_FMT.format(Instant.ofEpochMilli(row.getCreatedAt()));
             result.add(new String[]{
                     String.valueOf(row.getLineNo()),
                     nullToEmpty(row.getGroupName()),
@@ -235,6 +235,9 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             row.setLinkUrl(url);
             row.setLabelId(labelId);
             row.setImportBatchId(batchId);
+            long now = System.currentTimeMillis();
+            row.setCreatedAt(now);
+            row.setUpdatedAt(now);
             groupLinkMapper.insert(row);
             return new Persisted(GroupLinkImportResult.SUCCESS, row.getId());
         }
@@ -243,7 +246,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             return new Persisted(GroupLinkImportResult.EXISTS, existing.getId());
         }
         // 软删的同 url:复活并归到本次分组
-        groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null);
+        groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null, System.currentTimeMillis());
         return new Persisted(GroupLinkImportResult.SUCCESS, existing.getId());
     }
 

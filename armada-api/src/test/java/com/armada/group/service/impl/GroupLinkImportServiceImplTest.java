@@ -27,7 +27,6 @@ import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
-import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -124,7 +123,7 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.exists()).isEqualTo(1);
         assertThat(result.inserted()).isEqualTo(0);
         // 已存在的活跃链接:既不插入,也不改归属(不调 adoptToLabel)
-        verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any());
+        verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any(), anyLong());
         verify(groupLinkMapper, never()).insert(any());
     }
 
@@ -134,7 +133,7 @@ class GroupLinkImportServiceImplTest {
         stubBatchInsert(20L);
         GroupLink existing = new GroupLink();
         existing.setId(200L);
-        existing.setDeletedAt(LocalDateTime.now());  // 软删链接
+        existing.setDeletedAt(System.currentTimeMillis());  // 软删链接
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
 
         GroupLinkImportResultVO result = service.importLinks(
@@ -145,7 +144,7 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.inserted()).isEqualTo(1);  // 复活计入成功
         assertThat(result.exists()).isEqualTo(0);
         // 软删链接:复活并改归属本分组
-        verify(groupLinkMapper).adoptToLabel(eq(200L), eq(2L), eq(20L), eq(null));
+        verify(groupLinkMapper).adoptToLabel(eq(200L), eq(2L), eq(20L), eq(null), anyLong());
         verify(groupLinkMapper, never()).insert(any());
     }
 
@@ -269,7 +268,7 @@ class GroupLinkImportServiceImplTest {
         GroupLinkImportDetailVoRow voRow = new GroupLinkImportDetailVoRow();
         voRow.setLineNo(1);
         voRow.setResult(1);
-        voRow.setCreatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
+        voRow.setCreatedAt(1_717_200_000_000L);
         GroupLinkImportDetailVO detailVO = new GroupLinkImportDetailVO(1, null, null, null, 1, "成功", null, 1717200000000L);
 
         when(detailMapper.countByQuery(query)).thenReturn(1L);
@@ -310,7 +309,7 @@ class GroupLinkImportServiceImplTest {
         row.setRawUrl("chat.whatsapp.com/BadLink");
         row.setFailReason("格式错误");
         row.setResult(4);
-        row.setCreatedAt(LocalDateTime.of(2024, 6, 1, 12, 0, 0));  // UTC 12:00 → Asia/Shanghai 20:00
+        row.setCreatedAt(1_717_243_200_000L);  // UTC 12:00 → Asia/Shanghai 20:00
 
         when(detailMapper.selectFailed(null, 10L)).thenReturn(List.of(row));
 

@@ -31,6 +31,9 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         label.setName(name);
         label.setRegion("印度");
         label.setRemark("测试");
+        long now = System.currentTimeMillis();
+        label.setCreatedAt(now);
+        label.setUpdatedAt(now);
         return label;
     }
 
@@ -67,7 +70,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         insertActiveLink("chat.whatsapp.com/Count1", labelId);
         insertActiveLink("chat.whatsapp.com/Count2", labelId);
         Long softDeletedId = insertActiveLink("chat.whatsapp.com/CountDeleted", labelId);
-        groupLinkMapper.softDeleteByIds(java.util.List.of(softDeletedId));
+        groupLinkMapper.softDeleteByIds(java.util.List.of(softDeletedId), System.currentTimeMillis());
 
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
         query.setId(labelId);
@@ -89,6 +92,9 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         com.armada.group.model.entity.GroupLink link = new com.armada.group.model.entity.GroupLink();
         link.setLinkUrl(url);
         link.setLabelId(labelId);
+        long now = System.currentTimeMillis();
+        link.setCreatedAt(now);
+        link.setUpdatedAt(now);
         groupLinkMapper.insert(link);
         return link.getId();
     }
@@ -101,7 +107,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         Long id = label.getId();
 
         // 软删
-        mapper.softDeleteByIds(List.of(id));
+        mapper.softDeleteByIds(List.of(id), System.currentTimeMillis());
         assertThat(mapper.selectActiveByName("复活测试分组")).isNull();
 
         // 查软删
@@ -110,7 +116,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         assertThat(deleted.getDeletedAt()).isNotNull();
 
         // 复活
-        mapper.reviveById(id);
+        mapper.reviveById(id, System.currentTimeMillis());
 
         // 重新活跃
         GroupLinkLabel revived = mapper.selectActiveByName("复活测试分组");
@@ -125,7 +131,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         Long id = label.getId();
 
         assertThat(mapper.selectById(id)).isNotNull();
-        mapper.softDeleteByIds(List.of(id));
+        mapper.softDeleteByIds(List.of(id), System.currentTimeMillis());
         assertThat(mapper.selectById(id)).isNull();
     }
 
@@ -139,6 +145,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         update.setName("修改后名称");
         update.setRegion("巴基斯坦");
         update.setRemark("新备注");
+        update.setUpdatedAt(System.currentTimeMillis());
         mapper.updateProfile(update);
 
         GroupLinkLabel found = mapper.selectById(label.getId());

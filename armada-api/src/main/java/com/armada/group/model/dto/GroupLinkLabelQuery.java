@@ -1,7 +1,6 @@
 package com.armada.group.model.dto;
 
 import com.armada.shared.paging.PageQuery;
-import java.time.LocalDateTime;
 
 /**
  * WS链接分组列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -14,11 +13,11 @@ public class GroupLinkLabelQuery extends PageQuery {
     /** 精确匹配分组 ID(可选)。 */
     private Long id;
 
-    /** 创建时间范围起(UTC)。 */
-    private LocalDateTime createdFrom;
+    /** 创建时间范围起(epoch毫秒)。 */
+    private Long createdFrom;
 
-    /** 创建时间范围止(UTC)。 */
-    private LocalDateTime createdTo;
+    /** 创建时间范围止(epoch毫秒)。 */
+    private Long createdTo;
 
     public String getKeyword() {
         return keyword;
@@ -36,19 +35,19 @@ public class GroupLinkLabelQuery extends PageQuery {
         this.id = id;
     }
 
-    public LocalDateTime getCreatedFrom() {
+    public Long getCreatedFrom() {
         return createdFrom;
     }
 
-    public void setCreatedFrom(LocalDateTime createdFrom) {
+    public void setCreatedFrom(Long createdFrom) {
         this.createdFrom = createdFrom;
     }
 
-    public LocalDateTime getCreatedTo() {
+    public Long getCreatedTo() {
         return createdTo;
     }
 
-    public void setCreatedTo(LocalDateTime createdTo) {
+    public void setCreatedTo(Long createdTo) {
         this.createdTo = createdTo;
     }
 }

@@ -1,7 +1,5 @@
 package com.armada.group.model.entity;
 
-import java.time.LocalDateTime;
-
 /**
  * 群链接导入批次实体,映射 group_link_import_batch 表一行。普通类 + getter/setter(无 Lombok)。
  */
@@ -40,14 +38,14 @@ public class GroupLinkImportBatch {
     /** 格式不合格行数。 */
     private int failedRows;
 
-    /** 导入时间(UTC)。 */
-    private LocalDateTime createdAt;
+    /** 导入时间(epoch毫秒)。 */
+    private Long createdAt;
 
     /** 创建人 user_id。 */
     private Long createdBy;
 
-    /** 软删除时间;随分组级联软删。 */
-    private LocalDateTime deletedAt;
+    /** 软删除时间(epoch毫秒);随分组级联软删。 */
+    private Long deletedAt;
 
     public Long getId() {
         return id;
@@ -129,11 +127,11 @@ public class GroupLinkImportBatch {
         this.failedRows = failedRows;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Long getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
     }
 
@@ -145,11 +143,11 @@ public class GroupLinkImportBatch {
         this.createdBy = createdBy;
     }
 
-    public LocalDateTime getDeletedAt() {
+    public Long getDeletedAt() {
         return deletedAt;
     }
 
-    public void setDeletedAt(LocalDateTime deletedAt) {
+    public void setDeletedAt(Long deletedAt) {
         this.deletedAt = deletedAt;
     }
 }

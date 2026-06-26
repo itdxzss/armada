@@ -4,16 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
-import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
-/**
- * 营销模板转换单测:重点验证时间字段(库内 UTC 墙钟)→ 出参 epoch 毫秒的口径正确。
- *
- * <p>服务器在孟买,但库表 {@code DATETIME} 配 {@code serverTimezone=UTC} 存的是 UTC 墙钟,
- * MyBatis 读成不带时区的 {@code LocalDateTime}。转换必须按 UTC 解释,否则每个时间会差 5.5/8 小时。</p>
- */
+/** 营销模板转换单测:时间字段已是 epoch 毫秒,转换层直映。 */
 class MarketingTemplateConverterTest {
 
     private final MarketingTemplateConverter converter =
@@ -23,24 +17,13 @@ class MarketingTemplateConverterTest {
     private static final long EPOCH_2024_01_01_UTC = 1_704_067_200_000L;
 
     @Test
-    void toEpochMilli_interpretsLocalDateTimeAsUtc() {
-        assertThat(converter.toEpochMilli(LocalDateTime.of(2024, 1, 1, 0, 0, 0)))
-                .isEqualTo(EPOCH_2024_01_01_UTC);
-    }
-
-    @Test
-    void toEpochMilli_null_returnsNull() {
-        assertThat(converter.toEpochMilli(null)).isNull();
-    }
-
-    @Test
-    void toVO_mapsTimestampsToEpochMillis() {
+    void toVO_keepsEpochMillis() {
         MarketingTemplate entity = new MarketingTemplate();
         entity.setId(1L);
         entity.setTemplateName("t");
         entity.setLinkMode(1);
-        entity.setCreatedAt(LocalDateTime.of(2024, 1, 1, 0, 0, 0));
-        entity.setUpdatedAt(LocalDateTime.of(2024, 1, 1, 0, 0, 0));
+        entity.setCreatedAt(EPOCH_2024_01_01_UTC);
+        entity.setUpdatedAt(EPOCH_2024_01_01_UTC);
 
         MarketingTemplateVO vo = converter.toVO(entity);
 

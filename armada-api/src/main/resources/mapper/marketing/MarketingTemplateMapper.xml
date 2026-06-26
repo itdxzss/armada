@@ -53,10 +53,10 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_template
             (template_name, link_mode, text_type, image_file_id, content, body_text,
-             buttons, promotion_link, remark, created_by)
+             buttons, promotion_link, remark, created_at, updated_at, created_by)
         VALUES
             (#{templateName}, #{linkMode}, #{textType}, #{imageFileId}, #{content}, #{bodyText},
-             #{buttons}, #{promotionLink}, #{remark}, #{createdBy})
+             #{buttons}, #{promotionLink}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
     <update id="updateById" parameterType="com.armada.marketing.model.entity.MarketingTemplate">
@@ -69,13 +69,14 @@
             body_text     = #{bodyText},
             buttons       = #{buttons},
             promotion_link = #{promotionLink},
-            remark        = #{remark}
+            remark        = #{remark},
+            updated_at    = #{updatedAt}
         WHERE id = #{id} AND deleted_at IS NULL
     </update>
 
     <update id="softDeleteByIds">
         UPDATE marketing_template
-        SET deleted_at = NOW()
+        SET deleted_at = #{deletedAt}
         WHERE deleted_at IS NULL AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>

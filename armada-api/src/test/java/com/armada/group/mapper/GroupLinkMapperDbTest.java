@@ -36,6 +36,9 @@ class GroupLinkMapperDbTest extends DbTestBase {
         label.setName(name);
         label.setRegion("印度");
         label.setRemark("测试分组");
+        long now = System.currentTimeMillis();
+        label.setCreatedAt(now);
+        label.setUpdatedAt(now);
         labelMapper.insert(label);
         return label;
     }
@@ -45,6 +48,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         batch.setLabelId(labelId);
         batch.setBatchName("测试批次");
         batch.setSourceFileName(fileName);
+        batch.setCreatedAt(System.currentTimeMillis());
         batchMapper.insert(batch);
         return batch;
     }
@@ -55,6 +59,9 @@ class GroupLinkMapperDbTest extends DbTestBase {
         link.setGroupName("测试群");
         link.setLabelId(labelId);
         link.setImportBatchId(batchId);
+        long now = System.currentTimeMillis();
+        link.setCreatedAt(now);
+        link.setUpdatedAt(now);
         return link;
     }
 
@@ -84,7 +91,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         assertThat(link.getId()).isNotNull();
 
         // 2. 软删
-        mapper.softDeleteByIds(List.of(link.getId()));
+        mapper.softDeleteByIds(List.of(link.getId()), System.currentTimeMillis());
 
         // 3. selectAnyByUrl 命中(含软删)
         GroupLink found = mapper.selectAnyByUrl("chat.whatsapp.com/ReviveTest");
@@ -92,7 +99,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         assertThat(found.getDeletedAt()).isNotNull();
 
         // 4. adoptToLabel 复活+改归属
-        mapper.adoptToLabel(found.getId(), label2.getId(), batch2.getId(), "新群名");
+        mapper.adoptToLabel(found.getId(), label2.getId(), batch2.getId(), "新群名", System.currentTimeMillis());
 
         // 5. 再次查询应为活跃且 label 已改
         GroupLink revived = mapper.selectAnyByUrl("chat.whatsapp.com/ReviveTest");
@@ -133,7 +140,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         mapper.insert(buildLink("chat.whatsapp.com/CascadeTest2", label.getId(), batch.getId()));
 
         // 级联软删
-        int deleted = mapper.softDeleteByLabelIds(List.of(label.getId()));
+        int deleted = mapper.softDeleteByLabelIds(List.of(label.getId()), System.currentTimeMillis());
         assertThat(deleted).isEqualTo(2);
 
         // 分页查不到(活跃=0)

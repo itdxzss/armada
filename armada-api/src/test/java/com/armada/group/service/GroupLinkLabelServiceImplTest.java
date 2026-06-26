@@ -3,6 +3,7 @@ package com.armada.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,7 +21,6 @@ import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.service.impl.GroupLinkLabelServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
-import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -112,13 +112,13 @@ class GroupLinkLabelServiceImplTest {
         saved.setId(10L);
         saved.setName("复活分组");
         saved.setRegion("印度");
-        saved.setCreatedAt(LocalDateTime.of(2024, 1, 1, 0, 0, 0));
-        saved.setUpdatedAt(LocalDateTime.of(2024, 6, 1, 12, 0, 0));
+        saved.setCreatedAt(1_704_067_200_000L);
+        saved.setUpdatedAt(1_717_243_200_000L);
         when(labelMapper.selectById(10L)).thenReturn(saved);
 
         GroupLinkLabelVO vo = service.create(new GroupLinkLabelDTO("复活分组", "印度", "备注"));
 
-        verify(labelMapper).reviveById(10L);
+        verify(labelMapper).reviveById(eq(10L), anyLong());
         verify(labelMapper).updateProfile(any());
         verify(labelMapper, never()).insert(any());
         assertThat(vo.id()).isEqualTo(10L);
@@ -141,8 +141,8 @@ class GroupLinkLabelServiceImplTest {
         saved.setId(99L);
         saved.setName("新分组");
         saved.setRegion("巴基斯坦");
-        saved.setCreatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
-        saved.setUpdatedAt(LocalDateTime.of(2024, 6, 1, 0, 0, 0));
+        saved.setCreatedAt(1_717_200_000_000L);
+        saved.setUpdatedAt(1_717_200_000_000L);
         when(labelMapper.selectById(99L)).thenReturn(saved);
 
         GroupLinkLabelVO vo = service.create(new GroupLinkLabelDTO("新分组", "巴基斯坦", null));
@@ -230,13 +230,13 @@ class GroupLinkLabelServiceImplTest {
     @Test
     void batchDelete_valid_cascadeSoftDelete() {
         List<Long> ids = List.of(1L, 2L);
-        when(labelMapper.softDeleteByIds(ids)).thenReturn(2);
+        when(labelMapper.softDeleteByIds(eq(ids), anyLong())).thenReturn(2);
 
         int result = service.batchDelete(ids);
 
-        verify(groupLinkMapper).softDeleteByLabelIds(ids);
-        verify(importBatchMapper).softDeleteByLabelIds(ids);
-        verify(labelMapper).softDeleteByIds(ids);
+        verify(groupLinkMapper).softDeleteByLabelIds(eq(ids), anyLong());
+        verify(importBatchMapper).softDeleteByLabelIds(eq(ids), anyLong());
+        verify(labelMapper).softDeleteByIds(eq(ids), anyLong());
         assertThat(result).isEqualTo(2);
     }
 }

@@ -22,6 +22,12 @@ server:
   port: 8080
 
 armada:
+  # 协议层连接配置。默认连本机 armada-protocol;测试/部署环境按 yml 覆盖。
+  protocol:
+    base-url: http://localhost:3000
+    api-key: ""
+    connect-timeout-ms: 3000
+    read-timeout-ms: 60000
   # 先测阶段统一登录密码(临时垫片,JWT 接上后删除);可用环境变量 DEV_LOGIN_PASSWORD 覆盖。
   dev-login:
     password: ${DEV_LOGIN_PASSWORD:armada123}

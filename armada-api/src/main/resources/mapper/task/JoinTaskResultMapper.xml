@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.JoinTaskResultMapper">
+
+  <!--
+    显式 resultMap：autoMapping 兜底其余列；显式绑 is_admin → isAdmin。
+    原因：实体字段名 isAdmin + setter setAdmin()，JavaBeans 内省推断属性名为 admin，
+    而 MyBatis mapUnderscoreToCamelCase 把 is_admin 转为 isAdmin，两者不一致。
+    显式绑定直接用字段名，绕过 getter/setter 命名歧义，保证 is_admin=1 能映射到 isAdmin=true。
+  -->
+  <resultMap id="resultRow" type="com.armada.task.model.entity.JoinTaskResult" autoMapping="true">
+    <id column="id" property="id"/>
+    <result column="is_admin" property="isAdmin"/>
+  </resultMap>
+
+  <!--
+    批量插入计划行。
+    不写 tenant_id（拦截器注入）。
+    不写 group_jid/is_admin/promoted_at（引擎切片回写；DB 默认值 ''/0/NULL）。
+    account_id 可为 NULL（无效链接行占位）。
+  -->
+  <insert id="insertResults">
+    INSERT INTO join_task_result
+      (join_task_id, account, account_id, link, status, reason, created_at, updated_at)
+    VALUES
+    <foreach collection="rows" item="r" separator=",">
+      (#{r.joinTaskId}, #{r.account}, #{r.accountId}, #{r.link}, #{r.status}, #{r.reason}, #{r.createdAt}, #{r.updatedAt})
+    </foreach>
+  </insert>
+
+  <!-- ORDER BY id 保持建任务时的分配顺序。resultMap 处理 is_admin 映射陷阱。 -->
+  <select id="selectResultsByTask" resultMap="resultRow">
+    SELECT * FROM join_task_result WHERE join_task_id = #{joinTaskId} ORDER BY id
+  </select>
+
+  <!-- 物理删除指定任务的全部计划行，供编辑重建时清空旧行使用。 -->
+  <delete id="deleteResultsByTask">
+    DELETE FROM join_task_result WHERE join_task_id = #{joinTaskId}
+  </delete>
+
+</mapper>

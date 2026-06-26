@@ -1,6 +1,8 @@
 package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
+import com.armada.platform.protocol.port.account.AccountLifecyclePort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,8 +14,8 @@ import org.springframework.web.client.RestClient;
 /**
  * 协议层防腐层 Spring 配置。
  *
- * <p>当前注册协议层基础配置、共享 {@link RestClient} 与 {@link ProtocolHttpExecutor}。
- * 具体账号、群组、消息 adapter 在后续小口中单独接入。</p>
+ * <p>当前注册协议层基础配置、共享 {@link RestClient}、{@link ProtocolHttpExecutor}
+ * 与首期账号生命周期 adapter。群组、消息等 adapter 在后续小口中单独接入。</p>
  */
 @Configuration
 @EnableConfigurationProperties(ProtocolProperties.class)
@@ -62,5 +64,16 @@ public class ProtocolConfiguration {
     @Bean
     public ProtocolHttpExecutor protocolHttpExecutor(RestClient protocolRestClient) {
         return new ProtocolHttpExecutor(protocolRestClient);
+    }
+
+    /**
+     * 注册账号生命周期协议端口。
+     *
+     * @param protocolHttpExecutor 协议层 HTTP 执行器
+     * @return 账号生命周期端口 HTTP 实现
+     */
+    @Bean
+    public AccountLifecyclePort accountLifecyclePort(ProtocolHttpExecutor protocolHttpExecutor) {
+        return new HttpAccountLifecycleAdapter(protocolHttpExecutor);
     }
 }

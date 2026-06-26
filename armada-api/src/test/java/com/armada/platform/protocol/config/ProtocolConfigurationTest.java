@@ -1,6 +1,7 @@
 package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.port.account.AccountLifecyclePort;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -33,6 +34,7 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(ProtocolProperties.class);
             assertThat(context).hasSingleBean(RestClient.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutor.class);
+            assertThat(context).hasSingleBean(AccountLifecyclePort.class);
 
             ProtocolProperties properties = context.getBean(ProtocolProperties.class);
             assertThat(properties.getBaseUrl()).isEqualTo("http://localhost:3000");

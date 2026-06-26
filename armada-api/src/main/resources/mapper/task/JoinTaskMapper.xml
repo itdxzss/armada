@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.JoinTaskMapper">
+
+  <!-- tenant_id 由租户拦截器注入，不出现在 INSERT/WHERE。时间列为 BIGINT epoch 毫秒，应用层写。 -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO join_task (
+      name, account_group_ids, account_group_names, selected_account_ids, links_text,
+      distribution_mode, accounts_per_link, executor_account_count, links_per_account,
+      fixed_interval_min_sec, fixed_interval_max_sec, multi_interval_min_sec, multi_interval_max_sec,
+      interval_label, retry_enabled, retry_limit, failure_policy,
+      total, executed, success, failed, pending, status,
+      created_by, created_at, updated_at
+    ) VALUES (
+      #{name}, #{accountGroupIds}, #{accountGroupNames}, #{selectedAccountIds}, #{linksText},
+      #{distributionMode}, #{accountsPerLink}, #{executorAccountCount}, #{linksPerAccount},
+      #{fixedIntervalMinSec}, #{fixedIntervalMaxSec}, #{multiIntervalMinSec}, #{multiIntervalMaxSec},
+      #{intervalLabel}, #{retryEnabled}, #{retryLimit}, #{failurePolicy},
+      #{total}, #{executed}, #{success}, #{failed}, #{pending}, #{status},
+      #{createdBy}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <!-- deleted_at IS NULL 等价于有效行；LIMIT 1 防意外多行。 -->
+  <select id="selectByTenantAndId" resultType="com.armada.task.model.entity.JoinTask">
+    SELECT * FROM join_task WHERE id = #{id} AND deleted_at IS NULL LIMIT 1
+  </select>
+
+  <!--
+    共享筛选片段：countPage 与 selectPage 复用，保证口径一致。
+    tenant_id 由拦截器注入，不手写。
+    groupId 用 LIKE 匹配 account_group_ids JSON 快照（第一刀够用）。
+    比较符 &gt;= 和 &lt; 为 XML 转义，禁止裸 <> 否则运行时 XML 解析炸。
+  -->
+  <sql id="filter">
+    deleted_at IS NULL
+    <if test="f.keyword != null and f.keyword != ''">
+      AND (name LIKE CONCAT('%', #{f.keyword}, '%') OR links_text LIKE CONCAT('%', #{f.keyword}, '%'))
+    </if>
+    <if test="f.status != null and f.status != ''">AND status = #{f.status}</if>
+    <if test="f.distributionMode != null and f.distributionMode != ''">AND distribution_mode = #{f.distributionMode}</if>
+    <if test="f.interval != null and f.interval != ''">AND interval_label = #{f.interval}</if>
+    <if test="f.groupId != null">AND account_group_ids LIKE CONCAT('%', #{f.groupId}, '%')</if>
+    <if test="f.dateFrom != null">AND created_at &gt;= #{f.dateFrom}</if>
+    <if test="f.dateTo != null">AND created_at &lt; #{f.dateTo}</if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*) FROM join_task WHERE <include refid="filter"/>
+  </select>
+
+  <!-- ORDER BY id DESC 保证新建排前；LIMIT/OFFSET SQL 下推，禁 Java 内存分页。 -->
+  <select id="selectPage" resultType="com.armada.task.model.entity.JoinTask">
+    SELECT * FROM join_task WHERE <include refid="filter"/>
+    ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <!-- 去重非空 interval_label，供前端筛选下拉使用；空串排除（&lt;&gt; = <>）。 -->
+  <select id="selectDistinctIntervals" resultType="string">
+    SELECT DISTINCT interval_label FROM join_task
+    WHERE deleted_at IS NULL AND interval_label &lt;&gt; '' ORDER BY interval_label
+  </select>
+
+  <!-- 覆盖配置列 + 计数器（total/pending）；引擎计数器 executed/success/failed 由引擎切片另行更新。 -->
+  <update id="update">
+    UPDATE join_task SET
+      name=#{name}, account_group_ids=#{accountGroupIds}, account_group_names=#{accountGroupNames},
+      selected_account_ids=#{selectedAccountIds}, links_text=#{linksText}, distribution_mode=#{distributionMode},
+      accounts_per_link=#{accountsPerLink}, executor_account_count=#{executorAccountCount}, links_per_account=#{linksPerAccount},
+      fixed_interval_min_sec=#{fixedIntervalMinSec}, fixed_interval_max_sec=#{fixedIntervalMaxSec},
+      multi_interval_min_sec=#{multiIntervalMinSec}, multi_interval_max_sec=#{multiIntervalMaxSec},
+      interval_label=#{intervalLabel}, retry_enabled=#{retryEnabled}, retry_limit=#{retryLimit},
+      failure_policy=#{failurePolicy}, total=#{total}, pending=#{pending}, updated_at=#{updatedAt}
+    WHERE id=#{id} AND deleted_at IS NULL
+  </update>
+
+  <!-- 批量软删除（幂等）：仅 deleted_at IS NULL 的行被置删，updated_at 同步刷新。 -->
+  <update id="batchSoftDelete">
+    UPDATE join_task SET deleted_at=#{deletedAt}, updated_at=#{deletedAt}
+    WHERE deleted_at IS NULL AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+</mapper>

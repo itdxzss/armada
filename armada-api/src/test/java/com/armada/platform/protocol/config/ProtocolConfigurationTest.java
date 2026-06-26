@@ -1,9 +1,11 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 
@@ -29,6 +31,8 @@ class ProtocolConfigurationTest {
     void registersProtocolPropertiesFromConfiguration() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(ProtocolProperties.class);
+            assertThat(context).hasSingleBean(RestClient.class);
+            assertThat(context).hasSingleBean(ProtocolHttpExecutor.class);
 
             ProtocolProperties properties = context.getBean(ProtocolProperties.class);
             assertThat(properties.getBaseUrl()).isEqualTo("http://localhost:3000");

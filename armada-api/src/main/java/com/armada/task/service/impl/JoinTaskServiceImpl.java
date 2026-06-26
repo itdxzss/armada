@@ -30,7 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 进群任务业务实现(第一刀:建任务)。
+ * 进群任务业务实现(建任务 + 列表/详情/明细读路径 + 编辑/批量软删)。
  *
  * <p>租户隔离由 MyBatis 租户拦截器透明完成,本类不手写 tenant_id。</p>
  * <p>时间字段为 BIGINT epoch 毫秒,insert 时显式传入。total 只计 PENDING 计划行(无效链接转 FAILED 行不计入)。</p>
@@ -53,7 +53,8 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      *
      * <p>实现要点:计划行生成委托纯函数 {@link PlanRowGenerator},本方法只做参数归一、快照列序列化
      * (分组/账号 id → JSON)、计数与落库;total 只数 PENDING 行,无效链接的 FAILED 行入明细但不计入。
-     * 整体在单事务内:先 insert join_task 拿回自增 id,再批量 insert join_task_result。</p>
+     * 整体在单事务内:先 insert join_task 拿回自增 id,再批量 insert join_task_result。
+     * 配置填充复用私有 helper {@link #populateConfigAndPlan}。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -65,6 +66,72 @@ public class JoinTaskServiceImpl implements JoinTaskService {
                 req.name(), req.distributionMode(),
                 req.selectedAccounts() == null ? 0 : req.selectedAccounts().size(),
                 req.linksText() == null ? 0 : req.linksText().length());
+        long now = System.currentTimeMillis();
+        JoinTask task = new JoinTask();
+        List<PlanRow> rows = populateConfigAndPlan(task, req, now);
+        task.setExecuted(0);
+        task.setSuccess(0);
+        task.setFailed(0);
+        task.setStatus(JoinTaskStatus.DRAFT);
+        task.setCreatedAt(now);
+        joinTaskMapper.insert(task);
+        persistRows(task.getId(), rows, now);
+        log.info("建进群任务完成 id={} total={} 计划行={}", task.getId(), task.getTotal(), rows.size());
+        return toVO(joinTaskMapper.selectByTenantAndId(task.getId()));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:先守卫(NOT_FOUND / 非 DRAFT 或 executed>0 → VALIDATION),通过后
+     * 调用 {@link #populateConfigAndPlan} 填充配置列和计数,再覆盖更新主表、物理删旧明细、
+     * 重新生成计划行;update SQL 不动 executed/success/failed/status/created_at。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public JoinTaskDetailVO updateTask(Long id, CreateJoinTaskRequest req) {
+        JoinTask existing = joinTaskMapper.selectByTenantAndId(id);
+        if (existing == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
+        }
+        if (!JoinTaskStatus.DRAFT.equals(existing.getStatus()) || existing.getExecuted() > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务已执行,不能编辑");
+        }
+        if (req == null || req.name() == null || req.name().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务名称不能为空");
+        }
+        log.info("编辑进群任务 id={} mode={}", id, req.distributionMode());
+        long now = System.currentTimeMillis();
+        JoinTask task = new JoinTask();
+        task.setId(id);
+        List<PlanRow> rows = populateConfigAndPlan(task, req, now);
+        joinTaskMapper.update(task);
+        resultMapper.deleteResultsByTask(id);
+        persistRows(id, rows, now);
+        return toDetailVO(joinTaskMapper.selectByTenantAndId(id));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:null/空 ids 直接返回 0;batchSoftDelete 幂等(已软删行不重复计)。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        int deleted = joinTaskMapper.batchSoftDelete(ids, System.currentTimeMillis());
+        log.info("进群任务批量软删 请求={} 实删={}", ids.size(), deleted);
+        return deleted;
+    }
+
+    /**
+     * 据请求把配置列 + 计数(total/pending)+ updated_at 写入 task,并返回据此生成的计划行。
+     * create 与 update 共用;不写 executed/success/failed/status/created_at(各由调用方按场景定)。
+     */
+    private List<PlanRow> populateConfigAndPlan(JoinTask task, CreateJoinTaskRequest req, long now) {
         String mode = DistributionMode.FIXED_ACCOUNT_MULTI_LINK.equals(req.distributionMode())
                 ? DistributionMode.FIXED_ACCOUNT_MULTI_LINK : DistributionMode.FIXED_ACCOUNTS_PER_LINK;
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
@@ -72,9 +139,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         List<PlanRow> rows = PlanRowGenerator.generate(mode, accounts, links.valid(), links.invalid(),
                 n(req.accountsPerLink()), n(req.executorAccountCount()), n(req.linksPerAccount()));
         int total = (int) rows.stream().filter(r -> JoinResultStatus.PENDING.equals(r.status())).count();
-        long now = System.currentTimeMillis();
 
-        JoinTask task = new JoinTask();
         task.setName(req.name().trim());
         task.setAccountGroupIds(JsonIds.toJson(req.accountGroupIds()));
         task.setAccountGroupNames(joinNames(req.accountGroupNames()));
@@ -93,18 +158,9 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         task.setRetryLimit(n(req.retryLimit()));
         task.setFailurePolicy(req.failurePolicy() == null ? "" : req.failurePolicy());
         task.setTotal(total);
-        task.setExecuted(0);
-        task.setSuccess(0);
-        task.setFailed(0);
         task.setPending(total);
-        task.setStatus(JoinTaskStatus.DRAFT);
-        task.setCreatedAt(now);
         task.setUpdatedAt(now);
-        joinTaskMapper.insert(task);
-
-        persistRows(task.getId(), rows, now);
-        log.info("建进群任务完成 id={} mode={} total={} 计划行={}", task.getId(), mode, total, rows.size());
-        return toVO(joinTaskMapper.selectByTenantAndId(task.getId()));
+        return rows;
     }
 
     /** 计划行落库:每行补 joinTaskId/createdAt/updatedAt 后批量插入;空则跳过。 */

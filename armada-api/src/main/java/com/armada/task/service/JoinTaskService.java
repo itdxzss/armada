@@ -11,7 +11,7 @@ import com.armada.task.model.vo.JoinTaskVO;
 
 import java.util.List;
 
-/** 进群任务业务接口(第一刀:建任务 + 读路径)。 */
+/** 进群任务业务接口(第一刀:建任务 + 读路径 + 编辑/批量软删)。 */
 public interface JoinTaskService {
 
     /**
@@ -59,4 +59,25 @@ public interface JoinTaskService {
      * @return 明细行列表(按 id 升序)
      */
     List<JoinResultRowVO> results(Long joinTaskId);
+
+    /**
+     * 编辑进群任务(仅 DRAFT 且未执行)。
+     *
+     * <p>覆盖配置并按新配置重建计划行(先删旧明细再生成);total/pending 跟随新行数。
+     * 已执行(status != DRAFT 或 executed > 0)的任务不可编辑。</p>
+     *
+     * @param id  任务 ID
+     * @param req 新配置(复用建任务入参)
+     * @return 编辑后的任务详情
+     * @throws BusinessException 任务不存在抛 {@link ErrorCode#NOT_FOUND};已执行或任务名为空抛 {@link ErrorCode#VALIDATION}
+     */
+    JoinTaskDetailVO updateTask(Long id, CreateJoinTaskRequest req);
+
+    /**
+     * 批量软删进群任务(置 deleted_at,幂等)。
+     *
+     * @param ids 任务 id 列表;null/空返回 0
+     * @return 实际软删行数(已删的不重复计)
+     */
+    int batchDelete(List<Long> ids);
 }

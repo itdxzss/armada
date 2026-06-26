@@ -1,4 +1,4 @@
-package com.armada.task.model.entity;
+package com.armada.task.model.enums;
 
 /**
  * 进群任务分配方式码常量。

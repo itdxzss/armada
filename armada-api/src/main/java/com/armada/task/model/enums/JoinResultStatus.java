@@ -1,4 +1,4 @@
-package com.armada.task.model.entity;
+package com.armada.task.model.enums;
 
 /**
  * 进群任务结果状态码常量。

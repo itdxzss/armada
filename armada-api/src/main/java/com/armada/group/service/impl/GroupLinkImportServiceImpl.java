@@ -11,6 +11,10 @@ import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
+import com.armada.group.model.enums.GroupLinkImportFailReason;
+import com.armada.group.model.enums.GroupLinkImportSuccessType;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
@@ -74,10 +78,10 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
      *
      * <p>每行最终落到以下互斥类别之一:
      * <ul>
-     *   <li><b>SUCCESS</b>  新链接插入 group_link;或同 url 之前被软删,复活并归到本分组</li>
-     *   <li><b>EXISTS</b>   同 url 已活跃存在(在某分组),不导入、原链接不动(换组走「迁移分组」)</li>
-     *   <li><b>DUPLICATE</b> 本批内同一归一化 url 重复出现,跳过</li>
-     *   <li><b>FORMAT_ERROR</b> 不是合法 WhatsApp 邀请链接,记为失败行</li>
+     *   <li><b>成功/新增</b> 新链接插入 group_link;或同 url 之前被软删,复活并归到本分组</li>
+     *   <li><b>成功/收编</b> 同 url 已由拉群/进群/自建入口进入群组池,且尚未归入导入分组</li>
+     *   <li><b>失败/重复</b> 本批内同一归一化 url 重复出现;或已在导入链接中重复导入</li>
+     *   <li><b>失败/格式错误</b> 不是合法 WhatsApp 邀请链接</li>
      * </ul>
      * 空行不计入任何统计(被 {@link LineImporter} 跳过)。</p>
      *
@@ -115,10 +119,10 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
         // 5) 遍历每行产出:① 组装一条明细行 ② 按类别累加四个计数器
         List<GroupLinkImportDetail> details = new ArrayList<>(outcomes.size());
-        int inserted = 0;    // SUCCESS:新插入或复活
-        int exists = 0;      // EXISTS:同 url 已活跃存在,未导入
-        int duplicated = 0;  // DUPLICATE:批内重复
-        int failed = 0;      // FORMAT_ERROR:格式错误
+        int inserted = 0;
+        int adopted = 0;
+        int duplicate = 0;
+        int formatError = 0;
         List<String> errors = new ArrayList<>();  // 失败行的人读提示,回给前端展示
 
         for (LineOutcome<String, Persisted> o : outcomes) {
@@ -130,26 +134,31 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
             if (o.kind() == Kind.FAILED) {
                 // 解析阶段抛出 ImportLineException 的行:格式错误
-                d.setResult(GroupLinkImportResult.FORMAT_ERROR.code());
-                d.setFailReason(o.reason());
-                failed++;
+                d.setResult(GroupLinkImportResult.FAILED.code());
+                d.setFailReason(GroupLinkImportFailReason.FORMAT_ERROR);
+                formatError++;
                 errors.add("第 " + o.lineNo() + " 行：" + o.reason());
             } else if (o.kind() == Kind.DUPLICATE) {
                 // 同一归一化 url 在本批已出现过
-                d.setResult(GroupLinkImportResult.DUPLICATE.code());
-                d.setFailReason("批内重复");
-                duplicated++;
+                d.setResult(GroupLinkImportResult.FAILED.code());
+                d.setFailReason(GroupLinkImportFailReason.DUPLICATE);
+                duplicate++;
             } else {
-                // PERSISTED:persist 已决定 SUCCESS(新增/复活)或 EXISTS(同 url 已活跃存在)
+                // PERSISTED:persist 已决定成功(新增/收编)或失败(导入域内重复)
                 Persisted p = o.persistResult();
                 d.setResult(p.result().code());
                 d.setGroupLinkId(p.linkId());
+                d.setSuccessType(p.successType());
+                d.setFailReason(p.failReason());
+                d.setExistingOrigin(p.existingOrigin());
                 if (p.result() == GroupLinkImportResult.SUCCESS) {
-                    inserted++;
+                    if (GroupLinkImportSuccessType.ADOPTED.code() == p.successType()) {
+                        adopted++;
+                    } else {
+                        inserted++;
+                    }
                 } else {
-                    // 已存在:明细标失败原因「已存在」,链接未导入、原行不动
-                    d.setFailReason("已存在");
-                    exists++;
+                    duplicate++;
                 }
             }
             details.add(d);
@@ -163,18 +172,24 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         // 7) 把统计计数回写到批次头(totalRows 只含非空行,空行已被 LineImporter 跳过)
         batch.setTotalRows(outcomes.size());
         batch.setInsertedRows(inserted);
-        // adopted_rows 列暂存「已存在」计数(收编已废);列名待改 exists_rows,见 GroupLinkImportBatch.adoptedRows 注释 TODO
-        batch.setAdoptedRows(exists);
-        batch.setSkippedRows(duplicated);
-        batch.setFailedRows(failed);
+        batch.setAdoptedRows(adopted);
+        batch.setDuplicateRows(duplicate);
+        batch.setFailedRows(duplicate + formatError);
         importBatchMapper.updateCounts(batch);
 
-        log.info("群链接导入 labelId={} batchId={} total={} inserted={} exists={} dup={} failed={}",
-                dto.labelId(), batch.getId(), outcomes.size(), inserted, exists, duplicated, failed);
+        log.info("群链接导入 labelId={} batchId={} total={} inserted={} adopted={} duplicate={} formatError={} failed={}",
+                dto.labelId(), batch.getId(), outcomes.size(), inserted, adopted, duplicate, formatError,
+                duplicate + formatError);
 
         // 8) 返回汇总 VO
-        return new GroupLinkImportResultVO(batch.getId(), outcomes.size(),
-                inserted, exists, duplicated, failed, errors);
+        return new GroupLinkImportResultVO(
+                batch.getId(),
+                outcomes.size(),
+                inserted + adopted,
+                duplicate + formatError,
+                duplicate,
+                formatError,
+                errors);
     }
 
     @Override
@@ -219,35 +234,48 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
     }
 
     /**
-     * upsert 单条归一化 url,按 url 在库内的存在状态三分:
+     * upsert 单条归一化 url,按 url 在库内的存在状态四分:
      * <ul>
-     *   <li>库里没有 → insert group_link → SUCCESS</li>
-     *   <li>已存在且活跃({@code deletedAt==null}) → 不动库,记 EXISTS(已存在);导入不搬已有链接,换组走「迁移分组」</li>
-     *   <li>已存在但软删({@code deletedAt!=null}) → adoptToLabel 复活(deleted_at=NULL)+ 改归属本分组 → SUCCESS</li>
+     *   <li>库里没有 → insert group_link → 成功/新增</li>
+     *   <li>已存在但软删({@code deletedAt!=null}) → 复活并归到本分组 → 成功/新增</li>
+     *   <li>已存在且活跃但 {@code labelId==null} → 收编到本分组 → 成功/收编</li>
+     *   <li>已存在且活跃并已有 {@code labelId} → 不动库 → 失败/重复</li>
      * </ul>
      * 软删行必须复活、不能再插新行:plain 唯一键 {@code (tenant_id, link_url)} 连软删行也占键,
      * 不复活则这条 url 永远导不回来。
      */
     private Persisted persist(Long labelId, Long batchId, String url) {
         GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
+        long now = System.currentTimeMillis();
         if (existing == null) {
             GroupLink row = new GroupLink();
             row.setLinkUrl(url);
             row.setLabelId(labelId);
             row.setImportBatchId(batchId);
-            long now = System.currentTimeMillis();
+            row.setOrigin(GroupLinkOrigin.IMPORT.code());
+            row.setMembershipState(GroupMembershipState.TARGET.code());
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             groupLinkMapper.insert(row);
-            return new Persisted(GroupLinkImportResult.SUCCESS, row.getId());
+            return new Persisted(GroupLinkImportResult.SUCCESS,
+                    GroupLinkImportSuccessType.INSERTED.code(), null, row.getId(), null);
         }
-        if (existing.getDeletedAt() == null) {
-            // 活跃的同 url:已存在,不导入、原链接归属不动
-            return new Persisted(GroupLinkImportResult.EXISTS, existing.getId());
+        if (existing.getDeletedAt() != null) {
+            groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null, now);
+            return new Persisted(GroupLinkImportResult.SUCCESS,
+                    GroupLinkImportSuccessType.INSERTED.code(), null, existing.getId(), null);
         }
-        // 软删的同 url:复活并归到本次分组
-        groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null, System.currentTimeMillis());
-        return new Persisted(GroupLinkImportResult.SUCCESS, existing.getId());
+        if (existing.getLabelId() == null) {
+            int updated = groupLinkMapper.adoptActiveIntoImport(existing.getId(), labelId, batchId, now);
+            if (updated == 0) {
+                return new Persisted(GroupLinkImportResult.FAILED, null,
+                        GroupLinkImportFailReason.DUPLICATE, null, null);
+            }
+            return new Persisted(GroupLinkImportResult.SUCCESS,
+                    GroupLinkImportSuccessType.ADOPTED.code(), null, existing.getId(), existing.getOrigin());
+        }
+        return new Persisted(GroupLinkImportResult.FAILED, null,
+                GroupLinkImportFailReason.DUPLICATE, null, null);
     }
 
     private void validateRequest(GroupLinkImportDTO dto) {
@@ -261,6 +289,11 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         }
     }
 
-    /** persist 内部返回值:result(SUCCESS=新增/复活 / EXISTS=已存在) + 群链接 ID。 */
-    private record Persisted(GroupLinkImportResult result, Long linkId) {}
+    /** persist 内部返回值:主结果 + 成功类型/失败原因 + 群链接 ID + 收编前来源。 */
+    private record Persisted(GroupLinkImportResult result,
+                             Integer successType,
+                             String failReason,
+                             Long linkId,
+                             Integer existingOrigin) {
+    }
 }

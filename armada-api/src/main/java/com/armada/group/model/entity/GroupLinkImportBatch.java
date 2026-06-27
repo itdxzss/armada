@@ -23,19 +23,16 @@ public class GroupLinkImportBatch {
     /** 解析总行数。 */
     private int totalRows;
 
-    /** 新增行数。 */
+    /** 新增成功数量。 */
     private int insertedRows;
 
-    /**
-     * 已存在行数(EXISTS:同 url 已活跃存在、未导入)。
-     * 注:沿用既有 {@code adopted_rows} 列暂存(「收编」已废);列名改 {@code exists_rows} 待与 account 迁移序列协调后做(TODO)。
-     */
+    /** 收编已有群入口的成功数量。 */
     private int adoptedRows;
 
-    /** 批内重复跳过行数。 */
-    private int skippedRows;
+    /** 重复失败数量(批内重复 + 已在导入链接中重复导入)。 */
+    private int duplicateRows;
 
-    /** 格式不合格行数。 */
+    /** 失败总数(重复 + 格式错误)。 */
     private int failedRows;
 
     /** 导入时间(epoch毫秒)。 */
@@ -111,12 +108,12 @@ public class GroupLinkImportBatch {
         this.adoptedRows = adoptedRows;
     }
 
-    public int getSkippedRows() {
-        return skippedRows;
+    public int getDuplicateRows() {
+        return duplicateRows;
     }
 
-    public void setSkippedRows(int skippedRows) {
-        this.skippedRows = skippedRows;
+    public void setDuplicateRows(int duplicateRows) {
+        this.duplicateRows = duplicateRows;
     }
 
     public int getFailedRows() {

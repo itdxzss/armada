@@ -7,6 +7,8 @@ import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
@@ -107,6 +109,26 @@ class GroupLinkMapperDbTest extends DbTestBase {
         assertThat(revived.getDeletedAt()).isNull();
         assertThat(revived.getLabelId()).isEqualTo(label2.getId());
         assertThat(revived.getGroupName()).isEqualTo("新群名");
+    }
+
+    @Test
+    void adoptActiveIntoImport_setsImportOwnershipWithoutChangingOrigin() {
+        GroupLinkLabel label = insertLabel("收编目标分组");
+        GroupLinkImportBatch batch = insertBatch(label.getId(), "adopt.txt");
+
+        GroupLink link = buildLink("chat.whatsapp.com/AdoptFromPullTask", null, null);
+        link.setOrigin(GroupLinkOrigin.PULL_TASK.code());
+        link.setMembershipState(GroupMembershipState.TARGET.code());
+        mapper.insert(link);
+
+        int updated = mapper.adoptActiveIntoImport(
+                link.getId(), label.getId(), batch.getId(), System.currentTimeMillis());
+        assertThat(updated).isEqualTo(1);
+
+        GroupLink after = mapper.selectAnyByUrl("chat.whatsapp.com/AdoptFromPullTask");
+        assertThat(after.getLabelId()).isEqualTo(label.getId());
+        assertThat(after.getImportBatchId()).isEqualTo(batch.getId());
+        assertThat(after.getOrigin()).isEqualTo(GroupLinkOrigin.PULL_TASK.code());
     }
 
     @Test

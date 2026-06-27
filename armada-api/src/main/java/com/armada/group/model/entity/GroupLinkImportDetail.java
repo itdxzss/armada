@@ -20,16 +20,22 @@ public class GroupLinkImportDetail {
     /** 原文链接(失败行也保留)。 */
     private String rawUrl;
 
-    /** 群名称(可空)。 */
+    /** 群名称(保留旧列,导入链接不再写)。 */
     private String groupName;
 
-    /** 导入结果:1=成功(新增/复活) 2=已存在 3=批内重复 4=格式错误。 */
+    /** 导入结果:1=成功 2=失败。 */
     private int result;
 
-    /** 失败原因(result≥3时)。 */
+    /** 成功类型:1=新增 2=收编已有群;失败时为空。 */
+    private Integer successType;
+
+    /** 失败原因:重复/格式错误;成功时为空。 */
     private String failReason;
 
-    /** 成功/已存在时关联 group_link.id(成功=新建或复活的行;已存在=命中的现有行)。 */
+    /** 收编成功时记录已有群入口来源。 */
+    private Integer existingOrigin;
+
+    /** 成功时关联 group_link.id;失败时为空。 */
     private Long groupLinkId;
 
     /** 创建时间(epoch毫秒)。 */
@@ -91,12 +97,28 @@ public class GroupLinkImportDetail {
         this.result = result;
     }
 
+    public Integer getSuccessType() {
+        return successType;
+    }
+
+    public void setSuccessType(Integer successType) {
+        this.successType = successType;
+    }
+
     public String getFailReason() {
         return failReason;
     }
 
     public void setFailReason(String failReason) {
         this.failReason = failReason;
+    }
+
+    public Integer getExistingOrigin() {
+        return existingOrigin;
+    }
+
+    public void setExistingOrigin(Integer existingOrigin) {
+        this.existingOrigin = existingOrigin;
     }
 
     public Long getGroupLinkId() {

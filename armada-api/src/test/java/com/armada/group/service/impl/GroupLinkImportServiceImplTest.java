@@ -22,6 +22,9 @@ import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.enums.GroupLinkImportFailReason;
+import com.armada.group.model.enums.GroupLinkImportSuccessType;
+import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
@@ -97,21 +100,22 @@ class GroupLinkImportServiceImplTest {
                 new GroupLinkImportDTO(1L, "batch1", null,
                         List.of("https://chat.whatsapp.com/AbcDef")));
 
-        assertThat(result.total()).isEqualTo(1);
-        assertThat(result.inserted()).isEqualTo(1);
-        assertThat(result.exists()).isEqualTo(0);
-        assertThat(result.failed()).isEqualTo(0);
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isEqualTo(1);
+        assertThat(result.failedRows()).isEqualTo(0);
+        assertThat(result.duplicateRows()).isEqualTo(0);
         assertThat(result.batchId()).isEqualTo(10L);
         verify(groupLinkMapper).insert(any());
         verify(detailMapper).batchInsert(any());
     }
 
     @Test
-    void existingActiveUrl_reportsExists_andDoesNotTouchLink() {
+    void existingImportUrl_failsAsDuplicate_andDoesNotTouchLink() {
         stubValidLabel(2L);
         stubBatchInsert(20L);
         GroupLink existing = new GroupLink();
         existing.setId(200L);
+        existing.setLabelId(99L);
         existing.setDeletedAt(null);  // 活跃链接
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
 
@@ -119,12 +123,57 @@ class GroupLinkImportServiceImplTest {
                 new GroupLinkImportDTO(2L, "batch2", null,
                         List.of("https://chat.whatsapp.com/AbcDef")));
 
-        assertThat(result.total()).isEqualTo(1);
-        assertThat(result.exists()).isEqualTo(1);
-        assertThat(result.inserted()).isEqualTo(0);
-        // 已存在的活跃链接:既不插入,也不改归属(不调 adoptToLabel)
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isEqualTo(0);
+        assertThat(result.failedRows()).isEqualTo(1);
+        assertThat(result.duplicateRows()).isEqualTo(1);
         verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any(), anyLong());
+        verify(groupLinkMapper, never()).adoptActiveIntoImport(anyLong(), anyLong(), anyLong(), anyLong());
         verify(groupLinkMapper, never()).insert(any());
+    }
+
+    @Test
+    void existingActiveWithoutLabel_adoptsIntoImport() {
+        stubValidLabel(2L);
+        stubBatchInsert(20L);
+        GroupLink existing = new GroupLink();
+        existing.setId(200L);
+        existing.setLabelId(null);
+        existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
+        existing.setDeletedAt(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(groupLinkMapper.adoptActiveIntoImport(eq(200L), eq(2L), eq(20L), anyLong())).thenReturn(1);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(2L, "batch2", null,
+                        List.of("https://chat.whatsapp.com/AbcDef")));
+
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isEqualTo(1);
+        assertThat(result.failedRows()).isEqualTo(0);
+        verify(groupLinkMapper).adoptActiveIntoImport(eq(200L), eq(2L), eq(20L), anyLong());
+    }
+
+    @Test
+    void adoptRaceLost_reportsDuplicateFailure() {
+        stubValidLabel(2L);
+        stubBatchInsert(20L);
+        GroupLink existing = new GroupLink();
+        existing.setId(200L);
+        existing.setLabelId(null);
+        existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
+        existing.setDeletedAt(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(groupLinkMapper.adoptActiveIntoImport(eq(200L), eq(2L), eq(20L), anyLong())).thenReturn(0);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(2L, "batch2", null,
+                        List.of("https://chat.whatsapp.com/AbcDef")));
+
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isEqualTo(0);
+        assertThat(result.failedRows()).isEqualTo(1);
+        assertThat(result.duplicateRows()).isEqualTo(1);
     }
 
     @Test
@@ -140,9 +189,9 @@ class GroupLinkImportServiceImplTest {
                 new GroupLinkImportDTO(2L, "batch2", null,
                         List.of("https://chat.whatsapp.com/AbcDef")));
 
-        assertThat(result.total()).isEqualTo(1);
-        assertThat(result.inserted()).isEqualTo(1);  // 复活计入成功
-        assertThat(result.exists()).isEqualTo(0);
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isEqualTo(1);  // 复活计入新增成功
+        assertThat(result.failedRows()).isEqualTo(0);
         // 软删链接:复活并改归属本分组
         verify(groupLinkMapper).adoptToLabel(eq(200L), eq(2L), eq(20L), eq(null), anyLong());
         verify(groupLinkMapper, never()).insert(any());
@@ -161,9 +210,10 @@ class GroupLinkImportServiceImplTest {
                         List.of("https://chat.whatsapp.com/SameCode",
                                 "https://chat.whatsapp.com/SameCode")));
 
-        assertThat(result.total()).isEqualTo(2);
-        assertThat(result.inserted()).isEqualTo(1);  // 第一条 SUCCESS
-        assertThat(result.duplicated()).isEqualTo(1); // 第二条 DUPLICATE
+        assertThat(result.totalRows()).isEqualTo(2);
+        assertThat(result.successRows()).isEqualTo(1);  // 第一条 SUCCESS
+        assertThat(result.duplicateRows()).isEqualTo(1); // 第二条 DUPLICATE
+        assertThat(result.failedRows()).isEqualTo(1);
         // insert 只调用一次(去重后只有一条进 persist)
         verify(groupLinkMapper).insert(any());
     }
@@ -177,8 +227,9 @@ class GroupLinkImportServiceImplTest {
                 new GroupLinkImportDTO(4L, "batch4", null,
                         List.of("not-a-whatsapp-link")));
 
-        assertThat(result.total()).isEqualTo(1);
-        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.failedRows()).isEqualTo(1);
+        assertThat(result.formatErrorRows()).isEqualTo(1);
         assertThat(result.errors()).hasSize(1);
         assertThat(result.errors().get(0)).contains("第 1 行");
         verify(groupLinkMapper, never()).insert(any());
@@ -269,7 +320,10 @@ class GroupLinkImportServiceImplTest {
         voRow.setLineNo(1);
         voRow.setResult(1);
         voRow.setCreatedAt(1_717_200_000_000L);
-        GroupLinkImportDetailVO detailVO = new GroupLinkImportDetailVO(1, null, null, null, 1, "成功", null, 1717200000000L);
+        GroupLinkImportDetailVO detailVO = new GroupLinkImportDetailVO(
+                1, null, null, null, 1, "成功",
+                GroupLinkImportSuccessType.INSERTED.code(), "新增", null, null, null,
+                1717200000000L);
 
         when(detailMapper.countByQuery(query)).thenReturn(1L);
         when(detailMapper.selectPage(query)).thenReturn(List.of(voRow));
@@ -307,8 +361,8 @@ class GroupLinkImportServiceImplTest {
         row.setLineNo(3);
         row.setGroupName("群A");
         row.setRawUrl("chat.whatsapp.com/BadLink");
-        row.setFailReason("格式错误");
-        row.setResult(4);
+        row.setFailReason(GroupLinkImportFailReason.FORMAT_ERROR);
+        row.setResult(GroupLinkImportResult.FAILED.code());
         row.setCreatedAt(1_717_243_200_000L);  // UTC 12:00 → Asia/Shanghai 20:00
 
         when(detailMapper.selectFailed(null, 10L)).thenReturn(List.of(row));
@@ -332,7 +386,7 @@ class GroupLinkImportServiceImplTest {
         row.setGroupName(null);
         row.setRawUrl(null);
         row.setFailReason(null);
-        row.setResult(3);
+        row.setResult(GroupLinkImportResult.FAILED.code());
         row.setCreatedAt(null);
 
         when(detailMapper.selectFailed(1L, null)).thenReturn(List.of(row));

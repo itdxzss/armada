@@ -12,7 +12,9 @@ public class GroupLinkImportDetailVoRow {
     private String rawUrl;
     private String sourceFileName;
     private int result;
+    private Integer successType;
     private String failReason;
+    private Integer existingOrigin;
     private Long createdAt;
 
     public int getLineNo() {
@@ -55,12 +57,28 @@ public class GroupLinkImportDetailVoRow {
         this.result = result;
     }
 
+    public Integer getSuccessType() {
+        return successType;
+    }
+
+    public void setSuccessType(Integer successType) {
+        this.successType = successType;
+    }
+
     public String getFailReason() {
         return failReason;
     }
 
     public void setFailReason(String failReason) {
         this.failReason = failReason;
+    }
+
+    public Integer getExistingOrigin() {
+        return existingOrigin;
+    }
+
+    public void setExistingOrigin(Integer existingOrigin) {
+        this.existingOrigin = existingOrigin;
     }
 
     public Long getCreatedAt() {

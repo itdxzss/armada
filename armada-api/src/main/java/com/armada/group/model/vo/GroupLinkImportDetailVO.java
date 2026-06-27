@@ -20,16 +20,28 @@ public record GroupLinkImportDetailVO(
         String sourceFileName,
 
         /**
-         * 导入结果码:1=成功(新增/复活) 2=已存在 3=批内重复 4=格式错误。
+         * 导入结果码:1=成功 2=失败。
          * 配套 {@code resultLabel} 中文标签由后端算好,前端直接展示、无需自行映射。
          */
         int result,
 
-        /** 导入结果中文标签(后端按 result 码算好:成功/已存在/批内重复/格式错误),前端「状态」列直接展示。 */
+        /** 导入结果中文标签(后端按 result 码算好:成功/失败),前端「状态」列直接展示。 */
         String resultLabel,
 
-        /** 失败/已存在原因(成功行为 null;已存在/批内重复/格式错误行有值)。 */
+        /** 成功类型:1=新增 2=收编已有群;失败时为空。 */
+        Integer successType,
+
+        /** 成功类型中文标签。 */
+        String successTypeLabel,
+
+        /** 失败原因(成功行为 null;失败行填重复/格式错误)。 */
         String failReason,
+
+        /** 收编成功时记录已有群入口来源。 */
+        Integer existingOrigin,
+
+        /** 收编成功时已有群入口来源中文标签。 */
+        String existingOriginLabel,
 
         /** 创建时间,epoch 毫秒(UTC)。 */
         Long createdAt) {

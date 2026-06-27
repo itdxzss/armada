@@ -2,10 +2,12 @@ package com.armada.group.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
@@ -72,9 +74,12 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         GroupLinkImportBatch batch = insertBatch(label.getId(), "detail_test.xlsx");
 
         List<GroupLinkImportDetail> details = List.of(
-                buildDetail(batch.getId(), 1, "chat.whatsapp.com/Detail1", 1, null),   // SUCCESS
-                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Detail2", 2, null),   // EXISTS(已存在)
-                buildDetail(batch.getId(), 3, "chat.whatsapp.com/Detail3", 3, "批内重复") // DUPLICATE
+                buildDetail(batch.getId(), 1, "chat.whatsapp.com/Detail1",
+                        GroupLinkImportResult.SUCCESS.code(), null),
+                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Detail2",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.DUPLICATE),
+                buildDetail(batch.getId(), 3, "chat.whatsapp.com/Detail3",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR)
         );
         int inserted = detailMapper.batchInsert(details);
         assertThat(inserted).isEqualTo(3);
@@ -97,23 +102,23 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void selectFailed_returnsOnlyResultGte3() {
+    void selectFailed_returnsOnlyFailedResult() {
         GroupLinkLabel label = insertLabel("失败导出测试分组");
         GroupLinkImportBatch batch = insertBatch(label.getId(), "failed_test.txt");
 
-        // result=1 SUCCESS, result=2 EXISTS(已存在), result=3 DUPLICATE, result=4 FORMAT_ERROR
         List<GroupLinkImportDetail> details = List.of(
-                buildDetail(batch.getId(), 1, "chat.whatsapp.com/Ok1", 1, null),
-                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Ok2", 2, null),
-                buildDetail(batch.getId(), 3, "chat.whatsapp.com/Dup1", 3, "批内重复"),
-                buildDetail(batch.getId(), 4, "bad-url", 4, "格式错误")
+                buildDetail(batch.getId(), 1, "chat.whatsapp.com/Ok1",
+                        GroupLinkImportResult.SUCCESS.code(), null),
+                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Dup1",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.DUPLICATE),
+                buildDetail(batch.getId(), 3, "bad-url",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR)
         );
         detailMapper.batchInsert(details);
 
         List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(null, batch.getId());
         assertThat(failed).hasSize(2);
-        // 全部 result >= 3
-        failed.forEach(r -> assertThat(r.getResult()).isGreaterThanOrEqualTo(3));
+        failed.forEach(r -> assertThat(r.getResult()).isEqualTo(GroupLinkImportResult.FAILED.code()));
     }
 
     @Test
@@ -123,10 +128,12 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         GroupLinkImportBatch batch2 = insertBatch(label.getId(), "batch2.txt");
 
         detailMapper.batchInsert(List.of(
-                buildDetail(batch1.getId(), 1, "chat.whatsapp.com/B1L1", 1, null)
+                buildDetail(batch1.getId(), 1, "chat.whatsapp.com/B1L1",
+                        GroupLinkImportResult.SUCCESS.code(), null)
         ));
         detailMapper.batchInsert(List.of(
-                buildDetail(batch2.getId(), 1, "chat.whatsapp.com/B2L1", 1, null)
+                buildDetail(batch2.getId(), 1, "chat.whatsapp.com/B2L1",
+                        GroupLinkImportResult.SUCCESS.code(), null)
         ));
 
         GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
@@ -145,15 +152,18 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         GroupLinkImportBatch batch = insertBatch(label.getId(), "label_failed_test.txt");
 
         List<GroupLinkImportDetail> details = List.of(
-                buildDetail(batch.getId(), 1, "chat.whatsapp.com/LF1", 1, null),       // SUCCESS - 不应返回
-                buildDetail(batch.getId(), 2, "chat.whatsapp.com/LF2", 3, "批内重复"),  // DUPLICATE - 应返回
-                buildDetail(batch.getId(), 3, "chat.whatsapp.com/LF3", 4, "格式错误")   // FORMAT_ERROR - 应返回
+                buildDetail(batch.getId(), 1, "chat.whatsapp.com/LF1",
+                        GroupLinkImportResult.SUCCESS.code(), null),
+                buildDetail(batch.getId(), 2, "chat.whatsapp.com/LF2",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.DUPLICATE),
+                buildDetail(batch.getId(), 3, "chat.whatsapp.com/LF3",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR)
         );
         detailMapper.batchInsert(details);
 
         List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(label.getId(), null);
         assertThat(failed).hasSize(2);
-        failed.forEach(r -> assertThat(r.getResult()).isGreaterThanOrEqualTo(3));
+        failed.forEach(r -> assertThat(r.getResult()).isEqualTo(GroupLinkImportResult.FAILED.code()));
     }
 
     @Test
@@ -164,7 +174,8 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         GroupLinkLabel label2 = insertLabel("租户2失败行测试分组");
         GroupLinkImportBatch batch2 = insertBatch(label2.getId(), "tenant2_failed.txt");
         detailMapper.batchInsert(List.of(
-                buildDetail(batch2.getId(), 1, "chat.whatsapp.com/T2F1", 3, "租户2批内重复")
+                buildDetail(batch2.getId(), 1, "chat.whatsapp.com/T2F1",
+                        GroupLinkImportResult.FAILED.code(), "租户2批内重复")
         ));
 
         // 切回租户1,用最弱条件(labelId=null, batchId=null)查询,断言查不到租户2的数据

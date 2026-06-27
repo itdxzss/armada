@@ -59,6 +59,10 @@ public interface GroupConverter {
      */
     @Mapping(target = "resultLabel",
             expression = "java(com.armada.group.model.GroupLinkImportResult.fromCode(row.getResult()).label())")
+    @Mapping(target = "successTypeLabel",
+            expression = "java(row.getSuccessType() == null ? null : com.armada.group.model.enums.GroupLinkImportSuccessType.fromCode(row.getSuccessType()).label())")
+    @Mapping(target = "existingOriginLabel",
+            expression = "java(row.getExistingOrigin() == null ? null : com.armada.group.model.enums.GroupLinkOrigin.fromCode(row.getExistingOrigin()).label())")
     GroupLinkImportDetailVO toImportDetailVO(GroupLinkImportDetailVoRow row);
 
     /**

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupLinkPreviewMapper">
+
+  <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_link_preview (
+      group_link_id, group_jid, invite_code, wa_subject, member_size, owner_phone,
+      announce_only, avatar_url, last_preview_at, created_at, updated_at
+    ) VALUES (
+      #{groupLinkId}, #{groupJid}, #{inviteCode}, #{waSubject}, #{memberSize}, #{ownerPhone},
+      #{announceOnly}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      group_jid = VALUES(group_jid),
+      invite_code = VALUES(invite_code),
+      wa_subject = VALUES(wa_subject),
+      member_size = VALUES(member_size),
+      owner_phone = VALUES(owner_phone),
+      announce_only = VALUES(announce_only),
+      avatar_url = VALUES(avatar_url),
+      last_preview_at = VALUES(last_preview_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <select id="selectByGroupLinkId" resultType="com.armada.group.model.entity.GroupLinkPreview">
+    SELECT *
+    FROM group_link_preview
+    WHERE group_link_id = #{groupLinkId}
+    LIMIT 1
+  </select>
+
+</mapper>

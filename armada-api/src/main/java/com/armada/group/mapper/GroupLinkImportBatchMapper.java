@@ -20,7 +20,7 @@ public interface GroupLinkImportBatchMapper {
     int insert(GroupLinkImportBatch row);
 
     /**
-     * 回写批次统计计数(total/inserted/adopted/skipped/failed)。
+     * 回写批次统计计数(total/inserted/adopted/duplicate/failed)。
      *
      * @param row 含 id 及各计数字段
      * @return 影响行数

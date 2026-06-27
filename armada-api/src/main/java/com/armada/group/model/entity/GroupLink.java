@@ -14,7 +14,7 @@ public class GroupLink {
     /** 归一化后群邀请链接(租户内唯一,按字节精确去重)。 */
     private String linkUrl;
 
-    /** 业务群名(导入时填,可空)。 */
+    /** 运营侧自定义群名称,群组列表可编辑;导入链接不写。 */
     private String groupName;
 
     /** 所属WS链接分组(关联 group_link_label.id;只导入链接菜单写)。 */
@@ -22,6 +22,12 @@ public class GroupLink {
 
     /** 来源导入批次(关联 group_link_import_batch.id)。 */
     private Long importBatchId;
+
+    /** 首次进入群组池来源:1=导入链接 2=进群任务 3=拉群任务 4=自建群。 */
+    private Integer origin;
+
+    /** 我方与群关系:1=目标未进群 2=已进群 3=自建拥有。 */
+    private Integer membershipState;
 
     /** 备注(纯导入备注)。 */
     private String remark;
@@ -84,6 +90,22 @@ public class GroupLink {
 
     public void setImportBatchId(Long importBatchId) {
         this.importBatchId = importBatchId;
+    }
+
+    public Integer getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(Integer origin) {
+        this.origin = origin;
+    }
+
+    public Integer getMembershipState() {
+        return membershipState;
+    }
+
+    public void setMembershipState(Integer membershipState) {
+        this.membershipState = membershipState;
     }
 
     public String getRemark() {

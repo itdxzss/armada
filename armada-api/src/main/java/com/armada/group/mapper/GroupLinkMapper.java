@@ -43,6 +43,18 @@ public interface GroupLinkMapper {
                      @Param("updatedAt") long updatedAt);
 
     /**
+     * 将活跃但尚未归入导入分组的群入口收编到导入链接分组,不改变首次来源。
+     *
+     * @param id        群链接 ID
+     * @param labelId   目标导入分组 ID
+     * @param batchId   当前导入批次 ID
+     * @param updatedAt 更新时间(epoch毫秒)
+     * @return 影响行数
+     */
+    int adoptActiveIntoImport(@Param("id") Long id, @Param("labelId") Long labelId,
+                              @Param("batchId") Long batchId, @Param("updatedAt") long updatedAt);
+
+    /**
      * 按分组分页总数(与 selectPageByLabel 共用 filter,口径一致)。
      *
      * @param query 查询参数(含 labelId)

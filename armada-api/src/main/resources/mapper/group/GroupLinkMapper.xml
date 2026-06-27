@@ -8,8 +8,11 @@
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, created_at, updated_at, created_by)
-    VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId}, #{createdAt}, #{updatedAt}, #{createdBy})
+    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, origin, membership_state,
+      created_at, updated_at, created_by)
+    VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId},
+      COALESCE(#{origin}, 1), COALESCE(#{membershipState}, 1),
+      #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
 
   <!-- 复活软删链接 + 归到本分组 + 更新来源批次/群名(群名空不覆盖) -->
@@ -21,6 +24,16 @@
         group_name = COALESCE(#{groupName}, group_name),
         updated_at = #{updatedAt}
     WHERE id = #{id}
+  </update>
+
+  <update id="adoptActiveIntoImport">
+    UPDATE group_link
+    SET label_id = #{labelId},
+        import_batch_id = #{batchId},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND label_id IS NULL
   </update>
 
   <!-- 单表筛选片段:仅用于 countByLabel(无 JOIN) -->

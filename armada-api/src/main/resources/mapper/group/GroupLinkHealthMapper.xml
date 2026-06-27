@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupLinkHealthMapper">
+
+  <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_link_health (
+      group_link_id, health_status, is_banned, current_count, last_check_at,
+      last_health_error, health_failure_count, created_at, updated_at
+    ) VALUES (
+      #{groupLinkId}, #{healthStatus}, #{banned}, #{currentCount}, #{lastCheckAt},
+      #{lastHealthError}, #{healthFailureCount}, #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      health_status = VALUES(health_status),
+      is_banned = VALUES(is_banned),
+      current_count = VALUES(current_count),
+      last_check_at = VALUES(last_check_at),
+      last_health_error = VALUES(last_health_error),
+      health_failure_count = VALUES(health_failure_count),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <select id="selectByGroupLinkId" resultType="com.armada.group.model.entity.GroupLinkHealth">
+    SELECT id, tenant_id AS tenantId, group_link_id AS groupLinkId,
+           health_status AS healthStatus, is_banned AS banned, current_count AS currentCount,
+           last_check_at AS lastCheckAt, last_health_error AS lastHealthError,
+           health_failure_count AS healthFailureCount, created_at AS createdAt, updated_at AS updatedAt
+    FROM group_link_health
+    WHERE group_link_id = #{groupLinkId}
+    LIMIT 1
+  </select>
+
+</mapper>

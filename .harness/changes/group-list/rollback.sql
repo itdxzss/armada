@@ -9,7 +9,13 @@ ALTER TABLE group_link_import_batch
     ADD COLUMN skipped_rows INT NOT NULL DEFAULT 0 COMMENT '批内重复跳过行数' AFTER adopted_rows;
 
 UPDATE group_link_import_batch
-SET skipped_rows = duplicate_rows;
+SET skipped_rows = duplicate_rows,
+    failed_rows = GREATEST(failed_rows - duplicate_rows, 0),
+    adopted_rows = 0;
+
+-- V010 folds old skipped_rows + old adopted_rows into duplicate_rows.
+-- The exact split cannot be reconstructed during rollback, so adopted_rows
+-- stays 0 and skipped_rows carries the merged duplicate count.
 
 ALTER TABLE group_link_import_batch
     DROP COLUMN duplicate_rows;

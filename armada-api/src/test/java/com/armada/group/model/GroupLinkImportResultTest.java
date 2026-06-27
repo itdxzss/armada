@@ -1,13 +1,24 @@
 package com.armada.group.model;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import org.junit.jupiter.api.Test;
+
 class GroupLinkImportResultTest {
-    @Test void codeRoundTrip() {
-        assertEquals(2, GroupLinkImportResult.EXISTS.code());
-        assertEquals(GroupLinkImportResult.DUPLICATE, GroupLinkImportResult.fromCode(3));
-        assertEquals("已存在", GroupLinkImportResult.EXISTS.label());
+
+    @Test
+    void codeRoundTrip() {
+        assertThat(GroupLinkImportResult.SUCCESS.code()).isEqualTo(1);
+        assertThat(GroupLinkImportResult.SUCCESS.label()).isEqualTo("成功");
+        assertThat(GroupLinkImportResult.FAILED.code()).isEqualTo(2);
+        assertThat(GroupLinkImportResult.FAILED.label()).isEqualTo("失败");
+        assertThat(GroupLinkImportResult.fromCode(1)).isEqualTo(GroupLinkImportResult.SUCCESS);
     }
-    @Test void fromCodeRejectsUnknown() {
-        assertThrows(IllegalArgumentException.class, () -> GroupLinkImportResult.fromCode(9));
+
+    @Test
+    void fromCodeRejectsUnknown() {
+        assertThatThrownBy(() -> GroupLinkImportResult.fromCode(9))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

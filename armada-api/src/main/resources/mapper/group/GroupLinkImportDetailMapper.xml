@@ -3,11 +3,14 @@
 <mapper namespace="com.armada.group.mapper.GroupLinkImportDetailMapper">
 
   <insert id="batchInsert">
-    INSERT INTO group_link_import_detail (batch_id, line_no, raw_url, group_name, result, fail_reason, group_link_id, created_at)
+    INSERT INTO group_link_import_detail (
+      batch_id, line_no, raw_url, group_name, result, success_type, fail_reason,
+      existing_origin, group_link_id, created_at
+    )
     VALUES
     <foreach collection="rows" item="r" separator=",">
-      (#{r.batchId}, #{r.lineNo}, #{r.rawUrl}, #{r.groupName}, #{r.result}, #{r.failReason}, #{r.groupLinkId},
-       #{r.createdAt})
+      (#{r.batchId}, #{r.lineNo}, #{r.rawUrl}, #{r.groupName}, #{r.result}, #{r.successType}, #{r.failReason},
+       #{r.existingOrigin}, #{r.groupLinkId}, #{r.createdAt})
     </foreach>
   </insert>
 
@@ -33,7 +36,8 @@
   <select id="selectPage" resultType="com.armada.group.model.vo.GroupLinkImportDetailVoRow">
     SELECT d.line_no AS lineNo, d.group_name AS groupName, d.raw_url AS rawUrl,
            b.source_file_name AS sourceFileName,
-           d.result AS result, d.fail_reason AS failReason, d.created_at AS createdAt
+           d.result AS result, d.success_type AS successType, d.fail_reason AS failReason,
+           d.existing_origin AS existingOrigin, d.created_at AS createdAt
     FROM group_link_import_detail d
     JOIN group_link_import_batch b ON d.batch_id = b.id
     WHERE <include refid="detailFilter"/>
@@ -41,16 +45,17 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
-  <!-- result &gt;= 3 表示 DUPLICATE(3) 或 FORMAT_ERROR(4) -->
+  <!-- result = 2 表示失败,失败原因由 fail_reason 区分重复/格式错误 -->
   <select id="selectFailed" resultType="com.armada.group.model.vo.GroupLinkImportDetailVoRow">
     SELECT d.line_no AS lineNo, d.group_name AS groupName, d.raw_url AS rawUrl,
            b.source_file_name AS sourceFileName,
-           d.result AS result, d.fail_reason AS failReason, d.created_at AS createdAt
+           d.result AS result, d.success_type AS successType, d.fail_reason AS failReason,
+           d.existing_origin AS existingOrigin, d.created_at AS createdAt
     FROM group_link_import_detail d
     JOIN group_link_import_batch b ON d.batch_id = b.id
     WHERE b.deleted_at IS NULL
       AND d.tenant_id = b.tenant_id
-      AND d.result &gt;= 3
+      AND d.result = 2
       <if test="batchId != null">AND d.batch_id = #{batchId}</if>
       <if test="labelId != null">AND b.label_id = #{labelId}</if>
     ORDER BY d.batch_id DESC, d.line_no ASC

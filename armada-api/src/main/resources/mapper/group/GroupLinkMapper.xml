@@ -8,10 +8,10 @@
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, origin, membership_state,
+    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, origin, membership_state, remark,
       created_at, updated_at, created_by)
     VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId},
-      COALESCE(#{origin}, 1), COALESCE(#{membershipState}, 1),
+      COALESCE(#{origin}, 1), COALESCE(#{membershipState}, 1), #{remark},
       #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
 
@@ -36,29 +36,94 @@
       AND label_id IS NULL
   </update>
 
-  <!-- 单表筛选片段:仅用于 countByLabel(无 JOIN) -->
+  <!-- 群组列表主查询筛选片段:labelId 可为空,用于全量群组列表;传入时用于导入链接分组下钻。 -->
   <sql id="byLabelFilter">
-    deleted_at IS NULL AND label_id = #{labelId}
+    g.deleted_at IS NULL
+    <if test="labelId != null">
+      AND g.label_id = #{labelId}
+    </if>
+    <if test="sourceFileName != null and sourceFileName != ''">
+      AND b.source_file_name LIKE CONCAT('%', #{sourceFileName}, '%')
+    </if>
+    <if test="origin != null">
+      AND g.origin = #{origin}
+    </if>
+    <if test="membershipState != null">
+      AND g.membership_state = #{membershipState}
+    </if>
+    <if test="statusUnchecked">
+      AND (h.id IS NULL OR h.health_status IS NULL) AND (h.is_banned IS NULL OR h.is_banned = 0)
+    </if>
+    <if test="statusAvailable">
+      AND h.health_status = 1 AND (h.is_banned IS NULL OR h.is_banned = 0)
+    </if>
+    <if test="statusBanned">
+      AND h.is_banned = 1
+    </if>
+    <if test="statusLinkInvalid">
+      AND h.health_status = 2 AND (h.is_banned IS NULL OR h.is_banned = 0)
+    </if>
+    <if test="statusUnavailable">
+      AND h.health_status = 3 AND (h.is_banned IS NULL OR h.is_banned = 0)
+    </if>
     <if test="keyword != null and keyword != ''">
-      AND (link_url LIKE CONCAT('%', #{keyword}, '%') OR group_name LIKE CONCAT('%', #{keyword}, '%'))
+      AND (
+        g.group_name LIKE CONCAT('%', #{keyword}, '%')
+        OR p.wa_subject LIKE CONCAT('%', #{keyword}, '%')
+        OR g.link_url LIKE CONCAT('%', #{keyword}, '%')
+        OR p.owner_phone LIKE CONCAT('%', #{keyword}, '%')
+        OR a.admin LIKE CONCAT('%', #{keyword}, '%')
+        OR b.source_file_name LIKE CONCAT('%', #{keyword}, '%')
+      )
     </if>
   </sql>
 
-  <select id="countByLabel" resultType="long">
-    SELECT COUNT(*) FROM group_link WHERE <include refid="byLabelFilter"/>
-  </select>
-
-  <!-- JOIN 查询时需要用别名 g. 限定列,防止 deleted_at/label_id 歧义 -->
-  <select id="selectPageByLabel" resultType="com.armada.group.model.vo.GroupLinkVoRow">
-    SELECT g.id, g.link_url AS url, g.group_name AS groupName,
-           b.source_file_name AS sourceFileName, g.created_at AS createdAt
+  <sql id="groupListFromJoin">
     FROM group_link g
     LEFT JOIN group_link_import_batch b ON g.import_batch_id = b.id
-    WHERE g.deleted_at IS NULL AND g.label_id = #{labelId}
-    <if test="keyword != null and keyword != ''">
-      AND (g.link_url LIKE CONCAT('%', #{keyword}, '%') OR g.group_name LIKE CONCAT('%', #{keyword}, '%'))
-    </if>
-    ORDER BY g.created_at DESC
+    LEFT JOIN group_link_preview p ON p.group_link_id = g.id
+    LEFT JOIN group_link_health h ON h.group_link_id = g.id
+    LEFT JOIN (
+      SELECT group_jid, GROUP_CONCAT(DISTINCT account ORDER BY account SEPARATOR ', ') AS admin
+      FROM join_task_result
+      WHERE is_admin = 1
+        AND group_jid IS NOT NULL
+        AND group_jid != ''
+      GROUP BY group_jid
+    ) a ON a.group_jid = p.group_jid
+  </sql>
+
+  <select id="countByLabel" resultType="long">
+    SELECT COUNT(*)
+    <include refid="groupListFromJoin"/>
+    WHERE <include refid="byLabelFilter"/>
+  </select>
+
+  <!-- 群组列表主查询列,对齐一期需求与 wheel 租户端群组列表。 -->
+  <select id="selectPageByLabel" resultType="com.armada.group.model.vo.GroupLinkVoRow">
+    SELECT g.id,
+           g.link_url AS url,
+           COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName,
+           p.wa_subject AS waSubject,
+           p.group_jid AS groupJid,
+           b.source_file_name AS sourceFileName,
+           h.health_status AS healthStatus,
+           h.is_banned AS banned,
+           p.member_size AS memberSize,
+           h.current_count AS currentCount,
+           p.owner_phone AS ownerPhone,
+           a.admin AS admin,
+           g.origin AS origin,
+           g.membership_state AS membershipState,
+           g.remark AS remark,
+           p.avatar_url AS avatarUrl,
+           p.last_preview_at AS lastPreviewAt,
+           h.last_check_at AS lastCheckAt,
+           h.last_health_error AS lastHealthError,
+           g.created_at AS createdAt
+    <include refid="groupListFromJoin"/>
+    WHERE <include refid="byLabelFilter"/>
+    ORDER BY g.created_at DESC, g.id DESC
     LIMIT #{offset}, #{pageSize}
   </select>
 

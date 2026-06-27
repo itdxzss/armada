@@ -64,9 +64,9 @@ public class GroupLinkController {
     }
 
     /**
-     * B2 分组下群链接分页列表。
+     * B2 群组列表主查询;labelId 可选,为空时查询当前租户全量群组列表。
      *
-     * @param query 查询条件(labelId/keyword/page/pageSize)
+     * @param query 查询条件(labelId/keyword/status/sourceFileName/origin/membershipState/page/pageSize)
      * @return 分页群链接列表
      */
     @GetMapping

@@ -64,7 +64,10 @@ class GroupLinkServiceImplTest {
         GroupLinkQuery q = new GroupLinkQuery();
         q.setLabelId(1L);
         GroupLinkVoRow row = new GroupLinkVoRow();
-        GroupLinkVO vo = new GroupLinkVO(1L, "https://chat.whatsapp.com/abc", "群A", "links.txt", 1000L);
+        GroupLinkVO vo = new GroupLinkVO(
+                1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
+                "UNCHECKED", "未检测", null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, 1000L);
         when(groupLinkMapper.countByLabel(q)).thenReturn(1L);
         when(groupLinkMapper.selectPageByLabel(q)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of(vo));
@@ -74,6 +77,18 @@ class GroupLinkServiceImplTest {
         assertThat(result.total()).isEqualTo(1L);
         assertThat(result.list()).hasSize(1);
         assertThat(result.list().get(0).url()).isEqualTo("https://chat.whatsapp.com/abc");
+    }
+
+    @Test
+    void listByLabel_invalidStatus_throwsValidationAndSkipsMapper() {
+        GroupLinkQuery q = new GroupLinkQuery();
+        q.setStatus("AVAILBLE");
+
+        assertThatThrownBy(() -> service.listByLabel(q))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("status");
+        verify(groupLinkMapper, never()).countByLabel(any());
+        verify(groupLinkMapper, never()).selectPageByLabel(any());
     }
 
     // ---- migrate ----

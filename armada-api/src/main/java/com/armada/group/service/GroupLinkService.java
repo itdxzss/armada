@@ -11,9 +11,9 @@ import java.util.List;
 public interface GroupLinkService {
 
     /**
-     * 按WS链接分组分页查询群链接。
+     * 群组列表主查询;labelId 可选,为空时查询当前租户全量群组列表。
      *
-     * @param query 查询条件(含 labelId/keyword/page/pageSize)
+     * @param query 查询条件(labelId/keyword/status/sourceFileName/origin/membershipState/page/pageSize)
      * @return 分页结果
      */
     PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query);

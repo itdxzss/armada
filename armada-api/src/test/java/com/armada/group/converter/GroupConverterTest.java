@@ -3,9 +3,11 @@ package com.armada.group.converter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.group.model.GroupLinkImportResult;
+import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
@@ -48,16 +50,33 @@ class GroupConverterTest {
         GroupLinkVoRow row = new GroupLinkVoRow();
         row.setId(10L);
         row.setUrl("https://chat.whatsapp.com/test");
-        row.setGroupName("测试群");
+        row.setGroupName("");
+        row.setWaSubject("WA真实群名");
+        row.setGroupJid("1203630test@g.us");
         row.setSourceFileName("links.txt");
+        row.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
+        row.setBanned(false);
+        row.setMemberSize(8);
+        row.setCurrentCount(9);
+        row.setAdmin("8611111111111");
+        row.setOrigin(GroupLinkOrigin.IMPORT.code());
+        row.setMembershipState(GroupMembershipState.JOINED.code());
         row.setCreatedAt(EPOCH_2024_06_01_UTC);
 
         GroupLinkVO vo = converter.toGroupLinkVO(row);
 
         assertThat(vo.id()).isEqualTo(10L);
         assertThat(vo.url()).isEqualTo("https://chat.whatsapp.com/test");
-        assertThat(vo.groupName()).isEqualTo("测试群");
+        assertThat(vo.groupName()).isEqualTo("WA真实群名");
+        assertThat(vo.waSubject()).isEqualTo("WA真实群名");
+        assertThat(vo.groupJid()).isEqualTo("1203630test@g.us");
         assertThat(vo.sourceFileName()).isEqualTo("links.txt");
+        assertThat(vo.status()).isEqualTo("AVAILABLE");
+        assertThat(vo.statusLabel()).isEqualTo("可用");
+        assertThat(vo.memberCount()).isEqualTo(9);
+        assertThat(vo.admin()).isEqualTo("8611111111111");
+        assertThat(vo.source()).isEqualTo("导入链接");
+        assertThat(vo.membershipStateLabel()).isEqualTo("已进群");
         assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
     }
 

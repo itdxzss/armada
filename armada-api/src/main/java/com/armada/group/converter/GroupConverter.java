@@ -1,5 +1,8 @@
 package com.armada.group.converter;
 
+import com.armada.group.model.enums.GroupLinkHealthStatus;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVO;
@@ -40,7 +43,38 @@ public interface GroupConverter {
      * @param row Mapper 查询投影
      * @return 前端出参
      */
-    GroupLinkVO toGroupLinkVO(GroupLinkVoRow row);
+    default GroupLinkVO toGroupLinkVO(GroupLinkVoRow row) {
+        if (row == null) {
+            return null;
+        }
+        GroupStatus status = resolveStatus(row);
+        GroupLinkOrigin origin = GroupLinkOrigin.fromCode(row.getOrigin());
+        GroupMembershipState membershipState = GroupMembershipState.fromCode(row.getMembershipState());
+        return new GroupLinkVO(
+                row.getId(),
+                row.getUrl(),
+                displayGroupName(row),
+                row.getWaSubject(),
+                row.getGroupJid(),
+                row.getSourceFileName(),
+                status.code(),
+                status.label(),
+                row.getHealthStatus(),
+                row.getBanned(),
+                row.getCurrentCount() == null ? row.getMemberSize() : row.getCurrentCount(),
+                row.getAdmin(),
+                row.getOrigin(),
+                origin == null ? null : origin.label(),
+                row.getMembershipState(),
+                membershipState == null ? null : membershipState.label(),
+                row.getRemark(),
+                row.getAvatarUrl(),
+                row.getOwnerPhone(),
+                row.getLastPreviewAt(),
+                row.getLastCheckAt(),
+                row.getLastHealthError(),
+                row.getCreatedAt());
+    }
 
     /**
      * 批量转换群链接。
@@ -48,7 +82,12 @@ public interface GroupConverter {
      * @param rows Mapper 查询投影列表
      * @return 前端出参列表
      */
-    List<GroupLinkVO> toGroupLinkVOList(List<GroupLinkVoRow> rows);
+    default List<GroupLinkVO> toGroupLinkVOList(List<GroupLinkVoRow> rows) {
+        if (rows == null) {
+            return List.of();
+        }
+        return rows.stream().map(this::toGroupLinkVO).toList();
+    }
 
     /**
      * Mapper 投影行 → 导入明细出参 VO(
@@ -72,5 +111,38 @@ public interface GroupConverter {
      * @return 前端出参列表
      */
     List<GroupLinkImportDetailVO> toImportDetailVOList(List<GroupLinkImportDetailVoRow> rows);
+
+    private static String displayGroupName(GroupLinkVoRow row) {
+        if (hasText(row.getGroupName())) {
+            return row.getGroupName();
+        }
+        return row.getWaSubject();
+    }
+
+    /**
+     * 计算群组列表展示状态。封禁优先于健康状态;无健康记录或 health_status 为空时视为未检测。
+     */
+    private static GroupStatus resolveStatus(GroupLinkVoRow row) {
+        if (Boolean.TRUE.equals(row.getBanned())) {
+            return new GroupStatus("BANNED", "封禁");
+        }
+        GroupLinkHealthStatus healthStatus = GroupLinkHealthStatus.fromCode(row.getHealthStatus());
+        if (healthStatus == null) {
+            return new GroupStatus("UNCHECKED", "未检测");
+        }
+        return switch (healthStatus) {
+            case AVAILABLE -> new GroupStatus("AVAILABLE", healthStatus.label());
+            case LINK_INVALID -> new GroupStatus("LINK_INVALID", healthStatus.label());
+            case UNAVAILABLE -> new GroupStatus("UNAVAILABLE", healthStatus.label());
+        };
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    /** 群组列表对前端暴露的状态码与中文文案。 */
+    record GroupStatus(String code, String label) {
+    }
 
 }

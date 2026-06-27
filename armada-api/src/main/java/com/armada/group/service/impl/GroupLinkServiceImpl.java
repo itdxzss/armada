@@ -10,6 +10,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /** 批量操作上限:防止一次操作过多造成锁竞争。 */
     private static final int BATCH_MAX = 100;
 
+    /** 群组列表状态筛选白名单。空值表示不筛选状态。 */
+    private static final Set<String> ALLOWED_STATUSES = Set.of(
+            "UNCHECKED", "AVAILABLE", "BANNED", "LINK_INVALID", "UNAVAILABLE");
+
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkLabelMapper labelMapper;
     private final GroupConverter converter;
@@ -43,17 +49,27 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:按 labelId 分页列出该分组下的群链接;先取总数,为 0 时直接返回空页;
-     * 分页/筛选全部 SQL 下推,不在内存裁剪。</p>
+     * <p>实现要点:labelId 可选;为空时查当前租户全量群组列表,有值时查该分组下群链接。
+     * 先取总数,为 0 时直接返回空页;分页/筛选全部 SQL 下推,不在内存裁剪。</p>
      */
     @Override
     public PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query) {
+        validateStatus(query.getStatus());
         long total = groupLinkMapper.countByLabel(query);
         List<GroupLinkVO> rows = total == 0
                 ? List.of()
                 : converter.toGroupLinkVOList(groupLinkMapper.selectPageByLabel(query));
         log.debug("群链接分页查询 labelId={} total={}", query.getLabelId(), total);
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+    }
+
+    private static void validateStatus(String status) {
+        if (status == null || status.trim().isEmpty()) {
+            return;
+        }
+        if (!ALLOWED_STATUSES.contains(status.trim().toUpperCase(Locale.ROOT))) {
+            throw new BusinessException(ErrorCode.VALIDATION, "status 非法: " + status);
+        }
     }
 
     /**

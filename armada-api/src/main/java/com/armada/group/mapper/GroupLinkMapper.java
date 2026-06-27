@@ -55,17 +55,17 @@ public interface GroupLinkMapper {
                               @Param("batchId") Long batchId, @Param("updatedAt") long updatedAt);
 
     /**
-     * 按分组分页总数(与 selectPageByLabel 共用 filter,口径一致)。
+     * 群组列表分页总数(与 selectPageByLabel 共用 filter,口径一致)。
      *
-     * @param query 查询参数(含 labelId)
+     * @param query 查询参数(labelId 可为空;为空时查当前租户全量群组列表)
      * @return 活跃链接数
      */
     long countByLabel(GroupLinkQuery query);
 
     /**
-     * 按分组分页列表,LEFT JOIN batch 取 sourceFileName。
+     * 群组列表分页主查询,LEFT JOIN 预览、健康、来源批次与管理员聚合。
      *
-     * @param query 查询参数(含 labelId/keyword/page/pageSize)
+     * @param query 查询参数(labelId 可为空;支持关键字、状态、来源文件、来源、关系态筛选)
      * @return 投影行列表
      */
     List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);

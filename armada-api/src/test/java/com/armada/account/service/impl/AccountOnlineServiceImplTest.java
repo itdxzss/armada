@@ -11,10 +11,15 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountOnlinePlan;
+import com.armada.platform.protocol.model.command.BatchOnlineCommand;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.OnlineCommand;
 import com.armada.platform.protocol.model.command.ProxyDescriptor;
+import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
+import com.armada.platform.protocol.model.result.BatchOnlineItemResult;
+import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
+import com.armada.platform.protocol.model.result.BatchOnlineSummary;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineRouting;
 import com.armada.platform.protocol.model.result.StateSource;
@@ -23,6 +28,7 @@ import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.platform.proxy.ProxyResolver;
 import com.armada.shared.exception.BusinessException;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -99,5 +105,57 @@ class AccountOnlineServiceImplTest {
                 .hasMessageContaining("账号凭据不能为空");
         verifyNoInteractions(proxyResolver);
         verify(accountLifecyclePort, never()).online(anyString(), any());
+    }
+
+    @Test
+    void onlineBatch_resolvesAllProxiesAndDelegatesOneBatchCommandToProtocolPort() {
+        ProxyEndpoint endpointA = new ProxyEndpoint(
+                ProxyEndpoint.PROTOCOL_SOCKS5,
+                "proxy-a.internal",
+                1080,
+                new ProxyCredentials("user-a", "pass_session-a"),
+                "IN");
+        ProxyEndpoint endpointB = new ProxyEndpoint(
+                ProxyEndpoint.PROTOCOL_HTTP,
+                "proxy-b.internal",
+                8080,
+                new ProxyCredentials("user-b", "pass_session-b"),
+                "SG");
+        ProxyDescriptor proxyA = new ProxyDescriptor("socks5", "socks5://user-a:pass_session-a@proxy-a.internal:1080", "a", "IN");
+        ProxyDescriptor proxyB = new ProxyDescriptor("http", "http://user-b:pass_session-b@proxy-b.internal:8080", "b", "SG");
+        AccountOnlinePlan planA = new AccountOnlinePlan(
+                "acc_100",
+                CredentialFormat.BAILEYS_JSON,
+                "{\"creds\":{},\"keys\":{}}",
+                endpointA);
+        AccountOnlinePlan planB = new AccountOnlinePlan(
+                "acc_101",
+                CredentialFormat.PARAMS,
+                "{\"login\":\"raw\"}",
+                endpointB);
+        BatchOnlineAccepted accepted = new BatchOnlineAccepted(
+                Instant.parse("2026-06-27T10:00:00Z"),
+                80L,
+                new BatchOnlineSummary(2, 2, 0, 2, 0, 0, 0),
+                List.of(
+                        new BatchOnlineItemResult("acc_100", BatchOnlineResultStatus.ACCEPTED, null, null),
+                        new BatchOnlineItemResult("acc_101", BatchOnlineResultStatus.ACCEPTED, null, null)),
+                List.of());
+        when(proxyResolver.resolve(endpointA)).thenReturn(proxyA);
+        when(proxyResolver.resolve(endpointB)).thenReturn(proxyB);
+        when(accountLifecyclePort.onlineBatch(any(BatchOnlineCommand.class))).thenReturn(accepted);
+
+        BatchOnlineAccepted result = service.onlineBatch(List.of(planA, planB), 60_000);
+
+        assertThat(result).isSameAs(accepted);
+        ArgumentCaptor<BatchOnlineCommand> commandCaptor = ArgumentCaptor.forClass(BatchOnlineCommand.class);
+        verify(accountLifecyclePort).onlineBatch(commandCaptor.capture());
+        BatchOnlineCommand command = commandCaptor.getValue();
+        assertThat(command.maxWaitMs()).isEqualTo(60_000);
+        assertThat(command.items()).hasSize(2);
+        assertThat(command.items()).extracting(item -> item.protocolAccountId())
+                .containsExactly("acc_100", "acc_101");
+        assertThat(command.items().get(0).command().proxy()).isSameAs(proxyA);
+        assertThat(command.items().get(1).command().proxy()).isSameAs(proxyB);
     }
 }

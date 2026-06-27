@@ -42,6 +42,17 @@ public interface IpProxyMapper {
     IpProxy selectOneIdleForUpdate(@Param("tenantId") Long tenantId, @Param("idleStatus") int idleStatus);
 
     /**
+     * 锁定一批本租户空闲代理,用于批量上线前的本地代理分配短事务。
+     *
+     * <p>调用方必须在同一事务内完成后续绑定更新;这里显式传 tenantId 并关闭租户拦截器,
+     * 避免租户 SQL 改写影响 {@code LIMIT ... FOR UPDATE}。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<IpProxy> selectIdleForUpdate(@Param("tenantId") Long tenantId,
+                                      @Param("idleStatus") int idleStatus,
+                                      @Param("limit") int limit);
+
+    /**
      * 将已锁定的空闲代理绑定到账号并置为使用中。
      *
      * <p>WHERE 中保留 status=IDLE 条件,即使调用方漏锁或并发重试也不会覆盖已被占用的代理。</p>
@@ -53,11 +64,29 @@ public interface IpProxyMapper {
                          @Param("boundAt") long boundAt);
 
     /**
+     * 批量绑定已锁定的空闲代理。
+     *
+     * <p>WHERE 保留 status=IDLE 条件兜底,调用方用返回行数确认是否全部绑定成功。</p>
+     */
+    int markUsingAndBindBatch(@Param("targets") List<IpProxyBindTarget> targets,
+                              @Param("idleStatus") int idleStatus,
+                              @Param("usingStatus") int usingStatus,
+                              @Param("boundAt") long boundAt);
+
+    /**
      * 释放指定账号当前占用的代理回空闲池。
      *
      * <p>上线入口会先释放旧绑定再重新分配;下线/删除等明确不再占用场景也可复用本方法。</p>
      */
     int releaseByAccount(@Param("accountId") Long accountId,
+                          @Param("idleStatus") int idleStatus,
+                          @Param("usingStatus") int usingStatus,
+                          @Param("updatedAt") long updatedAt);
+
+    /**
+     * 批量释放指定账号当前占用的代理回空闲池。
+     */
+    int releaseByAccounts(@Param("accountIds") List<Long> accountIds,
                           @Param("idleStatus") int idleStatus,
                           @Param("usingStatus") int usingStatus,
                           @Param("updatedAt") long updatedAt);
@@ -72,6 +101,14 @@ public interface IpProxyMapper {
                                 @Param("idleStatus") int idleStatus,
                                 @Param("usingStatus") int usingStatus,
                                 @Param("updatedAt") long updatedAt);
+
+    /**
+     * 批量精确释放账号上线本次分配的代理。
+     */
+    int releaseOnlineAllocations(@Param("targets") List<IpProxyBindTarget> targets,
+                                 @Param("idleStatus") int idleStatus,
+                                 @Param("usingStatus") int usingStatus,
+                                 @Param("updatedAt") long updatedAt);
 
     /**
      * 按完整身份（网关, 端口, 用户名, 密码）统计活跃行数，用于导入时给友好「跳过重复」提示。

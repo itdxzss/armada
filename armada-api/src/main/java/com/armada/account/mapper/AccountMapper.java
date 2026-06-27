@@ -38,6 +38,16 @@ public interface AccountMapper {
     Account selectActiveById(@Param("id") Long id);
 
     /**
+     * 按 ID 批量查未软删账号。
+     *
+     * <p>批量上线等场景使用;tenant_id 由租户拦截器注入。</p>
+     *
+     * @param ids 账号主键列表
+     * @return 活跃账号列表;不存在或已软删账号不会返回
+     */
+    List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /**
      * 按筛选条件统计账号总数(SQL 下推,与 selectPage 共享 filter 片段)。
      *
      * @param query 账号列表查询参数

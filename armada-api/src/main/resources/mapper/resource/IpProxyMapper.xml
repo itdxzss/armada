@@ -71,6 +71,17 @@
         FOR UPDATE
     </select>
 
+    <select id="selectIdleForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE tenant_id = #{tenantId}
+          AND deleted_at IS NULL
+          AND status = #{idleStatus}
+        ORDER BY id ASC
+        LIMIT #{limit}
+        FOR UPDATE
+    </select>
+
     <update id="markUsingAndBind">
         UPDATE ip_proxy
         SET status = #{usingStatus},
@@ -82,6 +93,22 @@
           AND status = #{idleStatus}
     </update>
 
+    <update id="markUsingAndBindBatch">
+        UPDATE ip_proxy
+        SET status = #{usingStatus},
+            bound_account_id = CASE id
+            <foreach collection="targets" item="target">
+                WHEN #{target.proxyId} THEN #{target.accountId}
+            </foreach>
+            END,
+            bound_at = #{boundAt},
+            updated_at = #{boundAt}
+        WHERE deleted_at IS NULL
+          AND status = #{idleStatus}
+          AND id IN
+        <foreach collection="targets" item="target" open="(" separator="," close=")">#{target.proxyId}</foreach>
+    </update>
+
     <update id="releaseByAccount">
         UPDATE ip_proxy
         SET status = #{idleStatus},
@@ -89,6 +116,18 @@
             bound_at = NULL,
             updated_at = #{updatedAt}
         WHERE bound_account_id = #{accountId}
+          AND deleted_at IS NULL
+          AND status = #{usingStatus}
+    </update>
+
+    <update id="releaseByAccounts">
+        UPDATE ip_proxy
+        SET status = #{idleStatus},
+            bound_account_id = NULL,
+            bound_at = NULL,
+            updated_at = #{updatedAt}
+        WHERE bound_account_id IN
+        <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">#{accountId}</foreach>
           AND deleted_at IS NULL
           AND status = #{usingStatus}
     </update>
@@ -103,6 +142,21 @@
           AND bound_account_id = #{accountId}
           AND deleted_at IS NULL
           AND status = #{usingStatus}
+    </update>
+
+    <update id="releaseOnlineAllocations">
+        UPDATE ip_proxy
+        SET status = #{idleStatus},
+            bound_account_id = NULL,
+            bound_at = NULL,
+            updated_at = #{updatedAt}
+        WHERE deleted_at IS NULL
+          AND status = #{usingStatus}
+          AND (
+        <foreach collection="targets" item="target" separator=" OR ">
+              (id = #{target.proxyId} AND bound_account_id = #{target.accountId})
+        </foreach>
+          )
     </update>
 
     <select id="countActiveByFullTuple" resultType="long">

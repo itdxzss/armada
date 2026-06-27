@@ -49,6 +49,18 @@ public interface IpProxyService {
     IpProxyAllocation allocateOnlineEndpoint(Long accountId);
 
     /**
+     * 为一批账号上线分配空闲代理。
+     *
+     * <p>本方法在一个本地短事务中完成:批量释放这些账号旧绑定、锁定同等数量 IDLE 代理、
+     * 再批量绑定为 IN_USE。事务不包含协议 HTTP 调用,只保护本地代理池占用关系。</p>
+     *
+     * @param accountIds 账号主键列表,不可为空、不可重复
+     * @return 与 accountIds 顺序一致的代理分配结果
+     * @throws BusinessException 当账号列表为空、缺少租户上下文、空闲代理不足或分配冲突时抛出
+     */
+    List<IpProxyAccountAllocation> allocateOnlineEndpoints(List<Long> accountIds);
+
+    /**
      * 释放账号上线过程中本次分配的代理。
      *
      * <p>本方法用于协议层未受理或调用失败后的补偿释放,必须同时按账号 ID 和代理 ID 精确匹配,
@@ -59,6 +71,16 @@ public interface IpProxyService {
      * @throws BusinessException 当账号 ID 或代理 ID 为空时抛出
      */
     void releaseOnlineAllocation(Long accountId, Long proxyId);
+
+    /**
+     * 批量释放账号上线过程中本次分配的代理。
+     *
+     * <p>每个释放项同时匹配账号 ID 和代理 ID,避免旧请求失败时误释放同账号后续新分配的代理。</p>
+     *
+     * @param allocations 需要释放的本次代理分配结果
+     * @throws BusinessException 当列表为空或存在空账号/代理 ID 时抛出
+     */
+    void releaseOnlineAllocations(List<IpProxyAccountAllocation> allocations);
 
     /**
      * 批量软删除 IP 代理。空列表直接返回、不做任何操作。

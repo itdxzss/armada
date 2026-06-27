@@ -2,12 +2,17 @@ package com.armada.platform.protocol.http.account;
 
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
-import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.model.command.BatchOnlineCommand;
+import com.armada.platform.protocol.model.command.BatchOnlineCommandItem;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.OnlineCommand;
 import com.armada.platform.protocol.model.command.ProxyDescriptor;
+import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
+import com.armada.platform.protocol.model.result.BatchOnlineItemResult;
+import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.protocol.model.result.StateSource;
+import com.armada.platform.protocol.port.AccountLifecyclePort;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -15,6 +20,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -116,6 +122,83 @@ class HttpAccountLifecycleAdapterTest {
 
         assertThat(result.stateSource()).isEqualTo(StateSource.UNKNOWN);
         assertThat(result.routing().ownerEndpoint()).isEqualTo("http://worker-b.internal:3000");
+        server.verify();
+    }
+
+    @Test
+    void onlineBatchPostsOneBatchRequestAndMapsAcceptedResponse() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountLifecyclePort port = new HttpAccountLifecycleAdapter(new ProtocolHttpExecutor(builder.build()));
+        BatchOnlineCommand command = new BatchOnlineCommand(List.of(
+                new BatchOnlineCommandItem("acc_001", new OnlineCommand(
+                        CredentialFormat.BAILEYS_JSON,
+                        "{\"creds\":{\"noiseKey\":\"n1\"},\"keys\":{}}",
+                        new ProxyDescriptor("socks5", "socks5://user:pass@proxy-a:1080", "sticky-001", "IN"))),
+                new BatchOnlineCommandItem("acc_002", new OnlineCommand(
+                        CredentialFormat.PARAMS,
+                        "{\"login\":\"raw\"}",
+                        new ProxyDescriptor("http", "http://user:pass@proxy-b:8080", "sticky-002", "SG")))
+        ), 60_000);
+
+        server.expect(requestTo("http://protocol.internal/v1/accounts/online/batch"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "maxWaitMs": 60000,
+                          "items": [
+                            {
+                              "accountId": "acc_001",
+                              "format": "baileys_json",
+                              "credential": {"creds": {"noiseKey": "n1"}, "keys": {}},
+                              "proxy": {
+                                "protocol": "socks5",
+                                "url": "socks5://user:pass@proxy-a:1080",
+                                "sessionId": "sticky-001",
+                                "country": "IN"
+                              }
+                            },
+                            {
+                              "accountId": "acc_002",
+                              "format": "params",
+                              "credential": {"login": "raw"},
+                              "proxy": {
+                                "protocol": "http",
+                                "url": "http://user:pass@proxy-b:8080",
+                                "sessionId": "sticky-002",
+                                "country": "SG"
+                              }
+                            }
+                          ]
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "requestedAt": "2026-06-27T10:00:00Z",
+                          "elapsedMs": 80,
+                          "summary": {
+                            "requested": 2,
+                            "local": 2,
+                            "remote": 0,
+                            "accepted": 1,
+                            "timeout": 1,
+                            "proxyRequired": 0,
+                            "error": 0
+                          },
+                          "results": [
+                            {"accountId": "acc_001", "result": "accepted"},
+                            {"accountId": "acc_002", "result": "timeout", "retryAfterMs": 5000}
+                          ],
+                          "remote": []
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        BatchOnlineAccepted result = port.onlineBatch(command);
+
+        assertThat(result.summary().requested()).isEqualTo(2);
+        assertThat(result.summary().accepted()).isEqualTo(1);
+        assertThat(result.results()).extracting(BatchOnlineItemResult::result)
+                .containsExactly(BatchOnlineResultStatus.ACCEPTED, BatchOnlineResultStatus.TIMEOUT);
         server.verify();
     }
 

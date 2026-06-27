@@ -260,6 +260,36 @@ class IpProxyServiceImplTest {
         }
     }
 
+    @Test
+    void releaseOnlineAllocation_validIds_delegatesPreciseMapperRelease() {
+        when(mapper.releaseOnlineAllocation(
+                eq(100L),
+                eq(10L),
+                eq(IpProxyStatus.IDLE.code()),
+                eq(IpProxyStatus.IN_USE.code()),
+                anyLong())).thenReturn(1);
+
+        service.releaseOnlineAllocation(100L, 10L);
+
+        verify(mapper).releaseOnlineAllocation(
+                eq(100L),
+                eq(10L),
+                eq(IpProxyStatus.IDLE.code()),
+                eq(IpProxyStatus.IN_USE.code()),
+                anyLong());
+    }
+
+    @Test
+    void releaseOnlineAllocation_nullProxyId_throwsValidationBeforeMapper() {
+        assertThatThrownBy(() -> service.releaseOnlineAllocation(100L, null))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("代理 ID 不能为空");
+                });
+
+        verify(mapper, never()).releaseOnlineAllocation(any(), any(), anyInt(), anyInt(), anyLong());
+    }
+
     private static IpProxy idleProxy() {
         IpProxy row = new IpProxy();
         row.setId(10L);

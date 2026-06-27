@@ -72,6 +72,42 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(idle.getUpdatedAt()).isEqualTo(now + 2);
     }
 
+    @Test
+    void releaseOnlineAllocation_releasesOnlyMatchingProxyAndAccount() {
+        long now = System.currentTimeMillis();
+        IpProxy proxy = newIdleProxy(now);
+        mapper.insert(proxy);
+        mapper.markUsingAndBind(
+                proxy.getId(),
+                501L,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 1);
+
+        int missed = mapper.releaseOnlineAllocation(
+                502L,
+                proxy.getId(),
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 2);
+        assertThat(missed).isZero();
+        assertThat(mapper.selectActiveById(proxy.getId()).getBoundAccountId()).isEqualTo(501L);
+
+        int released = mapper.releaseOnlineAllocation(
+                501L,
+                proxy.getId(),
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 3);
+        assertThat(released).isEqualTo(1);
+
+        IpProxy idle = mapper.selectActiveById(proxy.getId());
+        assertThat(idle.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(idle.getBoundAccountId()).isNull();
+        assertThat(idle.getBoundAt()).isNull();
+        assertThat(idle.getUpdatedAt()).isEqualTo(now + 3);
+    }
+
     private static IpProxy newIdleProxy(long suffix) {
         IpProxy proxy = new IpProxy();
         proxy.setHost("proxy-" + suffix + ".internal");

@@ -100,6 +100,7 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(plan.credentialFormat()).isEqualTo(CredentialFormat.BAILEYS_JSON);
         assertThat(plan.credentialJson()).isEqualTo("{\"creds\":{},\"keys\":{}}");
         assertThat(plan.proxyEndpoint()).isSameAs(endpoint);
+        verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
 
         assertThat(result.accountId()).isEqualTo(100L);
         assertThat(result.protocolAccountId()).isEqualTo("acc_8613800138000");
@@ -156,7 +157,7 @@ class AccountOnlineCommandServiceImplTest {
                             && message.contains("credentialFormat=BAILEYS_JSON")
                             && message.contains("credentialLength=" + credentialJson.length()));
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号上线已受理 accountId=100 allocatedProxyId=7 accepted=true")
+                    .anyMatch(message -> message.contains("账号上线协议层返回 accountId=100 allocatedProxyId=7 accepted=true")
                             && message.contains("stateSource=MANUAL_REFRESH")
                             && message.contains("ownerWorkerId=worker-a")
                             && message.contains("local=true"));
@@ -167,6 +168,45 @@ class AccountOnlineCommandServiceImplTest {
             logger.detachAppender(appender);
             appender.stop();
         }
+    }
+
+    @Test
+    void online_protocolThrows_releasesAllocatedProxyAndRethrowsOriginalFailure() {
+        Account account = onlineAccount();
+        AccountCredential credential = onlineCredential();
+        ProxyEndpoint endpoint = onlineEndpoint();
+        RuntimeException failure = new RuntimeException("protocol unavailable");
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
+        when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.online(100L))
+                .isSameAs(failure);
+
+        verify(ipProxyService).releaseOnlineAllocation(100L, 7L);
+    }
+
+    @Test
+    void online_protocolReturnsNotAccepted_releasesAllocatedProxyAndReturnsRejectedVo() {
+        Account account = onlineAccount();
+        AccountCredential credential = onlineCredential();
+        ProxyEndpoint endpoint = onlineEndpoint();
+        OnlineAccepted accepted = new OnlineAccepted(
+                "acc_8613800138000",
+                false,
+                StateSource.MANUAL_REFRESH,
+                Instant.parse("2026-06-26T10:15:30Z"),
+                new OnlineRouting("worker-a", null, "worker-a", true));
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
+        when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenReturn(accepted);
+
+        AccountOnlineVO result = service.online(100L);
+
+        assertThat(result.accepted()).isFalse();
+        verify(ipProxyService).releaseOnlineAllocation(100L, 7L);
     }
 
     @Test
@@ -196,5 +236,29 @@ class AccountOnlineCommandServiceImplTest {
                     assertThat(ex.getMessage()).contains("账号凭据不存在");
                 });
         verifyNoInteractions(ipProxyService, accountOnlineService);
+    }
+
+    private static Account onlineAccount() {
+        Account account = new Account();
+        account.setId(100L);
+        account.setProtocolAccountId("acc_8613800138000");
+        return account;
+    }
+
+    private static AccountCredential onlineCredential() {
+        AccountCredential credential = new AccountCredential();
+        credential.setAccountId(100L);
+        credential.setCredFormat(2);
+        credential.setCredsJson("{\"creds\":{},\"keys\":{}}");
+        return credential;
+    }
+
+    private static ProxyEndpoint onlineEndpoint() {
+        return new ProxyEndpoint(
+                ProxyEndpoint.PROTOCOL_SOCKS5,
+                "proxy.internal",
+                1080,
+                new ProxyCredentials("user", "pass_session-Abc123"),
+                "印度");
     }
 }

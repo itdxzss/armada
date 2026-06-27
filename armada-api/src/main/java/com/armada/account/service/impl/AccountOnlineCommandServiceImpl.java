@@ -69,27 +69,35 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         // 2. 用户点击上线时不复用旧绑定:resource 服务先释放该账号旧 IP,再锁定一条空闲代理并置为使用中。
         IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(account.getId());
 
-        // 3. 协议层只需要凭据格式枚举和原始 JSON;日志只打 JSON 长度,避免凭据泄露。
-        CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
-        String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-        log.info("账号上线调用协议层 accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
-                account.getId(), allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
+        try {
+            // 3. 协议层只需要凭据格式枚举和原始 JSON;日志只打 JSON 长度,避免凭据泄露。
+            CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
+            String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+            log.info("账号上线调用协议层 accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
+                    account.getId(), allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
 
-        AccountOnlinePlan plan = new AccountOnlinePlan(
-                protocolAccountId,
-                credentialFormat,
-                credential.getCredsJson(),
-                allocation.endpoint());
+            AccountOnlinePlan plan = new AccountOnlinePlan(
+                    protocolAccountId,
+                    credentialFormat,
+                    credential.getCredsJson(),
+                    allocation.endpoint());
 
-        // 4. accepted 表示协议层已受理上线请求,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
-        OnlineAccepted accepted = accountOnlineService.online(plan);
-        OnlineRouting routing = accepted.routing();
-        log.info("账号上线已受理 accountId={} allocatedProxyId={} accepted={} stateSource={} ownerWorkerId={} local={}",
-                account.getId(), allocation.proxyId(), accepted.accepted(), accepted.stateSource(),
-                routing.ownerWorkerId(), routing.local());
+            // 4. accepted 表示协议层已受理上线请求,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
+            OnlineAccepted accepted = accountOnlineService.online(plan);
+            if (!accepted.accepted()) {
+                ipProxyService.releaseOnlineAllocation(account.getId(), allocation.proxyId());
+            }
+            OnlineRouting routing = accepted.routing();
+            log.info("账号上线协议层返回 accountId={} allocatedProxyId={} accepted={} stateSource={} ownerWorkerId={} local={}",
+                    account.getId(), allocation.proxyId(), accepted.accepted(), accepted.stateSource(),
+                    routing.ownerWorkerId(), routing.local());
 
-        // 5. 对外返回受理结果和路由信息,状态落库仍由后续同步流程负责。
-        return toVO(account.getId(), accepted);
+            // 5. 对外返回受理结果和路由信息,状态落库仍由后续同步流程负责。
+            return toVO(account.getId(), accepted);
+        } catch (RuntimeException ex) {
+            releaseAllocationAfterFailure(account.getId(), allocation.proxyId(), ex);
+            throw ex;
+        }
     }
 
     /**
@@ -161,5 +169,14 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      */
     private static int credentialLength(String credentialJson) {
         return credentialJson == null ? 0 : credentialJson.length();
+    }
+
+    private void releaseAllocationAfterFailure(Long accountId, Long proxyId, RuntimeException original) {
+        try {
+            ipProxyService.releaseOnlineAllocation(accountId, proxyId);
+        } catch (RuntimeException releaseEx) {
+            original.addSuppressed(releaseEx);
+            log.error("账号上线失败后释放代理失败 accountId={} allocatedProxyId={}", accountId, proxyId, releaseEx);
+        }
     }
 }

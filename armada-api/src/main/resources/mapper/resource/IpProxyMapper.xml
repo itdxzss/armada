@@ -93,6 +93,18 @@
           AND status = #{usingStatus}
     </update>
 
+    <update id="releaseOnlineAllocation">
+        UPDATE ip_proxy
+        SET status = #{idleStatus},
+            bound_account_id = NULL,
+            bound_at = NULL,
+            updated_at = #{updatedAt}
+        WHERE id = #{proxyId}
+          AND bound_account_id = #{accountId}
+          AND deleted_at IS NULL
+          AND status = #{usingStatus}
+    </update>
+
     <select id="countActiveByFullTuple" resultType="long">
         SELECT COUNT(*)
         FROM ip_proxy

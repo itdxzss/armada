@@ -49,6 +49,18 @@ public interface IpProxyService {
     IpProxyAllocation allocateOnlineEndpoint(Long accountId);
 
     /**
+     * 释放账号上线过程中本次分配的代理。
+     *
+     * <p>本方法用于协议层未受理或调用失败后的补偿释放,必须同时按账号 ID 和代理 ID 精确匹配,
+     * 避免并发上线时释放掉同账号后续新分配的代理。</p>
+     *
+     * @param accountId 账号主键
+     * @param proxyId   本次分配的代理主键
+     * @throws BusinessException 当账号 ID 或代理 ID 为空时抛出
+     */
+    void releaseOnlineAllocation(Long accountId, Long proxyId);
+
+    /**
      * 批量软删除 IP 代理。空列表直接返回、不做任何操作。
      *
      * @param ids 要删除的代理 ID 列表

@@ -144,6 +144,25 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void releaseOnlineAllocation(Long accountId, Long proxyId) {
+        if (accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
+        }
+        if (proxyId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+        }
+
+        int released = mapper.releaseOnlineAllocation(
+                accountId,
+                proxyId,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                System.currentTimeMillis());
+        log.info("IP代理上线补偿释放 accountId={} proxyId={} released={}", accountId, proxyId, released);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void batchDelete(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return;

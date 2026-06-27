@@ -58,9 +58,20 @@ public interface IpProxyMapper {
      * <p>上线入口会先释放旧绑定再重新分配;下线/删除等明确不再占用场景也可复用本方法。</p>
      */
     int releaseByAccount(@Param("accountId") Long accountId,
-                         @Param("idleStatus") int idleStatus,
-                         @Param("usingStatus") int usingStatus,
-                         @Param("updatedAt") long updatedAt);
+                          @Param("idleStatus") int idleStatus,
+                          @Param("usingStatus") int usingStatus,
+                          @Param("updatedAt") long updatedAt);
+
+    /**
+     * 精确释放账号上线本次分配的代理。
+     *
+     * <p>补偿释放必须同时匹配账号和代理 ID,避免旧上线请求失败时误释放该账号后续新绑定的代理。</p>
+     */
+    int releaseOnlineAllocation(@Param("accountId") Long accountId,
+                                @Param("proxyId") Long proxyId,
+                                @Param("idleStatus") int idleStatus,
+                                @Param("usingStatus") int usingStatus,
+                                @Param("updatedAt") long updatedAt);
 
     /**
      * 按完整身份（网关, 端口, 用户名, 密码）统计活跃行数，用于导入时给友好「跳过重复」提示。

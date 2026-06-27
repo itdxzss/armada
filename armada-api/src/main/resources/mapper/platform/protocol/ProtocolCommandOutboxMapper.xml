@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper">
+
+  <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段。 -->
+  <sql id="Columns">
+    id, tenant_id, command_id, batch_id, command_type, aggregate_type, aggregate_id,
+    kafka_topic, kafka_key, protocol_account_id, payload_json, status, retry_count,
+    next_retry_at, locked_by, locked_at, sent_at, last_error,
+    created_at, updated_at, deleted_at
+  </sql>
+
+  <!-- 批量写入 pending 命令;tenant_id 由租户拦截器注入。 -->
+  <insert id="batchInsertPending">
+    INSERT INTO protocol_command_outbox (
+      command_id, batch_id, command_type, aggregate_type, aggregate_id,
+      kafka_topic, kafka_key, protocol_account_id, payload_json,
+      status, retry_count, next_retry_at,
+      created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="r" separator=",">
+      (
+        #{r.commandId}, #{r.batchId}, #{r.commandType}, #{r.aggregateType}, #{r.aggregateId},
+        #{r.kafkaTopic}, #{r.kafkaKey}, #{r.protocolAccountId}, #{r.payloadJson},
+        #{r.status}, #{r.retryCount}, #{r.nextRetryAt},
+        #{r.createdAt}, #{r.updatedAt}
+      )
+    </foreach>
+  </insert>
+
+  <!-- publisher 后台扫描跨租户待发送命令;Mapper 接口已关闭租户拦截器。 -->
+  <select id="selectDispatchable" resultType="com.armada.platform.protocol.model.entity.ProtocolCommandOutbox">
+    SELECT <include refid="Columns"/>
+    FROM protocol_command_outbox
+    WHERE deleted_at IS NULL
+      AND status = #{status}
+      AND next_retry_at &lt;= #{now}
+    ORDER BY next_retry_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
+  <!-- 并发抢占兜底:只有仍是 PENDING 的行能更新为 LOCKED。 -->
+  <update id="markLockedInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{lockedStatus},
+        locked_by = #{lockedBy},
+        locked_at = #{lockedAt},
+        updated_at = #{lockedAt}
+    WHERE deleted_at IS NULL
+      AND status = #{pendingStatus}
+      AND next_retry_at &lt;= #{lockedAt}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <!-- 只有 LOCKED 行能确认发送成功;清空旧错误,保留 locked_by/locked_at 作为发送实例审计。 -->
+  <update id="markSentInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{sentStatus},
+        sent_at = #{row.sentAt},
+        last_error = NULL,
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+  </update>
+
+  <!-- 临时失败释放回 PENDING:递增 retry_count,清理锁字段,等待 next_retry_at 再次扫描。 -->
+  <update id="markRetryInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{pendingStatus},
+        retry_count = retry_count + 1,
+        next_retry_at = #{row.nextRetryAt},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+  </update>
+
+  <!-- 不可恢复失败进入 DEAD,不再被 PENDING 扫描捞起。 -->
+  <update id="markDeadInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{deadStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+  </update>
+
+</mapper>

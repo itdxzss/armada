@@ -1,6 +1,10 @@
 package com.armada.task.service;
 
 import com.armada.boot.Application;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -27,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <p>本类覆盖 @SpringBootTest 显式置 spring.flyway.enabled=false:共享脏 checkout 中有
  * 他人在途、未跟踪的迁移(协议层重构期),启动 flyway 会把这些 WIP 迁移应用进本机测试库。
- * 本测试只验建任务业务逻辑,join_task/join_task_result schema 已由前序 DbTest 的 V007 建好,
+ * 本测试只验建任务业务逻辑及本地 group_link 登记副作用,相关 schema 已由前序 DbTest 迁移建好,
  * 故跳过 flyway 与他人 WIP 解耦。待迁移稳定后可移除此覆盖、回归 DbTestBase 默认(flyway 开)。</p>
  */
 @SpringBootTest(classes = Application.class,
@@ -43,6 +47,9 @@ class JoinTaskCreateDbTest extends DbTestBase {
 
     @Autowired
     private JoinTaskResultMapper resultMapper;
+
+    @Autowired
+    private GroupLinkMapper groupLinkMapper;
 
     // 两条真实 WA 群链接
     private static final String LINK1 = "https://chat.whatsapp.com/AAABBBCCC111";
@@ -234,5 +241,72 @@ class JoinTaskCreateDbTest extends DbTestBase {
             // 复位租户 1(AfterEach 会 clear,保险起见也显式复位)
             TenantContext.set(1L);
         }
+    }
+
+    /**
+     * 用例 7:建进群任务时,仅严格合法的群邀请链接登记到群组池。
+     *
+     * <p>登记只写本地 group_link:新入口来源为 JOIN_TASK,关系态为 TARGET,不绑定导入分组/批次。
+     * 同一归一化链接在输入框重复出现时只登记一次。</p>
+     */
+    @Test
+    void case7_createTask_registersValidLinksAsJoinTaskTargets() {
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
+                "群组池登记测试",
+                null, null,
+                List.of(new SelectedAccount(1L, "911")),
+                "HTTPS://CHAT.WHATSAPP.COM/CreateRegistryA/\n"
+                        + "chat.whatsapp.com/CreateRegistryA\n"
+                        + "https://chat.whatsapp.com/\n"
+                        + "not-a-link",
+                "FIXED_ACCOUNTS_PER_LINK",
+                1, null, null,
+                5, 10, null, null,
+                false, 0, "SKIP");
+
+        service.createTask(req);
+
+        GroupLink registered = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/CreateRegistryA");
+        assertThat(registered).isNotNull();
+        assertThat(registered.getOrigin()).isEqualTo(GroupLinkOrigin.JOIN_TASK.code());
+        assertThat(registered.getMembershipState()).isEqualTo(GroupMembershipState.TARGET.code());
+        assertThat(registered.getLabelId()).isNull();
+        assertThat(registered.getImportBatchId()).isNull();
+        assertThat(groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/")).isNull();
+    }
+
+    /**
+     * 用例 8:建进群任务登记到已软删的群链接时,复活原 group_link 行,不新插第二条。
+     */
+    @Test
+    void case8_createTask_revivesSoftDeletedGroupLinkTarget() {
+        GroupLink existing = new GroupLink();
+        existing.setLinkUrl("chat.whatsapp.com/ReviveJoinTaskTarget");
+        existing.setOrigin(GroupLinkOrigin.JOIN_TASK.code());
+        existing.setMembershipState(GroupMembershipState.TARGET.code());
+        long now = System.currentTimeMillis();
+        existing.setCreatedAt(now);
+        existing.setUpdatedAt(now);
+        groupLinkMapper.insert(existing);
+        groupLinkMapper.softDeleteByIds(List.of(existing.getId()), now + 1);
+
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
+                "复活登记测试",
+                null, null,
+                List.of(new SelectedAccount(1L, "911")),
+                "https://chat.whatsapp.com/ReviveJoinTaskTarget",
+                "FIXED_ACCOUNTS_PER_LINK",
+                1, null, null,
+                5, 10, null, null,
+                false, 0, "SKIP");
+
+        service.createTask(req);
+
+        GroupLink revived = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveJoinTaskTarget");
+        assertThat(revived).isNotNull();
+        assertThat(revived.getId()).isEqualTo(existing.getId());
+        assertThat(revived.getDeletedAt()).isNull();
+        assertThat(revived.getOrigin()).isEqualTo(GroupLinkOrigin.JOIN_TASK.code());
+        assertThat(revived.getMembershipState()).isEqualTo(GroupMembershipState.TARGET.code());
     }
 }

@@ -1,6 +1,10 @@
 package com.armada.task.service;
 
 import com.armada.boot.Application;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.JoinTaskMapper;
@@ -26,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 进群任务变更路径真库集成测试:编辑(仅 DRAFT)+ 批量软删。
  *
  * <p>继承 DbTestBase:@Transactional 每用例回滚,TenantContext 预置租户 1。
- * 使用 spring.flyway.enabled=false 与在途 WIP 迁移解耦(schema 由 V007 已建好)。</p>
+ * 使用 spring.flyway.enabled=false 与在途 WIP 迁移解耦(相关 schema 已由前序 DbTest 迁移建好)。</p>
  *
  * <p>⚠️ MyBatis 一级缓存陷阱说明:guard 触发用例改用 {@link #insertRawTask} 通过
  * joinTaskMapper.insert 直接造行(insert 会刷新缓存,status/executed 可直接控制),
@@ -42,6 +46,9 @@ class JoinTaskMutationDbTest extends DbTestBase {
 
     @Autowired
     private JoinTaskMapper joinTaskMapper;
+
+    @Autowired
+    private GroupLinkMapper groupLinkMapper;
 
     // 真实 WA 群链接格式
     private static final String LINK1 = "https://chat.whatsapp.com/AAABBBCCC111";
@@ -267,5 +274,32 @@ class JoinTaskMutationDbTest extends DbTestBase {
     void case6_batchDelete_emptyOrNull_returnsZero() {
         assertThat(service.batchDelete(null)).isEqualTo(0);
         assertThat(service.batchDelete(List.of())).isEqualTo(0);
+    }
+
+    /**
+     * 用例 7:编辑 DRAFT 进群任务时,新输入的有效群链接也登记到群组池。
+     */
+    @Test
+    void case7_updateTask_registersNewValidLinksAsJoinTaskTargets() {
+        JoinTaskVO created = service.createTask(anyValidReq());
+
+        CreateJoinTaskDTO updateReq = new CreateJoinTaskDTO(
+                "编辑后登记测试",
+                null, null,
+                List.of(new SelectedAccount(1L, "911")),
+                LINK3,
+                "FIXED_ACCOUNTS_PER_LINK",
+                1, null, null,
+                5, 10, null, null,
+                false, 0, "SKIP");
+
+        service.updateTask(created.id(), updateReq);
+
+        GroupLink registered = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/GGGHHHIII333");
+        assertThat(registered).isNotNull();
+        assertThat(registered.getOrigin()).isEqualTo(GroupLinkOrigin.JOIN_TASK.code());
+        assertThat(registered.getMembershipState()).isEqualTo(GroupMembershipState.TARGET.code());
+        assertThat(registered.getLabelId()).isNull();
+        assertThat(registered.getImportBatchId()).isNull();
     }
 }

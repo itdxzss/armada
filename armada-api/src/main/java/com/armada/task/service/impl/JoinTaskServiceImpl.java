@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -43,10 +44,14 @@ public class JoinTaskServiceImpl implements JoinTaskService {
 
     private final JoinTaskMapper joinTaskMapper;
     private final JoinTaskResultMapper resultMapper;
+    private final GroupLinkRegistryService groupLinkRegistryService;
 
-    public JoinTaskServiceImpl(JoinTaskMapper joinTaskMapper, JoinTaskResultMapper resultMapper) {
+    public JoinTaskServiceImpl(JoinTaskMapper joinTaskMapper,
+                               JoinTaskResultMapper resultMapper,
+                               GroupLinkRegistryService groupLinkRegistryService) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
+        this.groupLinkRegistryService = groupLinkRegistryService;
     }
 
     /**
@@ -69,7 +74,8 @@ public class JoinTaskServiceImpl implements JoinTaskService {
                 req.linksText() == null ? 0 : req.linksText().length());
         long now = System.currentTimeMillis();
         JoinTask task = new JoinTask();
-        List<PlanRow> rows = populateConfigAndPlan(task, req, now);
+        LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
+        List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         task.setExecuted(0);
         task.setSuccess(0);
         task.setFailed(0);
@@ -77,6 +83,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         task.setCreatedAt(now);
         joinTaskMapper.insert(task);
         persistRows(task.getId(), rows, now);
+        groupLinkRegistryService.registerJoinTaskTargets(links.valid());
         log.info("建进群任务完成 id={} total={} 计划行={}", task.getId(), task.getTotal(), rows.size());
         return toVO(joinTaskMapper.selectByTenantAndId(task.getId()));
     }
@@ -108,10 +115,12 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         long now = System.currentTimeMillis();
         JoinTask task = new JoinTask();
         task.setId(id);
-        List<PlanRow> rows = populateConfigAndPlan(task, req, now);
+        LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
+        List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         joinTaskMapper.update(task);
         resultMapper.deleteResultsByTask(id);
         persistRows(id, rows, now);
+        groupLinkRegistryService.registerJoinTaskTargets(links.valid());
         return toDetailVO(joinTaskMapper.selectByTenantAndId(id));
     }
 
@@ -135,10 +144,10 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      * 据请求把配置列 + 计数(total/pending)+ updated_at 写入 task,并返回据此生成的计划行。
      * create 与 update 共用;不写 executed/success/failed/status/created_at(各由调用方按场景定)。
      */
-    private List<PlanRow> populateConfigAndPlan(JoinTask task, CreateJoinTaskDTO req, long now) {
+    private List<PlanRow> populateConfigAndPlan(JoinTask task, CreateJoinTaskDTO req, long now,
+                                                LinkClassifier.Classified links) {
         String mode = DistributionMode.FIXED_ACCOUNT_MULTI_LINK.equals(req.distributionMode())
                 ? DistributionMode.FIXED_ACCOUNT_MULTI_LINK : DistributionMode.FIXED_ACCOUNTS_PER_LINK;
-        LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
         List<SelectedAccount> accounts = req.selectedAccounts() == null ? List.of() : req.selectedAccounts();
         DistributionParams params = new DistributionParams(mode, n(req.accountsPerLink()),
                 n(req.executorAccountCount()), n(req.linksPerAccount()));

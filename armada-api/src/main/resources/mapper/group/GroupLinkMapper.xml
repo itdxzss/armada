@@ -36,6 +36,15 @@
       AND label_id IS NULL
   </update>
 
+  <update id="reviveAsStandaloneTarget">
+    UPDATE group_link
+    SET deleted_at = NULL,
+        label_id = NULL,
+        import_batch_id = NULL,
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+  </update>
+
   <!-- 群组列表基础筛选片段:labelId 可为空,用于全量群组列表;传入时用于导入链接分组下钻。 -->
   <sql id="byLabelFilter">
     g.deleted_at IS NULL

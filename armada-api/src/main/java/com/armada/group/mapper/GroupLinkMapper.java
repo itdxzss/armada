@@ -55,6 +55,15 @@ public interface GroupLinkMapper {
                               @Param("batchId") Long batchId, @Param("updatedAt") long updatedAt);
 
     /**
+     * 复活软删群入口为独立群组池目标,不归入导入链接分组。
+     *
+     * @param id        群链接 ID
+     * @param updatedAt 更新时间(epoch毫秒)
+     * @return 影响行数
+     */
+    int reviveAsStandaloneTarget(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+
+    /**
      * 群组列表分页总数(与 selectPageByLabel 共用 filter,口径一致)。
      *
      * @param query 查询参数(labelId 可为空;为空时查当前租户全量群组列表)

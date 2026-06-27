@@ -33,7 +33,7 @@ public class GroupLinkImportController {
     /**
      * C1 导入明细分页列表。
      *
-     * @param query 查询条件(labelId/batchId/result/page/pageSize)
+     * @param query 查询条件(labelId/batchId/result/failReason/page/pageSize;result=1成功、2失败)
      * @return 分页明细 VO
      */
     @GetMapping("/details")
@@ -43,7 +43,7 @@ public class GroupLinkImportController {
     }
 
     /**
-     * C2 导出失败/重复明细(result≥3)为 CSV 文件。
+     * C2 导出失败明细(result=失败)为 CSV 文件。
      *
      * <p>响应:UTF-8 BOM(防 Excel 中文乱码)+ 表头 + 数据行;Content-Disposition=attachment。</p>
      *

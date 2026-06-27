@@ -5,6 +5,12 @@ ALTER TABLE group_link_import_detail
     DROP COLUMN existing_origin,
     DROP COLUMN success_type;
 
+ALTER TABLE group_link_import_detail
+    MODIFY COLUMN group_name VARCHAR(128) DEFAULT NULL COMMENT '群名称(可空)',
+    MODIFY COLUMN result TINYINT NOT NULL COMMENT '导入结果:1=成功新增 2=收编 3=批内重复 4=格式错误',
+    MODIFY COLUMN fail_reason VARCHAR(255) DEFAULT NULL COMMENT '失败原因(result>=3时)',
+    MODIFY COLUMN group_link_id BIGINT DEFAULT NULL COMMENT '成功/收编时关联group_link.id';
+
 ALTER TABLE group_link_import_batch
     ADD COLUMN skipped_rows INT NOT NULL DEFAULT 0 COMMENT '批内重复跳过行数' AFTER adopted_rows;
 
@@ -19,6 +25,16 @@ SET skipped_rows = duplicate_rows,
 
 ALTER TABLE group_link_import_batch
     DROP COLUMN duplicate_rows;
+
+ALTER TABLE group_link_import_batch
+    MODIFY COLUMN inserted_rows INT NOT NULL DEFAULT 0 COMMENT '新增行数',
+    MODIFY COLUMN adopted_rows INT NOT NULL DEFAULT 0 COMMENT '收编行数',
+    MODIFY COLUMN failed_rows INT NOT NULL DEFAULT 0 COMMENT '格式不合格行数';
+
+ALTER TABLE group_link COMMENT = '群链接(跨业务共享群组表-import身份段)';
+
+ALTER TABLE group_link
+    MODIFY COLUMN group_name VARCHAR(128) DEFAULT NULL COMMENT '业务群名(导入时填,可空)';
 
 ALTER TABLE group_link
     DROP INDEX idx_group_link_membership,

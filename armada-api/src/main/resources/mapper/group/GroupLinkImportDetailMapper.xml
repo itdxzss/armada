@@ -17,13 +17,14 @@
   <!--
     detail JOIN batch:拦截器会给两表分别注入 tenant_id 条件;
     d.tenant_id = b.tenant_id 显式写防止跨租户 JOIN。
-    注意:&gt;= 为 XML 转义 >= 防止 DTD 解析异常。
+    result 只保留两态:1=成功,2=失败;重复/格式错误由 fail_reason 区分。
   -->
   <sql id="detailFilter">
     d.tenant_id = b.tenant_id AND b.deleted_at IS NULL
     <if test="batchId != null">AND d.batch_id = #{batchId}</if>
     <if test="labelId != null">AND b.label_id = #{labelId}</if>
     <if test="result != null">AND d.result = #{result}</if>
+    <if test="failReason != null and failReason != ''">AND d.fail_reason = #{failReason}</if>
   </sql>
 
   <select id="countByQuery" resultType="long">

@@ -122,6 +122,60 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectPage_filtersFailedRowsByFailReason() {
+        GroupLinkLabel label = insertLabel("失败原因筛选测试分组");
+        GroupLinkImportBatch batch = insertBatch(label.getId(), "fail_reason_test.txt");
+
+        detailMapper.batchInsert(List.of(
+                buildDetail(batch.getId(), 1, "chat.whatsapp.com/Ok",
+                        GroupLinkImportResult.SUCCESS.code(), null),
+                buildDetail(batch.getId(), 2, "chat.whatsapp.com/Dup",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.DUPLICATE),
+                buildDetail(batch.getId(), 3, "bad-url",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR)
+        ));
+
+        GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.setBatchId(batch.getId());
+        query.setResult(GroupLinkImportResult.FAILED.code());
+        query.setFailReason(GroupLinkImportFailReason.DUPLICATE);
+        query.setPage(1);
+        query.setPageSize(10);
+
+        assertThat(detailMapper.countByQuery(query)).isEqualTo(1);
+        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectPage(query);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getRawUrl()).isEqualTo("chat.whatsapp.com/Dup");
+        assertThat(rows.get(0).getFailReason()).isEqualTo(GroupLinkImportFailReason.DUPLICATE);
+    }
+
+    @Test
+    void selectPage_acceptsLegacyDuplicateResultCode() {
+        GroupLinkLabel label = insertLabel("旧四态兼容测试分组");
+        GroupLinkImportBatch batch = insertBatch(label.getId(), "legacy_result_test.txt");
+
+        detailMapper.batchInsert(List.of(
+                buildDetail(batch.getId(), 1, "chat.whatsapp.com/Dup",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.DUPLICATE),
+                buildDetail(batch.getId(), 2, "bad-url",
+                        GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR)
+        ));
+
+        GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.setBatchId(batch.getId());
+        query.setResult(3);
+        query.setPage(1);
+        query.setPageSize(10);
+
+        assertThat(query.getResult()).isEqualTo(GroupLinkImportResult.FAILED.code());
+        assertThat(query.getFailReason()).isEqualTo(GroupLinkImportFailReason.DUPLICATE);
+        assertThat(detailMapper.countByQuery(query)).isEqualTo(1);
+        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectPage(query);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getRawUrl()).isEqualTo("chat.whatsapp.com/Dup");
+    }
+
+    @Test
     void selectPage_byLabelId_acrossBatches() {
         GroupLinkLabel label = insertLabel("跨批次查询测试分组");
         GroupLinkImportBatch batch1 = insertBatch(label.getId(), "batch1.txt");

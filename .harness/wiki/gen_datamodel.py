@@ -320,17 +320,17 @@ with open(IDX, encoding="utf-8") as f:
         if len(r) >= 7:
             idx[(r[0], r[1])].append(r)
 
-# ---------------- 分组（wheel_tenant 按业务族；wheel_admin 顺序） ----------------
+# ---------------- 分组（armada 按业务族；兼容旧 wheel_tenant 导出标识） ----------------
 ADMIN_ORDER = ["master_user","master_role","master_user_role","master_menu",
     "tenant","package","tenant_module","tenant_role_template","tenant_menu_template","module_definition",
     "quota","usage_meter_daily","usage_meter_monthly","op_log_admin","dispatch_record","system_config",
     "dict_type","dict_item","file_meta","file_upload_session","flyway_schema_history"]
 
 TENANT_GROUPS = [
-    ("租户 IAM / 设置 / 审计", ["tenant_user","tenant_role","tenant_user_role","tenant_menu_override","tenant_settings","tenant_webhook","op_log_tenant"]),
+    ("租户 IAM / 设置 / 审计", ["tenant","tenant_user","tenant_role","tenant_user_role","tenant_menu_override","tenant_settings","tenant_webhook","op_log_tenant"]),
     ("标签", ["tag","account_tag"]),
     ("账号与归属", ["account","account_history","account_group","account_credential","account_import_batch","account_import_detail","account_stat_daily","wa_login_session"]),
-    ("老群链接池", ["group_link","group_link_history","group_link_import_batch","group_link_import_detail","link_label"]),
+    ("群组 / 群链接池", ["group_link_label","group_link","group_link_preview","group_link_health","group_link_history","group_link_import_batch","group_link_import_detail"]),
     ("拉群任务族", ["task_template","task_batch","task_row","task_log","task_water_plan","material_phone"]),
     ("进群任务", ["join_task","join_task_result"]),
     ("群组营销 / 素材", ["group_marketing_task","group_marketing_task_detail","group_material_template","marketing_template","material_template","material_audit"]),
@@ -378,35 +378,37 @@ def render_table(schema, t):
 
 out = []
 seen = set()
+TENANT_SCHEMA = "wheel_tenant"
 
-out.append("## wheel_admin schema（平台运营，不带 tenant_id）\n")
-for t in ADMIN_ORDER:
-    if ("wheel_admin", t) in cols:
-        out.append(render_table("wheel_admin", t)); seen.add(("wheel_admin", t))
-# 任何遗漏的 admin 表
-for (s, t) in cols:
-    if s == "wheel_admin" and (s, t) not in seen:
-        out.append(render_table(s, t)); seen.add((s, t))
+if any(s == "wheel_admin" for (s, _) in cols):
+    out.append("## armada admin schema（平台运营，不带 tenant_id）\n")
+    for t in ADMIN_ORDER:
+        if ("wheel_admin", t) in cols:
+            out.append(render_table("wheel_admin", t)); seen.add(("wheel_admin", t))
+    # 任何遗漏的 admin 表
+    for (s, t) in cols:
+        if s == "wheel_admin" and (s, t) not in seen:
+            out.append(render_table(s, t)); seen.add((s, t))
 
-out.append("\n## wheel_tenant schema（业务数据，行级 tenant_id 隔离）\n")
+out.append("## armada schema（业务数据，行级 tenant_id 隔离）\n")
 for gtitle, tabs in TENANT_GROUPS:
     out.append(f"### · {gtitle}\n")
     for t in tabs:
-        if ("wheel_tenant", t) in cols:
-            out.append(render_table("wheel_tenant", t)); seen.add(("wheel_tenant", t))
+        if (TENANT_SCHEMA, t) in cols:
+            out.append(render_table(TENANT_SCHEMA, t)); seen.add((TENANT_SCHEMA, t))
 # 任何遗漏的 tenant 表
-missing = [t for (s, t) in cols if s == "wheel_tenant" and (s, t) not in seen]
+missing = [t for (s, t) in cols if s == TENANT_SCHEMA and (s, t) not in seen]
 if missing:
     out.append("### · 其他（未归类）\n")
     for t in sorted(missing):
-        out.append(render_table("wheel_tenant", t)); seen.add(("wheel_tenant", t))
+        out.append(render_table(TENANT_SCHEMA, t)); seen.add((TENANT_SCHEMA, t))
 
 with open(OUT, "w", encoding="utf-8") as f:
     f.write("\n".join(out))
 
 # 统计
 n_admin = sum(1 for (s, _) in seen if s == "wheel_admin")
-n_tenant = sum(1 for (s, _) in seen if s == "wheel_tenant")
-print(f"生成完成：wheel_admin={n_admin} 表, wheel_tenant={n_tenant} 表, 共 {len(seen)} 表")
+n_tenant = sum(1 for (s, _) in seen if s == TENANT_SCHEMA)
+print(f"生成完成：armada_admin={n_admin} 表, armada={n_tenant} 表, 共 {len(seen)} 表")
 print(f"未归类 tenant 表: {missing}")
 print(f"输出: {OUT}")

@@ -24,13 +24,13 @@ public interface GroupLinkImportService {
     /**
      * 导入明细分页列表(JOIN batch 取 sourceFileName/labelId)。
      *
-     * @param query 查询条件(labelId/batchId/result/page/pageSize)
+     * @param query 查询条件(labelId/batchId/result/failReason/page/pageSize)
      * @return 分页明细 VO
      */
     PageResult<GroupLinkImportDetailVO> listDetails(GroupLinkImportDetailQuery query);
 
     /**
-     * 导出失败/重复明细(result≥3),返回 CSV 数据行列表(不含表头)。
+     * 导出失败明细(result=2),返回 CSV 数据行列表(不含表头),重复/格式错误由 failReason 区分。
      * 每行格式:String[]{ 行号, 群名称, 群链接, 失败原因, 导入时间(Asia/Shanghai 可读串) }。
      *
      * @param labelId 分组 ID(可选,与 batchId 至少提供一个)

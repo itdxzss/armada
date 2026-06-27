@@ -41,15 +41,22 @@ public class AccountOnlineServiceImpl implements AccountOnlineService {
      */
     @Override
     public OnlineAccepted online(AccountOnlinePlan plan) {
+        // 入口只接收上层已经准备好的上线计划;账号查库、凭据加载、代理分配不在本服务里做。
         if (plan == null) {
             throw validation("账号上线计划不能为空");
         }
+
+        // 逐项校验并归一化必填字段。这里在调用协议层前失败,避免把不完整命令投递到协议服务。
         String protocolAccountId = requireText(plan.protocolAccountId(), "协议账号 ID 不能为空");
         CredentialFormat credentialFormat = requireCredentialFormat(plan.credentialFormat());
         String credentialJson = requireCredentialJson(plan.credentialJson());
         ProxyEndpoint proxyEndpoint = requireProxyEndpoint(plan.proxyEndpoint());
 
+        // 代理端点是 armada 内部模型;协议层需要 ProxyDescriptor,转换逻辑集中放在 ProxyResolver。
         ProxyDescriptor proxy = proxyResolver.resolve(proxyEndpoint);
+
+        // 这里只组装并投递 online 命令。返回值表示协议层已受理,不代表账号已经 ONLINE。
+        // 本地账号在线状态仍然等待协议层异步回填 Kafka 后再更新。
         OnlineCommand command = new OnlineCommand(credentialFormat, credentialJson, proxy);
         return accountLifecyclePort.online(protocolAccountId, command);
     }

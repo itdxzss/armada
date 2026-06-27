@@ -2,7 +2,6 @@ package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
-import com.armada.account.model.dto.AccountOnlineDTO;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.ImportFormat;
@@ -13,7 +12,7 @@ import com.armada.account.service.AccountOnlineService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineRouting;
-import com.armada.platform.proxy.ProxyEndpoint;
+import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -22,10 +21,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 账号手动上线应用服务实现。
+ * 账号上线应用服务实现。
  *
- * <p>本类是账号域的上线入口编排:查账号、查自托管凭据、通过 resource 服务取手动代理,
- * 再复用现有 {@link AccountOnlineService} 完成协议层调用。它不修改登录状态,避免把"已受理"误写成"已在线"。</p>
+ * <p>本类是账号域的上线入口编排:查账号、查自托管凭据、通过 resource 服务自动分配代理,
+ * 再复用现有 {@link AccountOnlineService} 投递协议层上线命令。它不修改登录状态,避免把"已受理"误写成"已在线"。</p>
  */
 @Service
 public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandService {
@@ -38,7 +37,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private final AccountOnlineService accountOnlineService;
 
     /**
-     * 创建账号手动上线编排服务。
+     * 创建账号上线编排服务。
      *
      * <p>这里保持构造器注入,便于单测替换账号、凭据、代理和协议上线服务。</p>
      */
@@ -53,44 +52,43 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     }
 
     /**
-     * 手动指定代理上线一个未软删账号。
+     * 自动分配代理并上线一个未软删账号。
      *
      * <p>该方法只完成"上线请求被协议层受理"的同步编排,不会把账号本地状态直接改成 ONLINE。
      * 真正是否在线以后续状态刷新为准。日志只记录运营定位需要的 ID、格式、长度和受理结果,
      * 不输出凭据 JSON、代理账号密码等敏感内容。</p>
      */
     @Override
-    public AccountOnlineVO online(Long accountId, AccountOnlineDTO request) {
-        // 1. 先校验手动代理 ID,缺少代理时不要访问账号/凭据/协议层。
-        Long proxyId = requireProxyId(request);
-        log.info("账号手动上线开始 accountId={} proxyId={}", accountId, proxyId);
+    public AccountOnlineVO online(Long accountId) {
+        log.info("账号上线开始 accountId={}", accountId);
 
-        // 2. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
+        // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
         Account account = loadAccount(accountId);
         AccountCredential credential = loadCredential(account.getId());
 
-        // 3. 手动指定的代理由 resource 服务解析为协议层可用的 endpoint,本方法不改代理状态。
-        ProxyEndpoint proxyEndpoint = ipProxyService.getOnlineEndpoint(proxyId);
+        // 2. 用户点击上线时不复用旧绑定:resource 服务先释放该账号旧 IP,再锁定一条空闲代理并置为使用中。
+        IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(account.getId());
 
-        // 4. 协议层只需要凭据格式枚举和原始 JSON;日志只打 JSON 长度,避免凭据泄露。
+        // 3. 协议层只需要凭据格式枚举和原始 JSON;日志只打 JSON 长度,避免凭据泄露。
         CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
         String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-        log.info("账号手动上线调用协议层 accountId={} proxyId={} credentialFormat={} credentialLength={}",
-                account.getId(), proxyId, credentialFormat, credentialLength(credential.getCredsJson()));
+        log.info("账号上线调用协议层 accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
+                account.getId(), allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
 
         AccountOnlinePlan plan = new AccountOnlinePlan(
                 protocolAccountId,
                 credentialFormat,
                 credential.getCredsJson(),
-                proxyEndpoint);
+                allocation.endpoint());
 
-        // 5. accepted 表示协议层已受理上线请求,不等价于 WhatsApp 已经在线。
+        // 4. accepted 表示协议层已受理上线请求,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
         OnlineAccepted accepted = accountOnlineService.online(plan);
         OnlineRouting routing = accepted.routing();
-        log.info("账号手动上线已受理 accountId={} proxyId={} accepted={} stateSource={} ownerWorkerId={} local={}",
-                account.getId(), proxyId, accepted.accepted(), accepted.stateSource(), routing.ownerWorkerId(), routing.local());
+        log.info("账号上线已受理 accountId={} allocatedProxyId={} accepted={} stateSource={} ownerWorkerId={} local={}",
+                account.getId(), allocation.proxyId(), accepted.accepted(), accepted.stateSource(),
+                routing.ownerWorkerId(), routing.local());
 
-        // 6. 对外返回受理结果和路由信息,状态落库仍由后续同步流程负责。
+        // 5. 对外返回受理结果和路由信息,状态落库仍由后续同步流程负责。
         return toVO(account.getId(), accepted);
     }
 
@@ -117,16 +115,6 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             throw new BusinessException(ErrorCode.VALIDATION, "账号凭据不存在: " + accountId);
         }
         return credential;
-    }
-
-    /**
-     * 校验手动上线必须显式指定代理 ID。
-     */
-    private static Long requireProxyId(AccountOnlineDTO request) {
-        if (request == null || request.proxyId() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
-        }
-        return request.proxyId();
     }
 
     /**

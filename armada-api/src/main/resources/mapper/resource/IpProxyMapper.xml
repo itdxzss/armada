@@ -6,7 +6,8 @@
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
         id, tenant_id, host, port, protocol, username, password, region,
-        status, source, ownership, remark, created_at, updated_at, created_by, deleted_at
+        status, bound_account_id, bound_at, source, ownership, remark,
+        created_at, updated_at, created_by, deleted_at
     </sql>
 
     <!-- 共享筛选片段:selectPage 与 countPage 复用,保证页码/总数口径一致;tenant_id 由拦截器注入 -->
@@ -58,6 +59,39 @@
           AND deleted_at IS NULL
         LIMIT 1
     </select>
+
+    <select id="selectOneIdleForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE tenant_id = #{tenantId}
+          AND deleted_at IS NULL
+          AND status = #{idleStatus}
+        ORDER BY id ASC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <update id="markUsingAndBind">
+        UPDATE ip_proxy
+        SET status = #{usingStatus},
+            bound_account_id = #{accountId},
+            bound_at = #{boundAt},
+            updated_at = #{boundAt}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = #{idleStatus}
+    </update>
+
+    <update id="releaseByAccount">
+        UPDATE ip_proxy
+        SET status = #{idleStatus},
+            bound_account_id = NULL,
+            bound_at = NULL,
+            updated_at = #{updatedAt}
+        WHERE bound_account_id = #{accountId}
+          AND deleted_at IS NULL
+          AND status = #{usingStatus}
+    </update>
 
     <select id="countActiveByFullTuple" resultType="long">
         SELECT COUNT(*)

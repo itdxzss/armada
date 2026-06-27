@@ -3,7 +3,6 @@ package com.armada.account.controller;
 import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountIdsDTO;
 import com.armada.account.model.dto.AccountMigrateGroupDTO;
-import com.armada.account.model.dto.AccountOnlineDTO;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountOnlineVO;
@@ -64,19 +63,17 @@ public class AccountController {
     }
 
     /**
-     * A3 发起单账号上线(手动指定代理)。
+     * A3 发起单账号上线(后端自动分配空闲代理)。
      *
      * <p>协议层返回的 {@code accepted=true} 只代表已受理,不代表账号已经 ONLINE;
      * 真正登录状态由后续 Kafka 回写切片更新。</p>
      *
-     * @param id      账号 ID
-     * @param request 上线请求(proxyId)
+     * @param id 账号 ID
      * @return 协议层上线受理回执
      */
     @PostMapping("/{id}/online")
-    public ApiResponse<AccountOnlineVO> online(@PathVariable("id") Long id,
-                                               @RequestBody AccountOnlineDTO request) {
-        return ApiResponse.ok(accountOnlineCommandService.online(id, request));
+    public ApiResponse<AccountOnlineVO> online(@PathVariable("id") Long id) {
+        return ApiResponse.ok(accountOnlineCommandService.online(id));
     }
 
     /**

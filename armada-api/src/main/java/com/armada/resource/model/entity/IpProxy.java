@@ -36,6 +36,12 @@ public class IpProxy {
     /** 状态码:1=空闲 2=使用中 3=不可用（见 {@code IpProxyStatus}）。 */
     private Integer status;
 
+    /** 当前绑定账号 ID;NULL=未绑定。 */
+    private Long boundAccountId;
+
+    /** 绑定时间(epoch毫秒);NULL=未绑定。 */
+    private Long boundAt;
+
     /** 来源（服务商/批次，自由文本）。 */
     private String source;
 
@@ -127,6 +133,22 @@ public class IpProxy {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public Long getBoundAccountId() {
+        return boundAccountId;
+    }
+
+    public void setBoundAccountId(Long boundAccountId) {
+        this.boundAccountId = boundAccountId;
+    }
+
+    public Long getBoundAt() {
+        return boundAt;
+    }
+
+    public void setBoundAt(Long boundAt) {
+        this.boundAt = boundAt;
     }
 
     public String getSource() {

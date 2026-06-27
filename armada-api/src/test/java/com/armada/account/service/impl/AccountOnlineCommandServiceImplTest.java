@@ -13,7 +13,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
-import com.armada.account.model.dto.AccountOnlineDTO;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.vo.AccountOnlineVO;
@@ -25,6 +24,7 @@ import com.armada.platform.protocol.model.result.OnlineRouting;
 import com.armada.platform.protocol.model.result.StateSource;
 import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
+import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -39,9 +39,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 
 /**
- * 单账号手动指定代理上线命令服务单测。
+ * 单账号自动分配代理上线命令服务单测。
  *
- * <p>只验证账号域编排:查账号/凭据/代理 → 组装 {@link AccountOnlinePlan}
+ * <p>只验证账号域编排:查账号/凭据/自动分配代理 → 组装 {@link AccountOnlinePlan}
  * → 调现有上线服务。协议 HTTP 行为由底层 adapter 测试覆盖。</p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -63,7 +63,7 @@ class AccountOnlineCommandServiceImplTest {
     private AccountOnlineCommandServiceImpl service;
 
     @Test
-    void online_validAccountCredentialAndProxy_delegatesPlanAndMapsAcceptedVo() {
+    void online_validAccountCredentialAndAllocatedProxy_delegatesPlanAndMapsAcceptedVo() {
         Account account = new Account();
         account.setId(100L);
         account.setWsPhone("8613800138000");
@@ -87,11 +87,12 @@ class AccountOnlineCommandServiceImplTest {
                 new OnlineRouting("worker-a", null, "worker-a", true));
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
-        when(ipProxyService.getOnlineEndpoint(7L)).thenReturn(endpoint);
+        when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
         when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenReturn(accepted);
 
-        AccountOnlineVO result = service.online(100L, new AccountOnlineDTO(7L));
+        AccountOnlineVO result = service.online(100L);
 
+        verify(ipProxyService).allocateOnlineEndpoint(100L);
         ArgumentCaptor<AccountOnlinePlan> planCaptor = ArgumentCaptor.forClass(AccountOnlinePlan.class);
         verify(accountOnlineService).online(planCaptor.capture());
         AccountOnlinePlan plan = planCaptor.getValue();
@@ -140,22 +141,22 @@ class AccountOnlineCommandServiceImplTest {
                     new OnlineRouting("worker-a", null, "worker-a", true));
             when(accountMapper.selectActiveById(100L)).thenReturn(account);
             when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
-            when(ipProxyService.getOnlineEndpoint(7L)).thenReturn(endpoint);
+            when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
             when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenReturn(accepted);
 
-            service.online(100L, new AccountOnlineDTO(7L));
+            service.online(100L);
 
             List<String> messages = appender.list.stream()
                     .map(ILoggingEvent::getFormattedMessage)
                     .toList();
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号手动上线开始 accountId=100 proxyId=7"));
+                    .anyMatch(message -> message.contains("账号上线开始 accountId=100"));
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号手动上线调用协议层 accountId=100 proxyId=7")
+                    .anyMatch(message -> message.contains("账号上线调用协议层 accountId=100 allocatedProxyId=7")
                             && message.contains("credentialFormat=BAILEYS_JSON")
                             && message.contains("credentialLength=" + credentialJson.length()));
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号手动上线已受理 accountId=100 proxyId=7 accepted=true")
+                    .anyMatch(message -> message.contains("账号上线已受理 accountId=100 allocatedProxyId=7 accepted=true")
                             && message.contains("stateSource=MANUAL_REFRESH")
                             && message.contains("ownerWorkerId=worker-a")
                             && message.contains("local=true"));
@@ -169,20 +170,10 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
-    void online_missingProxyId_throwsValidationBeforeLookup() {
-        assertThatThrownBy(() -> service.online(100L, new AccountOnlineDTO(null)))
-                .isInstanceOfSatisfying(BusinessException.class, ex -> {
-                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
-                    assertThat(ex.getMessage()).contains("代理 ID 不能为空");
-                });
-        verifyNoInteractions(accountMapper, credentialMapper, ipProxyService, accountOnlineService);
-    }
-
-    @Test
     void online_missingAccount_throwsNotFoundBeforeCredentialLookup() {
         when(accountMapper.selectActiveById(404L)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.online(404L, new AccountOnlineDTO(7L)))
+        assertThatThrownBy(() -> service.online(404L))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.NOT_FOUND.code());
                     assertThat(ex.getMessage()).contains("账号不存在");
@@ -199,7 +190,7 @@ class AccountOnlineCommandServiceImplTest {
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(credentialMapper.selectByAccountId(100L)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.online(100L, new AccountOnlineDTO(7L)))
+        assertThatThrownBy(() -> service.online(100L))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
                     assertThat(ex.getMessage()).contains("账号凭据不存在");

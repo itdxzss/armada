@@ -4,7 +4,6 @@ import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
-import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -37,17 +36,17 @@ public interface IpProxyService {
     IpProxyImportResultVO importProxies(IpProxyImportDTO dto);
 
     /**
-     * 获取账号上线使用的代理端点。
+     * 为账号上线分配一条空闲代理。
      *
      * <p>本方法是 resource 域暴露给 account 域的跨域边界:account 域只能拿到
-     * {@link ProxyEndpoint} 技术模型,看不到 resource mapper/entity。本刀只按手动 proxyId 查活跃代理,
-     * 不做自动分配、锁定、状态流转或回收。</p>
+     * {@link IpProxyAllocation} 结果,看不到 resource mapper/entity。方法内部短事务会先释放该账号旧绑定,
+     * 再 {@code SELECT ... FOR UPDATE} 锁定一条本租户 IDLE 代理并置为 IN_USE。</p>
      *
-     * @param proxyId 代理主键
-     * @return 协议上线编排可使用的代理端点
-     * @throws BusinessException 当 proxyId 为空或代理不存在时抛出
+     * @param accountId 账号主键
+     * @return 协议上线编排可使用的代理分配结果
+     * @throws BusinessException 当账号 ID 为空、缺少租户上下文、没有空闲代理或分配冲突时抛出
      */
-    ProxyEndpoint getOnlineEndpoint(Long proxyId);
+    IpProxyAllocation allocateOnlineEndpoint(Long accountId);
 
     /**
      * 批量软删除 IP 代理。空列表直接返回、不做任何操作。

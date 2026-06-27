@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,8 +23,10 @@ import com.armada.resource.service.impl.IpProxyServiceImpl;
 import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -140,7 +145,122 @@ class IpProxyServiceImplTest {
     }
 
     @Test
-    void getOnlineEndpoint_activeProxy_returnsProxyEndpoint() {
+    void allocateOnlineEndpoint_releasesOldBindingSelectsIdleAndMarksUsing() {
+        TenantContext.set(1L);
+        try {
+            IpProxy row = idleProxy();
+            when(mapper.releaseByAccount(
+                    eq(100L),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(1);
+            when(mapper.selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code())).thenReturn(row);
+            when(mapper.markUsingAndBind(
+                    eq(10L),
+                    eq(100L),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(1);
+
+            IpProxyAllocation allocation = service.allocateOnlineEndpoint(100L);
+
+            assertThat(allocation.proxyId()).isEqualTo(10L);
+            assertThat(allocation.endpoint().protocolCode()).isEqualTo(ProxyEndpoint.PROTOCOL_SOCKS5);
+            assertThat(allocation.endpoint().host()).isEqualTo("geo.iproyal.com");
+            assertThat(allocation.endpoint().port()).isEqualTo(12321);
+            assertThat(allocation.endpoint().credentials().username()).isEqualTo("user1");
+            assertThat(allocation.endpoint().credentials().password())
+                    .isEqualTo("pass1_country-in_session-Abc12345_lifetime-1h");
+            assertThat(allocation.endpoint().country()).isEqualTo("印度");
+
+            InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
+            inOrder.verify(mapper).releaseByAccount(
+                    eq(100L), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+            inOrder.verify(mapper).selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code());
+            inOrder.verify(mapper).markUsingAndBind(
+                    eq(10L), eq(100L), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void allocateOnlineEndpoint_nullAccountId_throwsValidationBeforeMapper() {
+        TenantContext.set(1L);
+        try {
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(null))
+                    .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                        assertThat(ex.getMessage()).contains("账号 ID 不能为空");
+                    });
+            verifyNoInteractions(mapper);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void allocateOnlineEndpoint_missingTenant_throwsTenantMissingBeforeMapper() {
+        TenantContext.clear();
+
+        assertThatThrownBy(() -> service.allocateOnlineEndpoint(100L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.TENANT_MISSING.code());
+                    assertThat(ex.getMessage()).contains("缺少租户上下文");
+                });
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void allocateOnlineEndpoint_noIdleProxy_throwsValidationBeforeMarkUsing() {
+        TenantContext.set(1L);
+        try {
+            when(mapper.releaseByAccount(
+                    eq(100L),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(0);
+            when(mapper.selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code())).thenReturn(null);
+
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(100L))
+                    .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                        assertThat(ex.getMessage()).contains("暂无空闲代理");
+                    });
+            verify(mapper, never()).markUsingAndBind(any(), any(), anyInt(), anyInt(), anyLong());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void allocateOnlineEndpoint_markConflict_throwsConflict() {
+        TenantContext.set(1L);
+        try {
+            when(mapper.releaseByAccount(
+                    eq(100L),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(0);
+            when(mapper.selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code())).thenReturn(idleProxy());
+            when(mapper.markUsingAndBind(
+                    eq(10L),
+                    eq(100L),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(0);
+
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(100L))
+                    .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.CONFLICT.code());
+                        assertThat(ex.getMessage()).contains("代理分配冲突");
+                    });
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static IpProxy idleProxy() {
         IpProxy row = new IpProxy();
         row.setId(10L);
         row.setHost("geo.iproyal.com");
@@ -150,36 +270,6 @@ class IpProxyServiceImplTest {
         row.setPassword("pass1_country-in_session-Abc12345_lifetime-1h");
         row.setRegion("印度");
         row.setStatus(IpProxyStatus.IDLE.code());
-        when(mapper.selectActiveById(10L)).thenReturn(row);
-
-        ProxyEndpoint endpoint = service.getOnlineEndpoint(10L);
-
-        assertThat(endpoint.protocolCode()).isEqualTo(ProxyEndpoint.PROTOCOL_SOCKS5);
-        assertThat(endpoint.host()).isEqualTo("geo.iproyal.com");
-        assertThat(endpoint.port()).isEqualTo(12321);
-        assertThat(endpoint.credentials().username()).isEqualTo("user1");
-        assertThat(endpoint.credentials().password()).isEqualTo("pass1_country-in_session-Abc12345_lifetime-1h");
-        assertThat(endpoint.country()).isEqualTo("印度");
-    }
-
-    @Test
-    void getOnlineEndpoint_nullProxyId_throwsValidationBeforeMapper() {
-        assertThatThrownBy(() -> service.getOnlineEndpoint(null))
-                .isInstanceOfSatisfying(BusinessException.class, ex -> {
-                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
-                    assertThat(ex.getMessage()).contains("代理 ID 不能为空");
-                });
-        verify(mapper, never()).selectActiveById(any());
-    }
-
-    @Test
-    void getOnlineEndpoint_missingProxy_throwsNotFound() {
-        when(mapper.selectActiveById(404L)).thenReturn(null);
-
-        assertThatThrownBy(() -> service.getOnlineEndpoint(404L))
-                .isInstanceOfSatisfying(BusinessException.class, ex -> {
-                    assertThat(ex.getCode()).isEqualTo(ErrorCode.NOT_FOUND.code());
-                    assertThat(ex.getMessage()).contains("代理不存在");
-                });
+        return row;
     }
 }

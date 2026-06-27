@@ -1,27 +1,20 @@
 package com.armada.account.controller;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.armada.account.model.dto.AccountOnlineDTO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -42,8 +35,6 @@ class AccountControllerTest {
 
     private MockMvc mockMvc;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
@@ -63,12 +54,9 @@ class AccountControllerTest {
                 null,
                 "worker-a",
                 true);
-        when(accountOnlineCommandService.online(eq(100L), any(AccountOnlineDTO.class)))
-                .thenReturn(vo);
+        when(accountOnlineCommandService.online(100L)).thenReturn(vo);
 
-        mockMvc.perform(post("/api/accounts/{id}/online", 100L)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new AccountOnlineDTO(7L))))
+        mockMvc.perform(post("/api/accounts/{id}/online", 100L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.accountId").value(100))
@@ -76,8 +64,6 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.accepted").value(true))
                 .andExpect(jsonPath("$.data.ownerWorkerId").value("worker-a"));
 
-        ArgumentCaptor<AccountOnlineDTO> requestCaptor = ArgumentCaptor.forClass(AccountOnlineDTO.class);
-        verify(accountOnlineCommandService).online(eq(100L), requestCaptor.capture());
-        assertThat(requestCaptor.getValue().proxyId()).isEqualTo(7L);
+        verify(accountOnlineCommandService).online(100L);
     }
 }

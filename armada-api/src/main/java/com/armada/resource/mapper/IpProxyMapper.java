@@ -1,5 +1,6 @@
 package com.armada.resource.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.entity.IpProxy;
 import java.util.List;
@@ -7,7 +8,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * IP 代理数据访问。tenant_id 由租户行隔离拦截器自动注入，SQL 不手写 tenant_id 过滤。
+ * IP 代理数据访问。普通 SQL 的 tenant_id 由租户行隔离拦截器自动注入;锁行分配查询显式传 tenantId。
  */
 @Mapper
 public interface IpProxyMapper {
@@ -24,12 +25,42 @@ public interface IpProxyMapper {
     /**
      * 按 ID 查活跃代理行(deleted_at IS NULL)。
      *
-     * <p>用于账号手动上线时把指定 proxyId 转成协议层代理端点;tenant_id 由租户拦截器注入。</p>
+     * <p>用于内部确认代理行状态;tenant_id 由租户拦截器注入。</p>
      *
      * @param id 代理主键
      * @return 活跃代理行;不存在或已软删时返回 null
      */
     IpProxy selectActiveById(@Param("id") Long id);
+
+    /**
+     * 锁定一条本租户空闲代理,用于账号上线前的本地分配短事务。
+     *
+     * <p>这里显式传 tenantId 并关闭租户拦截器,避免租户 SQL 改写影响
+     * {@code LIMIT ... FOR UPDATE} 的语法和锁范围。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    IpProxy selectOneIdleForUpdate(@Param("tenantId") Long tenantId, @Param("idleStatus") int idleStatus);
+
+    /**
+     * 将已锁定的空闲代理绑定到账号并置为使用中。
+     *
+     * <p>WHERE 中保留 status=IDLE 条件,即使调用方漏锁或并发重试也不会覆盖已被占用的代理。</p>
+     */
+    int markUsingAndBind(@Param("id") Long id,
+                         @Param("accountId") Long accountId,
+                         @Param("idleStatus") int idleStatus,
+                         @Param("usingStatus") int usingStatus,
+                         @Param("boundAt") long boundAt);
+
+    /**
+     * 释放指定账号当前占用的代理回空闲池。
+     *
+     * <p>上线入口会先释放旧绑定再重新分配;下线/删除等明确不再占用场景也可复用本方法。</p>
+     */
+    int releaseByAccount(@Param("accountId") Long accountId,
+                         @Param("idleStatus") int idleStatus,
+                         @Param("usingStatus") int usingStatus,
+                         @Param("updatedAt") long updatedAt);
 
     /**
      * 按完整身份（网关, 端口, 用户名, 密码）统计活跃行数，用于导入时给友好「跳过重复」提示。

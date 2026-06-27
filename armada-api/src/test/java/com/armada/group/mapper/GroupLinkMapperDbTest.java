@@ -15,6 +15,8 @@ import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
+import java.util.Locale;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -43,6 +45,9 @@ class GroupLinkMapperDbTest extends DbTestBase {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private SqlSessionFactory sqlSessionFactory;
 
     // ---- 辅助方法 ----
 
@@ -78,6 +83,15 @@ class GroupLinkMapperDbTest extends DbTestBase {
         link.setCreatedAt(now);
         link.setUpdatedAt(now);
         return link;
+    }
+
+    private String countByLabelSql(GroupLinkQuery query) {
+        return sqlSessionFactory.getConfiguration()
+                .getMappedStatement("com.armada.group.mapper.GroupLinkMapper.countByLabel")
+                .getBoundSql(query)
+                .getSql()
+                .replaceAll("\\s+", " ")
+                .toLowerCase(Locale.ROOT);
     }
 
     // ---- 测试 ----
@@ -244,6 +258,36 @@ class GroupLinkMapperDbTest extends DbTestBase {
         assertThat(row.getRemark()).isEqualTo("运营备注");
         assertThat(row.getLastPreviewAt()).isEqualTo(1_717_200_000_000L);
         assertThat(row.getLastCheckAt()).isEqualTo(1_717_200_100_000L);
+
+        query.setKeyword("8622222222222");
+        assertThat(mapper.countByLabel(query)).isEqualTo(1);
+        assertThat(mapper.selectPageByLabel(query)).hasSize(1);
+    }
+
+    @Test
+    void countByLabel_withoutKeyword_doesNotBuildAdminAggregation() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setPage(1);
+        query.setPageSize(10);
+
+        String sql = countByLabelSql(query);
+
+        assertThat(sql).doesNotContain("join_task_result");
+        assertThat(sql).doesNotContain("group_concat");
+    }
+
+    @Test
+    void countByLabel_withKeywordSearchesAdminWithoutGroupConcatAggregation() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setKeyword("8611111111111");
+        query.setPage(1);
+        query.setPageSize(10);
+
+        String sql = countByLabelSql(query);
+
+        assertThat(sql).contains("exists");
+        assertThat(sql).contains("join_task_result");
+        assertThat(sql).doesNotContain("group_concat");
     }
 
     @Test

@@ -36,7 +36,7 @@
       AND label_id IS NULL
   </update>
 
-  <!-- 群组列表主查询筛选片段:labelId 可为空,用于全量群组列表;传入时用于导入链接分组下钻。 -->
+  <!-- 群组列表基础筛选片段:labelId 可为空,用于全量群组列表;传入时用于导入链接分组下钻。 -->
   <sql id="byLabelFilter">
     g.deleted_at IS NULL
     <if test="labelId != null">
@@ -66,6 +66,9 @@
     <if test="statusUnavailable">
       AND h.health_status = 3 AND (h.is_banned IS NULL OR h.is_banned = 0)
     </if>
+  </sql>
+
+  <sql id="listKeywordFilter">
     <if test="keyword != null and keyword != ''">
       AND (
         g.group_name LIKE CONCAT('%', #{keyword}, '%')
@@ -78,11 +81,35 @@
     </if>
   </sql>
 
-  <sql id="groupListFromJoin">
+  <sql id="countKeywordFilter">
+    <if test="keyword != null and keyword != ''">
+      AND (
+        g.group_name LIKE CONCAT('%', #{keyword}, '%')
+        OR p.wa_subject LIKE CONCAT('%', #{keyword}, '%')
+        OR g.link_url LIKE CONCAT('%', #{keyword}, '%')
+        OR p.owner_phone LIKE CONCAT('%', #{keyword}, '%')
+        OR b.source_file_name LIKE CONCAT('%', #{keyword}, '%')
+        OR EXISTS (
+          SELECT 1
+          FROM join_task_result r
+          WHERE r.is_admin = 1
+            AND r.group_jid = p.group_jid
+            AND r.group_jid IS NOT NULL
+            AND r.group_jid != ''
+            AND r.account LIKE CONCAT('%', #{keyword}, '%')
+        )
+      )
+    </if>
+  </sql>
+
+  <sql id="groupListBaseFromJoin">
     FROM group_link g
     LEFT JOIN group_link_import_batch b ON g.import_batch_id = b.id
     LEFT JOIN group_link_preview p ON p.group_link_id = g.id
     LEFT JOIN group_link_health h ON h.group_link_id = g.id
+  </sql>
+
+  <sql id="groupListAdminJoin">
     LEFT JOIN (
       SELECT group_jid, GROUP_CONCAT(DISTINCT account ORDER BY account SEPARATOR ', ') AS admin
       FROM join_task_result
@@ -93,10 +120,16 @@
     ) a ON a.group_jid = p.group_jid
   </sql>
 
+  <sql id="groupListFromJoin">
+    <include refid="groupListBaseFromJoin"/>
+    <include refid="groupListAdminJoin"/>
+  </sql>
+
   <select id="countByLabel" resultType="long">
     SELECT COUNT(*)
-    <include refid="groupListFromJoin"/>
+    <include refid="groupListBaseFromJoin"/>
     WHERE <include refid="byLabelFilter"/>
+    <include refid="countKeywordFilter"/>
   </select>
 
   <!-- 群组列表主查询列,对齐一期需求与 wheel 租户端群组列表。 -->
@@ -123,6 +156,7 @@
            g.created_at AS createdAt
     <include refid="groupListFromJoin"/>
     WHERE <include refid="byLabelFilter"/>
+    <include refid="listKeywordFilter"/>
     ORDER BY g.created_at DESC, g.id DESC
     LIMIT #{offset}, #{pageSize}
   </select>

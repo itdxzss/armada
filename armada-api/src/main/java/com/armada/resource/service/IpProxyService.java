@@ -4,6 +4,7 @@ import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
+import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -34,6 +35,19 @@ public interface IpProxyService {
      * @throws BusinessException 协议/来源/内容为空，或协议码非法
      */
     IpProxyImportResultVO importProxies(IpProxyImportDTO dto);
+
+    /**
+     * 获取账号上线使用的代理端点。
+     *
+     * <p>本方法是 resource 域暴露给 account 域的跨域边界:account 域只能拿到
+     * {@link ProxyEndpoint} 技术模型,看不到 resource mapper/entity。本刀只按手动 proxyId 查活跃代理,
+     * 不做自动分配、锁定、状态流转或回收。</p>
+     *
+     * @param proxyId 代理主键
+     * @return 协议上线编排可使用的代理端点
+     * @throws BusinessException 当 proxyId 为空或代理不存在时抛出
+     */
+    ProxyEndpoint getOnlineEndpoint(Long proxyId);
 
     /**
      * 批量软删除 IP 代理。空列表直接返回、不做任何操作。

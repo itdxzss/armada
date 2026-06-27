@@ -11,6 +11,8 @@ import com.armada.resource.model.entity.IpProxy;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.resource.service.IpProxyService;
+import com.armada.platform.proxy.ProxyCredentials;
+import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -73,6 +75,28 @@ public class IpProxyServiceImpl implements IpProxyService {
         log.info("IP代理导入 region={} protocol={} total={} inserted={} skipped={} failed={}",
                 dto.region(), dto.protocol(), total, inserted, skipped, failed);
         return new IpProxyImportResultVO(total, inserted, skipped, failed, errors);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>这里只做读取和字段转换,不修改 {@code ip_proxy.status};代理绑定/释放留给后续独立切片。</p>
+     */
+    @Override
+    public ProxyEndpoint getOnlineEndpoint(Long proxyId) {
+        if (proxyId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+        }
+        IpProxy proxy = mapper.selectActiveById(proxyId);
+        if (proxy == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "代理不存在或已删除: " + proxyId);
+        }
+        return new ProxyEndpoint(
+                proxy.getProtocol(),
+                proxy.getHost(),
+                proxy.getPort(),
+                new ProxyCredentials(proxy.getUsername(), proxy.getPassword()),
+                proxy.getRegion());
     }
 
     @Override

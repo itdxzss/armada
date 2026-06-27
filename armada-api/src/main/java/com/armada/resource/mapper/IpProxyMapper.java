@@ -22,6 +22,16 @@ public interface IpProxyMapper {
     int insert(IpProxy entity);
 
     /**
+     * 按 ID 查活跃代理行(deleted_at IS NULL)。
+     *
+     * <p>用于账号手动上线时把指定 proxyId 转成协议层代理端点;tenant_id 由租户拦截器注入。</p>
+     *
+     * @param id 代理主键
+     * @return 活跃代理行;不存在或已软删时返回 null
+     */
+    IpProxy selectActiveById(@Param("id") Long id);
+
+    /**
      * 按完整身份（网关, 端口, 用户名, 密码）统计活跃行数，用于导入时给友好「跳过重复」提示。
      * 库层另有 uq_active_dedup 唯一键兜底。
      */

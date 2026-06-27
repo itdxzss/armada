@@ -12,10 +12,14 @@ import static org.mockito.Mockito.when;
 
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyMapper;
+import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.dto.IpProxyImportDTO;
+import com.armada.resource.model.entity.IpProxy;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.service.impl.IpProxyServiceImpl;
+import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -133,5 +137,49 @@ class IpProxyServiceImplTest {
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.insertedRows()).isEqualTo(1);
+    }
+
+    @Test
+    void getOnlineEndpoint_activeProxy_returnsProxyEndpoint() {
+        IpProxy row = new IpProxy();
+        row.setId(10L);
+        row.setHost("geo.iproyal.com");
+        row.setPort(12321);
+        row.setProtocol(ProxyEndpoint.PROTOCOL_SOCKS5);
+        row.setUsername("user1");
+        row.setPassword("pass1_country-in_session-Abc12345_lifetime-1h");
+        row.setRegion("印度");
+        row.setStatus(IpProxyStatus.IDLE.code());
+        when(mapper.selectActiveById(10L)).thenReturn(row);
+
+        ProxyEndpoint endpoint = service.getOnlineEndpoint(10L);
+
+        assertThat(endpoint.protocolCode()).isEqualTo(ProxyEndpoint.PROTOCOL_SOCKS5);
+        assertThat(endpoint.host()).isEqualTo("geo.iproyal.com");
+        assertThat(endpoint.port()).isEqualTo(12321);
+        assertThat(endpoint.credentials().username()).isEqualTo("user1");
+        assertThat(endpoint.credentials().password()).isEqualTo("pass1_country-in_session-Abc12345_lifetime-1h");
+        assertThat(endpoint.country()).isEqualTo("印度");
+    }
+
+    @Test
+    void getOnlineEndpoint_nullProxyId_throwsValidationBeforeMapper() {
+        assertThatThrownBy(() -> service.getOnlineEndpoint(null))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("代理 ID 不能为空");
+                });
+        verify(mapper, never()).selectActiveById(any());
+    }
+
+    @Test
+    void getOnlineEndpoint_missingProxy_throwsNotFound() {
+        when(mapper.selectActiveById(404L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.getOnlineEndpoint(404L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.NOT_FOUND.code());
+                    assertThat(ex.getMessage()).contains("代理不存在");
+                });
     }
 }

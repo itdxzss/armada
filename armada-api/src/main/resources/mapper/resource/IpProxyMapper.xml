@@ -51,6 +51,14 @@
              #{status}, #{source}, #{ownership}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
+    <select id="selectActiveById" resultType="com.armada.resource.model.entity.IpProxy">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+        LIMIT 1
+    </select>
+
     <select id="countActiveByFullTuple" resultType="long">
         SELECT COUNT(*)
         FROM ip_proxy

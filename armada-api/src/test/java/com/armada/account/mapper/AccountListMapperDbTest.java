@@ -170,6 +170,21 @@ class AccountListMapperDbTest extends DbTestBase {
     }
 
     /**
+     * selectActiveById:按主键能查回未软删账号,供手动上线入口加载账号身份。
+     */
+    @Test
+    void selectActiveById_returnsInsertedActiveAccount() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86136" + (now % 10000000L), now);
+
+        Account found = accountMapper.selectActiveById(account.getId());
+
+        assertThat(found).isNotNull();
+        assertThat(found.getId()).isEqualTo(account.getId());
+        assertThat(found.getWsPhone()).isEqualTo(account.getWsPhone());
+    }
+
+    /**
      * accountGroupId 等值筛选:只返回该分组账号;另一分组账号不出现。
      */
     @Test

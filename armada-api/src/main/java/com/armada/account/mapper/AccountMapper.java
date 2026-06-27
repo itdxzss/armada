@@ -28,6 +28,16 @@ public interface AccountMapper {
     Account selectActiveByWsPhone(@Param("wsPhone") String wsPhone);
 
     /**
+     * 按 ID 查未软删账号。
+     *
+     * <p>上线等按账号主键发起的业务入口使用;tenant_id 由租户拦截器注入。</p>
+     *
+     * @param id 账号主键
+     * @return 活跃账号;不存在或已软删时返回 null
+     */
+    Account selectActiveById(@Param("id") Long id);
+
+    /**
      * 按筛选条件统计账号总数(SQL 下推,与 selectPage 共享 filter 片段)。
      *
      * @param query 账号列表查询参数

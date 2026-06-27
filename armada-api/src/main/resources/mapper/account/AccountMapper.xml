@@ -27,6 +27,13 @@
     LIMIT 1
   </select>
 
+  <select id="selectActiveById" resultType="com.armada.account.model.entity.Account">
+    SELECT * FROM account
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
   <!--
     共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。
     accountState/riskStatus 筛选 account_state 表列:step1 导入后该表列全 NULL,条件天然不命中。

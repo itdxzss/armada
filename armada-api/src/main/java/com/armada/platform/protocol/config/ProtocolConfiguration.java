@@ -18,7 +18,7 @@ import org.springframework.web.client.RestClient;
  * 与首期账号生命周期 adapter。群组、消息等 adapter 在后续小口中单独接入。</p>
  */
 @Configuration
-@EnableConfigurationProperties(ProtocolProperties.class)
+@EnableConfigurationProperties({ProtocolProperties.class, ProtocolCommandPublisherProperties.class})
 public class ProtocolConfiguration {
 
     /**

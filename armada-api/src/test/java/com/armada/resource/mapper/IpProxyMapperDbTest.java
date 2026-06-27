@@ -7,6 +7,7 @@ import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.testsupport.DbTestBase;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -106,6 +107,54 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(idle.getBoundAccountId()).isNull();
         assertThat(idle.getBoundAt()).isNull();
         assertThat(idle.getUpdatedAt()).isEqualTo(now + 3);
+    }
+
+    @Test
+    void batchBindingLifecycle_selectIdleMarkUsingAndReleaseOnlineAllocations() {
+        long now = System.currentTimeMillis();
+        IpProxy proxyA = newIdleProxy(now);
+        IpProxy proxyB = newIdleProxy(now + 1);
+        mapper.insert(proxyA);
+        mapper.insert(proxyB);
+
+        List<IpProxy> selected = mapper.selectIdleForUpdate(TEST_TENANT_ID, IpProxyStatus.IDLE.code(), 2);
+        assertThat(selected).hasSizeGreaterThanOrEqualTo(2);
+        List<IpProxyBindTarget> targets = List.of(
+                new IpProxyBindTarget(selected.get(0).getId(), 701L),
+                new IpProxyBindTarget(selected.get(1).getId(), 702L));
+
+        int marked = mapper.markUsingAndBindBatch(
+                targets,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 2);
+        assertThat(marked).isEqualTo(2);
+
+        IpProxy boundA = mapper.selectActiveById(targets.get(0).proxyId());
+        IpProxy boundB = mapper.selectActiveById(targets.get(1).proxyId());
+        assertThat(boundA.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
+        assertThat(boundA.getBoundAccountId()).isEqualTo(701L);
+        assertThat(boundB.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
+        assertThat(boundB.getBoundAccountId()).isEqualTo(702L);
+
+        int missed = mapper.releaseOnlineAllocations(
+                List.of(new IpProxyBindTarget(targets.get(0).proxyId(), 999L)),
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 3);
+        assertThat(missed).isZero();
+        assertThat(mapper.selectActiveById(targets.get(0).proxyId()).getBoundAccountId()).isEqualTo(701L);
+
+        int released = mapper.releaseOnlineAllocations(
+                targets,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 4);
+        assertThat(released).isEqualTo(2);
+        assertThat(mapper.selectActiveById(targets.get(0).proxyId()).getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(mapper.selectActiveById(targets.get(0).proxyId()).getBoundAccountId()).isNull();
+        assertThat(mapper.selectActiveById(targets.get(1).proxyId()).getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(mapper.selectActiveById(targets.get(1).proxyId()).getBoundAccountId()).isNull();
     }
 
     private static IpProxy newIdleProxy(long suffix) {

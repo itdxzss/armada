@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -15,15 +16,22 @@ import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.vo.AccountBatchOnlineItemVO;
+import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountOnlinePlan;
 import com.armada.account.service.AccountOnlineService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
+import com.armada.platform.protocol.model.result.BatchOnlineItemResult;
+import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
+import com.armada.platform.protocol.model.result.BatchOnlineSummary;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineRouting;
 import com.armada.platform.protocol.model.result.StateSource;
 import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
+import com.armada.resource.service.IpProxyAccountAllocation;
 import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
@@ -210,6 +218,123 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void onlineBatch_validAccountsCredentialsAndAllocatedProxies_delegatesOneBatchAndReleasesRejectedItems() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        AccountCredential credentialB = credential(101L, 3, "{\"login\":\"raw\"}");
+        ProxyEndpoint endpointA = onlineEndpoint();
+        ProxyEndpoint endpointB = new ProxyEndpoint(
+                ProxyEndpoint.PROTOCOL_HTTP,
+                "proxy-b.internal",
+                8080,
+                new ProxyCredentials("user-b", "pass_session-Bbb123"),
+                "新加坡");
+        BatchOnlineAccepted accepted = new BatchOnlineAccepted(
+                Instant.parse("2026-06-27T10:00:00Z"),
+                80L,
+                new BatchOnlineSummary(2, 2, 0, 1, 1, 0, 0),
+                List.of(
+                        new BatchOnlineItemResult("acc_100", BatchOnlineResultStatus.ACCEPTED, null, null),
+                        new BatchOnlineItemResult("acc_101", BatchOnlineResultStatus.TIMEOUT, 5000, null)),
+                List.of());
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
+        List<IpProxyAccountAllocation> allocations = List.of(
+                new IpProxyAccountAllocation(100L, 7L, endpointA),
+                new IpProxyAccountAllocation(101L, 8L, endpointB));
+        when(ipProxyService.allocateOnlineEndpoints(List.of(100L, 101L))).thenReturn(allocations);
+        when(accountOnlineService.onlineBatch(any(), eq(60_000))).thenReturn(accepted);
+
+        AccountBatchOnlineVO result = service.onlineBatch(List.of(100L, 101L));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AccountOnlinePlan>> plansCaptor = ArgumentCaptor.forClass(List.class);
+        verify(accountOnlineService).onlineBatch(plansCaptor.capture(), eq(60_000));
+        List<AccountOnlinePlan> plans = plansCaptor.getValue();
+        assertThat(plans).hasSize(2);
+        assertThat(plans).extracting(AccountOnlinePlan::protocolAccountId)
+                .containsExactly("acc_100", "acc_101");
+        assertThat(plans).extracting(AccountOnlinePlan::credentialFormat)
+                .containsExactly(CredentialFormat.BAILEYS_JSON, CredentialFormat.PARAMS);
+        assertThat(plans.get(0).proxyEndpoint()).isSameAs(endpointA);
+        assertThat(plans.get(1).proxyEndpoint()).isSameAs(endpointB);
+
+        verify(ipProxyService).releaseOnlineAllocations(List.of(allocations.get(1)));
+        verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
+        verify(ipProxyService, never()).allocateOnlineEndpoint(any());
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.submitted()).isEqualTo(2);
+        assertThat(result.accepted()).isEqualTo(1);
+        assertThat(result.timeout()).isEqualTo(1);
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId)
+                .containsExactly(100L, 101L);
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::result)
+                .containsExactly("ACCEPTED", "TIMEOUT");
+    }
+
+    @Test
+    void onlineBatch_protocolThrows_releasesAllAllocatedProxiesAndRethrowsOriginalFailure() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        AccountCredential credentialB = credential(101L, 2, "{\"creds\":{},\"keys\":{}}");
+        RuntimeException failure = new RuntimeException("protocol unavailable");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
+        List<IpProxyAccountAllocation> allocations = List.of(
+                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint()),
+                new IpProxyAccountAllocation(101L, 8L, onlineEndpoint()));
+        when(ipProxyService.allocateOnlineEndpoints(List.of(100L, 101L))).thenReturn(allocations);
+        when(accountOnlineService.onlineBatch(any(), eq(60_000))).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
+                .isSameAs(failure);
+
+        verify(ipProxyService).releaseOnlineAllocations(allocations);
+        verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
+    }
+
+    @Test
+    void onlineBatch_planBuildFailsAfterAllocation_releasesAllAllocatedProxiesBeforeRethrow() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, null);
+        AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        AccountCredential credentialB = credential(101L, 2, "{\"creds\":{},\"keys\":{}}");
+        List<IpProxyAccountAllocation> allocations = List.of(
+                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint()),
+                new IpProxyAccountAllocation(101L, 8L, onlineEndpoint()));
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
+        when(ipProxyService.allocateOnlineEndpoints(List.of(100L, 101L))).thenReturn(allocations);
+
+        assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("协议账号 ID 为空");
+                });
+
+        verify(ipProxyService).releaseOnlineAllocations(allocations);
+        verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
+        verifyNoInteractions(accountOnlineService);
+    }
+
+    @Test
+    void onlineBatch_missingCredential_throwsValidationBeforeProxyAllocation() {
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L)))
+                .thenReturn(List.of(account(100L, "acc_100"), account(101L, "acc_101")));
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L)))
+                .thenReturn(List.of(credential(100L, 2, "{\"creds\":{},\"keys\":{}}")));
+
+        assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("账号凭据不存在");
+                });
+        verifyNoInteractions(ipProxyService, accountOnlineService);
+    }
+
+    @Test
     void online_missingAccount_throwsNotFoundBeforeCredentialLookup() {
         when(accountMapper.selectActiveById(404L)).thenReturn(null);
 
@@ -239,17 +364,25 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     private static Account onlineAccount() {
+        return account(100L, "acc_8613800138000");
+    }
+
+    private static Account account(Long accountId, String protocolAccountId) {
         Account account = new Account();
-        account.setId(100L);
-        account.setProtocolAccountId("acc_8613800138000");
+        account.setId(accountId);
+        account.setProtocolAccountId(protocolAccountId);
         return account;
     }
 
     private static AccountCredential onlineCredential() {
+        return credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+    }
+
+    private static AccountCredential credential(Long accountId, Integer format, String json) {
         AccountCredential credential = new AccountCredential();
-        credential.setAccountId(100L);
-        credential.setCredFormat(2);
-        credential.setCredsJson("{\"creds\":{},\"keys\":{}}");
+        credential.setAccountId(accountId);
+        credential.setCredFormat(format);
+        credential.setCredsJson(json);
         return credential;
     }
 

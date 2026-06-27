@@ -1,6 +1,8 @@
 package com.armada.platform.protocol.port;
 
+import com.armada.platform.protocol.model.command.BatchOnlineCommand;
 import com.armada.platform.protocol.model.command.OnlineCommand;
+import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 
 /**
@@ -26,4 +28,15 @@ public interface AccountLifecyclePort {
      * @return 协议层"已受理"回执(含归属路由)
      */
     OnlineAccepted online(String protocolAccountId, OnlineCommand command);
+
+    /**
+     * 批量发起账号上线命令。
+     *
+     * <p>调用方一次提交最多 500 个账号,协议层内部按 OnlineGate 节奏化放行。
+     * 返回值仍然只是命令投递结果,不代表账号已经 ONLINE。</p>
+     *
+     * @param command 批量上线命令
+     * @return 协议层批量上线受理回执
+     */
+    BatchOnlineAccepted onlineBatch(BatchOnlineCommand command);
 }

@@ -34,6 +34,18 @@
     LIMIT 1
   </select>
 
+  <select id="selectActiveByIds" resultType="com.armada.account.model.entity.Account">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT * FROM account
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT * FROM account WHERE 1=0
+    </if>
+  </select>
+
   <!--
     共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。
     accountState/riskStatus 筛选 account_state 表列:step1 导入后该表列全 NULL,条件天然不命中。

@@ -6,10 +6,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.account.model.vo.AccountBatchOnlineItemVO;
+import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,5 +68,37 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.ownerWorkerId").value("worker-a"));
 
         verify(accountOnlineCommandService).online(100L);
+    }
+
+    @Test
+    void postBatchOnline_delegatesToCommandServiceAndReturnsApiResponse() throws Exception {
+        AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
+                2,
+                2,
+                1,
+                1,
+                0,
+                0,
+                0,
+                80L,
+                List.of(
+                        new AccountBatchOnlineItemVO(100L, "acc_100", "ACCEPTED", null, null),
+                        new AccountBatchOnlineItemVO(101L, "acc_101", "TIMEOUT", 5000, null)),
+                List.of());
+        when(accountOnlineCommandService.onlineBatch(List.of(100L, 101L))).thenReturn(vo);
+
+        mockMvc.perform(post("/api/accounts/batch-online")
+                        .contentType("application/json")
+                        .content("{\"ids\":[100,101]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.submitted").value(2))
+                .andExpect(jsonPath("$.data.accepted").value(1))
+                .andExpect(jsonPath("$.data.timeout").value(1))
+                .andExpect(jsonPath("$.data.results[0].accountId").value(100))
+                .andExpect(jsonPath("$.data.results[1].result").value("TIMEOUT"));
+
+        verify(accountOnlineCommandService).onlineBatch(List.of(100L, 101L));
     }
 }

@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.resource.converter.IpProxyConverter;
+import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.dto.IpProxyImportDTO;
@@ -24,6 +25,8 @@ import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import java.util.List;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -185,6 +188,59 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void allocateOnlineEndpoints_releasesOldBindingsLocksIdleRowsAndMarksUsingInBatch() {
+        TenantContext.set(1L);
+        try {
+            IpProxy proxyA = idleProxy(10L, "proxy-a.internal");
+            IpProxy proxyB = idleProxy(11L, "proxy-b.internal");
+            when(mapper.releaseByAccounts(
+                    eq(List.of(100L, 101L)),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(2);
+            when(mapper.selectIdleForUpdate(1L, IpProxyStatus.IDLE.code(), 2))
+                    .thenReturn(List.of(proxyA, proxyB));
+            when(mapper.markUsingAndBindBatch(
+                    any(),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(2);
+
+            List<IpProxyAccountAllocation> allocations = service.allocateOnlineEndpoints(List.of(100L, 101L));
+
+            assertThat(allocations).hasSize(2);
+            assertThat(allocations).extracting(IpProxyAccountAllocation::accountId)
+                    .containsExactly(100L, 101L);
+            assertThat(allocations).extracting(IpProxyAccountAllocation::proxyId)
+                    .containsExactly(10L, 11L);
+            assertThat(allocations.get(0).endpoint().host()).isEqualTo("proxy-a.internal");
+            assertThat(allocations.get(1).endpoint().host()).isEqualTo("proxy-b.internal");
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<IpProxyBindTarget>> bindCaptor = ArgumentCaptor.forClass(List.class);
+            verify(mapper).markUsingAndBindBatch(
+                    bindCaptor.capture(),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong());
+            assertThat(bindCaptor.getValue()).extracting(IpProxyBindTarget::proxyId)
+                    .containsExactly(10L, 11L);
+            assertThat(bindCaptor.getValue()).extracting(IpProxyBindTarget::accountId)
+                    .containsExactly(100L, 101L);
+
+            InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
+            inOrder.verify(mapper).releaseByAccounts(
+                    eq(List.of(100L, 101L)), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+            inOrder.verify(mapper).selectIdleForUpdate(1L, IpProxyStatus.IDLE.code(), 2);
+            inOrder.verify(mapper).markUsingAndBindBatch(
+                    any(), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+            verify(mapper, never()).selectOneIdleForUpdate(anyLong(), anyInt());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
     void allocateOnlineEndpoint_nullAccountId_throwsValidationBeforeMapper() {
         TenantContext.set(1L);
         try {
@@ -280,6 +336,32 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void releaseOnlineAllocations_validItems_delegatesPreciseBatchRelease() {
+        List<IpProxyAccountAllocation> allocations = List.of(
+                new IpProxyAccountAllocation(100L, 10L, null),
+                new IpProxyAccountAllocation(101L, 11L, null));
+        when(mapper.releaseOnlineAllocations(
+                any(),
+                eq(IpProxyStatus.IDLE.code()),
+                eq(IpProxyStatus.IN_USE.code()),
+                anyLong())).thenReturn(2);
+
+        service.releaseOnlineAllocations(allocations);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<IpProxyBindTarget>> targetCaptor = ArgumentCaptor.forClass(List.class);
+        verify(mapper).releaseOnlineAllocations(
+                targetCaptor.capture(),
+                eq(IpProxyStatus.IDLE.code()),
+                eq(IpProxyStatus.IN_USE.code()),
+                anyLong());
+        assertThat(targetCaptor.getValue()).extracting(IpProxyBindTarget::proxyId)
+                .containsExactly(10L, 11L);
+        assertThat(targetCaptor.getValue()).extracting(IpProxyBindTarget::accountId)
+                .containsExactly(100L, 101L);
+    }
+
+    @Test
     void releaseOnlineAllocation_nullProxyId_throwsValidationBeforeMapper() {
         assertThatThrownBy(() -> service.releaseOnlineAllocation(100L, null))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
@@ -291,9 +373,13 @@ class IpProxyServiceImplTest {
     }
 
     private static IpProxy idleProxy() {
+        return idleProxy(10L, "geo.iproyal.com");
+    }
+
+    private static IpProxy idleProxy(Long id, String host) {
         IpProxy row = new IpProxy();
-        row.setId(10L);
-        row.setHost("geo.iproyal.com");
+        row.setId(id);
+        row.setHost(host);
         row.setPort(12321);
         row.setProtocol(ProxyEndpoint.PROTOCOL_SOCKS5);
         row.setUsername("user1");

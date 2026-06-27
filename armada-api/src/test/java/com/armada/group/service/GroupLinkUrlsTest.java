@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.armada.shared.util.ImportLineException;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -34,6 +35,22 @@ class GroupLinkUrlsTest {
         // host 小写,邀请码原样(大小写保留)
         String result = GroupLinkUrls.normalize("HTTPS://CHAT.WHATSAPP.COM/MyCaseSensitiveCode");
         assertEquals("chat.whatsapp.com/MyCaseSensitiveCode", result);
+    }
+
+    @Test
+    void tryNormalize_validLink_returnsNormalizedUrl() {
+        assertEquals("chat.whatsapp.com/TryOk123",
+                GroupLinkUrls.tryNormalize("https://Chat.WhatsApp.com/TryOk123/").orElseThrow());
+    }
+
+    @Test
+    void tryNormalize_invalidLink_returnsEmpty() {
+        assertEquals(Optional.empty(), GroupLinkUrls.tryNormalize("hello world"));
+    }
+
+    @Test
+    void tryNormalize_null_returnsEmpty() {
+        assertEquals(Optional.empty(), GroupLinkUrls.tryNormalize(null));
     }
 
     @Test

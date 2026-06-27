@@ -2,6 +2,7 @@ package com.armada.group.service;
 
 import com.armada.shared.util.ImportLineException;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -32,5 +33,24 @@ public final class GroupLinkUrls {
             throw new ImportLineException("格式错误:不是有效的 WhatsApp 群邀请链接");
         }
         return m.group(1).toLowerCase(Locale.ROOT) + "/" + m.group(2);
+    }
+
+    /**
+     * 尝试归一化群邀请链接,不通过异常暴露格式错误。
+     *
+     * <p>导入链接需要失败原因时使用 {@link #normalize(String)};只需要过滤合法链接的业务使用本方法。</p>
+     *
+     * @param raw 原始链接文本
+     * @return 合法时返回归一化链接,非法时返回空
+     */
+    public static Optional<String> tryNormalize(String raw) {
+        if (raw == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(normalize(raw));
+        } catch (ImportLineException e) {
+            return Optional.empty();
+        }
     }
 }

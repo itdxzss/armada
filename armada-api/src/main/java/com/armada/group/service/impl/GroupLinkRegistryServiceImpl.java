@@ -6,7 +6,6 @@ import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkUrls;
-import com.armada.shared.util.ImportLineException;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -75,11 +74,8 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             if (raw == null || raw.isBlank()) {
                 continue;
             }
-            try {
-                urls.add(GroupLinkUrls.normalize(raw));
-            } catch (ImportLineException ignored) {
-                // 进群任务明细负责展示无效链接;群组池登记只收严格合法的群邀请链接。
-            }
+            // 进群任务明细负责展示无效链接;群组池登记只收严格合法的群邀请链接。
+            GroupLinkUrls.tryNormalize(raw).ifPresent(urls::add);
         }
         return urls;
     }

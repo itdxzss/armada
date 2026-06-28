@@ -1,6 +1,5 @@
-package com.armada.platform.protocol.service;
+package com.armada.platform.kafka.outbox;
 
-import com.armada.platform.protocol.model.result.ProtocolCommandDispatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

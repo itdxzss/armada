@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.service;
+package com.armada.platform.kafka.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -11,7 +11,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.armada.platform.protocol.config.ProtocolCommandPublisherProperties;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolCommandEnvelope;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;

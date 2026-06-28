@@ -3,15 +3,12 @@ package com.armada.platform.protocol.config;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
-import java.util.concurrent.Executor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -21,16 +18,8 @@ import org.springframework.web.client.RestClient;
  * 与首期账号生命周期 adapter。群组、消息等 adapter 在后续小口中单独接入。</p>
  */
 @Configuration
-@EnableScheduling
-@EnableConfigurationProperties({
-        ProtocolProperties.class,
-        ProtocolCommandPublisherProperties.class,
-        ProtocolCommandDispatcherProperties.class
-})
+@EnableConfigurationProperties(ProtocolProperties.class)
 public class ProtocolConfiguration {
-
-    private static final int DISPATCH_EXECUTOR_POOL_SIZE = 1;
-    private static final int DISPATCH_EXECUTOR_QUEUE_CAPACITY = 1_000;
 
     /**
      * 注册协议层共享 RestClient。
@@ -86,24 +75,5 @@ public class ProtocolConfiguration {
     @Bean
     public AccountLifecyclePort accountLifecyclePort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpAccountLifecycleAdapter(protocolHttpExecutor);
-    }
-
-    /**
-     * 注册协议命令 outbox dispatch 后台执行器。
-     *
-     * <p>请求线程只提交一次 afterCommit 任务;真正 Kafka 发送在该单线程执行器内串行 drain,
-     * 避免同 JVM 内大量请求同时创建发送线程。</p>
-     *
-     * @return dispatch 后台执行器
-     */
-    @Bean(name = "protocolCommandDispatchExecutor")
-    public Executor protocolCommandDispatchExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setThreadNamePrefix("protocol-command-dispatch-");
-        executor.setCorePoolSize(DISPATCH_EXECUTOR_POOL_SIZE);
-        executor.setMaxPoolSize(DISPATCH_EXECUTOR_POOL_SIZE);
-        executor.setQueueCapacity(DISPATCH_EXECUTOR_QUEUE_CAPACITY);
-        executor.initialize();
-        return executor;
     }
 }

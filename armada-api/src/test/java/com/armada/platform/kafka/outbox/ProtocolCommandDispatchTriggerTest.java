@@ -1,4 +1,4 @@
-package com.armada.platform.protocol.service;
+package com.armada.platform.kafka.outbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -7,9 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.platform.protocol.config.ProtocolCommandDispatcherProperties;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
-import com.armada.platform.protocol.model.result.ProtocolCommandDispatchResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;

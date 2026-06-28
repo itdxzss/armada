@@ -1,6 +1,5 @@
-package com.armada.platform.protocol.service;
+package com.armada.platform.kafka.outbox;
 
-import com.armada.platform.protocol.config.ProtocolCommandPublisherProperties;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolCommandEnvelope;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;

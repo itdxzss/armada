@@ -1,6 +1,5 @@
-package com.armada.platform.protocol.service;
+package com.armada.platform.kafka.outbox;
 
-import com.armada.platform.protocol.config.ProtocolCommandDispatcherProperties;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import java.util.List;
 import java.util.concurrent.Executor;

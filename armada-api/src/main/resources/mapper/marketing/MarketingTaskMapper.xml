@@ -54,6 +54,15 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
+    <resultMap id="MarketingAccountTreeRowResultMap" type="com.armada.marketing.model.vo.MarketingAccountTreeRow">
+        <result column="account_id" property="accountId"/>
+        <result column="ws_phone" property="wsPhone"/>
+        <result column="group_link_id" property="groupLinkId"/>
+        <result column="group_jid" property="groupJid"/>
+        <result column="group_name" property="groupName"/>
+        <result column="link_url" property="linkUrl"/>
+    </resultMap>
+
     <sql id="TaskColumns">
         id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
@@ -187,5 +196,38 @@
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
         LIMIT 1
+    </select>
+
+    <select id="selectAccountTreeRows" resultMap="MarketingAccountTreeRowResultMap">
+        SELECT DISTINCT
+               a.id AS account_id,
+               a.ws_phone AS ws_phone,
+               g.id AS group_link_id,
+               p.group_jid AS group_jid,
+               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS group_name,
+               g.link_url AS link_url
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id
+        JOIN group_link g ON g.deleted_at IS NULL
+                         AND g.membership_state IN (2, 3)
+        JOIN group_link_preview p ON p.group_link_id = g.id
+                                 AND p.group_jid IS NOT NULL
+                                 AND TRIM(p.group_jid) &lt;&gt; ''
+        LEFT JOIN group_link_health h ON h.group_link_id = g.id
+        LEFT JOIN account_group_baseline b ON b.account_id = a.id
+                                           AND a.group_baseline_state = 2
+        WHERE a.account_group_id = #{groupId}
+          AND a.deleted_at IS NULL
+          AND s.login_state = 1
+          AND s.account_state = 2
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
+          AND (
+              a.group_baseline_state &lt;&gt; 2
+              OR b.id IS NULL
+              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
+          )
+        ORDER BY a.id ASC, g.id ASC
     </select>
 </mapper>

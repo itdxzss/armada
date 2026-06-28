@@ -9,7 +9,11 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
+import com.armada.marketing.model.vo.MarketingAccountTreeRow;
+import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.marketing.model.vo.MarketingTreeAccountVO;
+import com.armada.marketing.model.vo.MarketingTreeGroupVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskTargetVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
@@ -18,8 +22,10 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -203,6 +209,36 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return deleted;
     }
 
+    /**
+     * 查询建营销任务用的账号→可营销群树。
+     *
+     * <p>只返回账号分组内在线、正常、无风控/禁言的账号;群组来自租户群池中可用且有
+     * `group_jid` 的群。若账号已拍登录前群基线,SQL 层会用 `baseline_group_jids` JSON
+     * 排除历史群。当前阶段不调用协议层,也没有 per-account 群成员事实,因此本方法只负责
+     * 按已有事实表生成建任务可选树。</p>
+     *
+     * @param groupId 账号分组 ID
+     * @return 账号→可营销群树
+     */
+    @Override
+    public MarketingAccountTreeVO accountTree(Long groupId) {
+        if (groupId == null) {
+            return new MarketingAccountTreeVO(List.of());
+        }
+        List<MarketingAccountTreeRow> rows = taskMapper.selectAccountTreeRows(groupId);
+        Map<Long, AccountTreeDraft> accounts = new LinkedHashMap<>();
+        for (MarketingAccountTreeRow row : rows) {
+            AccountTreeDraft account = accounts.computeIfAbsent(row.getAccountId(),
+                    ignored -> new AccountTreeDraft(row.getAccountId(), row.getWsPhone()));
+            account.addGroup(row);
+        }
+        List<MarketingTreeAccountVO> accountVOs = accounts.values().stream()
+                .map(AccountTreeDraft::toVO)
+                .toList();
+        log.info("营销账号群树查询 groupId={} accounts={} rows={}", groupId, accountVOs.size(), rows.size());
+        return new MarketingAccountTreeVO(accountVOs);
+    }
+
     private void validateRequest(CreateMarketingTaskDTO request) {
         // 只校验页面表单本身能确定的必填和数值约束;账号/群/模板是否真的可用在后续查库校验。
         if (request == null) {
@@ -383,5 +419,26 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(), task.getStartedAt(),
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(), targets);
+    }
+
+    private static final class AccountTreeDraft {
+
+        private final Long accountId;
+        private final String wsPhone;
+        private final List<MarketingTreeGroupVO> groups = new ArrayList<>();
+
+        private AccountTreeDraft(Long accountId, String wsPhone) {
+            this.accountId = accountId;
+            this.wsPhone = wsPhone;
+        }
+
+        private void addGroup(MarketingAccountTreeRow row) {
+            groups.add(new MarketingTreeGroupVO(row.getGroupLinkId(), row.getGroupJid(),
+                    row.getGroupName(), row.getLinkUrl(), false));
+        }
+
+        private MarketingTreeAccountVO toVO() {
+            return new MarketingTreeAccountVO(accountId, wsPhone, "ONLINE", false, groups);
+        }
     }
 }

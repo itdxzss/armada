@@ -151,6 +151,25 @@ class MarketingTaskControllerDbTest {
         assertThat(code).isNotEqualTo(0);
     }
 
+    @Test
+    void getAccountTree_returnsOnlineAccountAndGroups() throws Exception {
+        Fixture fixture = seedFixture("controller-account-tree");
+
+        mockMvc.perform(get("/api/marketing-tasks/account-tree")
+                        .param("groupId", String.valueOf(fixture.accountGroupId()))
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.accounts").isArray())
+                .andExpect(jsonPath("$.data.accounts[0].accountId").value(fixture.accountId()))
+                .andExpect(jsonPath("$.data.accounts[0].wsPhone").value(fixture.phone()))
+                .andExpect(jsonPath("$.data.accounts[0].status").value("ONLINE"))
+                .andExpect(jsonPath("$.data.accounts[0].groupsError").value(false))
+                .andExpect(jsonPath("$.data.accounts[0].groups[0].groupLinkId").value(fixture.groupLinkId()))
+                .andExpect(jsonPath("$.data.accounts[0].groups[0].groupJid").value(fixture.groupJid()))
+                .andExpect(jsonPath("$.data.accounts[0].groups[0].isAdmin").value(false));
+    }
+
     private long createTask(String taskName, Fixture fixture) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/marketing-tasks")
                         .contentType(MediaType.APPLICATION_JSON)

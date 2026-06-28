@@ -2,6 +2,7 @@ package com.armada.marketing.service;
 
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
+import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.shared.response.PageResult;
@@ -29,4 +30,7 @@ public interface MarketingTaskService {
 
     /** 批量软删非发送中的营销任务。 */
     int batchDelete(List<Long> ids);
+
+    /** 查询建营销任务用的账号→可营销群树。 */
+    MarketingAccountTreeVO accountTree(Long groupId);
 }

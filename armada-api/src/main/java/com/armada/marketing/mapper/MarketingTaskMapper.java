@@ -3,6 +3,7 @@ package com.armada.marketing.mapper;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
+import com.armada.marketing.model.vo.MarketingAccountTreeRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -48,4 +49,7 @@ public interface MarketingTaskMapper {
     MarketingTargetCandidateRow selectTargetCandidate(@Param("accountGroupId") Long accountGroupId,
                                                       @Param("accountId") Long accountId,
                                                       @Param("groupLinkId") Long groupLinkId);
+
+    /** 查询建营销任务用的账号×可营销群平铺行。 */
+    List<MarketingAccountTreeRow> selectAccountTreeRows(@Param("groupId") Long groupId);
 }

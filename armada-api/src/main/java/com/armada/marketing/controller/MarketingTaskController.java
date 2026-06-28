@@ -3,6 +3,7 @@ package com.armada.marketing.controller;
 import com.armada.marketing.model.dto.BatchIdsRequest;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
+import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.marketing.service.MarketingTaskService;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -63,6 +65,20 @@ public class MarketingTaskController {
     @PostMapping
     public ApiResponse<MarketingTaskVO> create(@RequestBody CreateMarketingTaskDTO request) {
         return ApiResponse.ok(service.createTask(request));
+    }
+
+    /**
+     * 查询建任务抽屉的账号→可营销群树。
+     *
+     * <p>前端选择账号分组后调用本接口。返回账号分组内在线可用账号,以及租户群池中可用于营销、
+     * 且未被该账号登录前基线排除的群。</p>
+     *
+     * @param groupId 账号分组 ID
+     * @return 账号→可营销群树
+     */
+    @GetMapping("/account-tree")
+    public ApiResponse<MarketingAccountTreeVO> accountTree(@RequestParam Long groupId) {
+        return ApiResponse.ok(service.accountTree(groupId));
     }
 
     /**

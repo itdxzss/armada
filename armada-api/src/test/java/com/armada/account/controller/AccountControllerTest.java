@@ -9,7 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
+import com.armada.account.model.vo.AccountProbeVO;
+import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
 import java.util.List;
@@ -36,12 +39,19 @@ class AccountControllerTest {
     @Mock
     private AccountOnlineCommandService accountOnlineCommandService;
 
+    @Mock
+    private AccountLifecycleCommandService accountLifecycleCommandService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new AccountController(accountService, accountGroupService, accountOnlineCommandService))
+                .standaloneSetup(new AccountController(
+                        accountService,
+                        accountGroupService,
+                        accountOnlineCommandService,
+                        accountLifecycleCommandService))
                 .build();
     }
 
@@ -100,5 +110,56 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.results[1].result").value("TIMEOUT"));
 
         verify(accountOnlineCommandService).onlineBatch(List.of(100L, 101L));
+    }
+
+    @Test
+    void postRefreshStatus_delegatesToLifecycleServiceAndReturnsApiResponse() throws Exception {
+        AccountStatusVO vo = new AccountStatusVO(
+                100L,
+                "acc_8613800138000",
+                "ONLINE",
+                "HEARTBEAT",
+                "BUSINESS_STANDARD",
+                1_782_446_400_000L,
+                null,
+                1_782_446_401_000L,
+                false,
+                null,
+                "worker-a");
+        when(accountLifecycleCommandService.refreshStatus(100L)).thenReturn(vo);
+
+        mockMvc.perform(post("/api/accounts/{id}/refresh-status", 100L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.accountId").value(100))
+                .andExpect(jsonPath("$.data.protocolAccountId").value("acc_8613800138000"))
+                .andExpect(jsonPath("$.data.state").value("ONLINE"))
+                .andExpect(jsonPath("$.data.stateSource").value("HEARTBEAT"))
+                .andExpect(jsonPath("$.data.workerId").value("worker-a"));
+
+        verify(accountLifecycleCommandService).refreshStatus(100L);
+    }
+
+    @Test
+    void postProbe_delegatesToLifecycleServiceAndReturnsApiResponse() throws Exception {
+        AccountProbeVO vo = new AccountProbeVO(
+                100L,
+                "acc_8613800138000",
+                true,
+                1_782_446_460_000L,
+                186L,
+                "OK");
+        when(accountLifecycleCommandService.probe(100L)).thenReturn(vo);
+
+        mockMvc.perform(post("/api/accounts/{id}/probe", 100L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.accountId").value(100))
+                .andExpect(jsonPath("$.data.protocolAccountId").value("acc_8613800138000"))
+                .andExpect(jsonPath("$.data.ok").value(true))
+                .andExpect(jsonPath("$.data.latencyMs").value(186))
+                .andExpect(jsonPath("$.data.reasonCode").value("OK"));
+
+        verify(accountLifecycleCommandService).probe(100L);
     }
 }

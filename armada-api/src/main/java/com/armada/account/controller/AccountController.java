@@ -7,8 +7,11 @@ import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountOnlineVO;
+import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatsVO;
+import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
 import com.armada.shared.response.ApiResponse;
@@ -33,13 +36,16 @@ public class AccountController {
     private final AccountService accountService;
     private final AccountGroupService accountGroupService;
     private final AccountOnlineCommandService accountOnlineCommandService;
+    private final AccountLifecycleCommandService accountLifecycleCommandService;
 
     public AccountController(AccountService accountService,
                              AccountGroupService accountGroupService,
-                             AccountOnlineCommandService accountOnlineCommandService) {
+                             AccountOnlineCommandService accountOnlineCommandService,
+                             AccountLifecycleCommandService accountLifecycleCommandService) {
         this.accountService = accountService;
         this.accountGroupService = accountGroupService;
         this.accountOnlineCommandService = accountOnlineCommandService;
+        this.accountLifecycleCommandService = accountLifecycleCommandService;
     }
 
     /**
@@ -89,6 +95,32 @@ public class AccountController {
     @PostMapping("/batch-online")
     public ApiResponse<AccountBatchOnlineVO> batchOnline(@RequestBody AccountIdsDTO request) {
         return ApiResponse.ok(accountOnlineCommandService.onlineBatch(request.ids()));
+    }
+
+    /**
+     * A4.1 主动从协议层拉一次账号状态快照。
+     *
+     * <p>只用于账号页人工刷新/诊断;本接口不落账号登录态,本地状态仍由 Kafka 事件回填。</p>
+     *
+     * @param id 账号 ID
+     * @return 协议层状态快照
+     */
+    @PostMapping("/{id}/refresh-status")
+    public ApiResponse<AccountStatusVO> refreshStatus(@PathVariable("id") Long id) {
+        return ApiResponse.ok(accountLifecycleCommandService.refreshStatus(id));
+    }
+
+    /**
+     * A4.2 主动探活账号。
+     *
+     * <p>probe 会真实触达 WhatsApp,仅用于人工诊断或关键操作前确认。</p>
+     *
+     * @param id 账号 ID
+     * @return 探活结果
+     */
+    @PostMapping("/{id}/probe")
+    public ApiResponse<AccountProbeVO> probe(@PathVariable("id") Long id) {
+        return ApiResponse.ok(accountLifecycleCommandService.probe(id));
     }
 
     /**

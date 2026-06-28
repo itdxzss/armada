@@ -15,6 +15,8 @@ import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.BatchOnlineSummary;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineRouting;
+import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
+import com.armada.platform.protocol.model.result.ProtocolProbeResult;
 import com.armada.platform.protocol.model.result.StateSource;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -42,6 +44,12 @@ public class HttpAccountLifecycleAdapter implements AccountLifecyclePort {
 
     /** 批量上线协议路径:一次 HTTP 带多个账号,协议层内部排队/限速处理。 */
     private static final String BATCH_ONLINE_URI = "/v1/accounts/online/batch";
+
+    /** 账号状态查询协议路径后缀。 */
+    private static final String STATUS_URI_SUFFIX = "/status";
+
+    /** 账号主动探活协议路径后缀。 */
+    private static final String PROBE_URI_SUFFIX = "/probe";
 
     /** 协议层 wire format 字符串,不要把 Java enum 名直接暴露到 HTTP 契约里。 */
     private static final String WIRE_FORMAT_SIX = "six";
@@ -113,8 +121,38 @@ public class HttpAccountLifecycleAdapter implements AccountLifecyclePort {
         return toBatchAccepted(response);
     }
 
+    /**
+     * 查询协议层账号状态快照。
+     *
+     * @param protocolAccountId 协议层账号句柄
+     * @return 协议层状态快照
+     */
+    @Override
+    public ProtocolAccountStatus status(String protocolAccountId) {
+        String accountId = requireText(protocolAccountId, "protocolAccountId");
+        StatusResponse response = httpExecutor.getTyped(accountUri(accountId, STATUS_URI_SUFFIX), StatusResponse.class);
+        return toProtocolAccountStatus(response);
+    }
+
+    /**
+     * 主动探活账号。
+     *
+     * @param protocolAccountId 协议层账号句柄
+     * @return 探活结果
+     */
+    @Override
+    public ProtocolProbeResult probe(String protocolAccountId) {
+        String accountId = requireText(protocolAccountId, "protocolAccountId");
+        ProbeResponse response = httpExecutor.postTyped(accountUri(accountId, PROBE_URI_SUFFIX), null, ProbeResponse.class);
+        return toProtocolProbeResult(response);
+    }
+
     private static String onlineUri(String protocolAccountId) {
         return ONLINE_URI_PREFIX + protocolAccountId + ONLINE_URI_SUFFIX;
+    }
+
+    private static String accountUri(String protocolAccountId, String suffix) {
+        return ONLINE_URI_PREFIX + protocolAccountId + suffix;
     }
 
     private static OnlineCommand requireCommand(OnlineCommand command) {
@@ -207,6 +245,34 @@ public class HttpAccountLifecycleAdapter implements AccountLifecyclePort {
                 routing.ownerEndpoint(),
                 requireText(routing.currentWorkerId(), "routing.currentWorkerId"),
                 routing.local());
+    }
+
+    private static ProtocolAccountStatus toProtocolAccountStatus(StatusResponse response) {
+        if (response == null) {
+            throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "协议层 status 响应为空");
+        }
+        return new ProtocolAccountStatus(
+                requireText(response.accountId(), "accountId"),
+                response.state(),
+                response.stateSource(),
+                response.accountType(),
+                response.lastStateSyncTime(),
+                response.cooldownUntil(),
+                response.reportedAt(),
+                response.needReauth(),
+                response.reauthReason(),
+                response.workerId());
+    }
+
+    private static ProtocolProbeResult toProtocolProbeResult(ProbeResponse response) {
+        if (response == null) {
+            throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "协议层 probe 响应为空");
+        }
+        return new ProtocolProbeResult(
+                response.ok(),
+                response.probedAt(),
+                response.latencyMs(),
+                response.reasonCode());
     }
 
     private static BatchOnlineRequest toBatchRequest(BatchOnlineCommand command) {
@@ -340,6 +406,28 @@ public class HttpAccountLifecycleAdapter implements AccountLifecyclePort {
             String stateSource,
             Instant syncedAt,
             RoutingResponse routing) {
+    }
+
+    /** /status 响应体。 */
+    private record StatusResponse(
+            String accountId,
+            String state,
+            String stateSource,
+            String accountType,
+            Instant lastStateSyncTime,
+            Instant cooldownUntil,
+            Instant reportedAt,
+            boolean needReauth,
+            String reauthReason,
+            String workerId) {
+    }
+
+    /** /probe 响应体。 */
+    private record ProbeResponse(
+            boolean ok,
+            Instant probedAt,
+            Long latencyMs,
+            String reasonCode) {
     }
 
     /** 协议层 worker 路由信息,用于判断当前 worker 是否为账号 owner。 */

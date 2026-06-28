@@ -4,6 +4,8 @@ import com.armada.platform.protocol.model.command.BatchOnlineCommand;
 import com.armada.platform.protocol.model.command.OnlineCommand;
 import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
+import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
+import com.armada.platform.protocol.model.result.ProtocolProbeResult;
 
 /**
  * 账号生命周期协议端口(防腐层对外接口)。
@@ -39,4 +41,25 @@ public interface AccountLifecyclePort {
      * @return 协议层批量上线受理回执
      */
     BatchOnlineAccepted onlineBatch(BatchOnlineCommand command);
+
+    /**
+     * 查询协议层当前账号状态快照。
+     *
+     * <p>只读语义:返回值用于人工刷新/诊断,不代表 armada 已经落库。账号状态仍以后续
+     * Kafka account 事件收敛。</p>
+     *
+     * @param protocolAccountId 协议层账号句柄
+     * @return 协议层账号状态快照
+     */
+    ProtocolAccountStatus status(String protocolAccountId);
+
+    /**
+     * 主动探活账号。
+     *
+     * <p>probe 会真实触达 WhatsApp,因此用于人工诊断或关键操作前确认,不作为普通任务热路径默认前置。</p>
+     *
+     * @param protocolAccountId 协议层账号句柄
+     * @return 探活结果
+     */
+    ProtocolProbeResult probe(String protocolAccountId);
 }

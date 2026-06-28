@@ -19,6 +19,7 @@ import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -219,6 +220,47 @@ class AccountOnlineCommandServiceImplTest {
         verify(ipProxyService, never()).releaseOnlineAllocations(any());
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
         verify(ipProxyService, never()).allocateOnlineEndpoint(any());
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.submitted()).isEqualTo(2);
+        assertThat(result.accepted()).isEqualTo(2);
+        assertThat(result.timeout()).isZero();
+        assertThat(result.proxyRequired()).isZero();
+        assertThat(result.error()).isZero();
+        assertThat(result.remote()).isZero();
+        assertThat(result.elapsedMs()).isZero();
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId)
+                .containsExactly(100L, 101L);
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::result)
+                .containsExactly("ACCEPTED", "ACCEPTED");
+        assertThat(result.remoteRoutes()).isEmpty();
+    }
+
+    @Test
+    void offlineBatch_validAccounts_enqueuesOneOfflineOutboxBatchWithoutCredentialOrProxyWork() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(protocolCommandOutboxService.enqueueOfflineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "batch_offline_1",
+                        List.of("cmd_offline_100", "cmd_offline_101"),
+                        2));
+
+        AccountBatchOnlineVO result = service.offlineBatch(List.of(100L, 101L));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOfflineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOfflineCommands(commandsCaptor.capture());
+        List<ProtocolOfflineCommandRequest> commands = commandsCaptor.getValue();
+        assertThat(commands).hasSize(2);
+        assertThat(commands).extracting(ProtocolOfflineCommandRequest::accountId)
+                .containsExactly(100L, 101L);
+        assertThat(commands).extracting(ProtocolOfflineCommandRequest::protocolAccountId)
+                .containsExactly("acc_100", "acc_101");
+        assertThat(commands).extracting(ProtocolOfflineCommandRequest::source)
+                .containsExactly("batch_offline", "batch_offline");
+
+        verifyNoInteractions(credentialMapper, ipProxyService);
         assertThat(result.requested()).isEqualTo(2);
         assertThat(result.submitted()).isEqualTo(2);
         assertThat(result.accepted()).isEqualTo(2);

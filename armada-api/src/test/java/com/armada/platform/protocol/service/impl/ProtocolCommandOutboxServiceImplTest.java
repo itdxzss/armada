@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
@@ -109,6 +110,56 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueOfflineCommands_batch500_usesOneBatchIdAndSafePayload() throws Exception {
+        List<String> commandIds = java.util.stream.IntStream.rangeClosed(1, 500)
+                .mapToObj(i -> "cmd-offline-" + i)
+                .toList();
+        TestableProtocolCommandOutboxService service = newService(commandIds, List.of("batch-offline-1"));
+        List<ProtocolOfflineCommandRequest> commands = java.util.stream.IntStream.rangeClosed(1, 500)
+                .mapToObj(i -> offlineCommand((long) i, "acc_" + i))
+                .toList();
+        when(mapper.batchInsertPending(anyList())).thenReturn(500);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueOfflineCommands(commands);
+
+        assertThat(result.batchId()).isEqualTo("batch-offline-1");
+        assertThat(result.commandIds()).containsExactlyElementsOf(commandIds);
+        assertThat(result.inserted()).isEqualTo(500);
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).hasSize(500);
+        assertThat(rows).allSatisfy(row -> {
+            assertThat(row.getBatchId()).isEqualTo("batch-offline-1");
+            assertThat(row.getCommandType()).isEqualTo("account.offline.requested");
+            assertThat(row.getAggregateType()).isEqualTo("ACCOUNT");
+            assertThat(row.getKafkaTopic()).isEqualTo("protocol.account.commands.v1");
+            assertThat(row.getKafkaKey()).startsWith("acc_");
+            assertThat(row.getProtocolAccountId()).startsWith("acc_");
+            assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+            assertThat(row.getRetryCount()).isZero();
+            assertThat(row.getNextRetryAt()).isZero();
+        });
+        assertThat(rows).extracting(ProtocolCommandOutbox::getCommandId)
+                .doesNotHaveDuplicates()
+                .containsExactlyElementsOf(commandIds);
+
+        ProtocolCommandOutbox first = rows.get(0);
+        Map<String, Object> payload = objectMapper.readValue(first.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("accountId", 1)
+                .containsEntry("protocolAccountId", "acc_1")
+                .containsEntry("source", "batch_offline");
+        assertThat(first.getPayloadJson())
+                .doesNotContain("credentialJson")
+                .doesNotContain("credentialFormat")
+                .doesNotContain("proxyId")
+                .doesNotContain("password")
+                .doesNotContain("username")
+                .doesNotContain("proxyHost");
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
     void enqueueOnlineCommands_duplicateGeneratedCommandId_throwsConflictBeforeMapperInsert() {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-dupe", "cmd-dupe"), List.of("batch-1"));
         List<ProtocolOnlineCommandRequest> commands = List.of(
@@ -174,6 +225,13 @@ class ProtocolCommandOutboxServiceImplTest {
                 credentialFormat,
                 proxyId,
                 "manual_online");
+    }
+
+    private static ProtocolOfflineCommandRequest offlineCommand(Long accountId, String protocolAccountId) {
+        return new ProtocolOfflineCommandRequest(
+                accountId,
+                protocolAccountId,
+                "batch_offline");
     }
 
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {

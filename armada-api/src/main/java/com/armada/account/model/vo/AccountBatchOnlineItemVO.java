@@ -1,7 +1,7 @@
 package com.armada.account.model.vo;
 
 /**
- * 批量上线单账号投递结果。
+ * 批量账号生命周期命令单账号投递结果。
  *
  * @param accountId         armada 账号主键
  * @param protocolAccountId 协议层账号句柄

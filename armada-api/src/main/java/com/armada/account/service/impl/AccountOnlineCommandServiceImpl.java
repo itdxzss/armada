@@ -10,6 +10,7 @@ import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
@@ -30,20 +31,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 账号上线应用服务实现。
+ * 账号生命周期命令应用服务实现。
  *
- * <p>本类是账号域的上线入口编排:查账号、查自托管凭据、通过 resource 服务自动分配代理,
- * 再把轻量上线命令写入协议命令 outbox。它不直接调用协议层,也不修改登录状态,
- * 避免把"已受理"误写成"已在线"。</p>
+ * <p>本类是账号域的上线/下线入口编排:上线负责查凭据、分配代理并写 outbox;
+ * 下线只校验账号并写 outbox。它不直接调用协议层,也不修改登录状态,
+ * 避免把"已受理"误写成"已在线/已离线"。</p>
  */
 @Service
 public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountOnlineCommandServiceImpl.class);
-    private static final int BATCH_ONLINE_MAX_SIZE = 500;
+    private static final int BATCH_COMMAND_MAX_SIZE = 500;
     private static final String OUTBOX_STATE_SOURCE = "OUTBOX";
     private static final String SOURCE_MANUAL_ONLINE = "manual_online";
     private static final String SOURCE_BATCH_ONLINE = "batch_online";
+    private static final String SOURCE_BATCH_OFFLINE = "batch_offline";
 
     private final AccountMapper accountMapper;
     private final AccountCredentialMapper credentialMapper;
@@ -165,6 +167,40 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     }
 
     /**
+     * 批量投递账号下线命令。
+     *
+     * <p>下线命令只需要账号 ID 和协议账号 ID,不读取凭据、不分配代理、不在请求线程释放代理绑定。
+     * 本方法只保证下线命令进入 outbox,最终登录状态和代理释放以后续 Kafka 回写链路为准。</p>
+     */
+    @Override
+    public AccountBatchOnlineVO offlineBatch(List<Long> accountIds) {
+        List<Long> ids = normalizeBatchAccountIds(accountIds);
+        log.info("账号批量下线开始 requested={}", ids.size());
+
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        List<PreparedOfflineCommand> prepared = new ArrayList<>(ids.size());
+        for (Long accountId : ids) {
+            Account account = accountsById.get(accountId);
+            String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+            prepared.add(new PreparedOfflineCommand(
+                    accountId,
+                    protocolAccountId,
+                    new ProtocolOfflineCommandRequest(accountId, protocolAccountId, SOURCE_BATCH_OFFLINE)));
+            log.info("账号批量下线写入 outbox 前准备 command accountId={} protocolAccountId={}",
+                    accountId, protocolAccountId);
+        }
+
+        ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOfflineCommands(
+                prepared.stream().map(PreparedOfflineCommand::command).toList());
+        AccountBatchOnlineVO vo = toOutboxOfflineBatchVO(ids.size(), prepared, enqueueResult);
+        log.info("账号批量下线 outbox 已受理 requested={} submitted={} accepted={} error={} elapsedMs={} "
+                        + "batchId={} commandIds={}",
+                vo.requested(), vo.submitted(), vo.accepted(), vo.error(), vo.elapsedMs(),
+                enqueueResult.batchId(), enqueueResult.commandIds().size());
+        return vo;
+    }
+
+    /**
      * 加载未软删账号;账号不存在、已软删或入参为空时直接中断上线编排。
      */
     private Account loadAccount(Long accountId) {
@@ -256,7 +292,34 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 List.of());
     }
 
+    private static AccountBatchOnlineVO toOutboxOfflineBatchVO(int requested,
+                                                               List<PreparedOfflineCommand> prepared,
+                                                               ProtocolCommandOutboxEnqueueResult enqueueResult) {
+        return new AccountBatchOnlineVO(
+                requested,
+                prepared.size(),
+                enqueueResult.inserted(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                toOutboxOfflineItemVOs(prepared),
+                List.of());
+    }
+
     private static List<AccountBatchOnlineItemVO> toOutboxItemVOs(List<PreparedOnlineCommand> prepared) {
+        return prepared.stream()
+                .map(command -> new AccountBatchOnlineItemVO(
+                        command.accountId(),
+                        command.protocolAccountId(),
+                        BatchOnlineResultStatus.ACCEPTED.name(),
+                        null,
+                        null))
+                .toList();
+    }
+
+    private static List<AccountBatchOnlineItemVO> toOutboxOfflineItemVOs(List<PreparedOfflineCommand> prepared) {
         return prepared.stream()
                 .map(command -> new AccountBatchOnlineItemVO(
                         command.accountId(),
@@ -281,8 +344,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         if (accountIds == null || accountIds.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 列表不能为空");
         }
-        if (accountIds.size() > BATCH_ONLINE_MAX_SIZE) {
-            throw new BusinessException(ErrorCode.VALIDATION, "批量上线一次最多 " + BATCH_ONLINE_MAX_SIZE + " 个账号");
+        if (accountIds.size() > BATCH_COMMAND_MAX_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "批量账号命令一次最多 " + BATCH_COMMAND_MAX_SIZE + " 个账号");
         }
         Set<Long> seen = new LinkedHashSet<>();
         for (Long accountId : accountIds) {
@@ -328,6 +392,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             Long accountId,
             String protocolAccountId,
             ProtocolOnlineCommandRequest command
+    ) {
+    }
+
+    private record PreparedOfflineCommand(
+            Long accountId,
+            String protocolAccountId,
+            ProtocolOfflineCommandRequest command
     ) {
     }
 }

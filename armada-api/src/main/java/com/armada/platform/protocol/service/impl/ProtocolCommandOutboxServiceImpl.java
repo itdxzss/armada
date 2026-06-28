@@ -3,6 +3,7 @@ package com.armada.platform.protocol.service.impl;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
@@ -17,9 +18,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.dao.DuplicateKeyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,13 +38,16 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 账号上线命令类型。 */
     public static final String COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED = "account.online.requested";
 
+    /** 账号下线命令类型。 */
+    public static final String COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED = "account.offline.requested";
+
     /** 账号聚合类型。 */
     public static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
 
     /** 账号协议命令 topic。 */
     public static final String TOPIC_PROTOCOL_ACCOUNT_COMMANDS = "protocol.account.commands.v1";
 
-    private static final int MAX_ONLINE_COMMANDS = 500;
+    private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
     private static final String BATCH_ID_PREFIX = "batch_";
@@ -75,7 +79,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ProtocolCommandOutboxEnqueueResult enqueueOnlineCommands(List<ProtocolOnlineCommandRequest> commands) {
-        validateCommands(commands);
+        validateOnlineCommands(commands);
 
         String batchId = commands.size() == 1 ? null : newBatchId();
         long now = System.currentTimeMillis();
@@ -89,9 +93,43 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
             }
             commandIds.add(commandId);
-            rows.add(toOutboxRow(command, commandId, batchId, now));
+            rows.add(toOnlineOutboxRow(command, commandId, batchId, now));
         }
 
+        return insertPendingRows(batchId, commandIds, rows);
+    }
+
+    /**
+     * 批量写入账号下线 outbox 命令。
+     *
+     * <p>单条命令不生成 batch_id;多条命令共享一个 batch_id,便于批量下线排查。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueOfflineCommands(List<ProtocolOfflineCommandRequest> commands) {
+        validateOfflineCommands(commands);
+
+        String batchId = commands.size() == 1 ? null : newBatchId();
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+
+        for (ProtocolOfflineCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toOfflineOutboxRow(command, commandId, batchId, now));
+        }
+
+        return insertPendingRows(batchId, commandIds, rows);
+    }
+
+    private ProtocolCommandOutboxEnqueueResult insertPendingRows(String batchId,
+                                                                 List<String> commandIds,
+                                                                 List<ProtocolCommandOutbox> rows) {
         int inserted;
         try {
             inserted = mapper.batchInsertPending(rows);
@@ -127,14 +165,36 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return BATCH_ID_PREFIX + UUID.randomUUID().toString().replace("-", "");
     }
 
-    private ProtocolCommandOutbox toOutboxRow(ProtocolOnlineCommandRequest command,
-                                              String commandId,
-                                              String batchId,
-                                              long now) {
+    private ProtocolCommandOutbox toOnlineOutboxRow(ProtocolOnlineCommandRequest command,
+                                                    String commandId,
+                                                    String batchId,
+                                                    long now) {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
         row.setCommandId(commandId);
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
+        row.setAggregateId(command.accountId());
+        row.setKafkaTopic(TOPIC_PROTOCOL_ACCOUNT_COMMANDS);
+        row.setKafkaKey(command.protocolAccountId());
+        row.setProtocolAccountId(command.protocolAccountId());
+        row.setPayloadJson(payloadJson(command));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    private ProtocolCommandOutbox toOfflineOutboxRow(ProtocolOfflineCommandRequest command,
+                                                     String commandId,
+                                                     String batchId,
+                                                     long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setCommandId(commandId);
+        row.setBatchId(batchId);
+        row.setCommandType(COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
         row.setKafkaTopic(TOPIC_PROTOCOL_ACCOUNT_COMMANDS);
@@ -163,19 +223,32 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
-    private void validateCommands(List<ProtocolOnlineCommandRequest> commands) {
-        if (commands == null || commands.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令不能为空");
-        }
-        if (commands.size() > MAX_ONLINE_COMMANDS) {
-            throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令不能超过 500 条");
-        }
-        for (ProtocolOnlineCommandRequest command : commands) {
-            validateCommand(command);
+    private String payloadJson(ProtocolOfflineCommandRequest command) {
+        ProtocolOfflineCommandPayload payload = new ProtocolOfflineCommandPayload(
+                command.accountId(),
+                command.protocolAccountId(),
+                command.source());
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议命令 payload 序列化失败");
         }
     }
 
-    private void validateCommand(ProtocolOnlineCommandRequest command) {
+    private void validateOnlineCommands(List<ProtocolOnlineCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "协议上线命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        for (ProtocolOnlineCommandRequest command : commands) {
+            validateOnlineCommand(command);
+        }
+    }
+
+    private void validateOnlineCommand(ProtocolOnlineCommandRequest command) {
         if (command == null
                 || command.accountId() == null
                 || isBlank(command.protocolAccountId())
@@ -183,6 +256,28 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || command.proxyId() == null
                 || isBlank(command.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令缺少必要字段");
+        }
+    }
+
+    private void validateOfflineCommands(List<ProtocolOfflineCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议下线命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "协议下线命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        for (ProtocolOfflineCommandRequest command : commands) {
+            validateOfflineCommand(command);
+        }
+    }
+
+    private void validateOfflineCommand(ProtocolOfflineCommandRequest command) {
+        if (command == null
+                || command.accountId() == null
+                || isBlank(command.protocolAccountId())
+                || isBlank(command.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议下线命令缺少必要字段");
         }
     }
 
@@ -195,6 +290,13 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             String protocolAccountId,
             CredentialFormat credentialFormat,
             Long proxyId,
+            String source
+    ) {
+    }
+
+    private record ProtocolOfflineCommandPayload(
+            Long accountId,
+            String protocolAccountId,
             String source
     ) {
     }

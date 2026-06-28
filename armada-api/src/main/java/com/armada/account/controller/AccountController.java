@@ -66,11 +66,11 @@ public class AccountController {
     /**
      * A3 发起单账号上线(后端自动分配空闲代理)。
      *
-     * <p>协议层返回的 {@code accepted=true} 只代表已受理,不代表账号已经 ONLINE;
+     * <p>返回的 {@code accepted=true} 只代表上线命令已进入本地 outbox,不代表账号已经 ONLINE;
      * 真正登录状态由后续 Kafka 回写切片更新。</p>
      *
      * @param id 账号 ID
-     * @return 协议层上线受理回执
+     * @return outbox 上线命令受理回执
      */
     @PostMapping("/{id}/online")
     public ApiResponse<AccountOnlineVO> online(@PathVariable("id") Long id) {
@@ -78,13 +78,13 @@ public class AccountController {
     }
 
     /**
-     * A4 批量发起账号上线(后端逐账号分配空闲代理,协议层一次 batch 受理)。
+     * A4 批量发起账号上线(后端逐账号分配空闲代理,批量写入 outbox)。
      *
-     * <p>一次最多 500 个账号。返回的 accepted/timeout/error 是协议层命令投递结果,
+     * <p>一次最多 500 个账号。返回的 accepted 表示已写入 outbox 的命令数,
      * 不代表账号最终在线状态;最终登录状态由后续 Kafka 回写切片更新。</p>
      *
      * @param request 账号 ID 列表
-     * @return 协议层批量上线受理汇总
+     * @return outbox 批量上线命令受理汇总
      */
     @PostMapping("/batch-online")
     public ApiResponse<AccountBatchOnlineVO> batchOnline(@RequestBody AccountIdsDTO request) {

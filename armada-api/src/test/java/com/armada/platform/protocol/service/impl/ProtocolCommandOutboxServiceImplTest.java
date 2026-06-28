@@ -138,6 +138,21 @@ class ProtocolCommandOutboxServiceImplTest {
         verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
     }
 
+    @Test
+    void enqueueOnlineCommands_insertedCountMismatch_throwsConflictBeforeDispatch() {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-a", "cmd-b"), List.of("batch-1"));
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        assertThatThrownBy(() -> service.enqueueOnlineCommands(List.of(
+                onlineCommand(100L, "acc_100", CredentialFormat.BAILEYS_JSON, 7L),
+                onlineCommand(101L, "acc_101", CredentialFormat.PARAMS, 8L))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("协议命令 outbox 写入数量不一致")
+                .extracting("code")
+                .isEqualTo(ErrorCode.CONFLICT.code());
+        verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+    }
+
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {
         return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, commandIds, batchIds);
     }

@@ -9,7 +9,7 @@ import java.util.List;
  * 协议命令 Outbox 应用服务。
  *
  * <p>本服务只负责把账号上线命令转换为本地 outbox 行。它不发送 Kafka、不启动调度,
- * 也不改变账号上线入口行为。</p>
+ * Kafka 发送由事务提交后的 dispatcher 触发。</p>
  */
 public interface ProtocolCommandOutboxService {
 

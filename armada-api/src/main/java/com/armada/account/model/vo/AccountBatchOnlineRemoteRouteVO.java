@@ -3,7 +3,8 @@ package com.armada.account.model.vo;
 /**
  * 批量上线中协议层返回的远端 owner 路由。
  *
- * <p>本切片先只回传路由信息,不在 armada 内部做二次转发。</p>
+ * <p>outbox 受理阶段还没有 worker 路由,当前列表为空。消费端执行后如需返回远端 owner,
+ * 后续状态回写切片再填充本结构。</p>
  *
  * @param accountId         armada 账号主键
  * @param protocolAccountId 协议层账号句柄

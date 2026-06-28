@@ -5,9 +5,9 @@ package com.armada.account.model.vo;
  *
  * @param accountId         armada 账号主键
  * @param protocolAccountId 协议层账号句柄
- * @param result            协议层命令投递结果,例如 ACCEPTED/TIMEOUT/ERROR
- * @param retryAfterMs      协议层建议重试间隔;没有建议时为空
- * @param error             协议层错误说明;成功时为空
+ * @param result            outbox 命令受理结果,当前成功写入时为 ACCEPTED
+ * @param retryAfterMs      协议层建议重试间隔;outbox 阶段为空
+ * @param error             错误说明;成功时为空
  */
 public record AccountBatchOnlineItemVO(
         Long accountId,

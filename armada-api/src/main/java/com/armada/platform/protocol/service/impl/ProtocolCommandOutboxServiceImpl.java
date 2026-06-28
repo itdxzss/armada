@@ -98,6 +98,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         } catch (DuplicateKeyException ex) {
             throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 已存在");
         }
+        if (inserted != rows.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "协议命令 outbox 写入数量不一致: expected=" + rows.size() + ", inserted=" + inserted);
+        }
         // outbox 已写入当前事务,真正 Kafka 发送必须等 commit 后再触发,避免发送已回滚命令。
         dispatchTrigger.dispatchAfterCommit(rows);
         log.info("协议命令 outbox 已写入 batchId={} commandCount={} inserted={}",

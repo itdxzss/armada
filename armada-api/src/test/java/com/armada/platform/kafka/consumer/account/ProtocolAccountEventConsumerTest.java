@@ -1,9 +1,13 @@
 package com.armada.platform.kafka.consumer.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.armada.shared.exception.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,5 +87,53 @@ class ProtocolAccountEventConsumerTest {
         consumer.onMessage(raw);
 
         verifyNoInteractions(sink);
+    }
+
+    @Test
+    void onMessage_malformedJson_throwsBusinessExceptionWithoutSink() {
+        assertThatThrownBy(() -> consumer.onMessage("{bad-json"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议账号事件 JSON 解析失败");
+
+        verifyNoInteractions(sink);
+    }
+
+    @Test
+    void onMessage_missingTargetState_throwsBusinessExceptionWithoutSink() {
+        String raw = """
+                {
+                  "eventId": "evt-3",
+                  "event": "account.state_changed",
+                  "accountId": "acc_861800000001",
+                  "occurredAt": "2026-06-28T06:00:01Z",
+                  "workerId": "worker-a",
+                  "data": {"from": "RECONNECTING"}
+                }
+                """;
+
+        assertThatThrownBy(() -> consumer.onMessage(raw))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议账号状态事件缺少 data.to");
+
+        verifyNoInteractions(sink);
+    }
+
+    @Test
+    void onMessage_sinkFailureBubblesUpForKafkaContainerRetry() {
+        String raw = """
+                {
+                  "eventId": "evt-4",
+                  "event": "account.state_changed",
+                  "accountId": "acc_861800000001",
+                  "occurredAt": "2026-06-28T06:00:01Z",
+                  "workerId": "worker-a",
+                  "data": {"from": "RECONNECTING", "to": "ONLINE"}
+                }
+                """;
+        doThrow(new IllegalStateException("database unavailable")).when(sink).handleStateChanged(any());
+
+        assertThatThrownBy(() -> consumer.onMessage(raw))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("database unavailable");
     }
 }

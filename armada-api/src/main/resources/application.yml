@@ -47,6 +47,13 @@ armada:
       scheduler:
         enabled: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_ENABLED:true}
         fixed-delay-ms: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_FIXED_DELAY_MS:10000}
+    kafka:
+      account-events:
+        topic: ${PROTOCOL_ACCOUNT_EVENTS_TOPIC:protocol.account.events.v1}
+        group-id: ${PROTOCOL_ACCOUNT_EVENTS_GROUP_ID:armada-api-account-events}
+        retry-interval-ms: ${PROTOCOL_ACCOUNT_EVENTS_RETRY_INTERVAL_MS:1000}
+        max-retry-attempts: ${PROTOCOL_ACCOUNT_EVENTS_MAX_RETRY_ATTEMPTS:3}
+        dead-letter-topic-suffix: ${PROTOCOL_ACCOUNT_EVENTS_DLT_SUFFIX:.DLT}
   # 先测阶段统一登录密码(临时垫片,JWT 接上后删除);可用环境变量 DEV_LOGIN_PASSWORD 覆盖。
   dev-login:
     password: ${DEV_LOGIN_PASSWORD:armada123}

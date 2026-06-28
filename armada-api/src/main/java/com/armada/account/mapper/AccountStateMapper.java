@@ -1,6 +1,7 @@
 package com.armada.account.mapper;
 
 import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.AccountStateCode;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -31,4 +32,56 @@ public interface AccountStateMapper {
      * @return 对应的账号状态行;不存在时返回 null
      */
     AccountState selectByAccountId(@Param("accountId") Long accountId);
+
+    /**
+     * 更新账号登录态以及同步元数据。
+     *
+     * <p>用于 {@code account.state_changed} 普通 ONLINE/OFFLINE/RECONNECTING 等状态回写;
+     * 不改 account_state 生命周期字段。</p>
+     *
+     * @param row 包含 accountId、loginState、lastStateSyncTime、stateSource、updatedAt
+     * @return 实际更新行数
+     */
+    int updateLoginState(AccountState row);
+
+    /**
+     * 更新账号登录态、生命周期状态以及同步元数据。
+     *
+     * <p>用于 NEED_REAUTH、LOGGED_OUT、DEVICE_REMOVED 等必须收敛为封禁/解绑的终态事件。</p>
+     *
+     * @param row 包含 accountId、loginState、accountState、lastStateSyncTime、stateSource、updatedAt
+     * @return 实际更新行数
+     */
+    int updateLifecycleState(AccountState row);
+
+    /**
+     * 重连恢复时把解绑账号恢复为正常。
+     *
+     * <p>只更新 account_state=5(解绑) 的行,封禁/导出/未上报状态不会被 ONLINE 事件误改。</p>
+     *
+     * @param row 包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt
+     * @return 实际更新行数
+     */
+    default int recoverUnboundState(AccountState row) {
+        return recoverUnboundStateInternal(row, AccountStateCode.UNBOUND);
+    }
+
+    /**
+     * 重连恢复时把解绑账号恢复为正常的 SQL 实现。
+     *
+     * @param row          包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt
+     * @param unboundState 解绑状态码,用于 WHERE 限定
+     * @return 实际更新行数
+     */
+    int recoverUnboundStateInternal(@Param("row") AccountState row, @Param("unboundState") int unboundState);
+
+    /**
+     * 更新封号原因。
+     *
+     * <p>NEED_REAUTH + rawCode=403 收敛为封禁时写入简短原因码,便于列表排查。</p>
+     *
+     * @param row 包含 accountId、blockReason、updatedAt
+     * @return 实际更新行数
+     */
+    int updateBlockReason(AccountState row);
 }

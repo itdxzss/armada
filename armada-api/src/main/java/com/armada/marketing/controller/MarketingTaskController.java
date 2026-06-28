@@ -24,8 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 群组营销任务第一阶段接口。
  *
- * <p>当前已开放任务列表、创建、详情、启动、停止和批量删除。账号群树和修改营销素材
- * 按后续 checkpoint 继续补齐。</p>
+ * <p>当前已开放任务列表、创建、详情、账号群树、启动、停止、批量删除和通过任务修改营销素材。</p>
  */
 @RestController
 @RequestMapping("/api/marketing-tasks")

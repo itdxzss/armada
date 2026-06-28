@@ -12,6 +12,8 @@ import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.BatchOnlineSummary;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
 import com.armada.platform.protocol.model.result.OnlineRouting;
+import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
+import com.armada.platform.protocol.model.result.ProtocolProbeResult;
 import com.armada.platform.protocol.model.result.StateSource;
 import org.junit.jupiter.api.Test;
 
@@ -51,6 +53,16 @@ class AccountLifecyclePortContractTest {
             public BatchOnlineAccepted onlineBatch(BatchOnlineCommand command) {
                 throw new UnsupportedOperationException();
             }
+
+            @Override
+            public ProtocolAccountStatus status(String protocolAccountId) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ProtocolProbeResult probe(String protocolAccountId) {
+                throw new UnsupportedOperationException();
+            }
         };
 
         assertThat(command.proxy().sessionId()).isEqualTo("session-acc-001");
@@ -85,8 +97,62 @@ class AccountLifecyclePortContractTest {
             public BatchOnlineAccepted onlineBatch(BatchOnlineCommand command) {
                 return accepted;
             }
+
+            @Override
+            public ProtocolAccountStatus status(String protocolAccountId) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ProtocolProbeResult probe(String protocolAccountId) {
+                throw new UnsupportedOperationException();
+            }
         };
 
         assertThat(port.onlineBatch(command)).isSameAs(accepted);
+    }
+
+    @Test
+    void statusAndProbeContractsUseProtocolAccountId() {
+        ProtocolAccountStatus status = new ProtocolAccountStatus(
+                "acc_001",
+                "ONLINE",
+                "HEARTBEAT",
+                "BUSINESS_STANDARD",
+                Instant.parse("2026-06-28T10:00:00Z"),
+                null,
+                Instant.parse("2026-06-28T10:00:01Z"),
+                false,
+                null,
+                "worker-a");
+        ProtocolProbeResult probe = new ProtocolProbeResult(
+                true,
+                Instant.parse("2026-06-28T10:01:00Z"),
+                186L,
+                "OK");
+        AccountLifecyclePort port = new AccountLifecyclePort() {
+            @Override
+            public OnlineAccepted online(String protocolAccountId, OnlineCommand command) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public BatchOnlineAccepted onlineBatch(BatchOnlineCommand command) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ProtocolAccountStatus status(String protocolAccountId) {
+                return status;
+            }
+
+            @Override
+            public ProtocolProbeResult probe(String protocolAccountId) {
+                return probe;
+            }
+        };
+
+        assertThat(port.status("acc_001")).isSameAs(status);
+        assertThat(port.probe("acc_001")).isSameAs(probe);
     }
 }

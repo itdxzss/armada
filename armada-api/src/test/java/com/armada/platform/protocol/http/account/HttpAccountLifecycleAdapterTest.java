@@ -11,6 +11,8 @@ import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
 import com.armada.platform.protocol.model.result.BatchOnlineItemResult;
 import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.OnlineAccepted;
+import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
+import com.armada.platform.protocol.model.result.ProtocolProbeResult;
 import com.armada.platform.protocol.model.result.StateSource;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import org.junit.jupiter.api.Test;
@@ -216,6 +218,69 @@ class HttpAccountLifecycleAdapterTest {
         assertThatThrownBy(() -> port.online("acc_003", command))
                 .isInstanceOf(ProtocolException.class)
                 .hasMessageContaining("上线凭据不是合法 JSON object");
+        server.verify();
+    }
+
+    @Test
+    void statusGetsProtocolSnapshot() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountLifecyclePort port = new HttpAccountLifecycleAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol.internal/v1/accounts/acc_001/status"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "accountId": "acc_001",
+                          "state": "ONLINE",
+                          "stateSource": "HEARTBEAT",
+                          "accountType": "BUSINESS_STANDARD",
+                          "lastStateSyncTime": "2026-06-28T10:00:00Z",
+                          "cooldownUntil": null,
+                          "reportedAt": "2026-06-28T10:00:01Z",
+                          "needReauth": false,
+                          "reauthReason": null,
+                          "workerId": "worker-a"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        ProtocolAccountStatus result = port.status("acc_001");
+
+        assertThat(result.protocolAccountId()).isEqualTo("acc_001");
+        assertThat(result.state()).isEqualTo("ONLINE");
+        assertThat(result.stateSource()).isEqualTo("HEARTBEAT");
+        assertThat(result.accountType()).isEqualTo("BUSINESS_STANDARD");
+        assertThat(result.lastStateSyncTime()).isEqualTo(Instant.parse("2026-06-28T10:00:00Z"));
+        assertThat(result.reportedAt()).isEqualTo(Instant.parse("2026-06-28T10:00:01Z"));
+        assertThat(result.needReauth()).isFalse();
+        assertThat(result.workerId()).isEqualTo("worker-a");
+        server.verify();
+    }
+
+    @Test
+    void probePostsEmptyBodyAndMapsResult() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountLifecyclePort port = new HttpAccountLifecycleAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol.internal/v1/accounts/acc_001/probe"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{}"))
+                .andRespond(withSuccess("""
+                        {
+                          "ok": true,
+                          "probedAt": "2026-06-28T10:01:00Z",
+                          "latencyMs": 186,
+                          "reasonCode": "OK"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        ProtocolProbeResult result = port.probe("acc_001");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.probedAt()).isEqualTo(Instant.parse("2026-06-28T10:01:00Z"));
+        assertThat(result.latencyMs()).isEqualTo(186L);
+        assertThat(result.reasonCode()).isEqualTo("OK");
         server.verify();
     }
 }

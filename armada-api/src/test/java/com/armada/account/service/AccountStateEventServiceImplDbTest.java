@@ -72,6 +72,35 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         assertThat(state.getStateSource()).isEqualTo("BANNED");
     }
 
+    @Test
+    void applyStateChanged_staleEvent_doesNotRollbackNewerState() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86184" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+
+        service.applyStateChanged(new AccountStateChangedEvent(
+                account.getProtocolAccountId(),
+                "RECONNECTING",
+                "ONLINE",
+                now + 2_000L,
+                "RECONNECTING",
+                null));
+        service.applyStateChanged(new AccountStateChangedEvent(
+                account.getProtocolAccountId(),
+                "ONLINE",
+                "NEED_REAUTH",
+                now + 1_000L,
+                "NEED_REAUTH",
+                403));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
+        assertThat(state.getAccountState()).isNull();
+        assertThat(state.getBlockReason()).isNull();
+        assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
+        assertThat(state.getStateSource()).isEqualTo("RECONNECTING");
+    }
+
     private Account insertAccount(String wsPhone, long now) {
         Account account = new Account();
         account.setWsPhone(wsPhone);

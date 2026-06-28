@@ -68,8 +68,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     /**
      * 应用协议层 {@code account.state_changed} 事件。
      *
-     * <p>该方法在一个本地事务内完成状态收敛。找不到账号时记录 warn 并跳过,
-     * 避免一条历史脏事件阻塞后续 Kafka 分区消费。</p>
+     * <p>该方法在一个本地事务内完成状态收敛。找不到账号或事件时间早于当前状态时记录 warn 并跳过,
+     * 避免历史脏事件阻塞 Kafka 分区消费,也避免延迟消息回滚较新的账号状态。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -83,6 +83,14 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         }
 
         long occurredAt = event.occurredAt() == null ? System.currentTimeMillis() : event.occurredAt();
+        AccountState currentState = stateMapper.selectByAccountId(account.getId());
+        if (isStaleEvent(currentState, occurredAt)) {
+            log.warn("协议账号状态事件跳过,事件时间早于当前状态 accountId={} protocolAccountId={} from={} to={} "
+                            + "eventOccurredAt={} currentLastStateSyncTime={}",
+                    account.getId(), event.protocolAccountId(), event.from(), event.to(),
+                    occurredAt, currentState.getLastStateSyncTime());
+            return;
+        }
         long updatedAt = System.currentTimeMillis();
         String stateSource = clamp(event.semantic() == null || event.semantic().isBlank()
                 ? SOURCE_STATE_CHANGED
@@ -134,6 +142,12 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
 
     private static boolean isForbidden(Integer rawCode) {
         return rawCode != null && rawCode == WA_CODE_FORBIDDEN;
+    }
+
+    private static boolean isStaleEvent(AccountState currentState, long occurredAt) {
+        return currentState != null
+                && currentState.getLastStateSyncTime() != null
+                && occurredAt < currentState.getLastStateSyncTime();
     }
 
     private void markBanned(Account account, long occurredAt, long updatedAt) {

@@ -82,9 +82,11 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(lockedState.lockedBy()).isEqualTo("publisher-a");
         assertThat(lockedState.lockedAt()).isEqualTo(now + 1);
 
-        int sent = mapper.markSent(id, now + 3);
-        int sentAgain = mapper.markSent(id, now + 4);
+        int staleLockSent = mapper.markSent(lockedRow(id, row.getCommandId(), "publisher-a", now + 2), now + 3);
+        int sent = mapper.markSent(lockedRow(id, row.getCommandId(), "publisher-a", now + 1), now + 3);
+        int sentAgain = mapper.markSent(lockedRow(id, row.getCommandId(), "publisher-a", now + 1), now + 4);
 
+        assertThat(staleLockSent).isZero();
         assertThat(sent).isEqualTo(1);
         assertThat(sentAgain).isZero();
         OutboxState sentState = state(id);
@@ -104,10 +106,26 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         Long deadId = insertedId(dead.getCommandId(), now);
         assertThat(mapper.markLocked(List.of(retryId, deadId), "publisher-a", now + 1)).isEqualTo(2);
 
-        int retried = mapper.markRetry(retryId, now + 30_000, "temporary kafka error", now + 2);
-        int deadMarked = mapper.markDead(deadId, "fatal payload error", now + 3);
-        int deadMarkedAgain = mapper.markDead(deadId, "second fatal error", now + 4);
+        int staleRetry = mapper.markRetry(
+                lockedRow(retryId, retry.getCommandId(), "publisher-a", now + 2),
+                now + 30_000,
+                "stale retry",
+                now + 2);
+        int retried = mapper.markRetry(
+                lockedRow(retryId, retry.getCommandId(), "publisher-a", now + 1),
+                now + 30_000,
+                "temporary kafka error",
+                now + 2);
+        int deadMarked = mapper.markDead(
+                lockedRow(deadId, dead.getCommandId(), "publisher-a", now + 1),
+                "fatal payload error",
+                now + 3);
+        int deadMarkedAgain = mapper.markDead(
+                lockedRow(deadId, dead.getCommandId(), "publisher-a", now + 1),
+                "second fatal error",
+                now + 4);
 
+        assertThat(staleRetry).isZero();
         assertThat(retried).isEqualTo(1);
         OutboxState retryState = state(retryId);
         assertThat(retryState.status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
@@ -133,6 +151,104 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(mapper.selectDispatchable(ProtocolCommandOutboxStatus.PENDING.code(), now + 60_000, TEST_SCAN_LIMIT))
                 .extracting(ProtocolCommandOutbox::getCommandId)
                 .doesNotContain(dead.getCommandId());
+    }
+
+    @Test
+    void commandIdTransitions_supportAfterCommitMainPathWithoutPreselect() {
+        long now = System.currentTimeMillis();
+        ProtocolCommandOutbox sent = pendingCommand("cmd-sent-" + now, "batch-direct-" + now, 3501L, now);
+        ProtocolCommandOutbox retry = pendingCommand("cmd-retry-" + now, "batch-direct-" + now, 3502L, now);
+        ProtocolCommandOutbox dead = pendingCommand("cmd-dead-" + now, "batch-direct-" + now, 3503L, now);
+        mapper.batchInsertPending(List.of(sent, retry, dead));
+        Long sentId = insertedId(sent.getCommandId(), now);
+        Long retryId = insertedId(retry.getCommandId(), now);
+        Long deadId = insertedId(dead.getCommandId(), now);
+        long lockedAt = now + 1;
+        List<String> commandIds = List.of(sent.getCommandId(), retry.getCommandId(), dead.getCommandId());
+
+        int locked = mapper.markLockedByCommandIds(commandIds, "publisher-direct", lockedAt);
+        int wrongPublisherSent = mapper.markSent(
+                lockedRow(null, sent.getCommandId(), "publisher-other", lockedAt),
+                now + 2);
+        int staleLockSent = mapper.markSent(
+                lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt + 1),
+                now + 2);
+        List<ProtocolCommandOutbox> lockedRows = mapper.selectLockedByCommandIds(
+                commandIds, "publisher-direct", lockedAt);
+
+        assertThat(locked).isEqualTo(3);
+        assertThat(wrongPublisherSent).isZero();
+        assertThat(staleLockSent).isZero();
+        assertThat(lockedRows).extracting(ProtocolCommandOutbox::getCommandId)
+                .containsExactly(sent.getCommandId(), retry.getCommandId(), dead.getCommandId());
+
+        int sentMarked = mapper.markSent(
+                lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt),
+                now + 3);
+        int retried = mapper.markRetry(
+                lockedRow(null, retry.getCommandId(), "publisher-direct", lockedAt),
+                now + 30_000,
+                "direct retry",
+                now + 4);
+        int deadMarked = mapper.markDead(
+                lockedRow(null, dead.getCommandId(), "publisher-direct", lockedAt),
+                "direct dead",
+                now + 5);
+
+        assertThat(sentMarked).isEqualTo(1);
+        OutboxState sentState = state(sentId);
+        assertThat(sentState.status()).isEqualTo(ProtocolCommandOutboxStatus.SENT.code());
+        assertThat(sentState.sentAt()).isEqualTo(now + 3);
+        assertThat(sentState.lastError()).isNull();
+
+        assertThat(retried).isEqualTo(1);
+        OutboxState retryState = state(retryId);
+        assertThat(retryState.status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(retryState.retryCount()).isEqualTo(1);
+        assertThat(retryState.nextRetryAt()).isEqualTo(now + 30_000);
+        assertThat(retryState.lockedBy()).isNull();
+        assertThat(retryState.lastError()).isEqualTo("direct retry");
+
+        assertThat(deadMarked).isEqualTo(1);
+        OutboxState deadState = state(deadId);
+        assertThat(deadState.status()).isEqualTo(ProtocolCommandOutboxStatus.DEAD.code());
+        assertThat(deadState.lockedBy()).isNull();
+        assertThat(deadState.lastError()).isEqualTo("direct dead");
+    }
+
+    @Test
+    void selectLockedByAndReleaseExpiredLocks_supportDispatcherRecovery() {
+        long now = System.currentTimeMillis();
+        ProtocolCommandOutbox expired = pendingCommand("expired-lock-" + now, "batch-lock-" + now, 4001L, now);
+        ProtocolCommandOutbox fresh = pendingCommand("fresh-lock-" + now, "batch-lock-" + now, 4002L, now);
+        mapper.batchInsertPending(List.of(expired, fresh));
+        Long expiredId = insertedId(expired.getCommandId(), now);
+        Long freshId = insertedId(fresh.getCommandId(), now);
+        long expiredLockedAt = now + 1;
+        long freshLockedAt = now + 2;
+        assertThat(mapper.markLocked(List.of(expiredId), "publisher-a", expiredLockedAt)).isEqualTo(1);
+        assertThat(mapper.markLocked(List.of(freshId), "publisher-a", freshLockedAt)).isEqualTo(1);
+
+        List<ProtocolCommandOutbox> locked = mapper.selectLockedBy(
+                List.of(expiredId, freshId), "publisher-a", expiredLockedAt);
+
+        assertThat(locked).extracting(ProtocolCommandOutbox::getCommandId)
+                .containsExactly(expired.getCommandId());
+
+        int recovered = mapper.releaseExpiredLocks(freshLockedAt, now + 3, "publisher lock expired", 10);
+
+        assertThat(recovered).isEqualTo(1);
+        OutboxState expiredState = state(expiredId);
+        assertThat(expiredState.status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(expiredState.lockedBy()).isNull();
+        assertThat(expiredState.lockedAt()).isNull();
+        assertThat(expiredState.nextRetryAt()).isEqualTo(now + 3);
+        assertThat(expiredState.lastError()).isEqualTo("publisher lock expired");
+
+        OutboxState freshState = state(freshId);
+        assertThat(freshState.status()).isEqualTo(ProtocolCommandOutboxStatus.LOCKED.code());
+        assertThat(freshState.lockedBy()).isEqualTo("publisher-a");
+        assertThat(freshState.lockedAt()).isEqualTo(freshLockedAt);
     }
 
     private Long insertedId(String commandId, long now) {
@@ -166,6 +282,15 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         row.setNextRetryAt(0L);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
+        return row;
+    }
+
+    private ProtocolCommandOutbox lockedRow(Long id, String commandId, String lockedBy, long lockedAt) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setId(id);
+        row.setCommandId(commandId);
+        row.setLockedBy(lockedBy);
+        row.setLockedAt(lockedAt);
         return row;
     }
 

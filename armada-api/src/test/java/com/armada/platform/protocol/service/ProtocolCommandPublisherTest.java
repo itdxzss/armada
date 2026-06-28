@@ -7,6 +7,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.armada.platform.protocol.config.ProtocolCommandPublisherProperties;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolCommandEnvelope;
@@ -23,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
+import org.slf4j.LoggerFactory;
 
 /**
  * 协议命令 Kafka publisher 单测。
@@ -69,6 +74,27 @@ class ProtocolCommandPublisherTest {
         assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
         assertThat(envelope.payload().get("proxyId").asLong()).isEqualTo(7L);
         assertThat(envelope.payload().get("source").asText()).isEqualTo("manual_online");
+    }
+
+    @Test
+    void publish_success_doesNotWritePerMessageInfoLog() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ProtocolCommandPublisher.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ProtocolCommandOutbox row = outboxRow("{\"accountId\":100,\"proxyId\":7,\"source\":\"manual_online\"}");
+            when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_100"), any()))
+                    .thenReturn(CompletableFuture.completedFuture(null));
+
+            publisher.publish(row);
+
+            assertThat(appender.list)
+                    .noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.INFO)
+                            && event.getFormattedMessage().contains("协议命令 Kafka 发送成功"));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

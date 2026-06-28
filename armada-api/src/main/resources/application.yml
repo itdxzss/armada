@@ -37,6 +37,16 @@ armada:
     read-timeout-ms: 60000
     command-publisher:
       send-timeout-ms: ${PROTOCOL_COMMAND_SEND_TIMEOUT_MS:10000}
+    command-dispatcher:
+      immediate-enabled: ${PROTOCOL_COMMAND_DISPATCH_IMMEDIATE_ENABLED:true}
+      batch-size: ${PROTOCOL_COMMAND_DISPATCH_BATCH_SIZE:100}
+      max-batches-per-drain: ${PROTOCOL_COMMAND_DISPATCH_MAX_BATCHES_PER_DRAIN:5}
+      max-retry-count: ${PROTOCOL_COMMAND_DISPATCH_MAX_RETRY_COUNT:3}
+      retry-delay-ms: ${PROTOCOL_COMMAND_DISPATCH_RETRY_DELAY_MS:30000}
+      locked-timeout-ms: ${PROTOCOL_COMMAND_DISPATCH_LOCKED_TIMEOUT_MS:60000}
+      scheduler:
+        enabled: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_ENABLED:true}
+        fixed-delay-ms: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_FIXED_DELAY_MS:10000}
   # 先测阶段统一登录密码(临时垫片,JWT 接上后删除);可用环境变量 DEV_LOGIN_PASSWORD 覆盖。
   dev-login:
     password: ${DEV_LOGIN_PASSWORD:armada123}

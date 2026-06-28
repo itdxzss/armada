@@ -6,6 +6,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.service.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -17,17 +18,21 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 协议命令 Outbox 应用服务实现。
  *
- * <p>Slice 3 只把账号上线命令落入 {@code protocol_command_outbox};Kafka producer 和调度器
- * 留给后续切片实现。</p>
+ * <p>本服务只在本地事务中写 outbox。事务提交后通过 trigger 异步唤醒 dispatcher,
+ * Kafka 发送不包在本事务内。</p>
  */
 @Service
 public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxService {
+
+    private static final Logger log = LoggerFactory.getLogger(ProtocolCommandOutboxServiceImpl.class);
 
     /** 账号上线命令类型。 */
     public static final String COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED = "account.online.requested";
@@ -45,16 +50,21 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
+    private final ProtocolCommandDispatchTrigger dispatchTrigger;
 
     /**
      * 创建协议命令 Outbox service。
      *
-     * @param mapper       outbox mapper
-     * @param objectMapper JSON 序列化器
+     * @param mapper          outbox mapper
+     * @param objectMapper    JSON 序列化器
+     * @param dispatchTrigger outbox 提交后 dispatch 触发器
      */
-    public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper, ObjectMapper objectMapper) {
+    public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper,
+                                            ObjectMapper objectMapper,
+                                            ProtocolCommandDispatchTrigger dispatchTrigger) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.dispatchTrigger = dispatchTrigger;
     }
 
     /**
@@ -88,6 +98,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         } catch (DuplicateKeyException ex) {
             throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 已存在");
         }
+        // outbox 已写入当前事务,真正 Kafka 发送必须等 commit 后再触发,避免发送已回滚命令。
+        dispatchTrigger.dispatchAfterCommit(rows);
+        log.info("协议命令 outbox 已写入 batchId={} commandCount={} inserted={}",
+                batchId, commandIds.size(), inserted);
         return new ProtocolCommandOutboxEnqueueResult(batchId, commandIds, inserted);
     }
 

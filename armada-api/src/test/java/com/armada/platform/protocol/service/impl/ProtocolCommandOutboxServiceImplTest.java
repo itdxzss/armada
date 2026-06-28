@@ -13,6 +13,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.service.ProtocolCommandDispatchTrigger;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -32,6 +33,8 @@ import org.springframework.dao.DuplicateKeyException;
 class ProtocolCommandOutboxServiceImplTest {
 
     private final ProtocolCommandOutboxMapper mapper = org.mockito.Mockito.mock(ProtocolCommandOutboxMapper.class);
+    private final ProtocolCommandDispatchTrigger dispatchTrigger =
+            org.mockito.Mockito.mock(ProtocolCommandDispatchTrigger.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
@@ -77,6 +80,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 .doesNotContain("password")
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
     }
 
     @Test
@@ -101,6 +105,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(rows).extracting(ProtocolCommandOutbox::getCommandId)
                 .doesNotHaveDuplicates()
                 .containsExactlyElementsOf(commandIds);
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
     }
 
     @Test
@@ -116,6 +121,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 .extracting("code")
                 .isEqualTo(ErrorCode.CONFLICT.code());
         verify(mapper, never()).batchInsertPending(anyList());
+        verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
     }
 
     @Test
@@ -129,10 +135,11 @@ class ProtocolCommandOutboxServiceImplTest {
                 .hasMessageContaining("协议命令 ID 已存在")
                 .extracting("code")
                 .isEqualTo(ErrorCode.CONFLICT.code());
+        verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {
-        return new TestableProtocolCommandOutboxService(mapper, objectMapper, commandIds, batchIds);
+        return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, commandIds, batchIds);
     }
 
     private List<ProtocolCommandOutbox> capturedRows() {
@@ -161,9 +168,10 @@ class ProtocolCommandOutboxServiceImplTest {
 
         private TestableProtocolCommandOutboxService(ProtocolCommandOutboxMapper mapper,
                                                      ObjectMapper objectMapper,
+                                                     ProtocolCommandDispatchTrigger dispatchTrigger,
                                                      List<String> commandIds,
                                                      List<String> batchIds) {
-            super(mapper, objectMapper);
+            super(mapper, objectMapper, dispatchTrigger);
             this.commandIds = new ArrayDeque<>(commandIds);
             this.batchIds = new ArrayDeque<>(batchIds);
         }

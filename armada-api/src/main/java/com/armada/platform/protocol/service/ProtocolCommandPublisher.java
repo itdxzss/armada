@@ -62,7 +62,7 @@ public class ProtocolCommandPublisher {
         try {
             kafkaTemplate.send(row.getKafkaTopic(), row.getKafkaKey(), envelope)
                     .get(properties.getSendTimeoutMs(), TimeUnit.MILLISECONDS);
-            log.info("协议命令 Kafka 发送成功 commandId={} batchId={} accountId={} protocolAccountId={} topic={}",
+            log.debug("协议命令 Kafka 发送成功 commandId={} batchId={} accountId={} protocolAccountId={} topic={}",
                     row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getProtocolAccountId(),
                     row.getKafkaTopic());
             return new ProtocolCommandPublishResult(row.getCommandId(), row.getKafkaTopic(), row.getKafkaKey());

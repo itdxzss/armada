@@ -12,6 +12,20 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: latest
+    listener:
+      ack-mode: record
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -28,6 +42,27 @@ armada:
     api-key: ""
     connect-timeout-ms: 3000
     read-timeout-ms: 60000
+    command-publisher:
+      send-timeout-ms: ${PROTOCOL_COMMAND_SEND_TIMEOUT_MS:10000}
+    command-dispatcher:
+      immediate-enabled: ${PROTOCOL_COMMAND_DISPATCH_IMMEDIATE_ENABLED:true}
+      batch-size: ${PROTOCOL_COMMAND_DISPATCH_BATCH_SIZE:100}
+      max-batches-per-drain: ${PROTOCOL_COMMAND_DISPATCH_MAX_BATCHES_PER_DRAIN:5}
+      max-retry-count: ${PROTOCOL_COMMAND_DISPATCH_MAX_RETRY_COUNT:3}
+      retry-delay-ms: ${PROTOCOL_COMMAND_DISPATCH_RETRY_DELAY_MS:30000}
+      locked-timeout-ms: ${PROTOCOL_COMMAND_DISPATCH_LOCKED_TIMEOUT_MS:60000}
+      scheduler:
+        enabled: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_ENABLED:true}
+        fixed-delay-ms: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_FIXED_DELAY_MS:10000}
+    kafka:
+      account-commands:
+        topic: ${PROTOCOL_ACCOUNT_COMMANDS_TOPIC:protocol.account.commands.v1}
+      account-events:
+        topic: ${PROTOCOL_ACCOUNT_EVENTS_TOPIC:protocol.account.events.v1}
+        group-id: ${PROTOCOL_ACCOUNT_EVENTS_GROUP_ID:armada-api-account-events}
+        retry-interval-ms: ${PROTOCOL_ACCOUNT_EVENTS_RETRY_INTERVAL_MS:1000}
+        max-retry-attempts: ${PROTOCOL_ACCOUNT_EVENTS_MAX_RETRY_ATTEMPTS:3}
+        dead-letter-topic-suffix: ${PROTOCOL_ACCOUNT_EVENTS_DLT_SUFFIX:.DLT}
   # 先测阶段统一登录密码(临时垫片,JWT 接上后删除);可用环境变量 DEV_LOGIN_PASSWORD 覆盖。
   dev-login:
     password: ${DEV_LOGIN_PASSWORD:armada123}

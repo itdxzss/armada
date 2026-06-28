@@ -6,20 +6,15 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
-import com.armada.account.model.vo.AccountBatchOnlineRemoteRouteVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountOnlineCommandService;
-import com.armada.account.service.AccountOnlinePlan;
-import com.armada.account.service.AccountOnlineService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
-import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
-import com.armada.platform.protocol.model.result.BatchOnlineItemResult;
-import com.armada.platform.protocol.model.result.BatchOnlineRemoteRoute;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
-import com.armada.platform.protocol.model.result.BatchOnlineSummary;
-import com.armada.platform.protocol.model.result.OnlineAccepted;
-import com.armada.platform.protocol.model.result.OnlineRouting;
+import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.resource.service.IpProxyAccountAllocation;
 import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
@@ -27,7 +22,6 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -37,43 +31,47 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 账号上线应用服务实现。
+ * 账号生命周期命令应用服务实现。
  *
- * <p>本类是账号域的上线入口编排:查账号、查自托管凭据、通过 resource 服务自动分配代理,
- * 再复用现有 {@link AccountOnlineService} 投递协议层上线命令。它不修改登录状态,避免把"已受理"误写成"已在线"。</p>
+ * <p>本类是账号域的上线/下线入口编排:上线负责查凭据、分配代理并写 outbox;
+ * 下线只校验账号并写 outbox。它不直接调用协议层,也不修改登录状态,
+ * 避免把"已受理"误写成"已在线/已离线"。</p>
  */
 @Service
 public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountOnlineCommandServiceImpl.class);
-    private static final int BATCH_ONLINE_MAX_SIZE = 500;
-    private static final int BATCH_ONLINE_WAIT_MS = 60_000;
+    private static final int BATCH_COMMAND_MAX_SIZE = 500;
+    private static final String OUTBOX_STATE_SOURCE = "OUTBOX";
+    private static final String SOURCE_MANUAL_ONLINE = "manual_online";
+    private static final String SOURCE_BATCH_ONLINE = "batch_online";
+    private static final String SOURCE_BATCH_OFFLINE = "batch_offline";
 
     private final AccountMapper accountMapper;
     private final AccountCredentialMapper credentialMapper;
     private final IpProxyService ipProxyService;
-    private final AccountOnlineService accountOnlineService;
+    private final ProtocolCommandOutboxService protocolCommandOutboxService;
 
     /**
      * 创建账号上线编排服务。
      *
-     * <p>这里保持构造器注入,便于单测替换账号、凭据、代理和协议上线服务。</p>
+     * <p>这里保持构造器注入,便于单测替换账号、凭据、代理和 outbox 服务。</p>
      */
     public AccountOnlineCommandServiceImpl(AccountMapper accountMapper,
                                            AccountCredentialMapper credentialMapper,
                                            IpProxyService ipProxyService,
-                                           AccountOnlineService accountOnlineService) {
+                                           ProtocolCommandOutboxService protocolCommandOutboxService) {
         this.accountMapper = accountMapper;
         this.credentialMapper = credentialMapper;
         this.ipProxyService = ipProxyService;
-        this.accountOnlineService = accountOnlineService;
+        this.protocolCommandOutboxService = protocolCommandOutboxService;
     }
 
     /**
      * 自动分配代理并上线一个未软删账号。
      *
-     * <p>该方法只完成"上线请求被协议层受理"的同步编排,不会把账号本地状态直接改成 ONLINE。
-     * 真正是否在线以后续状态刷新为准。日志只记录运营定位需要的 ID、格式、长度和受理结果,
+     * <p>该方法只完成"上线命令已可靠进入 outbox"的同步编排,不会把账号本地状态直接改成 ONLINE。
+     * 真正是否在线以后续 Kafka 状态刷新为准。日志只记录运营定位需要的 ID、格式、长度和受理结果,
      * 不输出凭据 JSON、代理账号密码等敏感内容。</p>
      */
     @Override
@@ -88,30 +86,27 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(account.getId());
 
         try {
-            // 3. 协议层只需要凭据格式枚举和原始 JSON;日志只打 JSON 长度,避免凭据泄露。
+            // 3. outbox 只保存凭据格式和代理 ID;日志只打 JSON 长度,避免凭据泄露。
             CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
             String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-            log.info("账号上线调用协议层 accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
+            log.info("账号上线写入 outbox 前准备 command accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
                     account.getId(), allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
 
-            AccountOnlinePlan plan = new AccountOnlinePlan(
+            ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
+                    account.getId(),
                     protocolAccountId,
                     credentialFormat,
-                    credential.getCredsJson(),
-                    allocation.endpoint());
+                    allocation.proxyId(),
+                    SOURCE_MANUAL_ONLINE);
 
-            // 4. accepted 表示协议层已受理上线请求,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
-            OnlineAccepted accepted = accountOnlineService.online(plan);
-            if (!accepted.accepted()) {
-                ipProxyService.releaseOnlineAllocation(account.getId(), allocation.proxyId());
-            }
-            OnlineRouting routing = accepted.routing();
-            log.info("账号上线协议层返回 accountId={} allocatedProxyId={} accepted={} stateSource={} ownerWorkerId={} local={}",
-                    account.getId(), allocation.proxyId(), accepted.accepted(), accepted.stateSource(),
-                    routing.ownerWorkerId(), routing.local());
+            // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
+            ProtocolCommandOutboxEnqueueResult enqueueResult =
+                    protocolCommandOutboxService.enqueueOnlineCommands(List.of(command));
+            log.info("账号上线 outbox 已受理 accountId={} allocatedProxyId={} commandIds={} inserted={}",
+                    account.getId(), allocation.proxyId(), enqueueResult.commandIds().size(), enqueueResult.inserted());
 
-            // 5. 对外返回受理结果和路由信息,状态落库仍由后续同步流程负责。
-            return toVO(account.getId(), accepted);
+            // 5. 对外返回本地受理结果;worker 路由信息要等消费端执行后再由状态回写补齐。
+            return toOutboxAcceptedVO(account.getId(), protocolAccountId, System.currentTimeMillis());
         } catch (RuntimeException ex) {
             releaseAllocationAfterFailure(account.getId(), allocation.proxyId(), ex);
             throw ex;
@@ -121,8 +116,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     /**
      * 批量自动分配代理并投递上线命令。
      *
-     * <p>本方法只保证"批量上线命令已提交给协议层",不等待账号真正在线。为了避免 N 次协议 HTTP,
-     * 账号和凭据批量查询后,统一交给 {@link AccountOnlineService#onlineBatch(List, int)} 发一次协议 batch。
+     * <p>本方法只保证"批量上线命令已写入 outbox",不等待账号真正在线。为了避免请求线程做 N 次协议调用,
+     * 账号和凭据批量查询后,统一交给 outbox service 批量落库并在事务提交后发 Kafka。
      * 日志只记录账号数、代理 ID、状态汇总和耗时,不打印凭据或代理密码。</p>
      */
     @Override
@@ -132,7 +127,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
         Map<Long, Account> accountsById = loadAccounts(ids);
         Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
-        List<PreparedOnlinePlan> prepared = new ArrayList<>(ids.size());
+        List<PreparedOnlineCommand> prepared = new ArrayList<>(ids.size());
         List<IpProxyAccountAllocation> allocations = List.of();
 
         try {
@@ -145,29 +140,64 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 AccountCredential credential = credentialsByAccountId.get(accountId);
                 CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
                 String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-                AccountOnlinePlan plan = new AccountOnlinePlan(
+                ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
+                        accountId,
                         protocolAccountId,
                         credentialFormat,
-                        credential.getCredsJson(),
-                        allocation.endpoint());
-                prepared.add(new PreparedOnlinePlan(accountId, protocolAccountId, allocation, plan));
-                log.info("账号批量上线已分配代理 accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
+                        allocation.proxyId(),
+                        SOURCE_BATCH_ONLINE);
+                prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
+                log.info("账号批量上线写入 outbox 前准备 command accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
                         accountId, allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
             }
 
-            BatchOnlineAccepted accepted = accountOnlineService.onlineBatch(
-                    prepared.stream().map(PreparedOnlinePlan::plan).toList(),
-                    BATCH_ONLINE_WAIT_MS);
-            AccountBatchOnlineVO vo = toBatchVO(ids.size(), prepared, accepted);
-            releaseRejectedAllocations(prepared, accepted);
-            log.info("账号批量上线协议层返回 requested={} submitted={} accepted={} timeout={} proxyRequired={} error={} remote={} elapsedMs={}",
+            ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
+                    prepared.stream().map(PreparedOnlineCommand::command).toList());
+            AccountBatchOnlineVO vo = toOutboxBatchVO(ids.size(), prepared, enqueueResult);
+            log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
+                            + "error={} remote={} elapsedMs={} batchId={} commandIds={}",
                     vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
-                    vo.error(), vo.remote(), vo.elapsedMs());
+                    vo.error(), vo.remote(), vo.elapsedMs(), enqueueResult.batchId(),
+                    enqueueResult.commandIds().size());
             return vo;
         } catch (RuntimeException ex) {
             releaseAllocationsAfterFailure(allocations, ex);
             throw ex;
         }
+    }
+
+    /**
+     * 批量投递账号下线命令。
+     *
+     * <p>下线命令只需要账号 ID 和协议账号 ID,不读取凭据、不分配代理、不在请求线程释放代理绑定。
+     * 本方法只保证下线命令进入 outbox,最终登录状态和代理释放以后续 Kafka 回写链路为准。</p>
+     */
+    @Override
+    public AccountBatchOnlineVO offlineBatch(List<Long> accountIds) {
+        List<Long> ids = normalizeBatchAccountIds(accountIds);
+        log.info("账号批量下线开始 requested={}", ids.size());
+
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        List<PreparedOfflineCommand> prepared = new ArrayList<>(ids.size());
+        for (Long accountId : ids) {
+            Account account = accountsById.get(accountId);
+            String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+            prepared.add(new PreparedOfflineCommand(
+                    accountId,
+                    protocolAccountId,
+                    new ProtocolOfflineCommandRequest(accountId, protocolAccountId, SOURCE_BATCH_OFFLINE)));
+            log.info("账号批量下线写入 outbox 前准备 command accountId={} protocolAccountId={}",
+                    accountId, protocolAccountId);
+        }
+
+        ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOfflineCommands(
+                prepared.stream().map(PreparedOfflineCommand::command).toList());
+        AccountBatchOnlineVO vo = toOutboxOfflineBatchVO(ids.size(), prepared, enqueueResult);
+        log.info("账号批量下线 outbox 已受理 requested={} submitted={} accepted={} error={} elapsedMs={} "
+                        + "batchId={} commandIds={}",
+                vo.requested(), vo.submitted(), vo.accepted(), vo.error(), vo.elapsedMs(),
+                enqueueResult.batchId(), enqueueResult.commandIds().size());
+        return vo;
     }
 
     /**
@@ -233,71 +263,70 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         };
     }
 
-    /**
-     * 将协议层受理结果映射为接口返回对象。
-     */
-    private static AccountOnlineVO toVO(Long accountId, OnlineAccepted accepted) {
-        OnlineRouting routing = accepted.routing();
+    private static AccountOnlineVO toOutboxAcceptedVO(Long accountId, String protocolAccountId, long acceptedAt) {
         return new AccountOnlineVO(
                 accountId,
-                accepted.protocolAccountId(),
-                accepted.accepted(),
-                accepted.stateSource().name(),
-                accepted.syncedAt() == null ? null : accepted.syncedAt().toEpochMilli(),
-                routing.ownerWorkerId(),
-                routing.ownerEndpoint(),
-                routing.currentWorkerId(),
-                routing.local());
+                protocolAccountId,
+                true,
+                OUTBOX_STATE_SOURCE,
+                acceptedAt,
+                null,
+                null,
+                null,
+                false);
     }
 
-    private static AccountBatchOnlineVO toBatchVO(int requested,
-                                                  List<PreparedOnlinePlan> prepared,
-                                                  BatchOnlineAccepted accepted) {
-        if (accepted == null || accepted.summary() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "协议层批量上线响应为空");
-        }
-        Map<String, Long> accountIdByProtocolId = accountIdByProtocolId(prepared);
-        BatchOnlineSummary summary = accepted.summary();
+    private static AccountBatchOnlineVO toOutboxBatchVO(int requested,
+                                                        List<PreparedOnlineCommand> prepared,
+                                                        ProtocolCommandOutboxEnqueueResult enqueueResult) {
         return new AccountBatchOnlineVO(
                 requested,
                 prepared.size(),
-                summary.accepted(),
-                summary.timeout(),
-                summary.proxyRequired(),
-                summary.error(),
-                summary.remote(),
-                accepted.elapsedMs(),
-                toItemVOs(accepted.results(), accountIdByProtocolId),
-                toRemoteVOs(accepted.remote(), accountIdByProtocolId));
+                enqueueResult.inserted(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                toOutboxItemVOs(prepared),
+                List.of());
     }
 
-    private static List<AccountBatchOnlineItemVO> toItemVOs(List<BatchOnlineItemResult> results,
-                                                            Map<String, Long> accountIdByProtocolId) {
-        if (results == null) {
-            return List.of();
-        }
-        return results.stream()
-                .map(result -> new AccountBatchOnlineItemVO(
-                        accountIdByProtocolId.get(result.protocolAccountId()),
-                        result.protocolAccountId(),
-                        result.result() == null ? BatchOnlineResultStatus.ERROR.name() : result.result().name(),
-                        result.retryAfterMs(),
-                        result.error()))
+    private static AccountBatchOnlineVO toOutboxOfflineBatchVO(int requested,
+                                                               List<PreparedOfflineCommand> prepared,
+                                                               ProtocolCommandOutboxEnqueueResult enqueueResult) {
+        return new AccountBatchOnlineVO(
+                requested,
+                prepared.size(),
+                enqueueResult.inserted(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                toOutboxOfflineItemVOs(prepared),
+                List.of());
+    }
+
+    private static List<AccountBatchOnlineItemVO> toOutboxItemVOs(List<PreparedOnlineCommand> prepared) {
+        return prepared.stream()
+                .map(command -> new AccountBatchOnlineItemVO(
+                        command.accountId(),
+                        command.protocolAccountId(),
+                        BatchOnlineResultStatus.ACCEPTED.name(),
+                        null,
+                        null))
                 .toList();
     }
 
-    private static List<AccountBatchOnlineRemoteRouteVO> toRemoteVOs(List<BatchOnlineRemoteRoute> remote,
-                                                                     Map<String, Long> accountIdByProtocolId) {
-        if (remote == null) {
-            return List.of();
-        }
-        return remote.stream()
-                .map(route -> new AccountBatchOnlineRemoteRouteVO(
-                        accountIdByProtocolId.get(route.protocolAccountId()),
-                        route.protocolAccountId(),
-                        route.ownerWorkerId(),
-                        route.ownerEndpoint(),
-                        route.note()))
+    private static List<AccountBatchOnlineItemVO> toOutboxOfflineItemVOs(List<PreparedOfflineCommand> prepared) {
+        return prepared.stream()
+                .map(command -> new AccountBatchOnlineItemVO(
+                        command.accountId(),
+                        command.protocolAccountId(),
+                        BatchOnlineResultStatus.ACCEPTED.name(),
+                        null,
+                        null))
                 .toList();
     }
 
@@ -315,8 +344,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         if (accountIds == null || accountIds.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 列表不能为空");
         }
-        if (accountIds.size() > BATCH_ONLINE_MAX_SIZE) {
-            throw new BusinessException(ErrorCode.VALIDATION, "批量上线一次最多 " + BATCH_ONLINE_MAX_SIZE + " 个账号");
+        if (accountIds.size() > BATCH_COMMAND_MAX_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "批量账号命令一次最多 " + BATCH_COMMAND_MAX_SIZE + " 个账号");
         }
         Set<Long> seen = new LinkedHashSet<>();
         for (Long accountId : accountIds) {
@@ -337,32 +367,6 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return credentialJson == null ? 0 : credentialJson.length();
     }
 
-    private static Map<String, Long> accountIdByProtocolId(List<PreparedOnlinePlan> prepared) {
-        Map<String, Long> mapping = new HashMap<>();
-        for (PreparedOnlinePlan plan : prepared) {
-            mapping.put(plan.protocolAccountId(), plan.accountId());
-        }
-        return mapping;
-    }
-
-    private void releaseRejectedAllocations(List<PreparedOnlinePlan> prepared, BatchOnlineAccepted accepted) {
-        Set<String> acceptedProtocolIds = new HashSet<>();
-        if (accepted != null && accepted.results() != null) {
-            for (BatchOnlineItemResult result : accepted.results()) {
-                if (result.result() == BatchOnlineResultStatus.ACCEPTED) {
-                    acceptedProtocolIds.add(result.protocolAccountId());
-                }
-            }
-        }
-        List<IpProxyAccountAllocation> toRelease = new ArrayList<>();
-        for (PreparedOnlinePlan plan : prepared) {
-            if (!acceptedProtocolIds.contains(plan.protocolAccountId())) {
-                toRelease.add(plan.allocation());
-            }
-        }
-        releaseAllocationsQuietly(toRelease);
-    }
-
     private void releaseAllocationsAfterFailure(List<IpProxyAccountAllocation> allocations, RuntimeException original) {
         if (allocations.isEmpty()) {
             return;
@@ -375,17 +379,6 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         }
     }
 
-    private void releaseAllocationsQuietly(List<IpProxyAccountAllocation> allocations) {
-        if (allocations.isEmpty()) {
-            return;
-        }
-        try {
-            ipProxyService.releaseOnlineAllocations(allocations);
-        } catch (RuntimeException ex) {
-            log.error("账号批量上线非受理项批量释放代理失败 count={}", allocations.size(), ex);
-        }
-    }
-
     private void releaseAllocationAfterFailure(Long accountId, Long proxyId, RuntimeException original) {
         try {
             ipProxyService.releaseOnlineAllocation(accountId, proxyId);
@@ -395,11 +388,17 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         }
     }
 
-    private record PreparedOnlinePlan(
+    private record PreparedOnlineCommand(
             Long accountId,
             String protocolAccountId,
-            IpProxyAccountAllocation allocation,
-            AccountOnlinePlan plan
+            ProtocolOnlineCommandRequest command
+    ) {
+    }
+
+    private record PreparedOfflineCommand(
+            Long accountId,
+            String protocolAccountId,
+            ProtocolOfflineCommandRequest command
     ) {
     }
 }

@@ -3,7 +3,6 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -19,16 +18,11 @@ import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
-import com.armada.account.service.AccountOnlinePlan;
-import com.armada.account.service.AccountOnlineService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
-import com.armada.platform.protocol.model.result.BatchOnlineAccepted;
-import com.armada.platform.protocol.model.result.BatchOnlineItemResult;
-import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
-import com.armada.platform.protocol.model.result.BatchOnlineSummary;
-import com.armada.platform.protocol.model.result.OnlineAccepted;
-import com.armada.platform.protocol.model.result.OnlineRouting;
-import com.armada.platform.protocol.model.result.StateSource;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.resource.service.IpProxyAccountAllocation;
@@ -36,7 +30,6 @@ import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
-import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,8 +42,8 @@ import org.slf4j.LoggerFactory;
 /**
  * 单账号自动分配代理上线命令服务单测。
  *
- * <p>只验证账号域编排:查账号/凭据/自动分配代理 → 组装 {@link AccountOnlinePlan}
- * → 调现有上线服务。协议 HTTP 行为由底层 adapter 测试覆盖。</p>
+ * <p>只验证账号域编排:查账号/凭据/自动分配代理 → 组装轻量协议命令
+ * → 写入 outbox。Kafka 发送和协议执行由 platform 后续链路测试覆盖。</p>
  */
 @ExtendWith(MockitoExtension.class)
 class AccountOnlineCommandServiceImplTest {
@@ -65,13 +58,13 @@ class AccountOnlineCommandServiceImplTest {
     private IpProxyService ipProxyService;
 
     @Mock
-    private AccountOnlineService accountOnlineService;
+    private ProtocolCommandOutboxService protocolCommandOutboxService;
 
     @InjectMocks
     private AccountOnlineCommandServiceImpl service;
 
     @Test
-    void online_validAccountCredentialAndAllocatedProxy_delegatesPlanAndMapsAcceptedVo() {
+    void online_validAccountCredentialAndAllocatedProxy_enqueuesOutboxCommandAndMapsAcceptedVo() {
         Account account = new Account();
         account.setId(100L);
         account.setWsPhone("8613800138000");
@@ -86,39 +79,36 @@ class AccountOnlineCommandServiceImplTest {
                 1080,
                 new ProxyCredentials("user", "pass_session-Abc123"),
                 "印度");
-        Instant syncedAt = Instant.parse("2026-06-26T10:15:30Z");
-        OnlineAccepted accepted = new OnlineAccepted(
-                "acc_8613800138000",
-                true,
-                StateSource.MANUAL_REFRESH,
-                syncedAt,
-                new OnlineRouting("worker-a", null, "worker-a", true));
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
         when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
-        when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenReturn(accepted);
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
         AccountOnlineVO result = service.online(100L);
 
         verify(ipProxyService).allocateOnlineEndpoint(100L);
-        ArgumentCaptor<AccountOnlinePlan> planCaptor = ArgumentCaptor.forClass(AccountOnlinePlan.class);
-        verify(accountOnlineService).online(planCaptor.capture());
-        AccountOnlinePlan plan = planCaptor.getValue();
-        assertThat(plan.protocolAccountId()).isEqualTo("acc_8613800138000");
-        assertThat(plan.credentialFormat()).isEqualTo(CredentialFormat.BAILEYS_JSON);
-        assertThat(plan.credentialJson()).isEqualTo("{\"creds\":{},\"keys\":{}}");
-        assertThat(plan.proxyEndpoint()).isSameAs(endpoint);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).hasSize(1);
+        ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
+        assertThat(command.accountId()).isEqualTo(100L);
+        assertThat(command.protocolAccountId()).isEqualTo("acc_8613800138000");
+        assertThat(command.credentialFormat()).isEqualTo(CredentialFormat.BAILEYS_JSON);
+        assertThat(command.proxyId()).isEqualTo(7L);
+        assertThat(command.source()).isEqualTo("manual_online");
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
 
         assertThat(result.accountId()).isEqualTo(100L);
         assertThat(result.protocolAccountId()).isEqualTo("acc_8613800138000");
         assertThat(result.accepted()).isTrue();
-        assertThat(result.stateSource()).isEqualTo("MANUAL_REFRESH");
-        assertThat(result.syncedAt()).isEqualTo(syncedAt.toEpochMilli());
-        assertThat(result.ownerWorkerId()).isEqualTo("worker-a");
+        assertThat(result.stateSource()).isEqualTo("OUTBOX");
+        assertThat(result.syncedAt()).isNotNull();
+        assertThat(result.ownerWorkerId()).isNull();
         assertThat(result.ownerEndpoint()).isNull();
-        assertThat(result.currentWorkerId()).isEqualTo("worker-a");
-        assertThat(result.local()).isTrue();
+        assertThat(result.currentWorkerId()).isNull();
+        assertThat(result.local()).isFalse();
     }
 
     @Test
@@ -142,16 +132,11 @@ class AccountOnlineCommandServiceImplTest {
                     1080,
                     new ProxyCredentials("user", "pass_session-Abc123"),
                     "印度");
-            OnlineAccepted accepted = new OnlineAccepted(
-                    "acc_8613800138000",
-                    true,
-                    StateSource.MANUAL_REFRESH,
-                    Instant.parse("2026-06-26T10:15:30Z"),
-                    new OnlineRouting("worker-a", null, "worker-a", true));
             when(accountMapper.selectActiveById(100L)).thenReturn(account);
             when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
             when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
-            when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenReturn(accepted);
+            when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                    .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
             service.online(100L);
 
@@ -161,14 +146,13 @@ class AccountOnlineCommandServiceImplTest {
             assertThat(messages)
                     .anyMatch(message -> message.contains("账号上线开始 accountId=100"));
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号上线调用协议层 accountId=100 allocatedProxyId=7")
+                    .anyMatch(message -> message.contains("账号上线写入 outbox 前准备 command accountId=100 allocatedProxyId=7")
                             && message.contains("credentialFormat=BAILEYS_JSON")
                             && message.contains("credentialLength=" + credentialJson.length()));
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号上线协议层返回 accountId=100 allocatedProxyId=7 accepted=true")
-                            && message.contains("stateSource=MANUAL_REFRESH")
-                            && message.contains("ownerWorkerId=worker-a")
-                            && message.contains("local=true"));
+                    .anyMatch(message -> message.contains("账号上线 outbox 已受理 accountId=100 allocatedProxyId=7")
+                            && message.contains("inserted=1")
+                            && message.contains("commandIds=1"));
             assertThat(messages)
                     .noneMatch(message -> message.contains(credentialJson)
                             || message.contains("pass_session-Abc123"));
@@ -179,15 +163,15 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
-    void online_protocolThrows_releasesAllocatedProxyAndRethrowsOriginalFailure() {
+    void online_enqueueThrows_releasesAllocatedProxyAndRethrowsOriginalFailure() {
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
         ProxyEndpoint endpoint = onlineEndpoint();
-        RuntimeException failure = new RuntimeException("protocol unavailable");
+        RuntimeException failure = new RuntimeException("outbox unavailable");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
         when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
-        when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenThrow(failure);
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any())).thenThrow(failure);
 
         assertThatThrownBy(() -> service.online(100L))
                 .isSameAs(failure);
@@ -196,29 +180,7 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
-    void online_protocolReturnsNotAccepted_releasesAllocatedProxyAndReturnsRejectedVo() {
-        Account account = onlineAccount();
-        AccountCredential credential = onlineCredential();
-        ProxyEndpoint endpoint = onlineEndpoint();
-        OnlineAccepted accepted = new OnlineAccepted(
-                "acc_8613800138000",
-                false,
-                StateSource.MANUAL_REFRESH,
-                Instant.parse("2026-06-26T10:15:30Z"),
-                new OnlineRouting("worker-a", null, "worker-a", true));
-        when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
-        when(ipProxyService.allocateOnlineEndpoint(100L)).thenReturn(new IpProxyAllocation(7L, endpoint));
-        when(accountOnlineService.online(any(AccountOnlinePlan.class))).thenReturn(accepted);
-
-        AccountOnlineVO result = service.online(100L);
-
-        assertThat(result.accepted()).isFalse();
-        verify(ipProxyService).releaseOnlineAllocation(100L, 7L);
-    }
-
-    @Test
-    void onlineBatch_validAccountsCredentialsAndAllocatedProxies_delegatesOneBatchAndReleasesRejectedItems() {
+    void onlineBatch_validAccountsCredentialsAndAllocatedProxies_enqueuesOneOutboxBatch() {
         Account accountA = account(100L, "acc_100");
         Account accountB = account(101L, "acc_101");
         AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
@@ -230,63 +192,104 @@ class AccountOnlineCommandServiceImplTest {
                 8080,
                 new ProxyCredentials("user-b", "pass_session-Bbb123"),
                 "新加坡");
-        BatchOnlineAccepted accepted = new BatchOnlineAccepted(
-                Instant.parse("2026-06-27T10:00:00Z"),
-                80L,
-                new BatchOnlineSummary(2, 2, 0, 1, 1, 0, 0),
-                List.of(
-                        new BatchOnlineItemResult("acc_100", BatchOnlineResultStatus.ACCEPTED, null, null),
-                        new BatchOnlineItemResult("acc_101", BatchOnlineResultStatus.TIMEOUT, 5000, null)),
-                List.of());
         when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
         when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
         List<IpProxyAccountAllocation> allocations = List.of(
                 new IpProxyAccountAllocation(100L, 7L, endpointA),
                 new IpProxyAccountAllocation(101L, 8L, endpointB));
         when(ipProxyService.allocateOnlineEndpoints(List.of(100L, 101L))).thenReturn(allocations);
-        when(accountOnlineService.onlineBatch(any(), eq(60_000))).thenReturn(accepted);
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
 
         AccountBatchOnlineVO result = service.onlineBatch(List.of(100L, 101L));
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<AccountOnlinePlan>> plansCaptor = ArgumentCaptor.forClass(List.class);
-        verify(accountOnlineService).onlineBatch(plansCaptor.capture(), eq(60_000));
-        List<AccountOnlinePlan> plans = plansCaptor.getValue();
-        assertThat(plans).hasSize(2);
-        assertThat(plans).extracting(AccountOnlinePlan::protocolAccountId)
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        List<ProtocolOnlineCommandRequest> commands = commandsCaptor.getValue();
+        assertThat(commands).hasSize(2);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::protocolAccountId)
                 .containsExactly("acc_100", "acc_101");
-        assertThat(plans).extracting(AccountOnlinePlan::credentialFormat)
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::credentialFormat)
                 .containsExactly(CredentialFormat.BAILEYS_JSON, CredentialFormat.PARAMS);
-        assertThat(plans.get(0).proxyEndpoint()).isSameAs(endpointA);
-        assertThat(plans.get(1).proxyEndpoint()).isSameAs(endpointB);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::proxyId)
+                .containsExactly(7L, 8L);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::source)
+                .containsExactly("batch_online", "batch_online");
 
-        verify(ipProxyService).releaseOnlineAllocations(List.of(allocations.get(1)));
+        verify(ipProxyService, never()).releaseOnlineAllocations(any());
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
         verify(ipProxyService, never()).allocateOnlineEndpoint(any());
         assertThat(result.requested()).isEqualTo(2);
         assertThat(result.submitted()).isEqualTo(2);
-        assertThat(result.accepted()).isEqualTo(1);
-        assertThat(result.timeout()).isEqualTo(1);
+        assertThat(result.accepted()).isEqualTo(2);
+        assertThat(result.timeout()).isZero();
+        assertThat(result.proxyRequired()).isZero();
+        assertThat(result.error()).isZero();
+        assertThat(result.remote()).isZero();
+        assertThat(result.elapsedMs()).isZero();
         assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId)
                 .containsExactly(100L, 101L);
         assertThat(result.results()).extracting(AccountBatchOnlineItemVO::result)
-                .containsExactly("ACCEPTED", "TIMEOUT");
+                .containsExactly("ACCEPTED", "ACCEPTED");
+        assertThat(result.remoteRoutes()).isEmpty();
     }
 
     @Test
-    void onlineBatch_protocolThrows_releasesAllAllocatedProxiesAndRethrowsOriginalFailure() {
+    void offlineBatch_validAccounts_enqueuesOneOfflineOutboxBatchWithoutCredentialOrProxyWork() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(protocolCommandOutboxService.enqueueOfflineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "batch_offline_1",
+                        List.of("cmd_offline_100", "cmd_offline_101"),
+                        2));
+
+        AccountBatchOnlineVO result = service.offlineBatch(List.of(100L, 101L));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOfflineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOfflineCommands(commandsCaptor.capture());
+        List<ProtocolOfflineCommandRequest> commands = commandsCaptor.getValue();
+        assertThat(commands).hasSize(2);
+        assertThat(commands).extracting(ProtocolOfflineCommandRequest::accountId)
+                .containsExactly(100L, 101L);
+        assertThat(commands).extracting(ProtocolOfflineCommandRequest::protocolAccountId)
+                .containsExactly("acc_100", "acc_101");
+        assertThat(commands).extracting(ProtocolOfflineCommandRequest::source)
+                .containsExactly("batch_offline", "batch_offline");
+
+        verifyNoInteractions(credentialMapper, ipProxyService);
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.submitted()).isEqualTo(2);
+        assertThat(result.accepted()).isEqualTo(2);
+        assertThat(result.timeout()).isZero();
+        assertThat(result.proxyRequired()).isZero();
+        assertThat(result.error()).isZero();
+        assertThat(result.remote()).isZero();
+        assertThat(result.elapsedMs()).isZero();
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId)
+                .containsExactly(100L, 101L);
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::result)
+                .containsExactly("ACCEPTED", "ACCEPTED");
+        assertThat(result.remoteRoutes()).isEmpty();
+    }
+
+    @Test
+    void onlineBatch_enqueueThrows_releasesAllAllocatedProxiesAndRethrowsOriginalFailure() {
         Account accountA = account(100L, "acc_100");
         Account accountB = account(101L, "acc_101");
         AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
         AccountCredential credentialB = credential(101L, 2, "{\"creds\":{},\"keys\":{}}");
-        RuntimeException failure = new RuntimeException("protocol unavailable");
+        RuntimeException failure = new RuntimeException("outbox unavailable");
         when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
         when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
         List<IpProxyAccountAllocation> allocations = List.of(
                 new IpProxyAccountAllocation(100L, 7L, onlineEndpoint()),
                 new IpProxyAccountAllocation(101L, 8L, onlineEndpoint()));
         when(ipProxyService.allocateOnlineEndpoints(List.of(100L, 101L))).thenReturn(allocations);
-        when(accountOnlineService.onlineBatch(any(), eq(60_000))).thenThrow(failure);
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any())).thenThrow(failure);
 
         assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
                 .isSameAs(failure);
@@ -316,7 +319,7 @@ class AccountOnlineCommandServiceImplTest {
 
         verify(ipProxyService).releaseOnlineAllocations(allocations);
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
-        verifyNoInteractions(accountOnlineService);
+        verifyNoInteractions(protocolCommandOutboxService);
     }
 
     @Test
@@ -331,7 +334,7 @@ class AccountOnlineCommandServiceImplTest {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
                     assertThat(ex.getMessage()).contains("账号凭据不存在");
                 });
-        verifyNoInteractions(ipProxyService, accountOnlineService);
+        verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
     }
 
     @Test
@@ -344,7 +347,7 @@ class AccountOnlineCommandServiceImplTest {
                     assertThat(ex.getMessage()).contains("账号不存在");
                 });
         verify(credentialMapper, never()).selectByAccountId(any());
-        verifyNoInteractions(ipProxyService, accountOnlineService);
+        verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
     }
 
     @Test
@@ -360,7 +363,7 @@ class AccountOnlineCommandServiceImplTest {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
                     assertThat(ex.getMessage()).contains("账号凭据不存在");
                 });
-        verifyNoInteractions(ipProxyService, accountOnlineService);
+        verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
     }
 
     private static Account onlineAccount() {

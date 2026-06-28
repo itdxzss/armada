@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper">
+
+  <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段。 -->
+  <sql id="Columns">
+    id, tenant_id, command_id, batch_id, command_type, aggregate_type, aggregate_id,
+    kafka_topic, kafka_key, protocol_account_id, payload_json, status, retry_count,
+    next_retry_at, locked_by, locked_at, sent_at, last_error,
+    created_at, updated_at, deleted_at
+  </sql>
+
+  <!-- 批量写入 pending 命令;tenant_id 由租户拦截器注入。 -->
+  <insert id="batchInsertPending">
+    INSERT INTO protocol_command_outbox (
+      command_id, batch_id, command_type, aggregate_type, aggregate_id,
+      kafka_topic, kafka_key, protocol_account_id, payload_json,
+      status, retry_count, next_retry_at,
+      created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="r" separator=",">
+      (
+        #{r.commandId}, #{r.batchId}, #{r.commandType}, #{r.aggregateType}, #{r.aggregateId},
+        #{r.kafkaTopic}, #{r.kafkaKey}, #{r.protocolAccountId}, #{r.payloadJson},
+        #{r.status}, #{r.retryCount}, #{r.nextRetryAt},
+        #{r.createdAt}, #{r.updatedAt}
+      )
+    </foreach>
+  </insert>
+
+  <!-- publisher 后台扫描跨租户待发送命令;Mapper 接口已关闭租户拦截器。 -->
+  <select id="selectDispatchable" resultType="com.armada.platform.protocol.model.entity.ProtocolCommandOutbox">
+    SELECT <include refid="Columns"/>
+    FROM protocol_command_outbox
+    WHERE deleted_at IS NULL
+      AND status = #{status}
+      AND next_retry_at &lt;= #{now}
+    ORDER BY next_retry_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
+  <!-- 并发抢占兜底:只有仍是 PENDING 的行能更新为 LOCKED。 -->
+  <update id="markLockedInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{lockedStatus},
+        locked_by = #{lockedBy},
+        locked_at = #{lockedAt},
+        updated_at = #{lockedAt}
+    WHERE deleted_at IS NULL
+      AND status = #{pendingStatus}
+      AND next_retry_at &lt;= #{lockedAt}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <!-- afterCommit 主路径按本次插入的 command_id 抢占,避免先全局扫描 outbox 再发送。 -->
+  <update id="markLockedByCommandIdsInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{lockedStatus},
+        locked_by = #{lockedBy},
+        locked_at = #{lockedAt},
+        updated_at = #{lockedAt}
+    WHERE deleted_at IS NULL
+      AND status = #{pendingStatus}
+      AND next_retry_at &lt;= #{lockedAt}
+      AND command_id IN
+    <foreach collection="commandIds" item="commandId" open="(" separator="," close=")">#{commandId}</foreach>
+  </update>
+
+  <!-- 只取当前 dispatcher 成功抢占的行,避免多实例并发时误发别人抢到的命令。 -->
+  <select id="selectLockedByInternal" resultType="com.armada.platform.protocol.model.entity.ProtocolCommandOutbox">
+    SELECT <include refid="Columns"/>
+    FROM protocol_command_outbox
+    WHERE deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{lockedBy}
+      AND locked_at = #{lockedAt}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id ASC
+  </select>
+
+  <!-- 仅在 afterCommit 主路径部分抢占时使用:只取当前 dispatcher 实际抢到的 command_id。 -->
+  <select id="selectLockedByCommandIdsInternal" resultType="com.armada.platform.protocol.model.entity.ProtocolCommandOutbox">
+    SELECT <include refid="Columns"/>
+    FROM protocol_command_outbox
+    WHERE deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{lockedBy}
+      AND locked_at = #{lockedAt}
+      AND command_id IN
+    <foreach collection="commandIds" item="commandId" open="(" separator="," close=")">#{commandId}</foreach>
+    ORDER BY id ASC
+  </select>
+
+  <!-- 只有当前 dispatcher 持有的 LOCKED 行能确认发送成功;清空旧错误,保留锁字段作为发送实例审计。 -->
+  <update id="markSentInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{sentStatus},
+        sent_at = #{row.sentAt},
+        last_error = NULL,
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- afterCommit 主路径的成功回写:按 command_id + locked_by + locked_at 确认只更新当前这把锁。 -->
+  <update id="markSentByCommandIdInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{sentStatus},
+        sent_at = #{row.sentAt},
+        last_error = NULL,
+        updated_at = #{row.updatedAt}
+    WHERE command_id = #{row.commandId}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- 当前锁临时失败才释放回 PENDING:递增 retry_count,清理锁字段,等待 next_retry_at 再次扫描。 -->
+  <update id="markRetryInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{pendingStatus},
+        retry_count = retry_count + 1,
+        next_retry_at = #{row.nextRetryAt},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- afterCommit 主路径的临时失败回写:按 command_id + locked_by + locked_at 释放当前这把锁。 -->
+  <update id="markRetryByCommandIdInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{pendingStatus},
+        retry_count = retry_count + 1,
+        next_retry_at = #{row.nextRetryAt},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE command_id = #{row.commandId}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- 当前锁确认不可恢复失败时进入 DEAD,不再被 PENDING 扫描捞起。 -->
+  <update id="markDeadInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{deadStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- afterCommit 主路径的死信回写:按 command_id + locked_by + locked_at 标记当前这把锁。 -->
+  <update id="markDeadByCommandIdInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{deadStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE command_id = #{row.commandId}
+      AND deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- 服务崩溃或线程中断后,低频兜底任务将过期 LOCKED 行释放回 PENDING 重新发送。 -->
+  <update id="releaseExpiredLocksInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{pendingStatus},
+        next_retry_at = #{row.nextRetryAt},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_at IS NOT NULL
+      AND locked_at &lt; #{row.lockedAt}
+    ORDER BY id ASC
+    LIMIT #{limit}
+  </update>
+
+</mapper>

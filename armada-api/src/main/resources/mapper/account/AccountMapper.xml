@@ -34,6 +34,13 @@
     LIMIT 1
   </select>
 
+  <select id="selectActiveByProtocolAccountId" resultType="com.armada.account.model.entity.Account">
+    SELECT * FROM account
+    WHERE protocol_account_id = #{protocolAccountId}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
   <select id="selectActiveByIds" resultType="com.armada.account.model.entity.Account">
     <if test="ids != null and ids.size() &gt; 0">
     SELECT * FROM account

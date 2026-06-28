@@ -26,4 +26,44 @@
     LIMIT 1
   </select>
 
+  <!-- account.state_changed 普通状态:只更新登录态与同步元数据,不改 account_state 生命周期列。 -->
+  <update id="updateLoginState">
+    UPDATE account_state
+    SET login_state = #{loginState},
+        last_state_sync_time = #{lastStateSyncTime},
+        state_source = #{stateSource},
+        updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+  </update>
+
+  <!-- account.state_changed 终态:封禁/解绑需要同时更新 login_state 与 account_state。 -->
+  <update id="updateLifecycleState">
+    UPDATE account_state
+    SET login_state = #{loginState},
+        account_state = #{accountState},
+        last_state_sync_time = #{lastStateSyncTime},
+        state_source = #{stateSource},
+        updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+  </update>
+
+  <!-- ONLINE 恢复只允许把解绑状态恢复为正常,其它终态不受影响。 -->
+  <update id="recoverUnboundStateInternal">
+    UPDATE account_state
+    SET account_state = #{row.accountState},
+        last_state_sync_time = #{row.lastStateSyncTime},
+        state_source = #{row.stateSource},
+        updated_at = #{row.updatedAt}
+    WHERE account_id = #{row.accountId}
+      AND account_state = #{unboundState}
+  </update>
+
+  <!-- 封禁原因单独更新,避免普通离线事件误清空 block_reason。 -->
+  <update id="updateBlockReason">
+    UPDATE account_state
+    SET block_reason = #{blockReason},
+        updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+  </update>
+
 </mapper>

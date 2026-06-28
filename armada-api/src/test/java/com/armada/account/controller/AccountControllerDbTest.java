@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.boot.Application;
+import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -17,12 +18,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * AccountController MockMvc 集成测试:覆盖 GET 列表/stats、POST migrate-group(含新建分组)、POST batch-delete。
+ * AccountController MockMvc 集成测试:覆盖 GET 列表/stats、POST migrate-group(含新建分组)、
+ * POST batch-offline、POST batch-delete。
  *
  * <p>走真库(armada schema),每个测试事务回滚不留数据。</p>
  */
@@ -33,6 +36,10 @@ class AccountControllerDbTest {
 
     private static final String TENANT_HEADER = "X-Tenant-Code";
     private static final String TENANT_CODE = "demo";
+    private static final long TEST_TENANT_ID = 1L;
+    private static final String COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED = "account.offline.requested";
+    private static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
+    private static final String TOPIC_PROTOCOL_ACCOUNT_COMMANDS = "protocol.account.commands.v1";
 
     /** JSON 格式完整的单账号内容,供 POST 导入时作 text 参数使用。 */
     private static final String VALID_JSON_TEXT_TEMPLATE =
@@ -45,6 +52,9 @@ class AccountControllerDbTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     // -----------------------------------------------------------------------
     // 工具方法
@@ -74,6 +84,34 @@ class AccountControllerDbTest {
         var list = tree.path("data").path("list");
         assertThat(list.isArray() && list.size() > 0).as("导入后列表未找到账号 " + wsPhone).isTrue();
         return list.get(0).path("id").longValue();
+    }
+
+    /**
+     * 查询当前测试事务内指定账号的下线 outbox 行。
+     *
+     * <p>MockMvc 请求与测试方法共享事务,因此这里能看到尚未提交、最终会回滚的 outbox 数据。
+     * 使用 JdbcTemplate 是为了断言真实表字段,不绕 MyBatis mapper 重新走业务逻辑。</p>
+     */
+    private List<OutboxRow> selectOfflineOutboxRows(Long firstAccountId, Long secondAccountId) {
+        return jdbc.query(
+                "SELECT command_type, aggregate_type, aggregate_id, kafka_topic, kafka_key, "
+                        + "protocol_account_id, payload_json, status "
+                        + "FROM protocol_command_outbox "
+                        + "WHERE tenant_id = ? AND command_type = ? AND aggregate_id IN (?, ?) "
+                        + "ORDER BY aggregate_id",
+                (rs, rowNum) -> new OutboxRow(
+                        rs.getString("command_type"),
+                        rs.getString("aggregate_type"),
+                        rs.getLong("aggregate_id"),
+                        rs.getString("kafka_topic"),
+                        rs.getString("kafka_key"),
+                        rs.getString("protocol_account_id"),
+                        rs.getString("payload_json"),
+                        rs.getInt("status")),
+                TEST_TENANT_ID,
+                COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED,
+                firstAccountId,
+                secondAccountId);
     }
 
     // -----------------------------------------------------------------------
@@ -272,7 +310,62 @@ class AccountControllerDbTest {
     }
 
     // -----------------------------------------------------------------------
-    // A4: POST /api/accounts/batch-delete — 批量软删除
+    // A4: POST /api/accounts/batch-offline — 批量下线
+    // -----------------------------------------------------------------------
+
+    /**
+     * 批量下线入口:HTTP 请求成功后写入 PENDING outbox,不直接修改账号最终在线状态。
+     */
+    @Test
+    void post_batchOffline_persistsPendingOutboxRows() throws Exception {
+        long ts = System.currentTimeMillis();
+        Long firstAccountId = importOneAccount("86137" + (ts % 10000000L));
+        Long secondAccountId = importOneAccount("86138" + (ts % 10000000L));
+
+        mockMvc.perform(post("/api/accounts/batch-offline")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                Map.of("ids", List.of(firstAccountId, secondAccountId))))
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.submitted").value(2))
+                .andExpect(jsonPath("$.data.accepted").value(2));
+
+        List<OutboxRow> rows = selectOfflineOutboxRows(firstAccountId, secondAccountId);
+        assertThat(rows).hasSize(2);
+        assertThat(rows).extracting(OutboxRow::commandType)
+                .containsOnly(COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED);
+        assertThat(rows).extracting(OutboxRow::aggregateType)
+                .containsOnly(AGGREGATE_TYPE_ACCOUNT);
+        assertThat(rows).extracting(OutboxRow::aggregateId)
+                .containsExactly(firstAccountId, secondAccountId);
+        assertThat(rows).extracting(OutboxRow::kafkaTopic)
+                .containsOnly(TOPIC_PROTOCOL_ACCOUNT_COMMANDS);
+        assertThat(rows).extracting(OutboxRow::kafkaKey)
+                .doesNotContainNull();
+        assertThat(rows).extracting(OutboxRow::protocolAccountId)
+                .doesNotContainNull();
+        assertThat(rows).extracting(OutboxRow::status)
+                .containsOnly(ProtocolCommandOutboxStatus.PENDING.code());
+        for (OutboxRow row : rows) {
+            var payload = objectMapper.readTree(row.payloadJson());
+            assertThat(payload.path("source").textValue()).isEqualTo("batch_offline");
+            assertThat(payload.path("accountId").longValue()).isEqualTo(row.aggregateId());
+            assertThat(payload.path("protocolAccountId").textValue()).isEqualTo(row.protocolAccountId());
+            assertThat(payload.has("credentialJson")).isFalse();
+            assertThat(payload.has("credentialFormat")).isFalse();
+            assertThat(payload.has("proxyId")).isFalse();
+            assertThat(row.payloadJson())
+                    .doesNotContain("password")
+                    .doesNotContain("username")
+                    .doesNotContain("proxyHost");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // A5: POST /api/accounts/batch-delete — 批量软删除
     // -----------------------------------------------------------------------
 
     /**
@@ -291,5 +384,16 @@ class AccountControllerDbTest {
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(40001)); // ErrorCode.VALIDATION.code() = 40001
+    }
+
+    private record OutboxRow(
+            String commandType,
+            String aggregateType,
+            Long aggregateId,
+            String kafkaTopic,
+            String kafkaKey,
+            String protocolAccountId,
+            String payloadJson,
+            int status) {
     }
 }

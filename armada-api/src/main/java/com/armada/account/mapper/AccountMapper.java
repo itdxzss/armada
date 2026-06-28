@@ -38,6 +38,16 @@ public interface AccountMapper {
     Account selectActiveById(@Param("id") Long id);
 
     /**
+     * 按协议账号句柄查未软删账号。
+     *
+     * <p>协议层 Kafka 事件的 accountId 对应本表 protocol_account_id,状态回写入口用它反查账号主键。</p>
+     *
+     * @param protocolAccountId 协议账号句柄
+     * @return 活跃账号;不存在或已软删时返回 null
+     */
+    Account selectActiveByProtocolAccountId(@Param("protocolAccountId") String protocolAccountId);
+
+    /**
      * 按 ID 批量查未软删账号。
      *
      * <p>批量上线等场景使用;tenant_id 由租户拦截器注入。</p>

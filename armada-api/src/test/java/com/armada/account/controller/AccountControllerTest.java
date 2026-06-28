@@ -162,4 +162,35 @@ class AccountControllerTest {
 
         verify(accountLifecycleCommandService).probe(100L);
     }
+
+    @Test
+    void postBatchOffline_delegatesToCommandServiceAndReturnsApiResponse() throws Exception {
+        AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
+                2,
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0L,
+                List.of(
+                        new AccountBatchOnlineItemVO(100L, "acc_100", "ACCEPTED", null, null),
+                        new AccountBatchOnlineItemVO(101L, "acc_101", "ACCEPTED", null, null)),
+                List.of());
+        when(accountOnlineCommandService.offlineBatch(List.of(100L, 101L))).thenReturn(vo);
+
+        mockMvc.perform(post("/api/accounts/batch-offline")
+                        .contentType("application/json")
+                        .content("{\"ids\":[100,101]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.submitted").value(2))
+                .andExpect(jsonPath("$.data.accepted").value(2))
+                .andExpect(jsonPath("$.data.results[0].accountId").value(100))
+                .andExpect(jsonPath("$.data.results[1].protocolAccountId").value("acc_101"));
+
+        verify(accountOnlineCommandService).offlineBatch(List.of(100L, 101L));
+    }
 }

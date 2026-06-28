@@ -51,6 +51,12 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Kafka producer:协议命令 outbox 后续发送到 armada-protocol。 -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- JSON 时间 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>

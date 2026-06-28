@@ -57,6 +57,23 @@ class ProtocolAccountEventConsumerPropertiesTest {
         });
     }
 
+    @Test
+    void applicationYamlConfiguresKafkaStringConsumer() {
+        applicationYamlContextRunner.run(context -> {
+            assertThat(context.getEnvironment().getProperty("spring.kafka.consumer.key-deserializer"))
+                    .isEqualTo("org.apache.kafka.common.serialization.StringDeserializer");
+            assertThat(context.getEnvironment().getProperty("spring.kafka.consumer.value-deserializer"))
+                    .isEqualTo("org.apache.kafka.common.serialization.StringDeserializer");
+            assertThat(context.getEnvironment()
+                    .getProperty("spring.kafka.consumer.enable-auto-commit", Boolean.class))
+                    .isFalse();
+            assertThat(context.getEnvironment().getProperty("spring.kafka.consumer.auto-offset-reset"))
+                    .isEqualTo("latest");
+            assertThat(context.getEnvironment().getProperty("spring.kafka.listener.ack-mode"))
+                    .isEqualTo("record");
+        });
+    }
+
     @EnableConfigurationProperties(ProtocolAccountEventConsumerProperties.class)
     static class TestConfig {
     }

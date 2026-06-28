@@ -2,9 +2,11 @@ package com.armada.marketing.service;
 
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
+import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
+import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
 
@@ -33,4 +35,7 @@ public interface MarketingTaskService {
 
     /** 查询建营销任务用的账号→可营销群树。 */
     MarketingAccountTreeVO accountTree(Long groupId);
+
+    /** 通过任务更新其引用的共享营销模板。 */
+    MarketingTemplateVO updateMarketingTemplate(Long id, MarketingTemplateDTO request);
 }

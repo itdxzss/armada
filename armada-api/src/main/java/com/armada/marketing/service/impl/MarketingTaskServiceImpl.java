@@ -5,6 +5,7 @@ import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
+import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
@@ -17,7 +18,9 @@ import com.armada.marketing.model.vo.MarketingTreeGroupVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskTargetVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
+import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.marketing.service.MarketingTaskService;
+import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -53,6 +56,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
+    private final MarketingTemplateService templateService;
 
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
@@ -60,12 +64,16 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
      * <p>任务 Mapper 负责本聚合读写;模板 Mapper 只用于校验模板存在并读取模板名称快照,
      * 不读取或复制模板正文。</p>
      *
-     * @param taskMapper     营销任务与目标明细数据访问
-     * @param templateMapper 营销模板数据访问
+     * @param taskMapper      营销任务与目标明细数据访问
+     * @param templateMapper  营销模板数据访问
+     * @param templateService 营销模板业务服务
      */
-    public MarketingTaskServiceImpl(MarketingTaskMapper taskMapper, MarketingTemplateMapper templateMapper) {
+    public MarketingTaskServiceImpl(MarketingTaskMapper taskMapper,
+                                    MarketingTemplateMapper templateMapper,
+                                    MarketingTemplateService templateService) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
+        this.templateService = templateService;
     }
 
     /**
@@ -237,6 +245,26 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 .toList();
         log.info("营销账号群树查询 groupId={} accounts={} rows={}", groupId, accountVOs.size(), rows.size());
         return new MarketingAccountTreeVO(accountVOs);
+    }
+
+    /**
+     * 通过营销任务更新其引用的共享营销模板。
+     *
+     * <p>一期需求中,任务详情里修改营销素材不是生成任务私有副本,而是覆盖该任务引用的
+     * `marketing_template`。本方法只负责确认任务存在并定位模板 ID,具体模板名称查重、按钮规则、
+     * 内容必填等校验全部委托 {@link MarketingTemplateService#update(Long, MarketingTemplateDTO)}。</p>
+     *
+     * @param id      营销任务 ID
+     * @param request 新的营销模板配置
+     * @return 更新后的营销模板视图
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public MarketingTemplateVO updateMarketingTemplate(Long id, MarketingTemplateDTO request) {
+        MarketingTask task = requireTask(id);
+        MarketingTemplateVO updated = templateService.update(task.getMarketingTemplateId(), request);
+        log.info("营销任务侧更新模板 taskId={} templateId={}", id, task.getMarketingTemplateId());
+        return updated;
     }
 
     private void validateRequest(CreateMarketingTaskDTO request) {

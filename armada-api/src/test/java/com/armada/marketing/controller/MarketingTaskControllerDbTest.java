@@ -3,6 +3,7 @@ package com.armada.marketing.controller;
 import com.armada.boot.Application;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
+import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.sql.PreparedStatement;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -168,6 +170,32 @@ class MarketingTaskControllerDbTest {
                 .andExpect(jsonPath("$.data.accounts[0].groups[0].groupLinkId").value(fixture.groupLinkId()))
                 .andExpect(jsonPath("$.data.accounts[0].groups[0].groupJid").value(fixture.groupJid()))
                 .andExpect(jsonPath("$.data.accounts[0].groups[0].isAdmin").value(false));
+    }
+
+    @Test
+    void putMarketingTemplate_updatesTaskReferencedTemplate() throws Exception {
+        Fixture fixture = seedFixture("controller-material-update");
+        long taskId = createTask("Controller修改素材任务", fixture);
+        MarketingTemplateDTO request = new MarketingTemplateDTO(
+                "营销模板-controller-material-update",
+                1,
+                "PROMO",
+                null,
+                "Controller更新内容",
+                "Controller更新正文",
+                null,
+                "https://example.com/controller",
+                "Controller任务侧更新素材");
+
+        mockMvc.perform(put("/api/marketing-tasks/{id}/marketing-template", taskId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(fixture.templateId()))
+                .andExpect(jsonPath("$.data.content").value("Controller更新内容"))
+                .andExpect(jsonPath("$.data.bodyText").value("Controller更新正文"));
     }
 
     private long createTask(String taskName, Fixture fixture) throws Exception {

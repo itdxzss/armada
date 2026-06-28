@@ -3,9 +3,11 @@ package com.armada.marketing.controller;
 import com.armada.marketing.model.dto.BatchIdsRequest;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
+import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
+import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.marketing.service.MarketingTaskService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -118,6 +121,22 @@ public class MarketingTaskController {
     @PostMapping("/{id}/stop")
     public ApiResponse<MarketingTaskVO> stop(@PathVariable Long id) {
         return ApiResponse.ok(service.stopTask(id));
+    }
+
+    /**
+     * 通过任务修改其引用的营销模板。
+     *
+     * <p>任务不复制营销素材正文。这里会定位任务当前引用的共享营销模板,并复用营销模板服务的
+     * 编辑校验和更新逻辑。</p>
+     *
+     * @param id      营销任务 ID
+     * @param request 新的营销模板配置
+     * @return 更新后的营销模板
+     */
+    @PutMapping("/{id}/marketing-template")
+    public ApiResponse<MarketingTemplateVO> updateMarketingTemplate(@PathVariable Long id,
+                                                                    @RequestBody MarketingTemplateDTO request) {
+        return ApiResponse.ok(service.updateMarketingTemplate(id, request));
     }
 
     /**

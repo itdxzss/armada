@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.mapper.MarketingTaskMapper">
+
+    <resultMap id="MarketingTaskResultMap" type="com.armada.marketing.model.entity.MarketingTask">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="task_name" property="taskName"/>
+        <result column="account_group_id" property="accountGroupId"/>
+        <result column="account_group_name" property="accountGroupName"/>
+        <result column="marketing_template_id" property="marketingTemplateId"/>
+        <result column="marketing_template_name" property="marketingTemplateName"/>
+        <result column="status" property="status"/>
+        <result column="selected_account_count" property="selectedAccountCount"/>
+        <result column="target_group_count" property="targetGroupCount"/>
+        <result column="target_pair_count" property="targetPairCount"/>
+        <result column="sent_message_count" property="sentMessageCount"/>
+        <result column="failed_message_count" property="failedMessageCount"/>
+        <result column="send_per_round" property="sendPerRound"/>
+        <result column="send_interval_seconds" property="sendIntervalSeconds"/>
+        <result column="is_online_check_enabled" property="onlineCheckEnabled"/>
+        <result column="is_abnormal_group_skipped" property="abnormalGroupSkipped"/>
+        <result column="is_auto_retry_enabled" property="autoRetryEnabled"/>
+        <result column="retry_limit" property="retryLimit"/>
+        <result column="remark" property="remark"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="last_sent_at" property="lastSentAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <resultMap id="MarketingTaskTargetResultMap" type="com.armada.marketing.model.entity.MarketingTaskTarget">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="marketing_task_id" property="marketingTaskId"/>
+        <result column="account_id" property="accountId"/>
+        <result column="account_phone" property="accountPhone"/>
+        <result column="group_link_id" property="groupLinkId"/>
+        <result column="group_jid" property="groupJid"/>
+        <result column="group_link_url" property="groupLinkUrl"/>
+        <result column="group_name" property="groupName"/>
+        <result column="status" property="status"/>
+        <result column="sent_message_count" property="sentMessageCount"/>
+        <result column="failed_message_count" property="failedMessageCount"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="last_attempt_at" property="lastAttemptAt"/>
+        <result column="last_sent_at" property="lastSentAt"/>
+        <result column="last_reason" property="lastReason"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="TaskColumns">
+        id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
+        marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
+        sent_message_count, failed_message_count, send_per_round, send_interval_seconds,
+        is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
+        remark, started_at, last_sent_at, finished_at, created_by, created_at, updated_at, deleted_at
+    </sql>
+
+    <sql id="TargetColumns">
+        id, tenant_id, marketing_task_id, account_id, account_phone, group_link_id, group_jid,
+        group_link_url, group_name, status, sent_message_count, failed_message_count, retry_count,
+        last_attempt_at, last_sent_at, last_reason, created_at, updated_at
+    </sql>
+
+    <sql id="TaskFilter">
+        <where>
+            deleted_at IS NULL
+            <if test="q.id != null">AND id = #{q.id}</if>
+            <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
+            <if test="q.status != null">AND status = #{q.status}</if>
+            <if test="q.startTime != null">AND last_sent_at &gt;= #{q.startTime}</if>
+            <if test="q.endTime != null">AND last_sent_at &lt;= #{q.endTime}</if>
+        </where>
+    </sql>
+
+    <insert id="insertTask" parameterType="com.armada.marketing.model.entity.MarketingTask"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_task
+            (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
+             status, selected_account_count, target_group_count, target_pair_count,
+             sent_message_count, failed_message_count, send_per_round, send_interval_seconds,
+             is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
+             remark, started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
+        VALUES
+            (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
+             #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount},
+             #{sentMessageCount}, #{failedMessageCount}, #{sendPerRound}, #{sendIntervalSeconds},
+             #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
+             #{remark}, #{startedAt}, #{lastSentAt}, #{finishedAt}, #{createdBy}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <insert id="insertTargets">
+        INSERT INTO marketing_task_target
+            (marketing_task_id, account_id, account_phone, group_link_id, group_jid, group_link_url, group_name,
+             status, sent_message_count, failed_message_count, retry_count, last_attempt_at, last_sent_at,
+             last_reason, created_at, updated_at)
+        VALUES
+        <foreach collection="targets" item="t" separator=",">
+            (#{t.marketingTaskId}, #{t.accountId}, #{t.accountPhone}, #{t.groupLinkId}, #{t.groupJid},
+             #{t.groupLinkUrl}, #{t.groupName}, #{t.status}, #{t.sentMessageCount}, #{t.failedMessageCount},
+             #{t.retryCount}, #{t.lastAttemptAt}, #{t.lastSentAt}, #{t.lastReason}, #{t.createdAt}, #{t.updatedAt})
+        </foreach>
+    </insert>
+
+    <select id="selectTaskById" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectTargetsByTaskId" resultMap="MarketingTaskTargetResultMap">
+        SELECT <include refid="TargetColumns"/>
+        FROM marketing_task_target
+        WHERE marketing_task_id = #{taskId}
+        ORDER BY id ASC
+    </select>
+
+    <select id="countPage" resultType="long">
+        SELECT COUNT(*)
+        FROM marketing_task
+        <include refid="TaskFilter"/>
+    </select>
+
+    <select id="selectPage" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        <include refid="TaskFilter"/>
+        ORDER BY id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="selectTargetCandidate" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               g.id AS groupLinkId,
+               p.group_jid AS groupJid,
+               g.link_url AS groupLinkUrl,
+               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
+        FROM account a
+        JOIN group_link g ON g.id = #{groupLinkId} AND g.deleted_at IS NULL
+        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
+        WHERE a.id = #{accountId}
+          AND a.account_group_id = #{accountGroupId}
+          AND a.deleted_at IS NULL
+        LIMIT 1
+    </select>
+</mapper>

@@ -2,8 +2,11 @@ package com.armada.platform.protocol.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
+import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.testsupport.DbTestBase;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +28,9 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
 
     @Autowired
     private ProtocolCommandOutboxMapper mapper;
+
+    @Autowired
+    private ProtocolCommandOutboxService outboxService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -63,6 +69,58 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
                 .containsEntry("proxyId", 7001L);
         assertThat(found.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
         assertThat(found.getRetryCount()).isZero();
+    }
+
+    @Test
+    void enqueueOfflineCommands_persistsOfflineRowsWithSafePayload() throws Exception {
+        long now = System.currentTimeMillis();
+        List<ProtocolOfflineCommandRequest> commands = List.of(
+                new ProtocolOfflineCommandRequest(5101L, "acc_offline_" + now + "_1", "batch_offline"),
+                new ProtocolOfflineCommandRequest(5102L, "acc_offline_" + now + "_2", "batch_offline"));
+
+        ProtocolCommandOutboxEnqueueResult result = outboxService.enqueueOfflineCommands(commands);
+
+        assertThat(result.batchId()).startsWith("batch_");
+        assertThat(result.commandIds()).hasSize(2);
+        assertThat(result.inserted()).isEqualTo(2);
+
+        List<ProtocolCommandOutbox> rows = mapper.selectDispatchable(
+                        ProtocolCommandOutboxStatus.PENDING.code(), now + 1, TEST_SCAN_LIMIT)
+                .stream()
+                .filter(row -> result.commandIds().contains(row.getCommandId()))
+                .toList();
+        assertThat(rows).hasSize(2);
+        assertThat(rows).extracting(ProtocolCommandOutbox::getBatchId)
+                .containsOnly(result.batchId());
+        assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                .containsOnly("account.offline.requested");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                .containsOnly("ACCOUNT");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                .containsExactly(5101L, 5102L);
+        assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                .containsOnly("protocol.account.commands.v1");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                .containsExactly("acc_offline_" + now + "_1", "acc_offline_" + now + "_2");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getProtocolAccountId)
+                .containsExactly("acc_offline_" + now + "_1", "acc_offline_" + now + "_2");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getStatus)
+                .containsOnly(ProtocolCommandOutboxStatus.PENDING.code());
+
+        ProtocolCommandOutbox first = rows.get(0);
+        Map<String, Object> payload = objectMapper.readValue(first.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("accountId", 5101)
+                .containsEntry("protocolAccountId", "acc_offline_" + now + "_1")
+                .containsEntry("source", "batch_offline");
+        assertThat(first.getPayloadJson())
+                .doesNotContain("credentialJson")
+                .doesNotContain("credentialFormat")
+                .doesNotContain("proxyId")
+                .doesNotContain("password")
+                .doesNotContain("username")
+                .doesNotContain("proxyHost");
     }
 
     @Test

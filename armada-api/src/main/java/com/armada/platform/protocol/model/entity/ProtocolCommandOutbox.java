@@ -3,8 +3,8 @@ package com.armada.platform.protocol.model.entity;
 /**
  * 协议命令 Outbox 实体,映射 protocol_command_outbox 表一行。
  *
- * <p>一行代表一个账号级协议命令。payload 只保存账号、代理、凭据格式等轻量引用信息,
- * 不保存完整账号凭据和代理账号密码。</p>
+ * <p>一行代表一个账号级协议命令。payload 只保存账号、代理、凭据格式等轻量引用信息;
+ * 下线命令不需要代理和凭据字段。不保存完整账号凭据和代理账号密码。</p>
  */
 public class ProtocolCommandOutbox {
 
@@ -20,7 +20,7 @@ public class ProtocolCommandOutbox {
     /** 批量命令归组 ID;单条命令可为空。 */
     private String batchId;
 
-    /** 命令类型,初始为 account.online.requested。 */
+    /** 命令类型,如 account.online.requested / account.offline.requested。 */
     private String commandType;
 
     /** 聚合类型,初始固定 ACCOUNT。 */

@@ -92,7 +92,21 @@ public class AccountController {
     }
 
     /**
-     * A5 批量迁移分组。
+     * A5 批量发起账号下线(批量写入 outbox)。
+     *
+     * <p>一次最多 500 个账号。返回的 accepted 表示已写入 outbox 的命令数,
+     * 不代表账号最终离线状态;最终登录状态由后续 Kafka 回写切片更新。</p>
+     *
+     * @param request 账号 ID 列表
+     * @return outbox 批量下线命令受理汇总
+     */
+    @PostMapping("/batch-offline")
+    public ApiResponse<AccountBatchOnlineVO> batchOffline(@RequestBody AccountIdsDTO request) {
+        return ApiResponse.ok(accountOnlineCommandService.offlineBatch(request.ids()));
+    }
+
+    /**
+     * A6 批量迁移分组。
      *
      * <p>若 accountGroupId 为 null 且 newGroupName 非空,先新建分组再迁移;
      * 否则直接用 accountGroupId 迁移。</p>
@@ -118,7 +132,7 @@ public class AccountController {
     }
 
     /**
-     * A6 批量软删除账号(全或无严格口径)。
+     * A7 批量软删除账号(全或无严格口径)。
      *
      * <p>仅封禁/导出/解绑状态且不在任务中的账号可删除;任一不满足整批拒删抛 BusinessException。</p>
      *

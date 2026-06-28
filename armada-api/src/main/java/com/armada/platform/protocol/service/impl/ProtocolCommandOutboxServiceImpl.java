@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.service.impl;
 
+import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
@@ -44,9 +45,6 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 账号聚合类型。 */
     public static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
 
-    /** 账号协议命令 topic。 */
-    public static final String TOPIC_PROTOCOL_ACCOUNT_COMMANDS = "protocol.account.commands.v1";
-
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
@@ -55,6 +53,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
     private final ProtocolCommandDispatchTrigger dispatchTrigger;
+    private final ProtocolAccountCommandProperties commandProperties;
 
     /**
      * 创建协议命令 Outbox service。
@@ -62,13 +61,16 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * @param mapper          outbox mapper
      * @param objectMapper    JSON 序列化器
      * @param dispatchTrigger outbox 提交后 dispatch 触发器
+     * @param commandProperties 账号命令 Kafka topic 配置
      */
     public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper,
                                             ObjectMapper objectMapper,
-                                            ProtocolCommandDispatchTrigger dispatchTrigger) {
+                                            ProtocolCommandDispatchTrigger dispatchTrigger,
+                                            ProtocolAccountCommandProperties commandProperties) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.dispatchTrigger = dispatchTrigger;
+        this.commandProperties = commandProperties;
     }
 
     /**
@@ -175,7 +177,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(TOPIC_PROTOCOL_ACCOUNT_COMMANDS);
+        row.setKafkaTopic(commandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
         row.setPayloadJson(payloadJson(command));
@@ -197,7 +199,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(TOPIC_PROTOCOL_ACCOUNT_COMMANDS);
+        row.setKafkaTopic(commandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
         row.setPayloadJson(payloadJson(command));

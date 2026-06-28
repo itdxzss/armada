@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
+import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
@@ -14,7 +16,6 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
-import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -82,6 +83,19 @@ class ProtocolCommandOutboxServiceImplTest {
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
         verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueOnlineCommands_customCommandTopic_usesConfiguredTopic() {
+        TestableProtocolCommandOutboxService service =
+                newService(List.of("cmd-custom-topic"), List.of(), "protocol.account.commands.test");
+        ProtocolOnlineCommandRequest command = onlineCommand(100L, "acc_100", CredentialFormat.BAILEYS_JSON, 7L);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueOnlineCommands(List.of(command));
+
+        assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                .containsExactly("protocol.account.commands.test");
     }
 
     @Test
@@ -205,7 +219,16 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {
-        return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, commandIds, batchIds);
+        return newService(commandIds, batchIds, ProtocolAccountCommandProperties.DEFAULT_TOPIC);
+    }
+
+    private TestableProtocolCommandOutboxService newService(List<String> commandIds,
+                                                            List<String> batchIds,
+                                                            String commandTopic) {
+        ProtocolAccountCommandProperties properties = new ProtocolAccountCommandProperties();
+        properties.setTopic(commandTopic);
+        return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, properties,
+                commandIds, batchIds);
     }
 
     private List<ProtocolCommandOutbox> capturedRows() {
@@ -242,9 +265,10 @@ class ProtocolCommandOutboxServiceImplTest {
         private TestableProtocolCommandOutboxService(ProtocolCommandOutboxMapper mapper,
                                                      ObjectMapper objectMapper,
                                                      ProtocolCommandDispatchTrigger dispatchTrigger,
+                                                     ProtocolAccountCommandProperties properties,
                                                      List<String> commandIds,
                                                      List<String> batchIds) {
-            super(mapper, objectMapper, dispatchTrigger);
+            super(mapper, objectMapper, dispatchTrigger, properties);
             this.commandIds = new ArrayDeque<>(commandIds);
             this.batchIds = new ArrayDeque<>(batchIds);
         }

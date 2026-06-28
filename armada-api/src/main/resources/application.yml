@@ -55,6 +55,8 @@ armada:
         enabled: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_ENABLED:true}
         fixed-delay-ms: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_FIXED_DELAY_MS:10000}
     kafka:
+      account-commands:
+        topic: ${PROTOCOL_ACCOUNT_COMMANDS_TOPIC:protocol.account.commands.v1}
       account-events:
         topic: ${PROTOCOL_ACCOUNT_EVENTS_TOPIC:protocol.account.events.v1}
         group-id: ${PROTOCOL_ACCOUNT_EVENTS_GROUP_ID:armada-api-account-events}

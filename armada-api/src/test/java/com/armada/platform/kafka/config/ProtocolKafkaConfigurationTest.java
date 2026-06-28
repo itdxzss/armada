@@ -19,10 +19,13 @@ class ProtocolKafkaConfigurationTest {
     @Test
     void registersOutboxPropertiesAndDispatchExecutor() {
         contextRunner.run(context -> {
+            assertThat(context).hasSingleBean(ProtocolAccountCommandProperties.class);
             assertThat(context).hasSingleBean(ProtocolCommandPublisherProperties.class);
             assertThat(context).hasSingleBean(ProtocolCommandDispatcherProperties.class);
             assertThat(context).hasSingleBean(ProtocolAccountEventConsumerProperties.class);
             assertThat(context).doesNotHaveBean(CommonErrorHandler.class);
+            assertThat(context.getBean(ProtocolAccountCommandProperties.class).getTopic())
+                    .isEqualTo(ProtocolAccountCommandProperties.DEFAULT_TOPIC);
             assertThat(context.getBean(ProtocolAccountEventConsumerProperties.class).getTopic())
                     .isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_TOPIC);
             assertThat(context).hasBean("protocolCommandDispatchExecutor");

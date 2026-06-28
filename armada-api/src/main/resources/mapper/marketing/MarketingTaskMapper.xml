@@ -121,6 +121,44 @@
         ORDER BY id ASC
     </select>
 
+    <update id="startTask">
+        UPDATE marketing_task
+        SET status = 2,
+            started_at = COALESCE(started_at, #{now}),
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status IN (1, 5)
+    </update>
+
+    <update id="stopTask">
+        UPDATE marketing_task
+        SET status = 5,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 2
+    </update>
+
+    <select id="countSendingByIds" resultType="int">
+        SELECT COUNT(*)
+        FROM marketing_task
+        WHERE deleted_at IS NULL
+          AND status = 2
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <update id="batchSoftDelete">
+        UPDATE marketing_task
+        SET deleted_at = #{deletedAt},
+            updated_at = #{deletedAt}
+        WHERE deleted_at IS NULL
+          AND status &lt;&gt; 2
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
     <select id="countPage" resultType="long">
         SELECT COUNT(*)
         FROM marketing_task

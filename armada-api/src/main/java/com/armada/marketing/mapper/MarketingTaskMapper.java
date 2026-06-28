@@ -26,6 +26,18 @@ public interface MarketingTaskMapper {
     /** 按任务 ID 查目标明细。 */
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
 
+    /** 待启动/已停止任务置为发送中,并首次补 started_at。 */
+    int startTask(@Param("id") Long id, @Param("now") long now);
+
+    /** 发送中任务置为已停止。 */
+    int stopTask(@Param("id") Long id, @Param("now") long now);
+
+    /** 统计指定任务里仍处于发送中的未删任务数量。 */
+    int countSendingByIds(@Param("ids") List<Long> ids);
+
+    /** 批量软删非发送中的任务。 */
+    int batchSoftDelete(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+
     /** 分页总数。 */
     long countPage(@Param("q") MarketingTaskQuery query);
 

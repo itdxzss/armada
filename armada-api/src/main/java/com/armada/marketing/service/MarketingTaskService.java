@@ -5,6 +5,7 @@ import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.shared.response.PageResult;
+import java.util.List;
 
 /**
  * 群组营销任务业务入口。
@@ -19,4 +20,13 @@ public interface MarketingTaskService {
 
     /** 查询任务详情和目标明细。 */
     MarketingTaskDetailVO getDetail(Long id);
+
+    /** 启动待启动或已停止的营销任务。 */
+    MarketingTaskVO startTask(Long id);
+
+    /** 停止发送中的营销任务。 */
+    MarketingTaskVO stopTask(Long id);
+
+    /** 批量软删非发送中的营销任务。 */
+    int batchDelete(List<Long> ids);
 }

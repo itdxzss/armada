@@ -41,6 +41,9 @@ import org.springframework.util.StringUtils;
 public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketingTaskServiceImpl.class);
+    private static final int STATUS_PENDING = MarketingTaskStatus.PENDING.code();
+    private static final int STATUS_SENDING = MarketingTaskStatus.SENDING.code();
+    private static final int STATUS_STOPPED = MarketingTaskStatus.STOPPED.code();
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
@@ -126,6 +129,78 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 .stream().map(MarketingTaskServiceImpl::toTargetVO).toList();
         log.info("营销任务详情查询 id={} targets={}", id, targets.size());
         return toDetailVO(task, targets);
+    }
+
+    /**
+     * 启动待启动或已停止的营销任务。
+     *
+     * <p>当前阶段的“启动”只负责主表状态流转:待启动/已停止 → 发送中。首次启动会补
+     * `started_at`,停止后再次启动保留第一次启动时间。真实发送调度仍由后续发送引擎接管。</p>
+     *
+     * @param id 营销任务 ID
+     * @return 启动后的任务主信息
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public MarketingTaskVO startTask(Long id) {
+        MarketingTask task = requireTask(id);
+        if (!List.of(STATUS_PENDING, STATUS_STOPPED).contains(task.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "只有待启动或已停止的任务可以启动");
+        }
+        int updated = taskMapper.startTask(id, System.currentTimeMillis());
+        if (updated == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
+        }
+        log.info("营销任务启动 id={}", id);
+        return toVO(requireTask(id));
+    }
+
+    /**
+     * 停止发送中的营销任务。
+     *
+     * <p>停止只把主表状态从发送中置为已停止,不写 `finished_at`。`finished_at` 留给成功、
+     * 失败、部分失败等终态,避免前端把人工暂停误判成发送完成。</p>
+     *
+     * @param id 营销任务 ID
+     * @return 停止后的任务主信息
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public MarketingTaskVO stopTask(Long id) {
+        MarketingTask task = requireTask(id);
+        if (!Integer.valueOf(STATUS_SENDING).equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "只有发送中的任务可以停止");
+        }
+        int updated = taskMapper.stopTask(id, System.currentTimeMillis());
+        if (updated == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
+        }
+        log.info("营销任务停止 id={}", id);
+        return toVO(requireTask(id));
+    }
+
+    /**
+     * 批量软删非发送中的营销任务。
+     *
+     * <p>null/空列表直接返回 0。若本次选择里包含发送中任务,整批拒绝,让运营先停止任务再删除。
+     * 真正软删由 SQL 再带 `status <> 2` 守卫,避免并发状态变化时误删发送中任务。</p>
+     *
+     * @param ids 要删除的任务 ID 列表
+     * @return 实际软删行数
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDelete(List<Long> ids) {
+        List<Long> normalizedIds = normalizeIds(ids);
+        if (normalizedIds.isEmpty()) {
+            return 0;
+        }
+        if (taskMapper.countSendingByIds(normalizedIds) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "发送中的任务不可删除,请先停止任务");
+        }
+        int deleted = taskMapper.batchSoftDelete(normalizedIds, System.currentTimeMillis());
+        log.info("营销任务批量软删 请求={} 实删={}", normalizedIds.size(), deleted);
+        return deleted;
     }
 
     private void validateRequest(CreateMarketingTaskDTO request) {
@@ -261,6 +336,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;
+    }
+
+    private static List<Long> normalizeIds(List<Long> ids) {
+        return ids == null ? List.of() : ids.stream().filter(id -> id != null).distinct().toList();
     }
 
     private static int positive(Integer value) {

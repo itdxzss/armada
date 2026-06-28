@@ -1,5 +1,6 @@
 package com.armada.marketing.controller;
 
+import com.armada.marketing.model.dto.BatchIdsRequest;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
@@ -18,8 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 群组营销任务第一阶段接口。
  *
- * <p>本 Controller 只开放任务列表、创建和详情读取。启动/停止、批量删除、账号群树和修改营销素材
- * 按后续 checkpoint 逐步补齐。</p>
+ * <p>当前已开放任务列表、创建、详情、启动、停止和批量删除。账号群树和修改营销素材
+ * 按后续 checkpoint 继续补齐。</p>
  */
 @RestController
 @RequestMapping("/api/marketing-tasks")
@@ -75,5 +76,44 @@ public class MarketingTaskController {
     @GetMapping("/{id}")
     public ApiResponse<MarketingTaskDetailVO> detail(@PathVariable Long id) {
         return ApiResponse.ok(service.getDetail(id));
+    }
+
+    /**
+     * 启动营销任务。
+     *
+     * <p>仅允许待启动或已停止任务进入发送中状态。当前阶段只改变任务状态,不触发协议层发送。</p>
+     *
+     * @param id 营销任务 ID
+     * @return 启动后的营销任务
+     */
+    @PostMapping("/{id}/start")
+    public ApiResponse<MarketingTaskVO> start(@PathVariable Long id) {
+        return ApiResponse.ok(service.startTask(id));
+    }
+
+    /**
+     * 停止营销任务。
+     *
+     * <p>仅允许发送中任务停止。停止后任务可重新启动,也可以被批量删除。</p>
+     *
+     * @param id 营销任务 ID
+     * @return 停止后的营销任务
+     */
+    @PostMapping("/{id}/stop")
+    public ApiResponse<MarketingTaskVO> stop(@PathVariable Long id) {
+        return ApiResponse.ok(service.stopTask(id));
+    }
+
+    /**
+     * 批量软删营销任务。
+     *
+     * <p>若请求中包含发送中任务,业务层会整批拒绝,要求先停止后删除。</p>
+     *
+     * @param request 任务 ID 列表
+     * @return 实际软删行数
+     */
+    @PostMapping("/batch-delete")
+    public ApiResponse<Integer> batchDelete(@RequestBody BatchIdsRequest request) {
+        return ApiResponse.ok(service.batchDelete(request.ids()));
     }
 }

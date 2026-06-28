@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -105,6 +106,49 @@ class MarketingTaskControllerDbTest {
                 .andExpect(jsonPath("$.data.targets").isArray())
                 .andExpect(jsonPath("$.data.targets[0].accountPhone").value(fixture.phone()))
                 .andExpect(jsonPath("$.data.targets[0].groupJid").value(fixture.groupJid()));
+    }
+
+    @Test
+    void postStartAndStop_updatesTaskStatus() throws Exception {
+        Fixture fixture = seedFixture("controller-start-stop");
+        long id = createTask("Controller启动停止任务", fixture);
+
+        mockMvc.perform(post("/api/marketing-tasks/{id}/start", id)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.status").value(2))
+                .andExpect(jsonPath("$.data.startedAt").isNumber());
+
+        mockMvc.perform(post("/api/marketing-tasks/{id}/stop", id)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.status").value(5));
+    }
+
+    @Test
+    void postBatchDelete_softDeletesTask() throws Exception {
+        Fixture fixture = seedFixture("controller-batch-delete");
+        long id = createTask("Controller批量删除任务", fixture);
+
+        mockMvc.perform(post("/api/marketing-tasks/batch-delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("ids", List.of(id))))
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(1));
+
+        MvcResult result = mockMvc.perform(get("/api/marketing-tasks/{id}", id)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andReturn();
+        int code = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .path("code").intValue();
+        assertThat(code).isNotEqualTo(0);
     }
 
     private long createTask(String taskName, Fixture fixture) throws Exception {

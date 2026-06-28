@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
  *
  * @param commandId         全局唯一命令 ID
  * @param batchId           批量命令归组 ID;单条命令可为空
- * @param commandType       命令类型,如 account.online.requested
+ * @param commandType       命令类型,如 account.online.requested / account.offline.requested
  * @param aggregateType     聚合类型,如 ACCOUNT
  * @param aggregateId       聚合 ID;账号命令对应 account.id
  * @param protocolAccountId 协议层账号句柄

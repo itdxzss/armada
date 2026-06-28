@@ -77,6 +77,31 @@ class ProtocolCommandPublisherTest {
     }
 
     @Test
+    void publish_offlineOutboxRow_sendsOfflineCommandEnvelopeWithoutProxyPayload() {
+        ProtocolCommandOutbox row = outboxRow("{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
+                + "\"source\":\"batch_offline\"}");
+        row.setCommandType("account.offline.requested");
+        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_100"), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        ProtocolCommandPublishResult result = publisher.publish(row);
+
+        assertThat(result.commandId()).isEqualTo("cmd_100");
+        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
+        verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
+        ProtocolCommandEnvelope envelope = captor.getValue();
+        assertThat(envelope.commandType()).isEqualTo("account.offline.requested");
+        assertThat(envelope.aggregateType()).isEqualTo("ACCOUNT");
+        assertThat(envelope.aggregateId()).isEqualTo(100L);
+        assertThat(envelope.protocolAccountId()).isEqualTo("acc_100");
+        assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
+        assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_100");
+        assertThat(envelope.payload().get("source").asText()).isEqualTo("batch_offline");
+        assertThat(envelope.payload().has("proxyId")).isFalse();
+        assertThat(envelope.payload().has("credentialFormat")).isFalse();
+    }
+
+    @Test
     void publish_success_doesNotWritePerMessageInfoLog() {
         Logger logger = (Logger) LoggerFactory.getLogger(ProtocolCommandPublisher.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

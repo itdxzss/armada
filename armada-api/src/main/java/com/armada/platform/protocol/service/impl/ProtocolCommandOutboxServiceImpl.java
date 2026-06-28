@@ -1,6 +1,6 @@
 package com.armada.platform.protocol.service.impl;
 
-import com.armada.platform.kafka.outbox.ProtocolCommandDispatchTrigger;
+import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;

@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.dispatch;
 
 /**
  * 协议命令 outbox dispatch 结果。

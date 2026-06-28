@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.dispatch;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
- * 协议命令 Outbox 低频兜底 scheduler。
+ * 协议命令 Kafka 低频兜底 scheduler。
  *
  * <p>默认注册本 bean。它只做漏触发、失败重试和服务重启后的 LOCKED 恢复,不是正常发送主路径。
  * 正常路径由 afterCommit 直接发送刚插入的 rows,不会等待本 scheduler。</p>
@@ -18,18 +18,18 @@ import org.springframework.stereotype.Service;
         name = "enabled",
         havingValue = "true",
         matchIfMissing = true)
-public class ProtocolCommandOutboxScheduler {
+public class ProtocolCommandScheduler {
 
-    private static final Logger log = LoggerFactory.getLogger(ProtocolCommandOutboxScheduler.class);
+    private static final Logger log = LoggerFactory.getLogger(ProtocolCommandScheduler.class);
 
-    private final ProtocolCommandOutboxDispatcher dispatcher;
+    private final ProtocolCommandDispatcher dispatcher;
 
     /**
-     * 创建协议命令 Outbox scheduler。
+     * 创建协议命令 Kafka 兜底 scheduler。
      *
      * @param dispatcher dispatcher
      */
-    public ProtocolCommandOutboxScheduler(ProtocolCommandOutboxDispatcher dispatcher) {
+    public ProtocolCommandScheduler(ProtocolCommandDispatcher dispatcher) {
         this.dispatcher = dispatcher;
     }
 

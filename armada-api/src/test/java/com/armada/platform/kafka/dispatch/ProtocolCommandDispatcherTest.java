@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.dispatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -10,6 +10,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.armada.platform.kafka.config.ProtocolCommandDispatcherProperties;
+import com.armada.platform.kafka.producer.ProtocolCommandPublisher;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -20,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 /**
  * 协议命令 Outbox dispatcher 单测。
@@ -28,7 +34,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
  * 也不依赖高频定时扫描作为主路径。</p>
  */
 @ExtendWith(MockitoExtension.class)
-class ProtocolCommandOutboxDispatcherTest {
+class ProtocolCommandDispatcherTest {
 
     @Mock
     private ProtocolCommandOutboxMapper mapper;
@@ -37,7 +43,7 @@ class ProtocolCommandOutboxDispatcherTest {
     private ProtocolCommandPublisher publisher;
 
     private ProtocolCommandDispatcherProperties properties;
-    private ProtocolCommandOutboxDispatcher dispatcher;
+    private ProtocolCommandDispatcher dispatcher;
 
     @BeforeEach
     void setUp() {
@@ -48,7 +54,7 @@ class ProtocolCommandOutboxDispatcherTest {
         properties.setRetryDelayMs(30_000);
         properties.setMaxRetryCount(2);
         properties.setLockedTimeoutMs(60_000);
-        dispatcher = new ProtocolCommandOutboxDispatcher(mapper, publisher, properties);
+        dispatcher = new ProtocolCommandDispatcher(mapper, publisher, properties);
     }
 
     @Test
@@ -75,6 +81,28 @@ class ProtocolCommandOutboxDispatcherTest {
         verify(mapper, never()).selectLockedByCommandIds(anyList(), eq("publisher-test"), anyLong());
         verify(publisher).publish(first);
         verify(publisher).publish(second);
+    }
+
+    @Test
+    void dispatchInsertedRows_logsElapsedMsInSummary() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ProtocolCommandDispatcher.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ProtocolCommandOutbox row = insertedOutboxRow("cmd-203", 203L);
+            when(mapper.markLockedByCommandIds(eq(List.of("cmd-203")), eq("publisher-test"), anyLong()))
+                    .thenReturn(1);
+            when(mapper.markSent(same(row), anyLong())).thenReturn(1);
+
+            dispatcher.dispatchInsertedRows(List.of(row));
+
+            assertThat(appender.list)
+                    .anyMatch(event -> event.getFormattedMessage().contains("协议命令 outbox dispatch 完成")
+                            && event.getFormattedMessage().contains("elapsedMs="));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

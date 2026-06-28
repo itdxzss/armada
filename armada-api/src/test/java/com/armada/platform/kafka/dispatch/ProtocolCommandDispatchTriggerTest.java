@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.dispatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.platform.kafka.config.ProtocolCommandDispatcherProperties;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +36,7 @@ class ProtocolCommandDispatchTriggerTest {
 
     @Test
     void dispatchAfterCommit_registersCallbackWhenTransactionSynchronizationActive() {
-        ProtocolCommandOutboxDispatcher dispatcher = dispatcher();
+        ProtocolCommandDispatcher dispatcher = dispatcher();
         RecordingExecutor executor = new RecordingExecutor();
         ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(
                 dispatcher,
@@ -57,7 +58,7 @@ class ProtocolCommandDispatchTriggerTest {
 
     @Test
     void dispatchAfterCommit_executesImmediatelyWhenNoTransactionSynchronizationActive() {
-        ProtocolCommandOutboxDispatcher dispatcher = dispatcher();
+        ProtocolCommandDispatcher dispatcher = dispatcher();
         RecordingExecutor executor = new RecordingExecutor();
         ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(
                 dispatcher,
@@ -74,7 +75,7 @@ class ProtocolCommandDispatchTriggerTest {
 
     @Test
     void dispatchAfterCommit_doesNothingWhenImmediateDispatchDisabled() {
-        ProtocolCommandOutboxDispatcher dispatcher = dispatcher();
+        ProtocolCommandDispatcher dispatcher = dispatcher();
         RecordingExecutor executor = new RecordingExecutor();
         ProtocolCommandDispatcherProperties properties = new ProtocolCommandDispatcherProperties();
         properties.setImmediateEnabled(false);
@@ -88,7 +89,7 @@ class ProtocolCommandDispatchTriggerTest {
 
     @Test
     void dispatchAfterCommit_dispatchesSynchronouslyWhenExecutorRejectsTask() {
-        ProtocolCommandOutboxDispatcher dispatcher = dispatcher();
+        ProtocolCommandDispatcher dispatcher = dispatcher();
         Executor rejectingExecutor = command -> {
             throw new RejectedExecutionException("queue full");
         };
@@ -101,8 +102,8 @@ class ProtocolCommandDispatchTriggerTest {
         verify(dispatcher).dispatchInsertedRows(rows);
     }
 
-    private static ProtocolCommandOutboxDispatcher dispatcher() {
-        ProtocolCommandOutboxDispatcher dispatcher = mock(ProtocolCommandOutboxDispatcher.class);
+    private static ProtocolCommandDispatcher dispatcher() {
+        ProtocolCommandDispatcher dispatcher = mock(ProtocolCommandDispatcher.class);
         when(dispatcher.dispatchInsertedRows(org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(ProtocolCommandDispatchResult.empty());
         return dispatcher;

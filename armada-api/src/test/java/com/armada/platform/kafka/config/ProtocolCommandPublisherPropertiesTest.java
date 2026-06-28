@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

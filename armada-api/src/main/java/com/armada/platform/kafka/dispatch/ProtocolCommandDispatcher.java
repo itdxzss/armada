@@ -1,5 +1,7 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.dispatch;
 
+import com.armada.platform.kafka.config.ProtocolCommandDispatcherProperties;
+import com.armada.platform.kafka.producer.ProtocolCommandPublisher;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
@@ -11,7 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 协议命令 Outbox dispatcher。
+ * 协议命令 Kafka dispatch 编排器。
  *
  * <p>本类按批次短事务抢占 PENDING 行,随后在事务外调用 Kafka publisher,最后按发送结果
  * 标记 SENT/PENDING/DEAD。</p>
@@ -21,9 +23,9 @@ import org.springframework.stereotype.Service;
  * 全局扫描只保留给低频 scheduler,用于服务重启、异步任务提交失败、失败重试到期等兜底场景。</p>
  */
 @Service
-public class ProtocolCommandOutboxDispatcher {
+public class ProtocolCommandDispatcher {
 
-    private static final Logger log = LoggerFactory.getLogger(ProtocolCommandOutboxDispatcher.class);
+    private static final Logger log = LoggerFactory.getLogger(ProtocolCommandDispatcher.class);
     private static final String DEFAULT_PUBLISHER_ID_PREFIX = "protocol-command-publisher-";
     private static final String LOCK_EXPIRED_ERROR = "publisher lock expired";
     private static final int MAX_ERROR_LENGTH = 1024;
@@ -34,15 +36,15 @@ public class ProtocolCommandOutboxDispatcher {
     private final String publisherId;
 
     /**
-     * 创建协议命令 Outbox dispatcher。
+     * 创建协议命令 Kafka dispatch 编排器。
      *
      * @param mapper     outbox mapper
      * @param publisher  Kafka publisher
      * @param properties dispatcher 配置
      */
-    public ProtocolCommandOutboxDispatcher(ProtocolCommandOutboxMapper mapper,
-                                           ProtocolCommandPublisher publisher,
-                                           ProtocolCommandDispatcherProperties properties) {
+    public ProtocolCommandDispatcher(ProtocolCommandOutboxMapper mapper,
+                                     ProtocolCommandPublisher publisher,
+                                     ProtocolCommandDispatcherProperties properties) {
         this.mapper = mapper;
         this.publisher = publisher;
         this.properties = properties;
@@ -64,6 +66,7 @@ public class ProtocolCommandOutboxDispatcher {
             return ProtocolCommandDispatchResult.empty();
         }
 
+        long startedAt = now();
         long lockedAt = now();
         String batchId = rows.get(0).getBatchId();
         List<String> commandIds = rows.stream()
@@ -92,7 +95,7 @@ public class ProtocolCommandOutboxDispatcher {
                 counts.sent(),
                 counts.retried(),
                 counts.dead());
-        logDispatchResult(result);
+        logDispatchResult(result, elapsedMs(startedAt));
         return result;
     }
 
@@ -105,6 +108,7 @@ public class ProtocolCommandOutboxDispatcher {
      * @return dispatch 结果
      */
     public ProtocolCommandDispatchResult dispatchPendingNow() {
+        long startedAt = now();
         ProtocolCommandDispatchResult total = ProtocolCommandDispatchResult.empty();
         // 一次兜底触发不能无限 drain,否则积压大时会长期占用唯一 dispatch 线程。
         int maxBatches = positiveOrDefault(
@@ -121,7 +125,7 @@ public class ProtocolCommandOutboxDispatcher {
             }
         }
         // 空转不打日志,避免兜底扫描无任务时产生噪声;有实际处理才输出汇总。
-        logDispatchResult(total);
+        logDispatchResult(total, elapsedMs(startedAt));
         return total;
     }
 
@@ -273,6 +277,10 @@ public class ProtocolCommandOutboxDispatcher {
         return System.currentTimeMillis();
     }
 
+    private long elapsedMs(long startedAt) {
+        return Math.max(0L, now() - startedAt);
+    }
+
     private void fillLockContext(List<ProtocolCommandOutbox> rows, long lockedAt) {
         for (ProtocolCommandOutbox row : rows) {
             row.setLockedBy(publisherId);
@@ -280,10 +288,12 @@ public class ProtocolCommandOutboxDispatcher {
         }
     }
 
-    private void logDispatchResult(ProtocolCommandDispatchResult result) {
+    private void logDispatchResult(ProtocolCommandDispatchResult result, long elapsedMs) {
         if (result.hasWork()) {
-            log.info("协议命令 outbox dispatch 完成 selected={} locked={} sent={} retried={} dead={} publisherId={}",
-                    result.selected(), result.locked(), result.sent(), result.retried(), result.dead(), publisherId);
+            log.info("协议命令 outbox dispatch 完成 selected={} locked={} sent={} retried={} dead={} "
+                            + "elapsedMs={} publisherId={}",
+                    result.selected(), result.locked(), result.sent(), result.retried(), result.dead(),
+                    elapsedMs, publisherId);
         }
     }
 

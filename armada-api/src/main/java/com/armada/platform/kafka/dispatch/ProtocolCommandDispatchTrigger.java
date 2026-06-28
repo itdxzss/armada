@@ -1,5 +1,6 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.dispatch;
 
+import com.armada.platform.kafka.config.ProtocolCommandDispatcherProperties;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -24,7 +25,7 @@ public class ProtocolCommandDispatchTrigger {
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolCommandDispatchTrigger.class);
 
-    private final ProtocolCommandOutboxDispatcher dispatcher;
+    private final ProtocolCommandDispatcher dispatcher;
     private final Executor executor;
     private final ProtocolCommandDispatcherProperties properties;
 
@@ -36,7 +37,7 @@ public class ProtocolCommandDispatchTrigger {
      * @param properties dispatcher 配置
      */
     public ProtocolCommandDispatchTrigger(
-            ProtocolCommandOutboxDispatcher dispatcher,
+            ProtocolCommandDispatcher dispatcher,
             @Qualifier("protocolCommandDispatchExecutor") Executor executor,
             ProtocolCommandDispatcherProperties properties) {
         this.dispatcher = dispatcher;

@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -7,12 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
- * 协议命令 outbox Kafka 装配测试。
+ * 协议命令 Kafka 装配测试。
  */
-class ProtocolKafkaOutboxConfigurationTest {
+class ProtocolKafkaConfigurationTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(ProtocolKafkaOutboxConfiguration.class);
+            .withUserConfiguration(ProtocolKafkaConfiguration.class);
 
     @Test
     void registersOutboxPropertiesAndDispatchExecutor() {

@@ -13,7 +13,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
-import com.armada.platform.kafka.outbox.ProtocolCommandDispatchTrigger;
+import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.type.TypeReference;

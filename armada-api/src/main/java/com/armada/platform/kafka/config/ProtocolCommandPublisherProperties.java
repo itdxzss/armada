@@ -1,4 +1,4 @@
-package com.armada.platform.kafka.outbox;
+package com.armada.platform.kafka.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

@@ -61,6 +61,7 @@
         <result column="group_jid" property="groupJid"/>
         <result column="group_name" property="groupName"/>
         <result column="link_url" property="linkUrl"/>
+        <result column="is_admin" property="admin"/>
     </resultMap>
 
     <sql id="TaskColumns">
@@ -186,15 +187,27 @@
         SELECT a.id AS accountId,
                a.ws_phone AS accountPhone,
                g.id AS groupLinkId,
-               p.group_jid AS groupJid,
+               m.group_jid AS groupJid,
                g.link_url AS groupLinkUrl,
                COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
         FROM account a
         JOIN group_link g ON g.id = #{groupLinkId} AND g.deleted_at IS NULL
+        JOIN account_group_membership m ON m.account_id = a.id
+                                        AND m.group_link_id = g.id
+                                        AND m.deleted_at IS NULL
         LEFT JOIN group_link_preview p ON p.group_link_id = g.id
+        LEFT JOIN account_group_baseline b ON b.account_id = a.id
+                                           AND a.group_baseline_state = 2
         WHERE a.id = #{accountId}
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
+          AND m.group_jid IS NOT NULL
+          AND TRIM(m.group_jid) &lt;&gt; ''
+          AND (
+              a.group_baseline_state &lt;&gt; 2
+              OR b.id IS NULL
+              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
+          )
         LIMIT 1
     </select>
 
@@ -203,21 +216,25 @@
                a.id AS account_id,
                a.ws_phone AS ws_phone,
                g.id AS group_link_id,
-               p.group_jid AS group_jid,
+               m.group_jid AS group_jid,
                COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS group_name,
-               g.link_url AS link_url
+               g.link_url AS link_url,
+               m.is_admin AS is_admin
         FROM account a
         JOIN account_state s ON s.account_id = a.id
-        JOIN group_link g ON g.deleted_at IS NULL
+        JOIN account_group_membership m ON m.account_id = a.id
+                                        AND m.deleted_at IS NULL
+        JOIN group_link g ON g.id = m.group_link_id
+                         AND g.deleted_at IS NULL
                          AND g.membership_state IN (2, 3)
-        JOIN group_link_preview p ON p.group_link_id = g.id
-                                 AND p.group_jid IS NOT NULL
-                                 AND TRIM(p.group_jid) &lt;&gt; ''
+        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
         LEFT JOIN group_link_health h ON h.group_link_id = g.id
         LEFT JOIN account_group_baseline b ON b.account_id = a.id
                                            AND a.group_baseline_state = 2
         WHERE a.account_group_id = #{groupId}
           AND a.deleted_at IS NULL
+          AND m.group_jid IS NOT NULL
+          AND TRIM(m.group_jid) &lt;&gt; ''
           AND s.login_state = 1
           AND s.account_state = 2
           AND (s.risk_status IS NULL OR s.risk_status = 1)
@@ -226,7 +243,7 @@
           AND (
               a.group_baseline_state &lt;&gt; 2
               OR b.id IS NULL
-              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
+              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
           )
         ORDER BY a.id ASC, g.id ASC
     </select>

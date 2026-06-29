@@ -1,7 +1,8 @@
 package com.armada.platform.protocol.service;
 
-import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.shared.exception.BusinessException;
@@ -42,4 +43,14 @@ public interface ProtocolCommandOutboxService {
      */
     ProtocolCommandOutboxEnqueueResult enqueueGroupHealthCheckCommands(
             List<ProtocolGroupHealthCheckCommandRequest> commands);
+
+    /**
+     * 批量写入账号当前群同步 outbox 命令。
+     *
+     * @param commands 待 enqueue 的账号群同步命令,最多 500 条
+     * @return 本次生成的批次 ID、命令 ID 和插入行数
+     * @throws BusinessException 入参非法或 command_id 冲突时抛出
+     */
+    ProtocolCommandOutboxEnqueueResult enqueueAccountGroupSyncCommands(
+            List<ProtocolAccountGroupSyncCommandRequest> commands);
 }

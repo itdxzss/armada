@@ -27,11 +27,14 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolAccountStateChangedSink sink;
 
+    @Mock
+    private ProtocolAccountGroupsReportedSink groupsReportedSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new ProtocolAccountEventConsumer(new ObjectMapper(), sink);
+        consumer = new ProtocolAccountEventConsumer(new ObjectMapper(), sink, groupsReportedSink);
     }
 
     @Test
@@ -71,6 +74,58 @@ class ProtocolAccountEventConsumerTest {
     }
 
     @Test
+    void onMessage_groupsReportedEnvelope_dispatchesParsedGroupsEvent() {
+        String raw = """
+                {
+                  "eventId": "evt-groups-1",
+                  "event": "account.groups_reported",
+                  "version": "v1",
+                  "accountId": "acc_861800000001",
+                  "occurredAt": "2026-06-28T06:00:01Z",
+                  "workerId": "worker-a",
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 100,
+                    "groups": [
+                      {
+                        "groupJid": "120363000000001@g.us",
+                        "subject": "运营群",
+                        "memberCount": 88,
+                        "ownerJid": "861300000000@s.whatsapp.net",
+                        "isAdmin": true,
+                        "announce": false,
+                        "avatarUrl": "https://example.test/avatar.jpg"
+                      }
+                    ]
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolAccountGroupsReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountGroupsReportedEvent.class);
+        verify(groupsReportedSink).handleGroupsReported(captor.capture());
+        ProtocolAccountGroupsReportedEvent event = captor.getValue();
+        assertThat(event.eventId()).isEqualTo("evt-groups-1");
+        assertThat(event.tenantId()).isEqualTo(1L);
+        assertThat(event.accountId()).isEqualTo(100L);
+        assertThat(event.protocolAccountId()).isEqualTo("acc_861800000001");
+        assertThat(event.reportedAt()).isEqualTo(1782626401000L);
+        assertThat(event.workerId()).isEqualTo("worker-a");
+        assertThat(event.groups()).singleElement().satisfies(group -> {
+            assertThat(group.groupJid()).isEqualTo("120363000000001@g.us");
+            assertThat(group.subject()).isEqualTo("运营群");
+            assertThat(group.memberCount()).isEqualTo(88);
+            assertThat(group.ownerJid()).isEqualTo("861300000000@s.whatsapp.net");
+            assertThat(group.admin()).isTrue();
+            assertThat(group.announceOnly()).isFalse();
+            assertThat(group.avatarUrl()).isEqualTo("https://example.test/avatar.jpg");
+        });
+        verifyNoInteractions(sink);
+    }
+
+    @Test
     void onMessage_unregisteredAccountEvent_skipsSink() {
         String raw = """
                 {
@@ -87,6 +142,7 @@ class ProtocolAccountEventConsumerTest {
         consumer.onMessage(raw);
 
         verifyNoInteractions(sink);
+        verifyNoInteractions(groupsReportedSink);
     }
 
     @Test
@@ -96,6 +152,7 @@ class ProtocolAccountEventConsumerTest {
                 .hasMessage("协议账号事件 JSON 解析失败");
 
         verifyNoInteractions(sink);
+        verifyNoInteractions(groupsReportedSink);
     }
 
     @Test
@@ -116,6 +173,7 @@ class ProtocolAccountEventConsumerTest {
                 .hasMessage("协议账号状态事件缺少 data.to");
 
         verifyNoInteractions(sink);
+        verifyNoInteractions(groupsReportedSink);
     }
 
     @Test

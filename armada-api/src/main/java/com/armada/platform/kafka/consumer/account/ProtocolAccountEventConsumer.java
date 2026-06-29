@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -16,7 +18,8 @@ import org.springframework.stereotype.Component;
 /**
  * 协议账号事件 Kafka consumer。
  *
- * <p>当前只接入 {@code account.state_changed}。其它账号事件先记录并跳过,
+ * <p>当前接入 {@code account.state_changed} 和 {@code account.groups_reported}。
+ * 其它账号事件先记录并跳过,
  * 防止一次性引入过多回写规则。</p>
  */
 @Component
@@ -28,18 +31,26 @@ public class ProtocolAccountEventConsumer {
     /** 现役协议层账号状态变更事件类型。 */
     public static final String EVENT_ACCOUNT_STATE_CHANGED = "account.state_changed";
 
+    /** 协议层账号当前群列表回报事件类型。 */
+    public static final String EVENT_ACCOUNT_GROUPS_REPORTED = "account.groups_reported";
+
     private final ObjectMapper objectMapper;
     private final ProtocolAccountStateChangedSink stateChangedSink;
+    private final ProtocolAccountGroupsReportedSink groupsReportedSink;
 
     /**
      * 创建协议账号事件 consumer。
      *
      * @param objectMapper     JSON 解析器
-     * @param stateChangedSink 账号状态变更下游处理口
+     * @param stateChangedSink  账号状态变更下游处理口
+     * @param groupsReportedSink 账号当前群列表下游处理口
      */
-    public ProtocolAccountEventConsumer(ObjectMapper objectMapper, ProtocolAccountStateChangedSink stateChangedSink) {
+    public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
+                                        ProtocolAccountStateChangedSink stateChangedSink,
+                                        ProtocolAccountGroupsReportedSink groupsReportedSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
+        this.groupsReportedSink = groupsReportedSink;
     }
 
     /**
@@ -56,17 +67,25 @@ public class ProtocolAccountEventConsumer {
         JsonNode envelope = readEnvelope(rawMessage);
         String eventType = text(envelope, "event");
         String eventId = text(envelope, "eventId");
-        if (!EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
-            log.warn("协议账号事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
-                    eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
+        if (EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
+            ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
+            log.info("协议账号状态事件收到 eventId={} accountId={} from={} to={} semantic={} rawCode={} workerId={}",
+                    event.eventId(), event.protocolAccountId(), event.from(), event.to(),
+                    event.semantic(), event.rawCode(), event.workerId());
+            stateChangedSink.handleStateChanged(event);
             return;
         }
-
-        ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
-        log.info("协议账号状态事件收到 eventId={} accountId={} from={} to={} semantic={} rawCode={} workerId={}",
-                event.eventId(), event.protocolAccountId(), event.from(), event.to(),
-                event.semantic(), event.rawCode(), event.workerId());
-        stateChangedSink.handleStateChanged(event);
+        if (EVENT_ACCOUNT_GROUPS_REPORTED.equals(eventType)) {
+            ProtocolAccountGroupsReportedEvent event = toGroupsReportedEvent(envelope);
+            log.info("协议账号群列表事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
+                            + "groupCount={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.groups().size(), event.workerId());
+            groupsReportedSink.handleGroupsReported(event);
+            return;
+        }
+        log.warn("协议账号事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
+                eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
     }
 
     private JsonNode readEnvelope(String rawMessage) {
@@ -91,6 +110,44 @@ public class ProtocolAccountEventConsumer {
                 text(data, "semantic"),
                 integer(data, "rawCode"),
                 text(envelope, "workerId"));
+    }
+
+    private ProtocolAccountGroupsReportedEvent toGroupsReportedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        Long tenantId = requiredLong(data, "tenantId", "协议账号群列表事件缺少 data.tenantId");
+        Long accountId = requiredLong(data, "accountId", "协议账号群列表事件缺少 data.accountId");
+        List<ProtocolAccountGroupsReportedEvent.Group> groups = groups(data.path("groups"));
+        return new ProtocolAccountGroupsReportedEvent(
+                text(envelope, "eventId"),
+                tenantId,
+                accountId,
+                requiredText(envelope, "accountId", "协议账号群列表事件缺少 accountId"),
+                occurredAt(envelope),
+                text(envelope, "workerId"),
+                groups);
+    }
+
+    private static JsonNode dataNode(JsonNode envelope) {
+        return envelope.path("data").isObject() ? envelope.path("data") : envelope;
+    }
+
+    private static List<ProtocolAccountGroupsReportedEvent.Group> groups(JsonNode groupsNode) {
+        if (!groupsNode.isArray()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群列表事件缺少 data.groups");
+        }
+        List<ProtocolAccountGroupsReportedEvent.Group> groups = new ArrayList<>(groupsNode.size());
+        for (JsonNode node : groupsNode) {
+            groups.add(new ProtocolAccountGroupsReportedEvent.Group(
+                    requiredAnyText(node, "协议账号群列表事件缺少 groupJid", "groupJid", "jid", "id"),
+                    anyText(node, "subject", "name"),
+                    integerAny(node, "memberCount", "participantCount", "size"),
+                    anyText(node, "ownerJid", "owner"),
+                    anyText(node, "ownerPhone"),
+                    boolAny(node, "isAdmin", "admin"),
+                    boolAny(node, "announceOnly", "announce"),
+                    anyText(node, "avatarUrl", "pictureUrl")));
+        }
+        return groups;
     }
 
     private static Long occurredAt(JsonNode envelope) {
@@ -123,12 +180,92 @@ public class ProtocolAccountEventConsumer {
         throw new BusinessException(ErrorCode.VALIDATION, "协议账号事件字段不是整数: " + fieldName);
     }
 
+    private static Integer integerAny(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (!value.isMissingNode() && !value.isNull()) {
+                return integer(node, fieldName);
+            }
+        }
+        return null;
+    }
+
+    private static Long requiredLong(JsonNode node, String fieldName, String errorMessage) {
+        Long value = longValue(node, fieldName);
+        if (value == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, errorMessage);
+        }
+        return value;
+    }
+
+    private static Long longValue(JsonNode node, String fieldName) {
+        JsonNode value = node.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        if (value.isLong() || value.isInt()) {
+            return value.longValue();
+        }
+        if (value.isTextual() && !value.asText().isBlank()) {
+            try {
+                return Long.valueOf(value.asText());
+            } catch (NumberFormatException ex) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议账号事件字段不是长整数: " + fieldName);
+            }
+        }
+        throw new BusinessException(ErrorCode.VALIDATION, "协议账号事件字段不是长整数: " + fieldName);
+    }
+
+    private static Boolean boolAny(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (!value.isMissingNode() && !value.isNull()) {
+                if (value.isBoolean()) {
+                    return value.booleanValue();
+                }
+                if (value.isInt() || value.isLong()) {
+                    return value.intValue() != 0;
+                }
+                if (value.isTextual() && !value.asText().isBlank()) {
+                    String text = value.asText().trim();
+                    if ("1".equals(text)) {
+                        return true;
+                    }
+                    if ("0".equals(text)) {
+                        return false;
+                    }
+                    return Boolean.valueOf(text);
+                }
+                throw new BusinessException(ErrorCode.VALIDATION, "协议账号事件字段不是布尔值: " + fieldName);
+            }
+        }
+        return null;
+    }
+
     private static String requiredText(JsonNode node, String fieldName, String errorMessage) {
         String value = text(node, fieldName);
         if (value == null || value.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, errorMessage);
         }
         return value;
+    }
+
+    private static String requiredAnyText(JsonNode node, String errorMessage, String... fieldNames) {
+        String value = anyText(node, fieldNames);
+        if (value == null || value.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, errorMessage);
+        }
+        return value;
+    }
+
+    private static String anyText(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            String value = text(node, fieldName);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static String text(JsonNode node, String fieldName) {

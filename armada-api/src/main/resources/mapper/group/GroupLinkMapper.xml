@@ -170,19 +170,6 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
-  <select id="selectActiveByIds" resultType="com.armada.group.model.entity.GroupLink">
-    <if test="ids != null and ids.size() &gt; 0">
-    SELECT *
-    FROM group_link
-    WHERE deleted_at IS NULL
-      AND id IN
-    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
-    </if>
-    <if test="ids == null or ids.size() == 0">
-    SELECT * FROM group_link WHERE 1=0
-    </if>
-  </select>
-
   <!--
     群链接健康检查候选:跨租户扫描已解析 group_jid 的活动链接,并选择一个在线在群账号执行 metadata。
     规则:
@@ -233,6 +220,19 @@
     WHERE rowNo = 1
     ORDER BY COALESCE(lastCheckAt, 0) ASC, groupLinkId ASC
     LIMIT #{limit}
+  </select>
+
+  <select id="selectActiveByIds" resultType="com.armada.group.model.entity.GroupLink">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT *
+    FROM group_link
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT * FROM group_link WHERE 1=0
+    </if>
   </select>
 
   <update id="migrateToLabel">

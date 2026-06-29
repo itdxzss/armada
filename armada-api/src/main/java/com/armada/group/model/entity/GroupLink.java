@@ -23,7 +23,7 @@ public class GroupLink {
     /** 来源导入批次(关联 group_link_import_batch.id)。 */
     private Long importBatchId;
 
-    /** 首次进入群组池来源:1=导入链接 2=进群任务 3=拉群任务 4=自建群。 */
+    /** 首次进入群组池来源:1=导入链接 2=进群任务 3=拉群任务 4=自建群 5=账号同步。 */
     private Integer origin;
 
     /** 我方与群关系:1=目标未进群 2=已进群 3=自建拥有。 */

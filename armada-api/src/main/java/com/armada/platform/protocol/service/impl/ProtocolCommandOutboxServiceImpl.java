@@ -5,6 +5,7 @@ import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -46,6 +47,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     /** 群链接健康检查命令类型。 */
     public static final String COMMAND_TYPE_GROUP_HEALTH_CHECK_REQUESTED = "group.health_check.requested";
+
+    /** 账号当前群同步命令类型。 */
+    public static final String COMMAND_TYPE_ACCOUNT_GROUPS_SYNC_REQUESTED = "account.groups_sync.requested";
 
     /** 账号聚合类型。 */
     public static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
@@ -165,6 +169,35 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             }
             commandIds.add(commandId);
             rows.add(toGroupHealthCheckOutboxRow(command, commandId, batchId, now));
+        }
+
+        return insertPendingRows(batchId, commandIds, rows);
+    }
+
+    /**
+     * 批量写入账号当前群同步 outbox 命令。
+     *
+     * <p>单条命令不生成 batch_id;多条命令共享一个 batch_id,便于单轮账号群刷新排查。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueAccountGroupSyncCommands(
+            List<ProtocolAccountGroupSyncCommandRequest> commands) {
+        validateAccountGroupSyncCommands(commands);
+
+        String batchId = commands.size() == 1 ? null : newBatchId();
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+
+        for (ProtocolAccountGroupSyncCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toAccountGroupSyncOutboxRow(command, commandId, batchId, now));
         }
 
         return insertPendingRows(batchId, commandIds, rows);
@@ -308,6 +341,28 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    private ProtocolCommandOutbox toAccountGroupSyncOutboxRow(ProtocolAccountGroupSyncCommandRequest command,
+                                                              String commandId,
+                                                              String batchId,
+                                                              long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setCommandId(commandId);
+        row.setBatchId(batchId);
+        row.setCommandType(COMMAND_TYPE_ACCOUNT_GROUPS_SYNC_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
+        row.setAggregateId(command.accountId());
+        row.setKafkaTopic(masterCommandProperties.getTopic());
+        row.setKafkaKey(command.protocolAccountId());
+        row.setProtocolAccountId(command.protocolAccountId());
+        row.setPayloadJson(payloadJson(command));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
     /**
      * 生成协议层账号上线命令 payload JSON。
      *
@@ -353,10 +408,12 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     }
 
     /**
-     * 生成协议层群链接健康检查命令 payload JSON。
+     * 生成协议层群健康检查命令 payload JSON。
      *
-     * @param command 已完成业务校验的健康检查命令
-     * @return 健康检查命令 payload JSON
+     * <p>payload 只携带群链接和操作账号引用,协议层 master 据此路由到 owner worker 执行 metadata。</p>
+     *
+     * @param command 已完成业务校验的群健康检查命令
+     * @return 群健康检查命令 payload JSON
      * @throws BusinessException 当 payload 无法序列化时抛出
      */
     private String payloadJson(ProtocolGroupHealthCheckCommandRequest command) {
@@ -364,6 +421,29 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 command.tenantId(),
                 command.groupLinkId(),
                 command.groupJid(),
+                command.accountId(),
+                command.protocolAccountId(),
+                command.source());
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议命令 payload 序列化失败");
+        }
+    }
+
+    /**
+     * 生成协议层账号当前群同步命令 payload JSON。
+     *
+     * <p>payload 只携带本地账号引用和来源,协议层 master 根据 {@code protocolAccountId}
+     * 路由到 owner worker,由 worker 执行账号当前群列表读取。</p>
+     *
+     * @param command 已完成业务校验的账号群同步命令
+     * @return 账号群同步命令 payload JSON
+     * @throws BusinessException 当 payload 无法序列化时抛出
+     */
+    private String payloadJson(ProtocolAccountGroupSyncCommandRequest command) {
+        ProtocolAccountGroupSyncCommandPayload payload = new ProtocolAccountGroupSyncCommandPayload(
+                command.tenantId(),
                 command.accountId(),
                 command.protocolAccountId(),
                 command.source());
@@ -455,7 +535,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /**
      * 校验群链接健康检查命令批次。
      *
-     * @param commands 待入队的健康检查命令列表
+     * <p>批次约束与账号命令保持一致,避免单轮巡检写入过大的 outbox 批次。</p>
+     *
+     * @param commands 待入队的群健康检查命令列表
      * @throws BusinessException 当批次为空、超限或单条命令缺少必要字段时抛出
      */
     private void validateGroupHealthCheckCommands(List<ProtocolGroupHealthCheckCommandRequest> commands) {
@@ -474,7 +556,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /**
      * 校验单条群链接健康检查命令的协议层必需字段。
      *
-     * @param command 待校验的健康检查命令
+     * <p>群健康检查必须携带本地群链接、群 JID 和协议账号,保证 master 可以路由且回写能命中本地记录。</p>
+     *
+     * @param command 待校验的群健康检查命令
      * @throws BusinessException 当命令为空或缺少必要字段时抛出
      */
     private void validateGroupHealthCheckCommand(ProtocolGroupHealthCheckCommandRequest command) {
@@ -484,8 +568,47 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || isBlank(command.groupJid())
                 || command.accountId() == null
                 || isBlank(command.protocolAccountId())
-                || isBlank(command.source())) {
+                    || isBlank(command.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接健康检查命令缺少必要字段");
+        }
+    }
+
+    /**
+     * 校验账号当前群同步命令批次。
+     *
+     * <p>批次约束与其它协议命令保持一致,避免单轮账号群刷新写入过大的 outbox 批次。</p>
+     *
+     * @param commands 待入队的账号群同步命令列表
+     * @throws BusinessException 当批次为空、超限或单条命令缺少必要字段时抛出
+     */
+    private void validateAccountGroupSyncCommands(List<ProtocolAccountGroupSyncCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号群同步命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "账号群同步命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        for (ProtocolAccountGroupSyncCommandRequest command : commands) {
+            validateAccountGroupSyncCommand(command);
+        }
+    }
+
+    /**
+     * 校验单条账号当前群同步命令的协议层必需字段。
+     *
+     * <p>tenantId/accountId 用于回写定位,protocolAccountId 用于 master owner 路由。</p>
+     *
+     * @param command 待校验的账号群同步命令
+     * @throws BusinessException 当命令为空或缺少必要字段时抛出
+     */
+    private void validateAccountGroupSyncCommand(ProtocolAccountGroupSyncCommandRequest command) {
+        if (command == null
+                || command.tenantId() == null
+                || command.accountId() == null
+                || isBlank(command.protocolAccountId())
+                || isBlank(command.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号群同步命令缺少必要字段");
         }
     }
 
@@ -519,6 +642,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             Long tenantId,
             Long groupLinkId,
             String groupJid,
+            Long accountId,
+            String protocolAccountId,
+            String source
+    ) {
+    }
+
+    private record ProtocolAccountGroupSyncCommandPayload(
+            Long tenantId,
             Long accountId,
             String protocolAccountId,
             String source

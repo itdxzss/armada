@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.AccountGroupMembershipMapper">
+
+  <select id="selectBaselineGroupJidsJson" resultType="string">
+    SELECT baseline_group_jids
+    FROM account_group_baseline
+    WHERE account_id = #{accountId}
+    LIMIT 1
+  </select>
+
+  <select id="selectActiveGroupLinkIdByGroupJid" resultType="long">
+    SELECT g.id
+    FROM group_link_preview p
+    INNER JOIN group_link g ON g.id = p.group_link_id
+    WHERE g.deleted_at IS NULL
+      AND p.group_jid = #{groupJid}
+    ORDER BY g.id ASC
+    LIMIT 1
+  </select>
+
+  <update id="touchGroupLinkFromAccountSync">
+    UPDATE group_link
+    SET deleted_at = NULL,
+        group_name = COALESCE(NULLIF(TRIM(#{groupName}), ''), group_name),
+        membership_state = CASE WHEN membership_state = 3 THEN 3 ELSE 2 END,
+        updated_at = #{updatedAt}
+    WHERE id = #{groupLinkId}
+  </update>
+
+  <insert id="upsertPreviewFromAccountSync">
+    INSERT INTO group_link_preview (
+      group_link_id, group_jid, wa_subject, member_size, owner_phone,
+      announce_only, avatar_url, last_preview_at, created_at, updated_at
+    ) VALUES (
+      #{groupLinkId}, #{groupJid}, #{subject}, #{memberSize}, #{ownerPhone},
+      #{announceOnly}, #{avatarUrl}, #{syncAt}, #{now}, #{now}
+    )
+    ON DUPLICATE KEY UPDATE
+      group_jid = VALUES(group_jid),
+      wa_subject = COALESCE(NULLIF(TRIM(VALUES(wa_subject)), ''), wa_subject),
+      member_size = COALESCE(VALUES(member_size), member_size),
+      owner_phone = COALESCE(NULLIF(TRIM(VALUES(owner_phone)), ''), owner_phone),
+      announce_only = COALESCE(VALUES(announce_only), announce_only),
+      avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
+      last_preview_at = VALUES(last_preview_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <insert id="upsertMembership">
+    INSERT INTO account_group_membership (
+      account_id, group_link_id, group_jid, is_admin, last_seen_at, created_at, updated_at
+    ) VALUES (
+      #{accountId}, #{groupLinkId}, #{groupJid}, #{admin}, #{lastSeenAt}, #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      group_link_id = VALUES(group_link_id),
+      is_admin = VALUES(is_admin),
+      last_seen_at = VALUES(last_seen_at),
+      deleted_at = NULL,
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <update id="markMissingMembershipsDeleted">
+    UPDATE account_group_membership
+    SET deleted_at = #{deletedAt},
+        updated_at = #{deletedAt}
+    WHERE account_id = #{accountId}
+      AND deleted_at IS NULL
+    <if test="groupJids != null and groupJids.size() &gt; 0">
+      AND group_jid NOT IN
+      <foreach collection="groupJids" item="jid" open="(" separator="," close=")">#{jid}</foreach>
+    </if>
+  </update>
+
+</mapper>

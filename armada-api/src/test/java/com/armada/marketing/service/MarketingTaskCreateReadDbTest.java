@@ -115,16 +115,17 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
-    void createTask_rejectsSelectionWithoutGroupJid() {
-        Fixture fixture = seedFixture("missing-jid");
-        jdbc.update("UPDATE group_link_preview SET group_jid = NULL WHERE group_link_id = ?", fixture.groupLinkId());
+    void createTask_rejectsSelectionWithoutActiveMembership() {
+        Fixture fixture = seedFixture("missing-membership");
+        jdbc.update("UPDATE account_group_membership SET deleted_at = ? WHERE account_id = ? AND group_link_id = ?",
+                System.currentTimeMillis(), fixture.accountId(), fixture.groupLinkId());
 
-        CreateMarketingTaskDTO req = request("无JID任务", fixture.accountGroupId(), fixture.templateId(), "PENDING",
+        CreateMarketingTaskDTO req = request("无在群关系任务", fixture.accountGroupId(), fixture.templateId(), "PENDING",
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("群JID");
+                .hasMessageContaining("不可用");
     }
 
     private CreateMarketingTaskDTO request(String taskName,
@@ -209,6 +210,11 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                     (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
                 VALUES (?, ?, 1, 0, ?, ?)
                 """, TEST_TENANT_ID, groupLinkId, now, now);
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
     }
 

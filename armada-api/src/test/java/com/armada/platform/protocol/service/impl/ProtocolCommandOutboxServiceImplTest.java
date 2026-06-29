@@ -12,6 +12,7 @@ import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -238,6 +239,49 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueAccountGroupSyncCommands_singleCommand_insertsMasterRoutedAccountCommand() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-account-groups"), List.of());
+        ProtocolAccountGroupSyncCommandRequest command = accountGroupSyncCommand(1L, 100L, "acc_100");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueAccountGroupSyncCommands(List.of(command));
+
+        assertThat(result.batchId()).isNull();
+        assertThat(result.commandIds()).containsExactly("cmd-account-groups");
+        assertThat(result.inserted()).isEqualTo(1);
+
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).hasSize(1);
+        ProtocolCommandOutbox row = rows.get(0);
+        assertThat(row.getCommandId()).isEqualTo("cmd-account-groups");
+        assertThat(row.getBatchId()).isNull();
+        assertThat(row.getCommandType()).isEqualTo("account.groups_sync.requested");
+        assertThat(row.getAggregateType()).isEqualTo("ACCOUNT");
+        assertThat(row.getAggregateId()).isEqualTo(100L);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_100");
+        assertThat(row.getProtocolAccountId()).isEqualTo("acc_100");
+        assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(row.getRetryCount()).isZero();
+        assertThat(row.getNextRetryAt()).isZero();
+
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("tenantId", 1)
+                .containsEntry("accountId", 100)
+                .containsEntry("protocolAccountId", "acc_100")
+                .containsEntry("source", "scheduled_account_group_sync");
+        assertThat(row.getPayloadJson())
+                .doesNotContain("credentialJson")
+                .doesNotContain("creds")
+                .doesNotContain("password")
+                .doesNotContain("username")
+                .doesNotContain("proxyHost");
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
     void enqueueOnlineCommands_duplicateGeneratedCommandId_throwsConflictBeforeMapperInsert() {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-dupe", "cmd-dupe"), List.of("batch-1"));
         List<ProtocolOnlineCommandRequest> commands = List.of(
@@ -337,6 +381,16 @@ class ProtocolCommandOutboxServiceImplTest {
                 accountId,
                 protocolAccountId,
                 "scheduled_group_link_health");
+    }
+
+    private static ProtocolAccountGroupSyncCommandRequest accountGroupSyncCommand(Long tenantId,
+                                                                                  Long accountId,
+                                                                                  String protocolAccountId) {
+        return new ProtocolAccountGroupSyncCommandRequest(
+                tenantId,
+                accountId,
+                protocolAccountId,
+                "scheduled_account_group_sync");
     }
 
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {

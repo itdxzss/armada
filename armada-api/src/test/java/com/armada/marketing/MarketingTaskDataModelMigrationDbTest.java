@@ -37,7 +37,21 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(columnType("account_group_baseline", "baseline_group_jids")).isEqualTo("json");
         assertThat(columnType("account_group_baseline", "group_count")).isEqualTo("int");
         assertThat(columnType("account_group_baseline", "captured_at")).isEqualTo("bigint");
+        assertThat(columnType("account_group_baseline", "last_group_sync_requested_at")).isEqualTo("bigint");
         assertThat(indexExists("account_group_baseline", "uq_account_baseline")).isTrue();
+        assertThat(indexExists("account_group_baseline", "idx_account_baseline_group_sync_requested")).isTrue();
+    }
+
+    @Test
+    void accountGroupMembershipTable_tracksCurrentGroupsPerAccount() {
+        assertThat(tableExists("account_group_membership")).isTrue();
+        assertThat(columnType("account_group_membership", "account_id")).isEqualTo("bigint");
+        assertThat(columnType("account_group_membership", "group_link_id")).isEqualTo("bigint");
+        assertThat(columnType("account_group_membership", "group_jid")).isEqualTo("varchar");
+        assertThat(columnType("account_group_membership", "is_admin")).isEqualTo("tinyint");
+        assertThat(columnType("account_group_membership", "last_seen_at")).isEqualTo("bigint");
+        assertThat(indexExists("account_group_membership", "uq_account_group_membership")).isTrue();
+        assertThat(indexExists("account_group_membership", "idx_account_group_membership_account")).isTrue();
     }
 
     @Test

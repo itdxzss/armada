@@ -330,7 +330,7 @@ TENANT_GROUPS = [
     ("租户 IAM / 设置 / 审计", ["tenant","tenant_user","tenant_role","tenant_user_role","tenant_menu_override","tenant_settings","tenant_webhook","op_log_tenant"]),
     ("标签", ["tag","account_tag"]),
     ("账号与归属", ["account","account_history","account_group","account_group_baseline","account_credential","account_import_batch","account_import_detail","account_stat_daily","wa_login_session"]),
-    ("群组 / 群链接池", ["group_link_label","group_link","group_link_preview","group_link_health","group_link_history","group_link_import_batch","group_link_import_detail"]),
+    ("群组 / 群链接池", ["group_link_label","group_link","group_link_preview","group_link_health","account_group_membership","group_link_history","group_link_import_batch","group_link_import_detail"]),
     ("拉群任务族", ["task_template","task_batch","task_row","task_log","task_water_plan","material_phone"]),
     ("进群任务", ["join_task","join_task_result"]),
     ("群组营销 / 素材", ["marketing_task","marketing_task_target","marketing_task_send_attempt","group_marketing_task","group_marketing_task_detail","group_material_template","marketing_template","material_template","material_audit"]),

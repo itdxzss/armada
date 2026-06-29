@@ -3,9 +3,11 @@ package com.armada.account.mapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVoRow;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -79,6 +81,39 @@ public interface AccountMapper {
      */
     List<AccountIpRegionRow> selectIpRegionsByAccountIds(@Param("ids") List<Long> ids,
                                                          @Param("successResult") int successResult);
+
+    /**
+     * 跨租户扫描账号当前群同步候选。
+     *
+     * <p>调度线程没有 HTTP 租户上下文,因此关闭租户拦截器并在 SQL 内显式按 tenant_id
+     * 连接 account/account_state/account_group_baseline。只选择已拍 baseline 的在线正常账号,
+     * 避免上线前历史群被误纳入“系统上线后群”。</p>
+     *
+     * @param limit                 本轮最大候选数
+     * @param onlineLoginState      在线登录态码
+     * @param normalAccountState    正常账号状态码
+     * @param baselineCapturedState 已拍群基线状态码
+     * @return 可发起协议层 listParticipating 的候选账号
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountGroupSyncCandidate> selectGroupSyncCandidates(
+            @Param("limit") int limit,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("baselineCapturedState") int baselineCapturedState);
+
+    /**
+     * 标记账号当前群同步命令已入队。
+     *
+     * <p>该水位只用于后台调度轮转,不覆盖登录前群 baseline JSON。调用方必须先恢复
+     * {@link com.armada.shared.tenant.TenantContext},让租户拦截器限制在当前租户内更新。</p>
+     *
+     * @param accountIds  已成功写入 outbox 的账号 ID
+     * @param requestedAt 入队时间(epoch 毫秒)
+     * @return 更新行数
+     */
+    int markGroupSyncRequested(@Param("accountIds") List<Long> accountIds,
+                               @Param("requestedAt") long requestedAt);
 
     /**
      * 按筛选条件统计账号总数(SQL 下推,与 selectPage 共享 filter 片段)。

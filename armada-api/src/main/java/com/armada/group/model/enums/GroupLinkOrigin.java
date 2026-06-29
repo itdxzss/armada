@@ -5,7 +5,8 @@ public enum GroupLinkOrigin {
     IMPORT(1, "导入链接"),
     JOIN_TASK(2, "进群任务"),
     PULL_TASK(3, "拉群任务"),
-    SELF_BUILT(4, "自建群");
+    SELF_BUILT(4, "自建群"),
+    ACCOUNT_SYNC(5, "账号同步");
 
     private final int code;
     private final String label;

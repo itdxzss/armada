@@ -16,8 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 营销任务建任务抽屉的账号→可营销群树。
  *
- * <p>当前 armada 尚无 per-account 群成员表,因此本测试验证的是账号分组内在线可用账号
- * 与租户可用群池的组合,再按账号登录前基线 JSON 排除历史群。</p>
+ * <p>营销树只展示账号自身当前参与的群,再按账号登录前基线 JSON 排除历史群。</p>
  */
 class MarketingTaskAccountTreeDbTest extends DbTestBase {
 
@@ -40,9 +39,9 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
         String newJid = "120363000002@g.us";
         String bannedJid = "120363000003@g.us";
         seedBaseline(onlineAccountId, "[\"" + oldJid + "\"]");
-        seedGroup("old", oldJid, 1, 0);
-        seedGroup("new", newJid, 1, 0);
-        seedGroup("banned", bannedJid, 1, 1);
+        seedMembership(onlineAccountId, seedGroup("old", oldJid, 1, 0), oldJid);
+        seedMembership(onlineAccountId, seedGroup("new", newJid, 1, 0), newJid);
+        seedMembership(onlineAccountId, seedGroup("banned", bannedJid, 1, 1), bannedJid);
 
         MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
 
@@ -67,13 +66,38 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
         long accountId = seedAccount("923300000004", accountGroupId, BASELINE_DISABLED, 2, 1, 1, null);
         String oldJid = "120363000004@g.us";
         seedBaseline(accountId, "[\"" + oldJid + "\"]");
-        seedGroup("disabled-old", oldJid, 1, 0);
+        seedMembership(accountId, seedGroup("disabled-old", oldJid, 1, 0), oldJid);
 
         MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
 
         assertThat(tree.accounts()).singleElement().satisfies(account ->
                 assertThat(account.groups()).extracting(MarketingTreeGroupVO::groupJid)
                         .containsExactly(oldJid));
+    }
+
+    @Test
+    void accountTree_onlyShowsGroupsBelongingToEachAccount() {
+        long accountGroupId = seedAccountGroup("tree-membership");
+        long firstAccountId = seedAccount("923300000005", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
+        long secondAccountId = seedAccount("923300000006", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
+        String firstJid = "120363000005@g.us";
+        String secondJid = "120363000006@g.us";
+        seedBaseline(firstAccountId, "[]");
+        seedBaseline(secondAccountId, "[]");
+        seedMembership(firstAccountId, seedGroup("first-only", firstJid, 1, 0), firstJid);
+        seedMembership(secondAccountId, seedGroup("second-only", secondJid, 1, 0), secondJid);
+
+        MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
+
+        assertThat(tree.accounts()).hasSize(2);
+        assertThat(tree.accounts().get(0).accountId()).isEqualTo(firstAccountId);
+        assertThat(tree.accounts().get(0).groups())
+                .extracting(MarketingTreeGroupVO::groupJid)
+                .containsExactly(firstJid);
+        assertThat(tree.accounts().get(1).accountId()).isEqualTo(secondAccountId);
+        assertThat(tree.accounts().get(1).groups())
+                .extracting(MarketingTreeGroupVO::groupJid)
+                .containsExactly(secondJid);
     }
 
     @Test
@@ -132,7 +156,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
                 """, TEST_TENANT_ID, accountId, baselineGroupJids, baselineGroupJids, now, now, now);
     }
 
-    private void seedGroup(String suffix, String groupJid, Integer healthStatus, Integer banned) {
+    private long seedGroup(String suffix, String groupJid, Integer healthStatus, Integer banned) {
         long now = System.currentTimeMillis();
         long groupLinkId = insertAndReturnId("""
                 INSERT INTO group_link
@@ -155,6 +179,16 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
                     (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """, TEST_TENANT_ID, groupLinkId, healthStatus, banned, now, now);
+        return groupLinkId;
+    }
+
+    private void seedMembership(long accountId, long groupLinkId, String groupJid) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
     }
 
     private long insertAndReturnId(String sql, SqlBinder binder) {

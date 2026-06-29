@@ -1,8 +1,8 @@
 package com.armada.group.mapper;
 
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
-import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
@@ -82,14 +82,6 @@ public interface GroupLinkMapper {
     List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);
 
     /**
-     * 按 ID 批量查活跃群链接。
-     *
-     * @param ids 群链接 ID 列表
-     * @return 活跃群链接列表;不存在或已软删记录不会返回
-     */
-    List<GroupLink> selectActiveByIds(@Param("ids") List<Long> ids);
-
-    /**
      * 群链接健康检查候选:跨租户返回已解析 group_jid 且能找到在线在群账号的活动链接。
      *
      * <p>后台调度线程没有租户上下文,因此关闭租户拦截器,SQL 内显式按 tenant_id 连接各表。
@@ -103,6 +95,14 @@ public interface GroupLinkMapper {
     List<GroupLinkHealthCheckCandidate> selectHealthCheckCandidates(
             @Param("limit") int limit,
             @Param("onlineLoginState") int onlineLoginState);
+
+    /**
+     * 按 ID 批量查活跃群链接。
+     *
+     * @param ids 群链接 ID 列表
+     * @return 活跃群链接列表;不存在或已软删记录不会返回
+     */
+    List<GroupLink> selectActiveByIds(@Param("ids") List<Long> ids);
 
     /**
      * 批量迁移到目标分组(改 label_id)。

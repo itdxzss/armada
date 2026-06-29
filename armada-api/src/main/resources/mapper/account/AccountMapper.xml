@@ -87,6 +87,43 @@
   </select>
 
   <!--
+    账号当前群同步候选:跨租户扫描在线正常账号,并要求登录前群基线已经拍完。
+    调度线程没有租户上下文,所以 mapper 方法关闭租户拦截器,这里显式按 tenant_id 连接。
+  -->
+  <select id="selectGroupSyncCandidates" resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
+    SELECT a.tenant_id AS tenantId,
+           a.id AS accountId,
+           a.protocol_account_id AS protocolAccountId
+    FROM account a
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    INNER JOIN account_group_baseline b
+      ON b.tenant_id = a.tenant_id
+     AND b.account_id = a.id
+    WHERE a.deleted_at IS NULL
+      AND a.group_baseline_state = #{baselineCapturedState}
+      AND a.protocol_account_id IS NOT NULL
+      AND a.protocol_account_id != ''
+      AND s.login_state = #{onlineLoginState}
+      AND s.account_state = #{normalAccountState}
+      AND (s.risk_status IS NULL OR s.risk_status = 1)
+      AND s.mute_status IS NULL
+    ORDER BY COALESCE(b.last_group_sync_requested_at, 0) ASC,
+             COALESCE(s.last_state_sync_time, a.updated_at, a.created_at, 0) ASC,
+             a.id ASC
+    LIMIT #{limit}
+  </select>
+
+  <update id="markGroupSyncRequested">
+    UPDATE account_group_baseline
+    SET last_group_sync_requested_at = #{requestedAt},
+        updated_at = #{requestedAt}
+    WHERE account_id IN
+    <foreach collection="accountIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <!--
     共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。
     accountState/riskStatus 筛选 account_state 表列:step1 导入后该表列全 NULL,条件天然不命中。
   -->

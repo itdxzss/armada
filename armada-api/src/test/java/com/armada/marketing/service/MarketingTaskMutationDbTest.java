@@ -183,6 +183,11 @@ class MarketingTaskMutationDbTest extends DbTestBase {
                     (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
                 VALUES (?, ?, 1, 0, ?, ?)
                 """, TEST_TENANT_ID, groupLinkId, now, now);
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
         return new Fixture(accountGroupId, templateId, accountId, groupLinkId);
     }
 

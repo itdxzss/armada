@@ -10,8 +10,19 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       DEV_LOGIN_PASSWORD: ${DEV_LOGIN_PASSWORD:-armada123}
       JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--Xms1024m -Xmx1024m}"
+      LOGGING_FILE_NAME: /app/logs/armada-api.log
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 500MB
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 10
+      LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 5GB
+    volumes:
+      - ./logs/backend:/app/logs
     expose:
       - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
     restart: unless-stopped
 
   nginx:
@@ -23,4 +34,11 @@ services:
       - backend
     ports:
       - "${ARMADA_HTTP_PORT:-18080}:80"
+    volumes:
+      - ./logs/nginx:/var/log/nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
     restart: unless-stopped

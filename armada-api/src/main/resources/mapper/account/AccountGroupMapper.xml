@@ -31,7 +31,8 @@
            g.created_at AS createdAt, g.updated_at AS updatedAt
     FROM account_group g
     WHERE <include refid="filter"/>
-    ORDER BY g.created_at DESC
+    ORDER BY CASE WHEN g.system_builtin = 1 THEN 0 ELSE 1 END,
+             g.created_at DESC
     LIMIT #{offset}, #{pageSize}
   </select>
 

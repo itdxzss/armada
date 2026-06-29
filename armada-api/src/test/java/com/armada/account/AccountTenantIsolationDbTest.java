@@ -51,7 +51,7 @@ class AccountTenantIsolationDbTest extends DbTestBase {
      */
     private Long importOneAccount(String wsPhone) {
         String json = "[{\"wid\":\"" + wsPhone + "\","
-                + "\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+                + "\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
         assertThat(batch.importedRows()).as("导入应成功 1 行,wsPhone=%s", wsPhone).isEqualTo(1);
@@ -119,7 +119,7 @@ class AccountTenantIsolationDbTest extends DbTestBase {
                 new AccountImportDTO(null, 2, 1, 2, "印度", "r", null),
                 null,
                 "[{\"wid\":\"" + sharedPhone + "\","
-                        + "\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]"
+                        + "\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]"
         );
         assertThat(batchT1.importedRows()).as("租户 1 应成功导入 1 行").isEqualTo(1);
 
@@ -130,7 +130,7 @@ class AccountTenantIsolationDbTest extends DbTestBase {
                     new AccountImportDTO(null, 2, 1, 2, "印度", "r", null),
                     null,
                     "[{\"wid\":\"" + sharedPhone + "\","
-                            + "\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]"
+                            + "\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]"
             );
             assertThat(batchT2.importedRows()).as("租户 2 导入同号应成功(uq 含 tenant_id,跨租户允许同号)").isEqualTo(1);
             assertThat(batchT2.duplicateRows()).as("跨租户不应计重复").isEqualTo(0);

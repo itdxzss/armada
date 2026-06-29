@@ -120,9 +120,9 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
     private AccountImportBatchVO importTwoAccounts(String firstPhone, String secondPhone, String ipRegion) {
         String json = "["
                 + "{\"wid\":\"" + firstPhone
-                + "\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
+                + "\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}},"
                 + "{\"wid\":\"" + secondPhone
-                + "\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
+                + "\",\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}"
                 + "]";
         var meta = new AccountImportDTO(null, 2, 1, 2, ipRegion, "dispatch-test", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);

@@ -24,7 +24,7 @@ class AccountImportParserTest {
 
     @Test
     void json_missingRegistrationId_marksIncomplete() {
-        String json = "[{\"wid\":\"8613800138000\",\"creds\":{\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613800138000\",\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries).hasSize(1);
         assertThat(entries.get(0).getParseError()).contains("凭据不全").contains("registrationId");
@@ -32,7 +32,7 @@ class AccountImportParserTest {
 
     @Test
     void json_complete_parsesOk() {
-        String json = "[{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = nakedCreds("8613800138000");
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries.get(0).getParseError()).isNull();
         assertThat(entries.get(0).getWid()).isEqualTo("8613800138000");
@@ -48,53 +48,52 @@ class AccountImportParserTest {
 
     @Test
     void json_missingNoiseKey_marksIncomplete() {
-        String json = "[{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":7,\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613800138000\",\"registrationId\":7,\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries.get(0).getParseError()).contains("凭据不全").contains("noiseKey");
     }
 
     @Test
     void json_missingSignedIdentityKey_marksIncomplete() {
-        String json = "[{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613800138000\",\"registrationId\":7,\"noiseKey\":{},\"signedPreKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries.get(0).getParseError()).contains("凭据不全").contains("signedIdentityKey");
     }
 
     @Test
     void json_missingSignedPreKey_marksIncomplete() {
-        String json = "[{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{}}}]";
+        String json = "[{\"wid\":\"8613800138000\",\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries.get(0).getParseError()).contains("凭据不全").contains("signedPreKey");
     }
 
     @Test
-    void json_noCreds_marksIncomplete() {
-        String json = "[{\"wid\":\"8613800138000\"}]";
+    void json_wrappedCreds_marksIncomplete() {
+        String json = "[{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
-        assertThat(entries.get(0).getParseError()).contains("凭据不全");
+        assertThat(entries.get(0).getParseError()).contains("凭据不全").contains("缺");
     }
 
     // ---- JSON 格式:wid 抠取路径 ----
 
     @Test
     void json_widFromTopLevelPhone() {
-        String json = "[{\"phone\":\"8613912345678\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"phone\":\"8613912345678\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries.get(0).getWid()).isEqualTo("8613912345678");
     }
 
     @Test
-    void json_widFromCredsMe() {
-        // creds.me.id = "8613800138000:7@s.whatsapp.net"
-        String json = "[{\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{},\"me\":{\"id\":\"8613800138000:7@s.whatsapp.net\"}}}]";
+    void json_widFromTopLevelPhoneUppercase() {
+        String json = "[{\"Phone\":\"8613912345678\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
-        assertThat(entries.get(0).getWid()).isEqualTo("8613800138000");
+        assertThat(entries.get(0).getWid()).isEqualTo("8613912345678");
     }
 
     @Test
     void json_widFromTopLevelMeId() {
         // me.id at top level
-        String json = "[{\"me\":{\"id\":\"8613800138000:7@s.whatsapp.net\"},\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"me\":{\"id\":\"8613800138000:7@s.whatsapp.net\"},\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries.get(0).getWid()).isEqualTo("8613800138000");
     }
@@ -103,7 +102,7 @@ class AccountImportParserTest {
 
     @Test
     void json_singleObject_parsesOk() {
-        String json = "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}";
+        String json = nakedCredsObject("8613800138000");
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries).hasSize(1);
         assertThat(entries.get(0).getWid()).isEqualTo("8613800138000");
@@ -111,8 +110,7 @@ class AccountImportParserTest {
 
     @Test
     void json_multipleInArray_parsesAll() {
-        String json = "[{\"wid\":\"8613800138001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
-                + "{\"wid\":\"8613800138002\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[" + nakedCredsObject("8613800138001") + "," + nakedCredsObject("8613800138002") + "]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, json);
         assertThat(entries).hasSize(2);
         assertThat(entries.get(0).getWid()).isEqualTo("8613800138001");
@@ -123,7 +121,7 @@ class AccountImportParserTest {
 
     @Test
     void json_zipWithOneFile_parsesOk() throws Exception {
-        String entryJson = "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}";
+        String entryJson = nakedCredsObject("8613800138000");
         byte[] zipBytes = buildZip("8613800138000.json", entryJson.getBytes());
         List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, zipBytes, null);
         assertThat(entries).hasSize(1);
@@ -135,8 +133,8 @@ class AccountImportParserTest {
     void json_zipWithMultipleFiles_parsesAll() throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {
-            String e1 = "{\"wid\":\"8613800138001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}";
-            String e2 = "{\"wid\":\"8613800138002\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}";
+            String e1 = nakedCredsObject("8613800138001");
+            String e2 = nakedCredsObject("8613800138002");
             zos.putNextEntry(new ZipEntry("acc1.json"));
             zos.write(e1.getBytes());
             zos.closeEntry();
@@ -152,7 +150,7 @@ class AccountImportParserTest {
     void json_zipNonJsonEntriesSkipped() throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {
-            String e1 = "{\"wid\":\"8613800138001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}";
+            String e1 = nakedCredsObject("8613800138001");
             zos.putNextEntry(new ZipEntry("acc1.json"));
             zos.write(e1.getBytes());
             zos.closeEntry();
@@ -228,5 +226,14 @@ class AccountImportParserTest {
             zos.closeEntry();
         }
         return baos.toByteArray();
+    }
+
+    private static String nakedCreds(String wid) {
+        return "[" + nakedCredsObject(wid) + "]";
+    }
+
+    private static String nakedCredsObject(String wid) {
+        return "{\"wid\":\"" + wid
+                + "\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
     }
 }

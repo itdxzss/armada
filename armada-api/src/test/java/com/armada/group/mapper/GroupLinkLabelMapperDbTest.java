@@ -117,6 +117,52 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         assertThat(row.getStatus()).isEqualTo("PARTIAL");
     }
 
+    @Test
+    void selectPage_filtersByImportTimeAndStatus() {
+        long base = 1_785_225_600_000L;
+        GroupLinkLabel empty = buildLabel("导入筛选-空");
+        GroupLinkLabel done = buildLabel("导入筛选-完成");
+        GroupLinkLabel partial = buildLabel("导入筛选-部分");
+        GroupLinkLabel failed = buildLabel("导入筛选-失败");
+        GroupLinkLabel outsideRange = buildLabel("导入筛选-范围外");
+        mapper.insert(empty);
+        mapper.insert(done);
+        mapper.insert(partial);
+        mapper.insert(failed);
+        mapper.insert(outsideRange);
+
+        insertImportBatch(done.getId(), "完成批次", "done.txt", 2, 2, 0, 0, base + 1_000);
+        insertImportBatch(partial.getId(), "部分批次", "partial.txt", 3, 1, 0, 2, base + 1_000);
+        insertImportBatch(failed.getId(), "失败批次", "failed.txt", 2, 0, 0, 2, base + 1_000);
+        insertImportBatch(outsideRange.getId(), "范围外批次", "outside.txt", 3, 1, 0, 2, base + 100_000);
+
+        GroupLinkLabelQuery query = new GroupLinkLabelQuery();
+        query.setKeyword("导入筛选");
+        query.setStatus("PARTIAL");
+        query.setImportedFrom(base);
+        query.setImportedTo(base + 2_000);
+        query.setPage(1);
+        query.setPageSize(10);
+
+        List<GroupLinkLabelVoRow> partialRows = mapper.selectPage(query);
+        assertThat(partialRows).extracting(GroupLinkLabelVoRow::getName)
+                .containsExactly("导入筛选-部分");
+
+        query.setStatus("EMPTY");
+        query.setImportedFrom(null);
+        query.setImportedTo(null);
+        assertThat(mapper.selectPage(query)).extracting(GroupLinkLabelVoRow::getName)
+                .containsExactly("导入筛选-空");
+
+        query.setStatus("DONE");
+        assertThat(mapper.selectPage(query)).extracting(GroupLinkLabelVoRow::getName)
+                .containsExactly("导入筛选-完成");
+
+        query.setStatus("FAILED");
+        assertThat(mapper.selectPage(query)).extracting(GroupLinkLabelVoRow::getName)
+                .containsExactly("导入筛选-失败");
+    }
+
     /** 插入一条活跃 group_link 并返回 id。 */
     private Long insertActiveLink(String url, Long labelId) {
         com.armada.group.model.entity.GroupLink link = new com.armada.group.model.entity.GroupLink();
@@ -131,6 +177,13 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
 
     private void insertImportBatch(Long labelId, String batchName, String sourceFileName,
                                    int totalRows, int insertedRows, int adoptedRows, int failedRows) {
+        insertImportBatch(labelId, batchName, sourceFileName,
+                totalRows, insertedRows, adoptedRows, failedRows, System.currentTimeMillis());
+    }
+
+    private void insertImportBatch(Long labelId, String batchName, String sourceFileName,
+                                   int totalRows, int insertedRows, int adoptedRows, int failedRows,
+                                   long createdAt) {
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
         batch.setLabelId(labelId);
         batch.setBatchName(batchName);
@@ -139,7 +192,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         batch.setInsertedRows(insertedRows);
         batch.setAdoptedRows(adoptedRows);
         batch.setFailedRows(failedRows);
-        batch.setCreatedAt(System.currentTimeMillis());
+        batch.setCreatedAt(createdAt);
         importBatchMapper.insert(batch);
     }
 

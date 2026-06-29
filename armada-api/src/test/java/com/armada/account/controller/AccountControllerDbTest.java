@@ -44,8 +44,8 @@ class AccountControllerDbTest {
     /** JSON 格式完整的单账号内容,供 POST 导入时作 text 参数使用。 */
     private static final String VALID_JSON_TEXT_TEMPLATE =
             "[{\"wid\":\"%s\","
-                    + "\"creds\":{\"registrationId\":99,\"noiseKey\":{},"
-                    + "\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+                    + "\"registrationId\":99,\"noiseKey\":{},"
+                    + "\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
 
     @Autowired
     private MockMvc mockMvc;

@@ -42,7 +42,7 @@ public class AccountImportParser {
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
-     * Baileys JSON creds 必须包含的字段集合。
+     * Wheel 在用的 Baileys 裸 creds 必须包含的顶层字段集合。
      * 缺少其中任何一个即凭据不全,导入明细标记 parseError。
      */
     private static final Set<String> JSON_REQUIRED_CREDS_KEYS = Set.of(
@@ -174,17 +174,13 @@ public class AccountImportParser {
     }
 
     /**
-     * 校验 JSON creds 完整性:检查 {@link #JSON_REQUIRED_CREDS_KEYS} 中每个键是否存在。
+     * 校验 JSON creds 完整性:检查 {@link #JSON_REQUIRED_CREDS_KEYS} 中每个顶层键是否存在。
      *
      * @return null 表示完整;否则返回缺少第一个键的错误消息
      */
     private String checkJsonCredCompleteness(JsonNode node) {
-        JsonNode creds = node.get("creds");
-        if (creds == null || !creds.isObject()) {
-            return "凭据不全:缺 creds 节点";
-        }
         for (String key : JSON_REQUIRED_CREDS_KEYS) {
-            if (!creds.has(key)) {
+            if (!node.has(key)) {
                 return "凭据不全:缺 " + key;
             }
         }
@@ -253,7 +249,7 @@ public class AccountImportParser {
      * <ol>
      *   <li>顶层 {@code wid} 字段(纯数字)</li>
      *   <li>顶层 {@code phone} 字段(纯数字)</li>
-     *   <li>{@code creds.me.id}(取 {@code :} 或 {@code @} 前的数字段)</li>
+     *   <li>顶层 {@code Phone} 字段(纯数字;兼容 wheel 在用 Baileys 文档)</li>
      *   <li>顶层 {@code me.id}(取 {@code :} 或 {@code @} 前的数字段)</li>
      * </ol>
      *
@@ -268,13 +264,9 @@ public class AccountImportParser {
         if (wid != null) {
             return wid;
         }
-        // creds.me.id
-        JsonNode creds = node.get("creds");
-        if (creds != null && creds.isObject()) {
-            wid = extractMeId(creds);
-            if (wid != null) {
-                return wid;
-            }
+        wid = extractNumericText(node, "Phone");
+        if (wid != null) {
+            return wid;
         }
         // 顶层 me.id
         return extractMeId(node);

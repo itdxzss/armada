@@ -18,7 +18,7 @@ public enum ImportFormat {
     SIX(1),
 
     /**
-     * Baileys JSON 格式:每条为含 {@code creds} 节点的完整 JSON 对象。
+     * Baileys JSON 格式:每条为 wheel 在用的裸 creds JSON 对象,必需字段在顶层。
      * 支持单对象、JSON 数组、.zip 压缩包(一号一文件)三种封装方式。
      */
     JSON(2),

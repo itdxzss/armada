@@ -21,7 +21,7 @@ public class ParsedEntry {
 
     /**
      * 从 JSON 中抠出的 WhatsApp ID(纯数字手机号段)。
-     * 抠取路径优先级:顶层 {@code wid} → 顶层 {@code phone} → {@code creds.me.id} / {@code me.id}
+     * 抠取路径优先级:顶层 {@code wid} → 顶层 {@code phone} → 顶层 {@code Phone} → 顶层 {@code me.id}
      * (取 {@code :} 或 {@code @} 前的数字段)。
      * 若无法识别则为 {@code null}。
      */

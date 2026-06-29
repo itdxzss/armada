@@ -24,6 +24,46 @@
     <if test="id != null">AND l.id = #{id}</if>
     <if test="createdFrom != null">AND l.created_at &gt;= #{createdFrom}</if>
     <if test="createdTo != null">AND l.created_at &lt;= #{createdTo}</if>
+    <if test="importedFrom != null or importedTo != null">
+      AND EXISTS (
+        SELECT 1
+        FROM group_link_import_batch ib
+        WHERE ib.label_id = l.id
+          AND ib.deleted_at IS NULL
+          <if test="importedFrom != null">AND ib.created_at &gt;= #{importedFrom}</if>
+          <if test="importedTo != null">AND ib.created_at &lt;= #{importedTo}</if>
+      )
+    </if>
+    <if test="status != null and status != ''">
+      <choose>
+        <when test="statusEmpty">
+          AND NOT EXISTS (
+            SELECT 1 FROM group_link_import_batch sb
+            WHERE sb.label_id = l.id AND sb.deleted_at IS NULL
+          )
+        </when>
+        <when test="statusDone">
+          AND EXISTS (
+            SELECT 1 FROM group_link_import_batch sb
+            WHERE sb.label_id = l.id AND sb.deleted_at IS NULL
+          )
+          AND COALESCE((SELECT SUM(sb.failed_rows) FROM group_link_import_batch sb
+             WHERE sb.label_id = l.id AND sb.deleted_at IS NULL), 0) = 0
+        </when>
+        <when test="statusPartial">
+          AND COALESCE((SELECT SUM(sb.failed_rows) FROM group_link_import_batch sb
+             WHERE sb.label_id = l.id AND sb.deleted_at IS NULL), 0) &gt; 0
+          AND COALESCE((SELECT SUM(sb.inserted_rows + sb.adopted_rows) FROM group_link_import_batch sb
+             WHERE sb.label_id = l.id AND sb.deleted_at IS NULL), 0) &gt; 0
+        </when>
+        <when test="statusFailed">
+          AND COALESCE((SELECT SUM(sb.failed_rows) FROM group_link_import_batch sb
+             WHERE sb.label_id = l.id AND sb.deleted_at IS NULL), 0) &gt; 0
+          AND COALESCE((SELECT SUM(sb.inserted_rows + sb.adopted_rows) FROM group_link_import_batch sb
+             WHERE sb.label_id = l.id AND sb.deleted_at IS NULL), 0) = 0
+        </when>
+      </choose>
+    </if>
   </sql>
 
   <select id="countPage" resultType="long">

@@ -49,10 +49,10 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_threeStepWrite_andBatchCounts() {
         // 2 条完整 + 1 条凭据不全 + 1 条批内重复(与第1条同 wid)
         String json = "["
-                + "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
-                + "{\"wid\":\"8613800138002\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
-                + "{\"wid\":\"8613800138003\",\"creds\":{\"noiseKey\":{}}},"
-                + "{\"wid\":\"8613800138000\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
+                + "{\"wid\":\"8613800138000\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}},"
+                + "{\"wid\":\"8613800138002\",\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}},"
+                + "{\"wid\":\"8613800138003\",\"noiseKey\":{}},"
+                + "{\"wid\":\"8613800138000\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}"
                 + "]";
         var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
@@ -77,10 +77,10 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_successRowsQueuedForOnlineTracking_failedRowsSkipped() {
         String json = "["
-                + "{\"wid\":\"8613850000001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
-                + "{\"wid\":\"8613850000002\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
-                + "{\"wid\":\"8613850000003\",\"creds\":{\"noiseKey\":{}}},"
-                + "{\"wid\":\"8613850000001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
+                + "{\"wid\":\"8613850000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}},"
+                + "{\"wid\":\"8613850000002\",\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}},"
+                + "{\"wid\":\"8613850000003\",\"noiseKey\":{}},"
+                + "{\"wid\":\"8613850000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}"
                 + "]";
         var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
 
@@ -108,7 +108,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_crossBatch_dbUqDuplicate() {
-        String json = "[{\"wid\":\"8613811111111\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613811111111\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
 
         // 第一批成功
@@ -140,7 +140,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_success_allThreeTablesHaveRow() {
-        String json = "[{\"wid\":\"8613822222222\",\"creds\":{\"registrationId\":5,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613822222222\",\"registrationId\":5,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
@@ -159,7 +159,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_deviceOsNull_doesNotNpe() {
-        String json = "[{\"wid\":\"8613833333333\",\"creds\":{\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613833333333\",\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // deviceOs=null 模拟用户未选机型
         var meta = new AccountImportDTO(null, 2, null, 1, "美国", null, null);
 
@@ -178,7 +178,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_withFileName_sourceFileNameIsFileName() {
-        String json = "[{\"wid\":\"8613841000001\",\"creds\":{\"registrationId\":11,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613841000001\",\"registrationId\":11,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // sourceFileName 有值,模拟文件上传
         var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, "accounts_20240624.json");
 
@@ -196,7 +196,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_noFileName_sourceFileNameFallsBackToDefault() {
-        String json = "[{\"wid\":\"8613842000002\",\"creds\":{\"registrationId\":12,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613842000002\",\"registrationId\":12,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // sourceFileName=null,模拟纯文本粘贴
         var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
 
@@ -214,7 +214,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_nonExistentGroupId_throwsNotFound_noAccountWritten() {
-        String json = "[{\"wid\":\"8613843000003\",\"creds\":{\"registrationId\":13,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        String json = "[{\"wid\":\"8613843000003\",\"registrationId\":13,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // 9999999L 必然不存在
         var meta = new AccountImportDTO(9999999L, 2, 1, 1, "美国", null, null);
 

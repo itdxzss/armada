@@ -29,6 +29,16 @@ class IpProxyConverterTest {
         assertThat(boundVo.validAccountCount()).isEqualTo(1);
     }
 
+    @Test
+    void toVO_keepsIpIdentityFieldsUnmasked() {
+        IpProxyVO vo = converter.toVO(proxy(null));
+
+        assertThat(vo.region()).isEqualTo("印度");
+        assertThat(vo.username()).isEqualTo("user");
+        assertThat(vo.password()).isEqualTo("secret_session-Abc123");
+        assertThat(vo.source()).isEqualTo("dbtest");
+    }
+
     private static IpProxy proxy(Long boundAccountId) {
         IpProxy proxy = new IpProxy();
         proxy.setId(1L);

@@ -13,7 +13,7 @@ import org.mapstruct.Mapping;
  * IP 代理 entity → VO 转换（MapStruct，编译期生成）。
  *
  * <p>tinyint 码 → 中文 label 由枚举 {@code labelOf} 算好随出参带出；{@code proxyAddress}=host:port；
- * {@code password} 脱敏；{@code createdAt} 为 epoch 毫秒直映。</p>
+ * {@code createdAt} 为 epoch 毫秒直映。</p>
  */
 @Mapper(componentModel = "spring",
         imports = {IpProxyStatus.class, ProxyProtocol.class, ProxyOwnership.class})
@@ -23,14 +23,8 @@ public interface IpProxyConverter {
     @Mapping(target = "protocolLabel", expression = "java(ProxyProtocol.labelOf(entity.getProtocol()))")
     @Mapping(target = "statusLabel", expression = "java(IpProxyStatus.labelOf(entity.getStatus()))")
     @Mapping(target = "ownershipLabel", expression = "java(ProxyOwnership.labelOf(entity.getOwnership()))")
-    @Mapping(target = "password", expression = "java(mask(entity.getPassword()))")
     @Mapping(target = "validAccountCount", expression = "java(entity.getBoundAccountId() == null ? 0 : 1)")
     IpProxyVO toVO(IpProxy entity);
 
     List<IpProxyVO> toVOList(List<IpProxy> entities);
-
-    /** 密码脱敏（出参用，不回传真实凭据）。 */
-    default String mask(String password) {
-        return password == null || password.isBlank() ? "" : "******";
-    }
 }

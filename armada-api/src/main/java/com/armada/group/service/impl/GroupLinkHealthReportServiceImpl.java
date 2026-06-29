@@ -1,10 +1,10 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.service.GroupLinkHealthReportService;
-import com.armada.group.service.GroupLinkHealthReportedEvent;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;

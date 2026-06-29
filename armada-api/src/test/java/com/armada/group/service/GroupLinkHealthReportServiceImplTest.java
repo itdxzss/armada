@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.service.impl.GroupLinkHealthReportServiceImpl;

@@ -1,4 +1,4 @@
-package com.armada.group.model;
+package com.armada.group.model.vo;
 
 /**
  * 群链接健康检查候选。

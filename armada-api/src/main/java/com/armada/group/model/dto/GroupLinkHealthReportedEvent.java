@@ -1,4 +1,4 @@
-package com.armada.group.service;
+package com.armada.group.model.dto;
 
 /**
  * 群链接健康检测回报事件。

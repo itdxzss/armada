@@ -1,5 +1,6 @@
-package com.armada.group.service;
+package com.armada.group.scheduler;
 
+import com.armada.group.service.GroupLinkHealthCheckService;
 import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;

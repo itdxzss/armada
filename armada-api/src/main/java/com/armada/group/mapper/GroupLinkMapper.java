@@ -1,6 +1,6 @@
 package com.armada.group.mapper;
 
-import com.armada.group.model.GroupLinkHealthCheckCandidate;
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupLinkVoRow;

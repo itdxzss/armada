@@ -1,4 +1,4 @@
-package com.armada.group.service;
+package com.armada.group.scheduler;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

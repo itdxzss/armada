@@ -1,7 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.service.GroupLinkHealthReportService;
-import com.armada.group.service.GroupLinkHealthReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupHealthReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupHealthReportedSink;
 import org.springframework.stereotype.Service;

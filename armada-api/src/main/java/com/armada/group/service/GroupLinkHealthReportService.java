@@ -1,5 +1,7 @@
 package com.armada.group.service;
 
+import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
+
 /**
  * 群链接健康检测回报落库服务。
  */

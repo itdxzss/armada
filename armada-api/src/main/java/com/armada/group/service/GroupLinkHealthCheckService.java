@@ -2,7 +2,7 @@ package com.armada.group.service;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.model.GroupLinkHealthCheckCandidate;
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;

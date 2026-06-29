@@ -14,7 +14,7 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.entity.GroupLinkPreview;
-import com.armada.group.model.GroupLinkHealthCheckCandidate;
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;

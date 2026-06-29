@@ -134,7 +134,7 @@
       2. 操作账号来自 join_task_result 成功进群记录,并要求 account_state.login_state=ONLINE;
       3. 同一群链接多个在线账号时管理员优先,否则按 join_task_result.id 取最早一条,避免重复命令。
   -->
-  <select id="selectHealthCheckCandidates" resultType="com.armada.group.model.GroupLinkHealthCheckCandidate">
+  <select id="selectHealthCheckCandidates" resultType="com.armada.group.model.vo.GroupLinkHealthCheckCandidate">
     SELECT tenantId, groupLinkId, groupJid, accountId, protocolAccountId
     FROM (
       SELECT g.tenant_id AS tenantId,

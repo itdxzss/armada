@@ -4,6 +4,7 @@ import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
@@ -46,6 +47,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final String SOURCE_MANUAL_ONLINE = "manual_online";
     private static final String SOURCE_BATCH_ONLINE = "batch_online";
     private static final String SOURCE_BATCH_OFFLINE = "batch_offline";
+    private static final String SOURCE_IP_DELETE_RELOGIN = "ip_delete_relogin";
 
     private final AccountMapper accountMapper;
     private final AccountCredentialMapper credentialMapper;
@@ -125,45 +127,49 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         log.info("账号批量上线开始 requested={}", ids.size());
 
-        Map<Long, Account> accountsById = loadAccounts(ids);
-        Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
-        List<PreparedOnlineCommand> prepared = new ArrayList<>(ids.size());
-        List<IpProxyAccountAllocation> allocations = List.of();
+        AccountBatchOnlineVO vo = enqueueOnlineBatch(
+                ids,
+                SOURCE_BATCH_ONLINE,
+                () -> ipProxyService.allocateOnlineEndpoints(ids));
+        log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
+                        + "error={} remote={} elapsedMs={}",
+                vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
+                vo.error(), vo.remote(), vo.elapsedMs());
+        return vo;
+    }
 
-        try {
-            // 代理分配必须批量做:500 个账号不能退化成 500 个短事务和 1500 次 SQL 往返。
-            // resource 域内部会在一个本地短事务里释放旧绑定、锁定空闲代理并批量绑定。
-            allocations = ipProxyService.allocateOnlineEndpoints(ids);
-            for (IpProxyAccountAllocation allocation : allocations) {
-                Long accountId = allocation.accountId();
-                Account account = accountsById.get(accountId);
-                AccountCredential credential = credentialsByAccountId.get(accountId);
-                CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
-                String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-                ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
-                        accountId,
-                        protocolAccountId,
-                        credentialFormat,
-                        allocation.proxyId(),
-                        SOURCE_BATCH_ONLINE);
-                prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
-                log.info("账号批量上线写入 outbox 前准备 command accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
-                        accountId, allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
-            }
-
-            ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
-                    prepared.stream().map(PreparedOnlineCommand::command).toList());
-            AccountBatchOnlineVO vo = toOutboxBatchVO(ids.size(), prepared, enqueueResult);
-            log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
-                            + "error={} remote={} elapsedMs={} batchId={} commandIds={}",
-                    vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
-                    vo.error(), vo.remote(), vo.elapsedMs(), enqueueResult.batchId(),
-                    enqueueResult.commandIds().size());
-            return vo;
-        } catch (RuntimeException ex) {
-            releaseAllocationsAfterFailure(allocations, ex);
-            throw ex;
+    /**
+     * 对即将删除的代理绑定账号发起在线账号换 IP 重登。
+     *
+     * <p>本方法只处理当前登录态为 ONLINE 的账号:先由 resource 域返回待删代理当前绑定账号,
+     * 再按 account_state.login_state 过滤在线账号。离线账号保持原样,不分配新代理、不写 outbox。
+     * 在线账号会复用批量上线 outbox 编排,但分配代理时排除本次待删除的代理 ID,
+     * 避免旧代理释放后又被同一批重登选回。</p>
+     *
+     * @param proxyIds 即将删除的代理 ID 列表
+     * @return 在线账号重登命令的 outbox 受理结果;无在线账号时返回零计数结果
+     */
+    @Override
+    public AccountBatchOnlineVO reloginOnlineAccountsByProxyIds(List<Long> proxyIds) {
+        List<Long> normalizedProxyIds = normalizeProxyIds(proxyIds);
+        if (normalizedProxyIds.isEmpty()) {
+            return emptyBatchVO();
         }
+        List<Long> boundAccountIds = ipProxyService.findBoundAccountIdsByProxyIds(normalizedProxyIds);
+        List<Long> onlineAccountIds = selectOnlineAccountIds(boundAccountIds);
+        if (onlineAccountIds.isEmpty()) {
+            log.info("IP删除重登跳过:未找到在线绑定账号 proxyCount={} boundAccounts={}",
+                    normalizedProxyIds.size(), boundAccountIds.size());
+            return emptyBatchVO();
+        }
+        List<Long> ids = normalizeBatchAccountIds(onlineAccountIds);
+        log.info("IP删除重登开始 proxyCount={} onlineAccounts={}", normalizedProxyIds.size(), ids.size());
+        AccountBatchOnlineVO vo = enqueueOnlineBatch(
+                ids,
+                SOURCE_IP_DELETE_RELOGIN,
+                () -> ipProxyService.allocateOnlineEndpointsExcludingProxyIds(ids, normalizedProxyIds));
+        log.info("IP删除重登 outbox 已受理 requested={} accepted={}", vo.requested(), vo.accepted());
+        return vo;
     }
 
     /**
@@ -308,6 +314,50 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 List.of());
     }
 
+    private AccountBatchOnlineVO enqueueOnlineBatch(List<Long> ids,
+                                                    String source,
+                                                    OnlineAllocationSupplier allocationSupplier) {
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
+        List<PreparedOnlineCommand> prepared = new ArrayList<>(ids.size());
+        List<IpProxyAccountAllocation> allocations = List.of();
+
+        try {
+            allocations = allocationSupplier.allocate();
+            for (IpProxyAccountAllocation allocation : allocations) {
+                Long accountId = allocation.accountId();
+                Account account = accountsById.get(accountId);
+                AccountCredential credential = credentialsByAccountId.get(accountId);
+                CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
+                String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+                ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
+                        accountId,
+                        protocolAccountId,
+                        credentialFormat,
+                        allocation.proxyId(),
+                        source);
+                prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
+                log.info("账号批量上线写入 outbox 前准备 command accountId={} allocatedProxyId={} source={} "
+                                + "credentialFormat={} credentialLength={}",
+                        accountId, allocation.proxyId(), source, credentialFormat, credentialLength(credential.getCredsJson()));
+            }
+
+            ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
+                    prepared.stream().map(PreparedOnlineCommand::command).toList());
+            log.info("账号上线 outbox 已受理 source={} requested={} inserted={} batchId={} commandIds={}",
+                    source, ids.size(), enqueueResult.inserted(), enqueueResult.batchId(),
+                    enqueueResult.commandIds().size());
+            return toOutboxBatchVO(ids.size(), prepared, enqueueResult);
+        } catch (RuntimeException ex) {
+            releaseAllocationsAfterFailure(allocations, ex);
+            throw ex;
+        }
+    }
+
+    private AccountBatchOnlineVO emptyBatchVO() {
+        return new AccountBatchOnlineVO(0, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of());
+    }
+
     private static List<AccountBatchOnlineItemVO> toOutboxItemVOs(List<PreparedOnlineCommand> prepared) {
         return prepared.stream()
                 .map(command -> new AccountBatchOnlineItemVO(
@@ -317,6 +367,21 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         null,
                         null))
                 .toList();
+    }
+
+    private List<Long> selectOnlineAccountIds(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> onlineIds = new LinkedHashSet<>(
+                accountMapper.selectOnlineAccountIdsByIds(accountIds, AccountLoginStateCode.ONLINE));
+        List<Long> result = new ArrayList<>();
+        for (Long accountId : accountIds) {
+            if (onlineIds.contains(accountId)) {
+                result.add(accountId);
+            }
+        }
+        return List.copyOf(result);
     }
 
     private static List<AccountBatchOnlineItemVO> toOutboxOfflineItemVOs(List<PreparedOfflineCommand> prepared) {
@@ -356,6 +421,20 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             if (!seen.add(accountId)) {
                 throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能重复: " + accountId);
             }
+        }
+        return List.copyOf(seen);
+    }
+
+    private static List<Long> normalizeProxyIds(List<Long> proxyIds) {
+        if (proxyIds == null || proxyIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> seen = new LinkedHashSet<>();
+        for (Long proxyId : proxyIds) {
+            if (proxyId == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+            }
+            seen.add(proxyId);
         }
         return List.copyOf(seen);
     }
@@ -400,5 +479,10 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             String protocolAccountId,
             ProtocolOfflineCommandRequest command
     ) {
+    }
+
+    @FunctionalInterface
+    private interface OnlineAllocationSupplier {
+        List<IpProxyAccountAllocation> allocate();
     }
 }

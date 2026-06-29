@@ -9,7 +9,7 @@ import com.armada.shared.response.PageResult;
 import java.util.List;
 
 /**
- * IP 代理池业务接口。承载「IP 管理」菜单的列表、批量导入、批量删除能力。
+ * IP 代理池业务接口。承载「IP 管理」菜单的列表、批量导入和账号上线代理分配能力。
  */
 public interface IpProxyService {
 
@@ -61,6 +61,31 @@ public interface IpProxyService {
     List<IpProxyAccountAllocation> allocateOnlineEndpoints(List<Long> accountIds);
 
     /**
+     * 为一批账号上线分配空闲代理,并排除指定代理 ID。
+     *
+     * <p>用于删除 IP 前的在线账号重登:被删除的旧 IP 会先被释放,但不能再次被本次分配选中。</p>
+     *
+     * @param accountIds       账号主键列表,不可为空、不可重复
+     * @param excludedProxyIds 本次分配禁止选中的代理 ID 列表
+     * @return 与 accountIds 顺序一致的代理分配结果
+     * @throws BusinessException 当账号列表为空、代理 ID 为空、缺少租户上下文、空闲代理不足或分配冲突时抛出
+     */
+    List<IpProxyAccountAllocation> allocateOnlineEndpointsExcludingProxyIds(
+            List<Long> accountIds,
+            List<Long> excludedProxyIds);
+
+    /**
+     * 查询指定 IP 代理当前绑定的账号 ID。
+     *
+     * <p>只返回未软删且处于 IN_USE 的代理绑定。离线/在线由 account 域根据 account_state 再判断。</p>
+     *
+     * @param ids 代理 ID 列表
+     * @return 当前绑定账号 ID 列表;空入参返回空列表
+     * @throws BusinessException 当列表中存在空代理 ID 时抛出
+     */
+    List<Long> findBoundAccountIdsByProxyIds(List<Long> ids);
+
+    /**
      * 释放账号上线过程中本次分配的代理。
      *
      * <p>本方法用于协议层未受理或调用失败后的补偿释放,必须同时按账号 ID 和代理 ID 精确匹配,
@@ -82,10 +107,4 @@ public interface IpProxyService {
      */
     void releaseOnlineAllocations(List<IpProxyAccountAllocation> allocations);
 
-    /**
-     * 批量软删除 IP 代理。空列表直接返回、不做任何操作。
-     *
-     * @param ids 要删除的代理 ID 列表
-     */
-    void batchDelete(List<Long> ids);
 }

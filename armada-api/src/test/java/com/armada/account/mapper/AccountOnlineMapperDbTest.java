@@ -4,10 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 账号上线批量查询 Mapper 真库测试。
@@ -22,6 +25,12 @@ class AccountOnlineMapperDbTest extends DbTestBase {
 
     @Autowired
     AccountCredentialMapper credentialMapper;
+
+    @Autowired
+    AccountStateMapper stateMapper;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Test
     void selectActiveByIdsAndCredentialsByAccountIds_returnInsertedRows() {
@@ -38,6 +47,26 @@ class AccountOnlineMapperDbTest extends DbTestBase {
                 .containsExactlyInAnyOrder(accountA.getId(), accountB.getId());
         assertThat(credentials).extracting(AccountCredential::getAccountId)
                 .containsExactlyInAnyOrder(accountA.getId(), accountB.getId());
+    }
+
+    @Test
+    void selectOnlineAccountIdsByIds_returnsOnlyOnlineAccounts() {
+        long now = System.currentTimeMillis();
+        Account online = insertAccount("86152" + (now % 10000000L), now);
+        Account offline = insertAccount("86153" + (now % 10000000L), now);
+        Account noState = insertAccount("86154" + (now % 10000000L), now);
+        insertDefaultState(online.getId(), now);
+        insertDefaultState(offline.getId(), now);
+        jdbc.update("UPDATE account_state SET login_state = ? WHERE account_id = ?",
+                AccountLoginStateCode.ONLINE, online.getId());
+        jdbc.update("UPDATE account_state SET login_state = ? WHERE account_id = ?",
+                AccountLoginStateCode.OFFLINE, offline.getId());
+
+        List<Long> accountIds = accountMapper.selectOnlineAccountIdsByIds(
+                List.of(online.getId(), offline.getId(), noState.getId()),
+                AccountLoginStateCode.ONLINE);
+
+        assertThat(accountIds).containsExactly(online.getId());
     }
 
     private Account insertAccount(String wsPhone, long now) {
@@ -62,5 +91,15 @@ class AccountOnlineMapperDbTest extends DbTestBase {
         credential.setCreatedAt(now);
         credential.setUpdatedAt(now);
         credentialMapper.insert(credential);
+    }
+
+    private void insertDefaultState(Long accountId, long now) {
+        AccountState state = new AccountState();
+        state.setAccountId(accountId);
+        state.setProxyFailureCount(0);
+        state.setPullIntoGroupCount(0);
+        state.setCreatedAt(now);
+        state.setUpdatedAt(now);
+        stateMapper.insert(state);
     }
 }

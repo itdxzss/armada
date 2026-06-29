@@ -5,6 +5,7 @@ import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
+import com.armada.resource.service.IpProxyDeletionService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
@@ -23,9 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class IpProxyController {
 
     private final IpProxyService service;
+    private final IpProxyDeletionService deletionService;
 
-    public IpProxyController(IpProxyService service) {
+    public IpProxyController(IpProxyService service, IpProxyDeletionService deletionService) {
         this.service = service;
+        this.deletionService = deletionService;
     }
 
     /**
@@ -58,7 +61,7 @@ public class IpProxyController {
      */
     @PostMapping("/batch-delete")
     public ApiResponse<Void> batchDelete(@RequestBody IpProxyBatchDeleteDTO request) {
-        service.batchDelete(request.ids());
+        deletionService.batchDelete(request.ids());
         return ApiResponse.ok();
     }
 }

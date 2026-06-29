@@ -58,6 +58,16 @@ public interface AccountMapper {
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
 
     /**
+     * 在指定账号中筛选当前在线账号 ID。
+     *
+     * @param ids              账号主键列表
+     * @param onlineLoginState 在线状态码
+     * @return 当前 login_state=ONLINE 的活跃账号 ID
+     */
+    List<Long> selectOnlineAccountIdsByIds(@Param("ids") List<Long> ids,
+                                           @Param("onlineLoginState") int onlineLoginState);
+
+    /**
      * 按筛选条件统计账号总数(SQL 下推,与 selectPage 共享 filter 片段)。
      *
      * @param query 账号列表查询参数

@@ -53,6 +53,21 @@
     </if>
   </select>
 
+  <select id="selectOnlineAccountIdsByIds" resultType="long">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT a.id
+    FROM account a
+    INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND s.login_state = #{onlineLoginState}
+      AND a.id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT NULL FROM DUAL WHERE 1=0
+    </if>
+  </select>
+
   <!--
     共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。
     accountState/riskStatus 筛选 account_state 表列:step1 导入后该表列全 NULL,条件天然不命中。

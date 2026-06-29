@@ -241,6 +241,56 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void allocateOnlineEndpointsExcludingProxyIds_releasesOldBindingsAndLocksIdleRowsExcludingDeletedIps() {
+        TenantContext.set(1L);
+        try {
+            List<Long> accountIds = List.of(100L, 101L);
+            List<Long> excludedProxyIds = List.of(10L, 11L);
+            IpProxy proxyA = idleProxy(20L, "proxy-a.internal");
+            IpProxy proxyB = idleProxy(21L, "proxy-b.internal");
+            when(mapper.releaseByAccounts(
+                    eq(accountIds),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(2);
+            when(mapper.selectIdleExcludingForUpdate(1L, IpProxyStatus.IDLE.code(), accountIds.size(), excludedProxyIds))
+                    .thenReturn(List.of(proxyA, proxyB));
+            when(mapper.markUsingAndBindBatch(
+                    any(),
+                    eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.IN_USE.code()),
+                    anyLong())).thenReturn(2);
+
+            List<IpProxyAccountAllocation> allocations =
+                    service.allocateOnlineEndpointsExcludingProxyIds(accountIds, excludedProxyIds);
+
+            assertThat(allocations).extracting(IpProxyAccountAllocation::proxyId)
+                    .containsExactly(20L, 21L);
+            InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
+            inOrder.verify(mapper).releaseByAccounts(
+                    eq(accountIds), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+            inOrder.verify(mapper).selectIdleExcludingForUpdate(
+                    1L, IpProxyStatus.IDLE.code(), accountIds.size(), excludedProxyIds);
+            inOrder.verify(mapper).markUsingAndBindBatch(
+                    any(), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void findBoundAccountIdsByProxyIds_delegatesMapperWithUsingStatus() {
+        List<Long> ids = List.of(10L, 11L);
+        when(mapper.selectBoundAccountIdsByProxyIds(ids, IpProxyStatus.IN_USE.code()))
+                .thenReturn(List.of(100L, 101L));
+
+        List<Long> result = service.findBoundAccountIdsByProxyIds(ids);
+
+        assertThat(result).containsExactly(100L, 101L);
+        verify(mapper).selectBoundAccountIdsByProxyIds(ids, IpProxyStatus.IN_USE.code());
+    }
+
+    @Test
     void allocateOnlineEndpoint_nullAccountId_throwsValidationBeforeMapper() {
         TenantContext.set(1L);
         try {

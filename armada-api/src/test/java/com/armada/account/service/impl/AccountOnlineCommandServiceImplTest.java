@@ -15,6 +15,7 @@ import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
@@ -320,6 +321,63 @@ class AccountOnlineCommandServiceImplTest {
         verify(ipProxyService).releaseOnlineAllocations(allocations);
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
         verifyNoInteractions(protocolCommandOutboxService);
+    }
+
+    @Test
+    void reloginOnlineAccountsByProxyIds_onlyReloginsOnlineBoundAccountsAndExcludesDeletedProxies() {
+        List<Long> proxyIds = List.of(10L, 11L);
+        List<Long> boundAccountIds = List.of(100L, 101L, 102L);
+        when(ipProxyService.findBoundAccountIdsByProxyIds(proxyIds)).thenReturn(boundAccountIds);
+        when(accountMapper.selectOnlineAccountIdsByIds(boundAccountIds, AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(101L, 100L));
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        AccountCredential credentialB = credential(101L, 3, "{\"login\":\"raw\"}");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
+        List<IpProxyAccountAllocation> allocations = List.of(
+                new IpProxyAccountAllocation(100L, 20L, onlineEndpoint()),
+                new IpProxyAccountAllocation(101L, 21L, onlineEndpoint()));
+        when(ipProxyService.allocateOnlineEndpointsExcludingProxyIds(List.of(100L, 101L), proxyIds))
+                .thenReturn(allocations);
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_relogin", List.of("cmd_100", "cmd_101"), 2));
+
+        AccountBatchOnlineVO result = service.reloginOnlineAccountsByProxyIds(proxyIds);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        List<ProtocolOnlineCommandRequest> commands = commandsCaptor.getValue();
+        assertThat(commands).hasSize(2);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::accountId)
+                .containsExactly(100L, 101L);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::proxyId)
+                .containsExactly(20L, 21L);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::source)
+                .containsExactly("ip_delete_relogin", "ip_delete_relogin");
+        verify(ipProxyService, never()).allocateOnlineEndpoints(any());
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.accepted()).isEqualTo(2);
+    }
+
+    @Test
+    void reloginOnlineAccountsByProxyIds_noOnlineBoundAccountsSkipsCredentialProxyAndOutbox() {
+        List<Long> proxyIds = List.of(10L);
+        List<Long> boundAccountIds = List.of(100L);
+        when(ipProxyService.findBoundAccountIdsByProxyIds(proxyIds)).thenReturn(boundAccountIds);
+        when(accountMapper.selectOnlineAccountIdsByIds(boundAccountIds, AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of());
+
+        AccountBatchOnlineVO result = service.reloginOnlineAccountsByProxyIds(proxyIds);
+
+        verifyNoInteractions(credentialMapper, protocolCommandOutboxService);
+        verify(ipProxyService, never()).allocateOnlineEndpoints(any());
+        verify(ipProxyService, never()).allocateOnlineEndpointsExcludingProxyIds(any(), any());
+        assertThat(result.requested()).isZero();
+        assertThat(result.submitted()).isZero();
+        assertThat(result.accepted()).isZero();
     }
 
     @Test

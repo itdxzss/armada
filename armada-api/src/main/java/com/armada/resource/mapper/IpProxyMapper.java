@@ -53,6 +53,17 @@ public interface IpProxyMapper {
                                       @Param("limit") int limit);
 
     /**
+     * 锁定一批本租户空闲代理,并排除指定代理 ID。
+     *
+     * <p>用于删除 IP 前的在线账号重登,避免刚释放的旧 IP 又被同一批重登重新分配。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<IpProxy> selectIdleExcludingForUpdate(@Param("tenantId") Long tenantId,
+                                               @Param("idleStatus") int idleStatus,
+                                               @Param("limit") int limit,
+                                               @Param("excludedIds") List<Long> excludedIds);
+
+    /**
      * 将已锁定的空闲代理绑定到账号并置为使用中。
      *
      * <p>WHERE 中保留 status=IDLE 条件,即使调用方漏锁或并发重试也不会覆盖已被占用的代理。</p>
@@ -116,6 +127,11 @@ public interface IpProxyMapper {
      */
     long countActiveByFullTuple(@Param("host") String host, @Param("port") Integer port,
             @Param("username") String username, @Param("password") String password);
+
+    /**
+     * 查询指定代理当前绑定账号。
+     */
+    List<Long> selectBoundAccountIdsByProxyIds(@Param("ids") List<Long> ids, @Param("usingStatus") int usingStatus);
 
     /** 批量软删除。 */
     int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);

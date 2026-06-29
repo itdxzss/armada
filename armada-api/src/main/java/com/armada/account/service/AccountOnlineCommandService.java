@@ -35,6 +35,18 @@ public interface AccountOnlineCommandService {
     AccountBatchOnlineVO onlineBatch(List<Long> accountIds);
 
     /**
+     * 对指定代理绑定的在线账号发起换 IP 重登。
+     *
+     * <p>调用方传入即将删除的代理 ID。实现会查询这些代理当前绑定账号,只筛选 login_state=ONLINE 的账号,
+     * 为这些账号重新分配代理并写入上线 outbox。离线账号不做任何处理。</p>
+     *
+     * @param proxyIds 即将删除的代理 ID 列表
+     * @return 被重登的在线账号 outbox 受理结果;没有在线账号时返回零计数结果
+     * @throws BusinessException 当在线账号重登所需账号、凭据或代理分配不满足前置条件时抛出
+     */
+    AccountBatchOnlineVO reloginOnlineAccountsByProxyIds(List<Long> proxyIds);
+
+    /**
      * 批量发起账号下线。
      *
      * <p>一次最多 500 个账号。实现会批量加载账号并写入协议命令 outbox,

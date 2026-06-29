@@ -157,6 +157,45 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(mapper.selectActiveById(targets.get(1).proxyId()).getBoundAccountId()).isNull();
     }
 
+    @Test
+    void selectIdleExcludingForUpdate_skipsExcludedProxyIds() {
+        long now = System.currentTimeMillis();
+        IpProxy excluded = newIdleProxy(now);
+        IpProxy candidate = newIdleProxy(now + 1);
+        mapper.insert(excluded);
+        mapper.insert(candidate);
+
+        List<IpProxy> selected = mapper.selectIdleExcludingForUpdate(
+                TEST_TENANT_ID,
+                IpProxyStatus.IDLE.code(),
+                1,
+                List.of(excluded.getId()));
+
+        assertThat(selected).hasSize(1);
+        assertThat(selected.get(0).getId()).isEqualTo(candidate.getId());
+    }
+
+    @Test
+    void selectBoundAccountIdsByProxyIds_returnsOnlyUsingBoundAccounts() {
+        long now = System.currentTimeMillis();
+        IpProxy bound = newIdleProxy(now);
+        IpProxy idle = newIdleProxy(now + 1);
+        mapper.insert(bound);
+        mapper.insert(idle);
+        mapper.markUsingAndBind(
+                bound.getId(),
+                801L,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 2);
+
+        List<Long> accountIds = mapper.selectBoundAccountIdsByProxyIds(
+                List.of(bound.getId(), idle.getId()),
+                IpProxyStatus.IN_USE.code());
+
+        assertThat(accountIds).containsExactly(801L);
+    }
+
     private static IpProxy newIdleProxy(long suffix) {
         IpProxy proxy = new IpProxy();
         proxy.setHost("proxy-" + suffix + ".internal");

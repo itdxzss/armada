@@ -165,6 +165,28 @@ public class IpProxyServiceImpl implements IpProxyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public List<IpProxyAccountAllocation> allocateOnlineEndpoints(List<Long> accountIds) {
+        return allocateOnlineEndpoints(accountIds, List.of());
+    }
+
+    /**
+     * 为一批账号重新分配代理,并排除指定代理 ID。
+     *
+     * <p>删除 IP 前的在线账号重登会先释放账号旧绑定,因此旧 IP 会重新变成 IDLE。
+     * 本方法在锁定空闲代理时明确排除待删 IP,保证重登命令使用的是其它可用代理。</p>
+     *
+     * @param accountIds       需要重新分配代理的账号 ID
+     * @param excludedProxyIds 本次分配禁止选中的代理 ID
+     * @return 每个账号本次分配到的代理 ID 和协议层可用代理端点
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<IpProxyAccountAllocation> allocateOnlineEndpointsExcludingProxyIds(
+            List<Long> accountIds,
+            List<Long> excludedProxyIds) {
+        return allocateOnlineEndpoints(accountIds, normalizeProxyIds(excludedProxyIds));
+    }
+
+    private List<IpProxyAccountAllocation> allocateOnlineEndpoints(List<Long> accountIds, List<Long> excludedProxyIds) {
         List<Long> ids = normalizeAccountIds(accountIds);
         Long tenantId = TenantContext.get();
         if (tenantId == null) {
@@ -181,8 +203,10 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IN_USE.code(),
                 now);
 
-        // 一次锁定本批所需数量的空闲代理。FOR UPDATE 只保护本地代理池占用关系,不跨协议 HTTP。
-        List<IpProxy> proxies = mapper.selectIdleForUpdate(tenantId, IpProxyStatus.IDLE.code(), ids.size());
+        // 一次锁定本批所需数量的空闲代理。删除重登场景要排除本次删除的旧 IP,防止释放后又选回同一行。
+        List<IpProxy> proxies = excludedProxyIds.isEmpty()
+                ? mapper.selectIdleForUpdate(tenantId, IpProxyStatus.IDLE.code(), ids.size())
+                : mapper.selectIdleExcludingForUpdate(tenantId, IpProxyStatus.IDLE.code(), ids.size(), excludedProxyIds);
         if (proxies.size() < ids.size()) {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "暂无足够空闲代理: requested=" + ids.size() + " available=" + proxies.size());
@@ -206,9 +230,27 @@ public class IpProxyServiceImpl implements IpProxyService {
             throw new BusinessException(ErrorCode.CONFLICT, "代理批量分配冲突,请重试");
         }
 
-        log.info("IP代理批量上线分配 requested={} released={} allocated={}",
-                ids.size(), released, allocations.size());
+        log.info("IP代理批量上线分配 requested={} released={} allocated={} excluded={}",
+                ids.size(), released, allocations.size(), excludedProxyIds.size());
         return allocations;
+    }
+
+    /**
+     * 查询指定代理当前绑定的账号 ID。
+     *
+     * <p>这里只看未软删且状态为 IN_USE 的代理绑定,不判断账号是否在线。
+     * 在线/离线判断由 account 域按 account_state.login_state 完成。</p>
+     *
+     * @param ids 代理 ID 列表
+     * @return 当前绑定账号 ID 列表;空列表返回空集合
+     */
+    @Override
+    public List<Long> findBoundAccountIdsByProxyIds(List<Long> ids) {
+        List<Long> proxyIds = normalizeProxyIds(ids);
+        if (proxyIds.isEmpty()) {
+            return List.of();
+        }
+        return mapper.selectBoundAccountIdsByProxyIds(proxyIds, IpProxyStatus.IN_USE.code());
     }
 
     @Override
@@ -240,16 +282,6 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IN_USE.code(),
                 System.currentTimeMillis());
         log.info("IP代理上线批量补偿释放 requested={} released={}", targets.size(), released);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void batchDelete(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return;
-        }
-        int count = mapper.softDeleteByIds(ids, System.currentTimeMillis());
-        log.info("IP代理批量软删除 count={} ids={}", count, ids);
     }
 
     /**
@@ -297,6 +329,20 @@ public class IpProxyServiceImpl implements IpProxyService {
             if (!seen.add(accountId)) {
                 throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能重复: " + accountId);
             }
+        }
+        return List.copyOf(seen);
+    }
+
+    private static List<Long> normalizeProxyIds(List<Long> proxyIds) {
+        if (proxyIds == null || proxyIds.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> seen = new LinkedHashSet<>();
+        for (Long proxyId : proxyIds) {
+            if (proxyId == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+            }
+            seen.add(proxyId);
         }
         return List.copyOf(seen);
     }

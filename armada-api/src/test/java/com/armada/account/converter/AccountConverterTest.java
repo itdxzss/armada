@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.model.vo.AccountGroupVO;
 import com.armada.account.model.vo.AccountGroupVoRow;
+import com.armada.account.model.vo.AccountListVO;
+import com.armada.account.model.vo.AccountListVoRow;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
@@ -31,5 +33,16 @@ class AccountConverterTest {
         assertThat(vo.onlineCount()).isEqualTo(3L);
         assertThat(vo.riskCount()).isEqualTo(2L);
         assertThat(vo.bannedCount()).isEqualTo(1L);
+    }
+
+    @Test
+    void toAccountListVO_mapsProxyCountryToCountry() {
+        AccountListVoRow row = new AccountListVoRow();
+        row.setId(9L);
+        row.setProxyCountry("印度");
+
+        AccountListVO vo = converter.toAccountListVO(row);
+
+        assertThat(vo.country()).isEqualTo("印度");
     }
 }

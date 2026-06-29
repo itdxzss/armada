@@ -9,6 +9,9 @@ import com.armada.shared.paging.PageQuery;
  */
 public class AccountQuery extends PageQuery {
 
+    /** 顶部搜索:账号前缀或备注模糊匹配。 */
+    private String keyword;
+
     /** 号码前缀模糊匹配(ws_phone LIKE #{phone}%)。 */
     private String phone;
 
@@ -24,11 +27,34 @@ public class AccountQuery extends PageQuery {
     /** 风控状态:1未风控 2风控中 3待解除(可选;step1 state 全 NULL 天然不命中)。 */
     private Integer riskStatus;
 
+    /** 登录状态:1在线 2离线(可选)。 */
+    private Integer loginState;
+
+    /** 禁言状态:1禁言6h 2禁言24h(可选)。 */
+    private Integer muteStatus;
+
     /** 归属分组 ID(可选)。 */
     private Long accountGroupId;
 
     /** 来源:1买量 2裂变 3自购(可选)。 */
     private Integer numberSource;
+
+    /** 推广渠道名(可选,模糊匹配)。 */
+    private String channelName;
+
+    /** IP 国家/出口国家(可选,模糊匹配 account_state.proxy_country)。 */
+    private String country;
+
+    /** 真实出口 IP(可选,模糊匹配 account_state.truth_ip)。 */
+    private String truthIp;
+
+    public String getKeyword() {
+        return keyword;
+    }
+
+    public void setKeyword(String keyword) {
+        this.keyword = keyword;
+    }
 
     public String getPhone() {
         return phone;
@@ -70,6 +96,22 @@ public class AccountQuery extends PageQuery {
         this.riskStatus = riskStatus;
     }
 
+    public Integer getLoginState() {
+        return loginState;
+    }
+
+    public void setLoginState(Integer loginState) {
+        this.loginState = loginState;
+    }
+
+    public Integer getMuteStatus() {
+        return muteStatus;
+    }
+
+    public void setMuteStatus(Integer muteStatus) {
+        this.muteStatus = muteStatus;
+    }
+
     public Long getAccountGroupId() {
         return accountGroupId;
     }
@@ -84,5 +126,29 @@ public class AccountQuery extends PageQuery {
 
     public void setNumberSource(Integer numberSource) {
         this.numberSource = numberSource;
+    }
+
+    public String getChannelName() {
+        return channelName;
+    }
+
+    public void setChannelName(String channelName) {
+        this.channelName = channelName;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
+
+    public String getTruthIp() {
+        return truthIp;
+    }
+
+    public void setTruthIp(String truthIp) {
+        this.truthIp = truthIp;
     }
 }

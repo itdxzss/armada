@@ -55,8 +55,8 @@ public interface AccountConverter {
     /**
      * 账号列表投影行 → 列表出参 VO。
      *
-     * <p>step1 占位字段(avatarUrl/friendsNum/groupsNum/hyperlinkSentCount/country/ipSource)
-     * 恒为 null/0,step3 再接真值。</p>
+     * <p>step1 占位字段(avatarUrl/friendsNum/groupsNum/hyperlinkSentCount/ipSource)
+     * 恒为 null/0,step3 再接真值。country 使用账号状态中的代理出口国家。</p>
      *
      * @param row Mapper 列表查询投影
      * @return 账号列表出参 VO
@@ -65,7 +65,7 @@ public interface AccountConverter {
     @Mapping(target = "friendsNum", constant = "0")
     @Mapping(target = "groupsNum", constant = "0")
     @Mapping(target = "hyperlinkSentCount", constant = "0")
-    @Mapping(target = "country", expression = "java(null)")
+    @Mapping(target = "country", source = "proxyCountry")
     @Mapping(target = "ipSource", expression = "java(null)")
     AccountListVO toAccountListVO(AccountListVoRow row);
 

@@ -129,13 +129,22 @@
   -->
   <sql id="filter">
     a.deleted_at IS NULL
+    <if test="keyword != null and keyword != ''">
+      AND (a.ws_phone LIKE CONCAT(#{keyword}, '%')
+           OR a.remark LIKE CONCAT('%', #{keyword}, '%'))
+    </if>
     <if test="phone != null and phone != ''">AND a.ws_phone LIKE CONCAT(#{phone}, '%')</if>
     <if test="accountType != null">AND a.account_type = #{accountType}</if>
     <if test="protocolId != null and protocolId != ''">AND a.protocol_id = #{protocolId}</if>
     <if test="numberSource != null">AND a.number_source = #{numberSource}</if>
+    <if test="channelName != null and channelName != ''">AND a.channel_name LIKE CONCAT('%', #{channelName}, '%')</if>
     <if test="accountGroupId != null">AND a.account_group_id = #{accountGroupId}</if>
     <if test="accountState != null">AND s.account_state = #{accountState}</if>
+    <if test="loginState != null">AND s.login_state = #{loginState}</if>
     <if test="riskStatus != null">AND s.risk_status = #{riskStatus}</if>
+    <if test="muteStatus != null">AND s.mute_status = #{muteStatus}</if>
+    <if test="country != null and country != ''">AND s.proxy_country LIKE CONCAT('%', #{country}, '%')</if>
+    <if test="truthIp != null and truthIp != ''">AND s.truth_ip LIKE CONCAT('%', #{truthIp}, '%')</if>
   </sql>
 
   <select id="countPage" resultType="long">

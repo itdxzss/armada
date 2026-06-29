@@ -279,6 +279,85 @@ class AccountListMapperDbTest extends DbTestBase {
     }
 
     /**
+     * 一期账号列表可用筛选必须真实 SQL 下推:关键字/账号/账号类型/协议/来源/登录/风控/
+     * 禁言/国家/IP 地址同时生效,不能只在前端展示。
+     */
+    @Test
+    void listAccounts_filterByAvailableListFields_onlyMatchingReturned() {
+        long now = System.currentTimeMillis();
+        String phonePrefix = "86160" + (now % 1000000L);
+        String protocolId = "proto-" + now;
+        String channelName = "渠道-" + now;
+        String remark = "备注-" + now;
+
+        Account target = new Account();
+        target.setWsPhone(phonePrefix + "1");
+        target.setAccountType(2);
+        target.setOwnership(1);
+        target.setNumberSource(3);
+        target.setChannelName(channelName);
+        target.setProtocolId(protocolId);
+        target.setRemark(remark);
+        target.setPriority(0);
+        target.setCreatedAt(now);
+        target.setUpdatedAt(now);
+        accountMapper.insert(target);
+        insertDefaultState(target.getId(), now);
+        jdbc.update("""
+                UPDATE account_state
+                SET login_state = 1,
+                    risk_status = 2,
+                    mute_status = 1,
+                    truth_ip = '203.0.113.10',
+                    proxy_country = '印度'
+                WHERE account_id = ?
+                """, target.getId());
+
+        Account distractor = new Account();
+        distractor.setWsPhone(phonePrefix + "9");
+        distractor.setAccountType(2);
+        distractor.setOwnership(1);
+        distractor.setNumberSource(3);
+        distractor.setChannelName("其他渠道-" + now);
+        distractor.setProtocolId(protocolId);
+        distractor.setRemark("其他备注-" + now);
+        distractor.setPriority(0);
+        distractor.setCreatedAt(now - 1);
+        distractor.setUpdatedAt(now - 1);
+        accountMapper.insert(distractor);
+        insertDefaultState(distractor.getId(), now);
+        jdbc.update("""
+                UPDATE account_state
+                SET login_state = 2,
+                    risk_status = 2,
+                    mute_status = 2,
+                    truth_ip = '198.51.100.20',
+                    proxy_country = '巴西'
+                WHERE account_id = ?
+                """, distractor.getId());
+
+        AccountQuery q = new AccountQuery();
+        q.setKeyword(remark);
+        q.setPhone(phonePrefix);
+        q.setAccountType(2);
+        q.setProtocolId(protocolId);
+        q.setNumberSource(3);
+        q.setChannelName(channelName);
+        q.setLoginState(1);
+        q.setRiskStatus(2);
+        q.setMuteStatus(1);
+        q.setCountry("印度");
+        q.setTruthIp("203.0.113");
+        q.setPageSize(50);
+
+        long count = accountMapper.countPage(q);
+        List<AccountListVoRow> rows = accountMapper.selectPage(q);
+
+        assertThat(count).isEqualTo(1);
+        assertThat(rows).extracting(AccountListVoRow::getId).containsExactly(target.getId());
+    }
+
+    /**
      * countPage 与 selectPage 数量一致(同 query,同 filter)。
      */
     @Test

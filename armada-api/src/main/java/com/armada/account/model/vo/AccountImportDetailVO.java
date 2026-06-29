@@ -15,6 +15,7 @@ package com.armada.account.model.vo;
  * @param failReason       失败原因;成功时为 null
  * @param loginResult      登录结果:null=未登录(step1);1成功 2失败 3密钥异常 4封号
  * @param createdAt        创建时间(epoch 毫秒)
+ * @param groupName        所属分组名称
  */
 public record AccountImportDetailVO(
         Long id,
@@ -25,6 +26,7 @@ public record AccountImportDetailVO(
         String parseResultLabel,
         String failReason,
         Integer loginResult,
-        Long createdAt
+        Long createdAt,
+        String groupName
 ) {
 }

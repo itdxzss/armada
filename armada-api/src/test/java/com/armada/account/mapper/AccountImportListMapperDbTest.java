@@ -14,6 +14,7 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.vo.AccountImportDetailVO;
 import com.armada.shared.response.PageResult;
 import com.armada.testsupport.DbTestBase;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -102,6 +103,34 @@ class AccountImportListMapperDbTest extends DbTestBase {
         d4.setCreatedAt(now);
 
         detailMapper.batchInsert(List.of(d1, d2, d3, d4));
+    }
+
+    private void insertExportScopeDetails(Long batchId, long now) {
+        List<AccountImportDetail> rows = new ArrayList<>();
+        rows.add(detail(batchId, 1, "861399100001", 1, null, now));
+        rows.add(detail(batchId, 2, "861399100002", 1, null, now));
+        rows.add(detail(batchId, 3, "861399100003", 1, null, now));
+        rows.add(detail(batchId, 4, "861399200001", 2, "批内重复", now));
+        rows.add(detail(batchId, 5, "bad-phone-export", 3, "格式不合法", now));
+        rows.add(detail(batchId, 6, "861399200003", 4, "缺 registrationId", now));
+        rows.add(detail(batchId, 7, "861399200004", 2, "库内重复", now));
+        detailMapper.batchInsert(rows);
+    }
+
+    private AccountImportDetail detail(Long batchId,
+                                       int lineNo,
+                                       String wsPhone,
+                                       int parseResult,
+                                       String failReason,
+                                       long createdAt) {
+        AccountImportDetail detail = new AccountImportDetail();
+        detail.setBatchId(batchId);
+        detail.setLineNo(lineNo);
+        detail.setWsPhone(wsPhone);
+        detail.setParseResult(parseResult);
+        detail.setFailReason(failReason);
+        detail.setCreatedAt(createdAt);
+        return detail;
     }
 
     // ---- 批次列表测试 ----
@@ -280,6 +309,28 @@ class AccountImportListMapperDbTest extends DbTestBase {
     }
 
     /**
+     * AccountImportService.listDetails:分页明细返回所属分组名称,供前端明细表展示分组列。
+     */
+    @Test
+    void service_listDetails_returnsGroupName() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-svc-detail-group", now);
+        Long batchId = createBatch(groupId, "批次-svc-detail-group", 4, 1, 1, 2, now);
+        insertDetails(batchId, now);
+
+        AccountImportDetailQuery q = new AccountImportDetailQuery();
+        q.setBatchId(batchId);
+        q.setFilter("all");
+        q.setPageSize(20);
+
+        PageResult<AccountImportDetailVO> result = importService.listDetails(q);
+
+        assertThat(result.list()).hasSize(4);
+        assertThat(result.list()).extracting(AccountImportDetailVO::groupName)
+                .containsOnly("分组-svc-detail-group");
+    }
+
+    /**
      * AccountImportService.exportDetailsCsv:5 列表头 + 数据行数对 + 含 BOM。
      */
     @Test
@@ -319,5 +370,41 @@ class AccountImportListMapperDbTest extends DbTestBase {
         String[] lines = csv.split("\n");
         // 表头 + 3 失败行
         assertThat(lines.length).isEqualTo(4);
+    }
+
+    /**
+     * exportDetailsCsv scope=success:导出当前批次全部成功明细,不混入失败行。
+     */
+    @Test
+    void service_exportDetailsCsv_scopeSuccess_exportsWholeBatchSuccessRows() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-csv-success-all", now);
+        Long batchId = createBatch(groupId, "批次-csv-success-all", 7, 3, 2, 2, now);
+        insertExportScopeDetails(batchId, now);
+
+        String csv = importService.exportDetailsCsv(batchId, "success");
+        String[] lines = csv.split("\n");
+
+        assertThat(lines.length).isEqualTo(4);
+        assertThat(csv).contains("861399100001", "861399100002", "861399100003");
+        assertThat(csv).doesNotContain("861399200001", "bad-phone-export", "861399200003", "861399200004");
+    }
+
+    /**
+     * exportDetailsCsv scope=fail:导出当前批次全部失败明细,不混入成功行。
+     */
+    @Test
+    void service_exportDetailsCsv_scopeFail_exportsWholeBatchFailRows() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-csv-fail-all", now);
+        Long batchId = createBatch(groupId, "批次-csv-fail-all", 7, 3, 2, 2, now);
+        insertExportScopeDetails(batchId, now);
+
+        String csv = importService.exportDetailsCsv(batchId, "fail");
+        String[] lines = csv.split("\n");
+
+        assertThat(lines.length).isEqualTo(5);
+        assertThat(csv).contains("861399200001", "bad-phone-export", "861399200003", "861399200004");
+        assertThat(csv).doesNotContain("861399100001", "861399100002", "861399100003");
     }
 }

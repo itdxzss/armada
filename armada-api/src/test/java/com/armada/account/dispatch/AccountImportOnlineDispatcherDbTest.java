@@ -26,8 +26,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * 账号导入自动上线派发真库测试。
  *
- * <p>验证 {@code account_import_detail.online_phase=QUEUED} 会被批量写入协议 outbox,
- * 并在同一事务内推进到 DISPATCHED。</p>
+ * <p>验证 {@code account_import_detail.online_phase=QUEUED} 成功时会被批量写入协议 outbox
+ * 并推进到 DISPATCHED;派发失败时保持 QUEUED 等待后续重试。</p>
  */
 class AccountImportOnlineDispatcherDbTest extends DbTestBase {
 
@@ -57,7 +57,7 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
 
         String firstPhone = "86187" + (now % 10_000_000L);
         String secondPhone = "86188" + (now % 10_000_000L);
-        AccountImportBatchVO batch = importTwoAccounts(firstPhone, secondPhone);
+        AccountImportBatchVO batch = importTwoAccounts(firstPhone, secondPhone, "印度");
         Account first = accountMapper.selectActiveByWsPhone(firstPhone);
         Account second = accountMapper.selectActiveByWsPhone(secondPhone);
 
@@ -91,17 +91,56 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
                 .doesNotContain("proxyHost");
     }
 
-    private AccountImportBatchVO importTwoAccounts(String firstPhone, String secondPhone) {
+    @Test
+    void dispatchOnce_proxyNotEnoughKeepsDetailsQueuedAndDoesNotWriteOutbox() {
+        long now = System.currentTimeMillis();
+        disableIdleProxies(now);
+        insertIdleProxy(now, "import-online-shortage-" + now);
+
+        String firstPhone = "86189" + (now % 10_000_000L);
+        String secondPhone = "86190" + (now % 10_000_000L);
+        AccountImportBatchVO batch = importTwoAccounts(firstPhone, secondPhone, "import-online-shortage-" + now);
+        Account first = accountMapper.selectActiveByWsPhone(firstPhone);
+        Account second = accountMapper.selectActiveByWsPhone(secondPhone);
+
+        int dispatched = dispatcher.dispatchOnce();
+
+        assertThat(dispatched).isZero();
+        List<ImportDetailRow> details = selectImportDetails(batch.id());
+        assertThat(details).hasSize(2);
+        assertThat(details).extracting(ImportDetailRow::onlinePhase)
+                .containsOnly(AccountImportOnlinePhase.QUEUED);
+        assertThat(details).extracting(ImportDetailRow::dispatchAttempts)
+                .containsOnly(0);
+        assertThat(details).extracting(ImportDetailRow::onlineDispatchedAt)
+                .containsOnlyNulls();
+        assertThat(selectOnlineOutboxRows(first.getId(), second.getId())).isEmpty();
+    }
+
+    private AccountImportBatchVO importTwoAccounts(String firstPhone, String secondPhone, String ipRegion) {
         String json = "["
                 + "{\"wid\":\"" + firstPhone
                 + "\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
                 + "{\"wid\":\"" + secondPhone
                 + "\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
                 + "]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "dispatch-test", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, ipRegion, "dispatch-test", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
         assertThat(batch.importedRows()).isEqualTo(2);
         return batch;
+    }
+
+    private void disableIdleProxies(long updatedAt) {
+        jdbc.update(
+                """
+                UPDATE ip_proxy
+                SET status = ?, updated_at = ?
+                WHERE tenant_id = ? AND status = ? AND deleted_at IS NULL
+                """,
+                IpProxyStatus.IN_USE.code(),
+                updatedAt,
+                TEST_TENANT_ID,
+                IpProxyStatus.IDLE.code());
     }
 
     private void insertIdleProxy(long suffix, String region) {

@@ -383,7 +383,8 @@ public class AccountImportServiceImpl implements AccountImportService {
                 resolveLabel(r.getParseResult()),
                 r.getFailReason(),
                 r.getLoginResult(),
-                r.getCreatedAt()
+                r.getCreatedAt(),
+                r.getGroupName()
         );
     }
 

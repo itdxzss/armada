@@ -12,6 +12,13 @@ public class GroupLinkLabelVoRow {
     private String region;
     private String remark;
     private long linkCount;
+    private long fileCount;
+    private long totalRows;
+    private long successRows;
+    private long failedRows;
+    private String latestSourceFile;
+    private Long latestImportedAt;
+    private String status;
     private Long createdAt;
     private Long updatedAt;
 
@@ -53,6 +60,62 @@ public class GroupLinkLabelVoRow {
 
     public void setLinkCount(long linkCount) {
         this.linkCount = linkCount;
+    }
+
+    public long getFileCount() {
+        return fileCount;
+    }
+
+    public void setFileCount(long fileCount) {
+        this.fileCount = fileCount;
+    }
+
+    public long getTotalRows() {
+        return totalRows;
+    }
+
+    public void setTotalRows(long totalRows) {
+        this.totalRows = totalRows;
+    }
+
+    public long getSuccessRows() {
+        return successRows;
+    }
+
+    public void setSuccessRows(long successRows) {
+        this.successRows = successRows;
+    }
+
+    public long getFailedRows() {
+        return failedRows;
+    }
+
+    public void setFailedRows(long failedRows) {
+        this.failedRows = failedRows;
+    }
+
+    public String getLatestSourceFile() {
+        return latestSourceFile;
+    }
+
+    public void setLatestSourceFile(String latestSourceFile) {
+        this.latestSourceFile = latestSourceFile;
+    }
+
+    public Long getLatestImportedAt() {
+        return latestImportedAt;
+    }
+
+    public void setLatestImportedAt(Long latestImportedAt) {
+        this.latestImportedAt = latestImportedAt;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public Long getCreatedAt() {

@@ -109,6 +109,13 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
                 dto.region(),
                 dto.remark(),
                 0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                null,
+                null,
+                "EMPTY",
                 saved.getCreatedAt(),
                 saved.getUpdatedAt()
         );

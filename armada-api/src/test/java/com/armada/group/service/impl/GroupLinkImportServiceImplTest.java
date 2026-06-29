@@ -98,7 +98,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(1L, "batch1", null,
-                        List.of("https://chat.whatsapp.com/AbcDef")));
+                        List.of("https://chat.whatsapp.com/AbcDef"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);
@@ -121,7 +121,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef")));
+                        List.of("https://chat.whatsapp.com/AbcDef"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(0);
@@ -146,7 +146,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef")));
+                        List.of("https://chat.whatsapp.com/AbcDef"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);
@@ -168,7 +168,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef")));
+                        List.of("https://chat.whatsapp.com/AbcDef"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(0);
@@ -187,7 +187,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef")));
+                        List.of("https://chat.whatsapp.com/AbcDef"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);  // 复活计入新增成功
@@ -208,7 +208,7 @@ class GroupLinkImportServiceImplTest {
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(3L, "batch3", null,
                         List.of("https://chat.whatsapp.com/SameCode",
-                                "https://chat.whatsapp.com/SameCode")));
+                                "https://chat.whatsapp.com/SameCode"), null));
 
         assertThat(result.totalRows()).isEqualTo(2);
         assertThat(result.successRows()).isEqualTo(1);  // 第一条 SUCCESS
@@ -225,7 +225,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(4L, "batch4", null,
-                        List.of("not-a-whatsapp-link")));
+                        List.of("not-a-whatsapp-link"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.failedRows()).isEqualTo(1);
@@ -245,7 +245,7 @@ class GroupLinkImportServiceImplTest {
         service.importLinks(new GroupLinkImportDTO(5L, "batch5", null,
                 List.of("https://chat.whatsapp.com/Code1",
                         "bad-url",
-                        "https://chat.whatsapp.com/Code1")));  // 重复
+                        "https://chat.whatsapp.com/Code1"), null));  // 重复
 
         // 验 updateCounts 被调用(统计已在 VO 中断言)
         verify(importBatchMapper).updateCounts(any());
@@ -260,11 +260,26 @@ class GroupLinkImportServiceImplTest {
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(7L, "   ", null,
-                List.of("https://chat.whatsapp.com/Blank")));
+                List.of("https://chat.whatsapp.com/Blank"), null));
 
         ArgumentCaptor<GroupLinkImportBatch> captor = ArgumentCaptor.forClass(GroupLinkImportBatch.class);
         verify(importBatchMapper).insert(captor.capture());
         assertThat(captor.getValue().getBatchName()).isNull();
+    }
+
+    @Test
+    void sourceFileName_storedOnBatch() {
+        stubValidLabel(8L);
+        stubBatchInsert(80L);
+        stubLinkInsert(800L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+
+        service.importLinks(new GroupLinkImportDTO(8L, "batch8", null,
+                List.of("https://chat.whatsapp.com/WithFile"), "links.csv"));
+
+        ArgumentCaptor<GroupLinkImportBatch> captor = ArgumentCaptor.forClass(GroupLinkImportBatch.class);
+        verify(importBatchMapper).insert(captor.capture());
+        assertThat(captor.getValue().getSourceFileName()).isEqualTo("links.csv");
     }
 
     // ---- 校验失败 ----
@@ -274,7 +289,7 @@ class GroupLinkImportServiceImplTest {
         when(labelMapper.selectById(anyLong())).thenReturn(null);
 
         assertThatThrownBy(() -> service.importLinks(
-                new GroupLinkImportDTO(99L, "x", null, List.of("https://chat.whatsapp.com/X"))))
+                new GroupLinkImportDTO(99L, "x", null, List.of("https://chat.whatsapp.com/X"), null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("分组不存在");
         verify(importBatchMapper, never()).insert(any());
@@ -283,7 +298,7 @@ class GroupLinkImportServiceImplTest {
     @Test
     void nullLabelId_throws() {
         assertThatThrownBy(() -> service.importLinks(
-                new GroupLinkImportDTO(null, "x", null, List.of("https://chat.whatsapp.com/X"))))
+                new GroupLinkImportDTO(null, "x", null, List.of("https://chat.whatsapp.com/X"), null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("分组不存在");
     }
@@ -293,7 +308,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(1L);
 
         assertThatThrownBy(() -> service.importLinks(
-                new GroupLinkImportDTO(1L, "x", null, List.of())))
+                new GroupLinkImportDTO(1L, "x", null, List.of(), null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不可为空");
         verify(importBatchMapper, never()).insert(any());
@@ -304,7 +319,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(1L);
 
         assertThatThrownBy(() -> service.importLinks(
-                new GroupLinkImportDTO(1L, "x", null, null)))
+                new GroupLinkImportDTO(1L, "x", null, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不可为空");
     }

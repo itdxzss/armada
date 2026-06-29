@@ -103,6 +103,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         batch.setLabelId(dto.labelId());
         // 批次名称(来源文件/批次名称)非必填:留空(null/空白)统一存 NULL,不存空白串
         batch.setBatchName(blankToNull(dto.batchName()));
+        batch.setSourceFileName(blankToNull(dto.sourceFileName()));
         batch.setCreatedAt(System.currentTimeMillis());
         importBatchMapper.insert(batch);
 

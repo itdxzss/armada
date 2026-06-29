@@ -72,7 +72,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
                 List.of(
                         "https://chat.whatsapp.com/NewLink001",
                         "https://chat.whatsapp.com/NewLink002"
-                )));
+                ), null));
 
         // 返回值正确
         assertThat(result.totalRows()).isEqualTo(2);
@@ -112,7 +112,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         // 先导入到 labelA(活跃)
         importService.importLinks(new GroupLinkImportDTO(
                 labelA.getId(), "第一次导入", null,
-                List.of("https://chat.whatsapp.com/ExistMe")));
+                List.of("https://chat.whatsapp.com/ExistMe"), null));
 
         GroupLink before = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ExistMe");
         assertThat(before).isNotNull();
@@ -121,7 +121,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         // 再导入到 labelB — 同 url 已在导入链接中存在 → 失败/重复,原链接不动
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
                 labelB.getId(), "第二次导入", null,
-                List.of("https://chat.whatsapp.com/ExistMe")));
+                List.of("https://chat.whatsapp.com/ExistMe"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(0);
@@ -161,7 +161,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
                 label.getId(), "收编批次", null,
-                List.of("https://chat.whatsapp.com/AdoptPullTask")));
+                List.of("https://chat.whatsapp.com/AdoptPullTask"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);
@@ -192,14 +192,14 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         // 先导入到 labelA,再软删该链接
         importService.importLinks(new GroupLinkImportDTO(
                 labelA.getId(), "第一次导入", null,
-                List.of("https://chat.whatsapp.com/ReviveMe")));
+                List.of("https://chat.whatsapp.com/ReviveMe"), null));
         GroupLink imported = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveMe");
         groupLinkMapper.softDeleteByIds(List.of(imported.getId()), System.currentTimeMillis());
 
         // 再导入同 url 到 labelB — 软删行应被复活、归到 labelB,记成功
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
                 labelB.getId(), "第二次导入", null,
-                List.of("https://chat.whatsapp.com/ReviveMe")));
+                List.of("https://chat.whatsapp.com/ReviveMe"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);  // 复活计入新增成功
@@ -219,7 +219,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
                 label.getId(), null, null,
-                List.of("https://chat.whatsapp.com/NullBatchName")));
+                List.of("https://chat.whatsapp.com/NullBatchName"), null));
 
         assertThat(result.batchId()).isNotNull();
         assertThat(result.totalRows()).isEqualTo(1);
@@ -247,7 +247,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
                         "https://chat.whatsapp.com/AlreadyExists",   // EXISTS(已存在,活跃)
                         "https://chat.whatsapp.com/BrandNew",        // DUPLICATE
                         "not-a-whatsapp-link"                         // FORMAT_ERROR
-                )));
+                ), null));
 
         assertThat(result.totalRows()).isEqualTo(4);
         assertThat(result.successRows()).isEqualTo(1);

@@ -54,8 +54,8 @@ public class GroupLinkImportController {
      */
     @GetMapping("/failed/export")
     public void exportFailed(
-            @RequestParam(value = "label_id", required = false) Long labelId,
-            @RequestParam(value = "batch_id", required = false) Long batchId,
+            @RequestParam(value = "labelId", required = false) Long labelId,
+            @RequestParam(value = "batchId", required = false) Long batchId,
             HttpServletResponse resp) throws IOException {
         resp.setContentType("text/csv;charset=UTF-8");
         resp.setHeader("Content-Disposition", "attachment; filename=failed.csv");

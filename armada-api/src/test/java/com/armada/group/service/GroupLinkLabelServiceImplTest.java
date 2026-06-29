@@ -67,7 +67,8 @@ class GroupLinkLabelServiceImplTest {
     void list_callsSelectPage_whenTotalNonZero() {
         GroupLinkLabelQuery q = new GroupLinkLabelQuery();
         GroupLinkLabelVoRow row = new GroupLinkLabelVoRow();
-        GroupLinkLabelVO vo = new GroupLinkLabelVO(1L, "分组A", null, null, 0L, null, null);
+        GroupLinkLabelVO vo = new GroupLinkLabelVO(
+                1L, "分组A", null, null, 0L, 0L, 0L, 0L, 0L, null, null, "EMPTY", null, null);
         when(labelMapper.countPage(q)).thenReturn(1L);
         when(labelMapper.selectPage(q)).thenReturn(List.of(row));
         when(converter.toLabelVOList(List.of(row))).thenReturn(List.of(vo));

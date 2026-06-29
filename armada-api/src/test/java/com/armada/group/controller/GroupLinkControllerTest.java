@@ -1,13 +1,16 @@
 package com.armada.group.controller;
 
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
@@ -15,12 +18,14 @@ import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.service.FileLinesExtractor;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -74,6 +79,38 @@ class GroupLinkControllerTest {
                 .andExpect(jsonPath("$.data.members[0].role").value("superadmin"));
 
         verify(groupLinkService).members(10L);
+    }
+
+    @Test
+    void importLinks_passesOriginalFilenameToService() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "links.csv",
+                "text/csv",
+                "https://chat.whatsapp.com/ABC123".getBytes(StandardCharsets.UTF_8));
+        when(extractor.extract(argThat(f -> f != null && "links.csv".equals(f.getOriginalFilename())),
+                eq("https://chat.whatsapp.com/TEXT123"))).thenReturn(List.of(
+                "https://chat.whatsapp.com/ABC123",
+                "https://chat.whatsapp.com/TEXT123"));
+        when(importService.importLinks(argThat(dto ->
+                dto != null
+                        && dto.labelId().equals(12L)
+                        && dto.batchName().equals("批次A")
+                        && dto.sourceFileName().equals("links.csv")
+                        && dto.lines().size() == 2))).thenReturn(
+                new GroupLinkImportResultVO(99L, 2, 2, 0, 0, 0, List.of()));
+
+        mockMvc.perform(multipart("/api/group-links/import")
+                        .file(file)
+                        .param("labelId", "12")
+                        .param("batchName", "批次A")
+                        .param("text", "https://chat.whatsapp.com/TEXT123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.batchId").value(99));
+
+        verify(importService).importLinks(argThat(dto ->
+                dto != null && "links.csv".equals(dto.sourceFileName())));
     }
 
     @Test

@@ -4,20 +4,64 @@
 
   <!-- 共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入 -->
   <sql id="filter">
-    deleted_at IS NULL
-    <if test="keyword != null and keyword != ''">AND name LIKE CONCAT('%', #{keyword}, '%')</if>
-    <if test="id != null">AND id = #{id}</if>
-    <if test="createdFrom != null">AND created_at &gt;= #{createdFrom}</if>
-    <if test="createdTo != null">AND created_at &lt;= #{createdTo}</if>
+    l.deleted_at IS NULL
+    <if test="keyword != null and keyword != ''">
+      AND (
+        l.name LIKE CONCAT('%', #{keyword}, '%')
+        OR EXISTS (
+          SELECT 1
+          FROM group_link_import_batch b
+          WHERE b.label_id = l.id
+            AND b.deleted_at IS NULL
+            AND (
+              b.source_file_name LIKE CONCAT('%', #{keyword}, '%')
+              OR b.batch_name LIKE CONCAT('%', #{keyword}, '%')
+              OR CAST(b.id AS CHAR) = #{keyword}
+            )
+        )
+      )
+    </if>
+    <if test="id != null">AND l.id = #{id}</if>
+    <if test="createdFrom != null">AND l.created_at &gt;= #{createdFrom}</if>
+    <if test="createdTo != null">AND l.created_at &lt;= #{createdTo}</if>
   </sql>
 
   <select id="countPage" resultType="long">
-    SELECT COUNT(*) FROM group_link_label WHERE <include refid="filter"/>
+    SELECT COUNT(*) FROM group_link_label l WHERE <include refid="filter"/>
   </select>
 
   <select id="selectPage" resultType="com.armada.group.model.vo.GroupLinkLabelVoRow">
     SELECT l.id, l.name, l.region, l.remark,
            (SELECT COUNT(*) FROM group_link g WHERE g.label_id = l.id AND g.deleted_at IS NULL) AS linkCount,
+           (SELECT COUNT(*) FROM group_link_import_batch b
+             WHERE b.label_id = l.id AND b.deleted_at IS NULL) AS fileCount,
+           COALESCE((SELECT SUM(b.total_rows) FROM group_link_import_batch b
+             WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0) AS totalRows,
+           COALESCE((SELECT SUM(b.inserted_rows + b.adopted_rows) FROM group_link_import_batch b
+             WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0) AS successRows,
+           COALESCE((SELECT SUM(b.failed_rows) FROM group_link_import_batch b
+             WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0) AS failedRows,
+           (SELECT b2.source_file_name
+              FROM group_link_import_batch b2
+             WHERE b2.label_id = l.id AND b2.deleted_at IS NULL
+             ORDER BY b2.created_at DESC, b2.id DESC
+             LIMIT 1) AS latestSourceFile,
+           (SELECT b2.created_at
+              FROM group_link_import_batch b2
+             WHERE b2.label_id = l.id AND b2.deleted_at IS NULL
+             ORDER BY b2.created_at DESC, b2.id DESC
+             LIMIT 1) AS latestImportedAt,
+           CASE
+             WHEN (SELECT COUNT(*) FROM group_link_import_batch b
+                    WHERE b.label_id = l.id AND b.deleted_at IS NULL) = 0 THEN 'EMPTY'
+             WHEN COALESCE((SELECT SUM(b.failed_rows) FROM group_link_import_batch b
+                    WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0) &gt; 0
+              AND COALESCE((SELECT SUM(b.inserted_rows + b.adopted_rows) FROM group_link_import_batch b
+                    WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0) &gt; 0 THEN 'PARTIAL'
+             WHEN COALESCE((SELECT SUM(b.failed_rows) FROM group_link_import_batch b
+                    WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0) &gt; 0 THEN 'FAILED'
+             ELSE 'DONE'
+           END AS status,
            l.created_at AS createdAt, l.updated_at AS updatedAt
     FROM group_link_label l
     WHERE <include refid="filter"/>

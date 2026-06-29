@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.group.model.dto.GroupLinkLabelQuery;
+import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.testsupport.DbTestBase;
@@ -23,6 +24,9 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
 
     @Autowired
     private GroupLinkMapper groupLinkMapper;
+
+    @Autowired
+    private GroupLinkImportBatchMapper importBatchMapper;
 
     // ---- 辅助方法 ----
 
@@ -87,6 +91,32 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         assertThat(rows.get(0).getLinkCount()).isEqualTo(2L);
     }
 
+    @Test
+    void selectPage_includesImportStatsByLabel() {
+        GroupLinkLabel label = buildLabel("导入统计分组");
+        mapper.insert(label);
+
+        insertImportBatch(label.getId(), "第一批", "a.txt", 3, 2, 0, 1);
+        insertImportBatch(label.getId(), "第二批", "b.txt", 4, 1, 1, 2);
+
+        GroupLinkLabelQuery query = new GroupLinkLabelQuery();
+        query.setId(label.getId());
+        query.setPage(1);
+        query.setPageSize(10);
+
+        List<GroupLinkLabelVoRow> rows = mapper.selectPage(query);
+
+        assertThat(rows).hasSize(1);
+        GroupLinkLabelVoRow row = rows.get(0);
+        assertThat(row.getFileCount()).isEqualTo(2L);
+        assertThat(row.getTotalRows()).isEqualTo(7L);
+        assertThat(row.getSuccessRows()).isEqualTo(4L);
+        assertThat(row.getFailedRows()).isEqualTo(3L);
+        assertThat(row.getLatestSourceFile()).isEqualTo("b.txt");
+        assertThat(row.getLatestImportedAt()).isNotNull();
+        assertThat(row.getStatus()).isEqualTo("PARTIAL");
+    }
+
     /** 插入一条活跃 group_link 并返回 id。 */
     private Long insertActiveLink(String url, Long labelId) {
         com.armada.group.model.entity.GroupLink link = new com.armada.group.model.entity.GroupLink();
@@ -97,6 +127,20 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         link.setUpdatedAt(now);
         groupLinkMapper.insert(link);
         return link.getId();
+    }
+
+    private void insertImportBatch(Long labelId, String batchName, String sourceFileName,
+                                   int totalRows, int insertedRows, int adoptedRows, int failedRows) {
+        GroupLinkImportBatch batch = new GroupLinkImportBatch();
+        batch.setLabelId(labelId);
+        batch.setBatchName(batchName);
+        batch.setSourceFileName(sourceFileName);
+        batch.setTotalRows(totalRows);
+        batch.setInsertedRows(insertedRows);
+        batch.setAdoptedRows(adoptedRows);
+        batch.setFailedRows(failedRows);
+        batch.setCreatedAt(System.currentTimeMillis());
+        importBatchMapper.insert(batch);
     }
 
     @Test

@@ -62,8 +62,9 @@ public class GroupLinkController {
             @RequestParam(value = "text", required = false) String text,
             @RequestParam(value = "file", required = false) MultipartFile file) {
         List<String> lines = extractor.extract(file, text);
+        String sourceFileName = file == null || file.isEmpty() ? null : file.getOriginalFilename();
         GroupLinkImportResultVO result = importService.importLinks(
-                new GroupLinkImportDTO(labelId, batchName, text, lines));
+                new GroupLinkImportDTO(labelId, batchName, text, lines, sourceFileName));
         return ApiResponse.ok(result);
     }
 

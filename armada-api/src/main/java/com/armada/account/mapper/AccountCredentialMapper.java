@@ -1,6 +1,7 @@
 package com.armada.account.mapper;
 
 import com.armada.account.model.entity.AccountCredential;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -43,4 +44,18 @@ public interface AccountCredentialMapper {
      * @return 活跃凭据行列表;缺失或已软删凭据不会返回
      */
     List<AccountCredential> selectByAccountIds(@Param("accountIds") List<Long> accountIds);
+
+    /**
+     * 后台 publisher 按租户显式批量读取活跃凭据。
+     *
+     * <p>dispatcher 脱离 HTTP 请求线程,不能依赖 {@code TenantContext};调用方必须从 outbox row 的
+     * tenant_id 分组后传入租户 ID。creds_json 只能用于协议命令 payload,不得写日志。</p>
+     *
+     * @param tenantId   租户 ID
+     * @param accountIds 账号主键列表
+     * @return 活跃凭据行列表
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountCredential> selectByTenantAndAccountIds(@Param("tenantId") Long tenantId,
+                                                        @Param("accountIds") List<Long> accountIds);
 }

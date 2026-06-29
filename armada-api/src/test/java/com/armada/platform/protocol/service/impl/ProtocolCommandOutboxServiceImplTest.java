@@ -21,6 +21,7 @@ import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayDeque;
@@ -100,6 +101,22 @@ class ProtocolCommandOutboxServiceImplTest {
 
         assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getKafkaTopic)
                 .containsExactly("protocol.account.commands.test");
+    }
+
+    @Test
+    void enqueueOnlineCommands_copiesTenantContextToInMemoryRowsForAfterCommitHydration() {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-tenant"), List.of());
+        ProtocolOnlineCommandRequest command = onlineCommand(100L, "acc_100", CredentialFormat.BAILEYS_JSON, 7L);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        TenantContext.set(88L);
+        try {
+            service.enqueueOnlineCommands(List.of(command));
+        } finally {
+            TenantContext.clear();
+        }
+
+        assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getTenantId)
+                .containsExactly(88L);
     }
 
     @Test

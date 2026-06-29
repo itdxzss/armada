@@ -5,6 +5,7 @@ import com.armada.platform.kafka.producer.ProtocolCommandPublisher;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
+import com.armada.platform.protocol.model.result.ProtocolCommandPublishOutcome;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
 import java.util.UUID;
@@ -180,26 +181,27 @@ public class ProtocolCommandDispatcher {
         int sent = 0;
         int retried = 0;
         int dead = 0;
-        for (ProtocolCommandOutbox row : rows) {
-            try {
-                publisher.publish(row);
+        for (ProtocolCommandPublishOutcome outcome : publisher.publishBatch(rows)) {
+            ProtocolCommandOutbox row = outcome.row();
+            RuntimeException error = outcome.error();
+            if (error == null) {
                 sent += markSent(row);
-            } catch (BusinessException ex) {
+            } else if (error instanceof BusinessException ex) {
                 log.warn("协议命令 outbox payload 不可发送 commandId={} batchId={} accountId={} error={}",
                         row.getCommandId(), row.getBatchId(), row.getAggregateId(), safeError(ex));
                 dead += markDead(row, ex);
-            } catch (RuntimeException ex) {
+            } else {
                 if (shouldMarkDead(row)) {
                     log.warn("协议命令 outbox 发送失败且重试耗尽 commandId={} batchId={} accountId={} retryCount={} error={}",
                             row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getRetryCount(),
-                            safeError(ex));
-                    dead += markDead(row, ex);
+                            safeError(error));
+                    dead += markDead(row, error);
                 } else {
                     log.warn("协议命令 outbox 发送失败等待重试 commandId={} batchId={} accountId={} retryCount={} "
                                     + "retryDelayMs={} error={}",
                             row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getRetryCount(),
-                            retryDelayMs(), safeError(ex));
-                    retried += markRetry(row, ex);
+                            retryDelayMs(), safeError(error));
+                    retried += markRetry(row, error);
                 }
             }
         }

@@ -207,6 +207,22 @@
         </if>
     </select>
 
+    <select id="selectActiveByTenantAndIds" resultType="com.armada.resource.model.entity.IpProxy">
+        <if test="ids != null and ids.size() &gt; 0">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE tenant_id = #{tenantId}
+          AND deleted_at IS NULL
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        </if>
+        <if test="ids == null or ids.size() == 0">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE 1 = 0
+        </if>
+    </select>
+
     <update id="softDeleteByIds">
         UPDATE ip_proxy
         SET deleted_at = #{deletedAt}

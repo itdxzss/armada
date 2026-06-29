@@ -15,6 +15,7 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -269,6 +270,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                                                     String batchId,
                                                     long now) {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(TenantContext.get());
         row.setCommandId(commandId);
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED);
@@ -302,6 +304,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                                                      String batchId,
                                                      long now) {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(TenantContext.get());
         row.setCommandId(commandId);
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED);
@@ -324,6 +327,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                                                               String batchId,
                                                               long now) {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(TenantContext.get());
         row.setCommandId(commandId);
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_GROUP_HEALTH_CHECK_REQUESTED);
@@ -346,6 +350,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                                                               String batchId,
                                                               long now) {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(TenantContext.get());
         row.setCommandId(commandId);
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_ACCOUNT_GROUPS_SYNC_REQUESTED);

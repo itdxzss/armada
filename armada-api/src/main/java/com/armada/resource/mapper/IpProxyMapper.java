@@ -123,6 +123,15 @@ public interface IpProxyMapper {
      */
     List<Long> selectBoundAccountIdsByProxyIds(@Param("ids") List<Long> ids, @Param("usingStatus") int usingStatus);
 
+    /**
+     * 后台 publisher 按租户显式批量读取活跃代理行。
+     *
+     * <p>dispatcher 线程不依赖 {@code TenantContext};调用方按 outbox tenant_id 分组后传入租户 ID。
+     * 返回行包含 username/password,只能用于拼协议层上线 payload,不得写日志。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<IpProxy> selectActiveByTenantAndIds(@Param("tenantId") Long tenantId, @Param("ids") List<Long> ids);
+
     /** 批量软删除。 */
     int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 }

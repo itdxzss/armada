@@ -39,7 +39,7 @@ class AccountControllerDbTest {
     private static final long TEST_TENANT_ID = 1L;
     private static final String COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED = "account.offline.requested";
     private static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
-    private static final String TOPIC_PROTOCOL_ACCOUNT_COMMANDS = "protocol.account.commands.v1";
+    private static final String TOPIC_PROTOCOL_MASTER_COMMANDS = "protocol.master.commands.v1";
 
     /** JSON 格式完整的单账号内容,供 POST 导入时作 text 参数使用。 */
     private static final String VALID_JSON_TEXT_TEMPLATE =
@@ -342,7 +342,7 @@ class AccountControllerDbTest {
         assertThat(rows).extracting(OutboxRow::aggregateId)
                 .containsExactly(firstAccountId, secondAccountId);
         assertThat(rows).extracting(OutboxRow::kafkaTopic)
-                .containsOnly(TOPIC_PROTOCOL_ACCOUNT_COMMANDS);
+                .containsOnly(TOPIC_PROTOCOL_MASTER_COMMANDS);
         assertThat(rows).extracting(OutboxRow::kafkaKey)
                 .doesNotContainNull();
         assertThat(rows).extracting(OutboxRow::protocolAccountId)

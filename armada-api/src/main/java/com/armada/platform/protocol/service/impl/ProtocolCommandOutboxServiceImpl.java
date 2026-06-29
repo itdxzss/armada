@@ -1,9 +1,11 @@
 package com.armada.platform.protocol.service.impl;
 
 import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
+import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -42,8 +44,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 账号下线命令类型。 */
     public static final String COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED = "account.offline.requested";
 
+    /** 群链接健康检查命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_HEALTH_CHECK_REQUESTED = "group.health_check.requested";
+
     /** 账号聚合类型。 */
     public static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
+
+    /** 群链接聚合类型。 */
+    public static final String AGGREGATE_TYPE_GROUP_LINK = "GROUP_LINK";
 
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
@@ -53,7 +61,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
     private final ProtocolCommandDispatchTrigger dispatchTrigger;
-    private final ProtocolAccountCommandProperties commandProperties;
+    private final ProtocolAccountCommandProperties accountCommandProperties;
+    private final ProtocolMasterCommandProperties masterCommandProperties;
 
     /**
      * 创建协议命令 Outbox service。
@@ -61,16 +70,19 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * @param mapper          outbox mapper
      * @param objectMapper    JSON 序列化器
      * @param dispatchTrigger outbox 提交后 dispatch 触发器
-     * @param commandProperties 账号命令 Kafka topic 配置
+     * @param accountCommandProperties 账号上线命令 Kafka topic 配置
+     * @param masterCommandProperties  master 路由命令 Kafka topic 配置
      */
     public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper,
                                             ObjectMapper objectMapper,
                                             ProtocolCommandDispatchTrigger dispatchTrigger,
-                                            ProtocolAccountCommandProperties commandProperties) {
+                                            ProtocolAccountCommandProperties accountCommandProperties,
+                                            ProtocolMasterCommandProperties masterCommandProperties) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.dispatchTrigger = dispatchTrigger;
-        this.commandProperties = commandProperties;
+        this.accountCommandProperties = accountCommandProperties;
+        this.masterCommandProperties = masterCommandProperties;
     }
 
     /**
@@ -129,6 +141,35 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return insertPendingRows(batchId, commandIds, rows);
     }
 
+    /**
+     * 批量写入群链接健康检查 outbox 命令。
+     *
+     * <p>单条命令不生成 batch_id;多条命令共享一个 batch_id,便于单轮巡检排查。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueGroupHealthCheckCommands(
+            List<ProtocolGroupHealthCheckCommandRequest> commands) {
+        validateGroupHealthCheckCommands(commands);
+
+        String batchId = commands.size() == 1 ? null : newBatchId();
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+
+        for (ProtocolGroupHealthCheckCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toGroupHealthCheckOutboxRow(command, commandId, batchId, now));
+        }
+
+        return insertPendingRows(batchId, commandIds, rows);
+    }
+
     private ProtocolCommandOutboxEnqueueResult insertPendingRows(String batchId,
                                                                  List<String> commandIds,
                                                                  List<ProtocolCommandOutbox> rows) {
@@ -177,7 +218,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(commandProperties.getTopic());
+        row.setKafkaTopic(accountCommandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
         row.setPayloadJson(payloadJson(command));
@@ -199,7 +240,29 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(commandProperties.getTopic());
+        row.setKafkaTopic(masterCommandProperties.getTopic());
+        row.setKafkaKey(command.protocolAccountId());
+        row.setProtocolAccountId(command.protocolAccountId());
+        row.setPayloadJson(payloadJson(command));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    private ProtocolCommandOutbox toGroupHealthCheckOutboxRow(ProtocolGroupHealthCheckCommandRequest command,
+                                                              String commandId,
+                                                              String batchId,
+                                                              long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setCommandId(commandId);
+        row.setBatchId(batchId);
+        row.setCommandType(COMMAND_TYPE_GROUP_HEALTH_CHECK_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_GROUP_LINK);
+        row.setAggregateId(command.groupLinkId());
+        row.setKafkaTopic(masterCommandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
         row.setPayloadJson(payloadJson(command));
@@ -227,6 +290,21 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     private String payloadJson(ProtocolOfflineCommandRequest command) {
         ProtocolOfflineCommandPayload payload = new ProtocolOfflineCommandPayload(
+                command.accountId(),
+                command.protocolAccountId(),
+                command.source());
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议命令 payload 序列化失败");
+        }
+    }
+
+    private String payloadJson(ProtocolGroupHealthCheckCommandRequest command) {
+        ProtocolGroupHealthCheckCommandPayload payload = new ProtocolGroupHealthCheckCommandPayload(
+                command.tenantId(),
+                command.groupLinkId(),
+                command.groupJid(),
                 command.accountId(),
                 command.protocolAccountId(),
                 command.source());
@@ -283,6 +361,31 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    private void validateGroupHealthCheckCommands(List<ProtocolGroupHealthCheckCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接健康检查命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "群链接健康检查命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        for (ProtocolGroupHealthCheckCommandRequest command : commands) {
+            validateGroupHealthCheckCommand(command);
+        }
+    }
+
+    private void validateGroupHealthCheckCommand(ProtocolGroupHealthCheckCommandRequest command) {
+        if (command == null
+                || command.tenantId() == null
+                || command.groupLinkId() == null
+                || isBlank(command.groupJid())
+                || command.accountId() == null
+                || isBlank(command.protocolAccountId())
+                || isBlank(command.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接健康检查命令缺少必要字段");
+        }
+    }
+
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
@@ -297,6 +400,16 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     }
 
     private record ProtocolOfflineCommandPayload(
+            Long accountId,
+            String protocolAccountId,
+            String source
+    ) {
+    }
+
+    private record ProtocolGroupHealthCheckCommandPayload(
+            Long tenantId,
+            Long groupLinkId,
+            String groupJid,
             Long accountId,
             String protocolAccountId,
             String source

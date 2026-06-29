@@ -99,7 +99,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
                 .containsExactly(5101L, 5102L);
         assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
-                .containsOnly("protocol.account.commands.v1");
+                .containsOnly("protocol.master.commands.v1");
         assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
                 .containsExactly("acc_offline_" + now + "_1", "acc_offline_" + now + "_2");
         assertThat(rows).extracting(ProtocolCommandOutbox::getProtocolAccountId)

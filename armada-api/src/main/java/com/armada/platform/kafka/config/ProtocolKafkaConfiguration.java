@@ -30,9 +30,11 @@ import org.springframework.util.backoff.FixedBackOff;
 @EnableScheduling
 @EnableConfigurationProperties({
         ProtocolAccountCommandProperties.class,
+        ProtocolMasterCommandProperties.class,
         ProtocolCommandPublisherProperties.class,
         ProtocolCommandDispatcherProperties.class,
-        ProtocolAccountEventConsumerProperties.class
+        ProtocolAccountEventConsumerProperties.class,
+        ProtocolGroupEventConsumerProperties.class
 })
 public class ProtocolKafkaConfiguration {
 

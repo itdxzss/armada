@@ -1,8 +1,10 @@
 package com.armada.group.mapper;
 
+import com.armada.group.model.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupLinkVoRow;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -69,6 +71,21 @@ public interface GroupLinkMapper {
      * @return 投影行列表
      */
     List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);
+
+    /**
+     * 群链接健康检查候选:跨租户返回已解析 group_jid 且能找到在线在群账号的活动链接。
+     *
+     * <p>后台调度线程没有租户上下文,因此关闭租户拦截器,SQL 内显式按 tenant_id 连接各表。
+     * 每个群链接只返回一个操作账号:管理员优先,再按 join_task_result.id 兜底。</p>
+     *
+     * @param limit            本轮最大候选数
+     * @param onlineLoginState 在线登录态码
+     * @return 可发起协议层 metadata 检测的候选
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupLinkHealthCheckCandidate> selectHealthCheckCandidates(
+            @Param("limit") int limit,
+            @Param("onlineLoginState") int onlineLoginState);
 
     /**
      * 批量迁移到目标分组(改 label_id)。

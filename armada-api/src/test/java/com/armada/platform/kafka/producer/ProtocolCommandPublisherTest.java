@@ -81,14 +81,15 @@ class ProtocolCommandPublisherTest {
         ProtocolCommandOutbox row = outboxRow("{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
                 + "\"source\":\"batch_offline\"}");
         row.setCommandType("account.offline.requested");
-        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_100"), any()))
+        row.setKafkaTopic("protocol.master.commands.v1");
+        when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         ProtocolCommandPublishResult result = publisher.publish(row);
 
         assertThat(result.commandId()).isEqualTo("cmd_100");
         ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
+        verify(kafkaTemplate).send(eq("protocol.master.commands.v1"), eq("acc_100"), captor.capture());
         ProtocolCommandEnvelope envelope = captor.getValue();
         assertThat(envelope.commandType()).isEqualTo("account.offline.requested");
         assertThat(envelope.aggregateType()).isEqualTo("ACCOUNT");

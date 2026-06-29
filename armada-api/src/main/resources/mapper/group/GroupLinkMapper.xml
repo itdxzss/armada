@@ -127,6 +127,58 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <!--
+    群链接健康检查候选:跨租户扫描已解析 group_jid 的活动链接,并选择一个在线在群账号执行 metadata。
+    规则:
+      1. group_jid 来自 group_link_preview,无 jid 不进入 Kafka 检测;
+      2. 操作账号来自 join_task_result 成功进群记录,并要求 account_state.login_state=ONLINE;
+      3. 同一群链接多个在线账号时管理员优先,否则按 join_task_result.id 取最早一条,避免重复命令。
+  -->
+  <select id="selectHealthCheckCandidates" resultType="com.armada.group.model.GroupLinkHealthCheckCandidate">
+    SELECT tenantId, groupLinkId, groupJid, accountId, protocolAccountId
+    FROM (
+      SELECT g.tenant_id AS tenantId,
+             g.id AS groupLinkId,
+             p.group_jid AS groupJid,
+             a.id AS accountId,
+             a.protocol_account_id AS protocolAccountId,
+             h.last_check_at AS lastCheckAt,
+             ROW_NUMBER() OVER (
+               PARTITION BY g.tenant_id, g.id
+               ORDER BY r.is_admin DESC, r.id ASC
+             ) AS rowNo
+      FROM group_link g
+      INNER JOIN group_link_preview p
+        ON p.tenant_id = g.tenant_id
+       AND p.group_link_id = g.id
+      INNER JOIN join_task_result r
+        ON r.tenant_id = g.tenant_id
+       AND r.group_jid = p.group_jid
+       AND r.status = 'SUCCESS'
+       AND r.account_id IS NOT NULL
+      INNER JOIN account a
+        ON a.tenant_id = r.tenant_id
+       AND a.id = r.account_id
+       AND a.deleted_at IS NULL
+       AND a.protocol_account_id IS NOT NULL
+       AND a.protocol_account_id != ''
+      INNER JOIN account_state s
+        ON s.tenant_id = a.tenant_id
+       AND s.account_id = a.id
+       AND s.login_state = #{onlineLoginState}
+      LEFT JOIN group_link_health h
+        ON h.tenant_id = g.tenant_id
+       AND h.group_link_id = g.id
+      WHERE g.deleted_at IS NULL
+        AND p.group_jid IS NOT NULL
+        AND p.group_jid != ''
+        AND (h.is_banned IS NULL OR h.is_banned = 0)
+    ) ranked
+    WHERE rowNo = 1
+    ORDER BY COALESCE(lastCheckAt, 0) ASC, groupLinkId ASC
+    LIMIT #{limit}
+  </select>
+
   <update id="migrateToLabel">
     UPDATE group_link SET label_id = #{labelId}, updated_at = #{updatedAt}
     WHERE deleted_at IS NULL AND id IN

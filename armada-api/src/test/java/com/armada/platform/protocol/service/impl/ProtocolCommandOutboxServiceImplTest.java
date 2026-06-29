@@ -8,9 +8,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
+import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -88,7 +90,8 @@ class ProtocolCommandOutboxServiceImplTest {
     @Test
     void enqueueOnlineCommands_customCommandTopic_usesConfiguredTopic() {
         TestableProtocolCommandOutboxService service =
-                newService(List.of("cmd-custom-topic"), List.of(), "protocol.account.commands.test");
+                newService(List.of("cmd-custom-topic"), List.of(), "protocol.account.commands.test",
+                        ProtocolMasterCommandProperties.DEFAULT_TOPIC);
         ProtocolOnlineCommandRequest command = onlineCommand(100L, "acc_100", CredentialFormat.BAILEYS_JSON, 7L);
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
 
@@ -145,7 +148,7 @@ class ProtocolCommandOutboxServiceImplTest {
             assertThat(row.getBatchId()).isEqualTo("batch-offline-1");
             assertThat(row.getCommandType()).isEqualTo("account.offline.requested");
             assertThat(row.getAggregateType()).isEqualTo("ACCOUNT");
-            assertThat(row.getKafkaTopic()).isEqualTo("protocol.account.commands.v1");
+            assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
             assertThat(row.getKafkaKey()).startsWith("acc_");
             assertThat(row.getProtocolAccountId()).startsWith("acc_");
             assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
@@ -171,6 +174,67 @@ class ProtocolCommandOutboxServiceImplTest {
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
         verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueGroupHealthCheckCommands_singleCommand_insertsGroupLinkCommandWithRoutablePayload() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-group-health"), List.of());
+        ProtocolGroupHealthCheckCommandRequest command = groupHealthCommand(
+                1L, 200L, "120363000000000000@g.us", 100L, "acc_100");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueGroupHealthCheckCommands(List.of(command));
+
+        assertThat(result.batchId()).isNull();
+        assertThat(result.commandIds()).containsExactly("cmd-group-health");
+        assertThat(result.inserted()).isEqualTo(1);
+
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).hasSize(1);
+        ProtocolCommandOutbox row = rows.get(0);
+        assertThat(row.getCommandId()).isEqualTo("cmd-group-health");
+        assertThat(row.getBatchId()).isNull();
+        assertThat(row.getCommandType()).isEqualTo("group.health_check.requested");
+        assertThat(row.getAggregateType()).isEqualTo("GROUP_LINK");
+        assertThat(row.getAggregateId()).isEqualTo(200L);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_100");
+        assertThat(row.getProtocolAccountId()).isEqualTo("acc_100");
+        assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(row.getRetryCount()).isZero();
+        assertThat(row.getNextRetryAt()).isZero();
+
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("tenantId", 1)
+                .containsEntry("groupLinkId", 200)
+                .containsEntry("groupJid", "120363000000000000@g.us")
+                .containsEntry("accountId", 100)
+                .containsEntry("protocolAccountId", "acc_100")
+                .containsEntry("source", "scheduled_group_link_health");
+        assertThat(row.getPayloadJson())
+                .doesNotContain("credentialJson")
+                .doesNotContain("creds")
+                .doesNotContain("password")
+                .doesNotContain("username")
+                .doesNotContain("proxyHost");
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueGroupHealthCheckCommands_customMasterTopic_usesConfiguredMasterTopic() {
+        TestableProtocolCommandOutboxService service =
+                newService(List.of("cmd-group-health-custom-topic"), List.of(),
+                        ProtocolAccountCommandProperties.DEFAULT_TOPIC, "protocol.master.commands.test");
+        ProtocolGroupHealthCheckCommandRequest command = groupHealthCommand(
+                1L, 200L, "120363000000000000@g.us", 100L, "acc_100");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueGroupHealthCheckCommands(List.of(command));
+
+        assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                .containsExactly("protocol.master.commands.test");
     }
 
     @Test
@@ -219,16 +283,20 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {
-        return newService(commandIds, batchIds, ProtocolAccountCommandProperties.DEFAULT_TOPIC);
+        return newService(commandIds, batchIds, ProtocolAccountCommandProperties.DEFAULT_TOPIC,
+                ProtocolMasterCommandProperties.DEFAULT_TOPIC);
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds,
                                                             List<String> batchIds,
-                                                            String commandTopic) {
-        ProtocolAccountCommandProperties properties = new ProtocolAccountCommandProperties();
-        properties.setTopic(commandTopic);
-        return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, properties,
-                commandIds, batchIds);
+                                                            String accountCommandTopic,
+                                                            String masterCommandTopic) {
+        ProtocolAccountCommandProperties accountProperties = new ProtocolAccountCommandProperties();
+        accountProperties.setTopic(accountCommandTopic);
+        ProtocolMasterCommandProperties masterProperties = new ProtocolMasterCommandProperties();
+        masterProperties.setTopic(masterCommandTopic);
+        return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, accountProperties,
+                masterProperties, commandIds, batchIds);
     }
 
     private List<ProtocolCommandOutbox> capturedRows() {
@@ -257,6 +325,20 @@ class ProtocolCommandOutboxServiceImplTest {
                 "batch_offline");
     }
 
+    private static ProtocolGroupHealthCheckCommandRequest groupHealthCommand(Long tenantId,
+                                                                             Long groupLinkId,
+                                                                             String groupJid,
+                                                                             Long accountId,
+                                                                             String protocolAccountId) {
+        return new ProtocolGroupHealthCheckCommandRequest(
+                tenantId,
+                groupLinkId,
+                groupJid,
+                accountId,
+                protocolAccountId,
+                "scheduled_group_link_health");
+    }
+
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {
 
         private final ArrayDeque<String> commandIds;
@@ -265,10 +347,11 @@ class ProtocolCommandOutboxServiceImplTest {
         private TestableProtocolCommandOutboxService(ProtocolCommandOutboxMapper mapper,
                                                      ObjectMapper objectMapper,
                                                      ProtocolCommandDispatchTrigger dispatchTrigger,
-                                                     ProtocolAccountCommandProperties properties,
+                                                     ProtocolAccountCommandProperties accountProperties,
+                                                     ProtocolMasterCommandProperties masterProperties,
                                                      List<String> commandIds,
                                                      List<String> batchIds) {
-            super(mapper, objectMapper, dispatchTrigger, properties);
+            super(mapper, objectMapper, dispatchTrigger, accountProperties, masterProperties);
             this.commandIds = new ArrayDeque<>(commandIds);
             this.batchIds = new ArrayDeque<>(batchIds);
         }

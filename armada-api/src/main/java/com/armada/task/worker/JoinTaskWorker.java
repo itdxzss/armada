@@ -109,7 +109,7 @@ public class JoinTaskWorker implements DisposableBean {
             });
         } catch (RuntimeException ex) {
             activeTasks.remove(key);
-            log.warn("进群任务 worker 提交失败 tenantId={} taskId={} msg={}", tenantId, taskId, ex.getMessage());
+            markTaskFailedQuietly(tenantId, taskId, "提交失败", ex);
         }
     }
 
@@ -118,12 +118,38 @@ public class JoinTaskWorker implements DisposableBean {
         TenantContext.set(tenantId);
         try {
             doRunTask(taskId);
+        } catch (RuntimeException ex) {
+            markTaskFailedQuietly(taskId, "执行异常", ex);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
             } else {
                 TenantContext.set(previousTenant);
             }
+        }
+    }
+
+    private void markTaskFailedQuietly(Long tenantId, Long taskId, String stage, RuntimeException cause) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(tenantId);
+        try {
+            markTaskFailedQuietly(taskId, stage, cause);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private void markTaskFailedQuietly(Long taskId, String stage, RuntimeException cause) {
+        try {
+            joinTaskMapper.updateTaskStatus(taskId, JoinTaskStatus.FAILED, System.currentTimeMillis());
+            log.warn("进群任务 worker {} taskId={} 已标记 FAILED msg={}", stage, taskId, cause.getMessage(), cause);
+        } catch (RuntimeException updateEx) {
+            log.warn("进群任务 worker {} taskId={} 且标记 FAILED 失败 msg={} updateMsg={}",
+                    stage, taskId, cause.getMessage(), updateEx.getMessage(), updateEx);
         }
     }
 

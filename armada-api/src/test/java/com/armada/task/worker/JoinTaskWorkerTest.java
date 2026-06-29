@@ -18,7 +18,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -100,6 +102,33 @@ class JoinTaskWorkerTest {
         verifyNoInteractions(groupJoinPort);
         verify(resultMapper).updateResultFailed(eq(90L), eq(JoinTaskWorker.REASON_ACCOUNT_NOT_FOUND), anyLong());
         verify(joinTaskMapper).refreshCounters(eq(9L));
+    }
+
+    @Test
+    void startAsync_marksTaskFailedWhenExecutorRejectsSubmission() {
+        JoinTaskWorker rejectingWorker = new JoinTaskWorker(
+                joinTaskMapper,
+                resultMapper,
+                accountMapper,
+                groupJoinPort,
+                command -> {
+                    throw new RejectedExecutionException("queue full");
+                },
+                millis -> {
+                });
+
+        rejectingWorker.startAsync(1L, 10L);
+
+        verify(joinTaskMapper).updateTaskStatus(eq(10L), eq(JoinTaskStatus.FAILED), anyLong());
+    }
+
+    @Test
+    void runTask_marksTaskFailedWhenUnexpectedWorkerErrorEscapes() {
+        when(joinTaskMapper.selectByTenantAndId(11L)).thenThrow(new IllegalStateException("db unavailable"));
+
+        assertThatCode(() -> worker.runTask(1L, 11L)).doesNotThrowAnyException();
+
+        verify(joinTaskMapper).updateTaskStatus(eq(11L), eq(JoinTaskStatus.FAILED), anyLong());
     }
 
     private static JoinTask runningTask(Long id) {

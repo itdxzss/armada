@@ -10,12 +10,12 @@ public class PageQuery {
 
     private static final int DEFAULT_PAGE = 1;
     private static final int DEFAULT_PAGE_SIZE = 10;
-    private static final int MAX_PAGE_SIZE = 500;
+    private static final int MAX_PAGE_SIZE = 1000;
 
     /** 页码,从 1 起;小于 1 回退为 1。 */
     private int page = DEFAULT_PAGE;
 
-    /** 每页条数;非正回退默认 10,超过上限截断为 500。 */
+    /** 每页条数;非正回退默认 10,超过上限截断为 1000。 */
     private int pageSize = DEFAULT_PAGE_SIZE;
 
     public int getPage() {

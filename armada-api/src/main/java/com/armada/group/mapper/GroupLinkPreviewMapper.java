@@ -17,6 +17,14 @@ public interface GroupLinkPreviewMapper {
     int upsert(GroupLinkPreview row);
 
     /**
+     * 写入公开邀请页识别出的群名/头像,不覆盖协议层预览专属字段。
+     *
+     * @param row 公开页元数据
+     * @return 影响行数
+     */
+    int upsertInvitePageMetadata(GroupLinkPreview row);
+
+    /**
      * 仅更新运营侧头像 URL,不覆盖协议层预览快照字段。
      *
      * @param groupLinkId 群链接 ID

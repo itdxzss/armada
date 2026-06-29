@@ -1,28 +1,34 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.group.service.GroupInvitePageFetcher;
+import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -41,6 +47,9 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     private GroupLinkMapper groupLinkMapper;
 
     @Autowired
+    private GroupLinkPreviewMapper previewMapper;
+
+    @Autowired
     private GroupLinkImportBatchMapper batchMapper;
 
     @Autowired
@@ -48,6 +57,9 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @MockBean
+    private GroupInvitePageFetcher invitePageFetcher;
 
     /** 辅助:建一个 WS 链接分组并返回。 */
     private GroupLinkLabel insertLabel(String name) {
@@ -102,6 +114,29 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         List<GroupLinkImportDetailVoRow> details = detailMapper.selectPage(q);
         details.forEach(d -> assertThat(d.getResult()).isEqualTo(GroupLinkImportResult.SUCCESS.code()));
         details.forEach(d -> assertThat(d.getSuccessType()).isEqualTo(GroupLinkImportSuccessType.INSERTED.code()));
+    }
+
+    @Test
+    void importLinks_newUrl_writesInvitePageMetadataToPreview() {
+        GroupLinkLabel label = insertLabel("集成测试分组-公开页元数据");
+        when(invitePageFetcher.fetch("chat.whatsapp.com/PageMeta12345678901234"))
+                .thenReturn(new GroupInvitePageMetadata(
+                        "PageMeta12345678901234",
+                        "公开页群名",
+                        "https://pps.whatsapp.net/v/t61.24694-24/page-meta.jpg"));
+
+        GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
+                label.getId(), "公开页元数据", null,
+                List.of("https://chat.whatsapp.com/PageMeta12345678901234"), null));
+
+        assertThat(result.successRows()).isEqualTo(1);
+        GroupLink link = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/PageMeta12345678901234");
+        assertThat(link).isNotNull();
+        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(link.getId());
+        assertThat(preview).isNotNull();
+        assertThat(preview.getInviteCode()).isEqualTo("PageMeta12345678901234");
+        assertThat(preview.getWaSubject()).isEqualTo("公开页群名");
+        assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/page-meta.jpg");
     }
 
     @Test

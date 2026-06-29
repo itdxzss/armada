@@ -16,18 +16,22 @@ import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.group.service.GroupInvitePageFetcher;
+import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -51,6 +55,9 @@ class GroupLinkImportServiceImplTest {
     private GroupLinkMapper groupLinkMapper;
 
     @Mock
+    private GroupLinkPreviewMapper previewMapper;
+
+    @Mock
     private GroupLinkImportBatchMapper importBatchMapper;
 
     @Mock
@@ -58,6 +65,9 @@ class GroupLinkImportServiceImplTest {
 
     @Mock
     private GroupConverter converter;
+
+    @Mock
+    private GroupInvitePageFetcher invitePageFetcher;
 
     @InjectMocks
     private GroupLinkImportServiceImpl service;
@@ -107,6 +117,51 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.batchId()).isEqualTo(10L);
         verify(groupLinkMapper).insert(any());
         verify(detailMapper).batchInsert(any());
+    }
+
+    @Test
+    void newUrl_fetchesInvitePageMetadataAndWritesPreview() {
+        stubValidLabel(1L);
+        stubBatchInsert(10L);
+        stubLinkInsert(100L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(invitePageFetcher.fetch("chat.whatsapp.com/AbcDef1234567890123456"))
+                .thenReturn(new GroupInvitePageMetadata(
+                        "AbcDef1234567890123456",
+                        "2017+44",
+                        "https://pps.whatsapp.net/v/t61.24694-24/avatar.jpg"));
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(1L, "batch1", null,
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
+
+        assertThat(result.successRows()).isEqualTo(1);
+        verify(invitePageFetcher).fetch("chat.whatsapp.com/AbcDef1234567890123456");
+        ArgumentCaptor<GroupLinkPreview> previewCaptor = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(previewMapper).upsertInvitePageMetadata(previewCaptor.capture());
+        GroupLinkPreview preview = previewCaptor.getValue();
+        assertThat(preview.getGroupLinkId()).isEqualTo(100L);
+        assertThat(preview.getInviteCode()).isEqualTo("AbcDef1234567890123456");
+        assertThat(preview.getWaSubject()).isEqualTo("2017+44");
+        assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/avatar.jpg");
+        assertThat(preview.getLastPreviewAt()).isNotNull();
+    }
+
+    @Test
+    void invitePageFetchFailure_doesNotFailImport() {
+        stubValidLabel(1L);
+        stubBatchInsert(10L);
+        stubLinkInsert(100L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(invitePageFetcher.fetch(anyString())).thenThrow(new IllegalStateException("page unavailable"));
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(1L, "batch1", null,
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
+
+        assertThat(result.successRows()).isEqualTo(1);
+        assertThat(result.failedRows()).isZero();
+        verify(previewMapper, never()).upsertInvitePageMetadata(any());
     }
 
     @Test

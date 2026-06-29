@@ -22,6 +22,25 @@
       updated_at = VALUES(updated_at)
   </insert>
 
+  <insert id="upsertInvitePageMetadata">
+    INSERT INTO group_link_preview (
+      group_link_id, invite_code, wa_subject, avatar_url, last_preview_at, created_at, updated_at
+    ) VALUES (
+      #{groupLinkId}, #{inviteCode}, #{waSubject}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      invite_code = COALESCE(NULLIF(TRIM(VALUES(invite_code)), ''), invite_code),
+      wa_subject = COALESCE(NULLIF(TRIM(VALUES(wa_subject)), ''), wa_subject),
+      avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
+      last_preview_at = CASE
+        WHEN NULLIF(TRIM(VALUES(wa_subject)), '') IS NOT NULL
+          OR NULLIF(TRIM(VALUES(avatar_url)), '') IS NOT NULL
+        THEN VALUES(last_preview_at)
+        ELSE last_preview_at
+      END,
+      updated_at = VALUES(updated_at)
+  </insert>
+
   <insert id="upsertAvatarUrl">
     INSERT INTO group_link_preview (group_link_id, avatar_url, created_at, updated_at)
     VALUES (#{groupLinkId}, #{avatarUrl}, #{updatedAt}, #{updatedAt})

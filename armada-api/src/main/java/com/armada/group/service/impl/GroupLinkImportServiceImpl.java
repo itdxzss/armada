@@ -5,12 +5,14 @@ import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
@@ -18,6 +20,8 @@ import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.group.service.GroupInvitePageFetcher;
+import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkUrls;
 import com.armada.shared.exception.BusinessException;
@@ -56,20 +60,26 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     private final GroupLinkLabelMapper labelMapper;
     private final GroupLinkMapper groupLinkMapper;
+    private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkImportBatchMapper importBatchMapper;
     private final GroupLinkImportDetailMapper detailMapper;
     private final GroupConverter converter;
+    private final GroupInvitePageFetcher invitePageFetcher;
 
     public GroupLinkImportServiceImpl(GroupLinkLabelMapper labelMapper,
                                       GroupLinkMapper groupLinkMapper,
+                                      GroupLinkPreviewMapper previewMapper,
                                       GroupLinkImportBatchMapper importBatchMapper,
                                       GroupLinkImportDetailMapper detailMapper,
-                                      GroupConverter converter) {
+                                      GroupConverter converter,
+                                      GroupInvitePageFetcher invitePageFetcher) {
         this.labelMapper = labelMapper;
         this.groupLinkMapper = groupLinkMapper;
+        this.previewMapper = previewMapper;
         this.importBatchMapper = importBatchMapper;
         this.detailMapper = detailMapper;
         this.converter = converter;
+        this.invitePageFetcher = invitePageFetcher;
     }
 
     /**
@@ -153,6 +163,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 d.setFailReason(p.failReason());
                 d.setExistingOrigin(p.existingOrigin());
                 if (p.result() == GroupLinkImportResult.SUCCESS) {
+                    refreshInvitePageMetadata(p.linkId(), o.record());
                     if (GroupLinkImportSuccessType.ADOPTED.code() == p.successType()) {
                         adopted++;
                     } else {
@@ -277,6 +288,34 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         }
         return new Persisted(GroupLinkImportResult.FAILED, null,
                 GroupLinkImportFailReason.DUPLICATE, null, null);
+    }
+
+    private void refreshInvitePageMetadata(Long groupLinkId, String normalizedUrl) {
+        if (groupLinkId == null || normalizedUrl == null || normalizedUrl.isBlank()) {
+            return;
+        }
+        GroupInvitePageMetadata metadata;
+        try {
+            metadata = invitePageFetcher.fetch(normalizedUrl);
+        } catch (RuntimeException e) {
+            log.warn("WhatsApp 公开邀请页元数据抓取失败 groupLinkId={} url={} error={}",
+                    groupLinkId, normalizedUrl, e.getMessage());
+            return;
+        }
+        if (metadata == null || !metadata.hasProfile()) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupLinkId(groupLinkId);
+        preview.setInviteCode(metadata.inviteCode());
+        preview.setWaSubject(metadata.waSubject());
+        preview.setAvatarUrl(metadata.avatarUrl());
+        preview.setLastPreviewAt(now);
+        preview.setCreatedAt(now);
+        preview.setUpdatedAt(now);
+        previewMapper.upsertInvitePageMetadata(preview);
     }
 
     private void validateRequest(GroupLinkImportDTO dto) {

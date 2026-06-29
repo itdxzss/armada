@@ -3,9 +3,9 @@ package com.armada.platform.kafka.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * 协议账号命令 Kafka topic 配置。
+ * 协议账号上线命令 Kafka topic 配置。
  *
- * <p>上线、下线等账号命令先写入 outbox,再由 dispatcher 发送到该 topic。
+ * <p>账号上线命令仍走账号命令 topic; 只有已经由 master gateway 路由的命令使用 master command topic。
  * broker、serializer 等仍走 Spring Boot 标准 {@code spring.kafka.*} 配置。</p>
  */
 @ConfigurationProperties(prefix = "armada.protocol.kafka.account-commands")

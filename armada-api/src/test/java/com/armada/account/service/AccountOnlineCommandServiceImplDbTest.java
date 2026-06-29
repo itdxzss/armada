@@ -61,7 +61,7 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         assertThat(rows).extracting(OutboxRow::aggregateId)
                 .containsExactly(first.getId(), second.getId());
         assertThat(rows).extracting(OutboxRow::kafkaTopic)
-                .containsOnly("protocol.account.commands.v1");
+                .containsOnly("protocol.master.commands.v1");
         assertThat(rows).extracting(OutboxRow::kafkaKey)
                 .containsExactly(first.getProtocolAccountId(), second.getProtocolAccountId());
         assertThat(rows).extracting(OutboxRow::protocolAccountId)

@@ -20,14 +20,20 @@ class ProtocolKafkaConfigurationTest {
     void registersOutboxPropertiesAndDispatchExecutor() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(ProtocolAccountCommandProperties.class);
+            assertThat(context).hasSingleBean(ProtocolMasterCommandProperties.class);
             assertThat(context).hasSingleBean(ProtocolCommandPublisherProperties.class);
             assertThat(context).hasSingleBean(ProtocolCommandDispatcherProperties.class);
             assertThat(context).hasSingleBean(ProtocolAccountEventConsumerProperties.class);
+            assertThat(context).hasSingleBean(ProtocolGroupEventConsumerProperties.class);
             assertThat(context).doesNotHaveBean(CommonErrorHandler.class);
             assertThat(context.getBean(ProtocolAccountCommandProperties.class).getTopic())
                     .isEqualTo(ProtocolAccountCommandProperties.DEFAULT_TOPIC);
+            assertThat(context.getBean(ProtocolMasterCommandProperties.class).getTopic())
+                    .isEqualTo(ProtocolMasterCommandProperties.DEFAULT_TOPIC);
             assertThat(context.getBean(ProtocolAccountEventConsumerProperties.class).getTopic())
                     .isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_TOPIC);
+            assertThat(context.getBean(ProtocolGroupEventConsumerProperties.class).getTopic())
+                    .isEqualTo(ProtocolGroupEventConsumerProperties.DEFAULT_TOPIC);
             assertThat(context).hasBean("protocolCommandDispatchExecutor");
             assertThat(context.getBean("protocolCommandDispatchExecutor")).isInstanceOf(Executor.class);
         });

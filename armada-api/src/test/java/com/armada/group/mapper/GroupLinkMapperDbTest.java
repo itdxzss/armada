@@ -3,6 +3,11 @@ package com.armada.group.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -12,10 +17,14 @@ import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +51,12 @@ class GroupLinkMapperDbTest extends DbTestBase {
 
     @Autowired
     private GroupLinkHealthMapper healthMapper;
+
+    @Autowired
+    private AccountMapper accountMapper;
+
+    @Autowired
+    private AccountStateMapper accountStateMapper;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -307,6 +322,45 @@ class GroupLinkMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectHealthCheckCandidates_requiresResolvedGroupJidAndOnlineJoinedAccount() {
+        GroupLink eligible = buildLink("chat.whatsapp.com/HealthCheckEligible", null, null);
+        mapper.insert(eligible);
+        upsertPreview(eligible.getId(), "1203630healthcheck@g.us");
+
+        Account member = insertAccount("8613000001001", "acc_member", AccountLoginStateCode.ONLINE);
+        Account admin = insertAccount("8613000001002", "acc_admin", AccountLoginStateCode.ONLINE);
+        Account offline = insertAccount("8613000001003", "acc_offline", AccountLoginStateCode.OFFLINE);
+        insertJoinResult(eligible, member, "1203630healthcheck@g.us", false);
+        insertJoinResult(eligible, admin, "1203630healthcheck@g.us", true);
+        insertJoinResult(eligible, offline, "1203630healthcheck@g.us", true);
+
+        GroupLink withoutGroupJid = buildLink("chat.whatsapp.com/HealthCheckNoJid", null, null);
+        mapper.insert(withoutGroupJid);
+        upsertPreview(withoutGroupJid.getId(), null);
+        insertJoinResult(withoutGroupJid, member, "1203630missingpreviewjid@g.us", true);
+
+        GroupLink withoutJoinedAccount = buildLink("chat.whatsapp.com/HealthCheckNoOperator", null, null);
+        mapper.insert(withoutJoinedAccount);
+        upsertPreview(withoutJoinedAccount.getId(), "1203630nooperator@g.us");
+
+        List<GroupLinkHealthCheckCandidate> candidates =
+                mapper.selectHealthCheckCandidates(50, AccountLoginStateCode.ONLINE);
+
+        Map<Long, GroupLinkHealthCheckCandidate> byLinkId = candidates.stream()
+                .filter(candidate -> List.of(
+                                eligible.getId(), withoutGroupJid.getId(), withoutJoinedAccount.getId())
+                        .contains(candidate.groupLinkId()))
+                .collect(Collectors.toMap(GroupLinkHealthCheckCandidate::groupLinkId, Function.identity()));
+
+        assertThat(byLinkId).containsOnlyKeys(eligible.getId());
+        GroupLinkHealthCheckCandidate candidate = byLinkId.get(eligible.getId());
+        assertThat(candidate.tenantId()).isEqualTo(TEST_TENANT_ID);
+        assertThat(candidate.groupJid()).isEqualTo("1203630healthcheck@g.us");
+        assertThat(candidate.accountId()).isEqualTo(admin.getId());
+        assertThat(candidate.protocolAccountId()).isEqualTo("acc_admin");
+    }
+
+    @Test
     void softDeleteByLabelIds_cascadesSoftDeletesLinks() {
         GroupLinkLabel label = insertLabel("级联删除分组");
         GroupLinkImportBatch batch = insertBatch(label.getId(), "cascade.txt");
@@ -325,5 +379,59 @@ class GroupLinkMapperDbTest extends DbTestBase {
         query.setPageSize(10);
 
         assertThat(mapper.countByLabel(query)).isEqualTo(0);
+    }
+
+    private void upsertPreview(Long groupLinkId, String groupJid) {
+        long now = System.currentTimeMillis();
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupLinkId(groupLinkId);
+        preview.setGroupJid(groupJid);
+        preview.setInviteCode("HealthCheckCandidate");
+        preview.setWaSubject("健康检测候选群");
+        preview.setCreatedAt(now);
+        preview.setUpdatedAt(now);
+        previewMapper.upsert(preview);
+    }
+
+    private Account insertAccount(String phone, String protocolAccountId, int loginState) {
+        long now = System.currentTimeMillis();
+        Account account = new Account();
+        account.setWsPhone(phone);
+        account.setAccountType(1);
+        account.setOwnership(1);
+        account.setProtocolAccountId(protocolAccountId);
+        account.setPriority(0);
+        account.setCreatedAt(now);
+        account.setUpdatedAt(now);
+        accountMapper.insert(account);
+
+        AccountState state = new AccountState();
+        state.setAccountId(account.getId());
+        state.setProxyFailureCount(0);
+        state.setPullIntoGroupCount(0);
+        state.setCreatedAt(now);
+        state.setUpdatedAt(now);
+        accountStateMapper.insert(state);
+
+        AccountState update = new AccountState();
+        update.setAccountId(account.getId());
+        update.setLoginState(loginState);
+        update.setLastStateSyncTime(now);
+        update.setStateSource("dbtest");
+        update.setUpdatedAt(now);
+        accountStateMapper.updateLoginState(update);
+        return account;
+    }
+
+    private void insertJoinResult(GroupLink link, Account account, String groupJid, boolean admin) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO join_task_result
+                    (tenant_id, join_task_id, account, account_id, link, status, reason,
+                     group_jid, is_admin, promoted_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                TEST_TENANT_ID, now, account.getWsPhone(), account.getId(), link.getLinkUrl(), "SUCCESS", "",
+                groupJid, admin ? 1 : 0, admin ? now : null, now, now);
     }
 }

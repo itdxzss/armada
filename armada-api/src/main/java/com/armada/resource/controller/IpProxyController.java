@@ -9,6 +9,7 @@ import com.armada.resource.service.IpProxyDeletionService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,6 +41,16 @@ public class IpProxyController {
     @GetMapping
     public ApiResponse<PageResult<IpProxyVO>> list(@ModelAttribute IpProxyQuery query) {
         return ApiResponse.ok(service.list(query));
+    }
+
+    /**
+     * 查询本租户 IP 池已有国家/区域,供筛选框和账号导入选择 IP 国家使用。
+     *
+     * @return 去重后的国家/区域列表,「混合（不限国家）」优先
+     */
+    @GetMapping("/regions")
+    public ApiResponse<List<String>> regions() {
+        return ApiResponse.ok(service.listRegions());
     }
 
     /**

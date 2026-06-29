@@ -19,6 +19,13 @@ public interface IpProxyMapper {
     /** 列表总数（与 selectPage 共用筛选片段，口径一致）。 */
     long countPage(@Param("q") IpProxyQuery query);
 
+    /**
+     * 查询本租户 IP 池已有国家/区域。
+     *
+     * <p>SQL 层去重并过滤空值,同时把「混合（不限国家）」排在最前,供 IP 管理筛选和账号导入下拉使用。</p>
+     */
+    List<String> selectDistinctRegions(@Param("mixedRegion") String mixedRegion);
+
     /** 插入（不含 tenant_id 列，由拦截器注入）。 */
     int insert(IpProxy entity);
 

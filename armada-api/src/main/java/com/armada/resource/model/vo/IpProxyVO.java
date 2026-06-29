@@ -42,6 +42,9 @@ public record IpProxyVO(
         /** 鉴权密码（脱敏）。 */
         String password,
 
+        /** 有效账号数；当前 IP 代理为 1:1 绑定，已绑定账号时为 1，否则为 0。 */
+        Integer validAccountCount,
+
         /** 来源。 */
         String source,
 

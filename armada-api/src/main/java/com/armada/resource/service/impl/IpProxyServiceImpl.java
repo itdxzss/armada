@@ -70,6 +70,11 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     @Override
+    public List<String> listRegions() {
+        return mapper.selectDistinctRegions(MIXED_REGION);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public IpProxyImportResultVO importProxies(IpProxyImportDTO dto) {
         // 先校验批次级字段。国家可为空,但协议、来源、导入文本必须完整,否则不进入逐行解析。

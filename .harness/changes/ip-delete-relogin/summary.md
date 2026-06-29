@@ -6,6 +6,8 @@
 - 代理分配按账号导入批次选择的 IP 国家排序:指定国家优先,其次「混合（不限国家）」,最后其它国家。
 - 代理分配支持排除列表,避免重登时刚释放的待删除 IP 又被重新分配。
 - 协议层回写 OFFLINE/NEED_REAUTH/LOGGED_OUT/DEVICE_REMOVED 后立即释放账号当前绑定 IP;RECONNECTING 不释放。
+- IP 列表按 `bound_account_id` 返回 `validAccountCount`(未绑定=0,已绑定=1),供前端展示和删除确认使用。
+- 新增 IP 国家/区域去重查询,供 IP 管理筛选和账号导入选择 IP 国家使用。
 - `IpProxyService` 不再暴露批量删除方法,避免业务入口绕过删除编排。
 
 ## 影响模块
@@ -18,10 +20,13 @@
   - 查询待删代理当前绑定账号。
   - 查询账号导入批次 `ip_region`。
   - 按国家优先级锁定空闲代理,并排除指定代理 ID。
+  - 查询本租户 IP 池去重后的 `region`,并将「混合（不限国家）」置顶。
   - 按账号 ID 筛选 `login_state=ONLINE` 账号。
 
 ## API 变更
 - `POST /api/ip-proxies/batch-delete` 入参/出参不变。
+- `GET /api/ip-proxies` 出参新增 `validAccountCount`。
+- 新增 `GET /api/ip-proxies/regions`,返回本租户去重后的 IP 国家/区域列表。
 - 行为变更:若待删 IP 绑定在线账号,会先写入账号上线 outbox 以换 IP 重登;重登编排失败则不软删 IP。
 - 行为变更:账号上线/重登分配 IP 时按「账号导入 IP 国家 → 混合 → 其它国家」优先级选池。
 - 行为变更:账号离线由协议层状态回写确认后释放 IP,点击下线接口本身不提前释放。

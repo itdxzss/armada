@@ -42,6 +42,20 @@
         <include refid="FilterWhere"/>
     </select>
 
+    <select id="selectDistinctRegions" resultType="string">
+        SELECT region
+        FROM (
+          SELECT DISTINCT TRIM(region) AS region
+          FROM ip_proxy
+          WHERE deleted_at IS NULL
+            AND region IS NOT NULL
+            AND TRIM(region) != ''
+        ) r
+        ORDER BY
+          CASE WHEN r.region = #{mixedRegion} THEN 0 ELSE 1 END,
+          r.region ASC
+    </select>
+
     <insert id="insert" parameterType="com.armada.resource.model.entity.IpProxy"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO ip_proxy

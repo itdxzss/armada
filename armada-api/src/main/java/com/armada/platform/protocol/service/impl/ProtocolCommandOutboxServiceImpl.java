@@ -129,6 +129,18 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return insertPendingRows(batchId, commandIds, rows);
     }
 
+    /**
+     * 批量插入待发送 outbox 行并注册事务提交后的 dispatch 触发。
+     *
+     * <p>该方法仍处于业务事务内，只负责落库和 afterCommit 注册；Kafka 发送必须等事务提交后执行，
+     * 避免协议层收到已回滚的命令。</p>
+     *
+     * @param batchId    批量命令归组 ID，单条命令为空
+     * @param commandIds 本批次生成的 command_id 列表，用于返回调用方排查
+     * @param rows       待插入的 outbox 行
+     * @return outbox 入队结果
+     * @throws BusinessException 当 command_id 冲突或插入数量不一致时抛出
+     */
     private ProtocolCommandOutboxEnqueueResult insertPendingRows(String batchId,
                                                                  List<String> commandIds,
                                                                  List<ProtocolCommandOutbox> rows) {
@@ -167,6 +179,17 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return BATCH_ID_PREFIX + UUID.randomUUID().toString().replace("-", "");
     }
 
+    /**
+     * 把账号上线命令转换为待发送 outbox 行。
+     *
+     * <p>Kafka key 使用协议账号 ID，保证同一协议账号的上线命令在 Kafka 分区内有序。</p>
+     *
+     * @param command   已完成业务校验的上线命令
+     * @param commandId 本次生成的 outbox command_id
+     * @param batchId   批量命令归组 ID，单条命令为空
+     * @param now       创建和更新时间戳
+     * @return 待插入的上线 outbox 行
+     */
     private ProtocolCommandOutbox toOnlineOutboxRow(ProtocolOnlineCommandRequest command,
                                                     String commandId,
                                                     String batchId,
@@ -189,6 +212,17 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    /**
+     * 把账号下线命令转换为待发送 outbox 行。
+     *
+     * <p>下线命令与上线命令使用相同 aggregate 和 Kafka key 口径，便于 dispatcher 和协议层按账号串行处理。</p>
+     *
+     * @param command   已完成业务校验的下线命令
+     * @param commandId 本次生成的 outbox command_id
+     * @param batchId   批量命令归组 ID，单条命令为空
+     * @param now       创建和更新时间戳
+     * @return 待插入的下线 outbox 行
+     */
     private ProtocolCommandOutbox toOfflineOutboxRow(ProtocolOfflineCommandRequest command,
                                                      String commandId,
                                                      String batchId,
@@ -211,6 +245,15 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    /**
+     * 生成协议层账号上线命令 payload JSON。
+     *
+     * <p>payload 只放协议层消费所需字段，代理 ID 随上线命令下发，供协议层按指定 IP 建链。</p>
+     *
+     * @param command 已完成业务校验的上线命令
+     * @return 上线命令 payload JSON
+     * @throws BusinessException 当 payload 无法序列化时抛出
+     */
     private String payloadJson(ProtocolOnlineCommandRequest command) {
         ProtocolOnlineCommandPayload payload = new ProtocolOnlineCommandPayload(
                 command.accountId(),
@@ -225,6 +268,15 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 生成协议层账号下线命令 payload JSON。
+     *
+     * <p>下线只需要账号定位信息和来源，不携带代理信息；IP 释放由协议层状态回写后的业务流程处理。</p>
+     *
+     * @param command 已完成业务校验的下线命令
+     * @return 下线命令 payload JSON
+     * @throws BusinessException 当 payload 无法序列化时抛出
+     */
     private String payloadJson(ProtocolOfflineCommandRequest command) {
         ProtocolOfflineCommandPayload payload = new ProtocolOfflineCommandPayload(
                 command.accountId(),
@@ -237,6 +289,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 校验账号上线命令批次。
+     *
+     * <p>批次不能为空且不能超过单批上限，避免一次事务写入过大 outbox 批次导致 dispatcher 压力失控。</p>
+     *
+     * @param commands 待入队的上线命令列表
+     * @throws BusinessException 当批次为空、超限或单条命令缺少必要字段时抛出
+     */
     private void validateOnlineCommands(List<ProtocolOnlineCommandRequest> commands) {
         if (commands == null || commands.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令不能为空");
@@ -250,6 +310,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 校验单条账号上线命令的协议层必需字段。
+     *
+     * <p>上线命令必须带账号、协议账号、凭据格式、代理 ID 和来源，确保 dispatcher 发送后协议层可直接执行。</p>
+     *
+     * @param command 待校验的上线命令
+     * @throws BusinessException 当命令为空或缺少必要字段时抛出
+     */
     private void validateOnlineCommand(ProtocolOnlineCommandRequest command) {
         if (command == null
                 || command.accountId() == null
@@ -261,6 +329,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 校验账号下线命令批次。
+     *
+     * <p>批次约束与上线命令保持一致，保证 outbox 写入和后续 dispatcher 拉取都按受控批量执行。</p>
+     *
+     * @param commands 待入队的下线命令列表
+     * @throws BusinessException 当批次为空、超限或单条命令缺少必要字段时抛出
+     */
     private void validateOfflineCommands(List<ProtocolOfflineCommandRequest> commands) {
         if (commands == null || commands.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议下线命令不能为空");
@@ -274,6 +350,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 校验单条账号下线命令的协议层必需字段。
+     *
+     * <p>下线命令只需要账号定位信息和来源，不要求代理 ID 或凭据字段。</p>
+     *
+     * @param command 待校验的下线命令
+     * @throws BusinessException 当命令为空或缺少必要字段时抛出
+     */
     private void validateOfflineCommand(ProtocolOfflineCommandRequest command) {
         if (command == null
                 || command.accountId() == null
@@ -283,6 +367,12 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 判断文本是否为空白。
+     *
+     * @param value 待判断文本
+     * @return {@code true} 表示文本为 null、空字符串或全空白字符
+     */
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }

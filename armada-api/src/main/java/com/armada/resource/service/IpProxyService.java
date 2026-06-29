@@ -24,6 +24,15 @@ public interface IpProxyService {
     PageResult<IpProxyVO> list(IpProxyQuery query);
 
     /**
+     * 列出本租户 IP 池中已有的国家/区域。
+     *
+     * <p>结果由 SQL 去重并过滤空值,「混合（不限国家）」置顶,用于 IP 管理和账号导入页下拉。</p>
+     *
+     * @return 去重后的国家/区域列表
+     */
+    List<String> listRegions();
+
+    /**
      * 批量导入 IP 代理到本租户池。
      *
      * <p>{@code text} 逐行解析 {@code host:port:username:password}，格式不合格行跳过并记原因；

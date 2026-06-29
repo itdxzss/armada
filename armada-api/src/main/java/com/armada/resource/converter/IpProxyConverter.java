@@ -24,6 +24,7 @@ public interface IpProxyConverter {
     @Mapping(target = "statusLabel", expression = "java(IpProxyStatus.labelOf(entity.getStatus()))")
     @Mapping(target = "ownershipLabel", expression = "java(ProxyOwnership.labelOf(entity.getOwnership()))")
     @Mapping(target = "password", expression = "java(mask(entity.getPassword()))")
+    @Mapping(target = "validAccountCount", expression = "java(entity.getBoundAccountId() == null ? 0 : 1)")
     IpProxyVO toVO(IpProxy entity);
 
     List<IpProxyVO> toVOList(List<IpProxy> entities);

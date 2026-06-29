@@ -148,6 +148,17 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void listRegions_returnsDistinctRegionsWithMixedFirst() {
+        when(mapper.selectDistinctRegions("混合（不限国家）"))
+                .thenReturn(List.of("混合（不限国家）", "印度", "马来西亚"));
+
+        List<String> regions = service.listRegions();
+
+        assertThat(regions).containsExactly("混合（不限国家）", "印度", "马来西亚");
+        verify(mapper).selectDistinctRegions("混合（不限国家）");
+    }
+
+    @Test
     void allocateOnlineEndpoint_releasesOldBindingSelectsIdleAndMarksUsing() {
         TenantContext.set(1L);
         try {

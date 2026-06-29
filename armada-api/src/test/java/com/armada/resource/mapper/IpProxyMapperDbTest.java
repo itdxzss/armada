@@ -244,6 +244,30 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(accountIds).containsExactly(801L);
     }
 
+    @Test
+    void selectDistinctRegions_deduplicatesBlankExcludedAndMixedFirst() {
+        long now = System.currentTimeMillis();
+        IpProxy india = newIdleProxy(now);
+        india.setRegion("印度");
+        IpProxy mixed = newIdleProxy(now + 1);
+        mixed.setRegion(MIXED_REGION);
+        IpProxy indiaAgain = newIdleProxy(now + 2);
+        indiaAgain.setRegion("印度");
+        IpProxy malaysia = newIdleProxy(now + 3);
+        malaysia.setRegion("马来西亚");
+        IpProxy blank = newIdleProxy(now + 4);
+        blank.setRegion(" ");
+        mapper.insert(india);
+        mapper.insert(mixed);
+        mapper.insert(indiaAgain);
+        mapper.insert(malaysia);
+        mapper.insert(blank);
+
+        List<String> regions = mapper.selectDistinctRegions(MIXED_REGION);
+
+        assertThat(regions).containsExactly(MIXED_REGION, "印度", "马来西亚");
+    }
+
     private static IpProxy newIdleProxy(long suffix) {
         IpProxy proxy = new IpProxy();
         proxy.setHost("proxy-" + suffix + ".internal");

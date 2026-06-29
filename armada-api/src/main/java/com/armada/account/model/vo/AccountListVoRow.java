@@ -83,6 +83,9 @@ public class AccountListVoRow {
     /** 出口国家。 */
     private String proxyCountry;
 
+    /** 当前绑定代理来源。 */
+    private String ipSource;
+
     /** 拉人数量。 */
     private Integer pullIntoGroupCount;
 
@@ -284,6 +287,14 @@ public class AccountListVoRow {
 
     public void setProxyCountry(String proxyCountry) {
         this.proxyCountry = proxyCountry;
+    }
+
+    public String getIpSource() {
+        return ipSource;
+    }
+
+    public void setIpSource(String ipSource) {
+        this.ipSource = ipSource;
     }
 
     public Integer getPullIntoGroupCount() {

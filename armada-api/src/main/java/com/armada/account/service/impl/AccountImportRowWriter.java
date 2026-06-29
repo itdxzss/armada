@@ -35,6 +35,9 @@ public class AccountImportRowWriter {
     /** 账号调度优先级:默认值(值越小优先级越低)。 */
     private static final int DEFAULT_PRIORITY = 0;
 
+    /** 号码来源:自购。账号导入链路是租户自行导入协议号,默认按自购展示。 */
+    private static final int NUMBER_SOURCE_SELF_PURCHASE = 3;
+
     private final AccountMapper accountMapper;
     private final AccountStateMapper stateMapper;
     private final AccountCredentialMapper credentialMapper;
@@ -99,6 +102,7 @@ public class AccountImportRowWriter {
         // 铁律:account_type 导入即冻结
         a.setAccountType(accountType);
         a.setDeviceOs(deviceOs);
+        a.setNumberSource(NUMBER_SOURCE_SELF_PURCHASE);
         a.setOwnership(OWNERSHIP_SELF);
         a.setPriority(DEFAULT_PRIORITY);
         a.setAccountGroupId(accountGroupId);

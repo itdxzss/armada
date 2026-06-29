@@ -42,10 +42,10 @@ public class AccountQuery extends PageQuery {
     /** 推广渠道名(可选,模糊匹配)。 */
     private String channelName;
 
-    /** IP 国家/出口国家(可选,模糊匹配 account_state.proxy_country)。 */
+    /** IP 国家/出口国家(可选,模糊匹配状态回写国家或当前绑定代理国家)。 */
     private String country;
 
-    /** 真实出口 IP(可选,模糊匹配 account_state.truth_ip)。 */
+    /** 真实出口 IP(可选,模糊匹配状态回写 IP 或当前绑定代理地址)。 */
     private String truthIp;
 
     public String getKeyword() {

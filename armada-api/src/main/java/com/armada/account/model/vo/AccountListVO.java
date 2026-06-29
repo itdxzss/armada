@@ -5,8 +5,8 @@ package com.armada.account.model.vo;
  *
  * <p>码值字段(accountType/loginState 等)以 Integer 透传,前端自行映射标签,后端不转中文。</p>
  * <p>时间字段为 Long epoch 毫秒(UTC)。</p>
- * <p>step1 占位字段:avatarUrl/friendsNum/groupsNum/hyperlinkSentCount/ipSource
- * 恒为 null/0,step3 再接真值。country 来自 account_state.proxy_country。</p>
+ * <p>step1 占位字段:avatarUrl/friendsNum/groupsNum/hyperlinkSentCount 恒为 null/0。
+ * country/ipSource/truthIp 来自账号状态或当前绑定 IP 代理行。</p>
  */
 public record AccountListVO(
 
@@ -97,10 +97,10 @@ public record AccountListVO(
         /** 超链发送数(step1 占位,恒 0)。 */
         int hyperlinkSentCount,
 
-        /** 出口国家(account_state.proxy_country)。 */
+        /** 出口国家(状态回写优先,当前绑定代理兜底)。 */
         String country,
 
-        /** IP 来源(step1 占位,恒 null,待 IP 绑定后接真值)。 */
+        /** IP 来源(当前绑定 IP 代理来源)。 */
         String ipSource
 ) {
 }

@@ -36,13 +36,15 @@ class AccountConverterTest {
     }
 
     @Test
-    void toAccountListVO_mapsProxyCountryToCountry() {
+    void toAccountListVO_mapsProxyCountryToCountryAndIpSource() {
         AccountListVoRow row = new AccountListVoRow();
         row.setId(9L);
         row.setProxyCountry("印度");
+        row.setIpSource("iproyal");
 
         AccountListVO vo = converter.toAccountListVO(row);
 
         assertThat(vo.country()).isEqualTo("印度");
+        assertThat(vo.ipSource()).isEqualTo("iproyal");
     }
 }

@@ -108,13 +108,13 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         importBatchMapper.insert(batch);
 
         // 4) 逐行处理 = 通用骨架 LineImporter.run(文本, 解析器, 去重键, 落库器):
-        //    - 解析器 GroupLinkUrls::normalize: 行 → 归一化 url;非法链接抛异常 → 该行 FAILED
+        //    - 解析器 GroupLinkUrls::normalizeImportLine: 行内提取并归一化 url;非法链接抛异常 → 该行 FAILED
         //    - 去重键 url -> url:        归一化后的 url 本身就是批内去重键 → 重复行 DUPLICATE
         //    - 落库器 persist(...):       未失败/未重复的行才执行,做 insert/复活 或判「已存在」 → PERSISTED
         //    泛型 LineOutcome<String, Persisted>:String = 解析记录(归一化 url),Persisted = persist 返回值。
         List<LineOutcome<String, Persisted>> outcomes = LineImporter.run(
                 joined,
-                GroupLinkUrls::normalize,
+                GroupLinkUrls::normalizeImportLine,
                 url -> url,
                 url -> persist(dto.labelId(), batch.getId(), url));
 

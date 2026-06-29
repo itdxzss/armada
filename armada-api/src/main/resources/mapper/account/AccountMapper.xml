@@ -143,8 +143,8 @@
     <if test="loginState != null">AND s.login_state = #{loginState}</if>
     <if test="riskStatus != null">AND s.risk_status = #{riskStatus}</if>
     <if test="muteStatus != null">AND s.mute_status = #{muteStatus}</if>
-    <if test="country != null and country != ''">AND s.proxy_country LIKE CONCAT('%', #{country}, '%')</if>
-    <if test="truthIp != null and truthIp != ''">AND s.truth_ip LIKE CONCAT('%', #{truthIp}, '%')</if>
+    <if test="country != null and country != ''">AND COALESCE(s.proxy_country, p.region) LIKE CONCAT('%', #{country}, '%')</if>
+    <if test="truthIp != null and truthIp != ''">AND COALESCE(s.truth_ip, p.host) LIKE CONCAT('%', #{truthIp}, '%')</if>
   </sql>
 
   <select id="countPage" resultType="long">
@@ -152,12 +152,15 @@
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     LEFT JOIN account_group g ON g.id = a.account_group_id AND g.deleted_at IS NULL
+    LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
+      AND p.deleted_at IS NULL AND p.status = 2
     WHERE <include refid="filter"/>
   </select>
 
   <!--
     LEFT JOIN account_state:状态列 step1 导入后全 NULL,正常投影。
     LEFT JOIN account_group:分组被软删时 groupName 为 null,不过滤该账号。
+    LEFT JOIN ip_proxy:刚导入/上线待回写期间,列表从当前绑定代理展示国家、IP 来源和代理地址。
     时间列均为 BIGINT epoch 毫秒,直接映射到 Long。
   -->
   <select id="selectPage" resultType="com.armada.account.model.vo.AccountListVoRow">
@@ -172,14 +175,17 @@
            s.risk_status AS riskStatus, s.risk_end_time AS riskEndTime,
            s.cooldown_until AS cooldownUntil, s.mute_status AS muteStatus,
            s.block_error_code AS blockErrorCode, s.block_reason AS blockReason,
-           s.state_source AS stateSource, s.truth_ip AS truthIp,
-           s.proxy_country AS proxyCountry,
+           s.state_source AS stateSource, COALESCE(s.truth_ip, p.host) AS truthIp,
+           COALESCE(s.proxy_country, p.region) AS proxyCountry,
+           p.source AS ipSource,
            s.pull_into_group_count AS pullIntoGroupCount,
            s.invalidated_at AS invalidatedAt,
            s.last_state_sync_time AS lastStateSyncTime
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     LEFT JOIN account_group g ON g.id = a.account_group_id AND g.deleted_at IS NULL
+    LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
+      AND p.deleted_at IS NULL AND p.status = 2
     WHERE <include refid="filter"/>
     ORDER BY a.created_at DESC
     LIMIT #{offset}, #{pageSize}

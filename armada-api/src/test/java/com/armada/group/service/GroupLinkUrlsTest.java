@@ -54,6 +54,25 @@ class GroupLinkUrlsTest {
     }
 
     @Test
+    void normalizeImportLine_extractsWheelStyleLinkFromOperationalText() {
+        assertEquals("chat.whatsapp.com/Abc_12345678901234567A",
+                GroupLinkUrls.normalizeImportLine(
+                        "1. 烟草群A：https://chat.whatsapp.com/Abc_12345678901234567A?mode=ac_t,"));
+    }
+
+    @Test
+    void normalizeImportLine_rejectsShortInviteCode() {
+        assertThrows(ImportLineException.class,
+                () -> GroupLinkUrls.normalizeImportLine("https://chat.whatsapp.com/Abc123"));
+    }
+
+    @Test
+    void normalizeImportLine_rejectsLongInviteCode() {
+        assertThrows(ImportLineException.class,
+                () -> GroupLinkUrls.normalizeImportLine("https://chat.whatsapp.com/Abc_12345678901234567AX"));
+    }
+
+    @Test
     void rejectsNonInviteLink() {
         assertThrows(ImportLineException.class,
                 () -> GroupLinkUrls.normalize("hello world"));

@@ -98,7 +98,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(1L, "batch1", null,
-                        List.of("https://chat.whatsapp.com/AbcDef"), null));
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);
@@ -121,7 +121,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef"), null));
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(0);
@@ -146,7 +146,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef"), null));
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);
@@ -168,7 +168,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef"), null));
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(0);
@@ -187,7 +187,7 @@ class GroupLinkImportServiceImplTest {
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
-                        List.of("https://chat.whatsapp.com/AbcDef"), null));
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);  // 复活计入新增成功
@@ -207,8 +207,8 @@ class GroupLinkImportServiceImplTest {
         // 同一 url 出现两次
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(3L, "batch3", null,
-                        List.of("https://chat.whatsapp.com/SameCode",
-                                "https://chat.whatsapp.com/SameCode"), null));
+                        List.of("https://chat.whatsapp.com/SameCode12345678901234",
+                                "https://chat.whatsapp.com/SameCode12345678901234"), null));
 
         assertThat(result.totalRows()).isEqualTo(2);
         assertThat(result.successRows()).isEqualTo(1);  // 第一条 SUCCESS
@@ -216,6 +216,43 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.failedRows()).isEqualTo(1);
         // insert 只调用一次(去重后只有一条进 persist)
         verify(groupLinkMapper).insert(any());
+    }
+
+    @Test
+    void wheelStyleOperationalLine_extractsInviteLinkAndStripsQuery() {
+        stubValidLabel(4L);
+        stubBatchInsert(40L);
+        stubLinkInsert(400L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(4L, "batch4", null,
+                        List.of("1. 烟草群A：https://chat.whatsapp.com/Abc_12345678901234567A?mode=ac_t,"),
+                        null));
+
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isEqualTo(1);
+        assertThat(result.failedRows()).isEqualTo(0);
+        ArgumentCaptor<GroupLink> linkCaptor = ArgumentCaptor.forClass(GroupLink.class);
+        verify(groupLinkMapper).insert(linkCaptor.capture());
+        assertThat(linkCaptor.getValue().getLinkUrl())
+                .isEqualTo("chat.whatsapp.com/Abc_12345678901234567A");
+    }
+
+    @Test
+    void shortInviteCode_failsAsFormatErrorLikeWheel() {
+        stubValidLabel(4L);
+        stubBatchInsert(40L);
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(4L, "batch4", null,
+                        List.of("https://chat.whatsapp.com/AbcDef"), null));
+
+        assertThat(result.totalRows()).isEqualTo(1);
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        assertThat(result.formatErrorRows()).isEqualTo(1);
+        verify(groupLinkMapper, never()).insert(any());
     }
 
     @Test
@@ -243,9 +280,9 @@ class GroupLinkImportServiceImplTest {
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(5L, "batch5", null,
-                List.of("https://chat.whatsapp.com/Code1",
+                List.of("https://chat.whatsapp.com/Code112345678901234567",
                         "bad-url",
-                        "https://chat.whatsapp.com/Code1"), null));  // 重复
+                        "https://chat.whatsapp.com/Code112345678901234567"), null));  // 重复
 
         // 验 updateCounts 被调用(统计已在 VO 中断言)
         verify(importBatchMapper).updateCounts(any());
@@ -260,7 +297,7 @@ class GroupLinkImportServiceImplTest {
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(7L, "   ", null,
-                List.of("https://chat.whatsapp.com/Blank"), null));
+                List.of("https://chat.whatsapp.com/Blank12345678901234567"), null));
 
         ArgumentCaptor<GroupLinkImportBatch> captor = ArgumentCaptor.forClass(GroupLinkImportBatch.class);
         verify(importBatchMapper).insert(captor.capture());
@@ -275,7 +312,7 @@ class GroupLinkImportServiceImplTest {
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(8L, "batch8", null,
-                List.of("https://chat.whatsapp.com/WithFile"), "links.csv"));
+                List.of("https://chat.whatsapp.com/WithFile12345678901234"), "links.csv"));
 
         ArgumentCaptor<GroupLinkImportBatch> captor = ArgumentCaptor.forClass(GroupLinkImportBatch.class);
         verify(importBatchMapper).insert(captor.capture());

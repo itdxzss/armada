@@ -62,7 +62,7 @@ class AccountControllerDbTest {
 
     /**
      * 通过 account-imports 接口导入一个账号,返回 import 批次中记录的 account.id。
-     * 从 GET /api/accounts?phone=wsPhone 列表第一条取 id,避免跨事务不可见问题。
+     * 直接查 account 表取 id,避免预读 GET /api/accounts 污染 MyBatis 一级缓存。
      */
     private Long importOneAccount(String wsPhone) throws Exception {
         String text = String.format(VALID_JSON_TEXT_TEMPLATE, wsPhone);
@@ -74,16 +74,14 @@ class AccountControllerDbTest {
                 .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(jsonPath("$.code").value(0));
 
-        // 通过列表查询取 id(同一事务内可见)
-        MvcResult listResult = mockMvc.perform(get("/api/accounts")
-                        .param("phone", wsPhone)
-                        .param("pageSize", "1")
-                        .header(TENANT_HEADER, TENANT_CODE))
-                .andReturn();
-        var tree = objectMapper.readTree(listResult.getResponse().getContentAsString(StandardCharsets.UTF_8));
-        var list = tree.path("data").path("list");
-        assertThat(list.isArray() && list.size() > 0).as("导入后列表未找到账号 " + wsPhone).isTrue();
-        return list.get(0).path("id").longValue();
+        Long accountId = jdbc.queryForObject("""
+                SELECT id
+                FROM account
+                WHERE tenant_id = ? AND ws_phone = ? AND deleted_at IS NULL
+                LIMIT 1
+                """, Long.class, TEST_TENANT_ID, wsPhone);
+        assertThat(accountId).as("导入后 account 表未找到账号 " + wsPhone).isNotNull();
+        return accountId;
     }
 
     /**
@@ -177,6 +175,37 @@ class AccountControllerDbTest {
             }
         }
         assertThat(found).as("未在列表中找到 accountId=" + accountId).isTrue();
+    }
+
+    /**
+     * 已绑定 IP 的导入账号应在账号列表返回国家 / IP 来源 / IP 地址,并默认显示自购来源。
+     */
+    @Test
+    void get_list_importedAccountShowsBoundProxyAndSelfPurchaseSource() throws Exception {
+        long ts = System.currentTimeMillis();
+        String wsPhone = "86135" + (ts % 10000000L);
+        Long accountId = importOneAccount(wsPhone);
+        jdbc.update("""
+                INSERT INTO ip_proxy (
+                    tenant_id, host, port, protocol, username, password,
+                    region, status, bound_account_id, bound_at, source, ownership,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                TEST_TENANT_ID, "geo.iproyal.com", 12321, 2, "proxy-user", "proxy-pass",
+                "印度", 2, accountId, ts, "iproyal", 1, ts, ts);
+
+        mockMvc.perform(get("/api/accounts")
+                        .param("phone", wsPhone)
+                        .param("pageSize", "1")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.list[0].id").value(accountId))
+                .andExpect(jsonPath("$.data.list[0].numberSource").value(3))
+                .andExpect(jsonPath("$.data.list[0].country").value("印度"))
+                .andExpect(jsonPath("$.data.list[0].ipSource").value("iproyal"))
+                .andExpect(jsonPath("$.data.list[0].truthIp").value("geo.iproyal.com"));
     }
 
     // -----------------------------------------------------------------------

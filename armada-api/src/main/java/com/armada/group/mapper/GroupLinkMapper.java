@@ -83,6 +83,28 @@ public interface GroupLinkMapper {
     List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);
 
     /**
+     * 按 ID 查询活跃群链接。
+     *
+     * @param id 群链接 ID
+     * @return 活跃行;不存在或已软删时返回 null
+     */
+    GroupLink selectActiveById(@Param("id") Long id);
+
+    /**
+     * 更新群组列表本地资料字段。
+     *
+     * @param id        群链接 ID
+     * @param groupName 运营侧自定义群名称;可为 null
+     * @param remark    运营备注;可为 null
+     * @param updatedAt 更新时间(epoch毫秒)
+     * @return 影响行数
+     */
+    int updateProfile(@Param("id") Long id,
+                      @Param("groupName") String groupName,
+                      @Param("remark") String remark,
+                      @Param("updatedAt") long updatedAt);
+
+    /**
      * 查询群成员实时读取所需的群链接目标。
      *
      * @param id 群链接 ID

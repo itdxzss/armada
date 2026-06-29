@@ -9,6 +9,7 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
@@ -55,6 +56,15 @@ public class GroupLinkServiceImpl implements GroupLinkService {
 
     /** 批量操作上限:防止一次操作过多造成锁竞争。 */
     private static final int BATCH_MAX = 100;
+
+    /** group_link.group_name 列长度。 */
+    private static final int GROUP_NAME_MAX_LENGTH = 128;
+
+    /** group_link.remark 列长度。 */
+    private static final int REMARK_MAX_LENGTH = 255;
+
+    /** group_link_preview.avatar_url 列长度。 */
+    private static final int AVATAR_URL_MAX_LENGTH = 512;
 
     /** 群组列表状态筛选白名单。空值表示不筛选状态。 */
     private static final Set<String> ALLOWED_STATUSES = Set.of(
@@ -107,6 +117,52 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:只改 Armada 本地展示资料。群名称/备注落到 {@code group_link},头像落到
+     * {@code group_link_preview.avatar_url};这里不调用协议层修改 WhatsApp 真实群资料。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateProfile(Long id, GroupLinkProfileDTO dto) {
+        if (id == null || id <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接 ID 不能为空");
+        }
+        if (dto == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群资料更新请求不能为空");
+        }
+        if (!hasProfileField(dto)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "至少提交一个字段");
+        }
+
+        GroupLink link = groupLinkMapper.selectActiveById(id);
+        if (link == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
+        }
+
+        String groupName = dto.groupName() == null
+                ? link.getGroupName()
+                : normalizeProfileField(dto.groupName(), GROUP_NAME_MAX_LENGTH, "群名称");
+        String remark = dto.remark() == null
+                ? link.getRemark()
+                : normalizeProfileField(dto.remark(), REMARK_MAX_LENGTH, "备注");
+        String avatarUrl = dto.avatarUrl() == null
+                ? null
+                : normalizeProfileField(dto.avatarUrl(), AVATAR_URL_MAX_LENGTH, "头像URL");
+
+        long now = System.currentTimeMillis();
+        int updated = groupLinkMapper.updateProfile(id, groupName, remark, now);
+        if (updated == 0) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
+        }
+        if (dto.avatarUrl() != null) {
+            previewMapper.upsertAvatarUrl(id, avatarUrl, now);
+        }
+        log.info("群链接本地资料更新 groupLinkId={} groupNameUpdated={} remarkUpdated={} avatarUpdated={}",
+                id, dto.groupName() != null, dto.remark() != null, dto.avatarUrl() != null);
+    }
+
     private static void validateStatus(String status) {
         if (status == null || status.trim().isEmpty()) {
             return;
@@ -114,6 +170,21 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (!ALLOWED_STATUSES.contains(status.trim().toUpperCase(Locale.ROOT))) {
             throw new BusinessException(ErrorCode.VALIDATION, "status 非法: " + status);
         }
+    }
+
+    private static boolean hasProfileField(GroupLinkProfileDTO dto) {
+        return dto.groupName() != null || dto.remark() != null || dto.avatarUrl() != null;
+    }
+
+    private static String normalizeProfileField(String value, int maxLength, String fieldName) {
+        String normalized = value == null ? null : value.trim();
+        if (normalized == null || normalized.isEmpty()) {
+            return null;
+        }
+        if (normalized.length() > maxLength) {
+            throw new BusinessException(ErrorCode.VALIDATION, fieldName + "长度不能超过" + maxLength);
+        }
+        return normalized;
     }
 
     /**

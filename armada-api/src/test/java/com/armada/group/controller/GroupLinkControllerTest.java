@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -79,6 +80,27 @@ class GroupLinkControllerTest {
                 .andExpect(jsonPath("$.data.members[0].role").value("superadmin"));
 
         verify(groupLinkService).members(10L);
+    }
+
+    @Test
+    void patchProfile_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        mockMvc.perform(patch("/api/group-links/10")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "groupName": "运营群A",
+                                  "remark": "重点客户",
+                                  "avatarUrl": "https://cdn.example.test/group-a.jpg"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupLinkService).updateProfile(eq(10L), argThat(dto ->
+                dto != null
+                        && "运营群A".equals(dto.groupName())
+                        && "重点客户".equals(dto.remark())
+                        && "https://cdn.example.test/group-a.jpg".equals(dto.avatarUrl())));
     }
 
     @Test

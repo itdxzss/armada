@@ -65,6 +65,57 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         assertThat(updated.getAnnounceOnly()).isFalse();
     }
 
+    @Test
+    void upsertAvatarUrl_updatesOnlyAvatarAndProtocolPreviewPreservesLocalAvatarWhenBlank() {
+        GroupLink link = insertLink("chat.whatsapp.com/PreviewAvatarOnly");
+        long now = System.currentTimeMillis();
+
+        GroupLinkPreview row = new GroupLinkPreview();
+        row.setGroupLinkId(link.getId());
+        row.setGroupJid("120363-avatar@g.us");
+        row.setInviteCode("PreviewAvatarOnly");
+        row.setWaSubject("头像群");
+        row.setMemberSize(20);
+        row.setOwnerPhone("917777777777");
+        row.setAnnounceOnly(Boolean.FALSE);
+        row.setAvatarUrl("https://example.test/protocol.jpg");
+        row.setLastPreviewAt(now);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        previewMapper.upsert(row);
+
+        previewMapper.upsertAvatarUrl(link.getId(), "https://example.test/local.jpg", now + 1_000);
+        GroupLinkPreview avatarUpdated = previewMapper.selectByGroupLinkId(link.getId());
+        assertThat(avatarUpdated.getGroupJid()).isEqualTo("120363-avatar@g.us");
+        assertThat(avatarUpdated.getWaSubject()).isEqualTo("头像群");
+        assertThat(avatarUpdated.getMemberSize()).isEqualTo(20);
+        assertThat(avatarUpdated.getAvatarUrl()).isEqualTo("https://example.test/local.jpg");
+
+        GroupLinkPreview protocolRefresh = new GroupLinkPreview();
+        protocolRefresh.setGroupLinkId(link.getId());
+        protocolRefresh.setGroupJid("120363-avatar-updated@g.us");
+        protocolRefresh.setInviteCode("PreviewAvatarOnly");
+        protocolRefresh.setWaSubject("头像群-协议刷新");
+        protocolRefresh.setMemberSize(21);
+        protocolRefresh.setOwnerPhone("916666666666");
+        protocolRefresh.setAnnounceOnly(Boolean.TRUE);
+        protocolRefresh.setLastPreviewAt(now + 2_000);
+        protocolRefresh.setCreatedAt(now);
+        protocolRefresh.setUpdatedAt(now + 2_000);
+        previewMapper.upsert(protocolRefresh);
+
+        GroupLinkPreview protocolUpdated = previewMapper.selectByGroupLinkId(link.getId());
+        assertThat(protocolUpdated.getGroupJid()).isEqualTo("120363-avatar-updated@g.us");
+        assertThat(protocolUpdated.getWaSubject()).isEqualTo("头像群-协议刷新");
+        assertThat(protocolUpdated.getMemberSize()).isEqualTo(21);
+        assertThat(protocolUpdated.getAvatarUrl()).isEqualTo("https://example.test/local.jpg");
+
+        previewMapper.upsertAvatarUrl(link.getId(), null, now + 3_000);
+        GroupLinkPreview cleared = previewMapper.selectByGroupLinkId(link.getId());
+        assertThat(cleared.getGroupJid()).isEqualTo("120363-avatar-updated@g.us");
+        assertThat(cleared.getAvatarUrl()).isNull();
+    }
+
     private GroupLink insertLink(String url) {
         GroupLink link = new GroupLink();
         link.setLinkUrl(url);

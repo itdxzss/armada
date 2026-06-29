@@ -1,6 +1,7 @@
 package com.armada.group.service;
 
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
+import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
@@ -20,6 +21,16 @@ public interface GroupLinkService {
      * @return 分页结果
      */
     PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query);
+
+    /**
+     * 更新群组列表本地资料。
+     *
+     * <p>只更新 Armada 本地展示字段,不调用协议层修改 WhatsApp 真实群名称或头像。</p>
+     *
+     * @param id  群链接 ID
+     * @param dto 本地资料字段;传空字符串表示清空对应字段
+     */
+    void updateProfile(Long id, GroupLinkProfileDTO dto);
 
     /**
      * 批量迁移群链接到目标分组。

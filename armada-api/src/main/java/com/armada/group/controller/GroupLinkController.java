@@ -4,6 +4,7 @@ import com.armada.group.model.dto.GroupIdsDTO;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkMigrateDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
+import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
@@ -17,6 +18,7 @@ import com.armada.shared.response.PageResult;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -77,6 +79,19 @@ public class GroupLinkController {
     @GetMapping
     public ApiResponse<PageResult<GroupLinkVO>> list(@ModelAttribute GroupLinkQuery query) {
         return ApiResponse.ok(groupLinkService.listByLabel(query));
+    }
+
+    /**
+     * 更新群组列表本地资料。
+     *
+     * @param id  群链接 ID
+     * @param dto 本地群名称/备注/头像 URL
+     * @return 空响应
+     */
+    @PatchMapping("/{id}")
+    public ApiResponse<Void> updateProfile(@PathVariable Long id, @RequestBody GroupLinkProfileDTO dto) {
+        groupLinkService.updateProfile(id, dto);
+        return ApiResponse.ok();
     }
 
     /**

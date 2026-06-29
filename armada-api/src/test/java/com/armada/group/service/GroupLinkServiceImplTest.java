@@ -18,6 +18,7 @@ import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
@@ -133,6 +134,69 @@ class GroupLinkServiceImplTest {
                 .hasMessageContaining("status");
         verify(groupLinkMapper, never()).countByLabel(any());
         verify(groupLinkMapper, never()).selectPageByLabel(any());
+    }
+
+    // ---- updateProfile ----
+
+    @Test
+    void updateProfile_trimsAndPersistsLocalProfileAndAvatar() {
+        GroupLink link = new GroupLink();
+        link.setId(10L);
+        link.setGroupName("旧群名");
+        link.setRemark("旧备注");
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(link);
+        when(groupLinkMapper.updateProfile(eq(10L), eq("运营群A"), eq("重点客户"), anyLong()))
+                .thenReturn(1);
+
+        service.updateProfile(10L, new GroupLinkProfileDTO(
+                " 运营群A ",
+                " 重点客户 ",
+                " https://cdn.example.test/group-a.jpg "));
+
+        verify(groupLinkMapper).updateProfile(eq(10L), eq("运营群A"), eq("重点客户"), anyLong());
+        verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group-a.jpg"), anyLong());
+    }
+
+    @Test
+    void updateProfile_onlyAvatarKeepsExistingNameAndRemark() {
+        GroupLink link = new GroupLink();
+        link.setId(10L);
+        link.setGroupName("旧群名");
+        link.setRemark("旧备注");
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(link);
+        when(groupLinkMapper.updateProfile(eq(10L), eq("旧群名"), eq("旧备注"), anyLong()))
+                .thenReturn(1);
+
+        service.updateProfile(10L, new GroupLinkProfileDTO(
+                null,
+                null,
+                "https://cdn.example.test/group-a.jpg"));
+
+        verify(groupLinkMapper).updateProfile(eq(10L), eq("旧群名"), eq("旧备注"), anyLong());
+        verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group-a.jpg"), anyLong());
+    }
+
+    @Test
+    void updateProfile_emptyPayloadThrowsValidationAndSkipsMapper() {
+        assertThatThrownBy(() -> service.updateProfile(10L, new GroupLinkProfileDTO(null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("至少提交一个字段");
+
+        verify(groupLinkMapper, never()).selectActiveById(anyLong());
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void updateProfile_missingLinkThrowsNotFoundAndSkipsUpdates() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.updateProfile(10L, new GroupLinkProfileDTO("运营群A", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("群链接不存在或已删除");
+
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
     }
 
     // ---- migrate ----

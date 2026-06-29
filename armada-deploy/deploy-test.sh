@@ -42,43 +42,86 @@ die() { printf '%s\n' "${C_R}ERR $*${C_0}" >&2; exit 1; }
 
 usage() {
   cat <<EOF
-deploy-test.sh - deploy armada API + wheel-saas-pure-web to the test server.
+deploy-test.sh - 部署 armada API + wheel-saas-pure-web 到测试服。
 
-Usage:
+用法:
   ./armada-deploy/deploy-test.sh [options]
+  ./armada-deploy/deploy-test.sh          只显示部署指引,不执行部署。
 
-Options:
-  --be             Build and deploy backend only.
-  --fe             Build and deploy frontend/nginx only.
-  -y, --yes        Skip confirmation.
-  --logs           Tail backend logs after deploy.
-  -n, --dry-run    Print the plan without building, syncing, or restarting.
-  -h, --help       Show this help.
+参数:
+  --all            构建并部署后端 + 前端。
+  --be             只构建并部署后端。
+  --fe             只构建并部署前端/nginx。
+  -y, --yes        跳过确认提示。
+  --logs           部署后跟随后端日志。
+  -n, --dry-run    只打印计划,不构建、不同步、不重启。
+  -h, --help       显示本帮助。
 
-Environment overrides:
+可覆盖的环境变量:
   ARMADA_DEPLOY_HOST
   ARMADA_DEPLOY_USER
   ARMADA_DEPLOY_KEY
   ARMADA_DEPLOY_REMOTE_DIR
   ARMADA_FRONTEND_DIR
 
-Target:
+目标服务器:
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
 
-Entrypoint:
+访问入口:
   http://65.2.123.53:18080/
 EOF
 }
 
+guide() {
+  cat <<EOF
+Armada 测试环境部署指引
+
+你要部署什么?
+  后端 + 前端:
+    ./armada-deploy/deploy-test.sh --all -y
+
+  只部署后端:
+    ./armada-deploy/deploy-test.sh --be -y
+
+  只部署前端/nginx:
+    ./armada-deploy/deploy-test.sh --fe -y
+
+  只看部署计划,不真正执行:
+    ./armada-deploy/deploy-test.sh --dry-run
+
+常用参数:
+  --all        本地构建后端 jar 和前端 dist,同步两者并重启两个容器。
+  --be         本地构建后端 jar,同步 jar,只重建/重启 armada-backend。
+  --fe         本地构建前端 dist,同步 dist,只重建/重启 armada-nginx。
+  -y, --yes    跳过确认提示。
+  --logs       部署完成后跟随 armada-backend 日志。
+  --dry-run    只显示将要做什么,不构建、不 rsync、不 SSH 重启、不验活。
+  -h, --help   显示完整参数说明。
+
+目标:
+  ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
+  http://65.2.123.53:18080/
+
+提示:
+  如果不确定要发什么,先跑 --dry-run 看计划。
+EOF
+}
+
+if [ "$#" -eq 0 ]; then
+  guide
+  exit 0
+fi
+
 while [ $# -gt 0 ]; do
   case "$1" in
+    --all) SCOPE="all" ;;
     --be) SCOPE="be" ;;
     --fe) SCOPE="fe" ;;
     -y|--yes) ASSUME_YES=1 ;;
     --logs) TAIL_LOGS=1 ;;
     -n|--dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
-    *) usage; die "unknown argument: $1" ;;
+    *) usage; die "未知参数: $1" ;;
   esac
   shift
 done
@@ -93,20 +136,20 @@ case "${SCOPE}" in
     BUILD_BE=1
     BUILD_FE=1
     SERVICES=""
-    SCOPE_DESC="backend + frontend"
+    SCOPE_DESC="后端 + 前端"
     ;;
   be)
     BUILD_BE=1
     SERVICES="backend"
-    SCOPE_DESC="backend only"
+    SCOPE_DESC="只后端"
     ;;
   fe)
     BUILD_FE=1
     SERVICES="nginx"
-    SCOPE_DESC="frontend only"
+    SCOPE_DESC="只前端"
     ;;
   *)
-    die "invalid scope: ${SCOPE}"
+    die "无效部署范围: ${SCOPE}"
     ;;
 esac
 
@@ -127,34 +170,34 @@ find_jdk17() {
 
 JDK17_HOME=""
 if [ "${BUILD_BE}" = 1 ]; then
-  JDK17_HOME="$(find_jdk17)" || die "JDK 17 is required. Install JDK 17 or set JAVA17_HOME."
+  JDK17_HOME="$(find_jdk17)" || die "需要 JDK 17。请安装 JDK 17 或设置 JAVA17_HOME。"
 fi
 
-[ -f "${SSH_KEY}" ] || die "SSH key not found: ${SSH_KEY}"
-[ -d "${API_DIR}" ] || die "armada-api directory not found: ${API_DIR}"
-[ -f "${API_DIR}/pom.xml" ] || die "armada-api pom.xml not found"
-[ -d "${FRONTEND_DIR}" ] || die "frontend directory not found: ${FRONTEND_DIR}"
-[ -f "${FRONTEND_DIR}/package.json" ] || die "frontend package.json not found"
-[ -f "${SCRIPT_DIR}/docker-compose.rds.yml" ] || die "missing ${SCRIPT_DIR}/docker-compose.rds.yml"
-[ -f "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" ] || die "missing backend.prebuilt.Dockerfile"
-[ -f "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" ] || die "missing nginx.prebuilt.Dockerfile"
-[ -f "${SCRIPT_DIR}/nginx.conf" ] || die "missing nginx.conf"
+[ -f "${SSH_KEY}" ] || die "找不到 SSH 私钥: ${SSH_KEY}"
+[ -d "${API_DIR}" ] || die "找不到 armada-api 目录: ${API_DIR}"
+[ -f "${API_DIR}/pom.xml" ] || die "找不到 armada-api/pom.xml"
+[ -d "${FRONTEND_DIR}" ] || die "找不到前端目录: ${FRONTEND_DIR}"
+[ -f "${FRONTEND_DIR}/package.json" ] || die "找不到前端 package.json"
+[ -f "${SCRIPT_DIR}/docker-compose.rds.yml" ] || die "缺少 ${SCRIPT_DIR}/docker-compose.rds.yml"
+[ -f "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" ] || die "缺少 backend.prebuilt.Dockerfile"
+[ -f "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" ] || die "缺少 nginx.prebuilt.Dockerfile"
+[ -f "${SCRIPT_DIR}/nginx.conf" ] || die "缺少 nginx.conf"
 
 if [ "${BUILD_BE}" = 1 ]; then
-  command -v mvn >/dev/null 2>&1 || die "mvn is required for backend build"
+  command -v mvn >/dev/null 2>&1 || die "构建后端需要 mvn"
 fi
 if [ "${BUILD_FE}" = 1 ]; then
   if command -v pnpm >/dev/null 2>&1 && pnpm --version >/dev/null 2>&1; then
     PNPM_AVAILABLE=1
     FRONTEND_BUILD_MODE="pnpm install --frozen-lockfile && pnpm build"
   elif [ -d "${FRONTEND_DIR}/node_modules" ]; then
-    FRONTEND_BUILD_MODE="npm run build (using existing node_modules; pnpm unavailable)"
+    FRONTEND_BUILD_MODE="npm run build (pnpm 不可用,使用现有 node_modules)"
   else
-    die "pnpm is unavailable and ${FRONTEND_DIR}/node_modules is missing"
+    die "pnpm 不可用,且 ${FRONTEND_DIR}/node_modules 不存在"
   fi
 fi
-command -v rsync >/dev/null 2>&1 || die "rsync is required"
-command -v ssh >/dev/null 2>&1 || die "ssh is required"
+command -v rsync >/dev/null 2>&1 || die "需要 rsync"
+command -v ssh >/dev/null 2>&1 || die "需要 ssh"
 
 SSH_OPTS=(
   -i "${SSH_KEY}"
@@ -171,25 +214,25 @@ ssh_run() {
 remote_required_env_check='
 set -eu
 cd "$1"
-test -f .env || { echo "missing remote .env: $1/.env" >&2; exit 20; }
+test -f .env || { echo "远端缺少 .env: $1/.env" >&2; exit 20; }
 for key in DB_URL DB_USER DB_PASSWORD; do
-  grep -Eq "^${key}=.+" .env || { echo "missing required ${key} in $1/.env" >&2; exit 21; }
+  grep -Eq "^${key}=.+" .env || { echo "$1/.env 缺少必需配置 ${key}" >&2; exit 21; }
 done
 '
 
 print_plan() {
   echo
-  info "Deploy plan"
-  printf '  scope        : %s\n' "${SCOPE_DESC}"
-  printf '  repo root    : %s\n' "${REPO_ROOT}"
-  printf '  frontend dir : %s\n' "${FRONTEND_DIR}"
-  printf '  target       : %s@%s:%s\n' "${SSH_USER}" "${SSH_HOST}" "${REMOTE_DIR}"
-  printf '  compose      : %s / project=%s\n' "${COMPOSE_FILE}" "${COMPOSE_PROJECT}"
+  info "部署计划"
+  printf '  范围          : %s\n' "${SCOPE_DESC}"
+  printf '  仓库目录      : %s\n' "${REPO_ROOT}"
+  printf '  前端目录      : %s\n' "${FRONTEND_DIR}"
+  printf '  目标服务器    : %s@%s:%s\n' "${SSH_USER}" "${SSH_HOST}" "${REMOTE_DIR}"
+  printf '  compose       : %s / project=%s\n' "${COMPOSE_FILE}" "${COMPOSE_PROJECT}"
   if [ "${BUILD_BE}" = 1 ]; then
-    printf '  backend JDK  : %s\n' "${JDK17_HOME}"
+    printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
   fi
   if [ "${BUILD_FE}" = 1 ]; then
-    printf '  frontend     : %s\n' "${FRONTEND_BUILD_MODE}"
+    printf '  前端构建      : %s\n' "${FRONTEND_BUILD_MODE}"
   fi
   echo
 }
@@ -197,61 +240,61 @@ print_plan() {
 print_plan
 
 if [ "${DRY_RUN}" = 1 ]; then
-  info "[dry-run] would test SSH connectivity"
-  [ "${BUILD_BE}" = 1 ] && info "[dry-run] would run: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests clean package)"
+  info "[dry-run] 将检查 SSH 连通性"
+  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
     if [ "${PNPM_AVAILABLE}" = 1 ]; then
-      info "[dry-run] would run: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"
+      info "[dry-run] 将执行: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"
     else
-      info "[dry-run] would run: (cd ${FRONTEND_DIR} && npm run build)"
+      info "[dry-run] 将执行: (cd ${FRONTEND_DIR} && npm run build)"
     fi
   fi
-  info "[dry-run] would rsync deploy files and artifacts to ${REMOTE_DIR}"
-  info "[dry-run] would run remote docker compose up -d --build ${SERVICES}"
-  ok "dry run complete"
+  info "[dry-run] 将 rsync 部署文件和产物到 ${REMOTE_DIR}"
+  info "[dry-run] 将在远端执行 docker compose up -d --build ${SERVICES}"
+  ok "dry-run 完成"
   exit 0
 fi
 
-info "Checking SSH connectivity..."
-ssh_run true || die "SSH connection failed"
-ok "server reachable"
+info "检查 SSH 连通性..."
+ssh_run true || die "SSH 连接失败"
+ok "服务器可达"
 
 if [ "${ASSUME_YES}" != 1 ]; then
-  printf 'Deploy to test server? [y/N] '
+  printf '确认部署到测试服? [y/N] '
   read -r answer </dev/tty || answer=""
   case "${answer}" in
     y|Y|yes|YES) ;;
-    *) die "cancelled" ;;
+    *) die "已取消" ;;
   esac
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then
-  info "Building backend jar..."
+  info "构建后端 jar..."
   (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests clean package)
-  [ -f "${JAR_PATH}" ] || die "backend jar not found after build: ${JAR_PATH}"
-  ok "backend jar ready: ${JAR_PATH}"
+  [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
+  ok "后端 jar 已就绪: ${JAR_PATH}"
 fi
 
 if [ "${BUILD_FE}" = 1 ]; then
-  info "Building frontend dist..."
+  info "构建前端 dist..."
   if [ "${PNPM_AVAILABLE}" = 1 ]; then
     (cd "${FRONTEND_DIR}" && pnpm install --frozen-lockfile && pnpm build)
   else
-    warn "pnpm is unavailable; using existing node_modules with npm run build"
+    warn "pnpm 不可用,使用现有 node_modules 执行 npm run build"
     (cd "${FRONTEND_DIR}" && npm run build)
   fi
-  [ -d "${FRONTEND_DIR}/dist" ] || die "frontend dist not found after build: ${FRONTEND_DIR}/dist"
-  ok "frontend dist ready: ${FRONTEND_DIR}/dist"
+  [ -d "${FRONTEND_DIR}/dist" ] || die "构建后未找到前端 dist: ${FRONTEND_DIR}/dist"
+  ok "前端 dist 已就绪: ${FRONTEND_DIR}/dist"
 fi
 
-info "Preparing remote directory..."
+info "准备远端目录..."
 ssh_run "mkdir -p '${REMOTE_DIR}/armada-api/target' '${REMOTE_DIR}/wheel-saas-pure-web/dist'"
 
-info "Checking remote .env..."
+info "检查远端 .env..."
 ssh_run "bash -s -- '${REMOTE_DIR}'" <<<"${remote_required_env_check}"
-ok "remote .env has required database keys"
+ok "远端 .env 已包含必需数据库配置"
 
-info "Syncing deployment manifests..."
+info "同步部署编排文件..."
 rsync -az -e "${RSYNC_SSH}" \
   "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" \
   "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" \
@@ -261,44 +304,44 @@ rsync -az -e "${RSYNC_SSH}" \
   "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/"
 
 if [ "${BUILD_BE}" = 1 ]; then
-  info "Syncing backend jar..."
+  info "同步后端 jar..."
   rsync -a --partial -e "${RSYNC_SSH}" \
     "${JAR_PATH}" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/armada-api/target/${JAR_NAME}"
 fi
 
 if [ "${BUILD_FE}" = 1 ]; then
-  info "Syncing frontend dist..."
+  info "同步前端 dist..."
   rsync -az --delete -e "${RSYNC_SSH}" \
     "${FRONTEND_DIR}/dist/" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/wheel-saas-pure-web/dist/"
 fi
 
-info "Starting containers..."
+info "启动容器..."
 ssh_run "cd '${REMOTE_DIR}' && docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' up -d --build ${SERVICES}"
 
-info "Verifying containers..."
+info "检查容器状态..."
 if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "be" ]; then
   ssh_run "docker inspect -f '{{.State.Status}}' armada-backend | grep -q '^running$'"
 fi
 if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "fe" ]; then
   ssh_run "docker inspect -f '{{.State.Status}}' armada-nginx | grep -q '^running$'"
 fi
-ok "containers running"
+ok "容器运行中"
 
 if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "fe" ]; then
-  info "Verifying frontend..."
+  info "检查前端访问..."
   ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; curl -fsS -m 8 \"http://127.0.0.1:\${port}/\" | grep -qi '<!doctype html'"
-  ok "frontend responds"
+  ok "前端可访问"
 fi
 
 if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "be" ]; then
-  info "Verifying API proxy path..."
+  info "检查 API 代理路径..."
   ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -fsS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|0|40001)'"
-  ok "API path reaches backend"
+  ok "API 路径已打到后端"
 fi
 
-ok "deploy complete: http://65.2.123.53:18080/"
+ok "部署完成: http://65.2.123.53:18080/"
 
 if [ "${TAIL_LOGS}" = 1 ]; then
   ssh_run "docker logs -f --tail 120 armada-backend"

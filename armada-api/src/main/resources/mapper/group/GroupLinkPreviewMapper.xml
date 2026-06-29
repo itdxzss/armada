@@ -17,8 +17,16 @@
       member_size = VALUES(member_size),
       owner_phone = VALUES(owner_phone),
       announce_only = VALUES(announce_only),
-      avatar_url = VALUES(avatar_url),
+      avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
       last_preview_at = VALUES(last_preview_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <insert id="upsertAvatarUrl">
+    INSERT INTO group_link_preview (group_link_id, avatar_url, created_at, updated_at)
+    VALUES (#{groupLinkId}, #{avatarUrl}, #{updatedAt}, #{updatedAt})
+    ON DUPLICATE KEY UPDATE
+      avatar_url = VALUES(avatar_url),
       updated_at = VALUES(updated_at)
   </insert>
 

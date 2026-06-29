@@ -170,6 +170,23 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <select id="selectActiveById" resultType="com.armada.group.model.entity.GroupLink">
+    SELECT *
+    FROM group_link
+    WHERE deleted_at IS NULL
+      AND id = #{id}
+    LIMIT 1
+  </select>
+
+  <update id="updateProfile">
+    UPDATE group_link
+    SET group_name = #{groupName},
+        remark = #{remark},
+        updated_at = #{updatedAt}
+    WHERE deleted_at IS NULL
+      AND id = #{id}
+  </update>
+
   <select id="selectMemberLookupTarget" resultType="com.armada.group.model.vo.GroupMemberLookupTarget">
     SELECT g.id AS groupLinkId,
            p.group_jid AS groupJid

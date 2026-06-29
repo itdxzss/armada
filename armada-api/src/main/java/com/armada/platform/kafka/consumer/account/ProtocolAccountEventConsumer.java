@@ -61,8 +61,8 @@ public class ProtocolAccountEventConsumer {
      * @param rawMessage Kafka message value
      */
     @KafkaListener(
-            topics = "#{@protocolAccountEventConsumerProperties.topic}",
-            groupId = "#{@protocolAccountEventConsumerProperties.groupId}")
+            topics = "${armada.protocol.kafka.account-events.topic:protocol.account.events.v1}",
+            groupId = "${armada.protocol.kafka.account-events.group-id:armada-api-account-events}")
     public void onMessage(String rawMessage) {
         JsonNode envelope = readEnvelope(rawMessage);
         String eventType = text(envelope, "event");

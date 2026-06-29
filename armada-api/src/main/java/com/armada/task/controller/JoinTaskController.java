@@ -90,6 +90,18 @@ public class JoinTaskController {
     }
 
     /**
+     * 启动任务:把 DRAFT 任务转 RUNNING 并触发后台 worker 执行。
+     *
+     * @param id 任务 ID
+     * @return 空响应
+     */
+    @PostMapping("/{id}/start")
+    public ApiResponse<Void> start(@PathVariable Long id) {
+        service.startTask(id);
+        return ApiResponse.ok(null);
+    }
+
+    /**
      * 任务明细行(每账号每链接一行)。
      *
      * @param id 任务 ID

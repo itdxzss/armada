@@ -70,6 +70,29 @@ public interface JoinTaskMapper {
     int update(JoinTask task);
 
     /**
+     * 更新任务状态并刷新更新时间。
+     *
+     * @param id        任务 ID
+     * @param status    新状态码
+     * @param updatedAt 更新时间(epoch 毫秒)
+     * @return 受影响行数
+     */
+    int updateTaskStatus(@Param("id") Long id,
+                         @Param("status") String status,
+                         @Param("updatedAt") long updatedAt);
+
+    /**
+     * 按明细真实状态重算任务计数。
+     *
+     * <p>只统计 {@code account_id IS NOT NULL} 的执行计划行,不把建任务时生成的无效链接失败占位行
+     * 计入 total/executed/failed。</p>
+     *
+     * @param taskId 任务 ID
+     * @return 受影响行数
+     */
+    int refreshCounters(@Param("taskId") Long taskId);
+
+    /**
      * 批量软删除进群任务（幂等）：仅 {@code deleted_at IS NULL} 的行会被置删，
      * 已删行不重复更新。
      *

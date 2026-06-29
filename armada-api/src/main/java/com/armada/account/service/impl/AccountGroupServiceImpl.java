@@ -41,6 +41,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     /** system_builtin=0:用户自建分组。 */
     private static final int SYSTEM_BUILTIN_NO = 0;
 
+    /** account_group.remark 字段长度。 */
+    private static final int MAX_REMARK_LENGTH = 255;
+
     private final AccountGroupMapper mapper;
     private final AccountConverter converter;
 
@@ -75,9 +78,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AccountGroupVO create(AccountGroupDTO dto) {
-        if (!StringUtils.hasText(dto.name())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
-        }
+        validatePayload(dto);
         if (mapper.selectActiveByName(dto.name()) != null) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称已存在: " + dto.name());
         }
@@ -103,6 +104,8 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                     0,
                     0L,
                     0L,
+                    0L,
+                    0L,
                     deleted.getCreatedAt(),
                     now
             );
@@ -116,6 +119,8 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                     dto.name(),
                     dto.remark(),
                     0,
+                    0L,
+                    0L,
                     0L,
                     0L,
                     now,
@@ -132,9 +137,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, AccountGroupDTO dto) {
-        if (!StringUtils.hasText(dto.name())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
-        }
+        validatePayload(dto);
         AccountGroup cur = mapper.selectById(id);
         if (cur == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);
@@ -232,5 +235,19 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             row = mapper.selectSystemBuiltin();
         }
         return row;
+    }
+
+    private static void validatePayload(AccountGroupDTO dto) {
+        if (!StringUtils.hasText(dto.name())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
+        }
+        if (dto.remark() != null && charCount(dto.remark()) > MAX_REMARK_LENGTH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "备注不能超过" + MAX_REMARK_LENGTH + "个字符");
+        }
+    }
+
+    private static int charCount(String value) {
+        return value.codePointCount(0, value.length());
     }
 }

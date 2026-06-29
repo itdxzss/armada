@@ -74,6 +74,45 @@
     WHERE id=#{id} AND deleted_at IS NULL
   </update>
 
+  <!-- 启动/收敛等状态流转共用：只更新有效任务。 -->
+  <update id="updateTaskStatus">
+    UPDATE join_task SET status=#{status}, updated_at=#{updatedAt}
+    WHERE id=#{id} AND deleted_at IS NULL
+  </update>
+
+  <!--
+    引擎回写后重算计数。
+    account_id IS NOT NULL 排除建任务时生成的无效链接 FAILED 占位行,保持 total/pending 口径一致。
+  -->
+  <update id="refreshCounters">
+    UPDATE join_task SET
+      executed = (
+        SELECT COUNT(*) FROM join_task_result
+        WHERE join_task_id = #{taskId}
+          AND account_id IS NOT NULL
+          AND status &lt;&gt; 'PENDING'
+      ),
+      success = (
+        SELECT COUNT(*) FROM join_task_result
+        WHERE join_task_id = #{taskId}
+          AND account_id IS NOT NULL
+          AND status = 'SUCCESS'
+      ),
+      failed = (
+        SELECT COUNT(*) FROM join_task_result
+        WHERE join_task_id = #{taskId}
+          AND account_id IS NOT NULL
+          AND status = 'FAILED'
+      ),
+      pending = (
+        SELECT COUNT(*) FROM join_task_result
+        WHERE join_task_id = #{taskId}
+          AND account_id IS NOT NULL
+          AND status = 'PENDING'
+      )
+    WHERE id = #{taskId} AND deleted_at IS NULL
+  </update>
+
   <!-- 批量软删除（幂等）：仅 deleted_at IS NULL 的行被置删，updated_at 同步刷新。 -->
   <update id="batchSoftDelete">
     UPDATE join_task SET deleted_at=#{deletedAt}, updated_at=#{deletedAt}

@@ -2,6 +2,7 @@ package com.armada.task.mapper;
 
 import com.armada.task.model.dto.JoinTaskFilter;
 import com.armada.task.model.entity.JoinTask;
+import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.testsupport.DbTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +21,9 @@ class JoinTaskMapperDbTest extends DbTestBase {
 
     @Autowired
     JoinTaskMapper mapper;
+
+    @Autowired
+    JoinTaskResultMapper resultMapper;
 
     /** 构造一条最小合法的进群任务实体，时间使用调用方传入的 epoch。 */
     private JoinTask buildTask(String name, String status, String distributionMode,
@@ -223,5 +227,51 @@ class JoinTaskMapperDbTest extends DbTestBase {
         // selectByTenantAndId 返回 null
         assertThat(mapper.selectByTenantAndId(t1.getId())).isNull();
         assertThat(mapper.selectByTenantAndId(t2.getId())).isNull();
+    }
+
+    @Test
+    void updateTaskStatusAndRefreshCounters_recomputesFromExecutableRowsOnly() {
+        long now = System.currentTimeMillis();
+        JoinTask task = buildTask("执行任务", "DRAFT", "FIXED_ACCOUNTS_PER_LINK", "10-20s", now);
+        task.setTotal(3);
+        task.setExecuted(0);
+        task.setSuccess(0);
+        task.setFailed(0);
+        task.setPending(3);
+        mapper.insert(task);
+
+        resultMapper.insertResults(List.of(
+                result(task.getId(), "8616001", 701L, "SUCCESS", ""),
+                result(task.getId(), "8616002", 702L, "FAILED", "JOIN_FAILED"),
+                result(task.getId(), "8616003", 703L, "PENDING", ""),
+                result(task.getId(), "8616004", null, "FAILED", "INVALID_LINK")
+        ));
+
+        long updatedAt = now + 10_000;
+        assertThat(mapper.updateTaskStatus(task.getId(), "RUNNING", updatedAt)).isEqualTo(1);
+        assertThat(mapper.refreshCounters(task.getId())).isEqualTo(1);
+
+        JoinTask updated = mapper.selectByTenantAndId(task.getId());
+        assertThat(updated.getStatus()).isEqualTo("RUNNING");
+        assertThat(updated.getUpdatedAt()).isEqualTo(updatedAt);
+        assertThat(updated.getTotal()).isEqualTo(3);
+        assertThat(updated.getExecuted()).isEqualTo(2);
+        assertThat(updated.getSuccess()).isEqualTo(1);
+        assertThat(updated.getFailed()).isEqualTo(1);
+        assertThat(updated.getPending()).isEqualTo(1);
+    }
+
+    private static JoinTaskResult result(Long taskId, String account, Long accountId, String status, String reason) {
+        long now = System.currentTimeMillis();
+        JoinTaskResult result = new JoinTaskResult();
+        result.setJoinTaskId(taskId);
+        result.setAccount(account);
+        result.setAccountId(accountId);
+        result.setLink("https://chat.whatsapp.com/" + account);
+        result.setStatus(status);
+        result.setReason(reason);
+        result.setCreatedAt(now);
+        result.setUpdatedAt(now);
+        return result;
     }
 }

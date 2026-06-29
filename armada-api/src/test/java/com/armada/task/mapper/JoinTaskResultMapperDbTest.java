@@ -128,4 +128,52 @@ class JoinTaskResultMapperDbTest extends DbTestBase {
                 .as("is_admin=1 必须通过显式 resultMap 映射到 isAdmin()=true")
                 .isTrue();
     }
+
+    @Test
+    void selectPendingResultsByTask_onlyReturnsPendingRows() {
+        JoinTaskResult pending1 = build("8613001", 401L, "https://chat.whatsapp.com/pending1", "PENDING", "");
+        JoinTaskResult success = build("8613002", 402L, "https://chat.whatsapp.com/success", "SUCCESS", "");
+        JoinTaskResult failed = build("8613003", 403L, "https://chat.whatsapp.com/failed", "FAILED", "JOIN_FAILED");
+        JoinTaskResult pending2 = build("8613004", 404L, "https://chat.whatsapp.com/pending2", "PENDING", "");
+        mapper.insertResults(List.of(pending1, success, failed, pending2));
+
+        List<JoinTaskResult> pending = mapper.selectPendingResultsByTask(TEST_TASK_ID);
+
+        assertThat(pending).extracting(JoinTaskResult::getAccount)
+                .containsExactly("8613001", "8613004");
+    }
+
+    @Test
+    void updateResultSuccess_marksPendingRowSuccessAndBackfillsGroupJid() {
+        JoinTaskResult pending = build("8614001", 501L, "https://chat.whatsapp.com/success", "PENDING", "");
+        mapper.insertResults(List.of(pending));
+        Long resultId = mapper.selectResultsByTask(TEST_TASK_ID).get(0).getId();
+
+        int affected = mapper.updateResultSuccess(resultId, "120363999@g.us", System.currentTimeMillis() + 1);
+
+        assertThat(affected).isEqualTo(1);
+        JoinTaskResult updated = mapper.selectResultsByTask(TEST_TASK_ID).get(0);
+        assertThat(updated.getStatus()).isEqualTo("SUCCESS");
+        assertThat(updated.getGroupJid()).isEqualTo("120363999@g.us");
+        assertThat(updated.getReason()).isEqualTo("");
+    }
+
+    @Test
+    void updateResultFailed_marksPendingRowFailedAndKeepsSuccessRowsUntouched() {
+        JoinTaskResult pending = build("8615001", 601L, "https://chat.whatsapp.com/failed", "PENDING", "");
+        JoinTaskResult success = build("8615002", 602L, "https://chat.whatsapp.com/success", "SUCCESS", "");
+        mapper.insertResults(List.of(pending, success));
+        List<JoinTaskResult> before = mapper.selectResultsByTask(TEST_TASK_ID);
+        Long pendingId = before.get(0).getId();
+        Long successId = before.get(1).getId();
+
+        assertThat(mapper.updateResultFailed(pendingId, "JOIN_FAILED", System.currentTimeMillis() + 1)).isEqualTo(1);
+        assertThat(mapper.updateResultFailed(successId, "SHOULD_NOT_WRITE", System.currentTimeMillis() + 2)).isEqualTo(0);
+
+        List<JoinTaskResult> after = mapper.selectResultsByTask(TEST_TASK_ID);
+        assertThat(after.get(0).getStatus()).isEqualTo("FAILED");
+        assertThat(after.get(0).getReason()).isEqualTo("JOIN_FAILED");
+        assertThat(after.get(1).getStatus()).isEqualTo("SUCCESS");
+        assertThat(after.get(1).getReason()).isEqualTo("");
+    }
 }

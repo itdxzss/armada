@@ -24,12 +24,16 @@ import com.armada.task.service.JoinTaskService;
 import com.armada.task.service.JsonIds;
 import com.armada.task.service.LinkClassifier;
 import com.armada.task.service.PlanRowGenerator;
+import com.armada.task.worker.JoinTaskWorker;
+import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 进群任务业务实现(建任务 + 列表/详情/明细读路径 + 编辑/批量软删)。
@@ -45,13 +49,16 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     private final JoinTaskMapper joinTaskMapper;
     private final JoinTaskResultMapper resultMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
+    private final JoinTaskWorker joinTaskWorker;
 
     public JoinTaskServiceImpl(JoinTaskMapper joinTaskMapper,
                                JoinTaskResultMapper resultMapper,
-                               GroupLinkRegistryService groupLinkRegistryService) {
+                               GroupLinkRegistryService groupLinkRegistryService,
+                               JoinTaskWorker joinTaskWorker) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.joinTaskWorker = joinTaskWorker;
     }
 
     /**
@@ -138,6 +145,45 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         int deleted = joinTaskMapper.batchSoftDelete(ids, System.currentTimeMillis());
         log.info("进群任务批量软删 请求={} 实删={}", ids.size(), deleted);
         return deleted;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:只允许 DRAFT -> RUNNING。worker 在事务提交后触发,避免后台线程使用独立连接时
+     * 读不到刚更新的 RUNNING 状态。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void startTask(Long id) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        JoinTask task = joinTaskMapper.selectByTenantAndId(id);
+        if (task == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
+        }
+        if (!JoinTaskStatus.DRAFT.equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务已启动或已结束,不能重复启动");
+        }
+        long now = System.currentTimeMillis();
+        joinTaskMapper.updateTaskStatus(id, JoinTaskStatus.RUNNING, now);
+        runAfterCommit(() -> joinTaskWorker.startAsync(tenantId, id));
+        log.info("进群任务启动 id={} tenantId={}", id, tenantId);
+    }
+
+    private static void runAfterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+            return;
+        }
+        action.run();
     }
 
     /**

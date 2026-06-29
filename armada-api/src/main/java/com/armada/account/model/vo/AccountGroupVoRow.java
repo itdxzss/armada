@@ -12,6 +12,9 @@ public class AccountGroupVoRow {
     private String remark;
     private Integer systemBuiltin;
     private long accountCount;
+    private long onlineCount;
+    private long riskCount;
+    private long bannedCount;
     private Long createdAt;
     private Long updatedAt;
 
@@ -53,6 +56,30 @@ public class AccountGroupVoRow {
 
     public void setAccountCount(long accountCount) {
         this.accountCount = accountCount;
+    }
+
+    public long getOnlineCount() {
+        return onlineCount;
+    }
+
+    public void setOnlineCount(long onlineCount) {
+        this.onlineCount = onlineCount;
+    }
+
+    public long getRiskCount() {
+        return riskCount;
+    }
+
+    public void setRiskCount(long riskCount) {
+        this.riskCount = riskCount;
+    }
+
+    public long getBannedCount() {
+        return bannedCount;
+    }
+
+    public void setBannedCount(long bannedCount) {
+        this.bannedCount = bannedCount;
     }
 
     public Long getCreatedAt() {

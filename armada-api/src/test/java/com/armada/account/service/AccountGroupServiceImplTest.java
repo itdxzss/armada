@@ -60,7 +60,7 @@ class AccountGroupServiceImplTest {
     void list_callsSelectPage_whenTotalNonZero() {
         AccountGroupQuery q = new AccountGroupQuery();
         AccountGroupVoRow row = new AccountGroupVoRow();
-        AccountGroupVO vo = new AccountGroupVO(1L, "分组A", null, 0, 0L, 0L, null, null);
+        AccountGroupVO vo = new AccountGroupVO(1L, "分组A", null, 0, 0L, 0L, 0L, 0L, null, null);
         when(mapper.countPage(q)).thenReturn(1L);
         when(mapper.selectPage(q)).thenReturn(List.of(row));
         when(converter.toGroupVOList(List.of(row))).thenReturn(List.of(vo));
@@ -141,6 +141,17 @@ class AccountGroupServiceImplTest {
     }
 
     @Test
+    void create_tooLongRemark_throwsBeforeMapper() {
+        String remark = "x".repeat(256);
+
+        assertThatThrownBy(() -> service.create(new AccountGroupDTO("新分组", remark)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("备注不能超过255个字符");
+        verify(mapper, never()).selectActiveByName(any());
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
     void create_deletedNameExists_reviveAndUpdate_notInsert() {
         when(mapper.selectActiveByName("复活分组")).thenReturn(null);
         AccountGroup deleted = new AccountGroup();
@@ -180,6 +191,17 @@ class AccountGroupServiceImplTest {
         assertThatThrownBy(() -> service.update(1L, new AccountGroupDTO("  ", null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("名称不能为空");
+        verify(mapper, never()).updateProfile(any());
+    }
+
+    @Test
+    void update_tooLongRemark_throwsBeforeMapper() {
+        String remark = "x".repeat(256);
+
+        assertThatThrownBy(() -> service.update(1L, new AccountGroupDTO("新名称", remark)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("备注不能超过255个字符");
+        verify(mapper, never()).selectById(anyLong());
         verify(mapper, never()).updateProfile(any());
     }
 

@@ -74,6 +74,16 @@ public interface JoinTaskService {
     JoinTaskDetailVO updateTask(Long id, CreateJoinTaskDTO req);
 
     /**
+     * 启动进群任务。
+     *
+     * <p>仅 DRAFT 任务可启动。状态先落 RUNNING,事务提交后触发后台 worker 执行计划行。</p>
+     *
+     * @param id 任务 ID
+     * @throws BusinessException 任务不存在抛 {@link ErrorCode#NOT_FOUND};非 DRAFT 抛 {@link ErrorCode#VALIDATION}
+     */
+    void startTask(Long id);
+
+    /**
      * 批量软删进群任务(置 deleted_at,幂等)。
      *
      * @param ids 任务 id 列表;null/空返回 0

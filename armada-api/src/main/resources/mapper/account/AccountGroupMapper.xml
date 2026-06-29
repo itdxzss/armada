@@ -16,6 +16,18 @@
   <select id="selectPage" resultType="com.armada.account.model.vo.AccountGroupVoRow">
     SELECT g.id, g.name, g.remark, g.system_builtin AS systemBuiltin,
            (SELECT COUNT(*) FROM account a WHERE a.account_group_id = g.id AND a.deleted_at IS NULL) AS accountCount,
+           (SELECT COUNT(*)
+              FROM account a
+              LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.login_state = 1) AS onlineCount,
+           (SELECT COUNT(*)
+              FROM account a
+              LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.risk_status &gt; 1) AS riskCount,
+           (SELECT COUNT(*)
+              FROM account a
+              LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.account_state = 3) AS bannedCount,
            g.created_at AS createdAt, g.updated_at AS updatedAt
     FROM account_group g
     WHERE <include refid="filter"/>

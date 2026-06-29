@@ -35,6 +35,38 @@ public interface JoinTaskResultMapper {
     List<JoinTaskResult> selectResultsByTask(@Param("joinTaskId") Long joinTaskId);
 
     /**
+     * 查询待执行计划行，按 id 升序。
+     *
+     * @param joinTaskId 进群任务 ID
+     * @return 待执行行列表
+     */
+    List<JoinTaskResult> selectPendingResultsByTask(@Param("joinTaskId") Long joinTaskId);
+
+    /**
+     * 把单行标记为成功并回填群 JID。
+     *
+     * @param id        明细行 ID
+     * @param groupJid  协议层返回的群 JID
+     * @param updatedAt 更新时间(epoch 毫秒)
+     * @return 受影响行数
+     */
+    int updateResultSuccess(@Param("id") Long id,
+                            @Param("groupJid") String groupJid,
+                            @Param("updatedAt") long updatedAt);
+
+    /**
+     * 把单行标记为失败并写失败原因。
+     *
+     * @param id        明细行 ID
+     * @param reason    失败原因码或摘要
+     * @param updatedAt 更新时间(epoch 毫秒)
+     * @return 受影响行数
+     */
+    int updateResultFailed(@Param("id") Long id,
+                           @Param("reason") String reason,
+                           @Param("updatedAt") long updatedAt);
+
+    /**
      * 物理删除指定任务的全部计划行，供编辑重建时清空旧行使用。
      *
      * @param joinTaskId 进群任务 ID

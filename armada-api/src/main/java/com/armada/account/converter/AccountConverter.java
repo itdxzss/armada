@@ -21,12 +21,9 @@ public interface AccountConverter {
     /**
      * Mapper 投影行 → 出参 VO。
      *
-     * <p>onlineCount 暂恒为 0(step3 再接在线汇总)。</p>
-     *
      * @param row Mapper 查询投影
      * @return 前端出参
      */
-    @Mapping(target = "onlineCount", constant = "0L")
     AccountGroupVO toGroupVO(AccountGroupVoRow row);
 
     /**

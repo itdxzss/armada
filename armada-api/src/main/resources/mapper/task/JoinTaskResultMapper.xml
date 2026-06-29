@@ -33,6 +33,35 @@
     SELECT * FROM join_task_result WHERE join_task_id = #{joinTaskId} ORDER BY id
   </select>
 
+  <!-- 引擎取待执行行；ORDER BY id 保持计划顺序。 -->
+  <select id="selectPendingResultsByTask" resultMap="resultRow">
+    SELECT * FROM join_task_result
+    WHERE join_task_id = #{joinTaskId}
+      AND status = 'PENDING'
+    ORDER BY id
+  </select>
+
+  <!-- 只允许 PENDING -> SUCCESS，避免重复 worker 覆盖终态。 -->
+  <update id="updateResultSuccess">
+    UPDATE join_task_result SET
+      status = 'SUCCESS',
+      reason = '',
+      group_jid = #{groupJid},
+      updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = 'PENDING'
+  </update>
+
+  <!-- 只允许 PENDING -> FAILED，避免重复 worker 覆盖终态。 -->
+  <update id="updateResultFailed">
+    UPDATE join_task_result SET
+      status = 'FAILED',
+      reason = #{reason},
+      updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = 'PENDING'
+  </update>
+
   <!-- 物理删除指定任务的全部计划行，供编辑重建时清空旧行使用。 -->
   <delete id="deleteResultsByTask">
     DELETE FROM join_task_result WHERE join_task_id = #{joinTaskId}

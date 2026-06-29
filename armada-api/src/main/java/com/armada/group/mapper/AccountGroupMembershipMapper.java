@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.vo.GroupMemberQueryAccount;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -68,6 +69,16 @@ public interface AccountGroupMembershipMapper {
      * @return 影响行数
      */
     int upsertMembership(AccountGroupMembership row);
+
+    /**
+     * 选择一个当前在线且在群内的账号,用于实时查询该群成员列表。
+     *
+     * @param groupLinkId      群链接 ID
+     * @param onlineLoginState 在线登录态码
+     * @return 查询账号;没有可用账号时返回 null
+     */
+    GroupMemberQueryAccount selectOnlineMemberQueryAccount(@Param("groupLinkId") Long groupLinkId,
+                                                           @Param("onlineLoginState") int onlineLoginState);
 
     /**
      * 将本次回报中未出现的账号群关系标记为已不在群内。

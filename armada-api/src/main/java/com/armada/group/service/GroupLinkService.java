@@ -2,6 +2,7 @@ package com.armada.group.service;
 
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.shared.response.PageResult;
@@ -38,6 +39,16 @@ public interface GroupLinkService {
      * @return 批量预览结果
      */
     GroupLinkPreviewBatchVO previewBatch(GroupLinkPreviewDTO dto);
+
+    /**
+     * 实时查询群链接对应群的成员列表。
+     *
+     * <p>该方法只读协议层实时快照,不持久化成员明细。</p>
+     *
+     * @param id 群链接 ID
+     * @return 当前成员列表快照
+     */
+    GroupLinkMemberListVO members(Long id);
 
     /**
      * 批量软删除群链接。

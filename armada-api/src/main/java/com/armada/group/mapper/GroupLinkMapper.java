@@ -3,6 +3,7 @@ package com.armada.group.mapper;
 import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.vo.GroupMemberLookupTarget;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
@@ -80,6 +81,14 @@ public interface GroupLinkMapper {
      * @return 投影行列表
      */
     List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);
+
+    /**
+     * 查询群成员实时读取所需的群链接目标。
+     *
+     * @param id 群链接 ID
+     * @return 活跃群链接及其已解析 groupJid;不存在时返回 null
+     */
+    GroupMemberLookupTarget selectMemberLookupTarget(@Param("id") Long id);
 
     /**
      * 群链接健康检查候选:跨租户返回已解析 group_jid 且能找到在线在群账号的活动链接。

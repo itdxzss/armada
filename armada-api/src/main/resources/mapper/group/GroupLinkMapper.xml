@@ -170,6 +170,18 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <select id="selectMemberLookupTarget" resultType="com.armada.group.model.vo.GroupMemberLookupTarget">
+    SELECT g.id AS groupLinkId,
+           p.group_jid AS groupJid
+    FROM group_link g
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = g.tenant_id
+     AND p.group_link_id = g.id
+    WHERE g.deleted_at IS NULL
+      AND g.id = #{id}
+    LIMIT 1
+  </select>
+
   <!--
     群链接健康检查候选:跨租户扫描已解析 group_jid 的活动链接,并选择一个在线在群账号执行 metadata。
     规则:

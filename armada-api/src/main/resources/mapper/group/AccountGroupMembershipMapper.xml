@@ -61,6 +61,28 @@
       updated_at = VALUES(updated_at)
   </insert>
 
+  <select id="selectOnlineMemberQueryAccount" resultType="com.armada.group.model.vo.GroupMemberQueryAccount">
+    SELECT a.id AS accountId,
+           a.protocol_account_id AS protocolAccountId
+    FROM account_group_membership m
+    INNER JOIN account a
+      ON a.tenant_id = m.tenant_id
+     AND a.id = m.account_id
+     AND a.deleted_at IS NULL
+     AND a.protocol_account_id IS NOT NULL
+     AND a.protocol_account_id != ''
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+     AND s.login_state = #{onlineLoginState}
+    WHERE m.group_link_id = #{groupLinkId}
+      AND m.deleted_at IS NULL
+    ORDER BY COALESCE(m.is_admin, 0) DESC,
+             COALESCE(m.last_seen_at, 0) DESC,
+             m.id ASC
+    LIMIT 1
+  </select>
+
   <update id="markMissingMembershipsDeleted">
     UPDATE account_group_membership
     SET deleted_at = #{deletedAt},

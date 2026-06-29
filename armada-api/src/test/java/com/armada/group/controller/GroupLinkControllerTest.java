@@ -3,10 +3,13 @@ package com.armada.group.controller;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.group.model.vo.GroupLinkMemberListVO;
+import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.service.FileLinesExtractor;
@@ -43,6 +46,34 @@ class GroupLinkControllerTest {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new GroupLinkController(groupLinkService, importService, extractor))
                 .build();
+    }
+
+    @Test
+    void getMembers_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        GroupLinkMemberListVO vo = new GroupLinkMemberListVO(
+                10L,
+                "120363members@g.us",
+                2,
+                List.of(
+                        new GroupLinkMemberVO(
+                                "8613800000000@s.whatsapp.net", "8613800000000", true, true, "superadmin"),
+                        new GroupLinkMemberVO(
+                                "8613900000000@s.whatsapp.net", "8613900000000", false, false, null)));
+        when(groupLinkService.members(10L)).thenReturn(vo);
+
+        mockMvc.perform(get("/api/group-links/10/members"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.groupLinkId").value(10))
+                .andExpect(jsonPath("$.data.groupJid").value("120363members@g.us"))
+                .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.members[0].jid").value("8613800000000@s.whatsapp.net"))
+                .andExpect(jsonPath("$.data.members[0].phone").value("8613800000000"))
+                .andExpect(jsonPath("$.data.members[0].admin").value(true))
+                .andExpect(jsonPath("$.data.members[0].owner").value(true))
+                .andExpect(jsonPath("$.data.members[0].role").value("superadmin"));
+
+        verify(groupLinkService).members(10L);
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.armada.group.model.dto.GroupLinkMigrateDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.FileLinesExtractor;
@@ -16,6 +17,7 @@ import com.armada.shared.response.PageResult;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -96,6 +98,17 @@ public class GroupLinkController {
     @PostMapping("/batch-preview")
     public ApiResponse<GroupLinkPreviewBatchVO> previewBatch(@RequestBody GroupLinkPreviewDTO dto) {
         return ApiResponse.ok(groupLinkService.previewBatch(dto));
+    }
+
+    /**
+     * 群组明细实时成员列表。
+     *
+     * @param id 群链接 ID
+     * @return 协议层实时返回的成员列表;成员明细不落库
+     */
+    @GetMapping("/{id}/members")
+    public ApiResponse<GroupLinkMemberListVO> members(@PathVariable Long id) {
+        return ApiResponse.ok(groupLinkService.members(id));
     }
 
     /**

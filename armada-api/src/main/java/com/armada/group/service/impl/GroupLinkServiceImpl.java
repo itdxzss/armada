@@ -2,7 +2,9 @@ package com.armada.group.service.impl;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.group.converter.GroupConverter;
+import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
@@ -13,11 +15,17 @@ import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
+import com.armada.group.model.vo.GroupLinkMemberListVO;
+import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupLinkVO;
+import com.armada.group.model.vo.GroupMemberLookupTarget;
+import com.armada.group.model.vo.GroupMemberQueryAccount;
 import com.armada.group.service.GroupLinkService;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
@@ -56,24 +64,30 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkHealthMapper healthMapper;
     private final GroupLinkLabelMapper labelMapper;
+    private final AccountGroupMembershipMapper membershipMapper;
     private final GroupConverter converter;
     private final AccountMapper accountMapper;
     private final GroupPreviewPort groupPreviewPort;
+    private final GroupParticipantPort groupParticipantPort;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
                                 GroupLinkPreviewMapper previewMapper,
                                 GroupLinkHealthMapper healthMapper,
                                 GroupLinkLabelMapper labelMapper,
+                                AccountGroupMembershipMapper membershipMapper,
                                 GroupConverter converter,
                                 AccountMapper accountMapper,
-                                GroupPreviewPort groupPreviewPort) {
+                                GroupPreviewPort groupPreviewPort,
+                                GroupParticipantPort groupParticipantPort) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.healthMapper = healthMapper;
         this.labelMapper = labelMapper;
+        this.membershipMapper = membershipMapper;
         this.converter = converter;
         this.accountMapper = accountMapper;
         this.groupPreviewPort = groupPreviewPort;
+        this.groupParticipantPort = groupParticipantPort;
     }
 
     /**
@@ -176,6 +190,39 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         }
         int total = ids.size();
         return new GroupLinkPreviewBatchVO(total, succeeded, total - succeeded, List.copyOf(items));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>实现要点:成员列表只做实时查询,不落库。查询账号优先来自当前群关系表中仍在线且在群的账号,
+     * 这样前端不需要传协议账号句柄,也避免用不在群账号触发协议层失败。</p>
+     */
+    @Override
+    public GroupLinkMemberListVO members(Long id) {
+        if (id == null || id <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接 ID 不能为空");
+        }
+        GroupMemberLookupTarget target = groupLinkMapper.selectMemberLookupTarget(id);
+        if (target == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
+        }
+        if (target.groupJid() == null || target.groupJid().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接尚未解析群 JID,请先预览或等待账号群同步");
+        }
+        GroupMemberQueryAccount account = membershipMapper.selectOnlineMemberQueryAccount(
+                target.groupLinkId(), AccountLoginStateCode.ONLINE);
+        if (account == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "暂无可用在线账号查询成员");
+        }
+        List<GroupLinkMemberVO> members = groupParticipantPort
+                .listParticipants(account.protocolAccountId(), target.groupJid())
+                .stream()
+                .map(GroupLinkServiceImpl::memberVO)
+                .toList();
+        log.info("群成员实时查询完成 groupLinkId={} groupJid={} accountId={} total={}",
+                target.groupLinkId(), target.groupJid(), account.accountId(), members.size());
+        return new GroupLinkMemberListVO(target.groupLinkId(), target.groupJid(), members.size(), members);
     }
 
     /**
@@ -325,6 +372,16 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                 null,
                 null,
                 null);
+    }
+
+    /** 把协议层成员结果映射成群组明细页 VO。 */
+    private static GroupLinkMemberVO memberVO(GroupParticipantResult participant) {
+        return new GroupLinkMemberVO(
+                participant.jid(),
+                participant.phone(),
+                participant.admin(),
+                participant.owner(),
+                participant.role());
     }
 
     /** 协议层没带 previewAt 时用 Armada 当前时间兜底,保证落库时间轴非空。 */

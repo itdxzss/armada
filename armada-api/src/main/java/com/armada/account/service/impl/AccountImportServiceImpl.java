@@ -8,6 +8,7 @@ import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.entity.ParsedEntry;
@@ -248,6 +249,9 @@ public class AccountImportServiceImpl implements AccountImportService {
         d.setParseResult(cls.result().getCode());
         d.setFailReason(cls.failReason());
         // loginResult 不写(NULL=未登录/步骤1)
+        d.setOnlinePhase(cls.result() == ImportResult.SUCCESS
+                ? AccountImportOnlinePhase.QUEUED
+                : AccountImportOnlinePhase.SKIPPED);
         d.setCreatedAt(now);
         return d;
     }

@@ -8,11 +8,14 @@ import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.AccountState;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 5 写路径 Mapper 真库测试:验「三步写最小链」链路 + DB 唯一键兜底。
@@ -37,6 +40,9 @@ class AccountImportWriteMapperDbTest extends DbTestBase {
 
     @Autowired
     AccountGroupMapper groupMapper;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     /** 构造最小合法 Account 实体(仅必填字段)。 */
     private Account newAccount(String wsPhone, long now) {
@@ -153,5 +159,57 @@ class AccountImportWriteMapperDbTest extends DbTestBase {
 
         int inserted = detailMapper.batchInsert(List.of(d1, d2));
         assertThat(inserted).isEqualTo(2);
+    }
+
+    @Test
+    void insertDetails_persistsOnlineTrackingFields() {
+        long now = 1_700_000_000_000L;
+        Long groupId = createTestGroup(now);
+
+        Account account = newAccount("8613800138100", now);
+        accountMapper.insert(account);
+
+        AccountImportBatch batch = new AccountImportBatch();
+        batch.setAccountGroupId(groupId);
+        batch.setSourceFileName("测试批次-online-tracking");
+        batch.setImportFormat(2);
+        batch.setTotalRows(1);
+        batch.setImportedRows(1);
+        batch.setDuplicateRows(0);
+        batch.setFormatErrorRows(0);
+        batch.setStatus(2);
+        batch.setCreatedAt(now);
+        batchMapper.insert(batch);
+
+        AccountImportDetail detail = new AccountImportDetail();
+        detail.setBatchId(batch.getId());
+        detail.setLineNo(1);
+        detail.setWsPhone("8613800138100");
+        detail.setAccountId(account.getId());
+        detail.setParseResult(1);
+        detail.setLoginResult(2);
+        detail.setOnlinePhase(AccountImportOnlinePhase.SETTLED);
+        detail.setOnlineDispatchedAt(now + 10_000);
+        detail.setLoginSettledAt(now + 20_000);
+        detail.setDispatchAttempts(2);
+        detail.setLoginReason("LOGIN_TIMEOUT");
+        detail.setCreatedAt(now);
+
+        int inserted = detailMapper.batchInsert(List.of(detail));
+
+        assertThat(inserted).isEqualTo(1);
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                """
+                SELECT online_phase, online_dispatched_at, login_settled_at,
+                       dispatch_attempts, login_reason
+                FROM account_import_detail
+                WHERE batch_id = ? AND line_no = ?
+                """,
+                batch.getId(), 1);
+        assertThat(((Number) row.get("online_phase")).intValue()).isEqualTo(AccountImportOnlinePhase.SETTLED);
+        assertThat(((Number) row.get("online_dispatched_at")).longValue()).isEqualTo(now + 10_000);
+        assertThat(((Number) row.get("login_settled_at")).longValue()).isEqualTo(now + 20_000);
+        assertThat(((Number) row.get("dispatch_attempts")).intValue()).isEqualTo(2);
+        assertThat(row.get("login_reason")).isEqualTo("LOGIN_TIMEOUT");
     }
 }

@@ -8,12 +8,15 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.testsupport.DbTestBase;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * AccountImportService 真库集成测试:验三步原子写、批次计数、DB uq 兜底、空内容拒绝。
@@ -33,6 +36,9 @@ class AccountImportServiceImplDbTest extends DbTestBase {
 
     @Autowired
     AccountCredentialMapper credentialMapper;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     /**
      * 核心测试:2 条完整 + 1 条凭据不全 + 1 条批内重复(与第 1 条同 wid)。
@@ -63,6 +69,37 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         assertThat(a.getProtocolAccountId()).isEqualTo("acc_8613800138000");
         assertThat(stateMapper.selectByAccountId(a.getId())).isNotNull();        // 默认行,状态列 NULL
         assertThat(credentialMapper.selectByAccountId(a.getId())).isNotNull();
+    }
+
+    /**
+     * 导入成功行进入待上线队列;失败/重复/凭据不全行不参与自动上线。
+     */
+    @Test
+    void import_successRowsQueuedForOnlineTracking_failedRowsSkipped() {
+        String json = "["
+                + "{\"wid\":\"8613850000001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
+                + "{\"wid\":\"8613850000002\",\"creds\":{\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}},"
+                + "{\"wid\":\"8613850000003\",\"creds\":{\"noiseKey\":{}}},"
+                + "{\"wid\":\"8613850000001\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}"
+                + "]";
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+
+        AccountImportBatchVO batch = service.importAccounts(meta, null, json);
+
+        List<Integer> phases = jdbcTemplate.query(
+                """
+                SELECT online_phase
+                FROM account_import_detail
+                WHERE batch_id = ?
+                ORDER BY line_no ASC
+                """,
+                (rs, rowNum) -> rs.getInt("online_phase"),
+                batch.id());
+        assertThat(phases).containsExactly(
+                AccountImportOnlinePhase.QUEUED,
+                AccountImportOnlinePhase.QUEUED,
+                AccountImportOnlinePhase.SKIPPED,
+                AccountImportOnlinePhase.SKIPPED);
     }
 
     /**

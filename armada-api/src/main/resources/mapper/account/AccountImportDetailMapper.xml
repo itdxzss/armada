@@ -9,12 +9,17 @@
   <insert id="batchInsert">
     INSERT INTO account_import_detail (
       batch_id, line_no, ws_phone, account_id,
-      parse_result, fail_reason, login_result, created_at
+      parse_result, fail_reason, login_result,
+      online_phase, online_dispatched_at, login_settled_at, dispatch_attempts, login_reason,
+      created_at
     ) VALUES
     <foreach collection="rows" item="r" separator=",">
       (
         #{r.batchId}, #{r.lineNo}, #{r.wsPhone}, #{r.accountId},
-        #{r.parseResult}, #{r.failReason}, #{r.loginResult}, #{r.createdAt}
+        #{r.parseResult}, #{r.failReason}, #{r.loginResult},
+        COALESCE(#{r.onlinePhase}, 0), #{r.onlineDispatchedAt}, #{r.loginSettledAt},
+        COALESCE(#{r.dispatchAttempts}, 0), #{r.loginReason},
+        #{r.createdAt}
       )
     </foreach>
   </insert>

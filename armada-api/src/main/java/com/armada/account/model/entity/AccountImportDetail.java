@@ -33,6 +33,21 @@ public class AccountImportDetail {
     /** NULL=未登录/跳过(step1);step3:1成功 2失败 3密钥异常 4封号。 */
     private Integer loginResult;
 
+    /** 导入上线阶段:0跳过/不参与 1待派发 2已派发待回写 3已冻结终态。 */
+    private Integer onlinePhase;
+
+    /** 上线命令派发时间(epoch 毫秒)。 */
+    private Long onlineDispatchedAt;
+
+    /** 本次导入登录结果冻结时间(epoch 毫秒)。 */
+    private Long loginSettledAt;
+
+    /** 上线派发重试次数。 */
+    private Integer dispatchAttempts;
+
+    /** 登录失败/异常原因或派发错误。 */
+    private String loginReason;
+
     /** 创建时间(epoch 毫秒)。 */
     private Long createdAt;
 
@@ -106,6 +121,46 @@ public class AccountImportDetail {
 
     public void setLoginResult(Integer loginResult) {
         this.loginResult = loginResult;
+    }
+
+    public Integer getOnlinePhase() {
+        return onlinePhase;
+    }
+
+    public void setOnlinePhase(Integer onlinePhase) {
+        this.onlinePhase = onlinePhase;
+    }
+
+    public Long getOnlineDispatchedAt() {
+        return onlineDispatchedAt;
+    }
+
+    public void setOnlineDispatchedAt(Long onlineDispatchedAt) {
+        this.onlineDispatchedAt = onlineDispatchedAt;
+    }
+
+    public Long getLoginSettledAt() {
+        return loginSettledAt;
+    }
+
+    public void setLoginSettledAt(Long loginSettledAt) {
+        this.loginSettledAt = loginSettledAt;
+    }
+
+    public Integer getDispatchAttempts() {
+        return dispatchAttempts;
+    }
+
+    public void setDispatchAttempts(Integer dispatchAttempts) {
+        this.dispatchAttempts = dispatchAttempts;
+    }
+
+    public String getLoginReason() {
+        return loginReason;
+    }
+
+    public void setLoginReason(String loginReason) {
+        this.loginReason = loginReason;
     }
 
     public Long getCreatedAt() {

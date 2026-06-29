@@ -80,6 +80,14 @@ public interface GroupLinkMapper {
     List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);
 
     /**
+     * 按 ID 批量查活跃群链接。
+     *
+     * @param ids 群链接 ID 列表
+     * @return 活跃群链接列表;不存在或已软删记录不会返回
+     */
+    List<GroupLink> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /**
      * 批量迁移到目标分组(改 label_id)。
      *
      * @param ids     群链接 ID 列表

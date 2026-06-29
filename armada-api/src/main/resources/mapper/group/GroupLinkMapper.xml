@@ -170,6 +170,19 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <select id="selectActiveByIds" resultType="com.armada.group.model.entity.GroupLink">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT *
+    FROM group_link
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT * FROM group_link WHERE 1=0
+    </if>
+  </select>
+
   <update id="migrateToLabel">
     UPDATE group_link SET label_id = #{labelId}, updated_at = #{updatedAt}
     WHERE deleted_at IS NULL AND id IN

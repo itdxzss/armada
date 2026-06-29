@@ -3,8 +3,10 @@ package com.armada.group.controller;
 import com.armada.group.model.dto.GroupIdsDTO;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkMigrateDTO;
+import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.FileLinesExtractor;
 import com.armada.group.service.GroupLinkImportService;
@@ -83,6 +85,17 @@ public class GroupLinkController {
     @PostMapping("/migrate")
     public ApiResponse<Integer> migrate(@RequestBody GroupLinkMigrateDTO dto) {
         return ApiResponse.ok(groupLinkService.migrate(dto.linkIds(), dto.targetLabelId()));
+    }
+
+    /**
+     * B5 批量实时预览群链接。
+     *
+     * @param dto 预览请求(accountId + ids)
+     * @return 批量预览汇总
+     */
+    @PostMapping("/batch-preview")
+    public ApiResponse<GroupLinkPreviewBatchVO> previewBatch(@RequestBody GroupLinkPreviewDTO dto) {
+        return ApiResponse.ok(groupLinkService.previewBatch(dto));
     }
 
     /**

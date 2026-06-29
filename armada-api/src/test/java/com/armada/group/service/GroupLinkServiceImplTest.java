@@ -9,20 +9,33 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupLinkLabelMapper;
+import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
+import com.armada.platform.protocol.model.result.GroupPreviewResult;
+import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import java.time.Instant;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -36,13 +49,30 @@ class GroupLinkServiceImplTest {
     private GroupLinkMapper groupLinkMapper;
 
     @Mock
+    private GroupLinkPreviewMapper previewMapper;
+
+    @Mock
+    private GroupLinkHealthMapper healthMapper;
+
+    @Mock
     private GroupLinkLabelMapper labelMapper;
 
     @Mock
     private GroupConverter converter;
 
-    @InjectMocks
+    @Mock
+    private AccountMapper accountMapper;
+
+    @Mock
+    private GroupPreviewPort groupPreviewPort;
+
     private GroupLinkServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new GroupLinkServiceImpl(
+                groupLinkMapper, previewMapper, healthMapper, labelMapper, converter, accountMapper, groupPreviewPort);
+    }
 
     // ---- listByLabel ----
 
@@ -189,5 +219,61 @@ class GroupLinkServiceImplTest {
 
         assertThat(result).isEqualTo(3);
         verify(groupLinkMapper).softDeleteByIds(eq(ids), anyLong());
+    }
+
+    // ---- previewBatch ----
+
+    @Test
+    void previewBatch_resolvesProtocolAccountPreviewsLinksAndPersistsSuccessfulSnapshots() {
+        Account account = new Account();
+        account.setId(7L);
+        account.setProtocolAccountId("acc_861111");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+
+        GroupLink link = new GroupLink();
+        link.setId(10L);
+        link.setLinkUrl("https://chat.whatsapp.com/ABC123");
+        when(groupLinkMapper.selectActiveByIds(List.of(10L))).thenReturn(List.of(link));
+        when(groupPreviewPort.preview("acc_861111", "https://chat.whatsapp.com/ABC123"))
+                .thenReturn(new GroupPreviewResult(
+                        "120363preview@g.us",
+                        "预览群",
+                        12,
+                        false,
+                        "8613999999999@s.whatsapp.net",
+                        "hello",
+                        true,
+                        false,
+                        "ABC123",
+                        Instant.parse("2026-06-02T10:00:00Z")));
+
+        GroupLinkPreviewBatchVO result = service.previewBatch(new GroupLinkPreviewDTO(7L, List.of(10L)));
+
+        assertThat(result.total()).isEqualTo(1);
+        assertThat(result.succeeded()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).groupLinkId()).isEqualTo(10L);
+        assertThat(result.items().get(0).success()).isTrue();
+        assertThat(result.items().get(0).groupJid()).isEqualTo("120363preview@g.us");
+        assertThat(result.items().get(0).ownerPhone()).isEqualTo("8613999999999");
+
+        ArgumentCaptor<GroupLinkPreview> previewCaptor = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(previewMapper).upsert(previewCaptor.capture());
+        assertThat(previewCaptor.getValue().getGroupLinkId()).isEqualTo(10L);
+        assertThat(previewCaptor.getValue().getGroupJid()).isEqualTo("120363preview@g.us");
+        assertThat(previewCaptor.getValue().getWaSubject()).isEqualTo("预览群");
+        assertThat(previewCaptor.getValue().getMemberSize()).isEqualTo(12);
+        assertThat(previewCaptor.getValue().getOwnerPhone()).isEqualTo("8613999999999");
+        assertThat(previewCaptor.getValue().getAnnounceOnly()).isTrue();
+
+        ArgumentCaptor<GroupLinkHealth> healthCaptor = ArgumentCaptor.forClass(GroupLinkHealth.class);
+        verify(healthMapper).upsert(healthCaptor.capture());
+        assertThat(healthCaptor.getValue().getGroupLinkId()).isEqualTo(10L);
+        assertThat(healthCaptor.getValue().getHealthStatus()).isEqualTo(1);
+        assertThat(healthCaptor.getValue().getBanned()).isFalse();
+        assertThat(healthCaptor.getValue().getCurrentCount()).isEqualTo(12);
+        assertThat(healthCaptor.getValue().getLastHealthError()).isNull();
+        assertThat(healthCaptor.getValue().getHealthFailureCount()).isZero();
     }
 }

@@ -139,6 +139,22 @@ class GroupLinkMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectActiveByIds_returnsOnlyActiveLinks() {
+        GroupLinkLabel label = insertLabel("批量按ID查询分组");
+        GroupLinkImportBatch batch = insertBatch(label.getId(), "select-active-by-ids.txt");
+
+        GroupLink active = buildLink("chat.whatsapp.com/SelectActiveByIdsA", label.getId(), batch.getId());
+        GroupLink deleted = buildLink("chat.whatsapp.com/SelectActiveByIdsB", label.getId(), batch.getId());
+        mapper.insert(active);
+        mapper.insert(deleted);
+        mapper.softDeleteByIds(List.of(deleted.getId()), System.currentTimeMillis());
+
+        List<GroupLink> rows = mapper.selectActiveByIds(List.of(active.getId(), deleted.getId(), -1L));
+
+        assertThat(rows).extracting(GroupLink::getId).containsExactly(active.getId());
+    }
+
+    @Test
     void adoptActiveIntoImport_setsImportOwnershipWithoutChangingOrigin() {
         GroupLinkLabel label = insertLabel("收编目标分组");
         GroupLinkImportBatch batch = insertBatch(label.getId(), "adopt.txt");

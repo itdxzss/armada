@@ -1,6 +1,8 @@
 package com.armada.group.service;
 
+import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -28,6 +30,14 @@ public interface GroupLinkService {
      * @return 实际迁移行数
      */
     int migrate(List<Long> linkIds, Long targetLabelId);
+
+    /**
+     * 批量实时预览群链接。
+     *
+     * @param dto 账号 ID 与群链接 ID 列表
+     * @return 批量预览结果
+     */
+    GroupLinkPreviewBatchVO previewBatch(GroupLinkPreviewDTO dto);
 
     /**
      * 批量软删除群链接。

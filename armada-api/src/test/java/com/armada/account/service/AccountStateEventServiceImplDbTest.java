@@ -4,18 +4,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountImportLoginResult;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.testsupport.DbTestBase;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 账号状态事件服务真库测试。
@@ -36,6 +42,12 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
 
     @Autowired
     private IpProxyMapper ipProxyMapper;
+
+    @Autowired
+    private AccountImportService importService;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void applyStateChanged_online_updatesLoginStateAndStateSource() {
@@ -139,6 +151,39 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         assertThat(released.getBoundAt()).isNull();
     }
 
+    @Test
+    void applyStateChanged_online_settlesDispatchedImportDetailSuccess() {
+        long now = System.currentTimeMillis();
+        String wsPhone = "86186" + (now % 10_000_000L);
+        AccountImportBatchVO batch = importOneAccount(wsPhone);
+        Account account = accountMapper.selectActiveByWsPhone(wsPhone);
+        long dispatchedAt = now + 1_000L;
+        long eventAt = now + 2_000L;
+
+        int prepared = jdbcTemplate.update(
+                """
+                UPDATE account_import_detail
+                SET online_phase = ?, online_dispatched_at = ?, dispatch_attempts = dispatch_attempts + 1
+                WHERE batch_id = ? AND account_id = ?
+                """,
+                AccountImportOnlinePhase.DISPATCHED, dispatchedAt, batch.id(), account.getId());
+        assertThat(prepared).isEqualTo(1);
+
+        service.applyStateChanged(new AccountStateChangedEvent(
+                account.getProtocolAccountId(),
+                "CONNECTING",
+                "ONLINE",
+                eventAt,
+                "CONNECTED",
+                null));
+
+        Map<String, Object> detail = importDetail(batch.id(), account.getId());
+        assertThat(((Number) detail.get("online_phase")).intValue()).isEqualTo(AccountImportOnlinePhase.SETTLED);
+        assertThat(((Number) detail.get("login_result")).intValue()).isEqualTo(AccountImportLoginResult.SUCCESS);
+        assertThat(((Number) detail.get("login_settled_at")).longValue()).isEqualTo(eventAt);
+        assertThat(detail.get("login_reason")).isNull();
+    }
+
     private Account insertAccount(String wsPhone, long now) {
         Account account = new Account();
         account.setWsPhone(wsPhone);
@@ -150,6 +195,25 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         account.setUpdatedAt(now);
         accountMapper.insert(account);
         return account;
+    }
+
+    private AccountImportBatchVO importOneAccount(String wsPhone) {
+        String json = "[{\"wid\":\"" + wsPhone
+                + "\",\"creds\":{\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}}]";
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "state-event", null);
+        AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
+        assertThat(batch.importedRows()).isEqualTo(1);
+        return batch;
+    }
+
+    private Map<String, Object> importDetail(Long batchId, Long accountId) {
+        return jdbcTemplate.queryForMap(
+                """
+                SELECT online_phase, login_result, login_settled_at, login_reason
+                FROM account_import_detail
+                WHERE batch_id = ? AND account_id = ?
+                """,
+                batchId, accountId);
     }
 
     private void insertDefaultState(Long accountId, long now) {

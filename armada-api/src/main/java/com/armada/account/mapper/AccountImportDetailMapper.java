@@ -1,7 +1,9 @@
 package com.armada.account.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.entity.AccountImportDetail;
+import com.armada.account.model.entity.AccountImportLoginResultSettlement;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -18,6 +20,64 @@ public interface AccountImportDetailMapper {
      * tenant_id 由拦截器注入,不手写。
      */
     int batchInsert(@Param("rows") List<AccountImportDetail> rows);
+
+    /**
+     * 跨租户扫描存在待派发导入明细的租户 ID。
+     *
+     * <p>后台 job 没有天然租户上下文,这里关闭租户拦截器只读取 tenant_id,随后按租户重建上下文。</p>
+     *
+     * @param queuedPhase        待派发阶段码
+     * @param successParseResult 成功导入 parse_result 码
+     * @param limit              最多返回租户数
+     * @return 有待派发明细的租户 ID 列表
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<Long> selectQueuedTenantIds(@Param("queuedPhase") int queuedPhase,
+                                     @Param("successParseResult") int successParseResult,
+                                     @Param("limit") int limit);
+
+    /**
+     * 锁定指定租户最多一批待派发导入明细。
+     *
+     * <p>使用 {@code LIMIT ... FOR UPDATE} 时关闭租户拦截器,SQL 显式写 {@code tenant_id = ?},
+     * 避免租户 SQL 改写破坏 MySQL 锁行语法。</p>
+     *
+     * @param tenantId           租户 ID
+     * @param queuedPhase        待派发阶段码
+     * @param successParseResult 成功导入 parse_result 码
+     * @param limit              批量上限
+     * @return 已锁定的待派发明细
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountImportDetail> selectQueuedForUpdate(@Param("tenantId") Long tenantId,
+                                                    @Param("queuedPhase") int queuedPhase,
+                                                    @Param("successParseResult") int successParseResult,
+                                                    @Param("limit") int limit);
+
+    /**
+     * 将待派发明细推进到已派发阶段。
+     *
+     * @param ids             明细 ID 列表
+     * @param queuedPhase     待派发阶段码
+     * @param dispatchedPhase 已派发阶段码
+     * @param dispatchedAt    派发时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int markDispatched(@Param("ids") List<Long> ids,
+                       @Param("queuedPhase") int queuedPhase,
+                       @Param("dispatchedPhase") int dispatchedPhase,
+                       @Param("dispatchedAt") long dispatchedAt);
+
+    /**
+     * 将已派发上线命令的导入明细冻结为首次登录终态。
+     *
+     * <p>只更新 {@code online_phase=DISPATCHED} 且 {@code login_result IS NULL} 的成功导入明细。
+     * {@code online_dispatched_at &lt;= loginSettledAt} 用于避免旧状态事件结算到本次导入之前的派发。</p>
+     *
+     * @param settlement 登录结果结算参数
+     * @return 更新行数;普通上线无导入明细时为 0
+     */
+    int settleDispatchedLoginResult(@Param("settlement") AccountImportLoginResultSettlement settlement);
 
     /**
      * 按批次 ID 和结果过滤器统计明细总数(SQL 下推)。

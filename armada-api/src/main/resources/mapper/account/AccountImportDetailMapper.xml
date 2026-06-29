@@ -24,6 +24,67 @@
     </foreach>
   </insert>
 
+  <!-- 跨租户扫描存在待派发明细的租户;调用方随后重建 TenantContext 后再跑业务 SQL。 -->
+  <select id="selectQueuedTenantIds" resultType="long">
+    SELECT tenant_id
+    FROM account_import_detail
+    WHERE online_phase = #{queuedPhase}
+      AND parse_result = #{successParseResult}
+      AND account_id IS NOT NULL
+      AND login_result IS NULL
+    GROUP BY tenant_id
+    ORDER BY MIN(id) ASC
+    LIMIT #{limit}
+  </select>
+
+  <!-- 锁定单租户待派发明细;显式 tenant_id + InterceptorIgnore,避免 LIMIT ... FOR UPDATE 被租户拦截器改写。 -->
+  <select id="selectQueuedForUpdate" resultType="com.armada.account.model.entity.AccountImportDetail">
+    SELECT id, tenant_id AS tenantId, batch_id AS batchId, line_no AS lineNo,
+           ws_phone AS wsPhone, account_id AS accountId, parse_result AS parseResult,
+           fail_reason AS failReason, login_result AS loginResult,
+           online_phase AS onlinePhase, online_dispatched_at AS onlineDispatchedAt,
+           login_settled_at AS loginSettledAt, dispatch_attempts AS dispatchAttempts,
+           login_reason AS loginReason, created_at AS createdAt
+    FROM account_import_detail
+    WHERE tenant_id = #{tenantId}
+      AND online_phase = #{queuedPhase}
+      AND parse_result = #{successParseResult}
+      AND account_id IS NOT NULL
+      AND login_result IS NULL
+    ORDER BY id ASC
+    LIMIT #{limit}
+    FOR UPDATE
+  </select>
+
+  <!-- 将已成功写入 outbox 的导入明细推进到 DISPATCHED。ids 为空时调用方不应执行本 SQL。 -->
+  <update id="markDispatched">
+    UPDATE account_import_detail
+    SET online_phase = #{dispatchedPhase},
+        online_dispatched_at = #{dispatchedAt},
+        dispatch_attempts = dispatch_attempts + 1
+    WHERE online_phase = #{queuedPhase}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <!--
+    冻结导入自动上线的首次登录结果。普通上线没有 online_phase=DISPATCHED 的导入明细时更新 0 行。
+    online_dispatched_at 条件确保旧状态事件不会结算到本次导入派发之前。
+  -->
+  <update id="settleDispatchedLoginResult">
+    UPDATE account_import_detail
+    SET online_phase = #{settlement.settledPhase},
+        login_result = #{settlement.loginResult},
+        login_settled_at = #{settlement.loginSettledAt},
+        login_reason = #{settlement.loginReason}
+    WHERE account_id = #{settlement.accountId}
+      AND parse_result = #{settlement.successParseResult}
+      AND online_phase = #{settlement.dispatchedPhase}
+      AND login_result IS NULL
+      AND online_dispatched_at IS NOT NULL
+      AND online_dispatched_at &lt;= #{settlement.loginSettledAt}
+  </update>
+
   <!--
     结果过滤片段:success=只成功(parse_result=1);fail=只失败(IN 2,3,4);all=不限。
     注意:&gt;= / &lt;= 为 XML 转义,防止 DTD 解析异常。

@@ -8,9 +8,11 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
+import com.armada.account.state.AccountStateChangedSideEffect;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -57,6 +59,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private final AccountMapper accountMapper;
     private final AccountStateMapper stateMapper;
     private final IpProxyService ipProxyService;
+    private final List<AccountStateChangedSideEffect> sideEffects;
 
     /**
      * 创建账号协议事件落库服务。
@@ -64,13 +67,16 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
      * @param accountMapper 账号主表 mapper
      * @param stateMapper    账号状态子表 mapper
      * @param ipProxyService IP 代理池服务
+     * @param sideEffects    账号状态收敛后的业务结算扩展点
      */
     public AccountStateEventServiceImpl(AccountMapper accountMapper,
                                         AccountStateMapper stateMapper,
-                                        IpProxyService ipProxyService) {
+                                        IpProxyService ipProxyService,
+                                        List<AccountStateChangedSideEffect> sideEffects) {
         this.accountMapper = accountMapper;
         this.stateMapper = stateMapper;
         this.ipProxyService = ipProxyService;
+        this.sideEffects = List.copyOf(sideEffects);
     }
 
     /**
@@ -105,6 +111,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 : event.semantic(), STATE_SOURCE_MAX_LENGTH);
 
         if (applyLifecycleTransition(account, event, stateSource, occurredAt, updatedAt)) {
+            applySideEffects(account, event, occurredAt);
             releaseIpIfOffline(account, event.to());
             log.info("协议账号状态事件已按生命周期收敛 accountId={} protocolAccountId={} from={} to={} "
                             + "semantic={} rawCode={} occurredAt={}",
@@ -116,6 +123,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         AccountState row = updateRow(account.getId(), mapLoginState(event.to()), null,
                 stateSource, null, occurredAt, updatedAt);
         int updated = stateMapper.updateLoginState(row);
+        applySideEffects(account, event, occurredAt);
         releaseIpIfOffline(account, event.to());
         log.info("协议账号状态事件已更新登录态 accountId={} protocolAccountId={} from={} to={} loginState={} "
                         + "stateSource={} updated={} occurredAt={}",
@@ -148,6 +156,12 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
             return true;
         }
         return false;
+    }
+
+    private void applySideEffects(Account account, AccountStateChangedEvent event, long occurredAt) {
+        for (AccountStateChangedSideEffect sideEffect : sideEffects) {
+            sideEffect.afterStateChanged(account, event, occurredAt);
+        }
     }
 
     private static boolean isForbidden(Integer rawCode) {

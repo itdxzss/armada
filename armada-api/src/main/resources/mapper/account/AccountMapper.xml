@@ -68,6 +68,24 @@
     </if>
   </select>
 
+  <select id="selectIpRegionsByAccountIds" resultType="com.armada.account.model.vo.AccountIpRegionRow">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT d.account_id AS accountId,
+           b.ip_region AS ipRegion
+    FROM account_import_detail d
+    JOIN account_import_batch b ON b.id = d.batch_id AND b.tenant_id = d.tenant_id
+    WHERE d.account_id IS NOT NULL
+      AND d.parse_result = #{successResult}
+      AND b.deleted_at IS NULL
+      AND d.account_id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    ORDER BY d.id ASC
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT NULL AS accountId, NULL AS ipRegion FROM DUAL WHERE 1=0
+    </if>
+  </select>
+
   <!--
     共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。
     accountState/riskStatus 筛选 account_state 表列:step1 导入后该表列全 NULL,条件天然不命中。

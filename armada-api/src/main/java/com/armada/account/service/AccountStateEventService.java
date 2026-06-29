@@ -15,6 +15,8 @@ public interface AccountStateEventService {
      *
      * <p>ONLINE 会写 login_state=1;其它非 ONLINE 状态默认写 login_state=2。
      * NEED_REAUTH+403 收敛为封禁,NEED_REAUTH 非 403 / LOGGED_OUT / DEVICE_REMOVED 收敛为解绑。
+     * OFFLINE、NEED_REAUTH、LOGGED_OUT、DEVICE_REMOVED 会在状态落库后立即释放账号当前绑定 IP;
+     * RECONNECTING 等短暂状态不释放 IP。
      * 当事件时间早于当前 last_state_sync_time 时跳过,避免延迟或重复消息把账号状态回滚。</p>
      *
      * @param event 协议层状态变更事件

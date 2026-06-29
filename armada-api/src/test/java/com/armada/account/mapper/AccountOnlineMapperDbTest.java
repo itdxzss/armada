@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountImportBatch;
+import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.ImportResult;
+import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -28,6 +32,12 @@ class AccountOnlineMapperDbTest extends DbTestBase {
 
     @Autowired
     AccountStateMapper stateMapper;
+
+    @Autowired
+    AccountImportBatchMapper batchMapper;
+
+    @Autowired
+    AccountImportDetailMapper detailMapper;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -69,6 +79,22 @@ class AccountOnlineMapperDbTest extends DbTestBase {
         assertThat(accountIds).containsExactly(online.getId());
     }
 
+    @Test
+    void selectIpRegionsByAccountIds_returnsImportedBatchRegion() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86155" + (now % 10000000L), now);
+        AccountImportBatch batch = insertImportBatch("印度", now);
+        insertSuccessDetail(batch.getId(), account, now);
+
+        List<AccountIpRegionRow> rows = accountMapper.selectIpRegionsByAccountIds(
+                List.of(account.getId(), -1L),
+                ImportResult.SUCCESS.getCode());
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getAccountId()).isEqualTo(account.getId());
+        assertThat(rows.get(0).getIpRegion()).isEqualTo("印度");
+    }
+
     private Account insertAccount(String wsPhone, long now) {
         Account account = new Account();
         account.setWsPhone(wsPhone);
@@ -101,5 +127,34 @@ class AccountOnlineMapperDbTest extends DbTestBase {
         state.setCreatedAt(now);
         state.setUpdatedAt(now);
         stateMapper.insert(state);
+    }
+
+    private AccountImportBatch insertImportBatch(String ipRegion, long now) {
+        AccountImportBatch batch = new AccountImportBatch();
+        batch.setAccountGroupId(1L);
+        batch.setSourceFileName("dbtest.txt");
+        batch.setImportFormat(2);
+        batch.setDeviceOs(1);
+        batch.setAccountType(1);
+        batch.setIpRegion(ipRegion);
+        batch.setTotalRows(1);
+        batch.setImportedRows(1);
+        batch.setDuplicateRows(0);
+        batch.setFormatErrorRows(0);
+        batch.setStatus(2);
+        batch.setCreatedAt(now);
+        batchMapper.insert(batch);
+        return batch;
+    }
+
+    private void insertSuccessDetail(Long batchId, Account account, long now) {
+        AccountImportDetail detail = new AccountImportDetail();
+        detail.setBatchId(batchId);
+        detail.setLineNo(1);
+        detail.setWsPhone(account.getWsPhone());
+        detail.setAccountId(account.getId());
+        detail.setParseResult(ImportResult.SUCCESS.getCode());
+        detail.setCreatedAt(now);
+        detailMapper.batchInsert(List.of(detail));
     }
 }

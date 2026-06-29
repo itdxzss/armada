@@ -8,6 +8,11 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.resource.mapper.IpProxyMapper;
+import com.armada.resource.model.IpProxyStatus;
+import com.armada.resource.model.ProxyOwnership;
+import com.armada.resource.model.ProxyProtocol;
+import com.armada.resource.model.entity.IpProxy;
 import com.armada.testsupport.DbTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +33,9 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
 
     @Autowired
     private AccountStateMapper stateMapper;
+
+    @Autowired
+    private IpProxyMapper ipProxyMapper;
 
     @Test
     void applyStateChanged_online_updatesLoginStateAndStateSource() {
@@ -101,6 +109,36 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         assertThat(state.getStateSource()).isEqualTo("RECONNECTING");
     }
 
+    @Test
+    void applyStateChanged_offline_releasesBoundIpImmediately() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86185" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        IpProxy proxy = newIdleProxy(now);
+        ipProxyMapper.insert(proxy);
+        ipProxyMapper.markUsingAndBind(
+                proxy.getId(),
+                account.getId(),
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 1);
+
+        service.applyStateChanged(new AccountStateChangedEvent(
+                account.getProtocolAccountId(),
+                "ONLINE",
+                "OFFLINE",
+                now + 2_000L,
+                "OFFLINE",
+                null));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+        IpProxy released = ipProxyMapper.selectActiveById(proxy.getId());
+        assertThat(released.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(released.getBoundAccountId()).isNull();
+        assertThat(released.getBoundAt()).isNull();
+    }
+
     private Account insertAccount(String wsPhone, long now) {
         Account account = new Account();
         account.setWsPhone(wsPhone);
@@ -122,5 +160,21 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         state.setCreatedAt(now);
         state.setUpdatedAt(now);
         stateMapper.insert(state);
+    }
+
+    private static IpProxy newIdleProxy(long suffix) {
+        IpProxy proxy = new IpProxy();
+        proxy.setHost("state-event-proxy-" + suffix + ".internal");
+        proxy.setPort(1080);
+        proxy.setProtocol(ProxyProtocol.SOCKS5.code());
+        proxy.setUsername("stateUser" + suffix);
+        proxy.setPassword("statePass_session-Abc123" + suffix);
+        proxy.setRegion("印度");
+        proxy.setStatus(IpProxyStatus.IDLE.code());
+        proxy.setSource("dbtest");
+        proxy.setOwnership(ProxyOwnership.OWNED.code());
+        proxy.setCreatedAt(suffix);
+        proxy.setUpdatedAt(suffix);
+        return proxy;
     }
 }

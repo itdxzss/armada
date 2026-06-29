@@ -157,7 +157,12 @@ class IpProxyServiceImplTest {
                     eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(1);
-            when(mapper.selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code())).thenReturn(row);
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    List.of())).thenReturn(row);
             when(mapper.markUsingAndBind(
                     eq(10L),
                     eq(100L),
@@ -165,7 +170,8 @@ class IpProxyServiceImplTest {
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(1);
 
-            IpProxyAllocation allocation = service.allocateOnlineEndpoint(100L);
+            IpProxyAllocation allocation = service.allocateOnlineEndpoint(
+                    new IpProxyAllocationRequest(100L, "印度"));
 
             assertThat(allocation.proxyId()).isEqualTo(10L);
             assertThat(allocation.endpoint().protocolCode()).isEqualTo(ProxyEndpoint.PROTOCOL_SOCKS5);
@@ -179,7 +185,12 @@ class IpProxyServiceImplTest {
             InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
             inOrder.verify(mapper).releaseByAccount(
                     eq(100L), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
-            inOrder.verify(mapper).selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code());
+            inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    List.of());
             inOrder.verify(mapper).markUsingAndBind(
                     eq(10L), eq(100L), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
         } finally {
@@ -193,20 +204,33 @@ class IpProxyServiceImplTest {
         try {
             IpProxy proxyA = idleProxy(10L, "proxy-a.internal");
             IpProxy proxyB = idleProxy(11L, "proxy-b.internal");
+            List<IpProxyAllocationRequest> requests = List.of(
+                    new IpProxyAllocationRequest(100L, "印度"),
+                    new IpProxyAllocationRequest(101L, "马来西亚"));
             when(mapper.releaseByAccounts(
                     eq(List.of(100L, 101L)),
                     eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(2);
-            when(mapper.selectIdleForUpdate(1L, IpProxyStatus.IDLE.code(), 2))
-                    .thenReturn(List.of(proxyA, proxyB));
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    List.of())).thenReturn(proxyA);
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "马来西亚",
+                    "混合（不限国家）",
+                    List.of(10L))).thenReturn(proxyB);
             when(mapper.markUsingAndBindBatch(
                     any(),
                     eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(2);
 
-            List<IpProxyAccountAllocation> allocations = service.allocateOnlineEndpoints(List.of(100L, 101L));
+            List<IpProxyAccountAllocation> allocations = service.allocateOnlineEndpoints(requests);
 
             assertThat(allocations).hasSize(2);
             assertThat(allocations).extracting(IpProxyAccountAllocation::accountId)
@@ -231,10 +255,12 @@ class IpProxyServiceImplTest {
             InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
             inOrder.verify(mapper).releaseByAccounts(
                     eq(List.of(100L, 101L)), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
-            inOrder.verify(mapper).selectIdleForUpdate(1L, IpProxyStatus.IDLE.code(), 2);
+            inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
+                    1L, IpProxyStatus.IDLE.code(), "印度", "混合（不限国家）", List.of());
+            inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
+                    1L, IpProxyStatus.IDLE.code(), "马来西亚", "混合（不限国家）", List.of(10L));
             inOrder.verify(mapper).markUsingAndBindBatch(
                     any(), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
-            verify(mapper, never()).selectOneIdleForUpdate(anyLong(), anyInt());
         } finally {
             TenantContext.clear();
         }
@@ -244,17 +270,29 @@ class IpProxyServiceImplTest {
     void allocateOnlineEndpointsExcludingProxyIds_releasesOldBindingsAndLocksIdleRowsExcludingDeletedIps() {
         TenantContext.set(1L);
         try {
-            List<Long> accountIds = List.of(100L, 101L);
+            List<IpProxyAllocationRequest> requests = List.of(
+                    new IpProxyAllocationRequest(100L, "印度"),
+                    new IpProxyAllocationRequest(101L, "马来西亚"));
             List<Long> excludedProxyIds = List.of(10L, 11L);
             IpProxy proxyA = idleProxy(20L, "proxy-a.internal");
             IpProxy proxyB = idleProxy(21L, "proxy-b.internal");
             when(mapper.releaseByAccounts(
-                    eq(accountIds),
+                    eq(List.of(100L, 101L)),
                     eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(2);
-            when(mapper.selectIdleExcludingForUpdate(1L, IpProxyStatus.IDLE.code(), accountIds.size(), excludedProxyIds))
-                    .thenReturn(List.of(proxyA, proxyB));
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    excludedProxyIds)).thenReturn(proxyA);
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "马来西亚",
+                    "混合（不限国家）",
+                    List.of(10L, 11L, 20L))).thenReturn(proxyB);
             when(mapper.markUsingAndBindBatch(
                     any(),
                     eq(IpProxyStatus.IDLE.code()),
@@ -262,15 +300,17 @@ class IpProxyServiceImplTest {
                     anyLong())).thenReturn(2);
 
             List<IpProxyAccountAllocation> allocations =
-                    service.allocateOnlineEndpointsExcludingProxyIds(accountIds, excludedProxyIds);
+                    service.allocateOnlineEndpointsExcludingProxyIds(requests, excludedProxyIds);
 
             assertThat(allocations).extracting(IpProxyAccountAllocation::proxyId)
                     .containsExactly(20L, 21L);
             InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
             inOrder.verify(mapper).releaseByAccounts(
-                    eq(accountIds), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
-            inOrder.verify(mapper).selectIdleExcludingForUpdate(
-                    1L, IpProxyStatus.IDLE.code(), accountIds.size(), excludedProxyIds);
+                    eq(List.of(100L, 101L)), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
+            inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
+                    1L, IpProxyStatus.IDLE.code(), "印度", "混合（不限国家）", excludedProxyIds);
+            inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
+                    1L, IpProxyStatus.IDLE.code(), "马来西亚", "混合（不限国家）", List.of(10L, 11L, 20L));
             inOrder.verify(mapper).markUsingAndBindBatch(
                     any(), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
         } finally {
@@ -309,7 +349,7 @@ class IpProxyServiceImplTest {
     void allocateOnlineEndpoint_missingTenant_throwsTenantMissingBeforeMapper() {
         TenantContext.clear();
 
-        assertThatThrownBy(() -> service.allocateOnlineEndpoint(100L))
+        assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.TENANT_MISSING.code());
                     assertThat(ex.getMessage()).contains("缺少租户上下文");
@@ -326,9 +366,14 @@ class IpProxyServiceImplTest {
                     eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(0);
-            when(mapper.selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code())).thenReturn(null);
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    List.of())).thenReturn(null);
 
-            assertThatThrownBy(() -> service.allocateOnlineEndpoint(100L))
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                     .isInstanceOfSatisfying(BusinessException.class, ex -> {
                         assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
                         assertThat(ex.getMessage()).contains("暂无空闲代理");
@@ -348,7 +393,12 @@ class IpProxyServiceImplTest {
                     eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(0);
-            when(mapper.selectOneIdleForUpdate(1L, IpProxyStatus.IDLE.code())).thenReturn(idleProxy());
+            when(mapper.selectOneIdleByRegionPriorityForUpdate(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    List.of())).thenReturn(idleProxy());
             when(mapper.markUsingAndBind(
                     eq(10L),
                     eq(100L),
@@ -356,7 +406,7 @@ class IpProxyServiceImplTest {
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(0);
 
-            assertThatThrownBy(() -> service.allocateOnlineEndpoint(100L))
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                     .isInstanceOfSatisfying(BusinessException.class, ex -> {
                         assertThat(ex.getCode()).isEqualTo(ErrorCode.CONFLICT.code());
                         assertThat(ex.getMessage()).contains("代理分配冲突");

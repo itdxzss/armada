@@ -40,38 +40,38 @@ public interface IpProxyService {
      *
      * <p>本方法是 resource 域暴露给 account 域的跨域边界:account 域只能拿到
      * {@link IpProxyAllocation} 结果,看不到 resource mapper/entity。方法内部短事务会先释放该账号旧绑定,
-     * 再 {@code SELECT ... FOR UPDATE} 锁定一条本租户 IDLE 代理并置为 IN_USE。</p>
+     * 再按「指定国家 → 混合 → 其它国家」优先级锁定一条本租户 IDLE 代理并置为 IN_USE。</p>
      *
-     * @param accountId 账号主键
+     * @param request 账号主键与导入时选择的 IP 国家
      * @return 协议上线编排可使用的代理分配结果
      * @throws BusinessException 当账号 ID 为空、缺少租户上下文、没有空闲代理或分配冲突时抛出
      */
-    IpProxyAllocation allocateOnlineEndpoint(Long accountId);
+    IpProxyAllocation allocateOnlineEndpoint(IpProxyAllocationRequest request);
 
     /**
      * 为一批账号上线分配空闲代理。
      *
-     * <p>本方法在一个本地短事务中完成:批量释放这些账号旧绑定、锁定同等数量 IDLE 代理、
+     * <p>本方法在一个本地短事务中完成:批量释放这些账号旧绑定、按每个账号的国家偏好锁定同等数量 IDLE 代理、
      * 再批量绑定为 IN_USE。事务不包含协议 HTTP 调用,只保护本地代理池占用关系。</p>
      *
-     * @param accountIds 账号主键列表,不可为空、不可重复
-     * @return 与 accountIds 顺序一致的代理分配结果
+     * @param requests 账号分配请求列表,不可为空、账号不可重复
+     * @return 与 requests 顺序一致的代理分配结果
      * @throws BusinessException 当账号列表为空、缺少租户上下文、空闲代理不足或分配冲突时抛出
      */
-    List<IpProxyAccountAllocation> allocateOnlineEndpoints(List<Long> accountIds);
+    List<IpProxyAccountAllocation> allocateOnlineEndpoints(List<IpProxyAllocationRequest> requests);
 
     /**
      * 为一批账号上线分配空闲代理,并排除指定代理 ID。
      *
      * <p>用于删除 IP 前的在线账号重登:被删除的旧 IP 会先被释放,但不能再次被本次分配选中。</p>
      *
-     * @param accountIds       账号主键列表,不可为空、不可重复
+     * @param requests         账号分配请求列表,不可为空、账号不可重复
      * @param excludedProxyIds 本次分配禁止选中的代理 ID 列表
-     * @return 与 accountIds 顺序一致的代理分配结果
+     * @return 与 requests 顺序一致的代理分配结果
      * @throws BusinessException 当账号列表为空、代理 ID 为空、缺少租户上下文、空闲代理不足或分配冲突时抛出
      */
     List<IpProxyAccountAllocation> allocateOnlineEndpointsExcludingProxyIds(
-            List<Long> accountIds,
+            List<IpProxyAllocationRequest> requests,
             List<Long> excludedProxyIds);
 
     /**
@@ -106,5 +106,16 @@ public interface IpProxyService {
      * @throws BusinessException 当列表为空或存在空账号/代理 ID 时抛出
      */
     void releaseOnlineAllocations(List<IpProxyAccountAllocation> allocations);
+
+    /**
+     * 释放账号当前占用的代理回空闲池。
+     *
+     * <p>用于协议层确认账号离线后的正常释放。该方法只按账号 ID 释放当前 IN_USE 绑定,
+     * 不要求调用方知道具体代理 ID。</p>
+     *
+     * @param accountId 账号主键
+     * @throws BusinessException 当账号 ID 为空时抛出
+     */
+    void releaseByAccount(Long accountId);
 
 }

@@ -6,6 +6,8 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.ImportFormat;
+import com.armada.account.model.entity.ImportResult;
+import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
@@ -18,6 +20,7 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.resource.service.IpProxyAccountAllocation;
 import com.armada.resource.service.IpProxyAllocation;
+import com.armada.resource.service.IpProxyAllocationRequest;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -84,8 +87,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         Account account = loadAccount(accountId);
         AccountCredential credential = loadCredential(account.getId());
 
-        // 2. 用户点击上线时不复用旧绑定:resource 服务先释放该账号旧 IP,再锁定一条空闲代理并置为使用中。
-        IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(account.getId());
+        // 2. resource 服务先释放该账号旧 IP,再按国家偏好锁定一条空闲代理并置为使用中。
+        IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(allocationRequest(account.getId()));
 
         try {
             // 3. outbox 只保存凭据格式和代理 ID;日志只打 JSON 长度,避免凭据泄露。
@@ -130,7 +133,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
                 ids,
                 SOURCE_BATCH_ONLINE,
-                () -> ipProxyService.allocateOnlineEndpoints(ids));
+                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)));
         log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
                         + "error={} remote={} elapsedMs={}",
                 vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
@@ -167,7 +170,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
                 ids,
                 SOURCE_IP_DELETE_RELOGIN,
-                () -> ipProxyService.allocateOnlineEndpointsExcludingProxyIds(ids, normalizedProxyIds));
+                () -> ipProxyService.allocateOnlineEndpointsExcludingProxyIds(allocationRequests(ids), normalizedProxyIds));
         log.info("IP删除重登 outbox 已受理 requested={} accepted={}", vo.requested(), vo.accepted());
         return vo;
     }
@@ -255,6 +258,27 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             }
         }
         return credentialsByAccountId;
+    }
+
+    private IpProxyAllocationRequest allocationRequest(Long accountId) {
+        return allocationRequests(List.of(accountId)).get(0);
+    }
+
+    private List<IpProxyAllocationRequest> allocationRequests(List<Long> ids) {
+        Map<Long, String> ipRegionsByAccountId = loadIpRegions(ids);
+        List<IpProxyAllocationRequest> requests = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            requests.add(new IpProxyAllocationRequest(id, ipRegionsByAccountId.get(id)));
+        }
+        return requests;
+    }
+
+    private Map<Long, String> loadIpRegions(List<Long> ids) {
+        Map<Long, String> ipRegionsByAccountId = new HashMap<>();
+        for (AccountIpRegionRow row : accountMapper.selectIpRegionsByAccountIds(ids, ImportResult.SUCCESS.getCode())) {
+            ipRegionsByAccountId.putIfAbsent(row.getAccountId(), row.getIpRegion());
+        }
+        return ipRegionsByAccountId;
     }
 
     /**

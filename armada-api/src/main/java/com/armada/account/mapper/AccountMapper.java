@@ -3,6 +3,7 @@ package com.armada.account.mapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVoRow;
 import java.util.List;
@@ -66,6 +67,18 @@ public interface AccountMapper {
      */
     List<Long> selectOnlineAccountIdsByIds(@Param("ids") List<Long> ids,
                                            @Param("onlineLoginState") int onlineLoginState);
+
+    /**
+     * 查询账号导入时选择的 IP 国家。
+     *
+     * <p>上线分配代理使用该值作为国家优先级来源。若账号没有成功导入明细,调用方按无偏好处理。</p>
+     *
+     * @param ids           账号主键列表
+     * @param successResult 导入明细成功状态码
+     * @return 每个可追溯导入批次的账号 IP 国家
+     */
+    List<AccountIpRegionRow> selectIpRegionsByAccountIds(@Param("ids") List<Long> ids,
+                                                         @Param("successResult") int successResult);
 
     /**
      * 按筛选条件统计账号总数(SQL 下推,与 selectPage 共享 filter 片段)。

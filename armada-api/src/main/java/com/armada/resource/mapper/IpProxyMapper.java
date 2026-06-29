@@ -33,35 +33,18 @@ public interface IpProxyMapper {
     IpProxy selectActiveById(@Param("id") Long id);
 
     /**
-     * 锁定一条本租户空闲代理,用于账号上线前的本地分配短事务。
+     * 按国家优先级锁定一条本租户空闲代理。
      *
-     * <p>这里显式传 tenantId 并关闭租户拦截器,避免租户 SQL 改写影响
-     * {@code LIMIT ... FOR UPDATE} 的语法和锁范围。</p>
-     */
-    @InterceptorIgnore(tenantLine = "true")
-    IpProxy selectOneIdleForUpdate(@Param("tenantId") Long tenantId, @Param("idleStatus") int idleStatus);
-
-    /**
-     * 锁定一批本租户空闲代理,用于批量上线前的本地代理分配短事务。
-     *
-     * <p>调用方必须在同一事务内完成后续绑定更新;这里显式传 tenantId 并关闭租户拦截器,
+     * <p>排序规则由调用方传入的 {@code preferredRegion} 决定:有指定国家时优先指定国家,
+     * 其次混合池,最后其它国家;无指定国家时混合池优先,其次其它国家。这里显式传 tenantId 并关闭租户拦截器,
      * 避免租户 SQL 改写影响 {@code LIMIT ... FOR UPDATE}。</p>
      */
     @InterceptorIgnore(tenantLine = "true")
-    List<IpProxy> selectIdleForUpdate(@Param("tenantId") Long tenantId,
-                                      @Param("idleStatus") int idleStatus,
-                                      @Param("limit") int limit);
-
-    /**
-     * 锁定一批本租户空闲代理,并排除指定代理 ID。
-     *
-     * <p>用于删除 IP 前的在线账号重登,避免刚释放的旧 IP 又被同一批重登重新分配。</p>
-     */
-    @InterceptorIgnore(tenantLine = "true")
-    List<IpProxy> selectIdleExcludingForUpdate(@Param("tenantId") Long tenantId,
-                                               @Param("idleStatus") int idleStatus,
-                                               @Param("limit") int limit,
-                                               @Param("excludedIds") List<Long> excludedIds);
+    IpProxy selectOneIdleByRegionPriorityForUpdate(@Param("tenantId") Long tenantId,
+                                                   @Param("idleStatus") int idleStatus,
+                                                   @Param("preferredRegion") String preferredRegion,
+                                                   @Param("mixedRegion") String mixedRegion,
+                                                   @Param("excludedIds") List<Long> excludedIds);
 
     /**
      * 将已锁定的空闲代理绑定到账号并置为使用中。

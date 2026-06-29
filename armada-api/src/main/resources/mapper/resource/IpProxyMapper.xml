@@ -60,29 +60,7 @@
         LIMIT 1
     </select>
 
-    <select id="selectOneIdleForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
-        SELECT <include refid="Columns"/>
-        FROM ip_proxy
-        WHERE tenant_id = #{tenantId}
-          AND deleted_at IS NULL
-          AND status = #{idleStatus}
-        ORDER BY id ASC
-        LIMIT 1
-        FOR UPDATE
-    </select>
-
-    <select id="selectIdleForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
-        SELECT <include refid="Columns"/>
-        FROM ip_proxy
-        WHERE tenant_id = #{tenantId}
-          AND deleted_at IS NULL
-          AND status = #{idleStatus}
-        ORDER BY id ASC
-        LIMIT #{limit}
-        FOR UPDATE
-    </select>
-
-    <select id="selectIdleExcludingForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
+    <select id="selectOneIdleByRegionPriorityForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
         SELECT <include refid="Columns"/>
         FROM ip_proxy
         WHERE tenant_id = #{tenantId}
@@ -92,8 +70,24 @@
           AND id NOT IN
           <foreach collection="excludedIds" item="id" open="(" separator="," close=")">#{id}</foreach>
         </if>
-        ORDER BY id ASC
-        LIMIT #{limit}
+        ORDER BY
+        <choose>
+          <when test="preferredRegion != null and preferredRegion != ''">
+            CASE
+              WHEN region = #{preferredRegion} THEN 0
+              WHEN region = #{mixedRegion} THEN 1
+              ELSE 2
+            END
+          </when>
+          <otherwise>
+            CASE
+              WHEN region = #{mixedRegion} THEN 0
+              ELSE 1
+            END
+          </otherwise>
+        </choose>,
+        id ASC
+        LIMIT 1
         FOR UPDATE
     </select>
 

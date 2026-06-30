@@ -56,7 +56,7 @@ public interface AccountConverter {
      * 账号列表投影行 → 列表出参 VO。
      *
      * <p>step1 占位字段(avatarUrl/friendsNum/groupsNum/hyperlinkSentCount)
-     * 恒为 null/0。country/ipSource/truthIp 由账号状态或当前绑定 IP 代理行提供。</p>
+     * 恒为 null/0。country/ipSource 由账号状态或当前绑定 IP 代理行提供,truthIp 只来自账号状态。</p>
      *
      * @param row Mapper 列表查询投影
      * @return 账号列表出参 VO

@@ -137,6 +137,16 @@ Armada 测试环境部署指引
 
   部署指定 armada 分支:
     ./armada-deploy/deploy-test.sh --all --branch main -y
+    ./armada-deploy/deploy-test.sh --be --branch feature/group-import -y
+    ARMADA_DEPLOY_BRANCH=main ./armada-deploy/deploy-test.sh --be -y
+
+--branch 说明:
+  1. 分支名写远端分支名,例如 main 或 feature/group-import,不要写 origin/main。
+  2. 脚本会先 fetch origin/<branch>,再创建临时 worktree 构建 armada 后端和部署编排文件。
+  3. 不会切换当前工作区分支,也不要求当前工作区干净。
+  4. 前端仍然从 ARMADA_FRONTEND_DIR 指向的目录构建,不受 --branch 影响。
+  5. 如果只想确认会部署哪个分支,先加 --dry-run:
+     ./armada-deploy/deploy-test.sh --be --branch main --dry-run
 
 常用参数:
   --all        本地构建后端 jar 和前端 dist,同步两者并重启两个容器。

@@ -358,10 +358,11 @@ class AccountListMapperDbTest extends DbTestBase {
     }
 
     /**
-     * 状态回写尚未带回出口 IP 时,账号列表应从当前绑定代理兜底展示国家/IP 来源/IP 地址。
+     * 状态回写尚未带回出口 IP 时,账号列表只允许从当前绑定代理兜底展示国家/IP 来源;
+     * IP 地址只取 account_state.truth_ip,不取绑定代理 host。
      */
     @Test
-    void listAccounts_fallsBackToBoundProxyWhenStateIpFieldsAreNull() {
+    void listAccounts_doesNotFallBackToBoundProxyForTruthIp() {
         long now = System.currentTimeMillis();
         String wsPhone = "86165" + (now % 100000000L);
 
@@ -380,7 +381,6 @@ class AccountListMapperDbTest extends DbTestBase {
         AccountQuery q = new AccountQuery();
         q.setPhone(wsPhone);
         q.setCountry("印度");
-        q.setTruthIp("geo.iproyal");
         q.setPageSize(10);
 
         long count = accountMapper.countPage(q);
@@ -392,7 +392,12 @@ class AccountListMapperDbTest extends DbTestBase {
         assertThat(row.getId()).isEqualTo(account.getId());
         assertThat(row.getProxyCountry()).isEqualTo("印度");
         assertThat(row.getIpSource()).isEqualTo("iproyal");
-        assertThat(row.getTruthIp()).isEqualTo("geo.iproyal.com");
+        assertThat(row.getTruthIp()).isNull();
+
+        AccountQuery truthIpQuery = new AccountQuery();
+        truthIpQuery.setPhone(wsPhone);
+        truthIpQuery.setTruthIp("geo.iproyal");
+        assertThat(accountMapper.countPage(truthIpQuery)).isZero();
     }
 
     /**

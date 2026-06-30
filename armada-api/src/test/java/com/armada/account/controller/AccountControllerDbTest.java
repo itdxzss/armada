@@ -178,10 +178,11 @@ class AccountControllerDbTest {
     }
 
     /**
-     * 已绑定 IP 的导入账号应在账号列表返回国家 / IP 来源 / IP 地址,并默认显示自购来源。
+     * 已绑定 IP 的导入账号应在账号列表返回国家 / IP 来源,但 IP 地址只取 truth_ip;
+     * 未探测真实出口 IP 时为空,并默认显示自购来源。
      */
     @Test
-    void get_list_importedAccountShowsBoundProxyAndSelfPurchaseSource() throws Exception {
+    void get_list_importedAccountShowsBoundProxyCountryAndSourceButNoTruthIpFallback() throws Exception {
         long ts = System.currentTimeMillis();
         String wsPhone = "86135" + (ts % 10000000L);
         Long accountId = importOneAccount(wsPhone);
@@ -195,7 +196,7 @@ class AccountControllerDbTest {
                 TEST_TENANT_ID, "geo.iproyal.com", 12321, 2, "proxy-user", "proxy-pass",
                 "印度", 2, accountId, ts, "iproyal", 1, ts, ts);
 
-        mockMvc.perform(get("/api/accounts")
+        MvcResult result = mockMvc.perform(get("/api/accounts")
                         .param("phone", wsPhone)
                         .param("pageSize", "1")
                         .header(TENANT_HEADER, TENANT_CODE))
@@ -205,7 +206,11 @@ class AccountControllerDbTest {
                 .andExpect(jsonPath("$.data.list[0].numberSource").value(3))
                 .andExpect(jsonPath("$.data.list[0].country").value("印度"))
                 .andExpect(jsonPath("$.data.list[0].ipSource").value("iproyal"))
-                .andExpect(jsonPath("$.data.list[0].truthIp").value("geo.iproyal.com"));
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        var row = objectMapper.readTree(body).path("data").path("list").path(0);
+        assertThat(row.path("truthIp").isNull() || row.path("truthIp").isMissingNode()).isTrue();
     }
 
     // -----------------------------------------------------------------------

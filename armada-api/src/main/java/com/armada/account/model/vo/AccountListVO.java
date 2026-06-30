@@ -6,7 +6,7 @@ package com.armada.account.model.vo;
  * <p>码值字段(accountType/loginState 等)以 Integer 透传,前端自行映射标签,后端不转中文。</p>
  * <p>时间字段为 Long epoch 毫秒(UTC)。</p>
  * <p>step1 占位字段:avatarUrl/friendsNum/groupsNum/hyperlinkSentCount 恒为 null/0。
- * country/ipSource/truthIp 来自账号状态或当前绑定 IP 代理行。</p>
+ * country/ipSource 来自账号状态或当前绑定 IP 代理行;truthIp 只来自账号状态。</p>
  */
 public record AccountListVO(
 

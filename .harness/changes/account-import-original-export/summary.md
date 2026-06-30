@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-06-30 / `codex/account-import-format-export` / `/private/tmp/codex-worktrees/armada-account-import-format-export`
 - 需求来源: 账号导入导出从 CSV 调整为“导入 ZIP 导出 ZIP,导入 TXT/粘贴导出 TXT”;仅考虑新增批次
-- 状态: 进行中
+- 状态: 已完成本地实现与验证
 
 ## 目标（一句话）
 
@@ -14,8 +14,8 @@
 - [x] 导入解析阶段写入原始 payload 与条目名。
 - [x] 导入服务落库 `source_file_type/raw_payload/source_entry_name`。
 - [x] 导出服务按 `source_file_type` 生成 ZIP/TXT 响应。
-- [ ] 前端下载动态文件名、Blob 和 content-type。
-- [ ] 真库 DbTest、parser test、前端类型检查和构建验证。
+- [x] 前端下载动态文件名、Blob 和 content-type。
+- [x] 真库 DbTest、parser test、前端类型检查和构建验证。
 
 ## 关键设计决策
 
@@ -35,10 +35,29 @@
   - 结果: 通过;service 导出 TXT/ZIP scope 过滤、ZIP entry 内容、缺原始材料业务错误通过。
 - `armada-api/dbtest.sh AccountImportControllerDbTest`
   - 结果: 通过;同一 `/export` 端点按导入来源返回 TXT/ZIP 附件。
+- `mvn -q -Dtest=AccountImportParserTest test`
+  - 结果: 通过;最终回归。
+- `armada-api/dbtest.sh AccountImportServiceImplDbTest,AccountImportListMapperDbTest,AccountImportControllerDbTest`
+  - 结果: 通过;最终真库回归。
+- `node --import ./src/api/__tests__/node-test-alias.mjs --test src/api/*.test.ts`
+  - 结果: 通过;20 个前端 API 测试通过。
+- `./node_modules/.bin/tsc --noEmit`
+  - 结果: 通过。
+- `./node_modules/.bin/vue-tsc --noEmit --skipLibCheck`
+  - 结果: 通过。
+- `./node_modules/.bin/rimraf dist && NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build`
+  - 结果: 通过;仅有第三方 `@vueuse/core` PURE 注释 warning。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 未提交;未部署。
+- 后端 commit:
+  - `d897215 feat: persist account import original export metadata`
+  - `55fe4f2 feat: preserve account import raw payloads`
+  - `d0f6a34 feat: persist account import source payloads`
+  - `fd817ca feat: export account imports in original format`
+- 前端 commit:
+  - `fbfa6d3 feat: download account import exports as blobs`
+- 环境 / 部署后验证结果: 未部署。
 
 ## 遗留 / 跟进
 

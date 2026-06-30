@@ -102,6 +102,60 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 AccountImportOnlinePhase.SKIPPED);
     }
 
+    @Test
+    void import_textPersistsTxtSourceTypeAndRawPayload() {
+        String first = "{\"wid\":\"8613861000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
+        String second = "{\"wid\":\"8613861000002\",\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
+
+        AccountImportBatchVO batch = service.importAccounts(meta, null, "[" + first + "," + second + "]");
+
+        String sourceType = jdbcTemplate.queryForObject(
+                "SELECT source_file_type FROM account_import_batch WHERE id = ?",
+                String.class,
+                batch.id());
+        List<String> payloads = jdbcTemplate.query(
+                "SELECT raw_payload FROM account_import_detail WHERE batch_id = ? ORDER BY line_no",
+                (rs, rowNum) -> rs.getString("raw_payload"),
+                batch.id());
+        List<String> entryNames = jdbcTemplate.query(
+                "SELECT source_entry_name FROM account_import_detail WHERE batch_id = ? ORDER BY line_no",
+                (rs, rowNum) -> rs.getString("source_entry_name"),
+                batch.id());
+
+        assertThat(sourceType).isEqualTo("TXT");
+        assertThat(payloads).hasSize(2);
+        assertThat(payloads.get(0)).contains("8613861000001");
+        assertThat(payloads.get(1)).contains("8613861000002");
+        assertThat(entryNames).containsExactly("text-input[0]", "text-input[1]");
+    }
+
+    @Test
+    void import_zipPersistsZipSourceTypeAndEntryNames() throws Exception {
+        String json = "{\"wid\":\"8613862000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
+        byte[] zipBytes = buildZip("nested/8613862000001.json", json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, "accounts.zip");
+
+        AccountImportBatchVO batch = service.importAccounts(meta, zipBytes, null);
+
+        String sourceType = jdbcTemplate.queryForObject(
+                "SELECT source_file_type FROM account_import_batch WHERE id = ?",
+                String.class,
+                batch.id());
+        String payload = jdbcTemplate.queryForObject(
+                "SELECT raw_payload FROM account_import_detail WHERE batch_id = ?",
+                String.class,
+                batch.id());
+        String entryName = jdbcTemplate.queryForObject(
+                "SELECT source_entry_name FROM account_import_detail WHERE batch_id = ?",
+                String.class,
+                batch.id());
+
+        assertThat(sourceType).isEqualTo("ZIP");
+        assertThat(payload).isEqualTo(json);
+        assertThat(entryName).isEqualTo("nested/8613862000001.json");
+    }
+
     /**
      * 跨批 DB uq 兜底:第一批导入成功后,第二批同号再导入 → DUPLICATE(库内冲突)。
      * 验第二批 importedRows=0 / duplicateRows=1。
@@ -225,5 +279,15 @@ class AccountImportServiceImplDbTest extends DbTestBase {
 
         // 账号一条未写:无孤儿
         assertThat(accountMapper.selectActiveByWsPhone("8613843000003")).isNull();
+    }
+
+    private byte[] buildZip(String entryName, byte[] content) throws Exception {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry(entryName));
+            zos.write(content);
+            zos.closeEntry();
+        }
+        return baos.toByteArray();
     }
 }

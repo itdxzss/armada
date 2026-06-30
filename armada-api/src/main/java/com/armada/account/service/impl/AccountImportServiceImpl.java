@@ -6,6 +6,7 @@ import com.armada.account.mapper.AccountImportDetailMapper;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportQuery;
+import com.armada.account.model.enums.SourceFileType;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
@@ -142,10 +143,11 @@ public class AccountImportServiceImpl implements AccountImportService {
         }
 
         long now = System.currentTimeMillis();   // 本批统一时间戳(批次/明细/账号行共用,epoch 毫秒)
+        String sourceFileType = resolveSourceFileType(fileBytes, text);
 
         // 审计锚点先行:批次行在任何账号入库前已存在;total 已知,三计数先写 0 循环后回填。
         // login_* step1 不写=NULL,留 step3 回填。insert 后自增 id 回填到 batch.id。
-        AccountImportBatch batch = buildBatch(meta, resolvedGroupId, entries.size(), now);
+        AccountImportBatch batch = buildBatch(meta, resolvedGroupId, entries.size(), now, sourceFileType);
         batchMapper.insert(batch);
 
         List<AccountImportDetail> details = new ArrayList<>(entries.size());
@@ -187,7 +189,7 @@ public class AccountImportServiceImpl implements AccountImportService {
             }
 
             // 无论成败,每条都落一行明细(失败行 accountId 为 null,failReason 带原因供前端/CSV 展示)
-            AccountImportDetail detail = buildDetail(lineNo, entry.getWid(), accountId,
+            AccountImportDetail detail = buildDetail(lineNo, entry, accountId,
                     new RowClassification(result, failReason), now);
             detail.setBatchId(batch.getId());
             details.add(detail);
@@ -240,11 +242,15 @@ public class AccountImportServiceImpl implements AccountImportService {
         return new RowClassification(ImportResult.SUCCESS, null);
     }
 
-    private AccountImportDetail buildDetail(int lineNo, String wsPhone,
+    private AccountImportDetail buildDetail(int lineNo, ParsedEntry entry,
                                              Long accountId, RowClassification cls, long now) {
         AccountImportDetail d = new AccountImportDetail();
         d.setLineNo(lineNo);
-        d.setWsPhone(wsPhone);
+        d.setWsPhone(entry.getWid());
+        d.setRawPayload(entry.getRawPayload());
+        d.setSourceEntryName(entry.getSourceEntryName() != null
+                ? entry.getSourceEntryName()
+                : "line-" + lineNo);
         d.setAccountId(accountId);
         d.setParseResult(cls.result().getCode());
         d.setFailReason(cls.failReason());
@@ -267,13 +273,19 @@ public class AccountImportServiceImpl implements AccountImportService {
      * @param groupId 已解析的目标分组 ID
      * @param total   解析总行数
      * @param now     本批统一时间戳(epoch 毫秒)
+     * @param sourceFileType 原始导入容器类型
      * @return 待 insert 的批次实体(三计数均为 0)
      */
-    private AccountImportBatch buildBatch(AccountImportDTO meta, Long groupId, int total, long now) {
+    private AccountImportBatch buildBatch(AccountImportDTO meta,
+                                          Long groupId,
+                                          int total,
+                                          long now,
+                                          String sourceFileType) {
         AccountImportBatch b = new AccountImportBatch();
         b.setAccountGroupId(groupId);
         b.setSourceFileName(StringUtils.hasText(meta.sourceFileName())
                 ? meta.sourceFileName() : SOURCE_FILE_DEFAULT);
+        b.setSourceFileType(sourceFileType);
         b.setImportFormat(meta.importFormat());
         b.setDeviceOs(meta.deviceOs());
         b.setAccountType(meta.accountType());
@@ -286,6 +298,18 @@ public class AccountImportServiceImpl implements AccountImportService {
         b.setStatus(BATCH_STATUS_DONE);   // 已完成;step1 同步导入即结束
         b.setCreatedAt(now);
         return b;
+    }
+
+    private String resolveSourceFileType(byte[] fileBytes, String text) {
+        if (text != null && !text.isEmpty()) {
+            return SourceFileType.TXT;
+        }
+        return isZipBytes(fileBytes) ? SourceFileType.ZIP : SourceFileType.TXT;
+    }
+
+    /** 判断字节数组是否为 ZIP 文件(Magic bytes: PK 0x50 0x4B)。 */
+    private boolean isZipBytes(byte[] bytes) {
+        return bytes != null && bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B;
     }
 
     private AccountImportBatchVO toVO(AccountImportBatch b) {

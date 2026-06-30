@@ -18,19 +18,24 @@ import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountImportDetailVO;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
+import com.armada.account.model.vo.AccountImportExportFile;
+import com.armada.account.model.vo.AccountImportExportRow;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountImportParser;
 import com.armada.account.service.AccountImportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -61,16 +66,6 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** source_file_name 兜底值:纯文本粘贴时无文件名,用此常量串标识来源,保证标识列非空。 */
     private static final String SOURCE_FILE_DEFAULT = "导入";
-
-    /** CSV 导出时间列格式(北京时间可读串,CSV 给人看)。 */
-    private static final DateTimeFormatter CSV_DATETIME_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));
-
-    /** CSV 导出 UTF-8 BOM 头(Excel 中文不乱码)。 */
-    private static final String CSV_BOM = "﻿";
-
-    /** CSV 表头 5 列。 */
-    private static final String CSV_HEADER = "账号,状态,失败原因,分组,创建时间";
 
     private final AccountImportParser parser;
     private final AccountGroupService groupService;
@@ -188,7 +183,7 @@ public class AccountImportServiceImpl implements AccountImportService {
                 formatErrorCount++;
             }
 
-            // 无论成败,每条都落一行明细(失败行 accountId 为 null,failReason 带原因供前端/CSV 展示)
+            // 无论成败,每条都落一行明细(失败行 accountId 为 null,failReason 带原因供前端展示)
             AccountImportDetail detail = buildDetail(lineNo, entry, accountId,
                     new RowClassification(result, failReason), now);
             detail.setBatchId(batch.getId());
@@ -374,26 +369,32 @@ public class AccountImportServiceImpl implements AccountImportService {
     /**
      * {@inheritDoc}
      *
-     * <p>CSV 5 列:账号/状态(中文标签)/失败原因/分组/创建时间(北京时间);UTF-8 BOM 头。</p>
+     * <p>按新增批次保存的原始容器类型恢复 ZIP/TXT。历史批次缺少原始材料时返回业务错误。</p>
      */
     @Override
-    public String exportDetailsCsv(Long batchId, String scope) {
+    public AccountImportExportFile exportDetails(Long batchId, String scope) {
         if (batchId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "batchId 不能为空");
         }
-        String resolvedScope = (scope == null || scope.isBlank()) ? "all" : scope;
-        List<AccountImportDetailVoRow> rows = detailMapper.selectAllByBatch(batchId, resolvedScope);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(CSV_BOM).append(CSV_HEADER).append("\n");
-        for (AccountImportDetailVoRow r : rows) {
-            sb.append(csvEscape(r.getWsPhone())).append(",");
-            sb.append(csvEscape(resolveLabel(r.getParseResult()))).append(",");
-            sb.append(csvEscape(r.getFailReason())).append(",");
-            sb.append(csvEscape(r.getGroupName())).append(",");
-            sb.append(csvEscape(formatEpoch(r.getCreatedAt()))).append("\n");
+        AccountImportBatch batch = batchMapper.selectById(batchId);
+        if (batch == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "导入批次不存在");
         }
-        return sb.toString();
+        String sourceFileType = SourceFileType.requireSupported(batch.getSourceFileType());
+        String resolvedScope = (scope == null || scope.isBlank()) ? "all" : scope;
+        List<AccountImportExportRow> rows = detailMapper.selectExportRowsByBatch(batchId, resolvedScope);
+        ensureExportRowsHavePayload(rows);
+
+        if (SourceFileType.ZIP.equals(sourceFileType)) {
+            return new AccountImportExportFile(
+                    "account-import-" + batchId + "-" + resolvedScope + ".zip",
+                    "application/zip",
+                    buildZipExport(rows));
+        }
+        return new AccountImportExportFile(
+                "account-import-" + batchId + "-" + resolvedScope + ".txt",
+                "text/plain;charset=UTF-8",
+                buildTextExport(rows));
     }
 
     /** 将 AccountImportDetailVoRow 转换为 AccountImportDetailVO(填充 parseResultLabel)。 */
@@ -420,27 +421,65 @@ public class AccountImportServiceImpl implements AccountImportService {
         return result != null ? result.getLabel() : "未知";
     }
 
-    /**
-     * 将 epoch 毫秒格式化为北京时间可读串(CSV 给人看,非 epoch)。
-     * epoch 为 null 或 0 时返回空串。
-     */
-    private String formatEpoch(Long epochMillis) {
-        if (epochMillis == null || epochMillis == 0L) {
-            return "";
+    private void ensureExportRowsHavePayload(List<AccountImportExportRow> rows) {
+        for (AccountImportExportRow row : rows) {
+            if (row.getRawPayload() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "该批次缺少原始导出材料");
+            }
         }
-        return CSV_DATETIME_FMT.format(Instant.ofEpochMilli(epochMillis));
     }
 
-    /**
-     * CSV 字段转义:null → 空串;含逗号/引号/换行时用双引号包裹,内部引号双写。
-     */
-    private String csvEscape(String value) {
-        if (value == null) {
-            return "";
+    private byte[] buildTextExport(List<AccountImportExportRow> rows) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < rows.size(); i++) {
+            if (i > 0) {
+                sb.append('\n');
+            }
+            sb.append(rows.get(i).getRawPayload());
         }
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
-            return "\"" + value.replace("\"", "\"\"") + "\"";
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] buildZipExport(List<AccountImportExportRow> rows) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             ZipOutputStream zos = new ZipOutputStream(baos, StandardCharsets.UTF_8)) {
+            LinkedHashSet<String> usedNames = new LinkedHashSet<>();
+            for (AccountImportExportRow row : rows) {
+                String entryName = uniqueEntryName(resolveEntryName(row), usedNames);
+                zos.putNextEntry(new ZipEntry(entryName));
+                zos.write(row.getRawPayload().getBytes(StandardCharsets.UTF_8));
+                zos.closeEntry();
+            }
+            zos.finish();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("导出文件生成失败", e);
         }
-        return value;
+    }
+
+    private String resolveEntryName(AccountImportExportRow row) {
+        if (StringUtils.hasText(row.getSourceEntryName())) {
+            String name = row.getSourceEntryName();
+            return name.endsWith(".json") ? name : name + ".json";
+        }
+        String phone = StringUtils.hasText(row.getWsPhone()) ? row.getWsPhone() : "unknown";
+        return "line-" + row.getLineNo() + "-" + phone + ".json";
+    }
+
+    private String uniqueEntryName(String preferredName, LinkedHashSet<String> usedNames) {
+        if (usedNames.add(preferredName)) {
+            return preferredName;
+        }
+        int dot = preferredName.lastIndexOf('.');
+        String base = dot >= 0 ? preferredName.substring(0, dot) : preferredName;
+        String ext = dot >= 0 ? preferredName.substring(dot) : "";
+        int index = 2;
+        while (true) {
+            String candidate = base + "-" + index + ext;
+            if (usedNames.add(candidate)) {
+                return candidate;
+            }
+            index++;
+        }
     }
 }

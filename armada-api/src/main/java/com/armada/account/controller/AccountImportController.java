@@ -7,6 +7,7 @@ import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportDetailVO;
+import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.account.service.AccountImportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -99,29 +100,28 @@ public class AccountImportController {
     }
 
     /**
-     * C4 导出指定批次明细为 CSV 文件。
+     * C4 按导入时的原始容器格式导出指定批次明细。
      *
-     * <p>响应:UTF-8 BOM + 表头 + 数据行,Content-Disposition=attachment。
-     * 导出不走 ApiResponse 信封,直接返回 {@code ResponseEntity<byte[]>} 文件流。</p>
+     * <p>导入 ZIP 则导出 ZIP,导入 TXT/粘贴则导出 TXT。导出不走 ApiResponse 信封,
+     * 直接返回 {@code ResponseEntity<byte[]>} 文件流。</p>
      *
      * @param batchId 批次 ID
      * @param scope   结果范围:all(默认)/success/fail
-     * @return CSV 文件响应
+     * @return 文件响应
      */
     @GetMapping("/{batchId}/export")
     public ResponseEntity<byte[]> exportDetails(
             @PathVariable Long batchId,
             @RequestParam(value = "scope", defaultValue = "all") String scope) {
-        String csv = service.exportDetailsCsv(batchId, scope);
-        byte[] body = csv.getBytes(StandardCharsets.UTF_8);
+        AccountImportExportFile file = service.exportDetails(batchId, scope);
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType("text/csv;charset=UTF-8"));
+        headers.setContentType(MediaType.parseMediaType(file.contentType()));
         headers.setContentDisposition(
                 org.springframework.http.ContentDisposition.attachment()
-                        .filename("account-import-" + batchId + ".csv", java.nio.charset.StandardCharsets.UTF_8)
+                        .filename(file.filename(), StandardCharsets.UTF_8)
                         .build());
 
-        return ResponseEntity.ok().headers(headers).body(body);
+        return ResponseEntity.ok().headers(headers).body(file.bytes());
     }
 }

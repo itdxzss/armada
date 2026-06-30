@@ -97,15 +97,6 @@ public interface AccountImportDetailMapper {
     List<AccountImportDetailVoRow> selectPageByBatch(AccountImportDetailQuery query);
 
     /**
-     * 按批次 ID 查全部明细(不分页),用于 CSV 导出。
-     *
-     * @param batchId 批次 ID
-     * @param scope   结果范围:all=全部;success=只成功(parse_result=1);fail=只失败(parse_result IN 2,3,4)
-     * @return 符合条件的明细 VoRow 列表
-     */
-    List<AccountImportDetailVoRow> selectAllByBatch(@Param("batchId") Long batchId, @Param("scope") String scope);
-
-    /**
      * 按批次 ID 查原始导出字段(不分页),用于恢复导入时的 ZIP/TXT 内容。
      *
      * @param batchId 批次 ID

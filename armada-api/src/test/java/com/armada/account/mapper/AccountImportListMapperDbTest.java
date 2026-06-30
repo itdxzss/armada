@@ -1,6 +1,7 @@
 package com.armada.account.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportQuery;
@@ -9,6 +10,7 @@ import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
+import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.account.model.vo.AccountImportExportRow;
 import com.armada.account.service.AccountImportService;
 import com.armada.account.model.dto.AccountImportDTO;
@@ -21,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * 批次列表 + 明细列表 + 导出 CSV 真库测试。
+ * 批次列表 + 明细列表 + 导出真库测试。
  *
  * <p>每个 @Test 在 @Transactional 内执行并回滚,数据互不干扰。
  * TDD 路径:先写测试(RED),再实现 Mapper/Service,再绿。</p>
@@ -125,18 +127,6 @@ class AccountImportListMapperDbTest extends DbTestBase {
         detailMapper.batchInsert(List.of(d1, d2, d3, d4));
     }
 
-    private void insertExportScopeDetails(Long batchId, long now) {
-        List<AccountImportDetail> rows = new ArrayList<>();
-        rows.add(detail(batchId, 1, "861399100001", 1, null, now));
-        rows.add(detail(batchId, 2, "861399100002", 1, null, now));
-        rows.add(detail(batchId, 3, "861399100003", 1, null, now));
-        rows.add(detail(batchId, 4, "861399200001", 2, "批内重复", now));
-        rows.add(detail(batchId, 5, "bad-phone-export", 3, "格式不合法", now));
-        rows.add(detail(batchId, 6, "861399200003", 4, "缺 registrationId", now));
-        rows.add(detail(batchId, 7, "861399200004", 2, "库内重复", now));
-        detailMapper.batchInsert(rows);
-    }
-
     private AccountImportDetail detail(Long batchId,
                                        int lineNo,
                                        String wsPhone,
@@ -151,6 +141,37 @@ class AccountImportListMapperDbTest extends DbTestBase {
         detail.setFailReason(failReason);
         detail.setCreatedAt(createdAt);
         return detail;
+    }
+
+    private void insertDetailsWithPayloads(Long batchId, long now) {
+        List<AccountImportDetail> rows = new ArrayList<>();
+        rows.add(detailWithPayload(batchId, 1, "861399100001", 1, null, "raw-success", "line-1.json", now));
+        rows.add(detailWithPayload(batchId, 2, "861399200001", 2, "批内重复", "raw-duplicate", "line-2.json", now));
+        rows.add(detailWithPayload(batchId, 3, "bad-phone-export", 3, "格式不合法", "raw-format", "line-3.json", now));
+        rows.add(detailWithPayload(batchId, 4, "861399200003", 4, "缺 registrationId", "raw-incomplete", "line-4.json", now));
+        detailMapper.batchInsert(rows);
+    }
+
+    private AccountImportDetail detailWithPayload(Long batchId, int lineNo, String phone, int result,
+                                                  String reason, String rawPayload, String sourceEntryName, long now) {
+        AccountImportDetail d = detail(batchId, lineNo, phone, result, reason, now);
+        d.setRawPayload(rawPayload);
+        d.setSourceEntryName(sourceEntryName);
+        return d;
+    }
+
+    private java.util.Map<String, String> unzip(byte[] bytes) throws Exception {
+        java.util.Map<String, String> entries = new java.util.LinkedHashMap<>();
+        try (java.util.zip.ZipInputStream zis =
+                     new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entries.put(entry.getName(),
+                        new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                zis.closeEntry();
+            }
+        }
+        return entries;
     }
 
     @Test
@@ -304,17 +325,14 @@ class AccountImportListMapperDbTest extends DbTestBase {
         page.forEach(r -> assertThat(r.getParseResult()).isIn(2, 3, 4));
     }
 
-    /**
-     * selectAllByBatch scope=all:返回全部 4 条(不分页,导出用)。
-     */
     @Test
-    void selectAllByBatch_scopeAll() {
+    void selectExportRowsByBatch_scopeAll() {
         long now = System.currentTimeMillis();
         Long groupId = createGroup("分组-export-all", now);
-        Long batchId = createBatch(groupId, "批次-export", 4, 1, 1, 2, now);
-        insertDetails(batchId, now);
+        Long batchId = createBatch(groupId, "批次-export", "TXT", 4, 1, 1, 2, now);
+        insertDetailsWithPayloads(batchId, now);
 
-        List<AccountImportDetailVoRow> all = detailMapper.selectAllByBatch(batchId, "all");
+        List<AccountImportExportRow> all = detailMapper.selectExportRowsByBatch(batchId, "all");
         assertThat(all).hasSize(4);
     }
 
@@ -370,81 +388,47 @@ class AccountImportListMapperDbTest extends DbTestBase {
                 .containsOnly("分组-svc-detail-group");
     }
 
-    /**
-     * AccountImportService.exportDetailsCsv:5 列表头 + 数据行数对 + 含 BOM。
-     */
     @Test
-    void service_exportDetailsCsv_headerAndRowCount() {
+    void service_exportDetails_txtScopeFail_exportsOriginalPayloadsOnly() {
         long now = System.currentTimeMillis();
-        Long groupId = createGroup("分组-csv-export", now);
-        Long batchId = createBatch(groupId, "批次-csv", 4, 1, 1, 2, now);
-        insertDetails(batchId, now);
+        Long groupId = createGroup("分组-txt-export-fail", now);
+        Long batchId = createBatch(groupId, "accounts.txt", "TXT", 4, 1, 1, 2, now);
+        insertDetailsWithPayloads(batchId, now);
 
-        String csv = importService.exportDetailsCsv(batchId, "all");
+        AccountImportExportFile file = importService.exportDetails(batchId, "fail");
 
-        // BOM 开头
-        assertThat(csv).startsWith("﻿");
-
-        String[] lines = csv.split("\n");
-        // 表头 + 4 数据行
-        assertThat(lines.length).isEqualTo(5);
-        assertThat(lines[0]).isEqualTo("﻿账号,状态,失败原因,分组,创建时间");
-
-        // 第 1 条数据行(成功入库行)
-        assertThat(lines[1]).contains("8613900001111");
-        assertThat(lines[1]).contains("成功入库");
-        assertThat(lines[1]).contains("分组-csv-export");
+        assertThat(file.filename()).isEqualTo("account-import-" + batchId + "-fail.txt");
+        assertThat(file.contentType()).isEqualTo("text/plain;charset=UTF-8");
+        String body = new String(file.bytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("raw-duplicate", "raw-format", "raw-incomplete");
+        assertThat(body).doesNotContain("raw-success");
     }
 
-    /**
-     * exportDetailsCsv scope=fail:只有 3 行数据(BOM+表头+3行)。
-     */
     @Test
-    void service_exportDetailsCsv_scopeFail_threeRows() {
+    void service_exportDetails_zipScopeSuccess_exportsOnlySuccessEntries() throws Exception {
         long now = System.currentTimeMillis();
-        Long groupId = createGroup("分组-csv-fail", now);
-        Long batchId = createBatch(groupId, "批次-csv-fail", 4, 1, 1, 2, now);
-        insertDetails(batchId, now);
+        Long groupId = createGroup("分组-zip-export-success", now);
+        Long batchId = createBatch(groupId, "accounts.zip", "ZIP", 4, 1, 1, 2, now);
+        insertDetailsWithPayloads(batchId, now);
 
-        String csv = importService.exportDetailsCsv(batchId, "fail");
-        String[] lines = csv.split("\n");
-        // 表头 + 3 失败行
-        assertThat(lines.length).isEqualTo(4);
+        AccountImportExportFile file = importService.exportDetails(batchId, "success");
+
+        assertThat(file.filename()).isEqualTo("account-import-" + batchId + "-success.zip");
+        assertThat(file.contentType()).isEqualTo("application/zip");
+        java.util.Map<String, String> entries = unzip(file.bytes());
+        assertThat(entries).containsOnlyKeys("line-1.json");
+        assertThat(entries.get("line-1.json")).isEqualTo("raw-success");
     }
 
-    /**
-     * exportDetailsCsv scope=success:导出当前批次全部成功明细,不混入失败行。
-     */
     @Test
-    void service_exportDetailsCsv_scopeSuccess_exportsWholeBatchSuccessRows() {
+    void service_exportDetails_missingOriginalPayload_throwsBusinessError() {
         long now = System.currentTimeMillis();
-        Long groupId = createGroup("分组-csv-success-all", now);
-        Long batchId = createBatch(groupId, "批次-csv-success-all", 7, 3, 2, 2, now);
-        insertExportScopeDetails(batchId, now);
+        Long groupId = createGroup("分组-missing-payload", now);
+        Long batchId = createBatch(groupId, "old.csv", null, 1, 1, 0, 0, now);
+        detailMapper.batchInsert(List.of(detail(batchId, 1, "861399900009", 1, null, now)));
 
-        String csv = importService.exportDetailsCsv(batchId, "success");
-        String[] lines = csv.split("\n");
-
-        assertThat(lines.length).isEqualTo(4);
-        assertThat(csv).contains("861399100001", "861399100002", "861399100003");
-        assertThat(csv).doesNotContain("861399200001", "bad-phone-export", "861399200003", "861399200004");
-    }
-
-    /**
-     * exportDetailsCsv scope=fail:导出当前批次全部失败明细,不混入成功行。
-     */
-    @Test
-    void service_exportDetailsCsv_scopeFail_exportsWholeBatchFailRows() {
-        long now = System.currentTimeMillis();
-        Long groupId = createGroup("分组-csv-fail-all", now);
-        Long batchId = createBatch(groupId, "批次-csv-fail-all", 7, 3, 2, 2, now);
-        insertExportScopeDetails(batchId, now);
-
-        String csv = importService.exportDetailsCsv(batchId, "fail");
-        String[] lines = csv.split("\n");
-
-        assertThat(lines.length).isEqualTo(5);
-        assertThat(csv).contains("861399200001", "bad-phone-export", "861399200003", "861399200004");
-        assertThat(csv).doesNotContain("861399100001", "861399100002", "861399100003");
+        assertThatThrownBy(() -> importService.exportDetails(batchId, "all"))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("该批次缺少原始导出材料");
     }
 }

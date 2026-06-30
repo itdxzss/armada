@@ -127,26 +127,6 @@
   </select>
 
   <!--
-    全量查明细(不分页),用于 CSV 导出。scope 参数值与 filter 字段对应:all/success/fail。
-    &lt;choose&gt; 直接内联不依赖 scopeFilter 片段(scope 参数名不同)。
-  -->
-  <select id="selectAllByBatch" resultType="com.armada.account.model.vo.AccountImportDetailVoRow">
-    SELECT d.id, d.line_no AS lineNo, d.ws_phone AS wsPhone, d.account_id AS accountId,
-           d.parse_result AS parseResult, d.fail_reason AS failReason,
-           d.login_result AS loginResult, d.created_at AS createdAt,
-           g.name AS groupName
-    FROM account_import_detail d
-    JOIN account_import_batch b ON d.batch_id = b.id AND d.tenant_id = b.tenant_id
-    LEFT JOIN account_group g ON b.account_group_id = g.id AND g.deleted_at IS NULL
-    WHERE d.batch_id = #{batchId}
-    <choose>
-      <when test="scope == 'success'">AND d.parse_result = 1</when>
-      <when test="scope == 'fail'">AND d.parse_result IN (2, 3, 4)</when>
-    </choose>
-    ORDER BY d.line_no ASC
-  </select>
-
-  <!--
     原始格式导出专用投影:只取恢复 ZIP/TXT 内容需要的字段,不暴露到明细列表响应。
   -->
   <select id="selectExportRowsByBatch" resultType="com.armada.account.model.vo.AccountImportExportRow">

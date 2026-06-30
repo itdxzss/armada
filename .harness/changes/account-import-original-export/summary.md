@@ -13,7 +13,7 @@
 - [x] 批次表增加 `source_file_type`,明细表增加 `raw_payload`、`source_entry_name`。
 - [x] 导入解析阶段写入原始 payload 与条目名。
 - [x] 导入服务落库 `source_file_type/raw_payload/source_entry_name`。
-- [ ] 导出服务按 `source_file_type` 生成 ZIP/TXT 响应。
+- [x] 导出服务按 `source_file_type` 生成 ZIP/TXT 响应。
 - [ ] 前端下载动态文件名、Blob 和 content-type。
 - [ ] 真库 DbTest、parser test、前端类型检查和构建验证。
 
@@ -31,6 +31,10 @@
   - 结果: 通过;ZIP entry、JSON 数组、PARAMS 数组和非法 JSON 均保留导出所需原始 payload/条目名。
 - `armada-api/dbtest.sh AccountImportServiceImplDbTest`
   - 结果: 通过;文本导入落 `TXT`,ZIP 导入落 `ZIP`,明细原始 payload 和 entry 名可查。
+- `armada-api/dbtest.sh AccountImportListMapperDbTest`
+  - 结果: 通过;service 导出 TXT/ZIP scope 过滤、ZIP entry 内容、缺原始材料业务错误通过。
+- `armada-api/dbtest.sh AccountImportControllerDbTest`
+  - 结果: 通过;同一 `/export` 端点按导入来源返回 TXT/ZIP 附件。
 
 ## 部署
 

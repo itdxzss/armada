@@ -421,6 +421,10 @@ public class AccountImportServiceImpl implements AccountImportService {
         return result != null ? result.getLabel() : "未知";
     }
 
+    /**
+     * 校验导出行是否具备原始 payload。历史批次或异常数据缺失时按业务错误返回,
+     * 避免导出一个看似成功但内容不可恢复的文件。
+     */
     private void ensureExportRowsHavePayload(List<AccountImportExportRow> rows) {
         for (AccountImportExportRow row : rows) {
             if (row.getRawPayload() == null) {
@@ -429,6 +433,9 @@ public class AccountImportServiceImpl implements AccountImportService {
         }
     }
 
+    /**
+     * 构造 TXT 导出:按行号顺序拼接原始 payload,行之间用单个换行分隔。
+     */
     private byte[] buildTextExport(List<AccountImportExportRow> rows) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < rows.size(); i++) {
@@ -440,6 +447,9 @@ public class AccountImportServiceImpl implements AccountImportService {
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    /**
+     * 构造 ZIP 导出:一条明细一个 entry,内容为对应 rawPayload 的 UTF-8 字节。
+     */
     private byte[] buildZipExport(List<AccountImportExportRow> rows) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              ZipOutputStream zos = new ZipOutputStream(baos, StandardCharsets.UTF_8)) {
@@ -453,10 +463,13 @@ public class AccountImportServiceImpl implements AccountImportService {
             zos.finish();
             return baos.toByteArray();
         } catch (IOException e) {
-            throw new IllegalStateException("导出文件生成失败", e);
+            throw new BusinessException(ErrorCode.VALIDATION, "导出文件生成失败");
         }
     }
 
+    /**
+     * 解析 ZIP entry 名。优先使用原始来源名;缺失时用 lineNo + 手机号生成稳定兜底名。
+     */
     private String resolveEntryName(AccountImportExportRow row) {
         if (StringUtils.hasText(row.getSourceEntryName())) {
             String name = row.getSourceEntryName();
@@ -466,6 +479,9 @@ public class AccountImportServiceImpl implements AccountImportService {
         return "line-" + row.getLineNo() + "-" + phone + ".json";
     }
 
+    /**
+     * ZIP 不允许重复 entry 名。发生重复时追加递增后缀,保持导出文件可正常打开。
+     */
     private String uniqueEntryName(String preferredName, LinkedHashSet<String> usedNames) {
         if (usedNames.add(preferredName)) {
             return preferredName;

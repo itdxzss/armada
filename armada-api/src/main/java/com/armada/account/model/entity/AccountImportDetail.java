@@ -24,7 +24,7 @@ public class AccountImportDetail {
     /** 单条原始导入内容,用于按原格式导出;敏感字段,不得进入日志/列表响应。 */
     private String rawPayload;
 
-    /** 原始条目名:zip 内路径或文本导入 line-N。 */
+    /** 原始条目名:zip 内路径,或 JSON 数组拆分后的 source[index]。 */
     private String sourceEntryName;
 
     /** 成功入库时回填(→account.id)。 */

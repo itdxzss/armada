@@ -20,7 +20,7 @@ public class AccountImportExportRow {
     /** 单条原始导入内容。 */
     private String rawPayload;
 
-    /** 原始条目名:zip 内路径或文本导入 line-N。 */
+    /** 原始条目名:zip 内路径,或 JSON 数组拆分后的 source[index]。 */
     private String sourceEntryName;
 
     public Long getId() {

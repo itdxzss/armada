@@ -14,6 +14,7 @@
 - [x] 导入解析阶段写入原始 payload 与条目名。
 - [x] 导入服务落库 `source_file_type/raw_payload/source_entry_name`。
 - [x] 导出服务按 `source_file_type` 生成 ZIP/TXT 响应。
+- [x] 刷新 `.harness/wiki/数据模型.md`,记录新增导入原始导出字段。
 - [x] 前端下载动态文件名、Blob 和 content-type。
 - [x] 真库 DbTest、parser test、前端类型检查和构建验证。
 
@@ -47,6 +48,11 @@
   - 结果: 通过。
 - `./node_modules/.bin/rimraf dist && NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build`
   - 结果: 通过;仅有第三方 `@vueuse/core` PURE 注释 warning。
+- 复核补充:
+  - `mvn -q -Dtest=AccountImportParserTest test`: 通过;新增 ZIP 数组 entry 原始 payload/entry 名覆盖。
+  - `armada-api/dbtest.sh AccountImportListMapperDbTest,AccountImportControllerDbTest`: 通过;导出 service/controller 回归通过。
+  - `git diff --check`: 通过;无空白错误。
+  - 账号导入旧 CSV 路径与 `raw_payload` 日志泄露扫描:无命中。
 
 ## 部署
 
@@ -55,6 +61,7 @@
   - `55fe4f2 feat: preserve account import raw payloads`
   - `d0f6a34 feat: persist account import source payloads`
   - `fd817ca feat: export account imports in original format`
+  - 本提交: `chore: align account import export with harness review`
 - 前端 commit:
   - `fbfa6d3 feat: download account import exports as blobs`
 - 环境 / 部署后验证结果: 未部署。

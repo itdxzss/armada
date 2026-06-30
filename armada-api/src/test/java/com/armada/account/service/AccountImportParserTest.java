@@ -156,6 +156,23 @@ class AccountImportParserTest {
     }
 
     @Test
+    void json_zipArrayEntryPreservesEachElementPayloadAndEntryName() throws Exception {
+        String first = nakedCredsObject("8613800138301");
+        String second = nakedCredsObject("8613800138302");
+        byte[] zipBytes = buildZip(
+                "folder/accounts.json",
+                ("[" + first + "," + second + "]").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, zipBytes, null);
+
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0).getRawPayload()).contains("8613800138301");
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("folder/accounts.json[0]");
+        assertThat(entries.get(1).getRawPayload()).contains("8613800138302");
+        assertThat(entries.get(1).getSourceEntryName()).isEqualTo("folder/accounts.json[1]");
+    }
+
+    @Test
     void json_zipWithMultipleFiles_parsesAll() throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {

@@ -152,6 +152,32 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
+    void applyStateChanged_proxyFailed_releasesBoundIpForReallocation() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86189" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        IpProxy proxy = newIdleProxy(now);
+        ipProxyMapper.insert(proxy);
+        ipProxyMapper.markUsingAndBind(
+                proxy.getId(),
+                account.getId(),
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 1);
+
+        service.applyStateChanged(event(account, "VERIFYING", "PROXY_FAILED",
+                now + 2_000L, "PROXY_FAILED", null));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(state.getStateSource()).isEqualTo("PROXY_FAILED");
+        IpProxy released = ipProxyMapper.selectActiveById(proxy.getId());
+        assertThat(released.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(released.getBoundAccountId()).isNull();
+        assertThat(released.getBoundAt()).isNull();
+    }
+
+    @Test
     void applyStateChanged_withoutExistingTenantContext_restoresTenantFromEvent() {
         long now = System.currentTimeMillis();
         Account account = insertAccount("86187" + (now % 10_000_000L), now);

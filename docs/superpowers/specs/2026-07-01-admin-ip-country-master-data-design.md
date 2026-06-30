@@ -67,9 +67,9 @@ CREATE TABLE country (
     is_ip_supported TINYINT  NOT NULL DEFAULT 1 COMMENT 'IP 管理是否展示:1=展示 0=不展示',
     sort_order   INT         NOT NULL DEFAULT 0 COMMENT '排序值,越小越靠前',
     remark       VARCHAR(255)         DEFAULT NULL COMMENT '备注',
-    created_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    deleted_at   DATETIME             DEFAULT NULL COMMENT '软删时间;NULL=未删',
+    created_at   BIGINT      NOT NULL COMMENT '创建时间(epoch毫秒,应用层写)',
+    updated_at   BIGINT      NOT NULL COMMENT '更新时间(epoch毫秒,应用层写)',
+    deleted_at   BIGINT               DEFAULT NULL COMMENT '软删时间(epoch毫秒);NULL=未删',
     is_active    TINYINT GENERATED ALWAYS AS (IF(deleted_at IS NULL, 1, NULL)) VIRTUAL COMMENT '软删唯一键辅助:活行=1 软删=NULL',
     PRIMARY KEY (id),
     UNIQUE KEY uq_country_iso2_active (iso2, is_active),
@@ -83,6 +83,7 @@ CREATE TABLE country (
 - `phone_prefix` 保留 `+1-684` 这类复合区号,不用拆分。
 - `is_enabled` 控制主数据是否可用。
 - `is_ip_supported` 控制 IP 管理下拉是否展示。本次初始 248 条全部设为 `1`,后续可在后台停用或收窄。
+- `created_at` / `updated_at` / `deleted_at` 统一使用 epoch 毫秒,不使用数据库 `DATETIME`。页面展示时由前端或接口展示层按北京时间格式化。
 - `混合（不限国家）` 不是国家,不入 `country` 表,由 IP 选项接口作为虚拟选项置顶返回。
 
 初始数据:

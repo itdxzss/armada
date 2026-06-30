@@ -46,6 +46,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static final String STATE_LOGGED_OUT = "LOGGED_OUT";
     /** 协议层设备移除状态。 */
     private static final String STATE_DEVICE_REMOVED = "DEVICE_REMOVED";
+    /** 协议层确认当前代理/IP 重连耗尽。 */
+    private static final String STATE_PROXY_FAILED = "PROXY_FAILED";
     /** 上游未给 semantic 时的默认来源。 */
     private static final String SOURCE_STATE_CHANGED = "STATE_CHANGED";
     /** 封禁状态来源。 */
@@ -218,6 +220,9 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static boolean shouldReleaseIp(String state) {
         String normalized = state == null ? null : state.trim();
         return STATE_OFFLINE.equalsIgnoreCase(normalized)
+                // PROXY_FAILED 是协议层 B 类退避耗尽后的明确终态:
+                // 当前绑定代理已经不可信,必须释放,后续上线才能重新分配 IP。
+                || STATE_PROXY_FAILED.equalsIgnoreCase(normalized)
                 || STATE_NEED_REAUTH.equalsIgnoreCase(normalized)
                 || STATE_LOGGED_OUT.equalsIgnoreCase(normalized)
                 || STATE_DEVICE_REMOVED.equalsIgnoreCase(normalized);

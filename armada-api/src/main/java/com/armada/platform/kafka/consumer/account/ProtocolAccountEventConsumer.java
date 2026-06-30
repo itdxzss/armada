@@ -69,9 +69,10 @@ public class ProtocolAccountEventConsumer {
         String eventId = text(envelope, "eventId");
         if (EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
             ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
-            log.info("协议账号状态事件收到 eventId={} accountId={} from={} to={} semantic={} rawCode={} workerId={}",
-                    event.eventId(), event.protocolAccountId(), event.from(), event.to(),
-                    event.semantic(), event.rawCode(), event.workerId());
+            log.info("协议账号状态事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
+                            + "from={} to={} semantic={} rawCode={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.from(), event.to(), event.semantic(), event.rawCode(), event.workerId());
             stateChangedSink.handleStateChanged(event);
             return;
         }
@@ -103,6 +104,8 @@ public class ProtocolAccountEventConsumer {
         JsonNode data = envelope.path("data").isObject() ? envelope.path("data") : envelope;
         return new ProtocolAccountStateChangedEvent(
                 text(envelope, "eventId"),
+                requiredLong(data, "tenantId", "协议账号状态事件缺少 data.tenantId"),
+                requiredLong(data, "accountId", "协议账号状态事件缺少 data.accountId"),
                 requiredText(envelope, "accountId", "协议账号状态事件缺少 accountId"),
                 text(data, "from"),
                 requiredText(data, "to", "协议账号状态事件缺少 data.to"),

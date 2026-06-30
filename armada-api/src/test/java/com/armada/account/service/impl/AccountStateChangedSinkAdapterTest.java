@@ -31,6 +31,8 @@ class AccountStateChangedSinkAdapterTest {
     void handleStateChanged_mapsPlatformEventToAccountStateService() {
         ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
                 "evt-1",
+                1L,
+                100L,
                 "acc_861800000001",
                 "ONLINE",
                 "NEED_REAUTH",
@@ -44,6 +46,8 @@ class AccountStateChangedSinkAdapterTest {
         ArgumentCaptor<AccountStateChangedEvent> captor = ArgumentCaptor.forClass(AccountStateChangedEvent.class);
         verify(service).applyStateChanged(captor.capture());
         AccountStateChangedEvent event = captor.getValue();
+        assertThat(event.tenantId()).isEqualTo(1L);
+        assertThat(event.accountId()).isEqualTo(100L);
         assertThat(event.protocolAccountId()).isEqualTo("acc_861800000001");
         assertThat(event.from()).isEqualTo("ONLINE");
         assertThat(event.to()).isEqualTo("NEED_REAUTH");

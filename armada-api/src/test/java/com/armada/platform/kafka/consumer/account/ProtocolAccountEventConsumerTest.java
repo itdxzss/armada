@@ -48,6 +48,9 @@ class ProtocolAccountEventConsumerTest {
                   "occurredAt": "2026-06-28T06:00:01Z",
                   "workerId": "worker-a",
                   "data": {
+                    "tenantId": 1,
+                    "accountId": 100,
+                    "protocolAccountId": "acc_861800000001",
                     "from": "RECONNECTING",
                     "to": "ONLINE",
                     "reason": "connected",
@@ -64,6 +67,8 @@ class ProtocolAccountEventConsumerTest {
         verify(sink).handleStateChanged(captor.capture());
         ProtocolAccountStateChangedEvent event = captor.getValue();
         assertThat(event.eventId()).isEqualTo("evt-1");
+        assertThat(event.tenantId()).isEqualTo(1L);
+        assertThat(event.accountId()).isEqualTo(100L);
         assertThat(event.protocolAccountId()).isEqualTo("acc_861800000001");
         assertThat(event.from()).isEqualTo("RECONNECTING");
         assertThat(event.to()).isEqualTo("ONLINE");
@@ -164,7 +169,11 @@ class ProtocolAccountEventConsumerTest {
                   "accountId": "acc_861800000001",
                   "occurredAt": "2026-06-28T06:00:01Z",
                   "workerId": "worker-a",
-                  "data": {"from": "RECONNECTING"}
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 100,
+                    "from": "RECONNECTING"
+                  }
                 }
                 """;
 
@@ -185,7 +194,12 @@ class ProtocolAccountEventConsumerTest {
                   "accountId": "acc_861800000001",
                   "occurredAt": "2026-06-28T06:00:01Z",
                   "workerId": "worker-a",
-                  "data": {"from": "RECONNECTING", "to": "ONLINE"}
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 100,
+                    "from": "RECONNECTING",
+                    "to": "ONLINE"
+                  }
                 }
                 """;
         doThrow(new IllegalStateException("database unavailable")).when(sink).handleStateChanged(any());

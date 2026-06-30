@@ -34,6 +34,8 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
     @Override
     public void handleStateChanged(ProtocolAccountStateChangedEvent event) {
         service.applyStateChanged(new AccountStateChangedEvent(
+                event.tenantId(),
+                event.accountId(),
                 event.protocolAccountId(),
                 event.from(),
                 event.to(),

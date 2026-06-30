@@ -212,6 +212,7 @@ public class ProtocolCommandPublisher {
                 ProxyDescriptor proxyPayload = proxyResolver.resolve(toEndpoint(proxy));
                 envelopes.put(commandKey(ref.row()), toEnvelope(ref.row(), objectMapper.valueToTree(
                         new OnlineCommandKafkaPayload(
+                                ref.tenantId(),
                                 ref.accountId(),
                                 ref.protocolAccountId(),
                                 toWireFormat(ref.format()),
@@ -381,6 +382,7 @@ public class ProtocolCommandPublisher {
     }
 
     private record OnlineCommandKafkaPayload(
+            Long tenantId,
             Long accountId,
             String protocolAccountId,
             String format,

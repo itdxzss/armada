@@ -12,6 +12,7 @@ import com.armada.account.state.AccountStateChangedSideEffect;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,10 +90,33 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     @Transactional(rollbackFor = Exception.class)
     public void applyStateChanged(AccountStateChangedEvent event) {
         validate(event);
-        Account account = accountMapper.selectActiveByProtocolAccountId(event.protocolAccountId());
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(event.tenantId());
+            applyStateChangedInTenant(event);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private void applyStateChangedInTenant(AccountStateChangedEvent event) {
+        Account account = accountMapper.selectActiveById(event.accountId());
         if (account == null) {
-            log.warn("协议账号状态事件跳过,账号不存在 protocolAccountId={} from={} to={} semantic={} rawCode={}",
-                    event.protocolAccountId(), event.from(), event.to(), event.semantic(), event.rawCode());
+            log.warn("协议账号状态事件跳过,账号不存在 tenantId={} accountId={} protocolAccountId={} "
+                            + "from={} to={} semantic={} rawCode={}",
+                    event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.from(), event.to(), event.semantic(), event.rawCode());
+            return;
+        }
+        if (!event.protocolAccountId().equals(account.getProtocolAccountId())) {
+            log.warn("协议账号状态事件跳过,账号映射不一致 tenantId={} accountId={} eventProtocolAccountId={} "
+                            + "dbProtocolAccountId={} from={} to={}",
+                    event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    account.getProtocolAccountId(), event.from(), event.to());
             return;
         }
 
@@ -226,8 +250,9 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     }
 
     private static void validate(AccountStateChangedEvent event) {
-        if (event == null || event.protocolAccountId() == null || event.protocolAccountId().isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "协议账号状态事件缺少 protocolAccountId");
+        if (event == null || event.tenantId() == null || event.accountId() == null
+                || event.protocolAccountId() == null || event.protocolAccountId().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号状态事件缺少账号定位字段");
         }
         if (event.to() == null || event.to().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议账号状态事件缺少目标状态");

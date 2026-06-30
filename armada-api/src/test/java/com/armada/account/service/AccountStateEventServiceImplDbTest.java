@@ -17,6 +17,7 @@ import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.entity.IpProxy;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -55,13 +56,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         Account account = insertAccount("86182" + (now % 10_000_000L), now);
         insertDefaultState(account.getId(), now);
 
-        service.applyStateChanged(new AccountStateChangedEvent(
-                account.getProtocolAccountId(),
-                "RECONNECTING",
-                "ONLINE",
-                now + 1_000L,
-                "RECONNECTING",
-                null));
+        service.applyStateChanged(event(account, "RECONNECTING", "ONLINE",
+                now + 1_000L, "RECONNECTING", null));
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
@@ -76,13 +72,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         Account account = insertAccount("86183" + (now % 10_000_000L), now);
         insertDefaultState(account.getId(), now);
 
-        service.applyStateChanged(new AccountStateChangedEvent(
-                account.getProtocolAccountId(),
-                "ONLINE",
-                "NEED_REAUTH",
-                now + 2_000L,
-                "NEED_REAUTH",
-                403));
+        service.applyStateChanged(event(account, "ONLINE", "NEED_REAUTH",
+                now + 2_000L, "NEED_REAUTH", 403));
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
@@ -98,20 +89,10 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         Account account = insertAccount("86184" + (now % 10_000_000L), now);
         insertDefaultState(account.getId(), now);
 
-        service.applyStateChanged(new AccountStateChangedEvent(
-                account.getProtocolAccountId(),
-                "RECONNECTING",
-                "ONLINE",
-                now + 2_000L,
-                "RECONNECTING",
-                null));
-        service.applyStateChanged(new AccountStateChangedEvent(
-                account.getProtocolAccountId(),
-                "ONLINE",
-                "NEED_REAUTH",
-                now + 1_000L,
-                "NEED_REAUTH",
-                403));
+        service.applyStateChanged(event(account, "RECONNECTING", "ONLINE",
+                now + 2_000L, "RECONNECTING", null));
+        service.applyStateChanged(event(account, "ONLINE", "NEED_REAUTH",
+                now + 1_000L, "NEED_REAUTH", 403));
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
@@ -135,13 +116,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
                 IpProxyStatus.IN_USE.code(),
                 now + 1);
 
-        service.applyStateChanged(new AccountStateChangedEvent(
-                account.getProtocolAccountId(),
-                "ONLINE",
-                "OFFLINE",
-                now + 2_000L,
-                "OFFLINE",
-                null));
+        service.applyStateChanged(event(account, "ONLINE", "OFFLINE",
+                now + 2_000L, "OFFLINE", null));
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
@@ -149,6 +125,25 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         assertThat(released.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
         assertThat(released.getBoundAccountId()).isNull();
         assertThat(released.getBoundAt()).isNull();
+    }
+
+    @Test
+    void applyStateChanged_withoutExistingTenantContext_restoresTenantFromEvent() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86187" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+
+        TenantContext.clear();
+        service.applyStateChanged(event(account, "VERIFYING", "NEED_REAUTH",
+                now + 2_000L, "NEED_REAUTH", 401));
+        assertThat(TenantContext.get()).isNull();
+
+        TenantContext.set(TEST_TENANT_ID);
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.UNBOUND);
+        assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
+        assertThat(state.getStateSource()).isEqualTo("UNBOUND");
     }
 
     @Test
@@ -169,13 +164,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
                 AccountImportOnlinePhase.DISPATCHED, dispatchedAt, batch.id(), account.getId());
         assertThat(prepared).isEqualTo(1);
 
-        service.applyStateChanged(new AccountStateChangedEvent(
-                account.getProtocolAccountId(),
-                "CONNECTING",
-                "ONLINE",
-                eventAt,
-                "CONNECTED",
-                null));
+        service.applyStateChanged(event(account, "CONNECTING", "ONLINE",
+                eventAt, "CONNECTED", null));
 
         Map<String, Object> detail = importDetail(batch.id(), account.getId());
         assertThat(((Number) detail.get("online_phase")).intValue()).isEqualTo(AccountImportOnlinePhase.SETTLED);
@@ -195,6 +185,23 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         account.setUpdatedAt(now);
         accountMapper.insert(account);
         return account;
+    }
+
+    private static AccountStateChangedEvent event(Account account,
+                                                  String from,
+                                                  String to,
+                                                  Long occurredAt,
+                                                  String semantic,
+                                                  Integer rawCode) {
+        return new AccountStateChangedEvent(
+                TEST_TENANT_ID,
+                account.getId(),
+                account.getProtocolAccountId(),
+                from,
+                to,
+                occurredAt,
+                semantic,
+                rawCode);
     }
 
     private AccountImportBatchVO importOneAccount(String wsPhone) {

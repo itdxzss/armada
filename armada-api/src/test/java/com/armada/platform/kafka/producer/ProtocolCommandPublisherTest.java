@@ -160,6 +160,7 @@ class ProtocolCommandPublisherTest {
         ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
         verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
         ProtocolCommandEnvelope firstEnvelope = captor.getValue();
+        assertThat(firstEnvelope.payload().get("tenantId").asLong()).isEqualTo(1L);
         assertThat(firstEnvelope.payload().get("format").asText()).isEqualTo("baileys_json");
         assertThat(firstEnvelope.payload().get("credential").get("creds").get("noiseKey").asText()).isEqualTo("n1");
         assertThat(firstEnvelope.payload().get("proxy").get("protocol").asText()).isEqualTo("socks5");

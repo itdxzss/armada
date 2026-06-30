@@ -3,10 +3,12 @@ package com.armada.platform.kafka.consumer.account;
 /**
  * 协议账号状态变更 Kafka 事件。
  *
- * <p>现役协议层 Kafka envelope 顶层 {@code accountId} 对应 Armada 的 {@code protocol_account_id};
- * {@code from/to/semantic/rawCode} 来自 envelope.data。</p>
+ * <p>Kafka envelope 顶层 {@code accountId} 对应协议账号句柄,用于 Kafka key 顺序;
+ * {@code data.tenantId/data.accountId} 对应 Armada 本地账号,用于恢复租户上下文后回写状态。</p>
  *
  * @param eventId           协议层事件 ID,用于日志排查和后续幂等
+ * @param tenantId          Armada 租户 ID,用于 Kafka listener 线程恢复租户上下文
+ * @param accountId         Armada 本地账号主键
  * @param protocolAccountId 协议账号句柄,如 {@code acc_<wsPhone>}
  * @param from              协议层原状态
  * @param to                协议层新状态
@@ -17,6 +19,8 @@ package com.armada.platform.kafka.consumer.account;
  */
 public record ProtocolAccountStateChangedEvent(
         String eventId,
+        Long tenantId,
+        Long accountId,
         String protocolAccountId,
         String from,
         String to,

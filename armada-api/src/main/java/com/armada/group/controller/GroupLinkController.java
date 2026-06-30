@@ -1,11 +1,15 @@
 package com.armada.group.controller;
 
+import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupIdsDTO;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkMigrateDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.dto.GroupPictureCommandDTO;
+import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
@@ -91,6 +95,60 @@ public class GroupLinkController {
     @PatchMapping("/{id}")
     public ApiResponse<Void> updateProfile(@PathVariable Long id, @RequestBody GroupLinkProfileDTO dto) {
         groupLinkService.updateProfile(id, dto);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 修改 WhatsApp 真实群名称。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与新群名称
+     * @return 空响应
+     */
+    @PostMapping("/{id}/subject")
+    public ApiResponse<Void> updateSubject(@PathVariable Long id, @RequestBody GroupSubjectCommandDTO dto) {
+        groupLinkService.updateSubject(id, dto);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 修改 WhatsApp 真实群描述。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与群描述
+     * @return 空响应
+     */
+    @PostMapping("/{id}/description")
+    public ApiResponse<Void> updateDescription(@PathVariable Long id, @RequestBody GroupDescriptionCommandDTO dto) {
+        groupLinkService.updateDescription(id, dto);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 修改 WhatsApp 群公告文本。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与公告文本
+     * @return 空响应
+     */
+    @PostMapping("/{id}/announcement-text")
+    public ApiResponse<Void> updateAnnouncementText(
+            @PathVariable Long id,
+            @RequestBody GroupAnnouncementTextCommandDTO dto) {
+        groupLinkService.updateAnnouncementText(id, dto);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 修改 WhatsApp 真实群头像。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与头像 URL/base64
+     * @return 空响应
+     */
+    @PostMapping("/{id}/picture")
+    public ApiResponse<Void> updatePicture(@PathVariable Long id, @RequestBody GroupPictureCommandDTO dto) {
+        groupLinkService.updatePicture(id, dto);
         return ApiResponse.ok();
     }
 

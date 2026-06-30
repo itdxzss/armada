@@ -57,15 +57,18 @@
     WHERE account_id = #{accountId}
   </update>
 
-  <!-- ONLINE 恢复只允许把解绑状态恢复为正常,其它终态不受影响。 -->
-  <update id="recoverUnboundStateInternal">
+  <!-- ONLINE 只把未上报/待上线/解绑状态收敛为正常,其它终态不受影响。 -->
+  <update id="markOnlineNormalStateInternal">
     UPDATE account_state
     SET account_state = #{row.accountState},
         last_state_sync_time = #{row.lastStateSyncTime},
         state_source = #{row.stateSource},
         updated_at = #{row.updatedAt}
     WHERE account_id = #{row.accountId}
-      AND account_state = #{unboundState}
+      AND (
+        account_state IS NULL
+        OR account_state IN (#{newState}, #{unboundState})
+      )
   </update>
 
   <!-- 封禁原因单独更新,避免普通离线事件误清空 block_reason。 -->

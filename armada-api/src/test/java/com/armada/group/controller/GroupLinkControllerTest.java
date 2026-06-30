@@ -104,6 +104,77 @@ class GroupLinkControllerTest {
     }
 
     @Test
+    void postSubject_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        mockMvc.perform(post("/api/group-links/10/subject")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "accountId": 7,
+                                  "subject": "新群名"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupLinkService).updateSubject(eq(10L), argThat(dto ->
+                dto != null && dto.accountId().equals(7L) && "新群名".equals(dto.subject())));
+    }
+
+    @Test
+    void postDescription_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        mockMvc.perform(post("/api/group-links/10/description")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "accountId": 7,
+                                  "description": "群描述"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupLinkService).updateDescription(eq(10L), argThat(dto ->
+                dto != null && dto.accountId().equals(7L) && "群描述".equals(dto.description())));
+    }
+
+    @Test
+    void postAnnouncementText_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        mockMvc.perform(post("/api/group-links/10/announcement-text")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "accountId": 7,
+                                  "text": "群公告"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupLinkService).updateAnnouncementText(eq(10L), argThat(dto ->
+                dto != null && dto.accountId().equals(7L) && "群公告".equals(dto.text())));
+    }
+
+    @Test
+    void postPicture_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        mockMvc.perform(post("/api/group-links/10/picture")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "accountId": 7,
+                                  "url": "https://cdn.example.test/group.jpg"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupLinkService).updatePicture(eq(10L), argThat(dto ->
+                dto != null
+                        && dto.accountId().equals(7L)
+                        && "https://cdn.example.test/group.jpg".equals(dto.url())
+                        && dto.base64() == null));
+    }
+
+    @Test
     void importLinks_passesOriginalFilenameToService() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",

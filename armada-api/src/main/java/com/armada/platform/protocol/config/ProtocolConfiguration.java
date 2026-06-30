@@ -4,10 +4,12 @@ import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupJoinAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
+import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -103,6 +105,17 @@ public class ProtocolConfiguration {
     @Bean
     public GroupParticipantPort groupParticipantPort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpGroupParticipantAdapter(protocolHttpExecutor);
+    }
+
+    /**
+     * 注册群资料修改协议端口。
+     *
+     * @param protocolHttpExecutor 协议层 HTTP 执行器
+     * @return 群资料修改端口 HTTP 实现
+     */
+    @Bean
+    public GroupProfilePort groupProfilePort(ProtocolHttpExecutor protocolHttpExecutor) {
+        return new HttpGroupProfileAdapter(protocolHttpExecutor);
     }
 
     /**

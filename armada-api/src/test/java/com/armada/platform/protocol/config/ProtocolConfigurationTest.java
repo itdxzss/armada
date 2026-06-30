@@ -4,6 +4,7 @@ import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -40,6 +41,7 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
             assertThat(context).hasSingleBean(GroupJoinPort.class);
             assertThat(context).hasSingleBean(GroupParticipantPort.class);
+            assertThat(context).hasSingleBean(GroupProfilePort.class);
             assertThat(context).hasSingleBean(GroupPreviewPort.class);
 
             ProtocolProperties properties = context.getBean(ProtocolProperties.class);

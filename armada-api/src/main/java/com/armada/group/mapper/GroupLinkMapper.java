@@ -105,6 +105,18 @@ public interface GroupLinkMapper {
                       @Param("updatedAt") long updatedAt);
 
     /**
+     * 仅更新运营侧自定义群名称,不触碰备注。
+     *
+     * @param id        群链接 ID
+     * @param groupName 新群名;可为 null
+     * @param updatedAt 更新时间(epoch毫秒)
+     * @return 影响行数
+     */
+    int updateGroupName(@Param("id") Long id,
+                        @Param("groupName") String groupName,
+                        @Param("updatedAt") long updatedAt);
+
+    /**
      * 查询群成员实时读取所需的群链接目标。
      *
      * @param id 群链接 ID

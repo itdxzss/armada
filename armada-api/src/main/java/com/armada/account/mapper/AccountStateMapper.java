@@ -65,25 +65,28 @@ public interface AccountStateMapper {
     int updateProxySnapshot(AccountState row);
 
     /**
-     * 重连恢复时把解绑账号恢复为正常。
+     * 协议回传 ONLINE 时把可恢复的账号生命周期状态收敛为正常。
      *
-     * <p>只更新 account_state=5(解绑) 的行,封禁/导出/未上报状态不会被 ONLINE 事件误改。</p>
+     * <p>只更新未上报、待上线、解绑状态,封禁/导出等终态不会被 ONLINE 事件误改。</p>
      *
      * @param row 包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt
      * @return 实际更新行数
      */
-    default int recoverUnboundState(AccountState row) {
-        return recoverUnboundStateInternal(row, AccountStateCode.UNBOUND);
+    default int markOnlineNormalState(AccountState row) {
+        return markOnlineNormalStateInternal(row, AccountStateCode.NEW, AccountStateCode.UNBOUND);
     }
 
     /**
-     * 重连恢复时把解绑账号恢复为正常的 SQL 实现。
+     * 协议回传 ONLINE 时把可恢复生命周期状态收敛为正常的 SQL 实现。
      *
      * @param row          包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt
+     * @param newState     待上线状态码,用于 WHERE 限定
      * @param unboundState 解绑状态码,用于 WHERE 限定
      * @return 实际更新行数
      */
-    int recoverUnboundStateInternal(@Param("row") AccountState row, @Param("unboundState") int unboundState);
+    int markOnlineNormalStateInternal(@Param("row") AccountState row,
+                                      @Param("newState") int newState,
+                                      @Param("unboundState") int unboundState);
 
     /**
      * 更新封号原因。

@@ -1,8 +1,12 @@
 package com.armada.group.service;
 
+import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.dto.GroupPictureCommandDTO;
+import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
@@ -31,6 +35,38 @@ public interface GroupLinkService {
      * @param dto 本地资料字段;传空字符串表示清空对应字段
      */
     void updateProfile(Long id, GroupLinkProfileDTO dto);
+
+    /**
+     * 修改 WhatsApp 真实群名称。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与新群名称
+     */
+    void updateSubject(Long id, GroupSubjectCommandDTO dto);
+
+    /**
+     * 修改 WhatsApp 真实群描述。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与群描述;description 为空时清空
+     */
+    void updateDescription(Long id, GroupDescriptionCommandDTO dto);
+
+    /**
+     * 修改 WhatsApp 群公告文本。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与公告文本
+     */
+    void updateAnnouncementText(Long id, GroupAnnouncementTextCommandDTO dto);
+
+    /**
+     * 修改 WhatsApp 真实群头像。
+     *
+     * @param id  群链接 ID
+     * @param dto 操作账号与头像 URL/base64
+     */
+    void updatePicture(Long id, GroupPictureCommandDTO dto);
 
     /**
      * 批量迁移群链接到目标分组。

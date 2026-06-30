@@ -18,9 +18,13 @@ import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.dto.GroupPictureCommandDTO;
+import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkLabel;
@@ -34,6 +38,7 @@ import com.armada.group.model.vo.GroupMemberQueryAccount;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
+import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
@@ -80,13 +85,16 @@ class GroupLinkServiceImplTest {
     @Mock
     private GroupParticipantPort groupParticipantPort;
 
+    @Mock
+    private GroupProfilePort groupProfilePort;
+
     private GroupLinkServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new GroupLinkServiceImpl(
                 groupLinkMapper, previewMapper, healthMapper, labelMapper, membershipMapper,
-                converter, accountMapper, groupPreviewPort, groupParticipantPort);
+                converter, accountMapper, groupPreviewPort, groupParticipantPort, groupProfilePort);
     }
 
     // ---- listByLabel ----
@@ -197,6 +205,84 @@ class GroupLinkServiceImplTest {
 
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
         verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+    }
+
+    // ---- remote group profile commands ----
+
+    @Test
+    void updateSubject_callsProtocolAndPersistsLocalGroupName() {
+        GroupLink link = activeLink(10L, "旧群名", "旧备注");
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(link);
+        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
+        when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(7L));
+        when(groupLinkMapper.updateGroupName(eq(10L), eq("新群名"), anyLong()))
+                .thenReturn(1);
+
+        service.updateSubject(10L, new GroupSubjectCommandDTO(7L, " 新群名 "));
+
+        verify(groupProfilePort).updateSubject("acc_7", "120363profile@g.us", "新群名");
+        verify(groupLinkMapper).updateGroupName(eq(10L), eq("新群名"), anyLong());
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+    }
+
+    @Test
+    void updateDescription_callsProtocolWithoutLocalProfileUpdate() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
+        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
+        when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(7L));
+
+        service.updateDescription(10L, new GroupDescriptionCommandDTO(7L, " 群描述 "));
+
+        verify(groupProfilePort).updateDescription("acc_7", "120363profile@g.us", "群描述");
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void updateAnnouncementText_callsProtocolWithoutLocalProfileUpdate() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
+        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
+        when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(7L));
+
+        service.updateAnnouncementText(10L, new GroupAnnouncementTextCommandDTO(7L, " 群公告 "));
+
+        verify(groupProfilePort).updateAnnouncementText("acc_7", "120363profile@g.us", "群公告");
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void updatePicture_callsProtocolAndPersistsAvatarUrl() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
+        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
+        when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(7L));
+
+        service.updatePicture(10L, new GroupPictureCommandDTO(
+                7L, " https://cdn.example.test/group.jpg ", null));
+
+        verify(groupProfilePort).updatePicture("acc_7", "120363profile@g.us",
+                "https://cdn.example.test/group.jpg", null);
+        verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group.jpg"), anyLong());
+    }
+
+    @Test
+    void updateSubject_missingGroupJidThrowsAndSkipsProtocol() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
+        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.updateSubject(10L, new GroupSubjectCommandDTO(7L, "新群名")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("群链接尚未解析群 JID");
+
+        verify(groupProfilePort, never()).updateSubject(any(), any(), any());
     }
 
     // ---- migrate ----
@@ -395,5 +481,26 @@ class GroupLinkServiceImplTest {
         assertThat(healthCaptor.getValue().getCurrentCount()).isEqualTo(12);
         assertThat(healthCaptor.getValue().getLastHealthError()).isNull();
         assertThat(healthCaptor.getValue().getHealthFailureCount()).isZero();
+    }
+
+    private static GroupLink activeLink(Long id, String groupName, String remark) {
+        GroupLink link = new GroupLink();
+        link.setId(id);
+        link.setGroupName(groupName);
+        link.setRemark(remark);
+        return link;
+    }
+
+    private static GroupLinkPreview preview(String groupJid) {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupJid(groupJid);
+        return preview;
+    }
+
+    private static Account account(Long id, String protocolAccountId) {
+        Account account = new Account();
+        account.setId(id);
+        account.setProtocolAccountId(protocolAccountId);
+        return account;
     }
 }

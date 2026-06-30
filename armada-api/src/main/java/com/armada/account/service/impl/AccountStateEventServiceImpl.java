@@ -52,8 +52,6 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static final String SOURCE_BANNED = "BANNED";
     /** 解绑状态来源。 */
     private static final String SOURCE_UNBOUND = "UNBOUND";
-    /** 解绑账号重新在线后的恢复来源。 */
-    private static final String SOURCE_RECOVERED = "RECOVERED";
     /** NEED_REAUTH + 403 收敛为封禁时写入的原因码。 */
     private static final String BAN_REASON_FORBIDDEN = "FORBIDDEN";
 
@@ -175,8 +173,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         if (STATE_ONLINE.equalsIgnoreCase(event.to())) {
             stateMapper.updateLoginState(updateRow(account.getId(), AccountLoginStateCode.ONLINE, null,
                     stateSource, null, occurredAt, updatedAt));
-            stateMapper.recoverUnboundState(updateRow(account.getId(), null, AccountStateCode.NORMAL,
-                    SOURCE_RECOVERED, null, occurredAt, updatedAt));
+            stateMapper.markOnlineNormalState(updateRow(account.getId(), null, AccountStateCode.NORMAL,
+                    stateSource, null, occurredAt, updatedAt));
             return true;
         }
         return false;

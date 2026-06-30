@@ -9,9 +9,13 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.dto.GroupPictureCommandDTO;
+import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -27,6 +31,7 @@ import com.armada.group.service.GroupLinkService;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
@@ -60,6 +65,15 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /** group_link.group_name 列长度。 */
     private static final int GROUP_NAME_MAX_LENGTH = 128;
 
+    /** WhatsApp 群名称协议层最大长度。 */
+    private static final int GROUP_SUBJECT_MAX_LENGTH = 100;
+
+    /** WhatsApp 群描述最大长度。 */
+    private static final int GROUP_DESCRIPTION_MAX_LENGTH = 512;
+
+    /** WhatsApp 公告文本最大长度。 */
+    private static final int GROUP_ANNOUNCEMENT_TEXT_MAX_LENGTH = 512;
+
     /** group_link.remark 列长度。 */
     private static final int REMARK_MAX_LENGTH = 255;
 
@@ -79,6 +93,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final AccountMapper accountMapper;
     private final GroupPreviewPort groupPreviewPort;
     private final GroupParticipantPort groupParticipantPort;
+    private final GroupProfilePort groupProfilePort;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
                                 GroupLinkPreviewMapper previewMapper,
@@ -88,7 +103,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 GroupConverter converter,
                                 AccountMapper accountMapper,
                                 GroupPreviewPort groupPreviewPort,
-                                GroupParticipantPort groupParticipantPort) {
+                                GroupParticipantPort groupParticipantPort,
+                                GroupProfilePort groupProfilePort) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.healthMapper = healthMapper;
@@ -98,6 +114,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.accountMapper = accountMapper;
         this.groupPreviewPort = groupPreviewPort;
         this.groupParticipantPort = groupParticipantPort;
+        this.groupProfilePort = groupProfilePort;
     }
 
     /**
@@ -163,6 +180,94 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                 id, dto.groupName() != null, dto.remark() != null, dto.avatarUrl() != null);
     }
 
+    /**
+     * 修改 WhatsApp 真实群名称。
+     *
+     * <p>该入口不同于 {@link #updateProfile(Long, GroupLinkProfileDTO)}:这里会真实调用协议层修改
+     * WhatsApp 群 subject。协议调用成功后,再把 {@code group_link.group_name} 更新为本地展示镜像;
+     * 本地只更新群名,不触碰备注,避免并发覆盖运营备注。</p>
+     */
+    @Override
+    public void updateSubject(Long id, GroupSubjectCommandDTO dto) {
+        if (dto == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群名称更新请求不能为空");
+        }
+        String subject = requireProfileField(dto.subject(), GROUP_SUBJECT_MAX_LENGTH, "群名称");
+        GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
+
+        // 不包 DB 事务跨外部 HTTP 调用:先确认 WhatsApp 侧成功,再写本地展示镜像。
+        groupProfilePort.updateSubject(target.protocolAccountId(), target.groupJid(), subject);
+        int updated = groupLinkMapper.updateGroupName(id, subject, System.currentTimeMillis());
+        if (updated == 0) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
+        }
+        log.info("WhatsApp 群名称已更新 groupLinkId={} groupJid={} accountId={}",
+                id, target.groupJid(), target.accountId());
+    }
+
+    /**
+     * 修改 WhatsApp 真实群描述。
+     *
+     * <p>Armada 当前没有群描述本地字段,因此该方法只负责调用协议层。空字符串会在本地归一为
+     * {@code null},协议层再将其解释为清空描述。</p>
+     */
+    @Override
+    public void updateDescription(Long id, GroupDescriptionCommandDTO dto) {
+        if (dto == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群描述更新请求不能为空");
+        }
+        String description = normalizeProfileField(dto.description(), GROUP_DESCRIPTION_MAX_LENGTH, "群描述");
+        GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
+
+        // description 可为 null,用于表达清空群描述;其它群资料字段仍按非空校验处理。
+        groupProfilePort.updateDescription(target.protocolAccountId(), target.groupJid(), description);
+        log.info("WhatsApp 群描述已更新 groupLinkId={} groupJid={} accountId={} cleared={}",
+                id, target.groupJid(), target.accountId(), description == null);
+    }
+
+    /**
+     * 修改 WhatsApp 群公告文本。
+     *
+     * <p>协议层当前把公告文本落到群 description 并发布 metadata_updated 事件。Armada 本地暂不持久化
+     * 公告文本,避免在没有明确字段契约前复制一份含义不稳定的状态。</p>
+     */
+    @Override
+    public void updateAnnouncementText(Long id, GroupAnnouncementTextCommandDTO dto) {
+        if (dto == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群公告更新请求不能为空");
+        }
+        String text = requireProfileField(dto.text(), GROUP_ANNOUNCEMENT_TEXT_MAX_LENGTH, "群公告");
+        GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
+
+        // 公告文本必须非空;清空/删除公告若后续需要,应按独立产品语义再加接口。
+        groupProfilePort.updateAnnouncementText(target.protocolAccountId(), target.groupJid(), text);
+        log.info("WhatsApp 群公告已更新 groupLinkId={} groupJid={} accountId={}",
+                id, target.groupJid(), target.accountId());
+    }
+
+    /**
+     * 修改 WhatsApp 真实群头像。
+     *
+     * <p>请求支持 URL 或 base64 二选一。URL 形态可作为列表头像展示镜像写入
+     * {@code group_link_preview.avatar_url};base64 没有可复用的公开 URL,因此只调用协议层,不落本地头像。</p>
+     */
+    @Override
+    public void updatePicture(Long id, GroupPictureCommandDTO dto) {
+        if (dto == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群头像更新请求不能为空");
+        }
+        PictureInput picture = normalizePicture(dto);
+        GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
+
+        // 协议成功后再写本地 URL 镜像;协议失败时不要让列表显示一个实际未生效的头像。
+        groupProfilePort.updatePicture(target.protocolAccountId(), target.groupJid(), picture.url(), picture.base64());
+        if (picture.url() != null) {
+            previewMapper.upsertAvatarUrl(id, picture.url(), System.currentTimeMillis());
+        }
+        log.info("WhatsApp 群头像已更新 groupLinkId={} groupJid={} accountId={} source={}",
+                id, target.groupJid(), target.accountId(), picture.url() == null ? "base64" : "url");
+    }
+
     private static void validateStatus(String status) {
         if (status == null || status.trim().isEmpty()) {
             return;
@@ -185,6 +290,67 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             throw new BusinessException(ErrorCode.VALIDATION, fieldName + "长度不能超过" + maxLength);
         }
         return normalized;
+    }
+
+    private static String requireProfileField(String value, int maxLength, String fieldName) {
+        String normalized = normalizeProfileField(value, maxLength, fieldName);
+        if (normalized == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, fieldName + "不能为空");
+        }
+        return normalized;
+    }
+
+    /**
+     * 解析真实群资料操作所需的最小上下文。
+     *
+     * <p>前端只传本地 {@code group_link.id} 和本地账号 ID。这里统一转换成协议层需要的
+     * {@code groupJid + protocolAccountId},并把群 JID 未解析、账号离线等问题提前变成清晰的业务错误。</p>
+     */
+    private GroupProfileTarget resolveGroupProfileTarget(Long id, Long accountId) {
+        if (id == null || id <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接 ID 不能为空");
+        }
+        if (accountId == null || accountId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "操作账号 ID 不能为空");
+        }
+        GroupLink link = groupLinkMapper.selectActiveById(id);
+        if (link == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
+        }
+        // groupJid 是协议层真实操作群的唯一寻址字段;导入链接刚入池时可能还没有解析出来。
+        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(id);
+        if (preview == null || preview.getGroupJid() == null || preview.getGroupJid().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接尚未解析群 JID,请先预览或等待账号群同步");
+        }
+        return new GroupProfileTarget(
+                preview.getGroupJid().trim(),
+                accountId,
+                resolveOnlineProtocolAccountId(accountId));
+    }
+
+    /** 将本地账号 ID 转成协议账号句柄,并确认账号当前在线。 */
+    private String resolveOnlineProtocolAccountId(Long accountId) {
+        String protocolAccountId = resolveProtocolAccountId(accountId);
+        List<Long> onlineIds = accountMapper.selectOnlineAccountIdsByIds(List.of(accountId), AccountLoginStateCode.ONLINE);
+        if (onlineIds == null || !onlineIds.contains(accountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "操作账号未在线: " + accountId);
+        }
+        return protocolAccountId;
+    }
+
+    /**
+     * 归一化头像入参。
+     *
+     * <p>协议层 picture schema 是 {@code image.url? / image.base64?},二者都不能以 null 形式混发。
+     * 这里先在业务层收敛为严格二选一,HTTP adapter 再按同样规则构造 wire body。</p>
+     */
+    private static PictureInput normalizePicture(GroupPictureCommandDTO dto) {
+        String url = normalizeProfileField(dto.url(), AVATAR_URL_MAX_LENGTH, "头像URL");
+        String base64 = dto.base64() == null || dto.base64().isBlank() ? null : dto.base64().trim();
+        if ((url == null && base64 == null) || (url != null && base64 != null)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "头像 URL 与 base64 必须二选一");
+        }
+        return new PictureInput(url, base64);
     }
 
     /**
@@ -479,5 +645,14 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             normalized = normalized.substring(0, device);
         }
         return normalized.isBlank() ? null : normalized;
+    }
+
+    private record GroupProfileTarget(
+            String groupJid,
+            Long accountId,
+            String protocolAccountId) {
+    }
+
+    private record PictureInput(String url, String base64) {
     }
 }

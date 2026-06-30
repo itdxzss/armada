@@ -61,9 +61,33 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
-        assertThat(state.getAccountState()).isNull();
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.NORMAL);
         assertThat(state.getLastStateSyncTime()).isEqualTo(now + 1_000L);
         assertThat(state.getStateSource()).isEqualTo("RECONNECTING");
+    }
+
+    @Test
+    void applyStateChanged_online_doesNotRecoverBannedState() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86188" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        int prepared = jdbcTemplate.update(
+                """
+                UPDATE account_state
+                SET account_state = ?, updated_at = ?
+                WHERE account_id = ?
+                """,
+                AccountStateCode.BANNED, now + 1_000L, account.getId());
+        assertThat(prepared).isEqualTo(1);
+
+        service.applyStateChanged(event(account, "RECONNECTING", "ONLINE",
+                now + 2_000L, "CONNECTED", null));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.BANNED);
+        assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
+        assertThat(state.getStateSource()).isEqualTo("CONNECTED");
     }
 
     @Test
@@ -96,7 +120,7 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
-        assertThat(state.getAccountState()).isNull();
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.NORMAL);
         assertThat(state.getBlockReason()).isNull();
         assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
         assertThat(state.getStateSource()).isEqualTo("RECONNECTING");

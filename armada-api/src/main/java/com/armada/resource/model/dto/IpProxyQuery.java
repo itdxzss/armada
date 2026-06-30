@@ -12,6 +12,9 @@ public class IpProxyQuery extends PageQuery {
     /** 国家/分组中文展示名筛选；为空/「全部」不参与。 */
     private String region;
 
+    /** 新国家下拉提交值:真实国家为 ISO/CLDR 二字母码,混合为 MIXED；为空时兼容旧 region。 */
+    private String countryValue;
+
     /** 协议码（1=HTTP 2=SOCKS5）；为空不参与。 */
     private Integer protocol;
 
@@ -27,6 +30,14 @@ public class IpProxyQuery extends PageQuery {
 
     public void setRegion(String region) {
         this.region = region;
+    }
+
+    public String getCountryValue() {
+        return countryValue;
+    }
+
+    public void setCountryValue(String countryValue) {
+        this.countryValue = countryValue;
     }
 
     public Integer getProtocol() {

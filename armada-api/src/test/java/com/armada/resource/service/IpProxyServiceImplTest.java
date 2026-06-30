@@ -13,11 +13,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.platform.country.service.CountryService;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.dto.IpProxyImportDTO;
+import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.service.impl.IpProxyServiceImpl;
@@ -46,11 +48,15 @@ class IpProxyServiceImplTest {
     @Mock
     private IpProxyConverter converter;
 
+    @Mock
+    private CountryService countryService;
+
     @InjectMocks
     private IpProxyServiceImpl service;
 
     /** 构造合法的导入 DTO(协议=1/HTTP,来源非空)。 */
     private IpProxyImportDTO dto(String text) {
+        when(countryService.resolveIpRegion("中国")).thenReturn("中国");
         return new IpProxyImportDTO("中国", 1, "供应商A", text);
     }
 
@@ -156,6 +162,45 @@ class IpProxyServiceImplTest {
 
         assertThat(regions).containsExactly("混合（不限国家）", "印度", "马来西亚");
         verify(mapper).selectDistinctRegions("混合（不限国家）");
+    }
+
+    @Test
+    void list_resolvesCountryValueToLegacyRegionBeforeMapper() {
+        IpProxyQuery query = new IpProxyQuery();
+        query.setCountryValue("IN");
+        when(countryService.resolveIpRegion("IN")).thenReturn("印度");
+        when(mapper.countPage(query)).thenReturn(0L);
+
+        service.list(query);
+
+        assertThat(query.getRegion()).isEqualTo("印度");
+        verify(mapper).countPage(query);
+    }
+
+    @Test
+    void importProxies_resolvesCountryValueBeforePersistingRegion() {
+        when(countryService.resolveIpRegion("IN")).thenReturn("印度");
+        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+
+        IpProxyImportResultVO result = service.importProxies(
+                new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", "IN"));
+
+        assertThat(result.insertedRows()).isEqualTo(1);
+        ArgumentCaptor<IpProxy> proxyCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).insert(proxyCaptor.capture());
+        assertThat(proxyCaptor.getValue().getRegion()).isEqualTo("印度");
+    }
+
+    @Test
+    void importProxies_legacyRegionStillResolvesThroughCountryService() {
+        when(countryService.resolveIpRegion("印度")).thenReturn("印度");
+        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+
+        service.importProxies(new IpProxyImportDTO("印度", 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
+
+        ArgumentCaptor<IpProxy> proxyCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).insert(proxyCaptor.capture());
+        assertThat(proxyCaptor.getValue().getRegion()).isEqualTo("印度");
     }
 
     @Test

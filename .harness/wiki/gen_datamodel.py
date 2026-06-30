@@ -337,7 +337,7 @@ TENANT_GROUPS = [
     ("买量 / 推广 / 落地页", ["buyer_channel","buyer_daily_stat","promotion_channel","promotion_template","landing_page","visit_log"]),
     ("统计", ["channel_stat_daily","channel_ad_data","marketing_stat_daily"]),
     ("告警", ["alarm_rule","alarm_event"]),
-    ("资源池（IP / 协议 / 数据包 / 导出）", ["ip_proxy","protocol","protocol_account","protocol_export_batch","protocol_export_detail","data_pack","data_pack_item","export_batch"]),
+    ("资源池（国家 / IP / 协议 / 数据包 / 导出）", ["country","ip_proxy","protocol","protocol_account","protocol_export_batch","protocol_export_detail","data_pack","data_pack_item","export_batch"]),
     ("公共（文件 / 字段字典）", ["file_meta_tenant","file_upload_session_tenant","pull_field_doc"]),
 ]
 
@@ -378,16 +378,17 @@ def render_table(schema, t):
 
 out = []
 seen = set()
-TENANT_SCHEMA = "wheel_tenant"
+ADMIN_SCHEMA = "armada_admin" if any(s == "armada_admin" for (s, _) in cols) else "wheel_admin"
+TENANT_SCHEMA = "armada" if any(s == "armada" for (s, _) in cols) else "wheel_tenant"
 
-if any(s == "wheel_admin" for (s, _) in cols):
+if any(s == ADMIN_SCHEMA for (s, _) in cols):
     out.append("## armada admin schema（平台运营，不带 tenant_id）\n")
     for t in ADMIN_ORDER:
-        if ("wheel_admin", t) in cols:
-            out.append(render_table("wheel_admin", t)); seen.add(("wheel_admin", t))
+        if (ADMIN_SCHEMA, t) in cols:
+            out.append(render_table(ADMIN_SCHEMA, t)); seen.add((ADMIN_SCHEMA, t))
     # 任何遗漏的 admin 表
     for (s, t) in cols:
-        if s == "wheel_admin" and (s, t) not in seen:
+        if s == ADMIN_SCHEMA and (s, t) not in seen:
             out.append(render_table(s, t)); seen.add((s, t))
 
 out.append("## armada schema（业务数据，行级 tenant_id 隔离）\n")
@@ -407,7 +408,7 @@ with open(OUT, "w", encoding="utf-8") as f:
     f.write("\n".join(out))
 
 # 统计
-n_admin = sum(1 for (s, _) in seen if s == "wheel_admin")
+n_admin = sum(1 for (s, _) in seen if s == ADMIN_SCHEMA)
 n_tenant = sum(1 for (s, _) in seen if s == TENANT_SCHEMA)
 print(f"生成完成：armada_admin={n_admin} 表, armada={n_tenant} 表, 共 {len(seen)} 表")
 print(f"未归类 tenant 表: {missing}")

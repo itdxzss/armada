@@ -29,7 +29,7 @@
         "method": "POST",
         "path": "/api/accounts/batch-delete",
         "name": "batchDelete",
-        "summary": "A6 批量软删除账号(全或无严格口径)。",
+        "summary": "A7 批量软删除账号(全或无严格口径)。",
         "perm": null,
         "params": [
           {
@@ -47,7 +47,7 @@
         "method": "POST",
         "path": "/api/accounts/batch-migrate-group",
         "name": "batchMigrateGroup",
-        "summary": "A5 批量迁移分组。",
+        "summary": "A6 批量迁移分组。",
         "perm": null,
         "params": [
           {
@@ -63,9 +63,9 @@
       },
       {
         "method": "POST",
-        "path": "/api/accounts/batch-online",
-        "name": "batchOnline",
-        "summary": "A4 批量发起账号上线(后端逐账号分配空闲代理,协议层一次 batch 受理)。",
+        "path": "/api/accounts/batch-offline",
+        "name": "batchOffline",
+        "summary": "A5 批量发起账号下线(批量写入 outbox)。",
         "perm": null,
         "params": [
           {
@@ -77,7 +77,25 @@
         ],
         "response": "AccountBatchOnlineVO",
         "ret_raw": "ApiResponse<AccountBatchOnlineVO>",
-        "retdoc": "协议层批量上线受理汇总"
+        "retdoc": "outbox 批量下线命令受理汇总"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/batch-online",
+        "name": "batchOnline",
+        "summary": "A4 批量发起账号上线(后端逐账号分配空闲代理,批量写入 outbox)。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "AccountIdsDTO",
+            "desc": "账号 ID 列表"
+          }
+        ],
+        "response": "AccountBatchOnlineVO",
+        "ret_raw": "ApiResponse<AccountBatchOnlineVO>",
+        "retdoc": "outbox 批量上线命令受理汇总"
       },
       {
         "method": "GET",
@@ -106,7 +124,43 @@
         ],
         "response": "AccountOnlineVO",
         "ret_raw": "ApiResponse<AccountOnlineVO>",
-        "retdoc": "协议层上线受理回执"
+        "retdoc": "outbox 上线命令受理回执"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/{id}/probe",
+        "name": "probe",
+        "summary": "A4.2 主动探活账号。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "账号 ID"
+          }
+        ],
+        "response": "AccountProbeVO",
+        "ret_raw": "ApiResponse<AccountProbeVO>",
+        "retdoc": "探活结果"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/{id}/refresh-status",
+        "name": "refreshStatus",
+        "summary": "A4.1 主动从协议层拉一次账号状态快照。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "账号 ID"
+          }
+        ],
+        "response": "AccountStatusVO",
+        "ret_raw": "ApiResponse<AccountStatusVO>",
+        "retdoc": "协议层状态快照"
       }
     ]
   },
@@ -278,7 +332,7 @@
         "method": "GET",
         "path": "/api/account-imports/{batchId}/export",
         "name": "exportDetails",
-        "summary": "C4 导出指定批次明细为 CSV 文件。",
+        "summary": "C4 按导入时的原始容器格式导出指定批次明细。",
         "perm": null,
         "params": [
           {
@@ -298,7 +352,37 @@
         ],
         "response": "ResponseEntity<byte[]>",
         "ret_raw": "ResponseEntity<byte[]>",
-        "retdoc": "CSV 文件响应"
+        "retdoc": "文件响应"
+      }
+    ]
+  },
+  {
+    "controller": "CountryController",
+    "module": "admin",
+    "package": "com.armada.admin.controller",
+    "source": "armada-api/src/main/java/com/armada/admin/controller/CountryController.java",
+    "base": "/api/admin/countries",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/api/admin/countries/options",
+        "name": "options",
+        "summary": "国家下拉选项。scope=ip 时返回 MIXED 虚拟项 + 启用且 IP 可展示的真实国家。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "query",
+            "name": "scope",
+            "type": "String",
+            "required": false,
+            "default": "ip",
+            "desc": "选项范围,当前支持 ip;为空时按 ip 处理"
+          }
+        ],
+        "response": "CountryOptionsVO",
+        "ret_raw": "ApiResponse<CountryOptionsVO>",
+        "retdoc": "国家选项列表"
       }
     ]
   },
@@ -345,6 +429,24 @@
         "response": "Integer",
         "ret_raw": "ApiResponse<Integer>",
         "retdoc": "实际删除行数"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/batch-preview",
+        "name": "previewBatch",
+        "summary": "B5 批量实时预览群链接。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupLinkPreviewDTO",
+            "desc": "预览请求(accountId + ids)"
+          }
+        ],
+        "response": "GroupLinkPreviewBatchVO",
+        "ret_raw": "ApiResponse<GroupLinkPreviewBatchVO>",
+        "retdoc": "批量预览汇总"
       },
       {
         "method": "POST",
@@ -407,6 +509,144 @@
         "response": "Integer",
         "ret_raw": "ApiResponse<Integer>",
         "retdoc": "实际迁移行数"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/group-links/{id}",
+        "name": "updateProfile",
+        "summary": "更新群组列表本地资料。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupLinkProfileDTO",
+            "desc": "本地群名称/备注/头像 URL"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/announcement-text",
+        "name": "updateAnnouncementText",
+        "summary": "修改 WhatsApp 群公告文本。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupAnnouncementTextCommandDTO",
+            "desc": "操作账号与公告文本"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/description",
+        "name": "updateDescription",
+        "summary": "修改 WhatsApp 真实群描述。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupDescriptionCommandDTO",
+            "desc": "操作账号与群描述"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
+      },
+      {
+        "method": "GET",
+        "path": "/api/group-links/{id}/members",
+        "name": "members",
+        "summary": "群组明细实时成员列表。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          }
+        ],
+        "response": "GroupLinkMemberListVO",
+        "ret_raw": "ApiResponse<GroupLinkMemberListVO>",
+        "retdoc": "协议层实时返回的成员列表;成员明细不落库"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/picture",
+        "name": "updatePicture",
+        "summary": "修改 WhatsApp 真实群头像。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupPictureCommandDTO",
+            "desc": "操作账号与头像 URL/base64"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/subject",
+        "name": "updateSubject",
+        "summary": "修改 WhatsApp 真实群名称。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupSubjectCommandDTO",
+            "desc": "操作账号与新群名称"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
       }
     ]
   },
@@ -445,7 +685,7 @@
         "params": [
           {
             "kind": "query",
-            "name": "label_id",
+            "name": "labelId",
             "type": "Long",
             "required": false,
             "default": null,
@@ -453,7 +693,7 @@
           },
           {
             "kind": "query",
-            "name": "batch_id",
+            "name": "batchId",
             "type": "Long",
             "required": false,
             "default": null,
@@ -911,6 +1151,17 @@
         "response": "IpProxyImportResultVO",
         "ret_raw": "ApiResponse<IpProxyImportResultVO>",
         "retdoc": "导入结果"
+      },
+      {
+        "method": "GET",
+        "path": "/api/ip-proxies/regions",
+        "name": "regions",
+        "summary": "查询本租户 IP 池已有国家/区域,供筛选框和账号导入选择 IP 国家使用。",
+        "perm": null,
+        "params": [],
+        "response": "List<String>",
+        "ret_raw": "ApiResponse<List<String>>",
+        "retdoc": "去重后的国家/区域列表,「混合（不限国家）」优先"
       }
     ]
   },
@@ -1046,6 +1297,24 @@
         "response": "List<JoinResultRowVO>",
         "ret_raw": "ApiResponse<List<JoinResultRowVO>>",
         "retdoc": "明细行列表"
+      },
+      {
+        "method": "POST",
+        "path": "/api/join-tasks/{id}/start",
+        "name": "start",
+        "summary": "启动任务:把 DRAFT 任务转 RUNNING 并触发后台 worker 执行。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "任务 ID"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
       }
     ]
   }

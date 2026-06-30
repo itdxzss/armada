@@ -2,7 +2,7 @@
 
 > 状态:**已 brainstorm 定稿,待用户审 → 转 writing-plans**(2026-07-01)
 > 范围:把 IP 管理里的国家下拉从前端写死改为后端国家主数据。IP 代理池仍保留现有 `tenant_id`,角色菜单权限暂不做。
-> 关联模块:`com.armada.admin` 国家主数据,`com.armada.resource` IP 管理,原型文件 `/Users/daishuaishuai/IdeaProjects/0630IP管理、IP统计.html`。
+> 关联模块:`com.armada.platform.country` 国家主数据,`com.armada.admin` 国家下拉接口,`com.armada.resource` IP 管理,原型文件 `/Users/daishuaishuai/IdeaProjects/0630IP管理、IP统计.html`。
 
 ---
 
@@ -83,7 +83,7 @@ CREATE TABLE country (
 - `phone_prefix` 保留 `+1-684` 这类复合区号,不用拆分。
 - `is_enabled` 控制主数据是否可用。
 - `is_ip_supported` 控制 IP 管理下拉是否展示。本次初始 248 条全部设为 `1`,后续可在后台停用或收窄。
-- `created_at` / `updated_at` / `deleted_at` 统一使用 epoch 毫秒,不使用数据库 `DATETIME`。页面展示时由前端或接口展示层按北京时间格式化。
+- `created_at` / `updated_at` / `deleted_at` 统一使用 epoch 毫秒,不使用数据库时间类型。页面展示时由前端或接口展示层按北京时间格式化。
 - `混合（不限国家）` 不是国家,不入 `country` 表,由 IP 选项接口作为虚拟选项置顶返回。
 
 初始数据:

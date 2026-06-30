@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.platform.country.mapper.CountryMapper">
+
+  <sql id="Columns">
+    id, iso2, name_zh, name_en, phone_prefix, flag,
+    is_enabled, is_ip_supported, sort_order, remark,
+    created_at, updated_at, deleted_at
+  </sql>
+
+  <select id="countActive" resultType="long">
+    SELECT COUNT(*)
+    FROM country
+    WHERE deleted_at IS NULL
+  </select>
+
+  <select id="selectIpSupported" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+      AND is_ip_supported = 1
+    ORDER BY sort_order ASC, id ASC
+  </select>
+
+  <select id="selectActiveByIso2" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+      AND iso2 = #{iso2}
+    LIMIT 1
+  </select>
+
+  <select id="selectActiveByNameZh" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+      AND name_zh = #{nameZh}
+    LIMIT 1
+  </select>
+
+</mapper>

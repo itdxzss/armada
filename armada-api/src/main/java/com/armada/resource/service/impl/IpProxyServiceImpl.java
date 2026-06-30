@@ -1,5 +1,6 @@
 package com.armada.resource.service.impl;
 
+import com.armada.platform.country.service.CountryService;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
@@ -54,19 +55,22 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     private final IpProxyMapper mapper;
     private final IpProxyConverter converter;
+    private final CountryService countryService;
 
-    public IpProxyServiceImpl(IpProxyMapper mapper, IpProxyConverter converter) {
+    public IpProxyServiceImpl(IpProxyMapper mapper, IpProxyConverter converter, CountryService countryService) {
         this.mapper = mapper;
         this.converter = converter;
+        this.countryService = countryService;
     }
 
     @Override
     public PageResult<IpProxyVO> list(IpProxyQuery query) {
-        long total = mapper.countPage(query);
+        IpProxyQuery normalized = normalizeQuery(query);
+        long total = mapper.countPage(normalized);
         List<IpProxyVO> rows = total == 0
                 ? List.of()
-                : converter.toVOList(mapper.selectPage(query));
-        return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+                : converter.toVOList(mapper.selectPage(normalized));
+        return PageResult.of(rows, normalized.getPage(), normalized.getPageSize(), total);
     }
 
     @Override
@@ -77,15 +81,16 @@ public class IpProxyServiceImpl implements IpProxyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public IpProxyImportResultVO importProxies(IpProxyImportDTO dto) {
+        IpProxyImportDTO normalized = normalizeImport(dto);
         // 先校验批次级字段。国家可为空,但协议、来源、导入文本必须完整,否则不进入逐行解析。
-        validateImport(dto);
+        validateImport(normalized);
 
         // LineImporter 负责统一处理逐行导入流程:
         // 1) 跳过空行;2) parseProxyLine 校验单行格式;3) dedupKey 做批内去重;
         // 4) persistProxy 返回 true=新增,false=库内已有而跳过。
         List<LineOutcome<ProxyLine, Boolean>> outcomes = LineImporter.run(
-                dto.text(), IpProxyServiceImpl::parseProxyLine, ProxyLine::dedupKey,
-                line -> persistProxy(dto, line));   // 返回 true=新增 false=库内已存在跳过
+                normalized.text(), IpProxyServiceImpl::parseProxyLine, ProxyLine::dedupKey,
+                line -> persistProxy(normalized, line));   // 返回 true=新增 false=库内已存在跳过
 
         // 汇总口径:
         // failed=格式/字段校验失败;inserted=真实新增;skipped=批内重复 + 库内已存在。
@@ -99,7 +104,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         List<String> errors = outcomes.stream().filter(o -> o.kind() == Kind.FAILED)
                 .map(o -> "第 " + o.lineNo() + " 行：" + o.reason()).toList();
         log.info("IP代理导入 region={} protocol={} total={} inserted={} skipped={} failed={}",
-                dto.region(), dto.protocol(), total, inserted, skipped, failed);
+                normalized.region(), normalized.protocol(), total, inserted, skipped, failed);
         return new IpProxyImportResultVO(total, inserted, skipped, failed, errors);
     }
 
@@ -196,6 +201,13 @@ public class IpProxyServiceImpl implements IpProxyService {
         return allocateOnlineEndpoints(requests, normalizeProxyIds(excludedProxyIds));
     }
 
+    /**
+     * 批量分配代理的共享实现。
+     *
+     * <p>两个 public 入口都走这里:普通批量上线不排除旧 IP,删除 IP 前重登会传入待删代理 ID。
+     * 方法在一个事务中完成释放旧绑定、逐个锁定空闲代理、批量绑定新代理;任何一步失败都会回滚,
+     * 避免账号代理绑定被释放后没有重新分配。</p>
+     */
     private List<IpProxyAccountAllocation> allocateOnlineEndpoints(
             List<IpProxyAllocationRequest> requests,
             List<Long> excludedProxyIds) {
@@ -330,6 +342,40 @@ public class IpProxyServiceImpl implements IpProxyService {
         }
     }
 
+    /**
+     * 归一化 IP 管理列表查询国家条件。
+     *
+     * <p>新前端提交 {@code countryValue}(ISO2/MIXED),旧前端仍可能提交中文 {@code region}。
+     * 这里统一解析成 {@code ip_proxy.region} 当前使用的中文快照,让 Mapper 继续复用原有筛选 SQL。</p>
+     */
+    private IpProxyQuery normalizeQuery(IpProxyQuery query) {
+        IpProxyQuery target = query == null ? new IpProxyQuery() : query;
+        String submitted = StringUtils.hasText(target.getCountryValue()) ? target.getCountryValue() : target.getRegion();
+        target.setRegion(countryService.resolveIpRegion(submitted));
+        return target;
+    }
+
+    /**
+     * 归一化 IP 导入国家字段。
+     *
+     * <p>导入保存的仍是中文 {@code region} 快照,用于现有分配优先级和历史展示。
+     * 优先使用新下拉提交值 {@code countryValue};为空时兼容旧中文 {@code region}。</p>
+     */
+    private IpProxyImportDTO normalizeImport(IpProxyImportDTO dto) {
+        if (dto == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "导入参数不能为空");
+        }
+        String submitted = StringUtils.hasText(dto.countryValue()) ? dto.countryValue() : dto.region();
+        String region = countryService.resolveIpRegion(submitted);
+        return new IpProxyImportDTO(region, dto.protocol(), dto.source(), dto.text(), dto.countryValue());
+    }
+
+    /**
+     * 按国家优先级锁定一条本租户空闲代理。
+     *
+     * <p>实际排序规则在 Mapper SQL 中实现:指定国家优先,其次混合池,最后其它国家。
+     * {@code excludedProxyIds} 用于批量分配和删除 IP 前重登,避免同一批次重复选中或选中待删代理。</p>
+     */
     private IpProxy selectOneIdleByPriority(Long tenantId, String preferredRegion, List<Long> excludedProxyIds) {
         List<Long> excludedSnapshot = excludedProxyIds == null || excludedProxyIds.isEmpty()
                 ? List.of()
@@ -342,6 +388,12 @@ public class IpProxyServiceImpl implements IpProxyService {
                 excludedSnapshot);
     }
 
+    /**
+     * 释放账号当前占用的代理。
+     *
+     * <p>只把该账号当前 {@code IN_USE} 绑定释放回 {@code IDLE},用于上线前重分配和离线后的正常释放。
+     * 方法不校验账号是否存在,返回值由调用方写日志或判断释放数量。</p>
+     */
     private int releaseCurrentBinding(Long accountId, long updatedAt) {
         return mapper.releaseByAccount(
                 accountId,
@@ -350,6 +402,12 @@ public class IpProxyServiceImpl implements IpProxyService {
                 updatedAt);
     }
 
+    /**
+     * 校验并归一化单个账号的代理分配请求。
+     *
+     * <p>账号 ID 是锁定和绑定代理的最小业务键,不能为空。国家偏好会把「混合（不限国家）」折成 null,
+     * 让后续 SQL 走“混合池优先,其次其它国家”的无指定国家分支。</p>
+     */
     private static IpProxyAllocationRequest normalizeAllocationRequest(IpProxyAllocationRequest request) {
         if (request == null || request.accountId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
@@ -384,6 +442,12 @@ public class IpProxyServiceImpl implements IpProxyService {
         return List.copyOf(result);
     }
 
+    /**
+     * 归一化代理分配国家偏好。
+     *
+     * <p>空值和「混合（不限国家）」都不代表真实指定国家,统一折成 null;
+     * 真实国家中文名保留给优先级 SQL 做首选匹配。</p>
+     */
     private static String normalizePreferredRegion(String preferredRegion) {
         if (!StringUtils.hasText(preferredRegion)) {
             return null;
@@ -392,6 +456,12 @@ public class IpProxyServiceImpl implements IpProxyService {
         return MIXED_REGION.equals(trimmed) ? null : trimmed;
     }
 
+    /**
+     * 归一化需要排除的代理 ID 列表。
+     *
+     * <p>空列表表示不排除任何代理;非空时拒绝 null 并按首次出现顺序去重。
+     * 该列表会参与 {@code FOR UPDATE} 查询,用于确保删除 IP 前重登不会重新选中待删代理。</p>
+     */
     private static List<Long> normalizeProxyIds(List<Long> proxyIds) {
         if (proxyIds == null || proxyIds.isEmpty()) {
             return List.of();

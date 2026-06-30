@@ -18,6 +18,9 @@ public class AccountImportBatch {
     /** 上传文件原名;纯文本导入时为「导入」兜底串。 */
     private String sourceFileName;
 
+    /** 原始导入容器类型:ZIP/TXT;仅新增批次保证有值。 */
+    private String sourceFileType;
+
     /** 导入格式:1六段 2JSON 3全参。 */
     private Integer importFormat;
 
@@ -93,6 +96,14 @@ public class AccountImportBatch {
 
     public void setSourceFileName(String sourceFileName) {
         this.sourceFileName = sourceFileName;
+    }
+
+    public String getSourceFileType() {
+        return sourceFileType;
+    }
+
+    public void setSourceFileType(String sourceFileType) {
+        this.sourceFileType = sourceFileType;
     }
 
     public Integer getImportFormat() {

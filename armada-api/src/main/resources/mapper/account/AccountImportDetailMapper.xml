@@ -8,14 +8,14 @@
   -->
   <insert id="batchInsert">
     INSERT INTO account_import_detail (
-      batch_id, line_no, ws_phone, account_id,
+      batch_id, line_no, ws_phone, raw_payload, source_entry_name, account_id,
       parse_result, fail_reason, login_result,
       online_phase, online_dispatched_at, login_settled_at, dispatch_attempts, login_reason,
       created_at
     ) VALUES
     <foreach collection="rows" item="r" separator=",">
       (
-        #{r.batchId}, #{r.lineNo}, #{r.wsPhone}, #{r.accountId},
+        #{r.batchId}, #{r.lineNo}, #{r.wsPhone}, #{r.rawPayload}, #{r.sourceEntryName}, #{r.accountId},
         #{r.parseResult}, #{r.failReason}, #{r.loginResult},
         COALESCE(#{r.onlinePhase}, 0), #{r.onlineDispatchedAt}, #{r.loginSettledAt},
         COALESCE(#{r.dispatchAttempts}, 0), #{r.loginReason},
@@ -138,6 +138,23 @@
     FROM account_import_detail d
     JOIN account_import_batch b ON d.batch_id = b.id AND d.tenant_id = b.tenant_id
     LEFT JOIN account_group g ON b.account_group_id = g.id AND g.deleted_at IS NULL
+    WHERE d.batch_id = #{batchId}
+    <choose>
+      <when test="scope == 'success'">AND d.parse_result = 1</when>
+      <when test="scope == 'fail'">AND d.parse_result IN (2, 3, 4)</when>
+    </choose>
+    ORDER BY d.line_no ASC
+  </select>
+
+  <!--
+    原始格式导出专用投影:只取恢复 ZIP/TXT 内容需要的字段,不暴露到明细列表响应。
+  -->
+  <select id="selectExportRowsByBatch" resultType="com.armada.account.model.vo.AccountImportExportRow">
+    SELECT d.id, d.line_no AS lineNo, d.ws_phone AS wsPhone,
+           d.parse_result AS parseResult, d.raw_payload AS rawPayload,
+           d.source_entry_name AS sourceEntryName
+    FROM account_import_detail d
+    JOIN account_import_batch b ON d.batch_id = b.id AND d.tenant_id = b.tenant_id
     WHERE d.batch_id = #{batchId}
     <choose>
       <when test="scope == 'success'">AND d.parse_result = 1</when>

@@ -9,6 +9,7 @@ import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
+import com.armada.account.model.vo.AccountImportExportRow;
 import com.armada.account.service.AccountImportService;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.vo.AccountImportDetailVO;
@@ -56,6 +57,25 @@ class AccountImportListMapperDbTest extends DbTestBase {
         AccountImportBatch b = new AccountImportBatch();
         b.setAccountGroupId(groupId);
         b.setSourceFileName(sourceFileName);
+        b.setImportFormat(2);
+        b.setDeviceOs(1);
+        b.setAccountType(2);
+        b.setTotalRows(total);
+        b.setImportedRows(imported);
+        b.setDuplicateRows(duplicate);
+        b.setFormatErrorRows(formatError);
+        b.setStatus(2);
+        b.setCreatedAt(now);
+        batchMapper.insert(b);
+        return b.getId();
+    }
+
+    private Long createBatch(Long groupId, String sourceFileName, String sourceFileType,
+                             int total, int imported, int duplicate, int formatError, long now) {
+        AccountImportBatch b = new AccountImportBatch();
+        b.setAccountGroupId(groupId);
+        b.setSourceFileName(sourceFileName);
+        b.setSourceFileType(sourceFileType);
         b.setImportFormat(2);
         b.setDeviceOs(1);
         b.setAccountType(2);
@@ -131,6 +151,26 @@ class AccountImportListMapperDbTest extends DbTestBase {
         detail.setFailReason(failReason);
         detail.setCreatedAt(createdAt);
         return detail;
+    }
+
+    @Test
+    void mapper_persistsOriginalExportMetadata() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-original-export-meta", now);
+        Long batchId = createBatch(groupId, "accounts.zip", "ZIP", 1, 1, 0, 0, now);
+
+        AccountImportDetail detail = detail(batchId, 1, "861399900001", 1, null, now);
+        detail.setRawPayload("{\"wid\":\"861399900001\",\"registrationId\":1}");
+        detail.setSourceEntryName("861399900001.json");
+        detailMapper.batchInsert(List.of(detail));
+
+        AccountImportBatch savedBatch = batchMapper.selectById(batchId);
+        assertThat(savedBatch.getSourceFileType()).isEqualTo("ZIP");
+
+        List<AccountImportExportRow> rows = detailMapper.selectExportRowsByBatch(batchId, "all");
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getRawPayload()).contains("\"861399900001\"");
+        assertThat(rows.get(0).getSourceEntryName()).isEqualTo("861399900001.json");
     }
 
     // ---- 批次列表测试 ----

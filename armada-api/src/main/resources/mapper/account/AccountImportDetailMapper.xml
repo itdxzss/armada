@@ -86,6 +86,22 @@
   </update>
 
   <!--
+    当前页批次登录统计:只聚合 detail.login_result,不依赖 batch 表冗余 login_* 字段。
+    login_result:1成功 2失败 3密钥异常 4封号;NULL 未出结果不计入。
+  -->
+  <select id="selectLoginStatsByBatchIds" resultType="com.armada.account.model.vo.AccountImportLoginStatsRow">
+    SELECT d.batch_id AS batchId,
+           SUM(CASE WHEN d.login_result = 1 THEN 1 ELSE 0 END) AS loginSuccess,
+           SUM(CASE WHEN d.login_result = 2 THEN 1 ELSE 0 END) AS loginFailed,
+           SUM(CASE WHEN d.login_result IN (3, 4) THEN 1 ELSE 0 END) AS loginAbnormal
+    FROM account_import_detail d
+    JOIN account_import_batch b ON d.batch_id = b.id AND d.tenant_id = b.tenant_id
+    WHERE d.batch_id IN
+    <foreach collection="batchIds" item="batchId" open="(" separator="," close=")">#{batchId}</foreach>
+    GROUP BY d.batch_id
+  </select>
+
+  <!--
     结果过滤片段:success=只成功(parse_result=1);fail=只失败(IN 2,3,4);all=不限。
     注意:&gt;= / &lt;= 为 XML 转义,防止 DTD 解析异常。
   -->

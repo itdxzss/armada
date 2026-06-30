@@ -6,6 +6,7 @@ import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.AccountImportLoginResultSettlement;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
 import com.armada.account.model.vo.AccountImportExportRow;
+import com.armada.account.model.vo.AccountImportLoginStatsRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -79,6 +80,14 @@ public interface AccountImportDetailMapper {
      * @return 更新行数;普通上线无导入明细时为 0
      */
     int settleDispatchedLoginResult(@Param("settlement") AccountImportLoginResultSettlement settlement);
+
+    /**
+     * 按批次聚合导入明细的登录结果,供批次列表展示登录成功/失败/异常数。
+     *
+     * @param batchIds 当前页批次 ID
+     * @return 每个批次的登录统计
+     */
+    List<AccountImportLoginStatsRow> selectLoginStatsByBatchIds(@Param("batchIds") List<Long> batchIds);
 
     /**
      * 按批次 ID 和结果过滤器统计明细总数(SQL 下推)。

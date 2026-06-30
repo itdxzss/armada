@@ -17,9 +17,9 @@ package com.armada.account.model.vo;
  * @param importedRows     成功入库行数
  * @param duplicateRows    重复行数(批内+库内)
  * @param formatErrorRows  格式/凭据不全行数
- * @param loginSuccess     登录成功数(step1 为 null=未登录)
- * @param loginFailed      登录失败数(step1 为 null)
- * @param loginAbnormal    登录异常数(step1 为 null)
+ * @param loginSuccess     登录成功数,列表查询时由明细 login_result 聚合;未出结果为 0
+ * @param loginFailed      登录失败数,列表查询时由明细 login_result 聚合;未出结果为 0
+ * @param loginAbnormal    登录异常数,列表查询时由明细 login_result 聚合;未出结果为 0
  * @param status           批次状态:1进行中 2已完成
  * @param groupName        目标分组名称(LEFT JOIN account_group,分组被软删时为 null)
  * @param createdAt        创建时间(epoch 毫秒)

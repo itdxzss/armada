@@ -8,6 +8,7 @@ import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
+import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVoRow;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
 import com.armada.account.model.vo.AccountImportExportFile;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 批次列表 + 明细列表 + 导出真库测试。
@@ -41,6 +43,9 @@ class AccountImportListMapperDbTest extends DbTestBase {
 
     @Autowired
     AccountImportService importService;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     // ---- 辅助方法 ----
 
@@ -249,6 +254,48 @@ class AccountImportListMapperDbTest extends DbTestBase {
         boolean hasGroupB = page.stream().anyMatch(r -> "批次-groupB".equals(r.getSourceFileName()));
         assertThat(hasGroupA).isTrue();
         assertThat(hasGroupB).isFalse();
+    }
+
+    @Test
+    void service_listBatches_loginCountsAggregatedFromDetails() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-login-stats", now);
+        Long batchId = createBatch(groupId, "批次-login-stats", 6, 6, 0, 0, now);
+        jdbc.update("""
+                UPDATE account_import_batch
+                SET login_success = 99, login_failed = 88, login_abnormal = 77
+                WHERE id = ?
+                """, batchId);
+
+        List<AccountImportDetail> rows = new ArrayList<>();
+        AccountImportDetail success = detail(batchId, 1, "8613900010001", 1, null, now);
+        success.setLoginResult(1);
+        rows.add(success);
+        AccountImportDetail failed1 = detail(batchId, 2, "8613900010002", 1, null, now);
+        failed1.setLoginResult(2);
+        rows.add(failed1);
+        AccountImportDetail failed2 = detail(batchId, 3, "8613900010003", 1, null, now);
+        failed2.setLoginResult(2);
+        rows.add(failed2);
+        AccountImportDetail keyAbnormal = detail(batchId, 4, "8613900010004", 1, null, now);
+        keyAbnormal.setLoginResult(3);
+        rows.add(keyAbnormal);
+        AccountImportDetail blocked = detail(batchId, 5, "8613900010005", 1, null, now);
+        blocked.setLoginResult(4);
+        rows.add(blocked);
+        rows.add(detail(batchId, 6, "8613900010006", 1, null, now));
+        detailMapper.batchInsert(rows);
+
+        AccountImportQuery q = new AccountImportQuery();
+        q.setId(batchId);
+
+        PageResult<AccountImportBatchListVO> result = importService.listBatches(q);
+
+        assertThat(result.list()).hasSize(1);
+        AccountImportBatchListVO row = result.list().get(0);
+        assertThat(row.loginSuccess()).isEqualTo(1);
+        assertThat(row.loginFailed()).isEqualTo(2);
+        assertThat(row.loginAbnormal()).isEqualTo(2);
     }
 
     // ---- 明细列表测试 ----

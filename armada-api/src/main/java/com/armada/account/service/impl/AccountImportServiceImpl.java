@@ -20,6 +20,7 @@ import com.armada.account.model.vo.AccountImportDetailVO;
 import com.armada.account.model.vo.AccountImportDetailVoRow;
 import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.account.model.vo.AccountImportExportRow;
+import com.armada.account.model.vo.AccountImportLoginStatsRow;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountImportParser;
 import com.armada.account.service.AccountImportService;
@@ -30,9 +31,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -344,8 +347,32 @@ public class AccountImportServiceImpl implements AccountImportService {
     public PageResult<AccountImportBatchListVO> listBatches(AccountImportQuery query) {
         long total = batchMapper.countPage(query);
         List<AccountImportBatchVoRow> rows = batchMapper.selectPage(query);
+        applyLoginStats(rows);
         List<AccountImportBatchListVO> list = converter.toBatchListVOList(rows);
         return PageResult.of(list, query.getPage(), query.getPageSize(), total);
+    }
+
+    private void applyLoginStats(List<AccountImportBatchVoRow> rows) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        List<Long> batchIds = rows.stream()
+                .map(AccountImportBatchVoRow::getId)
+                .toList();
+        Map<Long, AccountImportLoginStatsRow> statsByBatchId = new HashMap<>();
+        for (AccountImportLoginStatsRow stats : detailMapper.selectLoginStatsByBatchIds(batchIds)) {
+            statsByBatchId.put(stats.getBatchId(), stats);
+        }
+        for (AccountImportBatchVoRow row : rows) {
+            AccountImportLoginStatsRow stats = statsByBatchId.get(row.getId());
+            row.setLoginSuccess(stats == null ? 0 : valueOrZero(stats.getLoginSuccess()));
+            row.setLoginFailed(stats == null ? 0 : valueOrZero(stats.getLoginFailed()));
+            row.setLoginAbnormal(stats == null ? 0 : valueOrZero(stats.getLoginAbnormal()));
+        }
+    }
+
+    private int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     /**

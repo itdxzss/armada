@@ -37,13 +37,13 @@ public class AccountImportBatchVoRow {
     /** 格式/凭据不全行数。 */
     private Integer formatErrorRows;
 
-    /** 登录成功数(step1 为 null)。 */
+    /** 登录成功数;Service 列表返回前会用 detail.login_result 聚合值覆盖。 */
     private Integer loginSuccess;
 
-    /** 登录失败数(step1 为 null)。 */
+    /** 登录失败数;Service 列表返回前会用 detail.login_result 聚合值覆盖。 */
     private Integer loginFailed;
 
-    /** 登录异常数(step1 为 null)。 */
+    /** 登录异常数;Service 列表返回前会用 detail.login_result 聚合值覆盖。 */
     private Integer loginAbnormal;
 
     /** 批次状态:1进行中 2已完成。 */

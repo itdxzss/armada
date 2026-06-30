@@ -130,6 +130,32 @@ class AccountImportParserTest {
     }
 
     @Test
+    void json_zipPreservesRawPayloadAndEntryName() throws Exception {
+        String entryJson = nakedCredsObject("8613800138999");
+        byte[] zipBytes = buildZip("folder/8613800138999.json", entryJson.getBytes());
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, zipBytes, null);
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getRawPayload()).isEqualTo(entryJson);
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("folder/8613800138999.json");
+    }
+
+    @Test
+    void json_arrayTextPreservesEachElementPayload() {
+        String first = nakedCredsObject("8613800138101");
+        String second = nakedCredsObject("8613800138102");
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, "[" + first + "," + second + "]");
+
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0).getRawPayload()).contains("\"8613800138101\"");
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("text-input[0]");
+        assertThat(entries.get(1).getRawPayload()).contains("\"8613800138102\"");
+        assertThat(entries.get(1).getSourceEntryName()).isEqualTo("text-input[1]");
+    }
+
+    @Test
     void json_zipWithMultipleFiles_parsesAll() throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (ZipOutputStream zos = new ZipOutputStream(baos)) {
@@ -175,6 +201,20 @@ class AccountImportParserTest {
     }
 
     @Test
+    void params_arrayTextPreservesRawPayloadAndEntryName() {
+        List<ParsedEntry> entries = parser.parse(
+                ImportFormat.PARAMS,
+                null,
+                "[{\"wid\":\"8613800138201\"},{\"wid\":\"8613800138202\"}]");
+
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0).getRawPayload()).contains("\"8613800138201\"");
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("params-input[0]");
+        assertThat(entries.get(1).getRawPayload()).contains("\"8613800138202\"");
+        assertThat(entries.get(1).getSourceEntryName()).isEqualTo("params-input[1]");
+    }
+
+    @Test
     void params_missingWid_marksError() {
         String json = "[{\"phone\":\"8613800138000\"}]";
         List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
@@ -198,6 +238,18 @@ class AccountImportParserTest {
         // 整体非法 → 应返回带 parseError 的单条,而不是抛出
         assertThat(entries).hasSize(1);
         assertThat(entries.get(0).getParseError()).isNotNull();
+    }
+
+    @Test
+    void json_invalidTextKeepsRawPayloadForFailureExport() {
+        String invalid = "[{not valid json}]";
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.JSON, null, invalid);
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getParseError()).isNotNull();
+        assertThat(entries.get(0).getRawPayload()).isEqualTo(invalid);
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("text-input");
     }
 
     // ---- ImportFormat enum ----

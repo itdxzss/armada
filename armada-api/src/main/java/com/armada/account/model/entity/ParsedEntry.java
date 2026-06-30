@@ -20,6 +20,16 @@ public class ParsedEntry {
     private String raw;
 
     /**
+     * 单条原始导入内容。用于按原导入格式导出,不得写入日志或普通列表接口。
+     */
+    private String rawPayload;
+
+    /**
+     * 原始来源条目名:zip 内 entry 路径或 text/params 的 source[index]。
+     */
+    private String sourceEntryName;
+
+    /**
      * 从 JSON 中抠出的 WhatsApp ID(纯数字手机号段)。
      * 抠取路径优先级:顶层 {@code wid} → 顶层 {@code phone} → 顶层 {@code Phone} → 顶层 {@code me.id}
      * (取 {@code :} 或 {@code @} 前的数字段)。
@@ -47,6 +57,22 @@ public class ParsedEntry {
 
     public void setRaw(String raw) {
         this.raw = raw;
+    }
+
+    public String getRawPayload() {
+        return rawPayload;
+    }
+
+    public void setRawPayload(String rawPayload) {
+        this.rawPayload = rawPayload;
+    }
+
+    public String getSourceEntryName() {
+        return sourceEntryName;
+    }
+
+    public void setSourceEntryName(String sourceEntryName) {
+        this.sourceEntryName = sourceEntryName;
     }
 
     public String getWid() {

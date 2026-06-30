@@ -113,12 +113,12 @@ public class AccountImportParser {
                 return parseJsonArray(root, source);
             }
             if (root.isObject()) {
-                return List.of(parseJsonNode(root, source));
+                return List.of(parseJsonNode(root, source, text, source));
             }
-            return makeErrorEntry(source, "JSON 格式不支持:既不是对象也不是数组");
+            return List.of(makeErrorEntry(source, "JSON 格式不支持:既不是对象也不是数组", text));
         } catch (IOException e) {
             log.warn("[AccountImportParser] JSON 解析失败 source={} error={}", source, e.getMessage());
-            return makeErrorEntry(source, "JSON 解析失败: " + e.getMessage());
+            return List.of(makeErrorEntry(source, "JSON 解析失败: " + e.getMessage(), text));
         }
     }
 
@@ -128,7 +128,9 @@ public class AccountImportParser {
     private List<ParsedEntry> parseJsonArray(JsonNode array, String source) {
         List<ParsedEntry> result = new ArrayList<>(array.size());
         for (int i = 0; i < array.size(); i++) {
-            result.add(parseJsonNode(array.get(i), source + "[" + i + "]"));
+            JsonNode node = array.get(i);
+            String entryName = source + "[" + i + "]";
+            result.add(parseJsonNode(node, entryName, compactJson(node), entryName));
         }
         return result;
     }
@@ -136,10 +138,12 @@ public class AccountImportParser {
     /**
      * 解析单个 JSON 对象节点:抠 wid + 完整性校验。
      */
-    private ParsedEntry parseJsonNode(JsonNode node, String source) {
+    private ParsedEntry parseJsonNode(JsonNode node, String source, String rawPayload, String sourceEntryName) {
         ParsedEntry entry = new ParsedEntry();
         // raw 只记来源标识,不记 creds 内容(日志脱敏)
         entry.setRaw(source);
+        entry.setRawPayload(rawPayload);
+        entry.setSourceEntryName(sourceEntryName);
         entry.setData(node);
         entry.setWid(extractWid(node));
         String credError = checkJsonCredCompleteness(node);
@@ -164,7 +168,8 @@ public class AccountImportParser {
                 String entryName = ze.getName();
                 byte[] content = zis.readAllBytes();
                 zis.closeEntry();
-                result.addAll(parseJsonText(new String(content, StandardCharsets.UTF_8), entryName));
+                String entryText = new String(content, StandardCharsets.UTF_8);
+                result.addAll(parseJsonText(entryText, entryName));
             }
         } catch (IOException e) {
             log.warn("[AccountImportParser] zip 解压失败 error={}", e.getMessage());
@@ -206,10 +211,10 @@ public class AccountImportParser {
             if (root.isObject()) {
                 return List.of(parseParamsNode(root, "params-input[0]"));
             }
-            return makeErrorEntry("params-input", "PARAMS 格式不支持:既不是对象也不是数组");
+            return List.of(makeErrorEntry("params-input", "PARAMS 格式不支持:既不是对象也不是数组", src));
         } catch (IOException e) {
             log.warn("[AccountImportParser] PARAMS JSON 解析失败 error={}", e.getMessage());
-            return makeErrorEntry("params-input", "JSON 解析失败: " + e.getMessage());
+            return List.of(makeErrorEntry("params-input", "JSON 解析失败: " + e.getMessage(), src));
         }
     }
 
@@ -227,6 +232,8 @@ public class AccountImportParser {
     private ParsedEntry parseParamsNode(JsonNode node, String source) {
         ParsedEntry entry = new ParsedEntry();
         entry.setRaw(source);
+        entry.setRawPayload(compactJson(node));
+        entry.setSourceEntryName(source);
         entry.setData(node);
         JsonNode widNode = node.get("wid");
         if (widNode == null || widNode.isNull() || widNode.asText().isEmpty()) {
@@ -320,11 +327,27 @@ public class AccountImportParser {
         return bytes.length >= 2 && bytes[0] == 0x50 && bytes[1] == 0x4B;
     }
 
+    /** 将 JSON 节点序列化为紧凑文本,用于数组元素级导出。 */
+    private String compactJson(JsonNode node) {
+        try {
+            return mapper.writeValueAsString(node);
+        } catch (IOException e) {
+            return node == null ? "" : node.toString();
+        }
+    }
+
     /** 产出单条含错误的条目列表。 */
     private List<ParsedEntry> makeErrorEntry(String source, String error) {
+        return Collections.singletonList(makeErrorEntry(source, error, source));
+    }
+
+    /** 产出单条含错误的条目,并保留可导出的原始文本。 */
+    private ParsedEntry makeErrorEntry(String source, String error, String rawPayload) {
         ParsedEntry entry = new ParsedEntry();
         entry.setRaw(source);
+        entry.setRawPayload(rawPayload);
+        entry.setSourceEntryName(source);
         entry.setParseError(error);
-        return Collections.singletonList(entry);
+        return entry;
     }
 }

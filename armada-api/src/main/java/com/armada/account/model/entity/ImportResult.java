@@ -35,7 +35,7 @@ public enum ImportResult {
     /** {@code account_import_detail.parse_result} 存储编码。 */
     private final int code;
 
-    /** CSV 导出/前端展示用中文标签。 */
+    /** 前端展示用中文标签。 */
     private final String label;
 
     ImportResult(int code, String label) {
@@ -53,7 +53,7 @@ public enum ImportResult {
     }
 
     /**
-     * 获取中文标签(CSV 导出 / 前端展示)。
+     * 获取中文标签(前端展示)。
      *
      * @return 中文标签,如 "成功入库"、"重复"、"格式错误"、"凭据不全"
      */

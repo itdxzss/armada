@@ -6,6 +6,7 @@ import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportDetailVO;
+import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 
@@ -13,7 +14,7 @@ import com.armada.shared.response.PageResult;
  * 账号导入业务接口。
  *
  * <p>负责解析文件/文本内容、逐行三步原子写(account + account_state + account_credential),
- * 并汇总导入计数写入批次表,返回批次 VO。提供批次/明细分页读取及 CSV 导出。</p>
+ * 并汇总导入计数写入批次表,返回批次 VO。提供批次/明细分页读取及原始格式导出。</p>
  */
 public interface AccountImportService {
 
@@ -53,15 +54,15 @@ public interface AccountImportService {
     PageResult<AccountImportDetailVO> listDetails(AccountImportDetailQuery query);
 
     /**
-     * 导出指定批次的明细为 CSV 字符串(UTF-8 BOM,5 列,供 Controller 写入 HTTP 响应)。
+     * 导出指定批次的明细为导入时的原始容器格式。
      *
-     * <p>5 列:账号/状态/失败原因/分组/创建时间(北京时间 yyyy-MM-dd HH:mm:ss)。
-     * scope=all/success/fail;无匹配行时仅返回表头行。</p>
+     * <p>ZIP 导入导出 ZIP,TXT/粘贴导入导出 TXT。scope=all/success/fail;
+     * 无匹配行时返回对应类型的空文件。</p>
      *
      * @param batchId 批次 ID(必传)
      * @param scope   结果范围:all=全部;success=只成功;fail=只失败
-     * @return CSV 内容字符串(含 UTF-8 BOM + 表头 + 数据行)
-     * @throws BusinessException batchId 为 null 时抛出
+     * @return 文件响应对象(文件名/content-type/字节)
+     * @throws BusinessException batchId 为空或批次缺少原始导出材料时抛出
      */
-    String exportDetailsCsv(Long batchId, String scope);
+    AccountImportExportFile exportDetails(Long batchId, String scope);
 }

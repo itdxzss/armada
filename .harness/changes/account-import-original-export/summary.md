@@ -1,0 +1,71 @@
+# 账号导入原始格式导出
+
+- 日期 / 分支 / worktree: 2026-06-30 / `codex/account-import-format-export` / `/private/tmp/codex-worktrees/armada-account-import-format-export`
+- 需求来源: 账号导入导出从 CSV 调整为“导入 ZIP 导出 ZIP,导入 TXT/粘贴导出 TXT”;仅考虑新增批次
+- 状态: 已完成本地实现与验证
+
+## 目标（一句话）
+
+新增导入批次保存原始来源类型和逐条原始内容,导出时按导入容器恢复 ZIP/TXT,保留现有导出入口和范围。
+
+## 缺口拆解 / 任务清单
+
+- [x] 批次表增加 `source_file_type`,明细表增加 `raw_payload`、`source_entry_name`。
+- [x] 导入解析阶段写入原始 payload 与条目名。
+- [x] 导入服务落库 `source_file_type/raw_payload/source_entry_name`。
+- [x] 导出服务按 `source_file_type` 生成 ZIP/TXT 响应。
+- [x] 刷新 `.harness/wiki/数据模型.md`,记录新增导入原始导出字段。
+- [x] 前端下载动态文件名、Blob 和 content-type。
+- [x] 真库 DbTest、parser test、前端类型检查和构建验证。
+
+## 关键设计决策
+
+- 不回填历史批次;历史批次缺少原始材料时由后端返回业务校验错误。
+- 原始 payload 是敏感字段,只在导出专用 Mapper 投影读取,不进入列表 VO。
+- `source_file_type` 只保留当前需要恢复的容器类型:ZIP/TXT。
+
+## 验证（evidence-before-done）
+
+- `armada-api/dbtest.sh AccountImportListMapperDbTest#mapper_persistsOriginalExportMetadata`
+  - 结果: 通过;Flyway 从 v019 迁移到 v020,新增批次/明细原始导出字段可写可读。
+- `mvn -q -Dtest=AccountImportParserTest test`
+  - 结果: 通过;ZIP entry、JSON 数组、PARAMS 数组和非法 JSON 均保留导出所需原始 payload/条目名。
+- `armada-api/dbtest.sh AccountImportServiceImplDbTest`
+  - 结果: 通过;文本导入落 `TXT`,ZIP 导入落 `ZIP`,明细原始 payload 和 entry 名可查。
+- `armada-api/dbtest.sh AccountImportListMapperDbTest`
+  - 结果: 通过;service 导出 TXT/ZIP scope 过滤、ZIP entry 内容、缺原始材料业务错误通过。
+- `armada-api/dbtest.sh AccountImportControllerDbTest`
+  - 结果: 通过;同一 `/export` 端点按导入来源返回 TXT/ZIP 附件。
+- `mvn -q -Dtest=AccountImportParserTest test`
+  - 结果: 通过;最终回归。
+- `armada-api/dbtest.sh AccountImportServiceImplDbTest,AccountImportListMapperDbTest,AccountImportControllerDbTest`
+  - 结果: 通过;最终真库回归。
+- `node --import ./src/api/__tests__/node-test-alias.mjs --test src/api/*.test.ts`
+  - 结果: 通过;20 个前端 API 测试通过。
+- `./node_modules/.bin/tsc --noEmit`
+  - 结果: 通过。
+- `./node_modules/.bin/vue-tsc --noEmit --skipLibCheck`
+  - 结果: 通过。
+- `./node_modules/.bin/rimraf dist && NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build`
+  - 结果: 通过;仅有第三方 `@vueuse/core` PURE 注释 warning。
+- 复核补充:
+  - `mvn -q -Dtest=AccountImportParserTest test`: 通过;新增 ZIP 数组 entry 原始 payload/entry 名覆盖。
+  - `armada-api/dbtest.sh AccountImportListMapperDbTest,AccountImportControllerDbTest`: 通过;导出 service/controller 回归通过。
+  - `git diff --check`: 通过;无空白错误。
+  - 账号导入旧 CSV 路径与 `raw_payload` 日志泄露扫描:无命中。
+
+## 部署
+
+- 后端 commit:
+  - `d897215 feat: persist account import original export metadata`
+  - `55fe4f2 feat: preserve account import raw payloads`
+  - `d0f6a34 feat: persist account import source payloads`
+  - `fd817ca feat: export account imports in original format`
+  - 本提交: `chore: align account import export with harness review`
+- 前端 commit:
+  - `fbfa6d3 feat: download account import exports as blobs`
+- 环境 / 部署后验证结果: 未部署。
+
+## 遗留 / 跟进
+
+- 无。

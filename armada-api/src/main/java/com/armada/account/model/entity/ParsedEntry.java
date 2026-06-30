@@ -14,10 +14,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class ParsedEntry {
 
     /**
-     * 原始字符串(JSON 文本或 CSV 行);用于日志/调试,不含敏感 creds 内容。
-     * 仅记录来源标识(如文件名或截断后的首段),不直接打印完整 creds。
+     * 原始来源标识;用于日志/调试,不含敏感 creds 内容。
+     * 仅记录来源标识(如 zip entry 名或 text-input[index]),不直接打印完整 creds。
      */
     private String raw;
+
+    /**
+     * 单条原始导入内容。用于按原导入格式导出,不得写入日志或普通列表接口。
+     */
+    private String rawPayload;
+
+    /**
+     * 原始来源条目名:zip 内 entry 路径,或 JSON 数组拆分后的 source[index]。
+     */
+    private String sourceEntryName;
 
     /**
      * 从 JSON 中抠出的 WhatsApp ID(纯数字手机号段)。
@@ -47,6 +57,22 @@ public class ParsedEntry {
 
     public void setRaw(String raw) {
         this.raw = raw;
+    }
+
+    public String getRawPayload() {
+        return rawPayload;
+    }
+
+    public void setRawPayload(String rawPayload) {
+        this.rawPayload = rawPayload;
+    }
+
+    public String getSourceEntryName() {
+        return sourceEntryName;
+    }
+
+    public void setSourceEntryName(String sourceEntryName) {
+        this.sourceEntryName = sourceEntryName;
     }
 
     public String getWid() {

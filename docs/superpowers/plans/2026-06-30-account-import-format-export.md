@@ -16,7 +16,7 @@ Back end in `/Users/daishuaishuai/IdeaProjects/armada`:
 
 - Create `armada-api/src/main/resources/db/migration/V020__account_import_original_payload.sql`
   Adds `account_import_batch.source_file_type`, `account_import_detail.raw_payload`, and `account_import_detail.source_entry_name`.
-- Create `armada-api/src/main/java/com/armada/account/model/entity/SourceFileType.java`
+- Create `armada-api/src/main/java/com/armada/account/model/enums/SourceFileType.java`
   Central constants and validation for `ZIP` / `TXT`.
 - Create `armada-api/src/main/java/com/armada/account/model/vo/AccountImportExportFile.java`
   File response object: filename, content type, bytes.
@@ -67,7 +67,7 @@ Front end in `/Users/daishuaishuai/IdeaProjects/wheel-saas-pure-web`:
 
 **Files:**
 - Create: `armada-api/src/main/resources/db/migration/V020__account_import_original_payload.sql`
-- Create: `armada-api/src/main/java/com/armada/account/model/entity/SourceFileType.java`
+- Create: `armada-api/src/main/java/com/armada/account/model/enums/SourceFileType.java`
 - Modify: `armada-api/src/main/java/com/armada/account/model/entity/AccountImportBatch.java`
 - Modify: `armada-api/src/main/java/com/armada/account/model/entity/AccountImportDetail.java`
 - Modify: `armada-api/src/main/resources/mapper/account/AccountImportBatchMapper.xml`
@@ -182,7 +182,7 @@ DEALLOCATE PREPARE stmt;
 Create `SourceFileType.java`:
 
 ```java
-package com.armada.account.model.entity;
+package com.armada.account.model.enums;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -353,7 +353,7 @@ Commit only these files:
 
 ```bash
 git add armada-api/src/main/resources/db/migration/V020__account_import_original_payload.sql \
-  armada-api/src/main/java/com/armada/account/model/entity/SourceFileType.java \
+  armada-api/src/main/java/com/armada/account/model/enums/SourceFileType.java \
   armada-api/src/main/java/com/armada/account/model/entity/AccountImportBatch.java \
   armada-api/src/main/java/com/armada/account/model/entity/AccountImportDetail.java \
   armada-api/src/main/java/com/armada/account/model/vo/AccountImportExportRow.java \
@@ -720,7 +720,7 @@ private boolean isZipBytes(byte[] bytes) {
 Add import:
 
 ```java
-import com.armada.account.model.entity.SourceFileType;
+import com.armada.account.model.enums.SourceFileType;
 ```
 
 In `importAccounts`, compute once:
@@ -1028,7 +1028,7 @@ Remove `String exportDetailsCsv(Long batchId, String scope);`.
 In `AccountImportServiceImpl`, add imports:
 
 ```java
-import com.armada.account.model.entity.SourceFileType;
+import com.armada.account.model.enums.SourceFileType;
 import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.account.model.vo.AccountImportExportRow;
 import java.io.ByteArrayOutputStream;
@@ -1428,10 +1428,10 @@ Run:
 ```bash
 cd /Users/daishuaishuai/IdeaProjects/wheel-saas-pure-web
 node --import ./src/api/__tests__/node-test-alias.mjs --test src/api/account-import.test.ts
-pnpm typecheck
+./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/vue-tsc --noEmit --skipLibCheck
 ```
 
-Expected: the account import API test PASSes; `pnpm typecheck` PASSes.
+Expected: the account import API test PASSes; `./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/vue-tsc --noEmit --skipLibCheck` PASSes.
 
 Commit in the front-end repo:
 
@@ -1482,8 +1482,8 @@ Run:
 ```bash
 cd /Users/daishuaishuai/IdeaProjects/wheel-saas-pure-web
 node --import ./src/api/__tests__/node-test-alias.mjs --test src/api/account-import.test.ts
-pnpm typecheck
-pnpm build
+./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/vue-tsc --noEmit --skipLibCheck
+./node_modules/.bin/rimraf dist && NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build
 ```
 
 Expected: test, typecheck, and build PASS.

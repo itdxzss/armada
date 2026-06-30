@@ -166,15 +166,11 @@ class AccountImportControllerDbTest {
     }
 
     // -----------------------------------------------------------------------
-    // C4: GET /api/account-imports/{batchId}/export — CSV 导出
+    // C4: GET /api/account-imports/{batchId}/export — 原始格式导出
     // -----------------------------------------------------------------------
 
-    /**
-     * 导出 CSV:验 Content-Type=text/csv + Content-Disposition=attachment + 响应体含 CSV 内容。
-     */
     @Test
-    void get_exportCsv_returnsAttachmentWithCsvContentType() throws Exception {
-        // 先导入取 batchId
+    void get_exportTextImport_returnsTxtAttachment() throws Exception {
         MvcResult importResult = mockMvc.perform(multipart("/api/account-imports")
                         .param("importFormat", "2")
                         .param("deviceOs", "1")
@@ -185,17 +181,75 @@ class AccountImportControllerDbTest {
 
         Long batchId = objectMapper.readTree(importResult.getResponse().getContentAsString())
                 .path("data").path("id").longValue();
-        assertThat(batchId).isPositive();
 
-        // 导出
         mockMvc.perform(get("/api/account-imports/{batchId}/export", batchId)
+                        .param("scope", "all")
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
-                .andExpect(content().contentTypeCompatibleWith("text/csv"))
+                .andExpect(content().contentTypeCompatibleWith("text/plain"))
                 .andExpect(header().string("Content-Disposition",
                         org.hamcrest.Matchers.containsString(
-                                "account-import-" + batchId + ".csv")))
+                                "account-import-" + batchId + "-all.txt")))
                 .andExpect(header().string("Content-Disposition",
-                        org.hamcrest.Matchers.containsString("attachment")));
+                        org.hamcrest.Matchers.containsString("attachment")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("8613900000001")));
+    }
+
+    @Test
+    void get_exportZipImport_returnsZipAttachment() throws Exception {
+        String json = "{\"wid\":\"8613900000099\",\"registrationId\":99,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "accounts.zip",
+                "application/zip",
+                zip("8613900000099.json", json));
+
+        MvcResult importResult = mockMvc.perform(multipart("/api/account-imports")
+                        .file(file)
+                        .param("importFormat", "2")
+                        .param("deviceOs", "1")
+                        .param("accountType", "1")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andReturn();
+
+        Long batchId = objectMapper.readTree(importResult.getResponse().getContentAsString())
+                .path("data").path("id").longValue();
+
+        MvcResult exportResult = mockMvc.perform(get("/api/account-imports/{batchId}/export", batchId)
+                        .param("scope", "all")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/zip"))
+                .andExpect(header().string("Content-Disposition",
+                        org.hamcrest.Matchers.containsString(
+                                "account-import-" + batchId + "-all.zip")))
+                .andReturn();
+
+        java.util.Map<String, String> entries = unzip(exportResult.getResponse().getContentAsByteArray());
+        assertThat(entries).containsEntry("8613900000099.json", json);
+    }
+
+    private byte[] zip(String entryName, String content) throws Exception {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(baos)) {
+            zos.putNextEntry(new java.util.zip.ZipEntry(entryName));
+            zos.write(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zos.closeEntry();
+        }
+        return baos.toByteArray();
+    }
+
+    private java.util.Map<String, String> unzip(byte[] bytes) throws Exception {
+        java.util.Map<String, String> entries = new java.util.LinkedHashMap<>();
+        try (java.util.zip.ZipInputStream zis =
+                     new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(bytes))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                entries.put(entry.getName(),
+                        new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                zis.closeEntry();
+            }
+        }
+        return entries;
     }
 }

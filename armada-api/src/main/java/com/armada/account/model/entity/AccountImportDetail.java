@@ -21,6 +21,12 @@ public class AccountImportDetail {
     /** 该行 WA 号。 */
     private String wsPhone;
 
+    /** 单条原始导入内容,用于按原格式导出;敏感字段,不得进入日志/列表响应。 */
+    private String rawPayload;
+
+    /** 原始条目名:zip 内路径,或 JSON 数组拆分后的 source[index]。 */
+    private String sourceEntryName;
+
     /** 成功入库时回填(→account.id)。 */
     private Long accountId;
 
@@ -89,6 +95,22 @@ public class AccountImportDetail {
 
     public void setWsPhone(String wsPhone) {
         this.wsPhone = wsPhone;
+    }
+
+    public String getRawPayload() {
+        return rawPayload;
+    }
+
+    public void setRawPayload(String rawPayload) {
+        this.rawPayload = rawPayload;
+    }
+
+    public String getSourceEntryName() {
+        return sourceEntryName;
+    }
+
+    public void setSourceEntryName(String sourceEntryName) {
+        this.sourceEntryName = sourceEntryName;
     }
 
     public Long getAccountId() {

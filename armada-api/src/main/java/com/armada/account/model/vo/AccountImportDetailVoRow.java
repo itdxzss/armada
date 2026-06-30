@@ -1,9 +1,9 @@
 package com.armada.account.model.vo;
 
 /**
- * Mapper 投影:account_import_detail,用于明细分页列表及 CSV 导出。
+ * Mapper 投影:account_import_detail,用于明细分页列表。
  * 普通类 + getter/setter,供 MyBatis resultType 直接映射(underscore-to-camelCase 自动转换)。
- * 时间字段为 Long epoch 毫秒(UTC),导出 CSV 时转北京时间可读串。
+ * 时间字段为 Long epoch 毫秒(UTC)。
  */
 public class AccountImportDetailVoRow {
 

@@ -5,12 +5,12 @@
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at。tenant_id 由拦截器注入。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account_import_batch (
-      account_group_id, source_file_name,
+      account_group_id, source_file_name, source_file_type,
       import_format, device_os, account_type, ip_region,
       total_rows, imported_rows, duplicate_rows, format_error_rows,
       status, created_at, created_by
     ) VALUES (
-      #{accountGroupId}, #{sourceFileName},
+      #{accountGroupId}, #{sourceFileName}, #{sourceFileType},
       #{importFormat}, #{deviceOs}, #{accountType}, #{ipRegion},
       #{totalRows}, #{importedRows}, #{duplicateRows}, #{formatErrorRows},
       #{status}, #{createdAt}, #{createdBy}

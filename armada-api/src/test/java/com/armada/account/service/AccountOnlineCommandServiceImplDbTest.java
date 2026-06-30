@@ -3,10 +3,19 @@ package com.armada.account.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.mapper.AccountCredentialMapper;
+import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
+import com.armada.resource.mapper.IpProxyMapper;
+import com.armada.resource.model.IpProxyStatus;
+import com.armada.resource.model.ProxyOwnership;
+import com.armada.resource.model.ProxyProtocol;
+import com.armada.resource.model.entity.IpProxy;
 import com.armada.testsupport.DbTestBase;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +38,15 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
 
     @Autowired
     private AccountMapper accountMapper;
+
+    @Autowired
+    private AccountCredentialMapper credentialMapper;
+
+    @Autowired
+    private AccountStateMapper stateMapper;
+
+    @Autowired
+    private IpProxyMapper ipProxyMapper;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -84,6 +102,23 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
                 .doesNotContain("proxyHost");
     }
 
+    @Test
+    void onlineBatch_validAccounts_snapshotsAllocatedProxyDisplayFields() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86182" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        insertCredential(account, now);
+        insertIdleProxy(now);
+
+        AccountBatchOnlineVO result = service.onlineBatch(List.of(account.getId()));
+
+        assertThat(result.accepted()).isEqualTo(1);
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getProxyCountry()).isEqualTo("印度");
+        assertThat(state.getProxySource()).isEqualTo("iproyal");
+        assertThat(state.getTruthIp()).isEqualTo("geo.iproyal.com");
+    }
+
     private Account insertAccount(String wsPhone, long now) {
         Account account = new Account();
         account.setWsPhone(wsPhone);
@@ -95,6 +130,43 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         account.setUpdatedAt(now);
         accountMapper.insert(account);
         return account;
+    }
+
+    private void insertDefaultState(Long accountId, long now) {
+        AccountState state = new AccountState();
+        state.setAccountId(accountId);
+        state.setProxyFailureCount(0);
+        state.setPullIntoGroupCount(0);
+        state.setCreatedAt(now);
+        state.setUpdatedAt(now);
+        stateMapper.insert(state);
+    }
+
+    private void insertCredential(Account account, long now) {
+        AccountCredential credential = new AccountCredential();
+        credential.setAccountId(account.getId());
+        credential.setWsPhone(account.getWsPhone());
+        credential.setCredFormat(2);
+        credential.setCredsJson("{\"creds\":{},\"keys\":{}}");
+        credential.setCreatedAt(now);
+        credential.setUpdatedAt(now);
+        credentialMapper.insert(credential);
+    }
+
+    private void insertIdleProxy(long now) {
+        IpProxy proxy = new IpProxy();
+        proxy.setHost("geo.iproyal.com");
+        proxy.setPort(12321);
+        proxy.setProtocol(ProxyProtocol.SOCKS5.code());
+        proxy.setUsername("proxy-user");
+        proxy.setPassword("proxy-pass");
+        proxy.setRegion("印度");
+        proxy.setStatus(IpProxyStatus.IDLE.code());
+        proxy.setSource("iproyal");
+        proxy.setOwnership(ProxyOwnership.OWNED.code());
+        proxy.setCreatedAt(now);
+        proxy.setUpdatedAt(now);
+        ipProxyMapper.insert(proxy);
     }
 
     private List<OutboxRow> selectOfflineOutboxRows(Long firstAccountId, Long secondAccountId) {

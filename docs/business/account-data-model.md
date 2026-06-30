@@ -58,7 +58,7 @@ CREATE TABLE account (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='账号身份主表';
 ```
 
-## 三、`account_state`（生命周期子表 · 高频 Kafka · 与 account 1:1 · 20 列）
+## 三、`account_state`（生命周期子表 · 高频 Kafka · 与 account 1:1 · 21 列）
 
 > step1:导入时一并 INSERT 一行,状态列全留 **NULL**(未上报),计数列 0。step3:Kafka handler 接上后逐列点亮。无独立软删,随 account JOIN 过滤。
 
@@ -80,6 +80,7 @@ CREATE TABLE account_state (
     invalidated_at        BIGINT               DEFAULT NULL   COMMENT '失效时间(epoch毫秒;导出/解绑)',
     truth_ip              VARCHAR(45)          DEFAULT NULL   COMMENT '真实出口公网IP(上线探测;≠ip_proxy.host网关)',
     proxy_country         VARCHAR(64)          DEFAULT NULL   COMMENT '出口国家',
+    proxy_source          VARCHAR(64)          DEFAULT NULL   COMMENT '代理来源展示快照',
     proxy_failure_count   INT         NOT NULL DEFAULT 0      COMMENT '代理失败计数',
     pull_into_group_count INT         NOT NULL DEFAULT 0      COMMENT '拉人数量',
     created_at            BIGINT      NOT NULL                COMMENT '创建时间(epoch毫秒)',
@@ -188,7 +189,7 @@ CREATE TABLE account_import_detail (
 ```
 导出全部/失败 CSV 5 列=账号/状态/失败原因/分组/创建时间。
 
-**六表合计列数**:account 21 / account_state 20 / account_group 10 / account_credential 12 / import_batch 20 / import_detail 10。
+**六表合计列数**:account 21 / account_state 21 / account_group 10 / account_credential 12 / import_batch 20 / import_detail 10。
 
 ---
 
@@ -197,7 +198,7 @@ CREATE TABLE account_import_detail (
 | 列 | 来源 | step1 |
 |---|---|---|
 | 账号 / 账号类型·设备 / 渠道·来源 / 协议 / 分组 / 入库时间 | `account`(ws_phone/account_type+device_os/channel_name+number_source/protocol_id/account_group_id→组名/created_at) | ✓ 真值 |
-| 状态 / 登录 / 风控 / 封号码·原因 / 拉人数 / IP地址 / 失效时间 | `account_state` | NULL=待上线;step3 点亮 |
+| 状态 / 登录 / 风控 / 封号码·原因 / 拉人数 / IP地址 / IP来源 / 失效时间 | `account_state` | NULL=待上线;step3 点亮 |
 | 头像 / 好友·群 / 超链寿命 | **VO 占位**(禁死列;协议回写,step3/二期) | 常量 |
 | 国家 / IP来源 | **JOIN ip_proxy**(经 IP 绑定 region/source) | 待绑定;见 TODO-2 |
 

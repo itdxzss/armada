@@ -160,7 +160,7 @@
   <!--
     LEFT JOIN account_state:状态列 step1 导入后全 NULL,正常投影。
     LEFT JOIN account_group:分组被软删时 groupName 为 null,不过滤该账号。
-    LEFT JOIN ip_proxy:刚导入/上线待回写期间,列表从当前绑定代理展示国家、IP 来源和代理地址。
+    LEFT JOIN ip_proxy:账号状态无代理快照时,列表从当前绑定代理展示国家、IP 来源和代理地址。
     时间列均为 BIGINT epoch 毫秒,直接映射到 Long。
   -->
   <select id="selectPage" resultType="com.armada.account.model.vo.AccountListVoRow">
@@ -177,7 +177,7 @@
            s.block_error_code AS blockErrorCode, s.block_reason AS blockReason,
            s.state_source AS stateSource, COALESCE(s.truth_ip, p.host) AS truthIp,
            COALESCE(s.proxy_country, p.region) AS proxyCountry,
-           p.source AS ipSource,
+           COALESCE(s.proxy_source, p.source) AS ipSource,
            s.pull_into_group_count AS pullIntoGroupCount,
            s.invalidated_at AS invalidatedAt,
            s.last_state_sync_time AS lastStateSyncTime

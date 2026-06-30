@@ -58,6 +58,9 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
     private static final DateTimeFormatter EXPORT_TIME_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZONE_CN);
 
+    /** group_link_import_detail.group_name 列长度。 */
+    private static final int IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH = 128;
+
     private final GroupLinkLabelMapper labelMapper;
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkPreviewMapper previewMapper;
@@ -163,7 +166,8 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 d.setFailReason(p.failReason());
                 d.setExistingOrigin(p.existingOrigin());
                 if (p.result() == GroupLinkImportResult.SUCCESS) {
-                    refreshInvitePageMetadata(p.linkId(), o.record());
+                    GroupInvitePageMetadata metadata = refreshInvitePageMetadata(p.linkId(), o.record());
+                    d.setGroupName(importDetailGroupName(metadata));
                     if (GroupLinkImportSuccessType.ADOPTED.code() == p.successType()) {
                         adopted++;
                     } else {
@@ -290,9 +294,9 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 GroupLinkImportFailReason.DUPLICATE, null, null);
     }
 
-    private void refreshInvitePageMetadata(Long groupLinkId, String normalizedUrl) {
+    private GroupInvitePageMetadata refreshInvitePageMetadata(Long groupLinkId, String normalizedUrl) {
         if (groupLinkId == null || normalizedUrl == null || normalizedUrl.isBlank()) {
-            return;
+            return null;
         }
         GroupInvitePageMetadata metadata;
         try {
@@ -300,10 +304,10 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         } catch (RuntimeException e) {
             log.warn("WhatsApp 公开邀请页元数据抓取失败 groupLinkId={} url={} error={}",
                     groupLinkId, normalizedUrl, e.getMessage());
-            return;
+            return null;
         }
         if (metadata == null || !metadata.hasProfile()) {
-            return;
+            return metadata;
         }
 
         long now = System.currentTimeMillis();
@@ -316,6 +320,17 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         preview.setCreatedAt(now);
         preview.setUpdatedAt(now);
         previewMapper.upsertInvitePageMetadata(preview);
+        return metadata;
+    }
+
+    private static String importDetailGroupName(GroupInvitePageMetadata metadata) {
+        if (metadata == null || metadata.waSubject() == null) {
+            return null;
+        }
+        String subject = metadata.waSubject();
+        return subject.length() <= IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH
+                ? subject
+                : subject.substring(0, IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH);
     }
 
     private void validateRequest(GroupLinkImportDTO dto) {

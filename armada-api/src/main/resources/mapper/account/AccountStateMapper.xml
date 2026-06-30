@@ -47,6 +47,16 @@
     WHERE account_id = #{accountId}
   </update>
 
+  <!-- 上线分配代理后写展示快照;释放代理绑定时不清空这些字段。 -->
+  <update id="updateProxySnapshot">
+    UPDATE account_state
+    SET truth_ip = #{truthIp},
+        proxy_country = #{proxyCountry},
+        proxy_source = #{proxySource},
+        updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+  </update>
+
   <!-- ONLINE 恢复只允许把解绑状态恢复为正常,其它终态不受影响。 -->
   <update id="recoverUnboundStateInternal">
     UPDATE account_state

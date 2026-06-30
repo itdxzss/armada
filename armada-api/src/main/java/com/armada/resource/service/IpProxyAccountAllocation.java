@@ -9,8 +9,9 @@ import com.armada.platform.proxy.ProxyEndpoint;
  * 和协议层可用的代理端点,不直接接触 ip_proxy 表结构。</p>
  *
  * @param accountId 账号主键
- * @param proxyId   本次分配的代理主键
- * @param endpoint  协议层上线可使用的代理端点
+ * @param proxyId     本次分配的代理主键
+ * @param endpoint    协议层上线可使用的代理端点
+ * @param proxySource 代理来源展示文本
  */
-public record IpProxyAccountAllocation(Long accountId, Long proxyId, ProxyEndpoint endpoint) {
+public record IpProxyAccountAllocation(Long accountId, Long proxyId, ProxyEndpoint endpoint, String proxySource) {
 }

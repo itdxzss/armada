@@ -55,6 +55,16 @@ public interface AccountStateMapper {
     int updateLifecycleState(AccountState row);
 
     /**
+     * 更新账号最近一次上线分配的代理展示快照。
+     *
+     * <p>该快照只供账号列表展示国家、IP 来源、代理地址;不表示当前代理仍被账号占用。</p>
+     *
+     * @param row 包含 accountId、truthIp、proxyCountry、proxySource、updatedAt
+     * @return 实际更新行数
+     */
+    int updateProxySnapshot(AccountState row);
+
+    /**
      * 重连恢复时把解绑账号恢复为正常。
      *
      * <p>只更新 account_state=5(解绑) 的行,封禁/导出/未上报状态不会被 ONLINE 事件误改。</p>

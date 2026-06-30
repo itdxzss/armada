@@ -20,7 +20,7 @@ public class GroupLinkImportDetail {
     /** 原文链接(失败行也保留)。 */
     private String rawUrl;
 
-    /** 群名称(保留旧列,导入链接不再写)。 */
+    /** 群名称快照(导入成功时写公开邀请页识别出的 WhatsApp 群名)。 */
     private String groupName;
 
     /** 导入结果:1=成功 2=失败。 */

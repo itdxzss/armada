@@ -100,7 +100,7 @@ public record AccountListVO(
         /** 出口国家(状态回写优先,当前绑定代理兜底)。 */
         String country,
 
-        /** IP 来源(当前绑定 IP 代理来源)。 */
+        /** IP 来源(账号状态快照优先,当前绑定 IP 代理来源兜底)。 */
         String ipSource
 ) {
 }

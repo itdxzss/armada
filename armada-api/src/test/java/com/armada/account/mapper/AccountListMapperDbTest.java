@@ -396,6 +396,51 @@ class AccountListMapperDbTest extends DbTestBase {
     }
 
     /**
+     * 代理释放后,列表仍应从账号状态快照展示上线时使用的国家/IP 来源/IP 地址。
+     */
+    @Test
+    void listAccounts_usesProxySnapshotAfterCurrentBindingReleased() {
+        long now = System.currentTimeMillis();
+        String wsPhone = "86166" + (now % 100000000L);
+
+        Account account = insertAccount(wsPhone, now);
+        insertDefaultState(account.getId(), now);
+        jdbc.update("""
+                UPDATE account_state
+                SET truth_ip = 'geo.iproyal.com',
+                    proxy_country = '印度',
+                    proxy_source = 'iproyal'
+                WHERE account_id = ?
+                """, account.getId());
+        jdbc.update("""
+                INSERT INTO ip_proxy (
+                    tenant_id, host, port, protocol, username, password,
+                    region, status, bound_account_id, bound_at, source, ownership,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                TEST_TENANT_ID, "geo.iproyal.com", 12321, 2, "proxy-user", "proxy-pass",
+                "印度", 1, null, null, "iproyal", 1, now, now);
+
+        AccountQuery q = new AccountQuery();
+        q.setPhone(wsPhone);
+        q.setCountry("印度");
+        q.setTruthIp("geo.iproyal");
+        q.setPageSize(10);
+
+        long count = accountMapper.countPage(q);
+        List<AccountListVoRow> rows = accountMapper.selectPage(q);
+
+        assertThat(count).isEqualTo(1);
+        assertThat(rows).hasSize(1);
+        AccountListVoRow row = rows.get(0);
+        assertThat(row.getId()).isEqualTo(account.getId());
+        assertThat(row.getProxyCountry()).isEqualTo("印度");
+        assertThat(row.getIpSource()).isEqualTo("iproyal");
+        assertThat(row.getTruthIp()).isEqualTo("geo.iproyal.com");
+    }
+
+    /**
      * countPage 与 selectPage 数量一致(同 query,同 filter)。
      */
     @Test

@@ -83,7 +83,7 @@ public class AccountListVoRow {
     /** 出口国家。 */
     private String proxyCountry;
 
-    /** 当前绑定代理来源。 */
+    /** 代理来源展示快照;为空时来自当前绑定代理。 */
     private String ipSource;
 
     /** 拉人数量。 */

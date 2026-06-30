@@ -22,6 +22,7 @@ import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
+import com.armada.group.model.entity.GroupLinkImportDetail;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
@@ -145,6 +146,9 @@ class GroupLinkImportServiceImplTest {
         assertThat(preview.getWaSubject()).isEqualTo("2017+44");
         assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/avatar.jpg");
         assertThat(preview.getLastPreviewAt()).isNotNull();
+        ArgumentCaptor<List<GroupLinkImportDetail>> detailCaptor = ArgumentCaptor.forClass(List.class);
+        verify(detailMapper).batchInsert(detailCaptor.capture());
+        assertThat(detailCaptor.getValue().get(0).getGroupName()).isEqualTo("2017+44");
     }
 
     @Test

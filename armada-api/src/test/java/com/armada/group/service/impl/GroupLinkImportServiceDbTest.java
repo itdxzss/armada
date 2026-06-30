@@ -137,6 +137,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(preview.getInviteCode()).isEqualTo("PageMeta12345678901234");
         assertThat(preview.getWaSubject()).isEqualTo("公开页群名");
         assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/page-meta.jpg");
+        assertThat(detailGroupName(result.batchId(), 1)).isEqualTo("公开页群名");
     }
 
     @Test
@@ -322,6 +323,14 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         return jdbc.queryForObject(
                 "SELECT group_link_id FROM group_link_import_detail WHERE batch_id = ? AND line_no = ?",
                 Long.class,
+                batchId,
+                lineNo);
+    }
+
+    private String detailGroupName(Long batchId, int lineNo) {
+        return jdbc.queryForObject(
+                "SELECT group_name FROM group_link_import_detail WHERE batch_id = ? AND line_no = ?",
+                String.class,
                 batchId,
                 lineNo);
     }

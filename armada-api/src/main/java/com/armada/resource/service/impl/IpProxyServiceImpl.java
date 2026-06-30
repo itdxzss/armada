@@ -155,7 +155,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         // 只记录定位需要的代理 ID 和地区,不打印 username/password。
         log.info("IP代理上线分配 accountId={} preferredRegion={} released={} proxyId={} region={}",
                 normalized.accountId(), normalized.preferredRegion(), released, proxy.getId(), proxy.getRegion());
-        return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy));
+        return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
     }
 
     /**
@@ -235,7 +235,7 @@ public class IpProxyServiceImpl implements IpProxyService {
             Long accountId = ids.get(i);
             IpProxy proxy = proxies.get(i);
             targets.add(new IpProxyBindTarget(proxy.getId(), accountId));
-            allocations.add(new IpProxyAccountAllocation(accountId, proxy.getId(), toEndpoint(proxy)));
+            allocations.add(new IpProxyAccountAllocation(accountId, proxy.getId(), toEndpoint(proxy), proxy.getSource()));
         }
 
         int marked = mapper.markUsingAndBindBatch(

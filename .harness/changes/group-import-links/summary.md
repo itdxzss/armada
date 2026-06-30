@@ -17,6 +17,7 @@
 
 ## 2026-06-30 增量:导入时识别公开邀请页元数据
 - **范围**:导入成功(新增/复活/收编)后请求 WhatsApp 公开邀请页,解析 `og:title` / `og:image`,写入 `group_link_preview.invite_code/wa_subject/avatar_url/last_preview_at`;重复/格式错误不请求。
+- **明细**:`group_link_import_detail.group_name` 同步写入识别出的群名快照,导入明细列表不额外 JOIN preview。
 - **边界**:不调用协议层;`group_link.group_name` 仍保留运营自定义名,列表继续通过 `COALESCE(g.group_name, p.wa_subject)` 展示 WhatsApp 真实群名。
 - **头像口径**:仅保存 `pps.whatsapp.net` 真实头像;`static.whatsapp.net` 默认 WhatsApp logo 不落库。
 - **验证**:`mvn -q -Dtest=GroupLinkImportServiceImplTest,HttpGroupInvitePageFetcherTest,GroupLinkServiceImplTest test`;`xmllint --noout armada-api/src/main/resources/mapper/group/GroupLinkPreviewMapper.xml`;`./armada-api/dbtest.sh GroupLinkImportServiceDbTest,GroupLinkPreviewMapperDbTest`。

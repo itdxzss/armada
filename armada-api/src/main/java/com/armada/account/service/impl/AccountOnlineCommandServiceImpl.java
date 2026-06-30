@@ -2,9 +2,11 @@ package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.vo.AccountIpRegionRow;
@@ -18,6 +20,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.resource.service.IpProxyAccountAllocation;
 import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyAllocationRequest;
@@ -51,9 +54,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final String SOURCE_BATCH_ONLINE = "batch_online";
     private static final String SOURCE_BATCH_OFFLINE = "batch_offline";
     private static final String SOURCE_IP_DELETE_RELOGIN = "ip_delete_relogin";
+    private static final int TRUTH_IP_MAX_LENGTH = 45;
+    private static final int PROXY_COUNTRY_MAX_LENGTH = 64;
+    private static final int PROXY_SOURCE_MAX_LENGTH = 64;
 
     private final AccountMapper accountMapper;
     private final AccountCredentialMapper credentialMapper;
+    private final AccountStateMapper stateMapper;
     private final IpProxyService ipProxyService;
     private final ProtocolCommandOutboxService protocolCommandOutboxService;
 
@@ -64,10 +71,12 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      */
     public AccountOnlineCommandServiceImpl(AccountMapper accountMapper,
                                            AccountCredentialMapper credentialMapper,
+                                           AccountStateMapper stateMapper,
                                            IpProxyService ipProxyService,
                                            ProtocolCommandOutboxService protocolCommandOutboxService) {
         this.accountMapper = accountMapper;
         this.credentialMapper = credentialMapper;
+        this.stateMapper = stateMapper;
         this.ipProxyService = ipProxyService;
         this.protocolCommandOutboxService = protocolCommandOutboxService;
     }
@@ -103,6 +112,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     credentialFormat,
                     allocation.proxyId(),
                     SOURCE_MANUAL_ONLINE);
+            updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
             ProtocolCommandOutboxEnqueueResult enqueueResult =
@@ -360,6 +370,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         credentialFormat,
                         allocation.proxyId(),
                         source);
+                updateProxySnapshot(accountId, allocation.endpoint(), allocation.proxySource());
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
                 log.info("账号批量上线写入 outbox 前准备 command accountId={} allocatedProxyId={} source={} "
                                 + "credentialFormat={} credentialLength={}",
@@ -468,6 +479,23 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      */
     private static int credentialLength(String credentialJson) {
         return credentialJson == null ? 0 : credentialJson.length();
+    }
+
+    private void updateProxySnapshot(Long accountId, ProxyEndpoint endpoint, String proxySource) {
+        AccountState row = new AccountState();
+        row.setAccountId(accountId);
+        row.setTruthIp(clamp(endpoint == null ? null : endpoint.host(), TRUTH_IP_MAX_LENGTH));
+        row.setProxyCountry(clamp(endpoint == null ? null : endpoint.country(), PROXY_COUNTRY_MAX_LENGTH));
+        row.setProxySource(clamp(proxySource, PROXY_SOURCE_MAX_LENGTH));
+        row.setUpdatedAt(System.currentTimeMillis());
+        stateMapper.updateProxySnapshot(row);
+    }
+
+    private static String clamp(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private void releaseAllocationsAfterFailure(List<IpProxyAccountAllocation> allocations, RuntimeException original) {

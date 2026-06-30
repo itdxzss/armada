@@ -13,6 +13,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
@@ -59,6 +60,9 @@ class AccountOnlineCommandServiceImplTest {
     private AccountCredentialMapper credentialMapper;
 
     @Mock
+    private AccountStateMapper stateMapper;
+
+    @Mock
     private IpProxyService ipProxyService;
 
     @Mock
@@ -88,7 +92,7 @@ class AccountOnlineCommandServiceImplTest {
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
         when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
-                .thenReturn(new IpProxyAllocation(7L, endpoint));
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
@@ -144,7 +148,7 @@ class AccountOnlineCommandServiceImplTest {
             when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                     .thenReturn(List.of(ipRegionRow(100L, "印度")));
             when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
-                    .thenReturn(new IpProxyAllocation(7L, endpoint));
+                    .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
             when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                     .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
@@ -183,7 +187,7 @@ class AccountOnlineCommandServiceImplTest {
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
         when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
-                .thenReturn(new IpProxyAllocation(7L, endpoint));
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
         when(protocolCommandOutboxService.enqueueOnlineCommands(any())).thenThrow(failure);
 
         assertThatThrownBy(() -> service.online(100L))
@@ -210,8 +214,8 @@ class AccountOnlineCommandServiceImplTest {
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L, 101L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度"), ipRegionRow(101L, "马来西亚")));
         List<IpProxyAccountAllocation> allocations = List.of(
-                new IpProxyAccountAllocation(100L, 7L, endpointA),
-                new IpProxyAccountAllocation(101L, 8L, endpointB));
+                new IpProxyAccountAllocation(100L, 7L, endpointA, "iproyal"),
+                new IpProxyAccountAllocation(101L, 8L, endpointB, "brightdata"));
         when(ipProxyService.allocateOnlineEndpoints(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "马来西亚")))).thenReturn(allocations);
@@ -305,8 +309,8 @@ class AccountOnlineCommandServiceImplTest {
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L, 101L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度"), ipRegionRow(101L, "巴基斯坦")));
         List<IpProxyAccountAllocation> allocations = List.of(
-                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint()),
-                new IpProxyAccountAllocation(101L, 8L, onlineEndpoint()));
+                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint(), "iproyal"),
+                new IpProxyAccountAllocation(101L, 8L, onlineEndpoint(), "brightdata"));
         when(ipProxyService.allocateOnlineEndpoints(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "巴基斯坦")))).thenReturn(allocations);
@@ -326,8 +330,8 @@ class AccountOnlineCommandServiceImplTest {
         AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
         AccountCredential credentialB = credential(101L, 2, "{\"creds\":{},\"keys\":{}}");
         List<IpProxyAccountAllocation> allocations = List.of(
-                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint()),
-                new IpProxyAccountAllocation(101L, 8L, onlineEndpoint()));
+                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint(), "iproyal"),
+                new IpProxyAccountAllocation(101L, 8L, onlineEndpoint(), "brightdata"));
         when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
         when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L, 101L), ImportResult.SUCCESS.getCode()))
@@ -363,8 +367,8 @@ class AccountOnlineCommandServiceImplTest {
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L, 101L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度"), ipRegionRow(101L, "马来西亚")));
         List<IpProxyAccountAllocation> allocations = List.of(
-                new IpProxyAccountAllocation(100L, 20L, onlineEndpoint()),
-                new IpProxyAccountAllocation(101L, 21L, onlineEndpoint()));
+                new IpProxyAccountAllocation(100L, 20L, onlineEndpoint(), "iproyal"),
+                new IpProxyAccountAllocation(101L, 21L, onlineEndpoint(), "brightdata"));
         when(ipProxyService.allocateOnlineEndpointsExcludingProxyIds(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "马来西亚")), proxyIds)).thenReturn(allocations);

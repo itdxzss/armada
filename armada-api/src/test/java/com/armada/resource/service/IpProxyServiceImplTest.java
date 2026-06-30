@@ -192,6 +192,7 @@ class IpProxyServiceImplTest {
             assertThat(allocation.endpoint().credentials().password())
                     .isEqualTo("pass1_country-in_session-Abc12345_lifetime-1h");
             assertThat(allocation.endpoint().country()).isEqualTo("印度");
+            assertThat(allocation.proxySource()).isEqualTo("iproyal");
 
             InOrder inOrder = org.mockito.Mockito.inOrder(mapper);
             inOrder.verify(mapper).releaseByAccount(
@@ -250,6 +251,8 @@ class IpProxyServiceImplTest {
                     .containsExactly(10L, 11L);
             assertThat(allocations.get(0).endpoint().host()).isEqualTo("proxy-a.internal");
             assertThat(allocations.get(1).endpoint().host()).isEqualTo("proxy-b.internal");
+            assertThat(allocations).extracting(IpProxyAccountAllocation::proxySource)
+                    .containsExactly("iproyal", "iproyal");
 
             @SuppressWarnings("unchecked")
             ArgumentCaptor<List<IpProxyBindTarget>> bindCaptor = ArgumentCaptor.forClass(List.class);
@@ -449,8 +452,8 @@ class IpProxyServiceImplTest {
     @Test
     void releaseOnlineAllocations_validItems_delegatesPreciseBatchRelease() {
         List<IpProxyAccountAllocation> allocations = List.of(
-                new IpProxyAccountAllocation(100L, 10L, null),
-                new IpProxyAccountAllocation(101L, 11L, null));
+                new IpProxyAccountAllocation(100L, 10L, null, null),
+                new IpProxyAccountAllocation(101L, 11L, null, null));
         when(mapper.releaseOnlineAllocations(
                 any(),
                 eq(IpProxyStatus.IDLE.code()),
@@ -497,6 +500,7 @@ class IpProxyServiceImplTest {
         row.setPassword("pass1_country-in_session-Abc12345_lifetime-1h");
         row.setRegion("印度");
         row.setStatus(IpProxyStatus.IDLE.code());
+        row.setSource("iproyal");
         return row;
     }
 }

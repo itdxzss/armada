@@ -55,6 +55,9 @@ public class AccountState {
     /** 出口国家。 */
     private String proxyCountry;
 
+    /** 代理来源展示快照。 */
+    private String proxySource;
+
     /** 代理失败计数。 */
     private Integer proxyFailureCount;
 
@@ -193,6 +196,14 @@ public class AccountState {
 
     public void setProxyCountry(String proxyCountry) {
         this.proxyCountry = proxyCountry;
+    }
+
+    public String getProxySource() {
+        return proxySource;
+    }
+
+    public void setProxySource(String proxySource) {
+        this.proxySource = proxySource;
     }
 
     public Integer getProxyFailureCount() {

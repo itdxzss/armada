@@ -21,6 +21,8 @@
 - `ip_proxy.tenant_id` 保留,本次不迁平台池。
 - `混合（不限国家）` 不入表,由接口虚拟返回。
 - 时间字段使用 epoch 毫秒 BIGINT。
+- `V023__country_name_en_seed.sql` 只补已上线 `country.name_en`,不改已执行的 `V021`。
+- 英文地区名采用 Unicode CLDR/ICU `en` territory display names。
 
 ## 验证（evidence-before-done）
 
@@ -30,6 +32,8 @@
 - `rg -c "^\\(" armada-api/src/main/resources/db/migration/V021__country_master_data.sql .harness/changes/ip-country-master-data/db-migrations.sql` => 248 / 248
 - `mvn -q -Dtest='CountryServiceImplTest,IpProxyServiceImplTest' test` => 通过
 - `armada-api/dbtest.sh 'CountryMapperDbTest,CountryControllerDbTest,IpProxyMapperDbTest'` => 通过
+- `armada-api/dbtest.sh CountryMapperDbTest` => 通过;Flyway validated 23 migrations,current schema 023
+- MySQL 验证:活跃 `country` 248 行,`name_en` 缺失 0;抽查 `AF=Afghanistan`,`IN=India`,`CI=Côte d’Ivoire`,`XK=Kosovo`,`TR=Türkiye`,`AC=Ascension Island`
 - Surefire 汇总:
   - `com.armada.platform.country.mapper.CountryMapperDbTest`: tests=3 errors=0 skipped=0 failures=0
   - `CountryControllerDbTest`: tests=1 errors=0 skipped=0 failures=0

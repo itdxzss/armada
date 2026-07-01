@@ -28,12 +28,15 @@ class CountryMapperDbTest extends DbTestBase {
         assertThat(rows).hasSize(248);
         assertThat(rows.get(0).getIso2()).isEqualTo("AF");
         assertThat(rows.get(0).getNameZh()).isEqualTo("阿富汗");
+        assertThat(rows.get(0).getNameEn()).isEqualTo("Afghanistan");
         assertThat(rows).anySatisfy(row -> {
             assertThat(row.getIso2()).isEqualTo("IN");
             assertThat(row.getNameZh()).isEqualTo("印度");
+            assertThat(row.getNameEn()).isEqualTo("India");
             assertThat(row.getPhonePrefix()).isEqualTo("+91");
             assertThat(row.getFlag()).isEqualTo("🇮🇳");
         });
+        assertThat(rows).allSatisfy(row -> assertThat(row.getNameEn()).isNotBlank());
     }
 
     @Test

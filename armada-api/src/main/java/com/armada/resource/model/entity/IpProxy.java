@@ -42,6 +42,9 @@ public class IpProxy {
     /** 绑定时间(epoch毫秒);NULL=未绑定。 */
     private Long boundAt;
 
+    /** 最近抽检时间(epoch毫秒);NULL=尚未抽检。 */
+    private Long lastSampleCheckAt;
+
     /** 来源（服务商/批次，自由文本）。 */
     private String source;
 
@@ -149,6 +152,14 @@ public class IpProxy {
 
     public void setBoundAt(Long boundAt) {
         this.boundAt = boundAt;
+    }
+
+    public Long getLastSampleCheckAt() {
+        return lastSampleCheckAt;
+    }
+
+    public void setLastSampleCheckAt(Long lastSampleCheckAt) {
+        this.lastSampleCheckAt = lastSampleCheckAt;
     }
 
     public String getSource() {

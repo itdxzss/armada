@@ -2,7 +2,12 @@ package com.armada.resource.mapper;
 
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.armada.resource.model.dto.IpProxyQuery;
+import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
+import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
 import com.armada.resource.model.entity.IpProxy;
+import com.armada.resource.model.vo.IpProxyCountryStatsRow;
+import com.armada.resource.model.vo.IpProxyStatsDetailRow;
+import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -18,6 +23,23 @@ public interface IpProxyMapper {
 
     /** 列表总数（与 selectPage 共用筛选片段，口径一致）。 */
     long countPage(@Param("q") IpProxyQuery query);
+
+    /** IP 数据统计总览。 */
+    IpProxyStatsSummaryVO selectStatsSummary();
+
+    /** 国家/地区维度统计总数。 */
+    long countCountryStats(@Param("q") IpProxyStatsCountryQuery query);
+
+    /** 国家/地区维度统计分页。 */
+    List<IpProxyCountryStatsRow> selectCountryStatsPage(@Param("q") IpProxyStatsCountryQuery query);
+
+    /** 指定国家/地区 IP 明细总数。 */
+    long countStatsDetail(@Param("region") String region, @Param("q") IpProxyStatsDetailQuery query);
+
+    /** 指定国家/地区 IP 明细分页。 */
+    List<IpProxyStatsDetailRow> selectStatsDetailPage(
+            @Param("region") String region,
+            @Param("q") IpProxyStatsDetailQuery query);
 
     /**
      * 查询本租户 IP 池已有国家/区域。

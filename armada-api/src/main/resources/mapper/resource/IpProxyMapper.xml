@@ -3,10 +3,20 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.resource.mapper.IpProxyMapper">
 
+    <resultMap id="StatsSummaryResultMap" type="com.armada.resource.model.vo.IpProxyStatsSummaryVO">
+        <constructor>
+            <arg column="total_ip_count" javaType="java.lang.Long"/>
+            <arg column="in_use_ip_count" javaType="java.lang.Long"/>
+            <arg column="idle_ip_count" javaType="java.lang.Long"/>
+            <arg column="unavailable_ip_count" javaType="java.lang.Long"/>
+            <arg column="covered_region_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
         id, tenant_id, host, port, protocol, username, password, region,
-        status, bound_account_id, bound_at, source, ownership, remark,
+        status, bound_account_id, bound_at, last_sample_check_at, source, ownership, remark,
         created_at, updated_at, created_by, deleted_at
     </sql>
 
@@ -28,6 +38,96 @@
         </where>
     </sql>
 
+    <!-- IP 数据统计国家/地区聚合筛选;tenant_id 由拦截器注入 -->
+    <sql id="StatsCountryWhere">
+        <where>
+            deleted_at IS NULL
+            AND region IS NOT NULL
+            AND TRIM(region) != ''
+            <if test="q.protocol != null">AND protocol = #{q.protocol}</if>
+            <if test="q.source != null and q.source != ''">AND source LIKE CONCAT('%', #{q.source}, '%')</if>
+            <if test="q.keyword != null and q.keyword != ''">
+                AND (
+                    TRIM(region) LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR host LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR username LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR source LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR CONCAT(host, ':', port) LIKE CONCAT('%', #{q.keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <sql id="StatsCountryRiskHaving">
+        <if test="q.risk != null and q.risk != ''">
+            HAVING
+            <choose>
+                <when test="q.risk == 'no_idle'">
+                    SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) = 0
+                    AND SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) &gt; 0
+                </when>
+                <when test="q.risk == 'low_available'">
+                    NOT (
+                        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) = 0
+                        AND SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) &gt; 0
+                    )
+                    AND ((SUM(CASE WHEN status IN (1, 2) THEN 1 ELSE 0 END) * 100.0) / COUNT(*)) &lt; 20
+                </when>
+                <when test="q.risk == 'high_unavailable'">
+                    NOT (
+                        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) = 0
+                        AND SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) &gt; 0
+                    )
+                    AND NOT (((SUM(CASE WHEN status IN (1, 2) THEN 1 ELSE 0 END) * 100.0) / COUNT(*)) &lt; 20)
+                    AND ((SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) * 100.0) / COUNT(*)) &gt; 50
+                </when>
+                <when test="q.risk == 'normal'">
+                    NOT (
+                        (
+                            SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) = 0
+                            AND SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) &gt; 0
+                        )
+                        OR ((SUM(CASE WHEN status IN (1, 2) THEN 1 ELSE 0 END) * 100.0) / COUNT(*)) &lt; 20
+                        OR ((SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) * 100.0) / COUNT(*)) &gt; 50
+                    )
+                </when>
+                <otherwise>1 = 1</otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="StatsCountryGroupedSelect">
+        SELECT
+            TRIM(region) AS region,
+            COUNT(*) AS total_ip_count,
+            COALESCE(SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END), 0) AS in_use_ip_count,
+            COALESCE(SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END), 0) AS idle_ip_count,
+            COALESCE(SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END), 0) AS unavailable_ip_count
+        FROM ip_proxy
+        <include refid="StatsCountryWhere"/>
+        GROUP BY TRIM(region)
+        <include refid="StatsCountryRiskHaving"/>
+    </sql>
+
+    <!-- IP 数据统计明细筛选;tenant_id 由拦截器注入 -->
+    <sql id="StatsDetailWhere">
+        <where>
+            deleted_at IS NULL
+            AND TRIM(region) = #{region}
+            <if test="q.status != null">AND status = #{q.status}</if>
+            <if test="q.protocol != null">AND protocol = #{q.protocol}</if>
+            <if test="q.source != null and q.source != ''">AND source LIKE CONCAT('%', #{q.source}, '%')</if>
+            <if test="q.keyword != null and q.keyword != ''">
+                AND (
+                    host LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR username LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR source LIKE CONCAT('%', #{q.keyword}, '%')
+                    OR CONCAT(host, ':', port) LIKE CONCAT('%', #{q.keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
     <select id="selectPage" resultType="com.armada.resource.model.entity.IpProxy">
         SELECT <include refid="Columns"/>
         FROM ip_proxy
@@ -40,6 +140,75 @@
         SELECT COUNT(*)
         FROM ip_proxy
         <include refid="FilterWhere"/>
+    </select>
+
+    <select id="selectStatsSummary" resultMap="StatsSummaryResultMap">
+        SELECT
+            COUNT(*) AS total_ip_count,
+            CAST(COALESCE(SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END), 0) AS SIGNED) AS in_use_ip_count,
+            CAST(COALESCE(SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END), 0) AS SIGNED) AS idle_ip_count,
+            CAST(COALESCE(SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END), 0) AS SIGNED) AS unavailable_ip_count,
+            COUNT(DISTINCT CASE
+                WHEN region IS NOT NULL AND TRIM(region) != '' THEN TRIM(region)
+                ELSE NULL
+            END) AS covered_region_count
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+    </select>
+
+    <select id="countCountryStats" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            <include refid="StatsCountryGroupedSelect"/>
+        ) s
+    </select>
+
+    <select id="selectCountryStatsPage" resultType="com.armada.resource.model.vo.IpProxyCountryStatsRow">
+        <include refid="StatsCountryGroupedSelect"/>
+        ORDER BY
+        <choose>
+            <when test="q.sortField == 'inUseIpCount'">in_use_ip_count</when>
+            <when test="q.sortField == 'idleIpCount'">idle_ip_count</when>
+            <when test="q.sortField == 'unavailableIpCount'">unavailable_ip_count</when>
+            <when test="q.sortField == 'availableRate'">
+                ((idle_ip_count + in_use_ip_count) * 100.0 / NULLIF(total_ip_count, 0))
+            </when>
+            <when test="q.sortField == 'unavailableRate'">
+                (unavailable_ip_count * 100.0 / NULLIF(total_ip_count, 0))
+            </when>
+            <otherwise>total_ip_count</otherwise>
+        </choose>
+        <choose>
+            <when test="q.sortOrder == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>,
+        region ASC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="countStatsDetail" resultType="long">
+        SELECT COUNT(*)
+        FROM ip_proxy
+        <include refid="StatsDetailWhere"/>
+    </select>
+
+    <select id="selectStatsDetailPage" resultType="com.armada.resource.model.vo.IpProxyStatsDetailRow">
+        SELECT
+            id,
+            CONCAT(host, ':', port) AS proxy_address,
+            protocol,
+            region,
+            status,
+            bound_account_id,
+            source,
+            ownership,
+            last_sample_check_at,
+            created_at,
+            bound_at
+        FROM ip_proxy
+        <include refid="StatsDetailWhere"/>
+        ORDER BY id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
     </select>
 
     <select id="selectDistinctRegions" resultType="string">

@@ -13,10 +13,12 @@ import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
+import com.armada.resource.model.vo.IpProxyStatsExportFile;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
 import com.armada.resource.service.IpProxyStatsService;
 import com.armada.shared.response.PageResult;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.http.MediaType;
 import org.junit.jupiter.api.BeforeEach;
@@ -167,6 +169,7 @@ class IpProxyStatsControllerTest {
                                 "1.2.3.4",
                                 "IN",
                                 "印度",
+                                "印度",
                                 "Mumbai",
                                 "ISP",
                                 null,
@@ -198,5 +201,24 @@ class IpProxyStatsControllerTest {
                 .andExpect(jsonPath("$.data.availableIpCount").value(20))
                 .andExpect(jsonPath("$.data.inUseIpCount").value(7))
                 .andExpect(jsonPath("$.data.unavailableIpCount").value(3));
+    }
+
+    @Test
+    void exportRegionProxies_returnsTxtAttachment() throws Exception {
+        when(service.exportRegionProxies(argThat(region -> "印度".equals(region))))
+                .thenReturn(new IpProxyStatsExportFile(
+                        "ip-proxies-印度.txt",
+                        "text/plain;charset=UTF-8",
+                        "1.2.3.4:8000:user:pass\n".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/ip-proxies/stats/countries/{region}/export", "印度"))
+                .andExpect(status().isOk())
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(
+                                result.getResponse().getHeader("Content-Disposition"))
+                        .contains("attachment")
+                        .contains("filename*="))
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(
+                                result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                        .isEqualTo("1.2.3.4:8000:user:pass\n"));
     }
 }

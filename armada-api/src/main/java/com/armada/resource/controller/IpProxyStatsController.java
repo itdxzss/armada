@@ -7,10 +7,16 @@ import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
+import com.armada.resource.model.vo.IpProxyStatsExportFile;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
 import com.armada.resource.service.IpProxyStatsService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import java.nio.charset.StandardCharsets;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,6 +62,19 @@ public class IpProxyStatsController {
     @GetMapping("/countries/{region}/sample-check/stats")
     public ApiResponse<IpProxyCountrySampleStatsVO> countrySampleStats(@PathVariable String region) {
         return ApiResponse.ok(service.countrySampleStats(region));
+    }
+
+    /** 指定国家/地区下的全部 IP 导出。 */
+    @GetMapping("/countries/{region}/export")
+    public ResponseEntity<byte[]> exportRegionProxies(@PathVariable String region) {
+        IpProxyStatsExportFile file = service.exportRegionProxies(region);
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(file.filename(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .contentType(MediaType.parseMediaType(file.contentType()))
+                .body(file.content());
     }
 
     /** 指定国家/地区下的 IP 明细。 */

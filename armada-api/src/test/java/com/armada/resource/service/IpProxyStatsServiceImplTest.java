@@ -12,16 +12,19 @@ import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
+import com.armada.resource.model.entity.IpProxy;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
+import com.armada.resource.model.vo.IpProxyStatsExportFile;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.service.impl.IpProxyStatsServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
@@ -83,11 +86,11 @@ class IpProxyStatsServiceImplTest {
                 .thenReturn(new IpProxyCountrySampleStatsVO("印度", 3L, 2L, 0L, 1L));
         when(mapper.selectSampleActiveIdsByRegion("印度", 3)).thenReturn(sampleIds);
         when(ipProxyService.checkProxies(sampleIds)).thenReturn(List.of(
-                new IpProxyCheckResultVO(11L, "success", "空闲", "success", "1.1.1.1", "IN", "印度",
+                new IpProxyCheckResultVO(11L, "success", "空闲", "success", "1.1.1.1", "IN", "印度", "印度",
                         "Mumbai", "ISP", null, null, 1_719_800_000_000L, null),
-                new IpProxyCheckResultVO(12L, "failed", "不可用", "failed", null, null, "印度",
+                new IpProxyCheckResultVO(12L, "failed", "不可用", "failed", null, null, null, "印度",
                         null, null, null, null, 1_719_800_000_100L, "代理检测失败"),
-                new IpProxyCheckResultVO(13L, "success", "空闲", "success", "1.1.1.3", "IN", "印度",
+                new IpProxyCheckResultVO(13L, "success", "空闲", "success", "1.1.1.3", "IN", "印度", "印度",
                         "Delhi", "ISP", null, null, 1_719_800_000_200L, null)));
         when(countryMapper.updateLastIpSampleCheckAtByNameZh(eq("印度"), anyLong())).thenReturn(1);
 
@@ -107,10 +110,11 @@ class IpProxyStatsServiceImplTest {
         List<Long> sampleIds = java.util.stream.LongStream.rangeClosed(1, 21).boxed().toList();
         List<IpProxyCheckResultVO> firstBatchResults = java.util.stream.LongStream.rangeClosed(1, 20)
                 .mapToObj(id -> new IpProxyCheckResultVO(id, "success", "空闲", "success",
-                        "1.1.1." + id, "IN", "印度", "Mumbai", "ISP", null, null, 1_719_800_000_000L + id, null))
+                        "1.1.1." + id, "IN", "印度", "印度", "Mumbai", "ISP",
+                        null, null, 1_719_800_000_000L + id, null))
                 .toList();
         IpProxyCheckResultVO lastResult = new IpProxyCheckResultVO(21L, "success", "空闲", "success",
-                "1.1.1.21", "IN", "印度", "Delhi", "ISP", null, null, 1_719_800_000_021L, null);
+                "1.1.1.21", "IN", "印度", "印度", "Delhi", "ISP", null, null, 1_719_800_000_021L, null);
         when(mapper.selectCountrySampleStatsByRegion("印度"))
                 .thenReturn(new IpProxyCountrySampleStatsVO("印度", 21L, 18L, 2L, 1L));
         when(mapper.selectSampleActiveIdsByRegion("印度", 21)).thenReturn(sampleIds);
@@ -233,6 +237,21 @@ class IpProxyStatsServiceImplTest {
                 .hasMessageContaining("国家/地区不能为空");
     }
 
+    @Test
+    void exportRegionProxies_returnsTxtInImportFormat() {
+        IpProxy first = exportProxy("1.2.3.4", 8000, "user1", "pass1");
+        IpProxy second = exportProxy("proxy.example.com", 9000, "user2", "pass2");
+        when(mapper.selectStatsDetailExportRows("印度")).thenReturn(List.of(first, second));
+
+        IpProxyStatsExportFile file = service.exportRegionProxies(" 印度 ");
+
+        assertThat(file.filename()).isEqualTo("ip-proxies-印度.txt");
+        assertThat(file.contentType()).isEqualTo("text/plain;charset=UTF-8");
+        assertThat(new String(file.content(), StandardCharsets.UTF_8))
+                .isEqualTo("1.2.3.4:8000:user1:pass1\nproxy.example.com:9000:user2:pass2\n");
+        verify(mapper).selectStatsDetailExportRows("印度");
+    }
+
     private static IpProxyCountryStatsRow countryRow(
             String region,
             Long totalIpCount,
@@ -246,6 +265,15 @@ class IpProxyStatsServiceImplTest {
         row.setInUseIpCount(inUseIpCount);
         row.setUnavailableIpCount(unavailableIpCount);
         return row;
+    }
+
+    private static IpProxy exportProxy(String host, Integer port, String username, String password) {
+        IpProxy proxy = new IpProxy();
+        proxy.setHost(host);
+        proxy.setPort(port);
+        proxy.setUsername(username);
+        proxy.setPassword(password);
+        return proxy;
     }
 
     private static List<String> recordComponentNames(Class<?> recordClass) {

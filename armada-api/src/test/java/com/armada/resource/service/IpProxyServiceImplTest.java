@@ -356,6 +356,7 @@ class IpProxyServiceImplTest {
                 400,
                 IpProxyCheckTiming.zero(),
                 1_719_800_000_000L));
+        when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
         when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
 
         IpProxyCheckResultVO result = service.checkProxy(10L);
@@ -364,6 +365,7 @@ class IpProxyServiceImplTest {
         assertThat(result.checkStatus()).isEqualTo("success");
         assertThat(result.connectionStatus()).isEqualTo("空闲");
         assertThat(result.countryCode()).isEqualTo("IN");
+        assertThat(result.detectedRegion()).isEqualTo("印度");
         assertThat(result.region()).isEqualTo("美国");
         assertThat(result.outboundIp()).isEqualTo("103.10.10.10");
         assertThat(result.whatsappStatus()).isEqualTo("HTTP 400");

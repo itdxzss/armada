@@ -991,9 +991,10 @@ public class IpProxyServiceImpl implements IpProxyService {
     /**
      * 把检测后读取到的当前数据库行转换成前端弹窗结果。
      *
-     * <p>connectionStatus 使用代理池业务状态 label;checkStatus 只表示本次检测是否通过。</p>
+     * <p>connectionStatus 使用代理池业务状态 label;checkStatus 只表示本次检测是否通过。
+     * detectedRegion 来自检测国家码;region 仍表示导入/分组使用的业务国家,二者不能混用。</p>
      */
-    private static IpProxyCheckResultVO toCheckResultVO(IpProxy row, boolean success) {
+    private IpProxyCheckResultVO toCheckResultVO(IpProxy row, boolean success) {
         return new IpProxyCheckResultVO(
                 row.getId(),
                 success ? IpProxyCheckStatus.SUCCESS.value() : IpProxyCheckStatus.FAILED.value(),
@@ -1001,6 +1002,7 @@ public class IpProxyServiceImpl implements IpProxyService {
                 whatsappStatusValue(row),
                 row.getOutboundIp(),
                 row.getDetectedCountryCode(),
+                detectedRegionOf(row.getDetectedCountryCode()),
                 row.getRegion(),
                 row.getDetectedLocation(),
                 row.getDetectedIsp(),
@@ -1008,6 +1010,18 @@ public class IpProxyServiceImpl implements IpProxyService {
                 row.getDetectedLongitude(),
                 row.getLastSampleCheckAt(),
                 row.getLastCheckError());
+    }
+
+    private String detectedRegionOf(String countryCode) {
+        if (!StringUtils.hasText(countryCode)) {
+            return null;
+        }
+        try {
+            return countryService.resolveIpRegionByIso2(countryCode);
+        } catch (BusinessException e) {
+            log.debug("检测国家码未匹配 IP 管理国家 countryCode={} message={}", countryCode, e.getMessage());
+            return null;
+        }
     }
 
     private static String whatsappStatusValue(IpProxy row) {

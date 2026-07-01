@@ -7,6 +7,7 @@ import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
+import com.armada.resource.model.vo.IpProxyStatsExportFile;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
 import com.armada.shared.response.PageResult;
 
@@ -29,4 +30,7 @@ public interface IpProxyStatsService {
 
     /** 分页查询指定国家/地区下的 IP 明细。 */
     PageResult<IpProxyStatsDetailVO> regionProxies(String region, IpProxyStatsDetailQuery query);
+
+    /** 导出指定国家/地区下的全部 IP,格式同 TXT 导入行。 */
+    IpProxyStatsExportFile exportRegionProxies(String region);
 }

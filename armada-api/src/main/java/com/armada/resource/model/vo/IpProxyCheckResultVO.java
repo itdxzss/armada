@@ -11,7 +11,8 @@ import java.math.BigDecimal;
  * @param whatsappStatus     WhatsApp 官方响应状态,如 HTTP 400、detecting、failed 或 unknown
  * @param outboundIp         真实出口 IP
  * @param countryCode        检测出的 ISO2 国家码
- * @param region             最终写入/保留的 region 中文名
+ * @param detectedRegion     检测国家码对应的中文国家名,仅用于检测弹窗展示
+ * @param region             最终写入/保留的业务 region 中文名
  * @param location           检测出的地理位置
  * @param isp                检测出的 ISP
  * @param detectedLatitude   检测纬度
@@ -26,6 +27,7 @@ public record IpProxyCheckResultVO(
         String whatsappStatus,
         String outboundIp,
         String countryCode,
+        String detectedRegion,
         String region,
         String location,
         String isp,

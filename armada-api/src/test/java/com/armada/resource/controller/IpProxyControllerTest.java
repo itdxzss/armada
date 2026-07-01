@@ -97,6 +97,7 @@ class IpProxyControllerTest {
                 "103.10.10.10",
                 "IN",
                 "印度",
+                "印度",
                 "Mumbai",
                 "Example ISP",
                 new BigDecimal("19.0760000"),
@@ -114,6 +115,7 @@ class IpProxyControllerTest {
                 .andExpect(jsonPath("$.data.whatsappStatus").value("unknown"))
                 .andExpect(jsonPath("$.data.outboundIp").value("103.10.10.10"))
                 .andExpect(jsonPath("$.data.countryCode").value("IN"))
+                .andExpect(jsonPath("$.data.detectedRegion").value("印度"))
                 .andExpect(jsonPath("$.data.region").value("印度"))
                 .andExpect(jsonPath("$.data.location").value("Mumbai"))
                 .andExpect(jsonPath("$.data.isp").value("Example ISP"))
@@ -128,10 +130,10 @@ class IpProxyControllerTest {
     void checkProxies_delegatesToServiceAndReturnsApiResponseList() throws Exception {
         when(service.checkProxies(List.of(10L, 11L))).thenReturn(List.of(
                 new IpProxyCheckResultVO(
-                        10L, "success", "空闲", "unknown", "103.10.10.10", "IN", "印度",
+                        10L, "success", "空闲", "unknown", "103.10.10.10", "IN", "印度", "印度",
                         "Mumbai", "Example ISP", null, null, 1_719_800_000_000L, null),
                 new IpProxyCheckResultVO(
-                        11L, "failed", "不可用", "unknown", null, null, "混合（不限国家）",
+                        11L, "failed", "不可用", "unknown", null, null, null, "混合（不限国家）",
                         null, null, null, null, 1_719_800_000_100L, "代理连接超时")));
 
         mockMvc.perform(post("/api/ip-proxies/check")

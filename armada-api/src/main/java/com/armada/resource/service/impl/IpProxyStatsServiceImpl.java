@@ -10,6 +10,7 @@ import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
+import com.armada.resource.model.entity.IpProxy;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
@@ -17,12 +18,14 @@ import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
+import com.armada.resource.model.vo.IpProxyStatsExportFile;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
 import com.armada.resource.service.IpProxyService;
 import com.armada.resource.service.IpProxyStatsService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -46,6 +49,9 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
 
     /** 国家级抽样检测内部按既有批量检测能力分批执行;这不是用户可见的抽样数量上限。 */
     private static final int SAMPLE_CHECK_BATCH_SIZE = 20;
+
+    /** 国家 IP 导出内容类型。 */
+    private static final String EXPORT_CONTENT_TYPE = "text/plain;charset=UTF-8";
 
     /** IP 代理 Mapper,承载统计 SQL 聚合和分页。 */
     private final IpProxyMapper mapper;
@@ -126,6 +132,25 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
                 ? List.of()
                 : mapper.selectStatsDetailPage(normalizedRegion, normalized).stream().map(this::toDetailVO).toList();
         return PageResult.of(rows, normalized.getPage(), normalized.getPageSize(), total);
+    }
+
+    /**
+     * 导出指定国家/地区下的全部未删除 IP。
+     *
+     * <p>导出行沿用导入格式 {@code host:port:username:password},便于同一批代理重新导入或迁移。</p>
+     */
+    @Override
+    public IpProxyStatsExportFile exportRegionProxies(String region) {
+        if (!StringUtils.hasText(region)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家/地区不能为空");
+        }
+        String normalizedRegion = region.trim();
+        List<IpProxy> rows = mapper.selectStatsDetailExportRows(normalizedRegion);
+        String content = toExportContent(rows);
+        return new IpProxyStatsExportFile(
+                "ip-proxies-" + safeFilenamePart(normalizedRegion) + ".txt",
+                EXPORT_CONTENT_TYPE,
+                content.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -272,6 +297,33 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
      */
     private static long nullToZero(Long value) {
         return value == null ? 0L : value;
+    }
+
+    private static String toExportContent(List<IpProxy> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (IpProxy row : rows) {
+            builder.append(nullToBlank(row.getHost()))
+                    .append(':')
+                    .append(row.getPort() == null ? "" : row.getPort())
+                    .append(':')
+                    .append(nullToBlank(row.getUsername()))
+                    .append(':')
+                    .append(nullToBlank(row.getPassword()))
+                    .append('\n');
+        }
+        return builder.toString();
+    }
+
+    private static String nullToBlank(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String safeFilenamePart(String value) {
+        String sanitized = value.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]+", "_").trim();
+        return StringUtils.hasText(sanitized) ? sanitized : "country";
     }
 
     private static void normalizeAllocationMode(IpProxyStatsCountryQuery query) {

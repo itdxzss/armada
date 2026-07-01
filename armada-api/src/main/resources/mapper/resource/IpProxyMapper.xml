@@ -303,6 +303,14 @@
         LIMIT #{q.pageSize} OFFSET #{q.offset}
     </select>
 
+    <select id="selectStatsDetailExportRows" resultType="com.armada.resource.model.entity.IpProxy">
+        SELECT host, port, username, password
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+          AND TRIM(region) = #{region}
+        ORDER BY id DESC
+    </select>
+
     <select id="selectDistinctRegions" resultType="string">
         SELECT region
         FROM (

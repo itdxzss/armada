@@ -61,6 +61,9 @@ public interface IpProxyMapper {
             @Param("region") String region,
             @Param("q") IpProxyStatsDetailQuery query);
 
+    /** 指定国家/地区全部 IP 导出行;包含凭据,仅供文件下载。 */
+    List<IpProxy> selectStatsDetailExportRows(@Param("region") String region);
+
     /**
      * 查询本租户 IP 池已有国家/区域。
      *

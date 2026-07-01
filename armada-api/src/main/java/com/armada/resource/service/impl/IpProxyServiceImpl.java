@@ -38,8 +38,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -68,15 +70,18 @@ public class IpProxyServiceImpl implements IpProxyService {
     private final IpProxyConverter converter;
     private final CountryService countryService;
     private final IpProxyDetector detector;
+    private final Executor ipProxyCheckExecutor;
 
     public IpProxyServiceImpl(IpProxyMapper mapper,
                               IpProxyConverter converter,
                               CountryService countryService,
-                              IpProxyDetector detector) {
+                              IpProxyDetector detector,
+                              @Qualifier("ipProxyCheckExecutor") Executor ipProxyCheckExecutor) {
         this.mapper = mapper;
         this.converter = converter;
         this.countryService = countryService;
         this.detector = detector;
+        this.ipProxyCheckExecutor = ipProxyCheckExecutor;
     }
 
     @Override
@@ -616,7 +621,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setRegion(dto.region());
         row.setSource(dto.source());
         row.setAllocationMode(dto.allocationMode());
-        row.setStatus(IpProxyStatus.IDLE.code());
+        row.setStatus(IpProxyStatus.UNAVAILABLE.code());
         row.setCheckFailCount(0);
         row.setOwnership(ProxyOwnership.OWNED.code());
         long now = System.currentTimeMillis();
@@ -624,9 +629,54 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setUpdatedAt(now);
         mapper.insert(row);
         if (row.getId() != null) {
-            detectAndUpdate(row);
+            submitImportDetection(row);
         }
         return true;
+    }
+
+    /**
+     * 提交导入后的自动检测任务,请求线程只负责入队。
+     *
+     * <p>真实代理检测可能被慢代理拖到十几秒甚至更久;这里不能阻塞导入 HTTP 请求,否则前端 10 秒超时会先断开。
+     * 租户上下文是 ThreadLocal,提交任务时必须显式捕获并在后台线程恢复。</p>
+     */
+    private void submitImportDetection(IpProxy proxy) {
+        Long tenantId = TenantContext.get();
+        try {
+            ipProxyCheckExecutor.execute(() -> runImportDetection(proxy, tenantId));
+        } catch (RuntimeException e) {
+            log.warn("IP代理导入检测任务提交失败 proxyId={} tenantId={}", proxy.getId(), tenantId, e);
+        }
+    }
+
+    /**
+     * 在后台线程执行导入检测。
+     *
+     * <p>执行结束后恢复线程原有租户上下文,避免线程池复用造成租户串号;检测失败已在
+     * {@link #detectAndUpdate(IpProxy)} 内转换为不可用状态,这里兜底捕获更新冲突、行被删除等运行时异常。</p>
+     */
+    private void runImportDetection(IpProxy proxy, Long tenantId) {
+        Long previousTenant = TenantContext.get();
+        try {
+            if (tenantId == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(tenantId);
+            }
+            detectAndUpdate(proxy);
+        } catch (RuntimeException e) {
+            log.warn("IP代理导入检测任务执行失败 proxyId={} tenantId={}", proxy.getId(), tenantId, e);
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    private static void restoreTenant(Long previousTenant) {
+        if (previousTenant == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.set(previousTenant);
+        }
     }
 
     /**

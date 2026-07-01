@@ -33,7 +33,9 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,6 +63,9 @@ class IpProxyServiceImplTest {
     @Mock
     private IpProxyDetector detector;
 
+    @Mock
+    private Executor ipProxyCheckExecutor;
+
     @InjectMocks
     private IpProxyServiceImpl service;
 
@@ -68,6 +73,14 @@ class IpProxyServiceImplTest {
     private IpProxyImportDTO dto(String text) {
         when(countryService.resolveIpRegion("中国")).thenReturn("中国");
         return new IpProxyImportDTO("中国", 1, "供应商A", text);
+    }
+
+    /** 需要验证后台检测写库时,让 mock executor 在当前测试线程立即执行提交的任务。 */
+    private void runSubmittedDetectionTaskImmediately() {
+        doAnswer(invocation -> {
+            invocation.getArgument(0, Runnable.class).run();
+            return null;
+        }).when(ipProxyCheckExecutor).execute(any(Runnable.class));
     }
 
     @Test
@@ -211,10 +224,6 @@ class IpProxyServiceImplTest {
         IpProxyImportDTO dto = IpProxyImportDTO.class
                 .getConstructor(String.class, Integer.class, String.class, String.class, String.class, String.class)
                 .newInstance(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", null, "mixed");
-        when(detector.check(any())).thenReturn(IpProxyCheckResult.success(
-                10L, "8.8.8.8", "US", "California", "Google", null, null, 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
-        when(mapper.selectActiveById(10L)).thenReturn(idleProxy());
 
         service.importProxies(dto);
 
@@ -226,7 +235,71 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void importProxies_submitsDetectionToExecutorWithoutCallingDetectorOnRequestThread() {
+        when(countryService.resolveIpRegion(null)).thenReturn(null);
+        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        doAnswer(invocation -> {
+            invocation.getArgument(0, IpProxy.class).setId(10L);
+            return 1;
+        }).when(mapper).insert(any());
+
+        IpProxyImportResultVO result = service.importProxies(
+                new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
+
+        assertThat(result.insertedRows()).isEqualTo(1);
+        ArgumentCaptor<IpProxy> insertCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).insert(insertCaptor.capture());
+        assertThat(insertCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
+        verify(ipProxyCheckExecutor).execute(any(Runnable.class));
+        verify(detector, never()).check(any());
+    }
+
+    @Test
+    void importProxies_detectionTaskUsesCapturedTenantContextAndClearsWorkerContext() {
+        List<Long> tenantDuringDetector = new ArrayList<>();
+        List<Long> tenantAfterTask = new ArrayList<>();
+        doAnswer(invocation -> {
+            Long callerTenant = TenantContext.get();
+            TenantContext.clear();
+            invocation.getArgument(0, Runnable.class).run();
+            tenantAfterTask.add(TenantContext.get());
+            if (callerTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(callerTenant);
+            }
+            return null;
+        }).when(ipProxyCheckExecutor).execute(any(Runnable.class));
+        TenantContext.set(7L);
+        try {
+            when(countryService.resolveIpRegion(null)).thenReturn(null);
+            when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
+            when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+            doAnswer(invocation -> {
+                invocation.getArgument(0, IpProxy.class).setId(10L);
+                return 1;
+            }).when(mapper).insert(any());
+            when(detector.check(any())).thenAnswer(invocation -> {
+                tenantDuringDetector.add(TenantContext.get());
+                return IpProxyCheckResult.success(
+                        10L, "103.10.10.10", "IN", "Mumbai", "Example ISP", null, null, 1_719_800_000_000L);
+            });
+            when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
+            when(mapper.selectActiveById(10L)).thenReturn(idleProxy());
+
+            service.importProxies(new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
+
+            assertThat(tenantDuringDetector).containsExactly(7L);
+            assertThat(tenantAfterTask).containsExactly((Long) null);
+            assertThat(TenantContext.get()).isEqualTo(7L);
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
     void importProxies_smartDetectsCountryAndUpdatesRegionAndDetectionFields() {
+        runSubmittedDetectionTaskImmediately();
         when(countryService.resolveIpRegion(null)).thenReturn(null);
         when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
@@ -276,6 +349,7 @@ class IpProxyServiceImplTest {
 
     @Test
     void importProxies_detectionFailureKeepsRowAndMarksUnavailable() {
+        runSubmittedDetectionTaskImmediately();
         when(countryService.resolveIpRegion(null)).thenReturn(null);
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
         doAnswer(invocation -> {
@@ -302,6 +376,7 @@ class IpProxyServiceImplTest {
 
     @Test
     void importProxies_detectorSuccessWithoutCountryCodeMarksUnavailable() {
+        runSubmittedDetectionTaskImmediately();
         when(countryService.resolveIpRegion(null)).thenReturn(null);
         when(countryService.resolveIpRegionByIso2(null))
                 .thenThrow(new BusinessException(ErrorCode.VALIDATION, "检测国家码为空"));

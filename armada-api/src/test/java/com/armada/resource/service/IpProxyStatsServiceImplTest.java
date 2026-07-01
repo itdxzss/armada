@@ -3,11 +3,18 @@ package com.armada.resource.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 
+import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.resource.mapper.IpProxyMapper;
+import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
@@ -18,6 +25,7 @@ import com.armada.shared.response.PageResult;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,11 +41,17 @@ class IpProxyStatsServiceImplTest {
     @Mock
     private IpProxyMapper mapper;
 
+    @Mock
+    private IpProxyService ipProxyService;
+
+    @Mock
+    private CountryMapper countryMapper;
+
     private IpProxyStatsServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new IpProxyStatsServiceImpl(mapper);
+        service = new IpProxyStatsServiceImpl(mapper, ipProxyService, countryMapper);
     }
 
     @Test
@@ -59,6 +73,40 @@ class IpProxyStatsServiceImplTest {
         assertThat(vo.unavailableRate()).isEqualByComparingTo(new BigDecimal("25.00"));
         assertThat(vo.resourceRisk()).isEqualTo("normal");
         assertThat(vo.resourceRiskLabel()).isEqualTo("正常");
+    }
+
+    @Test
+    void sampleCheckRegion_checksRandomCountryIpsAndUpdatesCountrySampleTime() {
+        IpProxyCountrySampleCheckDTO request = new IpProxyCountrySampleCheckDTO(3);
+        List<Long> sampleIds = List.of(11L, 12L, 13L);
+        when(mapper.selectSampleActiveIdsByRegion("印度", 3)).thenReturn(sampleIds);
+        when(ipProxyService.checkProxies(sampleIds)).thenReturn(List.of(
+                new IpProxyCheckResultVO(11L, "success", "空闲", "success", "1.1.1.1", "IN", "印度",
+                        "Mumbai", "ISP", null, null, 1_719_800_000_000L, null),
+                new IpProxyCheckResultVO(12L, "failed", "不可用", "failed", null, null, "印度",
+                        null, null, null, null, 1_719_800_000_100L, "代理检测失败"),
+                new IpProxyCheckResultVO(13L, "success", "空闲", "success", "1.1.1.3", "IN", "印度",
+                        "Delhi", "ISP", null, null, 1_719_800_000_200L, null)));
+        when(countryMapper.updateLastIpSampleCheckAtByNameZh(eq("印度"), anyLong())).thenReturn(1);
+
+        IpProxyCountrySampleCheckVO result = service.sampleCheckRegion(" 印度 ", request);
+
+        assertThat(result.region()).isEqualTo("印度");
+        assertThat(result.sampleCount()).isEqualTo(3);
+        assertThat(result.results()).hasSize(3);
+        ArgumentCaptor<Long> checkedAtCaptor = ArgumentCaptor.forClass(Long.class);
+        verify(countryMapper).updateLastIpSampleCheckAtByNameZh(eq("印度"), checkedAtCaptor.capture());
+        assertThat(result.lastSampleCheckAt()).isEqualTo(checkedAtCaptor.getValue());
+    }
+
+    @Test
+    void sampleCheckRegion_rejectsSampleCountAboveBatchLimitBeforeSelectingIps() {
+        IpProxyCountrySampleCheckDTO request = new IpProxyCountrySampleCheckDTO(21);
+
+        assertThatThrownBy(() -> service.sampleCheckRegion("印度", request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("一次最多检测 20 个 IP");
+        verifyNoInteractions(mapper, ipProxyService, countryMapper);
     }
 
     @Test

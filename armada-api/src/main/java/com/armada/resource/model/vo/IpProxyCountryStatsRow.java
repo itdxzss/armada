@@ -22,6 +22,9 @@ public class IpProxyCountryStatsRow {
     /** 不可用 IP 数。 */
     private Long unavailableIpCount;
 
+    /** 国家级最近 IP 抽检时间(epoch毫秒);未抽检时为 null。 */
+    private Long lastSampleCheckAt;
+
     public String getRegion() {
         return region;
     }
@@ -60,5 +63,13 @@ public class IpProxyCountryStatsRow {
 
     public void setUnavailableIpCount(Long unavailableIpCount) {
         this.unavailableIpCount = unavailableIpCount;
+    }
+
+    public Long getLastSampleCheckAt() {
+        return lastSampleCheckAt;
+    }
+
+    public void setLastSampleCheckAt(Long lastSampleCheckAt) {
+        this.lastSampleCheckAt = lastSampleCheckAt;
     }
 }

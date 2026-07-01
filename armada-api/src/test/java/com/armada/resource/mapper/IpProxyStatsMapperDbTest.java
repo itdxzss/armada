@@ -46,7 +46,7 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
 
         IpProxyStatsSummaryVO before = mapper.selectStatsSummary();
 
-        insertCountry("XA", india, now);
+        insertCountry("XA", india, now, now + 50);
         insertCountry("XB", pakistan, now + 1);
         insertCountry("XC", malaysia, now + 2);
         IpProxy indiaIdleA = insertProxy(india, marker, IpProxyStatus.IDLE.code(), now);
@@ -102,6 +102,7 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         assertThat(indiaRow.getIdleIpCount()).isEqualTo(2);
         assertThat(indiaRow.getInUseIpCount()).isEqualTo(1);
         assertThat(indiaRow.getUnavailableIpCount()).isEqualTo(1);
+        assertThat(indiaRow.getLastSampleCheckAt()).isEqualTo(now + 50);
         IpProxyCountryStatsRow noIpRow = countryRows.get(2);
         assertThat(noIpRow.getTotalIpCount()).isZero();
 
@@ -196,12 +197,16 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
     }
 
     private void insertCountry(String iso2, String nameZh, long suffix) {
+        insertCountry(iso2, nameZh, suffix, null);
+    }
+
+    private void insertCountry(String iso2, String nameZh, long suffix, Long lastIpSampleCheckAt) {
         jdbcTemplate.update(
                 """
                 INSERT INTO country
                   (iso2, name_zh, name_en, phone_prefix, flag, is_enabled, is_ip_supported,
-                   sort_order, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?)
+                   sort_order, last_ip_sample_check_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)
                 """,
                 iso2,
                 nameZh,
@@ -209,6 +214,7 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
                 "+0",
                 "🏳",
                 Math.floorMod(suffix, 100_000L),
+                lastIpSampleCheckAt,
                 suffix,
                 suffix);
     }

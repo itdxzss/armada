@@ -1,18 +1,23 @@
 package com.armada.resource.service.impl;
 
+import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyAllocationMode;
 import com.armada.resource.model.IpProxyResourceRisk;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
+import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
+import com.armada.resource.service.IpProxyService;
 import com.armada.resource.service.IpProxyStatsService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -37,16 +42,29 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
     /** 比率统一保留两位小数。 */
     private static final int RATE_SCALE = 2;
 
+    /** 国家级抽样检测复用现有批量检测能力,与 IP 管理批量检测保持同一上限。 */
+    private static final int MAX_SAMPLE_CHECK_SIZE = 20;
+
     /** IP 代理 Mapper,承载统计 SQL 聚合和分页。 */
     private final IpProxyMapper mapper;
+
+    /** IP 代理业务服务,复用既有批量检测和检测落库逻辑。 */
+    private final IpProxyService ipProxyService;
+
+    /** 国家主数据 Mapper,维护国家级抽检状态。 */
+    private final CountryMapper countryMapper;
 
     /**
      * 构造 IP 数据统计服务。
      *
      * @param mapper IP 代理 Mapper
+     * @param ipProxyService IP 代理业务服务
+     * @param countryMapper 国家主数据 Mapper
      */
-    public IpProxyStatsServiceImpl(IpProxyMapper mapper) {
+    public IpProxyStatsServiceImpl(IpProxyMapper mapper, IpProxyService ipProxyService, CountryMapper countryMapper) {
         this.mapper = mapper;
+        this.ipProxyService = ipProxyService;
+        this.countryMapper = countryMapper;
     }
 
     /**
@@ -109,6 +127,36 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
     }
 
     /**
+     * 对指定国家/地区随机抽样执行 IP 检测。
+     *
+     * <p>IP 级检测时间仍由 {@link IpProxyService#checkProxies(List)} 写入 ip_proxy;
+     * 国家级最近抽检时间在本方法确认本次抽样检测完成后写入 country。</p>
+     */
+    @Override
+    public IpProxyCountrySampleCheckVO sampleCheckRegion(String region, IpProxyCountrySampleCheckDTO request) {
+        if (!StringUtils.hasText(region)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家/地区不能为空");
+        }
+        int sampleCount = validateSampleCount(request);
+        String normalizedRegion = region.trim();
+        List<Long> sampleIds = mapper.selectSampleActiveIdsByRegion(normalizedRegion, sampleCount);
+        if (sampleIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "当前国家暂无 IP 可检测");
+        }
+        if (sampleIds.size() < sampleCount) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "抽样检测数量不能超过当前国家 IP 总数量 " + sampleIds.size());
+        }
+        List<IpProxyCheckResultVO> results = ipProxyService.checkProxies(sampleIds);
+        long checkedAt = System.currentTimeMillis();
+        int updatedRows = countryMapper.updateLastIpSampleCheckAtByNameZh(normalizedRegion, checkedAt);
+        if (updatedRows != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "国家不存在或未启用 IP 管理: " + normalizedRegion);
+        }
+        return new IpProxyCountrySampleCheckVO(normalizedRegion, results.size(), checkedAt, results);
+    }
+
+    /**
      * 校验国家/地区统计查询中的枚举型筛选值。
      *
      * @param query 已归一化的查询对象
@@ -160,6 +208,7 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
                 unavailable,
                 availableRate,
                 unavailableRate,
+                row.getLastSampleCheckAt(),
                 risk.value(),
                 risk.label());
     }
@@ -212,6 +261,21 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
         if (StringUtils.hasText(query.getAllocationMode())) {
             query.setAllocationMode(IpProxyAllocationMode.fromValue(query.getAllocationMode()).value());
         }
+    }
+
+    /** 校验国家级抽样数量,先挡住无效入参,避免进入随机取样和真实代理检测。 */
+    private static int validateSampleCount(IpProxyCountrySampleCheckDTO request) {
+        Integer sampleCount = request == null ? null : request.sampleCount();
+        if (sampleCount == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "抽样检测数量不能为空");
+        }
+        if (sampleCount <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "抽样检测数量必须大于 0");
+        }
+        if (sampleCount > MAX_SAMPLE_CHECK_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION, "一次最多检测 " + MAX_SAMPLE_CHECK_SIZE + " 个 IP");
+        }
+        return sampleCount;
     }
 
     /**

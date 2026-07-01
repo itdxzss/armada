@@ -33,6 +33,17 @@ public interface IpProxyMapper {
     /** 国家/地区维度统计分页。 */
     List<IpProxyCountryStatsRow> selectCountryStatsPage(@Param("q") IpProxyStatsCountryQuery query);
 
+    /**
+     * 按国家/地区随机抽取未软删 IP 代理 ID。
+     *
+     * <p>这里不按状态过滤:不可用 IP 也需要参与抽检,以便检测后更新可用性。</p>
+     *
+     * @param region 国家/地区中文快照
+     * @param limit 抽样数量
+     * @return 随机抽到的代理 ID
+     */
+    List<Long> selectSampleActiveIdsByRegion(@Param("region") String region, @Param("limit") int limit);
+
     /** 指定国家/地区 IP 明细总数。 */
     long countStatsDetail(@Param("region") String region, @Param("q") IpProxyStatsDetailQuery query);
 

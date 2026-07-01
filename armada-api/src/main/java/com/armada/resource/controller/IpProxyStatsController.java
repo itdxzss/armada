@@ -1,7 +1,9 @@
 package com.armada.resource.controller;
 
+import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
+import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
@@ -11,6 +13,8 @@ import com.armada.shared.response.PageResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,6 +41,14 @@ public class IpProxyStatsController {
     @GetMapping("/countries")
     public ApiResponse<PageResult<IpProxyCountryStatsVO>> countries(@ModelAttribute IpProxyStatsCountryQuery query) {
         return ApiResponse.ok(service.countries(query));
+    }
+
+    /** 指定国家/地区随机抽样检测。 */
+    @PostMapping("/countries/{region}/sample-check")
+    public ApiResponse<IpProxyCountrySampleCheckVO> sampleCheckRegion(
+            @PathVariable String region,
+            @RequestBody IpProxyCountrySampleCheckDTO request) {
+        return ApiResponse.ok(service.sampleCheckRegion(region, request));
     }
 
     /** 指定国家/地区下的 IP 明细。 */

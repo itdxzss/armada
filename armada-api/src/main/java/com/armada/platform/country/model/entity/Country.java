@@ -29,6 +29,9 @@ public class Country {
     /** IP 管理是否展示:1=展示 0=不展示。 */
     private Integer isIpSupported;
 
+    /** 国家级最近 IP 抽检时间(epoch毫秒);NULL=尚未抽检。 */
+    private Long lastIpSampleCheckAt;
+
     /** 排序值,越小越靠前。 */
     private Integer sortOrder;
 
@@ -106,6 +109,14 @@ public class Country {
 
     public void setIsIpSupported(Integer isIpSupported) {
         this.isIpSupported = isIpSupported;
+    }
+
+    public Long getLastIpSampleCheckAt() {
+        return lastIpSampleCheckAt;
+    }
+
+    public void setLastIpSampleCheckAt(Long lastIpSampleCheckAt) {
+        this.lastIpSampleCheckAt = lastIpSampleCheckAt;
     }
 
     public Integer getSortOrder() {

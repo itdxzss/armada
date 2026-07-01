@@ -40,4 +40,13 @@ public interface CountryMapper {
      * @return 启用国家;不存在时返回 null
      */
     Country selectActiveByNameZh(@Param("nameZh") String nameZh);
+
+    /**
+     * 更新国家级最近 IP 抽检时间。
+     *
+     * @param nameZh 中文展示名
+     * @param checkedAt 抽检完成时间(epoch毫秒)
+     * @return 更新行数
+     */
+    int updateLastIpSampleCheckAtByNameZh(@Param("nameZh") String nameZh, @Param("checkedAt") long checkedAt);
 }

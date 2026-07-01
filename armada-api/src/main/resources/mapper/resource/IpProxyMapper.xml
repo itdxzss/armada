@@ -99,7 +99,8 @@
             COUNT(p.id) AS total_ip_count,
             COALESCE(SUM(CASE WHEN p.status = 2 THEN 1 ELSE 0 END), 0) AS in_use_ip_count,
             COALESCE(SUM(CASE WHEN p.status = 1 THEN 1 ELSE 0 END), 0) AS idle_ip_count,
-            COALESCE(SUM(CASE WHEN p.status = 3 THEN 1 ELSE 0 END), 0) AS unavailable_ip_count
+            COALESCE(SUM(CASE WHEN p.status = 3 THEN 1 ELSE 0 END), 0) AS unavailable_ip_count,
+            c.last_ip_sample_check_at AS last_sample_check_at
         FROM country c
         LEFT JOIN ip_proxy p
           ON TRIM(p.region) = c.name_zh
@@ -122,7 +123,7 @@
             OR CONCAT(p.host, ':', p.port) LIKE CONCAT('%', #{q.keyword}, '%')
           )
         </if>
-        GROUP BY c.id, c.name_zh
+        GROUP BY c.id, c.name_zh, c.last_ip_sample_check_at
         <include refid="StatsCountryRiskHaving"/>
     </sql>
 
@@ -230,6 +231,15 @@
         SELECT COUNT(*)
         FROM ip_proxy
         <include refid="StatsDetailWhere"/>
+    </select>
+
+    <select id="selectSampleActiveIdsByRegion" resultType="long">
+        SELECT id
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+          AND TRIM(region) = #{region}
+        ORDER BY RAND()
+        LIMIT #{limit}
     </select>
 
     <select id="selectStatsDetailPage" resultType="com.armada.resource.model.vo.IpProxyStatsDetailRow">

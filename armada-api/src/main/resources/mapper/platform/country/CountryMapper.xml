@@ -4,7 +4,7 @@
 
   <sql id="Columns">
     id, iso2, name_zh, name_en, phone_prefix, flag,
-    is_enabled, is_ip_supported, sort_order, remark,
+    is_enabled, is_ip_supported, last_ip_sample_check_at, sort_order, remark,
     created_at, updated_at, deleted_at
   </sql>
 
@@ -40,5 +40,15 @@
       AND name_zh = #{nameZh}
     LIMIT 1
   </select>
+
+  <update id="updateLastIpSampleCheckAtByNameZh">
+    UPDATE country
+    SET last_ip_sample_check_at = #{checkedAt},
+        updated_at = #{checkedAt}
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+      AND is_ip_supported = 1
+      AND name_zh = #{nameZh}
+  </update>
 
 </mapper>

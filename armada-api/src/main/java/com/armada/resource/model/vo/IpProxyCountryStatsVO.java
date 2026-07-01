@@ -28,6 +28,9 @@ public record IpProxyCountryStatsVO(
         /** 不可用率=不可用/总数*100,保留 2 位。 */
         BigDecimal unavailableRate,
 
+        /** 国家级最近 IP 抽检时间(epoch 毫秒)。 */
+        Long lastSampleCheckAt,
+
         /** 资源风险枚举值。 */
         String resourceRisk,
 

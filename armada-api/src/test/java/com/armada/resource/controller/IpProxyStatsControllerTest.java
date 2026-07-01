@@ -4,9 +4,12 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
@@ -14,6 +17,7 @@ import com.armada.resource.service.IpProxyStatsService;
 import com.armada.shared.response.PageResult;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.http.MediaType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -76,6 +80,7 @@ class IpProxyStatsControllerTest {
                         1L,
                         new BigDecimal("75.00"),
                         new BigDecimal("25.00"),
+                        1_719_800_000_000L,
                         "normal",
                         "正常")), 2, 20, 1));
 
@@ -93,6 +98,7 @@ class IpProxyStatsControllerTest {
                 .andExpect(jsonPath("$.data.page").value(2))
                 .andExpect(jsonPath("$.data.pageSize").value(20))
                 .andExpect(jsonPath("$.data.list[0].region").value("印度"))
+                .andExpect(jsonPath("$.data.list[0].lastSampleCheckAt").value(1_719_800_000_000L))
                 .andExpect(jsonPath("$.data.list[0].resourceRisk").value("normal"));
     }
 
@@ -143,5 +149,38 @@ class IpProxyStatsControllerTest {
                 .andExpect(jsonPath("$.data.list[0].proxyAddress").value("1.2.3.4:8000"))
                 .andExpect(jsonPath("$.data.list[0].allocationModeLabel").value("混合分组"))
                 .andExpect(jsonPath("$.data.list[0].lastSampleCheckAt").value(1_719_800_000_000L));
+    }
+
+    @Test
+    void sampleCheckRegion_bindsSampleCountAndReturnsCountryCheckTime() throws Exception {
+        when(service.sampleCheckRegion(argThat(region -> "印度".equals(region)), argThat(request ->
+                request != null && request.sampleCount() == 3))).thenReturn(new IpProxyCountrySampleCheckVO(
+                        "印度",
+                        3,
+                        1_719_900_000_000L,
+                        List.of(new IpProxyCheckResultVO(
+                                101L,
+                                "success",
+                                "空闲",
+                                "success",
+                                "1.2.3.4",
+                                "IN",
+                                "印度",
+                                "Mumbai",
+                                "ISP",
+                                null,
+                                null,
+                                1_719_900_000_000L,
+                                null))));
+
+        mockMvc.perform(post("/api/ip-proxies/stats/countries/{region}/sample-check", "印度")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sampleCount\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.region").value("印度"))
+                .andExpect(jsonPath("$.data.sampleCount").value(3))
+                .andExpect(jsonPath("$.data.lastSampleCheckAt").value(1_719_900_000_000L))
+                .andExpect(jsonPath("$.data.results[0].id").value(101));
     }
 }

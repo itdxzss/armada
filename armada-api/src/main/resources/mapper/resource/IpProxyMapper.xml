@@ -15,6 +15,16 @@
         </constructor>
     </resultMap>
 
+    <resultMap id="CountrySampleStatsResultMap" type="com.armada.resource.model.vo.IpProxyCountrySampleStatsVO">
+        <constructor>
+            <arg column="region" javaType="java.lang.String"/>
+            <arg column="total_ip_count" javaType="java.lang.Long"/>
+            <arg column="available_ip_count" javaType="java.lang.Long"/>
+            <arg column="in_use_ip_count" javaType="java.lang.Long"/>
+            <arg column="unavailable_ip_count" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
         id, tenant_id, host, port, protocol, username, password, region,
@@ -225,6 +235,27 @@
         </choose>,
         region ASC
         LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="selectCountrySampleStatsByRegion" resultMap="CountrySampleStatsResultMap">
+        SELECT
+            c.name_zh AS region,
+            COUNT(p.id) AS total_ip_count,
+            COALESCE(SUM(CASE WHEN p.status = 1 THEN 1 ELSE 0 END), 0) AS available_ip_count,
+            COALESCE(SUM(CASE WHEN p.status = 2 THEN 1 ELSE 0 END), 0) AS in_use_ip_count,
+            COALESCE(SUM(CASE WHEN p.status = 3 THEN 1 ELSE 0 END), 0) AS unavailable_ip_count
+        FROM country c
+        LEFT JOIN ip_proxy p
+          ON TRIM(p.region) = c.name_zh
+         AND p.deleted_at IS NULL
+         AND p.region IS NOT NULL
+         AND TRIM(p.region) != ''
+        WHERE c.deleted_at IS NULL
+          AND c.is_enabled = 1
+          AND c.is_ip_supported = 1
+          AND c.name_zh = #{region}
+        GROUP BY c.id, c.name_zh
+        LIMIT 1
     </select>
 
     <select id="countStatsDetail" resultType="long">

@@ -4,6 +4,7 @@ import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
@@ -22,6 +23,9 @@ public interface IpProxyStatsService {
 
     /** 对指定国家/地区随机抽样执行 IP 检测。 */
     IpProxyCountrySampleCheckVO sampleCheckRegion(String region, IpProxyCountrySampleCheckDTO request);
+
+    /** 查询国家级抽样检测弹框统计。 */
+    IpProxyCountrySampleStatsVO countrySampleStats(String region);
 
     /** 分页查询指定国家/地区下的 IP 明细。 */
     PageResult<IpProxyStatsDetailVO> regionProxies(String region, IpProxyStatsDetailQuery query);

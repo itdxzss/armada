@@ -4,6 +4,7 @@ import com.armada.resource.model.dto.IpProxyCountrySampleCheckDTO;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
@@ -49,6 +50,12 @@ public class IpProxyStatsController {
             @PathVariable String region,
             @RequestBody IpProxyCountrySampleCheckDTO request) {
         return ApiResponse.ok(service.sampleCheckRegion(region, request));
+    }
+
+    /** 指定国家/地区抽样检测弹框统计。 */
+    @GetMapping("/countries/{region}/sample-check/stats")
+    public ApiResponse<IpProxyCountrySampleStatsVO> countrySampleStats(@PathVariable String region) {
+        return ApiResponse.ok(service.countrySampleStats(region));
     }
 
     /** 指定国家/地区下的 IP 明细。 */

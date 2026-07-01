@@ -12,6 +12,7 @@ import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
@@ -24,6 +25,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -42,8 +44,8 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
     /** 比率统一保留两位小数。 */
     private static final int RATE_SCALE = 2;
 
-    /** 国家级抽样检测复用现有批量检测能力,与 IP 管理批量检测保持同一上限。 */
-    private static final int MAX_SAMPLE_CHECK_SIZE = 20;
+    /** 国家级抽样检测内部按既有批量检测能力分批执行;这不是用户可见的抽样数量上限。 */
+    private static final int SAMPLE_CHECK_BATCH_SIZE = 20;
 
     /** IP 代理 Mapper,承载统计 SQL 聚合和分页。 */
     private final IpProxyMapper mapper;
@@ -139,6 +141,15 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
         }
         int sampleCount = validateSampleCount(request);
         String normalizedRegion = region.trim();
+        IpProxyCountrySampleStatsVO stats = loadCountrySampleStats(normalizedRegion);
+        long totalIpCount = nullToZero(stats.totalIpCount());
+        if (totalIpCount <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "当前国家暂无 IP 可检测");
+        }
+        if (sampleCount > totalIpCount) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "抽样检测数量不能超过当前国家 IP 总数量 " + totalIpCount);
+        }
         List<Long> sampleIds = mapper.selectSampleActiveIdsByRegion(normalizedRegion, sampleCount);
         if (sampleIds.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "当前国家暂无 IP 可检测");
@@ -147,13 +158,26 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "抽样检测数量不能超过当前国家 IP 总数量 " + sampleIds.size());
         }
-        List<IpProxyCheckResultVO> results = ipProxyService.checkProxies(sampleIds);
+        List<IpProxyCheckResultVO> results = checkSampleIds(sampleIds);
         long checkedAt = System.currentTimeMillis();
         int updatedRows = countryMapper.updateLastIpSampleCheckAtByNameZh(normalizedRegion, checkedAt);
         if (updatedRows != 1) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "国家不存在或未启用 IP 管理: " + normalizedRegion);
         }
         return new IpProxyCountrySampleCheckVO(normalizedRegion, results.size(), checkedAt, results);
+    }
+
+    /**
+     * 查询指定国家/地区的抽样检测弹框统计。
+     *
+     * <p>该统计不继承列表上的协议、来源、分配方式筛选,始终按当前国家全部未软删 IP 计算。</p>
+     */
+    @Override
+    public IpProxyCountrySampleStatsVO countrySampleStats(String region) {
+        if (!StringUtils.hasText(region)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家/地区不能为空");
+        }
+        return loadCountrySampleStats(region.trim());
     }
 
     /**
@@ -272,10 +296,24 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
         if (sampleCount <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "抽样检测数量必须大于 0");
         }
-        if (sampleCount > MAX_SAMPLE_CHECK_SIZE) {
-            throw new BusinessException(ErrorCode.VALIDATION, "一次最多检测 " + MAX_SAMPLE_CHECK_SIZE + " 个 IP");
-        }
         return sampleCount;
+    }
+
+    private IpProxyCountrySampleStatsVO loadCountrySampleStats(String region) {
+        IpProxyCountrySampleStatsVO stats = mapper.selectCountrySampleStatsByRegion(region);
+        if (stats == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "国家不存在或未启用 IP 管理: " + region);
+        }
+        return stats;
+    }
+
+    private List<IpProxyCheckResultVO> checkSampleIds(List<Long> sampleIds) {
+        List<IpProxyCheckResultVO> results = new ArrayList<>(sampleIds.size());
+        for (int start = 0; start < sampleIds.size(); start += SAMPLE_CHECK_BATCH_SIZE) {
+            int end = Math.min(start + SAMPLE_CHECK_BATCH_SIZE, sampleIds.size());
+            results.addAll(ipProxyService.checkProxies(sampleIds.subList(start, end)));
+        }
+        return List.copyOf(results);
     }
 
     /**

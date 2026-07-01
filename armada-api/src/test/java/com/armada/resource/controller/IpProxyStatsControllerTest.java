@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailVO;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
@@ -182,5 +183,20 @@ class IpProxyStatsControllerTest {
                 .andExpect(jsonPath("$.data.sampleCount").value(3))
                 .andExpect(jsonPath("$.data.lastSampleCheckAt").value(1_719_900_000_000L))
                 .andExpect(jsonPath("$.data.results[0].id").value(101));
+    }
+
+    @Test
+    void countrySampleStats_returnsSampleDialogCounts() throws Exception {
+        when(service.countrySampleStats(argThat(region -> "印度".equals(region))))
+                .thenReturn(new IpProxyCountrySampleStatsVO("印度", 30L, 20L, 7L, 3L));
+
+        mockMvc.perform(get("/api/ip-proxies/stats/countries/{region}/sample-check/stats", "印度"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.region").value("印度"))
+                .andExpect(jsonPath("$.data.totalIpCount").value(30))
+                .andExpect(jsonPath("$.data.availableIpCount").value(20))
+                .andExpect(jsonPath("$.data.inUseIpCount").value(7))
+                .andExpect(jsonPath("$.data.unavailableIpCount").value(3));
     }
 }

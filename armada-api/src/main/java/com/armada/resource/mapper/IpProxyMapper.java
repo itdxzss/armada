@@ -5,6 +5,7 @@ import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
 import com.armada.resource.model.entity.IpProxy;
+import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
 import com.armada.resource.model.vo.IpProxyStatsSummaryVO;
@@ -32,6 +33,14 @@ public interface IpProxyMapper {
 
     /** 国家/地区维度统计分页。 */
     List<IpProxyCountryStatsRow> selectCountryStatsPage(@Param("q") IpProxyStatsCountryQuery query);
+
+    /**
+     * 查询国家级抽样检测弹框统计。
+     *
+     * @param region 国家/地区中文快照
+     * @return 启用且支持 IP 管理国家的 IP 状态统计;不存在时返回 null
+     */
+    IpProxyCountrySampleStatsVO selectCountrySampleStatsByRegion(@Param("region") String region);
 
     /**
      * 按国家/地区随机抽取未软删 IP 代理 ID。

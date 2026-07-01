@@ -3,7 +3,6 @@ package com.armada.resource.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -15,6 +14,7 @@ import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
 import com.armada.resource.model.dto.IpProxyStatsDetailQuery;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyCountrySampleCheckVO;
+import com.armada.resource.model.vo.IpProxyCountrySampleStatsVO;
 import com.armada.resource.model.vo.IpProxyCountryStatsRow;
 import com.armada.resource.model.vo.IpProxyCountryStatsVO;
 import com.armada.resource.model.vo.IpProxyStatsDetailRow;
@@ -79,6 +79,8 @@ class IpProxyStatsServiceImplTest {
     void sampleCheckRegion_checksRandomCountryIpsAndUpdatesCountrySampleTime() {
         IpProxyCountrySampleCheckDTO request = new IpProxyCountrySampleCheckDTO(3);
         List<Long> sampleIds = List.of(11L, 12L, 13L);
+        when(mapper.selectCountrySampleStatsByRegion("印度"))
+                .thenReturn(new IpProxyCountrySampleStatsVO("印度", 3L, 2L, 0L, 1L));
         when(mapper.selectSampleActiveIdsByRegion("印度", 3)).thenReturn(sampleIds);
         when(ipProxyService.checkProxies(sampleIds)).thenReturn(List.of(
                 new IpProxyCheckResultVO(11L, "success", "空闲", "success", "1.1.1.1", "IN", "印度",
@@ -100,13 +102,38 @@ class IpProxyStatsServiceImplTest {
     }
 
     @Test
-    void sampleCheckRegion_rejectsSampleCountAboveBatchLimitBeforeSelectingIps() {
+    void sampleCheckRegion_allowsMoreThanExistingBatchSizeAndChecksInBatches() {
         IpProxyCountrySampleCheckDTO request = new IpProxyCountrySampleCheckDTO(21);
+        List<Long> sampleIds = java.util.stream.LongStream.rangeClosed(1, 21).boxed().toList();
+        List<IpProxyCheckResultVO> firstBatchResults = java.util.stream.LongStream.rangeClosed(1, 20)
+                .mapToObj(id -> new IpProxyCheckResultVO(id, "success", "空闲", "success",
+                        "1.1.1." + id, "IN", "印度", "Mumbai", "ISP", null, null, 1_719_800_000_000L + id, null))
+                .toList();
+        IpProxyCheckResultVO lastResult = new IpProxyCheckResultVO(21L, "success", "空闲", "success",
+                "1.1.1.21", "IN", "印度", "Delhi", "ISP", null, null, 1_719_800_000_021L, null);
+        when(mapper.selectCountrySampleStatsByRegion("印度"))
+                .thenReturn(new IpProxyCountrySampleStatsVO("印度", 21L, 18L, 2L, 1L));
+        when(mapper.selectSampleActiveIdsByRegion("印度", 21)).thenReturn(sampleIds);
+        when(ipProxyService.checkProxies(sampleIds.subList(0, 20))).thenReturn(firstBatchResults);
+        when(ipProxyService.checkProxies(sampleIds.subList(20, 21))).thenReturn(List.of(lastResult));
+        when(countryMapper.updateLastIpSampleCheckAtByNameZh(eq("印度"), anyLong())).thenReturn(1);
 
-        assertThatThrownBy(() -> service.sampleCheckRegion("印度", request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("一次最多检测 20 个 IP");
-        verifyNoInteractions(mapper, ipProxyService, countryMapper);
+        IpProxyCountrySampleCheckVO result = service.sampleCheckRegion("印度", request);
+
+        assertThat(result.sampleCount()).isEqualTo(21);
+        assertThat(result.results()).hasSize(21);
+        verify(ipProxyService).checkProxies(sampleIds.subList(0, 20));
+        verify(ipProxyService).checkProxies(sampleIds.subList(20, 21));
+    }
+
+    @Test
+    void countrySampleStats_returnsCountryCountsForSampleDialog() {
+        IpProxyCountrySampleStatsVO stats = new IpProxyCountrySampleStatsVO("印度", 30L, 20L, 7L, 3L);
+        when(mapper.selectCountrySampleStatsByRegion("印度")).thenReturn(stats);
+
+        IpProxyCountrySampleStatsVO result = service.countrySampleStats(" 印度 ");
+
+        assertThat(result).isEqualTo(stats);
     }
 
     @Test

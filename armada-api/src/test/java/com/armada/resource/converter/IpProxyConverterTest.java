@@ -36,6 +36,7 @@ class IpProxyConverterTest {
         assertThat(vo.region()).isEqualTo("印度");
         assertThat(vo.username()).isEqualTo("user");
         assertThat(vo.password()).isEqualTo("secret_session-Abc123");
+        assertThat(vo.protocolLabel()).isEqualTo("SOCKETS");
         assertThat(vo.source()).isEqualTo("dbtest");
     }
 

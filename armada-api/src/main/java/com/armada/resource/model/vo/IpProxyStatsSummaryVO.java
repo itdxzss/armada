@@ -17,6 +17,12 @@ public record IpProxyStatsSummaryVO(
         /** 不可用 IP 数。 */
         Long unavailableIpCount,
 
-        /** 有活跃 IP 的国家/地区数。 */
-        Long coveredRegionCount) {
+        /** 有活跃 IP 的真实支持国家数,不包含混合池。 */
+        Long coveredRegionCount,
+
+        /** 系统支持的真实国家总数,不包含混合池。 */
+        Long supportedCountryCount,
+
+        /** 系统支持但当前没有 IP 的真实国家数,不包含混合池。 */
+        Long noIpCountryCount) {
 }

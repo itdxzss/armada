@@ -12,7 +12,7 @@ import org.mapstruct.Mapping;
 /**
  * IP 代理 entity → VO 转换（MapStruct，编译期生成）。
  *
- * <p>tinyint 码 → 中文 label 由枚举 {@code labelOf} 算好随出参带出；{@code proxyAddress}=host:port；
+ * <p>tinyint 码 → 展示名由枚举 {@code labelOf} 算好随出参带出；{@code proxyAddress}=host:port；
  * {@code createdAt} 为 epoch 毫秒直映。</p>
  */
 @Mapper(componentModel = "spring",

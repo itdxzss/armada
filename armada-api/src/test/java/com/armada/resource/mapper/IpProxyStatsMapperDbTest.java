@@ -27,6 +27,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 class IpProxyStatsMapperDbTest extends DbTestBase {
 
+    private static final String MIXED_REGION = "混合（不限国家）";
+
     @Autowired
     private IpProxyMapper mapper;
 
@@ -43,6 +45,9 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
 
         IpProxyStatsSummaryVO before = mapper.selectStatsSummary();
 
+        insertCountry("XA", india, now);
+        insertCountry("XB", pakistan, now + 1);
+        insertCountry("XC", malaysia, now + 2);
         IpProxy indiaIdleA = insertProxy(india, marker, IpProxyStatus.IDLE.code(), now);
         insertProxy(india, marker, IpProxyStatus.IDLE.code(), now + 1);
         IpProxy indiaUsing = insertProxy(india, marker, IpProxyStatus.IDLE.code(), now + 2);
@@ -64,39 +69,45 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
 
         IpProxy deletedMalaysia = insertProxy(malaysia, marker, IpProxyStatus.IDLE.code(), now + 5);
         mapper.softDeleteByIds(List.of(deletedMalaysia.getId()), now + 30);
+        insertProxy(MIXED_REGION, marker, IpProxyStatus.IDLE.code(), now + 6);
         jdbcTemplate.update(
                 "UPDATE ip_proxy SET last_sample_check_at = ? WHERE id = ?",
                 now + 40,
                 indiaIdleA.getId());
 
         IpProxyStatsSummaryVO after = mapper.selectStatsSummary();
-        assertThat(after.totalIpCount()).isEqualTo(before.totalIpCount() + 5);
-        assertThat(after.idleIpCount()).isEqualTo(before.idleIpCount() + 2);
+        assertThat(after.totalIpCount()).isEqualTo(before.totalIpCount() + 6);
+        assertThat(after.idleIpCount()).isEqualTo(before.idleIpCount() + 3);
         assertThat(after.inUseIpCount()).isEqualTo(before.inUseIpCount() + 2);
         assertThat(after.unavailableIpCount()).isEqualTo(before.unavailableIpCount() + 1);
         assertThat(after.coveredRegionCount()).isEqualTo(before.coveredRegionCount() + 2);
+        assertThat(after.supportedCountryCount()).isEqualTo(before.supportedCountryCount() + 3);
+        assertThat(after.noIpCountryCount()).isEqualTo(before.noIpCountryCount() + 1);
 
         IpProxyStatsCountryQuery countryQuery = new IpProxyStatsCountryQuery();
+        countryQuery.setKeyword(marker);
         countryQuery.setSource(marker);
         countryQuery.setPage(1);
         countryQuery.setPageSize(10);
         countryQuery.setSortField("totalIpCount");
         countryQuery.setSortOrder("desc");
 
-        assertThat(mapper.countCountryStats(countryQuery)).isEqualTo(2);
+        assertThat(mapper.countCountryStats(countryQuery)).isEqualTo(3);
         List<IpProxyCountryStatsRow> countryRows = mapper.selectCountryStatsPage(countryQuery);
         assertThat(countryRows).extracting(IpProxyCountryStatsRow::getRegion)
-                .containsExactly(india, pakistan);
+                .containsExactly(india, pakistan, malaysia);
         IpProxyCountryStatsRow indiaRow = countryRows.get(0);
         assertThat(indiaRow.getTotalIpCount()).isEqualTo(4);
         assertThat(indiaRow.getIdleIpCount()).isEqualTo(2);
         assertThat(indiaRow.getInUseIpCount()).isEqualTo(1);
         assertThat(indiaRow.getUnavailableIpCount()).isEqualTo(1);
+        IpProxyCountryStatsRow noIpRow = countryRows.get(2);
+        assertThat(noIpRow.getTotalIpCount()).isZero();
 
         countryQuery.setSortField("availableRate");
         countryQuery.setSortOrder("asc");
         assertThat(mapper.selectCountryStatsPage(countryQuery)).extracting(IpProxyCountryStatsRow::getRegion)
-                .containsExactly(india, pakistan);
+                .containsExactly(malaysia, india, pakistan);
 
         countryQuery.setRisk("no_idle");
         List<IpProxyCountryStatsRow> noIdleRows = mapper.selectCountryStatsPage(countryQuery);
@@ -124,9 +135,11 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         long now = System.currentTimeMillis();
         String marker = "ip-stats-trim-dbtest-" + now;
         String displayRegion = "印度-trim-" + now;
+        insertCountry("XT", displayRegion, now);
         insertProxy(" " + displayRegion + " ", marker, IpProxyStatus.IDLE.code(), now);
 
         IpProxyStatsCountryQuery countryQuery = new IpProxyStatsCountryQuery();
+        countryQuery.setKeyword(marker);
         countryQuery.setSource(marker);
         List<IpProxyCountryStatsRow> countryRows = mapper.selectCountryStatsPage(countryQuery);
         assertThat(countryRows).extracting(IpProxyCountryStatsRow::getRegion).containsExactly(displayRegion);
@@ -145,7 +158,13 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         String noIdle = "无空闲-" + marker;
         String lowAvailable = "可用不足-" + marker;
         String highUnavailable = "不可用偏高-" + marker;
+        String noIp = "无IP-" + marker;
 
+        insertCountry("XN", normal, now);
+        insertCountry("XO", noIdle, now + 1);
+        insertCountry("XP", lowAvailable, now + 2);
+        insertCountry("XQ", highUnavailable, now + 3);
+        insertCountry("XR", noIp, now + 4);
         insertProxy(normal, marker, IpProxyStatus.IDLE.code(), now);
         insertProxy(normal, marker, IpProxyStatus.IN_USE.code(), now + 1);
 
@@ -166,6 +185,25 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         assertRiskRegions(marker, "no_idle", List.of(noIdle));
         assertRiskRegions(marker, "low_available", List.of(lowAvailable));
         assertRiskRegions(marker, "high_unavailable", List.of(highUnavailable));
+        assertRiskRegions(marker, "no_ip", List.of(noIp));
+    }
+
+    private void insertCountry(String iso2, String nameZh, long suffix) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO country
+                  (iso2, name_zh, name_en, phone_prefix, flag, is_enabled, is_ip_supported,
+                   sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?)
+                """,
+                iso2,
+                nameZh,
+                nameZh,
+                "+0",
+                "🏳",
+                Math.floorMod(suffix, 100_000L),
+                suffix,
+                suffix);
     }
 
     private IpProxy insertProxy(String region, String source, int status, long suffix) {
@@ -187,6 +225,7 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
 
     private void assertRiskRegions(String marker, String risk, List<String> regions) {
         IpProxyStatsCountryQuery query = new IpProxyStatsCountryQuery();
+        query.setKeyword(marker);
         query.setSource(marker);
         query.setRisk(risk);
         query.setPage(1);

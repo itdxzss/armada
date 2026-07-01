@@ -10,7 +10,7 @@ public class IpProxyStatsDetailQuery extends PageQuery {
     /** 状态码:1=空闲 2=使用中 3=不可用;为空不筛选。 */
     private Integer status;
 
-    /** 协议码:1=HTTP 2=SOCKS5;为空不筛选。 */
+    /** 协议码:1=HTTP 2=SOCKETS;为空不筛选。 */
     private Integer protocol;
 
     /** 来源关键词,模糊匹配;为空不筛选。 */

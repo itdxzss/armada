@@ -42,14 +42,16 @@ class IpProxyStatsControllerTest {
 
     @Test
     void summary_returnsStatsInApiResponse() throws Exception {
-        when(service.summary()).thenReturn(new IpProxyStatsSummaryVO(10L, 2L, 7L, 1L, 3L));
+        when(service.summary()).thenReturn(new IpProxyStatsSummaryVO(10L, 2L, 7L, 1L, 3L, 12L, 9L));
 
         mockMvc.perform(get("/api/ip-proxies/stats/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.totalIpCount").value(10))
                 .andExpect(jsonPath("$.data.inUseIpCount").value(2))
-                .andExpect(jsonPath("$.data.coveredRegionCount").value(3));
+                .andExpect(jsonPath("$.data.coveredRegionCount").value(3))
+                .andExpect(jsonPath("$.data.supportedCountryCount").value(12))
+                .andExpect(jsonPath("$.data.noIpCountryCount").value(9));
 
         verify(service).summary();
     }

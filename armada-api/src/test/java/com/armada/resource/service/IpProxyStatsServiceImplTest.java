@@ -75,6 +75,21 @@ class IpProxyStatsServiceImplTest {
     }
 
     @Test
+    void countries_marksNoIpWhenSupportedCountryHasNoIps() {
+        IpProxyStatsCountryQuery query = new IpProxyStatsCountryQuery();
+        query.setRisk("no_ip");
+        IpProxyCountryStatsRow row = countryRow("巴西", 0L, 0L, 0L, 0L);
+        when(mapper.countCountryStats(query)).thenReturn(1L);
+        when(mapper.selectCountryStatsPage(query)).thenReturn(List.of(row));
+
+        IpProxyCountryStatsVO vo = service.countries(query).list().get(0);
+
+        assertThat(vo.availableRate()).isEqualByComparingTo(new BigDecimal("0.00"));
+        assertThat(vo.resourceRisk()).isEqualTo("no_ip");
+        assertThat(vo.resourceRiskLabel()).isEqualTo("无 IP");
+    }
+
+    @Test
     void regionProxies_mapsEnumLabelsAndPaginates() {
         IpProxyStatsDetailQuery query = new IpProxyStatsDetailQuery();
         query.setPage(2);
@@ -99,7 +114,7 @@ class IpProxyStatsServiceImplTest {
         assertThat(result.page()).isEqualTo(2);
         assertThat(result.pageSize()).isEqualTo(5);
         IpProxyStatsDetailVO vo = result.list().get(0);
-        assertThat(vo.protocolLabel()).isEqualTo("SOCKS5");
+        assertThat(vo.protocolLabel()).isEqualTo("SOCKETS");
         assertThat(vo.statusLabel()).isEqualTo("使用中");
         assertThat(vo.ownershipLabel()).isEqualTo("租户自有");
         assertThat(vo.lastSampleCheckAt()).isEqualTo(1_719_800_000_000L);

@@ -12,13 +12,13 @@ public class IpProxyStatsCountryQuery extends PageQuery {
     /** 关键字:匹配国家/地区、网关、用户名或来源。 */
     private String keyword;
 
-    /** 协议码:1=HTTP 2=SOCKS5;为空不筛选。 */
+    /** 协议码:1=HTTP 2=SOCKETS;为空不筛选。 */
     private Integer protocol;
 
     /** 来源关键词,模糊匹配;为空不筛选。 */
     private String source;
 
-    /** 资源风险筛选:normal/no_idle/low_available/high_unavailable。 */
+    /** 资源风险筛选:no_ip/normal/no_idle/low_available/high_unavailable。 */
     private String risk;
 
     /** 排序字段白名单由 Mapper XML choose 控制。 */

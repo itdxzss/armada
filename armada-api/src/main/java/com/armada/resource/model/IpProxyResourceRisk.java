@@ -9,6 +9,8 @@ import java.math.BigDecimal;
  */
 public enum IpProxyResourceRisk {
 
+    /** 系统支持国家下没有任何 IP。 */
+    NO_IP("no_ip", "无 IP"),
     /** 资源正常。 */
     NORMAL("normal", "正常"),
     /** 有占用但无空闲 IP。 */
@@ -35,14 +37,17 @@ public enum IpProxyResourceRisk {
     }
 
     /**
-     * 按展示优先级计算风险。NO_IDLE 优先于比例类风险,避免同一行展示多个风险。
+     * 按展示优先级计算风险。NO_IP 优先级最高,NO_IDLE 优先于比例类风险,避免同一行展示多个风险。
      */
     public static IpProxyResourceRisk calculate(
             long total,
             long idle,
             long inUse,
-            BigDecimal availableRate,
-            BigDecimal unavailableRate) {
+        BigDecimal availableRate,
+        BigDecimal unavailableRate) {
+        if (total == 0) {
+            return NO_IP;
+        }
         if (total > 0 && idle == 0 && inUse > 0) {
             return NO_IDLE;
         }

@@ -59,7 +59,7 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
     public IpProxyStatsSummaryVO summary() {
         IpProxyStatsSummaryVO summary = mapper.selectStatsSummary();
         return summary == null
-                ? new IpProxyStatsSummaryVO(0L, 0L, 0L, 0L, 0L)
+                ? new IpProxyStatsSummaryVO(0L, 0L, 0L, 0L, 0L, 0L, 0L)
                 : summary;
     }
 

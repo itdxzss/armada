@@ -12,8 +12,8 @@ public enum ProxyProtocol {
 
     /** HTTP 代理。 */
     HTTP(1, "HTTP"),
-    /** SOCKS5 代理。 */
-    SOCKS5(2, "SOCKS5");
+    /** SOCKS5 代理，对外展示为 SOCKETS。 */
+    SOCKS5(2, "SOCKETS");
 
     private final int code;
     private final String label;

@@ -4,7 +4,7 @@ package com.armada.resource.model.vo;
  * IP 代理列表出参（返回前端的视图对象）。
  *
  * <p>字段 camelCase，出参 JSON 即 camelCase（全局 Jackson 默认命名,无 snake 转换）。
- * {@code protocol/status/ownership} 出码 + 配套 {@code *Label} 中文（后端用枚举算好，前端不维护映射）。
+ * {@code protocol/status/ownership} 出码 + 配套 {@code *Label} 展示名（后端用枚举算好，前端不维护映射）。
  * {@code createdAt} 为 epoch 毫秒，前端按 Asia/Shanghai 展示。</p>
  */
 public record IpProxyVO(
@@ -15,7 +15,7 @@ public record IpProxyVO(
         /** 代理地址 host:port。 */
         String proxyAddress,
 
-        /** 协议码:1=HTTP 2=SOCKS5。 */
+        /** 协议码:1=HTTP 2=SOCKETS。 */
         Integer protocol,
 
         /** 协议展示名。 */

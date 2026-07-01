@@ -3,10 +3,12 @@ package com.armada.resource.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.resource.model.IpProxyStatus;
+import com.armada.resource.model.enums.IpProxyCheckLifecycleStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.testsupport.DbTestBase;
+import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,51 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(found.getId()).isEqualTo(proxy.getId());
         assertThat(found.getHost()).isEqualTo(proxy.getHost());
         assertThat(found.getProtocol()).isEqualTo(ProxyProtocol.SOCKS5.code());
+    }
+
+    @Test
+    void insertAndUpdateDetectionResult_roundTripsCheckLifecycleAndWhatsappFields() {
+        long now = System.currentTimeMillis();
+        IpProxy proxy = newIdleProxy(now);
+        proxy.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        proxy.setCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
+        proxy.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
+        mapper.insert(proxy);
+
+        IpProxy inserted = mapper.selectActiveById(proxy.getId());
+        assertThat(inserted.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.DETECTING.code());
+        assertThat(inserted.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.DETECTING.code());
+
+        IpProxy update = new IpProxy();
+        update.setId(proxy.getId());
+        update.setStatus(IpProxyStatus.IDLE.code());
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        update.setWhatsappHttpStatus(400);
+        update.setWhatsappCheckError(null);
+        update.setRegion("印度");
+        update.setLastSampleCheckAt(now + 10);
+        update.setDetectedCountryCode("IN");
+        update.setOutboundIp("68.187.236.156");
+        update.setDetectedLocation("Charlton, Massachusetts");
+        update.setDetectedIsp("Charter Communications LLC");
+        update.setDetectedLatitude(new BigDecimal("42.1357000"));
+        update.setDetectedLongitude(new BigDecimal("-71.9701000"));
+        update.setCheckFailCount(0);
+        update.setLastCheckError(null);
+        update.setUpdatedAt(now + 11);
+
+        int updated = mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
+
+        assertThat(updated).isEqualTo(1);
+        IpProxy found = mapper.selectActiveById(proxy.getId());
+        assertThat(found.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(found.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        assertThat(found.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        assertThat(found.getWhatsappHttpStatus()).isEqualTo(400);
+        assertThat(found.getWhatsappCheckError()).isNull();
+        assertThat(found.getRegion()).isEqualTo("印度");
+        assertThat(found.getOutboundIp()).isEqualTo("68.187.236.156");
     }
 
     @Test
@@ -277,6 +324,9 @@ class IpProxyMapperDbTest extends DbTestBase {
         proxy.setPassword("pass_session-Abc123" + suffix);
         proxy.setRegion("印度");
         proxy.setStatus(IpProxyStatus.IDLE.code());
+        proxy.setCheckFailCount(0);
+        proxy.setCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
+        proxy.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
         proxy.setSource("dbtest");
         proxy.setOwnership(ProxyOwnership.OWNED.code());
         proxy.setCreatedAt(suffix);

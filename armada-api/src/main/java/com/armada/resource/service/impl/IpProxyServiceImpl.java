@@ -5,6 +5,7 @@ import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.resource.check.IpProxyCheckRequest;
 import com.armada.resource.check.IpProxyCheckResult;
+import com.armada.resource.check.IpProxyCheckTiming;
 import com.armada.resource.check.IpProxyDetector;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
@@ -17,6 +18,7 @@ import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.entity.IpProxy;
+import com.armada.resource.model.enums.IpProxyCheckLifecycleStatus;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
@@ -64,6 +66,9 @@ public class IpProxyServiceImpl implements IpProxyService {
     private static final int MAX_BATCH_CHECK_SIZE = 20;
     private static final String MIXED_REGION = "混合（不限国家）";
     private static final String WHATSAPP_STATUS_UNKNOWN = "unknown";
+    private static final String WHATSAPP_STATUS_DETECTING = "detecting";
+    private static final String WHATSAPP_STATUS_FAILED = "failed";
+    private static final String WHATSAPP_STATUS_HTTP_PREFIX = "HTTP ";
     private static final int ERROR_MAX_LENGTH = 512;
 
     private final IpProxyMapper mapper;
@@ -605,7 +610,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     /**
      * 落库:DB 去重命中→false(跳过),否则插入→true。
      *
-     * 协议/国家/来源/分配方式取本次统一属性，新行状态=空闲、归属=租户自有。
+     * 协议/国家/来源/分配方式取本次统一属性，新行先标记不可用且检测中,等待后台检测通过后再进入空闲池。
      * 真正唯一性仍由数据库唯一键兜底,这里的 count 只是为了给导入结果返回友好的 skipped 统计。
      */
     private boolean persistProxy(IpProxyImportDTO dto, ProxyLine line) {
@@ -623,6 +628,8 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setAllocationMode(dto.allocationMode());
         row.setStatus(IpProxyStatus.UNAVAILABLE.code());
         row.setCheckFailCount(0);
+        row.setCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
+        row.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
         row.setOwnership(ProxyOwnership.OWNED.code());
         long now = System.currentTimeMillis();
         row.setCreatedAt(now);
@@ -646,7 +653,31 @@ public class IpProxyServiceImpl implements IpProxyService {
             ipProxyCheckExecutor.execute(() -> runImportDetection(proxy, tenantId));
         } catch (RuntimeException e) {
             log.warn("IP代理导入检测任务提交失败 proxyId={} tenantId={}", proxy.getId(), tenantId, e);
+            markDetectionSubmitFailed(proxy, e);
         }
+    }
+
+    private void markDetectionSubmitFailed(IpProxy proxy, RuntimeException e) {
+        long now = System.currentTimeMillis();
+        IpProxy update = new IpProxy();
+        update.setId(proxy.getId());
+        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        update.setRegion(proxy.getRegion());
+        update.setLastSampleCheckAt(now);
+        update.setDetectedCountryCode(null);
+        update.setOutboundIp(null);
+        update.setDetectedLocation(null);
+        update.setDetectedIsp(null);
+        update.setDetectedLatitude(null);
+        update.setDetectedLongitude(null);
+        update.setCheckFailCount((proxy.getCheckFailCount() == null ? 0 : proxy.getCheckFailCount()) + 1);
+        update.setLastCheckError(truncate("检测任务提交失败: " + e.getMessage()));
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappHttpStatus(null);
+        update.setWhatsappCheckError(update.getLastCheckError());
+        update.setUpdatedAt(now);
+        mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
     }
 
     /**
@@ -711,7 +742,33 @@ public class IpProxyServiceImpl implements IpProxyService {
         }
         boolean checkSuccess = result.success()
                 && !Integer.valueOf(IpProxyStatus.UNAVAILABLE.code()).equals(update.getStatus());
+        logDetectionResult(proxy, result, update, checkSuccess);
         return toCheckResultVO(current, checkSuccess);
+    }
+
+    private void logDetectionResult(IpProxy proxy, IpProxyCheckResult result, IpProxy update, boolean checkSuccess) {
+        IpProxyCheckTiming timing = result == null || result.timing() == null
+                ? IpProxyCheckTiming.zero()
+                : result.timing();
+        log.info("IP代理检测完成 proxyId={} protocol={} host={} port={} result={} checkStatus={} status={} region={} "
+                        + "outboundIp={} totalMs={} egressMs={} geoMs={} whatsappConnectMs={} whatsappProbeMs={} "
+                        + "whatsappHttpStatus={} error={}",
+                proxy.getId(),
+                ProxyProtocol.labelOf(proxy.getProtocol()),
+                proxy.getHost(),
+                proxy.getPort(),
+                checkSuccess ? "success" : "failed",
+                IpProxyCheckLifecycleStatus.labelOf(update.getCheckStatus()),
+                IpProxyStatus.labelOf(update.getStatus()),
+                update.getRegion(),
+                update.getOutboundIp(),
+                timing.totalMs(),
+                timing.egressMs(),
+                timing.geoMs(),
+                timing.whatsappConnectMs(),
+                timing.whatsappProbeMs(),
+                update.getWhatsappHttpStatus(),
+                update.getLastCheckError());
     }
 
     /**
@@ -728,14 +785,16 @@ public class IpProxyServiceImpl implements IpProxyService {
         update.setRegion(proxy.getRegion());
         update.setCheckFailCount(proxy.getCheckFailCount() == null ? 0 : proxy.getCheckFailCount());
         if (!result.success()) {
-            applyDetectionFailure(update, result.errorMessage());
+            applyDetectionFailure(update, result.errorMessage(), result.whatsappErrorMessage(),
+                    result.whatsappHttpStatus(), result.whatsappReachable());
             return update;
         }
         try {
             applyDetectionSuccess(proxy, update, result);
             return update;
         } catch (BusinessException e) {
-            applyDetectionFailure(update, e.getMessage());
+            applyDetectionFailure(update, e.getMessage(), result.whatsappErrorMessage(),
+                    result.whatsappHttpStatus(), result.whatsappReachable());
             return update;
         }
     }
@@ -756,6 +815,10 @@ public class IpProxyServiceImpl implements IpProxyService {
         update.setDetectedLongitude(result.longitude());
         update.setCheckFailCount(0);
         update.setLastCheckError(null);
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        update.setWhatsappHttpStatus(result.whatsappHttpStatus());
+        update.setWhatsappCheckError(null);
         if (IpProxyAllocationMode.SMART.value().equals(IpProxyAllocationMode.fromValue(proxy.getAllocationMode()).value())) {
             update.setRegion(countryService.resolveIpRegionByIso2(result.countryCode()));
         }
@@ -766,7 +829,11 @@ public class IpProxyServiceImpl implements IpProxyService {
      *
      * <p>失败时清空上一次成功检测的出口详情,失败次数在当前行快照基础上递增,错误信息截断到数据库字段长度。</p>
      */
-    private static void applyDetectionFailure(IpProxy update, String errorMessage) {
+    private static void applyDetectionFailure(IpProxy update,
+                                              String errorMessage,
+                                              String whatsappErrorMessage,
+                                              Integer whatsappHttpStatus,
+                                              boolean whatsappReachable) {
         update.setStatus(IpProxyStatus.UNAVAILABLE.code());
         update.setDetectedCountryCode(null);
         update.setOutboundIp(null);
@@ -776,6 +843,14 @@ public class IpProxyServiceImpl implements IpProxyService {
         update.setDetectedLongitude(null);
         update.setCheckFailCount(update.getCheckFailCount() + 1);
         update.setLastCheckError(truncate(StringUtils.hasText(errorMessage) ? errorMessage : "代理检测失败"));
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(whatsappReachable
+                ? IpProxyCheckLifecycleStatus.SUCCESS.code()
+                : IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappHttpStatus(whatsappHttpStatus);
+        update.setWhatsappCheckError(whatsappReachable
+                ? null
+                : truncate(StringUtils.hasText(whatsappErrorMessage) ? whatsappErrorMessage : errorMessage));
     }
 
     /**
@@ -788,7 +863,7 @@ public class IpProxyServiceImpl implements IpProxyService {
                 row.getId(),
                 success ? IpProxyCheckStatus.SUCCESS.value() : IpProxyCheckStatus.FAILED.value(),
                 IpProxyStatus.labelOf(row.getStatus()),
-                WHATSAPP_STATUS_UNKNOWN,
+                whatsappStatusValue(row),
                 row.getOutboundIp(),
                 row.getDetectedCountryCode(),
                 row.getRegion(),
@@ -798,6 +873,19 @@ public class IpProxyServiceImpl implements IpProxyService {
                 row.getDetectedLongitude(),
                 row.getLastSampleCheckAt(),
                 row.getLastCheckError());
+    }
+
+    private static String whatsappStatusValue(IpProxy row) {
+        if (row.getWhatsappHttpStatus() != null) {
+            return WHATSAPP_STATUS_HTTP_PREFIX + row.getWhatsappHttpStatus();
+        }
+        if (Integer.valueOf(IpProxyCheckLifecycleStatus.DETECTING.code()).equals(row.getWhatsappCheckStatus())) {
+            return WHATSAPP_STATUS_DETECTING;
+        }
+        if (Integer.valueOf(IpProxyCheckLifecycleStatus.FAILED.code()).equals(row.getWhatsappCheckStatus())) {
+            return WHATSAPP_STATUS_FAILED;
+        }
+        return WHATSAPP_STATUS_UNKNOWN;
     }
 
     /**

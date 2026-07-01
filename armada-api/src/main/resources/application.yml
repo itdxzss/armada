@@ -36,6 +36,15 @@ server:
   port: 8080
 
 armada:
+  ip-proxy-check:
+    executor:
+      core-size: ${IP_PROXY_CHECK_EXECUTOR_CORE_SIZE:4}
+      max-size: ${IP_PROXY_CHECK_EXECUTOR_MAX_SIZE:12}
+      queue-capacity: ${IP_PROXY_CHECK_EXECUTOR_QUEUE_CAPACITY:5000}
+    timeout:
+      connect-ms: ${IP_PROXY_CHECK_CONNECT_TIMEOUT_MS:5000}
+      read-ms: ${IP_PROXY_CHECK_READ_TIMEOUT_MS:8000}
+      total-ms: ${IP_PROXY_CHECK_TOTAL_TIMEOUT_MS:15000}
   # 协议层连接配置。默认连本机 armada-protocol;测试/部署环境按 yml 覆盖。
   protocol:
     base-url: http://localhost:3000

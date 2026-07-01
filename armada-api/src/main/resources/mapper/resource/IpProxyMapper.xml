@@ -21,6 +21,7 @@
         status, bound_account_id, bound_at, last_sample_check_at,
         detected_country_code, outbound_ip, detected_location, detected_isp,
         detected_latitude, detected_longitude, check_fail_count, last_check_error,
+        check_status, whatsapp_check_status, whatsapp_http_status, whatsapp_check_error,
         source, ownership, allocation_mode, remark,
         created_at, updated_at, created_by, deleted_at
     </sql>
@@ -273,12 +274,15 @@
             (host, port, protocol, username, password, region, status,
              detected_country_code, outbound_ip, detected_location, detected_isp,
              detected_latitude, detected_longitude, check_fail_count, last_check_error,
+             check_status, whatsapp_check_status, whatsapp_http_status, whatsapp_check_error,
              source, ownership, allocation_mode, remark,
              created_at, updated_at, created_by)
         VALUES
             (#{host}, #{port}, #{protocol}, #{username}, #{password}, #{region},
              #{status}, #{detectedCountryCode}, #{outboundIp}, #{detectedLocation}, #{detectedIsp},
-             #{detectedLatitude}, #{detectedLongitude}, #{checkFailCount}, #{lastCheckError},
+             #{detectedLatitude}, #{detectedLongitude}, COALESCE(#{checkFailCount}, 0), #{lastCheckError},
+             COALESCE(#{checkStatus}, 0), COALESCE(#{whatsappCheckStatus}, 0),
+             #{whatsappHttpStatus}, #{whatsappCheckError},
              #{source}, #{ownership}, #{allocationMode}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
@@ -319,6 +323,10 @@
             detected_longitude = #{entity.detectedLongitude},
             check_fail_count = #{entity.checkFailCount},
             last_check_error = #{entity.lastCheckError},
+            check_status = #{entity.checkStatus},
+            whatsapp_check_status = #{entity.whatsappCheckStatus},
+            whatsapp_http_status = #{entity.whatsappHttpStatus},
+            whatsapp_check_error = #{entity.whatsappCheckError},
             updated_at = #{entity.updatedAt}
         WHERE id = #{entity.id}
           AND deleted_at IS NULL

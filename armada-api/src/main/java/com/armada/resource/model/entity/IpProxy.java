@@ -73,6 +73,18 @@ public class IpProxy {
     /** 最近一次检测失败原因。 */
     private String lastCheckError;
 
+    /** 检测生命周期:0=检测中 1=成功 2=失败。 */
+    private Integer checkStatus;
+
+    /** WhatsApp 连通性检测生命周期:0=检测中 1=成功 2=失败。 */
+    private Integer whatsappCheckStatus;
+
+    /** WhatsApp 探测 HTTP 状态码;NULL=尚未收到官方响应。 */
+    private Integer whatsappHttpStatus;
+
+    /** WhatsApp 连通性检测失败原因。 */
+    private String whatsappCheckError;
+
     /** 来源（服务商/批次，自由文本）。 */
     private String source;
 
@@ -255,6 +267,38 @@ public class IpProxy {
 
     public void setLastCheckError(String lastCheckError) {
         this.lastCheckError = lastCheckError;
+    }
+
+    public Integer getCheckStatus() {
+        return checkStatus;
+    }
+
+    public void setCheckStatus(Integer checkStatus) {
+        this.checkStatus = checkStatus;
+    }
+
+    public Integer getWhatsappCheckStatus() {
+        return whatsappCheckStatus;
+    }
+
+    public void setWhatsappCheckStatus(Integer whatsappCheckStatus) {
+        this.whatsappCheckStatus = whatsappCheckStatus;
+    }
+
+    public Integer getWhatsappHttpStatus() {
+        return whatsappHttpStatus;
+    }
+
+    public void setWhatsappHttpStatus(Integer whatsappHttpStatus) {
+        this.whatsappHttpStatus = whatsappHttpStatus;
+    }
+
+    public String getWhatsappCheckError() {
+        return whatsappCheckError;
+    }
+
+    public void setWhatsappCheckError(String whatsappCheckError) {
+        this.whatsappCheckError = whatsappCheckError;
     }
 
     public String getSource() {

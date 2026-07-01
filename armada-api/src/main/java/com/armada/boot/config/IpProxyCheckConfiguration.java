@@ -1,6 +1,8 @@
-package com.armada.resource.check;
+package com.armada.boot.config;
 
+import com.armada.resource.check.IpProxyCheckProperties;
 import java.util.concurrent.Executor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -11,19 +13,16 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  * <p>导入接口只提交检测任务,不在 HTTP 请求线程等待慢代理连接;手动检测接口仍保持同步返回检测结果。</p>
  */
 @Configuration
+@EnableConfigurationProperties(IpProxyCheckProperties.class)
 public class IpProxyCheckConfiguration {
 
-    private static final int CORE_POOL_SIZE = 2;
-    private static final int MAX_POOL_SIZE = 4;
-    private static final int QUEUE_CAPACITY = 1_000;
-
     @Bean(name = "ipProxyCheckExecutor")
-    public Executor ipProxyCheckExecutor() {
+    public Executor ipProxyCheckExecutor(IpProxyCheckProperties properties) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setThreadNamePrefix("ip-proxy-check-");
-        executor.setCorePoolSize(CORE_POOL_SIZE);
-        executor.setMaxPoolSize(MAX_POOL_SIZE);
-        executor.setQueueCapacity(QUEUE_CAPACITY);
+        executor.setCorePoolSize(properties.getExecutor().getCoreSize());
+        executor.setMaxPoolSize(properties.getExecutor().getMaxSize());
+        executor.setQueueCapacity(properties.getExecutor().getQueueCapacity());
         executor.initialize();
         return executor;
     }

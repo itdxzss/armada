@@ -1,12 +1,15 @@
 package com.armada.resource.controller;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
+import com.armada.resource.model.vo.IpProxyImportSampleCheckVO;
 import com.armada.resource.service.IpProxyDeletionService;
 import com.armada.resource.service.IpProxyService;
 import java.math.BigDecimal;
@@ -16,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -38,6 +42,39 @@ class IpProxyControllerTest {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new IpProxyController(service, deletionService))
                 .build();
+    }
+
+    @Test
+    void sampleCheckImport_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        IpProxyImportSampleCheckVO vo = new IpProxyImportSampleCheckVO(
+                true,
+                1,
+                List.of(new IpProxyImportSampleCheckVO.SampleRow(
+                        1,
+                        "1.1.1.1",
+                        8080,
+                        true,
+                        "103.10.10.10",
+                        "US",
+                        "United States",
+                        null)),
+                List.of());
+        when(service.sampleCheckImport(any())).thenReturn(vo);
+
+        mockMvc.perform(post("/api/ip-proxies/import/sample-check")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"countryValue":"US","protocol":1,"source":"供应商A","text":"1.1.1.1:8080:u:p"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.passed").value(true))
+                .andExpect(jsonPath("$.data.sampleSize").value(1))
+                .andExpect(jsonPath("$.data.samples[0].lineNo").value(1))
+                .andExpect(jsonPath("$.data.samples[0].host").value("1.1.1.1"))
+                .andExpect(jsonPath("$.data.samples[0].passed").value(true));
+
+        verify(service).sampleCheckImport(any(IpProxyImportDTO.class));
     }
 
     @Test

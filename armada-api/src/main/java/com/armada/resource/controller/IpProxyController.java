@@ -6,6 +6,7 @@ import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
+import com.armada.resource.model.vo.IpProxyImportSampleCheckVO;
 import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.resource.service.IpProxyDeletionService;
 import com.armada.resource.service.IpProxyService;
@@ -65,6 +66,17 @@ public class IpProxyController {
     @PostMapping("/import")
     public ApiResponse<IpProxyImportResultVO> importProxies(@RequestBody IpProxyImportDTO dto) {
         return ApiResponse.ok(service.importProxies(dto));
+    }
+
+    /**
+     * TXT 导入前手动抽样检测：随机抽取最多 5 条本批新增候选，供前端决定是否允许导入。
+     *
+     * @param dto 导入参数（国家、协议、来源、多行原文）
+     * @return 本次抽样检测结果
+     */
+    @PostMapping("/import/sample-check")
+    public ApiResponse<IpProxyImportSampleCheckVO> sampleCheckImport(@RequestBody IpProxyImportDTO dto) {
+        return ApiResponse.ok(service.sampleCheckImport(dto));
     }
 
     /**

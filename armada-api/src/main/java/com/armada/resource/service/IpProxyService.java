@@ -3,6 +3,7 @@ package com.armada.resource.service;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
+import com.armada.resource.model.vo.IpProxyImportSampleCheckVO;
 import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.shared.exception.BusinessException;
@@ -44,6 +45,18 @@ public interface IpProxyService {
      * @throws BusinessException 协议/来源/内容为空，或协议码非法
      */
     IpProxyImportResultVO importProxies(IpProxyImportDTO dto);
+
+    /**
+     * 对 TXT 导入内容做手动抽样检测。
+     *
+     * <p>该方法服务导入弹框的“检测”按钮:每次从本批实际会新增的候选里随机抽最多 5 条检测。
+     * 导入接口本身不校验本结果,前端保存检测通过状态并控制导入按钮。</p>
+     *
+     * @param dto 导入参数（国家、协议、来源、多行原文）
+     * @return 本次抽样检测结果
+     * @throws BusinessException 协议/来源/内容为空，或协议码非法
+     */
+    IpProxyImportSampleCheckVO sampleCheckImport(IpProxyImportDTO dto);
 
     /**
      * 对单条 IP 代理执行真实出口检测并更新检测字段。

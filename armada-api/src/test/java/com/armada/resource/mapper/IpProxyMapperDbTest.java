@@ -292,6 +292,20 @@ class IpProxyMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void insert_preservesNullCheckLifecycleForUncheckedImportRows() {
+        long now = System.currentTimeMillis();
+        IpProxy proxy = newIdleProxy(now);
+        proxy.setCheckStatus(null);
+        proxy.setWhatsappCheckStatus(null);
+
+        mapper.insert(proxy);
+
+        IpProxy found = mapper.selectActiveById(proxy.getId());
+        assertThat(found.getCheckStatus()).isNull();
+        assertThat(found.getWhatsappCheckStatus()).isNull();
+    }
+
+    @Test
     void selectDistinctRegions_deduplicatesBlankExcludedAndMixedFirst() {
         long now = System.currentTimeMillis();
         IpProxy india = newIdleProxy(now);

@@ -1,5 +1,6 @@
 package com.armada.resource.model.vo;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -26,6 +27,12 @@ public record IpProxyImportSampleCheckVO(
      * @param outboundIp   检测到的出口 IP
      * @param countryCode  检测到的国家码
      * @param location     检测到的位置
+     * @param connectionStatus 代理连接状态:success/failed
+     * @param whatsappStatus   WhatsApp 连通性状态
+     * @param isp          检测到的 ISP
+     * @param checkedAt    检测时间(epoch毫秒)
+     * @param detectedLatitude  检测纬度
+     * @param detectedLongitude 检测经度
      * @param errorMessage 失败原因
      */
     public record SampleRow(
@@ -36,6 +43,12 @@ public record IpProxyImportSampleCheckVO(
             String outboundIp,
             String countryCode,
             String location,
+            String connectionStatus,
+            String whatsappStatus,
+            String isp,
+            Long checkedAt,
+            BigDecimal detectedLatitude,
+            BigDecimal detectedLongitude,
             String errorMessage) {
     }
 }

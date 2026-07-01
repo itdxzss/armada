@@ -471,137 +471,38 @@ git -C /Users/daishuaishuai/IdeaProjects/wheel-saas-pure-web diff --check
 ```
 
 Expected: both commands exit 0.
-    assertThat(insertCaptor.getAllValues()).allSatisfy(row -> {
-        assertThat(row.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
-        assertThat(row.getRegion()).isEqualTo("美国");
-    });
-    assertThat(insertCaptor.getAllValues().stream().filter(row -> row.getOutboundIp() != null)).hasSize(5);
-    assertThat(insertCaptor.getAllValues().stream().filter(row -> row.getOutboundIp() == null)).hasSize(1);
-    verify(detector, times(5)).check(any());
-    verify(ipProxyCheckExecutor, never()).execute(any(Runnable.class));
-}
-```
 
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run:
-
-```bash
-mvn -pl armada-api -Dtest=IpProxyServiceImplTest test
-```
-
-Expected: the new tests fail because current import inserts before detecting and still submits async detection.
-
-### Task 2: Implement Sample-Gated Import
+### Task 6: Import Sample Check Result Dialog
 
 **Files:**
+- Modify: `armada-api/src/main/java/com/armada/resource/model/vo/IpProxyImportSampleCheckVO.java`
 - Modify: `armada-api/src/main/java/com/armada/resource/service/impl/IpProxyServiceImpl.java`
-
-- [ ] **Step 1: Add small private helper records**
-
-Use private records near `ProxyLine`:
-
-```java
-private record ImportCandidate(int lineNo, ProxyLine line) {}
-
-private record SampleCheckSnapshot(IpProxyCheckResult result) {}
-```
-
-- [ ] **Step 2: Change import flow**
-
-Implement `importProxies` as:
-
-```java
-List<LineOutcome<ProxyLine, Boolean>> outcomes = LineImporter.run(
-        normalized.text(),
-        IpProxyServiceImpl::parseProxyLine,
-        ProxyLine::dedupKey,
-        line -> mapper.countActiveByFullTuple(line.host(), line.port(), line.username(), line.password()) == 0);
-List<ImportCandidate> insertCandidates = outcomes.stream()
-        .filter(o -> o.kind() == Kind.PERSISTED && Boolean.TRUE.equals(o.persistResult()))
-        .map(o -> new ImportCandidate(o.lineNo(), o.record()))
-        .toList();
-Map<Object, SampleCheckSnapshot> sampleResults = checkImportSamples(normalized, insertCandidates);
-for (ImportCandidate candidate : insertCandidates) {
-    persistProxy(normalized, candidate.line(), sampleResults.get(candidate.line().dedupKey()));
-}
-```
-
-- [ ] **Step 3: Add sample checking helpers**
-
-Add helpers:
-
-```java
-private Map<Object, SampleCheckSnapshot> checkImportSamples(IpProxyImportDTO dto, List<ImportCandidate> candidates)
-private IpProxyCheckResult checkImportSample(IpProxyImportDTO dto, ImportCandidate candidate)
-private IpProxyCheckRequest toCheckRequest(IpProxyImportDTO dto, ProxyLine line)
-```
-
-Rules:
-- sample limit constant is `5`.
-- sample from the first 5 insertion candidates for deterministic tests.
-- call `detector.check(...)` directly.
-- null result becomes failed.
-- thrown runtime exception becomes failed.
-- any failed result throws `BusinessException(ErrorCode.VALIDATION, "抽样检测失败: 第 X 行 ...")`.
-- do not call `countryService.resolveIpRegionByIso2(...)` during import sample processing.
-
-- [ ] **Step 4: Change persistence helper**
-
-Change `persistProxy` to accept the optional sample snapshot, set every new row to `IpProxyStatus.IDLE`, and remove `submitImportDetection(row)` from the import path.
-
-For sampled rows, copy detection fields and set check statuses to success. For unsampled rows, leave detection fields and check status fields null.
-
-- [ ] **Step 5: Run focused tests and verify GREEN**
-
-Run:
-
-```bash
-mvn -pl armada-api -Dtest=IpProxyServiceImplTest test
-```
-
-Expected: focused service tests pass.
-
-### Task 3: Update Old Import Detection Tests
-
-**Files:**
 - Modify: `armada-api/src/test/java/com/armada/resource/service/IpProxyServiceImplTest.java`
+- Modify: `armada-api/src/test/java/com/armada/resource/controller/IpProxyControllerTest.java`
+- Modify: `wheel-saas-pure-web/src/api/resource-ip.ts`
+- Modify: `wheel-saas-pure-web/src/api/resource-ip.test.ts`
+- Create: `wheel-saas-pure-web/src/views/resource/ip/components/IpImportSampleCheckDialog.vue`
+- Modify: `wheel-saas-pure-web/src/views/resource/ip/components/IpImportDialog.vue`
+- Modify: `wheel-saas-pure-web/src/views/resource/ip/composables/useResourceIpPage.ts`
+- Modify: `wheel-saas-pure-web/src/views/resource/ip/composables/useResourceIpPage.test.ts`
+- Modify: `wheel-saas-pure-web/src/views/resource/ip/index.vue`
 
-- [ ] **Step 1: Remove or rewrite tests asserting async import detection**
+- [ ] **Step 1: Extend backend sample row tests**
 
-Tests named around `submitsDetectionToExecutor`, `whenDetectionTaskRejected`, `detectionTaskUsesCapturedTenantContext`, `smartDetectsCountryAndUpdatesRegionAndDetectionFields`, `detectionFailureKeepsRowAndMarksUnavailable`, and `detectorSuccessWithoutCountryCodeMarksUnavailable` must match the new import behavior or move coverage to manual `checkProxy`.
+Assert `SampleRow` contains `connectionStatus`, `whatsappStatus`, `isp`, `checkedAt`, `detectedLatitude`, and `detectedLongitude`.
 
-- [ ] **Step 2: Run focused tests**
+- [ ] **Step 2: Implement backend fields**
 
-Run:
+Add those fields to `IpProxyImportSampleCheckVO.SampleRow` and populate them from `IpProxyCheckResult`.
 
-```bash
-mvn -pl armada-api -Dtest=IpProxyServiceImplTest test
-```
+- [ ] **Step 3: Add frontend API and state tests**
 
-Expected: all tests in `IpProxyServiceImplTest` pass.
+Assert API mapping accepts the enriched fields, opens a sample-check result dialog, and ignores stale sample-check responses when import inputs change before the response returns.
 
-### Task 4: Final Verification
+- [ ] **Step 4: Implement frontend dialog**
 
-**Files:**
-- Modified files from previous tasks.
+Create an Element Plus dialog that lists sample rows with line number, proxy address, connection status, WhatsApp, outbound IP, region/location, ISP, checked time, and error reason.
 
-- [ ] **Step 1: Run focused resource tests**
+- [ ] **Step 5: Verify**
 
-Run:
-
-```bash
-mvn -pl armada-api -Dtest=IpProxyServiceImplTest,IpProxyControllerTest test
-```
-
-Expected: exit code 0.
-
-- [ ] **Step 2: Review diff for unrelated changes**
-
-Run:
-
-```bash
-git diff -- armada-api/src/main/java/com/armada/resource/service/impl/IpProxyServiceImpl.java armada-api/src/test/java/com/armada/resource/service/IpProxyServiceImplTest.java docs/superpowers/specs/2026-07-01-ip-proxy-import-sample-check-design.md docs/superpowers/plans/2026-07-01-ip-proxy-import-sample-check.md
-```
-
-Expected: diff only contains import sample-check changes and docs.
+Run focused backend tests, frontend node tests, `tsc`, `vue-tsc`, and `git diff --check`.

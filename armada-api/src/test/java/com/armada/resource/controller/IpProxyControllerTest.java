@@ -57,6 +57,12 @@ class IpProxyControllerTest {
                         "103.10.10.10",
                         "US",
                         "United States",
+                        "success",
+                        "HTTP 400",
+                        "Example ISP",
+                        1_719_800_000_000L,
+                        null,
+                        null,
                         null)),
                 List.of());
         when(service.sampleCheckImport(any())).thenReturn(vo);
@@ -72,7 +78,11 @@ class IpProxyControllerTest {
                 .andExpect(jsonPath("$.data.sampleSize").value(1))
                 .andExpect(jsonPath("$.data.samples[0].lineNo").value(1))
                 .andExpect(jsonPath("$.data.samples[0].host").value("1.1.1.1"))
-                .andExpect(jsonPath("$.data.samples[0].passed").value(true));
+                .andExpect(jsonPath("$.data.samples[0].passed").value(true))
+                .andExpect(jsonPath("$.data.samples[0].connectionStatus").value("success"))
+                .andExpect(jsonPath("$.data.samples[0].whatsappStatus").value("HTTP 400"))
+                .andExpect(jsonPath("$.data.samples[0].isp").value("Example ISP"))
+                .andExpect(jsonPath("$.data.samples[0].checkedAt").value(1_719_800_000_000L));
 
         verify(service).sampleCheckImport(any(IpProxyImportDTO.class));
     }

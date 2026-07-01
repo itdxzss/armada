@@ -263,6 +263,9 @@ class IpProxyServiceImplTest {
         assertThat(result.samples().get(0).host()).isEqualTo("1.1.1.1");
         assertThat(result.samples().get(0).port()).isEqualTo(8080);
         assertThat(result.samples().get(0).passed()).isFalse();
+        assertThat(result.samples().get(0).connectionStatus()).isEqualTo("failed");
+        assertThat(result.samples().get(0).whatsappStatus()).isEqualTo("failed");
+        assertThat(result.samples().get(0).checkedAt()).isEqualTo(1_719_800_000_000L);
         verify(mapper, never()).insert(any());
     }
 
@@ -289,7 +292,13 @@ class IpProxyServiceImplTest {
         assertThat(result.passed()).isTrue();
         assertThat(result.sampleSize()).isEqualTo(5);
         assertThat(result.samples()).hasSize(5);
-        assertThat(result.samples()).allSatisfy(sample -> assertThat(sample.passed()).isTrue());
+        assertThat(result.samples()).allSatisfy(sample -> {
+            assertThat(sample.passed()).isTrue();
+            assertThat(sample.connectionStatus()).isEqualTo("success");
+            assertThat(sample.whatsappStatus()).isEqualTo("HTTP 400");
+            assertThat(sample.isp()).isEqualTo("Example ISP");
+            assertThat(sample.checkedAt()).isEqualTo(1_719_800_000_000L);
+        });
         assertThat(result.errors()).isEmpty();
         verify(detector, times(5)).check(any());
         verify(mapper, never()).insert(any());

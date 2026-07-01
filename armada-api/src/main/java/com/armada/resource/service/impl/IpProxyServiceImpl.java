@@ -715,6 +715,7 @@ public class IpProxyServiceImpl implements IpProxyService {
             IpProxyCheckResult result,
             boolean passed,
             String error) {
+        // 抽样检测结果只给导入弹框展示,不参与后续入库,也不回填业务人员手选的国家。
         return new IpProxyImportSampleCheckVO.SampleRow(
                 candidate.lineNo(),
                 candidate.line().host(),
@@ -723,7 +724,34 @@ public class IpProxyServiceImpl implements IpProxyService {
                 result == null ? null : result.outboundIp(),
                 result == null ? null : result.countryCode(),
                 result == null ? null : result.location(),
+                sampleConnectionStatus(result),
+                sampleWhatsappStatus(result, passed),
+                result == null ? null : result.isp(),
+                result == null ? null : result.checkedAt(),
+                result == null ? null : result.latitude(),
+                result == null ? null : result.longitude(),
                 error);
+    }
+
+    /** 连接状态只描述代理出口检测;导入放行仍由出口检测和 WhatsApp 连通共同决定。 */
+    private static String sampleConnectionStatus(IpProxyCheckResult result) {
+        return result != null && result.success() ? "success" : "failed";
+    }
+
+    /**
+     * 导入抽样弹框沿用单条检测的 WhatsApp 展示口径:优先显示 HTTP 状态,没有状态但连通成功时显示 success。
+     */
+    private static String sampleWhatsappStatus(IpProxyCheckResult result, boolean passed) {
+        if (result == null) {
+            return WHATSAPP_STATUS_FAILED;
+        }
+        if (result.whatsappHttpStatus() != null) {
+            return WHATSAPP_STATUS_HTTP_PREFIX + result.whatsappHttpStatus();
+        }
+        if (passed && result.whatsappReachable()) {
+            return "success";
+        }
+        return WHATSAPP_STATUS_FAILED;
     }
 
     /**

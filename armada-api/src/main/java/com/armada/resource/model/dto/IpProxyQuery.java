@@ -15,7 +15,7 @@ public class IpProxyQuery extends PageQuery {
     /** 新国家下拉提交值:真实国家为 ISO/CLDR 二字母码,混合为 MIXED；为空时兼容旧 region。 */
     private String countryValue;
 
-    /** 协议码（1=HTTP 2=SOCKETS）；为空不参与。 */
+    /** 协议码（1=HTTP 2=SOCKS5）；为空不参与。 */
     private Integer protocol;
 
     /** 来源关键词，模糊匹配；为空不参与。 */

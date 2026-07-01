@@ -10,7 +10,7 @@ public class IpProxyStatsDetailQuery extends PageQuery {
     /** 状态码:1=空闲 2=使用中 3=不可用;为空不筛选。 */
     private Integer status;
 
-    /** 协议码:1=HTTP 2=SOCKETS;为空不筛选。 */
+    /** 协议码:1=HTTP 2=SOCKS5;为空不筛选。 */
     private Integer protocol;
 
     /** 分配方式:smart=智能分配 mixed=混合分组;为空不筛选。 */
@@ -21,6 +21,12 @@ public class IpProxyStatsDetailQuery extends PageQuery {
 
     /** 关键字:匹配网关、用户名、来源或代理地址。 */
     private String keyword;
+
+    /** IP 地址关键词,匹配代理 host 或 host:port;为空不筛选。 */
+    private String ipKeyword;
+
+    /** 当前使用账号关键词,当前按绑定账号 ID 模糊匹配;为空不筛选。 */
+    private String accountKeyword;
 
     public Integer getStatus() {
         return status;
@@ -60,5 +66,21 @@ public class IpProxyStatsDetailQuery extends PageQuery {
 
     public void setKeyword(String keyword) {
         this.keyword = keyword;
+    }
+
+    public String getIpKeyword() {
+        return ipKeyword;
+    }
+
+    public void setIpKeyword(String ipKeyword) {
+        this.ipKeyword = ipKeyword;
+    }
+
+    public String getAccountKeyword() {
+        return accountKeyword;
+    }
+
+    public void setAccountKeyword(String accountKeyword) {
+        this.accountKeyword = accountKeyword;
     }
 }

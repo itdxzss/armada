@@ -62,6 +62,7 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     /** 一行原文字段数：host:port:username:password。 */
     private static final int IMPORT_FIELDS = 4;
+    private static final int IMPORT_SAMPLE_CHECK_SIZE = 5;
     private static final int MAX_BATCH_ALLOCATION_SIZE = 500;
     private static final int MAX_BATCH_CHECK_SIZE = 20;
     private static final String MIXED_REGION = "混合（不限国家）";
@@ -110,20 +111,28 @@ public class IpProxyServiceImpl implements IpProxyService {
         // 先校验批次级字段。国家可为空,但协议、来源、导入文本必须完整,否则不进入逐行解析。
         validateImport(normalized);
 
-        // LineImporter 负责统一处理逐行导入流程:
+        // LineImporter 负责统一处理逐行导入前置流程:
         // 1) 跳过空行;2) parseProxyLine 校验单行格式;3) dedupKey 做批内去重;
-        // 4) persistProxy 返回 true=新增,false=库内已有而跳过。
+        // 4) persistResult=true 表示库内也不存在,是本批实际新增候选。
         List<LineOutcome<ProxyLine, Boolean>> outcomes = LineImporter.run(
                 normalized.text(), IpProxyServiceImpl::parseProxyLine, ProxyLine::dedupKey,
-                line -> persistProxy(normalized, line));   // 返回 true=新增 false=库内已存在跳过
+                line -> mapper.countActiveByFullTuple(line.host(), line.port(), line.username(), line.password()) == 0);
 
         // 汇总口径:
         // failed=格式/字段校验失败;inserted=真实新增;skipped=批内重复 + 库内已存在。
         int total = outcomes.size();
         int failed = (int) outcomes.stream().filter(o -> o.kind() == Kind.FAILED).count();
-        int inserted = (int) outcomes.stream()
-                .filter(o -> o.kind() == Kind.PERSISTED && Boolean.TRUE.equals(o.persistResult())).count();
+        List<ImportCandidate> insertCandidates = outcomes.stream()
+                .filter(o -> o.kind() == Kind.PERSISTED && Boolean.TRUE.equals(o.persistResult()))
+                .map(o -> new ImportCandidate(o.lineNo(), o.record()))
+                .toList();
+        int inserted = insertCandidates.size();
         int skipped = total - failed - inserted;   // 批内重复 + 库内已存在
+
+        Map<Object, SampleCheckSnapshot> sampleResults = checkImportSamples(normalized, insertCandidates);
+        for (ImportCandidate candidate : insertCandidates) {
+            persistProxy(normalized, candidate.line(), sampleResults.get(candidate.line().dedupKey()));
+        }
 
         // 错误信息带原始行号,让页面能提示用户直接回到具体问题行。
         List<String> errors = outcomes.stream().filter(o -> o.kind() == Kind.FAILED)
@@ -582,6 +591,14 @@ public class IpProxyServiceImpl implements IpProxyService {
         }
     }
 
+    /** 本批实际会新增的一行代理,保留原始行号用于抽样失败提示。 */
+    private record ImportCandidate(int lineNo, ProxyLine line) {
+    }
+
+    /** 抽样检测通过后要随新增行一起写入的检测快照。 */
+    private record SampleCheckSnapshot(IpProxyCheckResult result) {
+    }
+
     /**
      * 解析并校验一行代理文本。
      *
@@ -608,15 +625,92 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     /**
-     * 落库:DB 去重命中→false(跳过),否则插入→true。
+     * 对本批新增候选做导入前抽样检测。
      *
-     * 协议/国家/来源/分配方式取本次统一属性，新行先标记不可用且检测中,等待后台检测通过后再进入空闲池。
-     * 真正唯一性仍由数据库唯一键兜底,这里的 count 只是为了给导入结果返回友好的 skipped 统计。
+     * <p>抽样只决定整批是否允许导入。检测成功不会回填业务选择的国家;未抽中的行检测字段保持为空,
+     * 但和抽中的行一样会以可用状态入库。</p>
      */
-    private boolean persistProxy(IpProxyImportDTO dto, ProxyLine line) {
-        if (mapper.countActiveByFullTuple(line.host(), line.port(), line.username(), line.password()) > 0) {
-            return false;
+    private Map<Object, SampleCheckSnapshot> checkImportSamples(
+            IpProxyImportDTO dto,
+            List<ImportCandidate> candidates) {
+        if (candidates.isEmpty()) {
+            return Map.of();
         }
+        Map<Object, SampleCheckSnapshot> sampleResults = new LinkedHashMap<>();
+        for (ImportCandidate candidate : selectImportSamples(candidates)) {
+            IpProxyCheckResult result = checkImportSample(dto, candidate);
+            if (!isImportSampleSuccessful(result)) {
+                throw new BusinessException(ErrorCode.VALIDATION, importSampleFailureMessage(candidate, result));
+            }
+            sampleResults.put(candidate.line().dedupKey(), new SampleCheckSnapshot(result));
+        }
+        return sampleResults;
+    }
+
+    /**
+     * 从新增候选中均匀抽最多 5 条。候选不足 5 条时全部检测。
+     */
+    private static List<ImportCandidate> selectImportSamples(List<ImportCandidate> candidates) {
+        if (candidates.size() <= IMPORT_SAMPLE_CHECK_SIZE) {
+            return candidates;
+        }
+        List<ImportCandidate> samples = new ArrayList<>(IMPORT_SAMPLE_CHECK_SIZE);
+        int lastIndex = candidates.size() - 1;
+        for (int i = 0; i < IMPORT_SAMPLE_CHECK_SIZE; i++) {
+            int index = Math.round((float) i * lastIndex / (IMPORT_SAMPLE_CHECK_SIZE - 1));
+            samples.add(candidates.get(index));
+        }
+        return List.copyOf(samples);
+    }
+
+    private IpProxyCheckResult checkImportSample(IpProxyImportDTO dto, ImportCandidate candidate) {
+        try {
+            IpProxyCheckResult result = detector.check(toSampleCheckRequest(dto, candidate));
+            if (result == null) {
+                return IpProxyCheckResult.failed((long) candidate.lineNo(), "检测器未返回结果", System.currentTimeMillis());
+            }
+            return result;
+        } catch (RuntimeException e) {
+            return IpProxyCheckResult.failed(
+                    (long) candidate.lineNo(),
+                    truncate(e.getMessage()),
+                    System.currentTimeMillis());
+        }
+    }
+
+    private static IpProxyCheckRequest toSampleCheckRequest(IpProxyImportDTO dto, ImportCandidate candidate) {
+        ProxyLine line = candidate.line();
+        return new IpProxyCheckRequest(
+                (long) candidate.lineNo(),
+                dto.protocol(),
+                line.host(),
+                line.port(),
+                line.username(),
+                line.password());
+    }
+
+    private static boolean isImportSampleSuccessful(IpProxyCheckResult result) {
+        return result != null && result.success() && result.whatsappReachable();
+    }
+
+    private static String importSampleFailureMessage(ImportCandidate candidate, IpProxyCheckResult result) {
+        String reason = result == null ? null : result.errorMessage();
+        if (!StringUtils.hasText(reason) && result != null) {
+            reason = result.whatsappErrorMessage();
+        }
+        if (!StringUtils.hasText(reason)) {
+            reason = "代理检测失败";
+        }
+        return "抽样检测失败: 第 " + candidate.lineNo() + " 行：" + truncate(reason);
+    }
+
+    /**
+     * 抽样通过后落库新增代理。
+     *
+     * <p>协议、国家、来源、分配方式取本次统一属性。所有新增行直接可用;抽中的行带检测快照,
+     * 未抽中的行检测字段保持为空。导入路径不再提交异步全量检测任务。</p>
+     */
+    private void persistProxy(IpProxyImportDTO dto, ProxyLine line, SampleCheckSnapshot sampleSnapshot) {
         IpProxy row = new IpProxy();
         row.setHost(line.host());
         row.setPort(line.port());
@@ -626,19 +720,32 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setRegion(dto.region());
         row.setSource(dto.source());
         row.setAllocationMode(dto.allocationMode());
-        row.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        row.setStatus(IpProxyStatus.IDLE.code());
         row.setCheckFailCount(0);
-        row.setCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
-        row.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.DETECTING.code());
         row.setOwnership(ProxyOwnership.OWNED.code());
         long now = System.currentTimeMillis();
+        if (sampleSnapshot != null) {
+            applyImportSampleSuccess(row, sampleSnapshot.result(), now);
+        }
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         mapper.insert(row);
-        if (row.getId() != null) {
-            submitImportDetection(row);
-        }
-        return true;
+    }
+
+    private static void applyImportSampleSuccess(IpProxy row, IpProxyCheckResult result, long now) {
+        row.setLastSampleCheckAt(result.checkedAt() == null ? now : result.checkedAt());
+        row.setDetectedCountryCode(result.countryCode());
+        row.setOutboundIp(result.outboundIp());
+        row.setDetectedLocation(result.location());
+        row.setDetectedIsp(result.isp());
+        row.setDetectedLatitude(result.latitude());
+        row.setDetectedLongitude(result.longitude());
+        row.setCheckFailCount(0);
+        row.setLastCheckError(null);
+        row.setCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        row.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        row.setWhatsappHttpStatus(result.whatsappHttpStatus());
+        row.setWhatsappCheckError(null);
     }
 
     /**
@@ -803,7 +910,7 @@ public class IpProxyServiceImpl implements IpProxyService {
      * 应用一次成功检测结果。
      *
      * <p>成功检测默认把目标状态写成 IDLE;Mapper SQL 会保护当前 DB 中的 IN_USE 状态,避免检测覆盖上线占用关系。
-     * SMART 分配会用检测出的 ISO2 国家码刷新 region,MIXED 分配保留混合分组。</p>
+     * {@code region} 是业务人员导入时手选的国家,检测结果只写详情字段,不回填业务国家。</p>
      */
     private void applyDetectionSuccess(IpProxy proxy, IpProxy update, IpProxyCheckResult result) {
         update.setStatus(IpProxyStatus.IDLE.code());
@@ -819,9 +926,6 @@ public class IpProxyServiceImpl implements IpProxyService {
         update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
         update.setWhatsappHttpStatus(result.whatsappHttpStatus());
         update.setWhatsappCheckError(null);
-        if (IpProxyAllocationMode.SMART.value().equals(IpProxyAllocationMode.fromValue(proxy.getAllocationMode()).value())) {
-            update.setRegion(countryService.resolveIpRegionByIso2(result.countryCode()));
-        }
     }
 
     /**

@@ -35,10 +35,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -78,18 +76,29 @@ class IpProxyServiceImplTest {
         return new IpProxyImportDTO("中国", 1, "供应商A", text);
     }
 
-    /** 需要验证后台检测写库时,让 mock executor 在当前测试线程立即执行提交的任务。 */
-    private void runSubmittedDetectionTaskImmediately() {
-        doAnswer(invocation -> {
-            invocation.getArgument(0, Runnable.class).run();
-            return null;
-        }).when(ipProxyCheckExecutor).execute(any(Runnable.class));
+    /** 默认让导入抽样检测通过。 */
+    private void sampleChecksSucceed() {
+        when(detector.check(any())).thenAnswer(invocation -> {
+            IpProxyCheckRequest request = invocation.getArgument(0, IpProxyCheckRequest.class);
+            return IpProxyCheckResult.success(
+                    request.id(),
+                    "103.10.10.10",
+                    "IN",
+                    "Mumbai",
+                    "Example ISP",
+                    null,
+                    null,
+                    400,
+                    IpProxyCheckTiming.zero(),
+                    1_719_800_000_000L);
+        });
     }
 
     @Test
     void importProxies_allNew_returnsCorrectStats() {
         // 所有行全新插入
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        sampleChecksSucceed();
 
         IpProxyImportResultVO result = service.importProxies(dto("1.1.1.1:8080:user1:pass1\n2.2.2.2:8080:user2:pass2"));
 
@@ -106,6 +115,7 @@ class IpProxyServiceImplTest {
         // 第一行库内已存在(countActive=1),第二行新增
         when(mapper.countActiveByFullTuple("1.1.1.1", 8080, "user1", "pass1")).thenReturn(1L);
         when(mapper.countActiveByFullTuple("2.2.2.2", 9090, "user2", "pass2")).thenReturn(0L);
+        sampleChecksSucceed();
 
         IpProxyImportResultVO result = service.importProxies(dto("1.1.1.1:8080:user1:pass1\n2.2.2.2:9090:user2:pass2"));
 
@@ -120,6 +130,7 @@ class IpProxyServiceImplTest {
     void importProxies_batchDuplicate_countedAsSkipped() {
         // 同一行出现两次:批内去重,只落库一次
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        sampleChecksSucceed();
 
         IpProxyImportResultVO result = service.importProxies(dto("1.1.1.1:8080:user1:pass1\n1.1.1.1:8080:user1:pass1"));
 
@@ -172,6 +183,7 @@ class IpProxyServiceImplTest {
     @Test
     void importProxies_skipsBlankLines() {
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        sampleChecksSucceed();
 
         IpProxyImportResultVO result = service.importProxies(dto("\n1.1.1.1:8080:u:p\n\n"));
 
@@ -207,6 +219,7 @@ class IpProxyServiceImplTest {
     void importProxies_resolvesCountryValueBeforePersistingRegion() {
         when(countryService.resolveIpRegion("IN")).thenReturn("印度");
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        sampleChecksSucceed();
 
         IpProxyImportResultVO result = service.importProxies(
                 new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", "IN"));
@@ -220,10 +233,7 @@ class IpProxyServiceImplTest {
     @Test
     void importProxies_persistsSelectedAllocationMode() throws Exception {
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-        doAnswer(invocation -> {
-            invocation.getArgument(0, IpProxy.class).setId(10L);
-            return 1;
-        }).when(mapper).insert(any());
+        sampleChecksSucceed();
         IpProxyImportDTO dto = IpProxyImportDTO.class
                 .getConstructor(String.class, Integer.class, String.class, String.class, String.class, String.class)
                 .newInstance(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", null, "mixed");
@@ -238,13 +248,83 @@ class IpProxyServiceImplTest {
     }
 
     @Test
-    void importProxies_submitsDetectionToExecutorWithoutCallingDetectorOnRequestThread() {
+    void importProxies_sampleFailureRejectsWholeBatchBeforeInsert() {
+        when(countryService.resolveIpRegion("美国")).thenReturn("美国");
+        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        when(detector.check(any()))
+                .thenReturn(IpProxyCheckResult.failed(null, "代理连接超时", 1_719_800_000_000L));
+
+        assertThatThrownBy(() -> service.importProxies(new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:8080:user1:pass1\n2.2.2.2:8080:user2:pass2")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("抽样检测失败")
+                .hasMessageContaining("第 1 行")
+                .hasMessageContaining("代理连接超时");
+
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
+    void importProxies_sampleSuccessImportsAllRowsAsIdleAndOnlyFiveRowsHaveDetectionFields() {
+        when(countryService.resolveIpRegion("美国")).thenReturn("美国");
+        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        when(detector.check(any())).thenAnswer(invocation -> {
+            IpProxyCheckRequest request = invocation.getArgument(0, IpProxyCheckRequest.class);
+            return IpProxyCheckResult.success(
+                    request.id(),
+                    "103.10.10." + request.port(),
+                    "IN",
+                    "Mumbai",
+                    "Example ISP",
+                    null,
+                    null,
+                    400,
+                    IpProxyCheckTiming.zero(),
+                    1_719_800_000_000L);
+        });
+
+        IpProxyImportResultVO result = service.importProxies(new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                """
+                1.1.1.1:8001:user1:pass1
+                1.1.1.2:8002:user2:pass2
+                1.1.1.3:8003:user3:pass3
+                1.1.1.4:8004:user4:pass4
+                1.1.1.5:8005:user5:pass5
+                1.1.1.6:8006:user6:pass6
+                """));
+
+        assertThat(result.insertedRows()).isEqualTo(6);
+        ArgumentCaptor<IpProxy> insertCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper, times(6)).insert(insertCaptor.capture());
+        assertThat(insertCaptor.getAllValues()).allSatisfy(row -> {
+            assertThat(row.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+            assertThat(row.getRegion()).isEqualTo("美国");
+        });
+        assertThat(insertCaptor.getAllValues().stream().filter(row -> row.getOutboundIp() != null))
+                .hasSize(5);
+        assertThat(insertCaptor.getAllValues().stream().filter(row -> row.getOutboundIp() == null))
+                .hasSize(1);
+        IpProxy unsampled = insertCaptor.getAllValues().stream()
+                .filter(row -> row.getOutboundIp() == null)
+                .findFirst()
+                .orElseThrow();
+        assertThat(unsampled.getCheckStatus()).isNull();
+        assertThat(unsampled.getWhatsappCheckStatus()).isNull();
+        verify(detector, times(5)).check(any());
+        verify(ipProxyCheckExecutor, never()).execute(any(Runnable.class));
+    }
+
+    @Test
+    void importProxies_sampleSuccessDoesNotSubmitAsyncDetection() {
         when(countryService.resolveIpRegion(null)).thenReturn(null);
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-        doAnswer(invocation -> {
-            invocation.getArgument(0, IpProxy.class).setId(10L);
-            return 1;
-        }).when(mapper).insert(any());
+        sampleChecksSucceed();
 
         IpProxyImportResultVO result = service.importProxies(
                 new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
@@ -252,103 +332,21 @@ class IpProxyServiceImplTest {
         assertThat(result.insertedRows()).isEqualTo(1);
         ArgumentCaptor<IpProxy> insertCaptor = ArgumentCaptor.forClass(IpProxy.class);
         verify(mapper).insert(insertCaptor.capture());
-        assertThat(insertCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(insertCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.DETECTING.code());
+        assertThat(insertCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(insertCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
         assertThat(insertCaptor.getValue().getWhatsappCheckStatus())
-                .isEqualTo(IpProxyCheckLifecycleStatus.DETECTING.code());
-        verify(ipProxyCheckExecutor).execute(any(Runnable.class));
-        verify(detector, never()).check(any());
+                .isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        verify(detector).check(any());
+        verify(ipProxyCheckExecutor, never()).execute(any(Runnable.class));
+        verify(mapper, never()).updateDetectionResult(any(), anyInt());
     }
 
     @Test
-    void importProxies_whenDetectionTaskRejectedMarksRowFailed() {
-        when(countryService.resolveIpRegion(null)).thenReturn(null);
+    void importProxies_sampleDetectionStoresDetailsButKeepsSelectedRegion() {
+        when(countryService.resolveIpRegion("美国")).thenReturn("美国");
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-        doAnswer(invocation -> {
-            invocation.getArgument(0, IpProxy.class).setId(10L);
-            return 1;
-        }).when(mapper).insert(any());
-        doAnswer(invocation -> {
-            throw new RejectedExecutionException("queue full");
-        }).when(ipProxyCheckExecutor).execute(any(Runnable.class));
-
-        IpProxyImportResultVO result = service.importProxies(
-                new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
-
-        assertThat(result.insertedRows()).isEqualTo(1);
-        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).updateDetectionResult(updateCaptor.capture(), eq(IpProxyStatus.IN_USE.code()));
-        assertThat(updateCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(updateCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(updateCaptor.getValue().getWhatsappCheckStatus())
-                .isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(updateCaptor.getValue().getLastCheckError()).contains("检测任务提交失败");
-    }
-
-    @Test
-    void importProxies_detectionTaskUsesCapturedTenantContextAndClearsWorkerContext() {
-        List<Long> tenantDuringDetector = new ArrayList<>();
-        List<Long> tenantAfterTask = new ArrayList<>();
-        doAnswer(invocation -> {
-            Long callerTenant = TenantContext.get();
-            TenantContext.clear();
-            invocation.getArgument(0, Runnable.class).run();
-            tenantAfterTask.add(TenantContext.get());
-            if (callerTenant == null) {
-                TenantContext.clear();
-            } else {
-                TenantContext.set(callerTenant);
-            }
-            return null;
-        }).when(ipProxyCheckExecutor).execute(any(Runnable.class));
-        TenantContext.set(7L);
-        try {
-            when(countryService.resolveIpRegion(null)).thenReturn(null);
-            when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
-            when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-            doAnswer(invocation -> {
-                invocation.getArgument(0, IpProxy.class).setId(10L);
-                return 1;
-            }).when(mapper).insert(any());
-            when(detector.check(any())).thenAnswer(invocation -> {
-                tenantDuringDetector.add(TenantContext.get());
-                return IpProxyCheckResult.success(
-                        10L,
-                        "103.10.10.10",
-                        "IN",
-                        "Mumbai",
-                        "Example ISP",
-                        null,
-                        null,
-                        400,
-                        IpProxyCheckTiming.zero(),
-                        1_719_800_000_000L);
-            });
-            when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
-            when(mapper.selectActiveById(10L)).thenReturn(idleProxy());
-
-            service.importProxies(new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
-
-            assertThat(tenantDuringDetector).containsExactly(7L);
-            assertThat(tenantAfterTask).containsExactly((Long) null);
-            assertThat(TenantContext.get()).isEqualTo(7L);
-        } finally {
-            TenantContext.clear();
-        }
-    }
-
-    @Test
-    void importProxies_smartDetectsCountryAndUpdatesRegionAndDetectionFields() {
-        runSubmittedDetectionTaskImmediately();
-        when(countryService.resolveIpRegion(null)).thenReturn(null);
-        when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-        doAnswer(invocation -> {
-            invocation.getArgument(0, IpProxy.class).setId(10L);
-            return 1;
-        }).when(mapper).insert(any());
         when(detector.check(any())).thenReturn(IpProxyCheckResult.success(
-                10L,
+                1L,
                 "103.10.10.10",
                 "IN",
                 "Mumbai, Maharashtra",
@@ -358,86 +356,58 @@ class IpProxyServiceImplTest {
                 400,
                 IpProxyCheckTiming.zero(),
                 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
-        when(mapper.selectActiveById(10L)).thenReturn(idleProxy());
 
         IpProxyImportResultVO result = service.importProxies(
-                new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
+                new IpProxyImportDTO("美国", 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
 
         assertThat(result.insertedRows()).isEqualTo(1);
         ArgumentCaptor<IpProxy> insertCaptor = ArgumentCaptor.forClass(IpProxy.class);
         verify(mapper).insert(insertCaptor.capture());
-        assertThat(insertCaptor.getValue().getAllocationMode()).isEqualTo("smart");
+        IpProxy inserted = insertCaptor.getValue();
+        assertThat(inserted.getAllocationMode()).isEqualTo("smart");
+        assertThat(inserted.getRegion()).isEqualTo("美国");
+        assertThat(inserted.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(inserted.getDetectedCountryCode()).isEqualTo("IN");
+        assertThat(inserted.getOutboundIp()).isEqualTo("103.10.10.10");
+        assertThat(inserted.getDetectedLocation()).isEqualTo("Mumbai, Maharashtra");
+        assertThat(inserted.getDetectedIsp()).isEqualTo("Example ISP");
+        assertThat(inserted.getCheckFailCount()).isZero();
+        assertThat(inserted.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        assertThat(inserted.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        assertThat(inserted.getWhatsappHttpStatus()).isEqualTo(400);
+        assertThat(inserted.getWhatsappCheckError()).isNull();
+        assertThat(inserted.getLastCheckError()).isNull();
+        assertThat(inserted.getLastSampleCheckAt()).isEqualTo(1_719_800_000_000L);
 
         ArgumentCaptor<IpProxyCheckRequest> requestCaptor = ArgumentCaptor.forClass(IpProxyCheckRequest.class);
         verify(detector).check(requestCaptor.capture());
-        assertThat(requestCaptor.getValue().id()).isEqualTo(10L);
+        assertThat(requestCaptor.getValue().id()).isEqualTo(1L);
         assertThat(requestCaptor.getValue().host()).isEqualTo("1.1.1.1");
         assertThat(requestCaptor.getValue().password()).isEqualTo("pass1");
-
-        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).updateDetectionResult(updateCaptor.capture(), eq(IpProxyStatus.IN_USE.code()));
-        assertThat(updateCaptor.getValue().getId()).isEqualTo(10L);
-        assertThat(updateCaptor.getValue().getRegion()).isEqualTo("印度");
-        assertThat(updateCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
-        assertThat(updateCaptor.getValue().getDetectedCountryCode()).isEqualTo("IN");
-        assertThat(updateCaptor.getValue().getOutboundIp()).isEqualTo("103.10.10.10");
-        assertThat(updateCaptor.getValue().getDetectedLocation()).isEqualTo("Mumbai, Maharashtra");
-        assertThat(updateCaptor.getValue().getDetectedIsp()).isEqualTo("Example ISP");
-        assertThat(updateCaptor.getValue().getCheckFailCount()).isZero();
-        assertThat(updateCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
-        assertThat(updateCaptor.getValue().getWhatsappCheckStatus())
-                .isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
-        assertThat(updateCaptor.getValue().getWhatsappHttpStatus()).isEqualTo(400);
-        assertThat(updateCaptor.getValue().getWhatsappCheckError()).isNull();
-        assertThat(updateCaptor.getValue().getLastCheckError()).isNull();
-        assertThat(updateCaptor.getValue().getLastSampleCheckAt()).isEqualTo(1_719_800_000_000L);
     }
 
     @Test
-    void importProxies_detectionFailureKeepsRowAndMarksUnavailable() {
-        runSubmittedDetectionTaskImmediately();
+    void importProxies_sampleDetectionFailureRejectsWholeBatch() {
         when(countryService.resolveIpRegion(null)).thenReturn(null);
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-        doAnswer(invocation -> {
-            invocation.getArgument(0, IpProxy.class).setId(10L);
-            return 1;
-        }).when(mapper).insert(any());
-        when(detector.check(any())).thenReturn(IpProxyCheckResult.failed(10L, "代理连接超时", 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
-        when(mapper.selectActiveById(10L)).thenReturn(idleProxy());
+        when(detector.check(any()))
+                .thenReturn(IpProxyCheckResult.failed(1L, "代理连接超时", 1_719_800_000_000L));
 
-        IpProxyImportResultVO result = service.importProxies(
-                new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
+        assertThatThrownBy(() -> service.importProxies(
+                new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("抽样检测失败")
+                .hasMessageContaining("代理连接超时");
 
-        assertThat(result.insertedRows()).isEqualTo(1);
-        verify(mapper).insert(any());
-        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).updateDetectionResult(updateCaptor.capture(), eq(IpProxyStatus.IN_USE.code()));
-        assertThat(updateCaptor.getValue().getId()).isEqualTo(10L);
-        assertThat(updateCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(updateCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(updateCaptor.getValue().getWhatsappCheckStatus())
-                .isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(updateCaptor.getValue().getWhatsappCheckError()).isEqualTo("代理连接超时");
-        assertThat(updateCaptor.getValue().getCheckFailCount()).isEqualTo(1);
-        assertThat(updateCaptor.getValue().getLastCheckError()).isEqualTo("代理连接超时");
-        assertThat(updateCaptor.getValue().getLastSampleCheckAt()).isEqualTo(1_719_800_000_000L);
+        verify(mapper, never()).insert(any());
     }
 
     @Test
-    void importProxies_detectorSuccessWithoutCountryCodeMarksUnavailable() {
-        runSubmittedDetectionTaskImmediately();
-        when(countryService.resolveIpRegion(null)).thenReturn(null);
-        when(countryService.resolveIpRegionByIso2(null))
-                .thenThrow(new BusinessException(ErrorCode.VALIDATION, "检测国家码为空"));
+    void importProxies_sampleSuccessWithoutCountryCodeStillImportsSelectedRegion() {
+        when(countryService.resolveIpRegion("美国")).thenReturn("美国");
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-        doAnswer(invocation -> {
-            invocation.getArgument(0, IpProxy.class).setId(10L);
-            return 1;
-        }).when(mapper).insert(any());
         when(detector.check(any())).thenReturn(IpProxyCheckResult.success(
-                10L,
+                1L,
                 "103.10.10.10",
                 null,
                 "Mumbai",
@@ -447,32 +417,27 @@ class IpProxyServiceImplTest {
                 400,
                 IpProxyCheckTiming.zero(),
                 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
-        when(mapper.selectActiveById(10L)).thenReturn(idleProxy());
 
-        service.importProxies(new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
+        service.importProxies(new IpProxyImportDTO("美国", 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
 
-        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).updateDetectionResult(updateCaptor.capture(), eq(IpProxyStatus.IN_USE.code()));
-        assertThat(updateCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(updateCaptor.getValue().getLastCheckError()).isEqualTo("检测国家码为空");
-        assertThat(updateCaptor.getValue().getCheckFailCount()).isEqualTo(1);
-        assertThat(updateCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(updateCaptor.getValue().getWhatsappCheckStatus())
-                .isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
-        assertThat(updateCaptor.getValue().getWhatsappCheckError()).isNull();
+        ArgumentCaptor<IpProxy> insertCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).insert(insertCaptor.capture());
+        assertThat(insertCaptor.getValue().getRegion()).isEqualTo("美国");
+        assertThat(insertCaptor.getValue().getDetectedCountryCode()).isNull();
+        assertThat(insertCaptor.getValue().getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
+        assertThat(insertCaptor.getValue().getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.SUCCESS.code());
     }
 
     @Test
     void checkProxy_detectsActiveRowUpdatesDatabaseAndReturnsCurrentResult() {
         IpProxy row = idleProxy();
+        row.setRegion("美国");
         IpProxy updated = idleProxy();
-        updated.setRegion("印度");
+        updated.setRegion("美国");
         updated.setDetectedCountryCode("IN");
         updated.setOutboundIp("103.10.10.10");
         updated.setWhatsappHttpStatus(400);
         when(mapper.selectActiveById(10L)).thenReturn(row, updated);
-        when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
         when(detector.check(any())).thenReturn(IpProxyCheckResult.success(
                 10L,
                 "103.10.10.10",
@@ -492,10 +457,12 @@ class IpProxyServiceImplTest {
         assertThat(result.checkStatus()).isEqualTo("success");
         assertThat(result.connectionStatus()).isEqualTo("空闲");
         assertThat(result.countryCode()).isEqualTo("IN");
-        assertThat(result.region()).isEqualTo("印度");
+        assertThat(result.region()).isEqualTo("美国");
         assertThat(result.outboundIp()).isEqualTo("103.10.10.10");
         assertThat(result.whatsappStatus()).isEqualTo("HTTP 400");
-        verify(mapper).updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()));
+        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).updateDetectionResult(updateCaptor.capture(), eq(IpProxyStatus.IN_USE.code()));
+        assertThat(updateCaptor.getValue().getRegion()).isEqualTo("美国");
     }
 
     @Test
@@ -510,7 +477,6 @@ class IpProxyServiceImplTest {
         updated.setDetectedCountryCode("IN");
         updated.setOutboundIp("103.10.10.10");
         when(mapper.selectActiveById(10L)).thenReturn(inUse, updated);
-        when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
         when(detector.check(any())).thenReturn(IpProxyCheckResult.success(
                 10L,
                 "103.10.10.10",
@@ -614,6 +580,7 @@ class IpProxyServiceImplTest {
     void importProxies_legacyRegionStillResolvesThroughCountryService() {
         when(countryService.resolveIpRegion("印度")).thenReturn("印度");
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        sampleChecksSucceed();
 
         service.importProxies(new IpProxyImportDTO("印度", 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
 

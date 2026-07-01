@@ -12,7 +12,7 @@ public class IpProxyStatsCountryQuery extends PageQuery {
     /** 关键字:匹配国家/地区、网关、用户名或来源。 */
     private String keyword;
 
-    /** 协议码:1=HTTP 2=SOCKETS;为空不筛选。 */
+    /** 协议码:1=HTTP 2=SOCKS5;为空不筛选。 */
     private Integer protocol;
 
     /** 分配方式:smart=智能分配 mixed=混合分组;为空不筛选。 */

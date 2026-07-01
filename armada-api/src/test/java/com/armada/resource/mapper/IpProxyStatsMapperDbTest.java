@@ -165,6 +165,43 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void detailQuerySeparatesIpAndBoundAccountFilters() {
+        long now = System.currentTimeMillis();
+        String marker = "ip-stats-detail-search-dbtest-" + now;
+        String region = "印度-detail-search-" + now;
+        insertCountry("XD", region, now);
+        IpProxy matched = insertProxy(region, marker, IpProxyStatus.IDLE.code(), now);
+        mapper.markUsingAndBind(
+                matched.getId(),
+                99001L,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 10);
+        IpProxy otherAccount = insertProxy(region, marker, IpProxyStatus.IDLE.code(), now + 1);
+        mapper.markUsingAndBind(
+                otherAccount.getId(),
+                88001L,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 11);
+        insertProxy(region, marker, IpProxyStatus.IDLE.code(), now + 2);
+
+        IpProxyStatsDetailQuery query = new IpProxyStatsDetailQuery();
+        query.setIpKeyword(matched.getHost());
+        query.setAccountKeyword("99001");
+        query.setPage(1);
+        query.setPageSize(10);
+
+        assertThat(mapper.selectStatsDetailPage(region, query))
+                .extracting(IpProxyStatsDetailRow::getId)
+                .containsExactly(matched.getId());
+        assertThat(mapper.countStatsDetail(region, query)).isEqualTo(1);
+
+        query.setAccountKeyword("88001");
+        assertThat(mapper.countStatsDetail(region, query)).isZero();
+    }
+
+    @Test
     void riskFiltersMatchDisplayedRiskPriority() {
         long now = System.currentTimeMillis();
         String marker = "ip-stats-risk-dbtest-" + now;

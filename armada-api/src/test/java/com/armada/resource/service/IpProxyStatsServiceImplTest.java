@@ -189,7 +189,7 @@ class IpProxyStatsServiceImplTest {
         assertThat(result.page()).isEqualTo(2);
         assertThat(result.pageSize()).isEqualTo(5);
         IpProxyStatsDetailVO vo = result.list().get(0);
-        assertThat(vo.protocolLabel()).isEqualTo("SOCKETS");
+        assertThat(vo.protocolLabel()).isEqualTo("SOCKS5");
         assertThat(vo.statusLabel()).isEqualTo("使用中");
         assertThat(vo.ownershipLabel()).isEqualTo("租户自有");
         assertThat(vo.lastSampleCheckAt()).isEqualTo(1_719_800_000_000L);

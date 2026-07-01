@@ -19,7 +19,7 @@ public class IpProxyStatsDetailRow {
     /** 代理地址 host:port。 */
     private String proxyAddress;
 
-    /** 协议码:1=HTTP 2=SOCKETS。 */
+    /** 协议码:1=HTTP 2=SOCKS5。 */
     private Integer protocol;
 
     /** 国家/地区中文快照。 */

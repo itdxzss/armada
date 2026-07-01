@@ -154,6 +154,15 @@
                     OR CONCAT(host, ':', port) LIKE CONCAT('%', #{q.keyword}, '%')
                 )
             </if>
+            <if test="q.ipKeyword != null and q.ipKeyword != ''">
+                AND (
+                    host LIKE CONCAT('%', #{q.ipKeyword}, '%')
+                    OR CONCAT(host, ':', port) LIKE CONCAT('%', #{q.ipKeyword}, '%')
+                )
+            </if>
+            <if test="q.accountKeyword != null and q.accountKeyword != ''">
+                AND CAST(bound_account_id AS CHAR) LIKE CONCAT('%', #{q.accountKeyword}, '%')
+            </if>
         </where>
     </sql>
 
@@ -321,7 +330,7 @@
             (#{host}, #{port}, #{protocol}, #{username}, #{password}, #{region},
              #{status}, #{detectedCountryCode}, #{outboundIp}, #{detectedLocation}, #{detectedIsp},
              #{detectedLatitude}, #{detectedLongitude}, COALESCE(#{checkFailCount}, 0), #{lastCheckError},
-             COALESCE(#{checkStatus}, 0), COALESCE(#{whatsappCheckStatus}, 0),
+             #{checkStatus}, #{whatsappCheckStatus},
              #{whatsappHttpStatus}, #{whatsappCheckError},
              #{source}, #{ownership}, #{allocationMode}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>

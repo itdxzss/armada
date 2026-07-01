@@ -17,7 +17,7 @@ public record IpProxyVO(
         /** 代理地址 host:port。 */
         String proxyAddress,
 
-        /** 协议码:1=HTTP 2=SOCKETS。 */
+        /** 协议码:1=HTTP 2=SOCKS5。 */
         Integer protocol,
 
         /** 协议展示名。 */

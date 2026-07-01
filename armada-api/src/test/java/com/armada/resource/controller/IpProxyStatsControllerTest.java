@@ -109,9 +109,8 @@ class IpProxyStatsControllerTest {
                 query != null
                         && query.getStatus().equals(2)
                         && query.getProtocol().equals(1)
-                        && "mixed".equals(query.getAllocationMode())
-                        && "iproyal".equals(query.getSource())
-                        && "1.2.3.4".equals(query.getKeyword())
+                        && "1.2.3.4".equals(query.getIpKeyword())
+                        && "9001".equals(query.getAccountKeyword())
                         && query.getPage() == 1
                         && query.getPageSize() == 10))).thenReturn(PageResult.of(List.of(
                 new IpProxyStatsDetailVO(
@@ -136,9 +135,8 @@ class IpProxyStatsControllerTest {
         mockMvc.perform(get("/api/ip-proxies/stats/countries/{region}/proxies", "印度")
                         .param("status", "2")
                         .param("protocol", "1")
-                        .param("allocationMode", "mixed")
-                        .param("source", "iproyal")
-                        .param("keyword", "1.2.3.4")
+                        .param("ipKeyword", "1.2.3.4")
+                        .param("accountKeyword", "9001")
                         .param("page", "1")
                         .param("pageSize", "10"))
                 .andExpect(status().isOk())

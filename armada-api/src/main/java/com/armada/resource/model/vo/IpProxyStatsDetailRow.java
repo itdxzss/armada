@@ -10,6 +10,12 @@ public class IpProxyStatsDetailRow {
     /** 代理 ID。 */
     private Long id;
 
+    /** 代理网关地址。 */
+    private String proxyHost;
+
+    /** 代理端口。 */
+    private Integer proxyPort;
+
     /** 代理地址 host:port。 */
     private String proxyAddress;
 
@@ -27,6 +33,9 @@ public class IpProxyStatsDetailRow {
 
     /** 来源。 */
     private String source;
+
+    /** 分配方式:smart=智能分配 mixed=混合分组。 */
+    private String allocationMode;
 
     /** 归属码:1=租户自有 2=平台池 3=租借。 */
     private Integer ownership;
@@ -46,6 +55,22 @@ public class IpProxyStatsDetailRow {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getProxyHost() {
+        return proxyHost;
+    }
+
+    public void setProxyHost(String proxyHost) {
+        this.proxyHost = proxyHost;
+    }
+
+    public Integer getProxyPort() {
+        return proxyPort;
+    }
+
+    public void setProxyPort(Integer proxyPort) {
+        this.proxyPort = proxyPort;
     }
 
     public String getProxyAddress() {
@@ -94,6 +119,14 @@ public class IpProxyStatsDetailRow {
 
     public void setSource(String source) {
         this.source = source;
+    }
+
+    public String getAllocationMode() {
+        return allocationMode;
+    }
+
+    public void setAllocationMode(String allocationMode) {
+        this.allocationMode = allocationMode;
     }
 
     public Integer getOwnership() {

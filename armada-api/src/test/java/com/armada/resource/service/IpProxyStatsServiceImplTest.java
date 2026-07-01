@@ -16,6 +16,7 @@ import com.armada.resource.service.impl.IpProxyStatsServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -123,6 +124,33 @@ class IpProxyStatsServiceImplTest {
     }
 
     @Test
+    void regionProxies_exposesSeparatedAddressAndAllocationMode() throws Exception {
+        assertThat(recordComponentNames(IpProxyStatsDetailVO.class))
+                .contains("proxyHost", "proxyPort", "allocationMode", "allocationModeLabel");
+
+        IpProxyStatsDetailQuery query = new IpProxyStatsDetailQuery();
+        IpProxyStatsDetailRow row = new IpProxyStatsDetailRow();
+        row.setId(10L);
+        row.getClass().getMethod("setProxyHost", String.class).invoke(row, "1.2.3.4");
+        row.getClass().getMethod("setProxyPort", Integer.class).invoke(row, 8000);
+        row.getClass().getMethod("setAllocationMode", String.class).invoke(row, "mixed");
+        row.setProtocol(1);
+        row.setRegion("印度");
+        row.setStatus(1);
+        row.setSource("iproyal");
+        row.setOwnership(1);
+        when(mapper.countStatsDetail("印度", query)).thenReturn(1L);
+        when(mapper.selectStatsDetailPage("印度", query)).thenReturn(List.of(row));
+
+        IpProxyStatsDetailVO vo = service.regionProxies("印度", query).list().get(0);
+
+        assertThat(vo.getClass().getMethod("proxyHost").invoke(vo)).isEqualTo("1.2.3.4");
+        assertThat(vo.getClass().getMethod("proxyPort").invoke(vo)).isEqualTo(8000);
+        assertThat(vo.getClass().getMethod("allocationMode").invoke(vo)).isEqualTo("mixed");
+        assertThat(vo.getClass().getMethod("allocationModeLabel").invoke(vo)).isEqualTo("混合分组");
+    }
+
+    @Test
     void regionProxies_rejectsBlankRegion() {
         assertThatThrownBy(() -> service.regionProxies(" ", new IpProxyStatsDetailQuery()))
                 .isInstanceOf(BusinessException.class)
@@ -142,5 +170,9 @@ class IpProxyStatsServiceImplTest {
         row.setInUseIpCount(inUseIpCount);
         row.setUnavailableIpCount(unavailableIpCount);
         return row;
+    }
+
+    private static List<String> recordComponentNames(Class<?> recordClass) {
+        return Arrays.stream(recordClass.getRecordComponents()).map(component -> component.getName()).toList();
     }
 }

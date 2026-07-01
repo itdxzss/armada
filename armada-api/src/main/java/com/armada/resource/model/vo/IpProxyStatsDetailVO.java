@@ -10,6 +10,12 @@ public record IpProxyStatsDetailVO(
         /** 代理 ID。 */
         Long id,
 
+        /** 代理网关地址。 */
+        String proxyHost,
+
+        /** 代理端口。 */
+        Integer proxyPort,
+
         /** 代理地址 host:port。 */
         String proxyAddress,
 
@@ -33,6 +39,12 @@ public record IpProxyStatsDetailVO(
 
         /** 来源。 */
         String source,
+
+        /** 分配方式:smart=智能分配 mixed=混合分组。 */
+        String allocationMode,
+
+        /** 分配方式展示名。 */
+        String allocationModeLabel,
 
         /** 归属码。 */
         Integer ownership,

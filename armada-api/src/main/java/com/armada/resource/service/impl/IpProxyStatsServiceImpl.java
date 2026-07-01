@@ -1,6 +1,7 @@
 package com.armada.resource.service.impl;
 
 import com.armada.resource.mapper.IpProxyMapper;
+import com.armada.resource.model.IpProxyAllocationMode;
 import com.armada.resource.model.IpProxyResourceRisk;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
@@ -117,6 +118,7 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
         if (query.getProtocol() != null) {
             ProxyProtocol.fromCode(query.getProtocol());
         }
+        normalizeAllocationMode(query);
         IpProxyResourceRisk.validateFilter(query.getRisk());
     }
 
@@ -130,6 +132,7 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
         if (query.getProtocol() != null) {
             ProxyProtocol.fromCode(query.getProtocol());
         }
+        normalizeAllocationMode(query);
         if (query.getStatus() != null) {
             IpProxyStatus.fromCode(query.getStatus());
         }
@@ -170,6 +173,8 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
     private IpProxyStatsDetailVO toDetailVO(IpProxyStatsDetailRow row) {
         return new IpProxyStatsDetailVO(
                 row.getId(),
+                row.getProxyHost(),
+                row.getProxyPort(),
                 row.getProxyAddress(),
                 row.getProtocol(),
                 ProxyProtocol.labelOf(row.getProtocol()),
@@ -178,6 +183,8 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
                 IpProxyStatus.labelOf(row.getStatus()),
                 row.getBoundAccountId(),
                 row.getSource(),
+                row.getAllocationMode(),
+                IpProxyAllocationMode.labelOf(row.getAllocationMode()),
                 row.getOwnership(),
                 ProxyOwnership.labelOf(row.getOwnership()),
                 row.getLastSampleCheckAt(),
@@ -193,6 +200,18 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
      */
     private static long nullToZero(Long value) {
         return value == null ? 0L : value;
+    }
+
+    private static void normalizeAllocationMode(IpProxyStatsCountryQuery query) {
+        if (StringUtils.hasText(query.getAllocationMode())) {
+            query.setAllocationMode(IpProxyAllocationMode.fromValue(query.getAllocationMode()).value());
+        }
+    }
+
+    private static void normalizeAllocationMode(IpProxyStatsDetailQuery query) {
+        if (StringUtils.hasText(query.getAllocationMode())) {
+            query.setAllocationMode(IpProxyAllocationMode.fromValue(query.getAllocationMode()).value());
+        }
     }
 
     /**

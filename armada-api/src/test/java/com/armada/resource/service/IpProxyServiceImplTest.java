@@ -192,6 +192,22 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void importProxies_persistsSelectedAllocationMode() throws Exception {
+        when(countryService.resolveIpRegion("IN")).thenReturn("印度");
+        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
+        IpProxyImportDTO dto = IpProxyImportDTO.class
+                .getConstructor(String.class, Integer.class, String.class, String.class, String.class, String.class)
+                .newInstance(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", "IN", "mixed");
+
+        service.importProxies(dto);
+
+        ArgumentCaptor<IpProxy> proxyCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).insert(proxyCaptor.capture());
+        assertThat(proxyCaptor.getValue().getClass().getMethod("getAllocationMode").invoke(proxyCaptor.getValue()))
+                .isEqualTo("mixed");
+    }
+
+    @Test
     void importProxies_legacyRegionStillResolvesThroughCountryService() {
         when(countryService.resolveIpRegion("印度")).thenReturn("印度");
         when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);

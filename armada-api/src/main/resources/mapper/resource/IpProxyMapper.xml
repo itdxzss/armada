@@ -18,7 +18,7 @@
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
         id, tenant_id, host, port, protocol, username, password, region,
-        status, bound_account_id, bound_at, last_sample_check_at, source, ownership, remark,
+        status, bound_account_id, bound_at, last_sample_check_at, source, ownership, allocation_mode, remark,
         created_at, updated_at, created_by, deleted_at
     </sql>
 
@@ -103,6 +103,7 @@
          AND p.region IS NOT NULL
          AND TRIM(p.region) != ''
         <if test="q.protocol != null">AND p.protocol = #{q.protocol}</if>
+        <if test="q.allocationMode != null and q.allocationMode != ''">AND p.allocation_mode = #{q.allocationMode}</if>
         <if test="q.source != null and q.source != ''">AND p.source LIKE CONCAT('%', #{q.source}, '%')</if>
         WHERE c.deleted_at IS NULL
           AND c.is_enabled = 1
@@ -128,6 +129,7 @@
             AND TRIM(region) = #{region}
             <if test="q.status != null">AND status = #{q.status}</if>
             <if test="q.protocol != null">AND protocol = #{q.protocol}</if>
+            <if test="q.allocationMode != null and q.allocationMode != ''">AND allocation_mode = #{q.allocationMode}</if>
             <if test="q.source != null and q.source != ''">AND source LIKE CONCAT('%', #{q.source}, '%')</if>
             <if test="q.keyword != null and q.keyword != ''">
                 AND (
@@ -229,12 +231,15 @@
     <select id="selectStatsDetailPage" resultType="com.armada.resource.model.vo.IpProxyStatsDetailRow">
         SELECT
             id,
+            host AS proxy_host,
+            port AS proxy_port,
             CONCAT(host, ':', port) AS proxy_address,
             protocol,
             region,
             status,
             bound_account_id,
             source,
+            allocation_mode,
             ownership,
             last_sample_check_at,
             created_at,
@@ -262,11 +267,11 @@
     <insert id="insert" parameterType="com.armada.resource.model.entity.IpProxy"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO ip_proxy
-            (host, port, protocol, username, password, region, status, source, ownership, remark,
+            (host, port, protocol, username, password, region, status, source, ownership, allocation_mode, remark,
              created_at, updated_at, created_by)
         VALUES
             (#{host}, #{port}, #{protocol}, #{username}, #{password}, #{region},
-             #{status}, #{source}, #{ownership}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
+             #{status}, #{source}, #{ownership}, #{allocationMode}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
     <select id="selectActiveById" resultType="com.armada.resource.model.entity.IpProxy">

@@ -3,6 +3,7 @@ package com.armada.resource.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.resource.model.IpProxyStatus;
+import com.armada.resource.model.IpProxyAllocationMode;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.dto.IpProxyStatsCountryQuery;
@@ -124,8 +125,14 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
                 .findFirst()
                 .orElseThrow();
         assertThat(sampled.getProxyAddress()).isEqualTo(indiaIdleA.getHost() + ":" + indiaIdleA.getPort());
+        assertThat(sampled.getProxyHost()).isEqualTo(indiaIdleA.getHost());
+        assertThat(sampled.getProxyPort()).isEqualTo(indiaIdleA.getPort());
+        assertThat(sampled.getAllocationMode()).isEqualTo(IpProxyAllocationMode.SMART.value());
         assertThat(sampled.getLastSampleCheckAt()).isEqualTo(now + 40);
         assertThat(mapper.countStatsDetail(india, detailQuery)).isEqualTo(4);
+
+        detailQuery.setAllocationMode(IpProxyAllocationMode.MIXED.value());
+        assertThat(mapper.countStatsDetail(india, detailQuery)).isZero();
         assertThat(Arrays.stream(IpProxyStatsDetailVO.class.getDeclaredFields()).map(Field::getName))
                 .doesNotContain("password");
     }
@@ -217,6 +224,7 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         proxy.setStatus(status);
         proxy.setSource(source);
         proxy.setOwnership(ProxyOwnership.OWNED.code());
+        proxy.setAllocationMode(IpProxyAllocationMode.SMART.value());
         proxy.setCreatedAt(suffix);
         proxy.setUpdatedAt(suffix);
         mapper.insert(proxy);

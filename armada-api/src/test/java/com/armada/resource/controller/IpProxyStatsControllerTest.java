@@ -102,12 +102,15 @@ class IpProxyStatsControllerTest {
                 query != null
                         && query.getStatus().equals(2)
                         && query.getProtocol().equals(1)
+                        && "mixed".equals(query.getAllocationMode())
                         && "iproyal".equals(query.getSource())
                         && "1.2.3.4".equals(query.getKeyword())
                         && query.getPage() == 1
                         && query.getPageSize() == 10))).thenReturn(PageResult.of(List.of(
                 new IpProxyStatsDetailVO(
                         101L,
+                        "1.2.3.4",
+                        8000,
                         "1.2.3.4:8000",
                         1,
                         "HTTP",
@@ -116,6 +119,8 @@ class IpProxyStatsControllerTest {
                         "使用中",
                         9001L,
                         "iproyal",
+                        "mixed",
+                        "混合分组",
                         1,
                         "租户自有",
                         1_719_800_000_000L,
@@ -125,6 +130,7 @@ class IpProxyStatsControllerTest {
         mockMvc.perform(get("/api/ip-proxies/stats/countries/{region}/proxies", "印度")
                         .param("status", "2")
                         .param("protocol", "1")
+                        .param("allocationMode", "mixed")
                         .param("source", "iproyal")
                         .param("keyword", "1.2.3.4")
                         .param("page", "1")
@@ -132,7 +138,10 @@ class IpProxyStatsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].proxyHost").value("1.2.3.4"))
+                .andExpect(jsonPath("$.data.list[0].proxyPort").value(8000))
                 .andExpect(jsonPath("$.data.list[0].proxyAddress").value("1.2.3.4:8000"))
+                .andExpect(jsonPath("$.data.list[0].allocationModeLabel").value("混合分组"))
                 .andExpect(jsonPath("$.data.list[0].lastSampleCheckAt").value(1_719_800_000_000L));
     }
 }

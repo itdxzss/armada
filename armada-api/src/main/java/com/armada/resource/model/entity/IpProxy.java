@@ -1,11 +1,14 @@
 package com.armada.resource.model.entity;
 
+import com.armada.resource.model.IpProxyAllocationMode;
+
 /**
  * IP 代理实体，映射 ip_proxy 表一行。普通类 + getter/setter（无 Lombok），Mapper 直出。
  *
  * <p>{@code host} 是代理网关地址（如 geo.iproyal.com），<b>不是</b>真实出口 IP；粘性会话 token 内嵌在
  * {@code password} 段。{@code protocol}/{@code status}/{@code ownership} 为 tinyint 码，对应
- * {@code ProxyProtocol}/{@code IpProxyStatus}/{@code ProxyOwnership} 枚举。</p>
+ * {@code ProxyProtocol}/{@code IpProxyStatus}/{@code ProxyOwnership} 枚举;{@code allocationMode} 为导入时选择的
+ * IP 分配方式。</p>
  */
 public class IpProxy {
 
@@ -50,6 +53,9 @@ public class IpProxy {
 
     /** 归属码:1=租户自有 2=平台池 3=租借（见 {@code ProxyOwnership}）。 */
     private Integer ownership;
+
+    /** 分配方式:smart=智能分配 mixed=混合分组。 */
+    private String allocationMode = IpProxyAllocationMode.SMART.value();
 
     /** 备注。 */
     private String remark;
@@ -176,6 +182,14 @@ public class IpProxy {
 
     public void setOwnership(Integer ownership) {
         this.ownership = ownership;
+    }
+
+    public String getAllocationMode() {
+        return allocationMode;
+    }
+
+    public void setAllocationMode(String allocationMode) {
+        this.allocationMode = allocationMode;
     }
 
     public String getRemark() {

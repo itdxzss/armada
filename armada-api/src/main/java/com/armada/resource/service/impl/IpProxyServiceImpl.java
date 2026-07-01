@@ -4,6 +4,7 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
+import com.armada.resource.model.IpProxyAllocationMode;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
@@ -103,8 +104,8 @@ public class IpProxyServiceImpl implements IpProxyService {
         // 错误信息带原始行号,让页面能提示用户直接回到具体问题行。
         List<String> errors = outcomes.stream().filter(o -> o.kind() == Kind.FAILED)
                 .map(o -> "第 " + o.lineNo() + " 行：" + o.reason()).toList();
-        log.info("IP代理导入 region={} protocol={} total={} inserted={} skipped={} failed={}",
-                normalized.region(), normalized.protocol(), total, inserted, skipped, failed);
+        log.info("IP代理导入 region={} allocationMode={} protocol={} total={} inserted={} skipped={} failed={}",
+                normalized.region(), normalized.allocationMode(), normalized.protocol(), total, inserted, skipped, failed);
         return new IpProxyImportResultVO(total, inserted, skipped, failed, errors);
     }
 
@@ -340,6 +341,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         if (!StringUtils.hasText(dto.text())) {
             throw new BusinessException(ErrorCode.VALIDATION, "导入内容不能为空");
         }
+        IpProxyAllocationMode.fromValue(dto.allocationMode());
     }
 
     /**
@@ -367,7 +369,8 @@ public class IpProxyServiceImpl implements IpProxyService {
         }
         String submitted = StringUtils.hasText(dto.countryValue()) ? dto.countryValue() : dto.region();
         String region = countryService.resolveIpRegion(submitted);
-        return new IpProxyImportDTO(region, dto.protocol(), dto.source(), dto.text(), dto.countryValue());
+        String allocationMode = IpProxyAllocationMode.fromValue(dto.allocationMode()).value();
+        return new IpProxyImportDTO(region, dto.protocol(), dto.source(), dto.text(), dto.countryValue(), allocationMode);
     }
 
     /**
@@ -536,7 +539,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     /**
      * 落库:DB 去重命中→false(跳过),否则插入→true。
      *
-     * 协议/国家/来源取本次统一属性，新行状态=空闲、归属=租户自有。
+     * 协议/国家/来源/分配方式取本次统一属性，新行状态=空闲、归属=租户自有。
      * 真正唯一性仍由数据库唯一键兜底,这里的 count 只是为了给导入结果返回友好的 skipped 统计。
      */
     private boolean persistProxy(IpProxyImportDTO dto, ProxyLine line) {
@@ -551,6 +554,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setProtocol(dto.protocol());
         row.setRegion(dto.region());
         row.setSource(dto.source());
+        row.setAllocationMode(dto.allocationMode());
         row.setStatus(IpProxyStatus.IDLE.code());
         row.setOwnership(ProxyOwnership.OWNED.code());
         long now = System.currentTimeMillis();

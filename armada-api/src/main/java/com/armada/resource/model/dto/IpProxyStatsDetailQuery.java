@@ -13,6 +13,9 @@ public class IpProxyStatsDetailQuery extends PageQuery {
     /** 协议码:1=HTTP 2=SOCKETS;为空不筛选。 */
     private Integer protocol;
 
+    /** 分配方式:smart=智能分配 mixed=混合分组;为空不筛选。 */
+    private String allocationMode;
+
     /** 来源关键词,模糊匹配;为空不筛选。 */
     private String source;
 
@@ -33,6 +36,14 @@ public class IpProxyStatsDetailQuery extends PageQuery {
 
     public void setProtocol(Integer protocol) {
         this.protocol = protocol;
+    }
+
+    public String getAllocationMode() {
+        return allocationMode;
+    }
+
+    public void setAllocationMode(String allocationMode) {
+        this.allocationMode = allocationMode;
     }
 
     public String getSource() {

@@ -1,24 +1,29 @@
 package com.armada.resource.service.impl;
 
 import com.armada.platform.country.service.CountryService;
+import com.armada.platform.proxy.ProxyCredentials;
+import com.armada.platform.proxy.ProxyEndpoint;
+import com.armada.resource.check.IpProxyCheckRequest;
+import com.armada.resource.check.IpProxyCheckResult;
+import com.armada.resource.check.IpProxyDetector;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyAllocationMode;
+import com.armada.resource.model.IpProxyCheckStatus;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.entity.IpProxy;
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.resource.service.IpProxyAccountAllocation;
 import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyAllocationRequest;
 import com.armada.resource.service.IpProxyService;
-import com.armada.platform.proxy.ProxyCredentials;
-import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -28,8 +33,10 @@ import com.armada.shared.util.LineImporter;
 import com.armada.shared.util.LineImporter.Kind;
 import com.armada.shared.util.LineImporter.LineOutcome;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,16 +59,24 @@ public class IpProxyServiceImpl implements IpProxyService {
     /** 一行原文字段数：host:port:username:password。 */
     private static final int IMPORT_FIELDS = 4;
     private static final int MAX_BATCH_ALLOCATION_SIZE = 500;
+    private static final int MAX_BATCH_CHECK_SIZE = 20;
     private static final String MIXED_REGION = "混合（不限国家）";
+    private static final String WHATSAPP_STATUS_UNKNOWN = "unknown";
+    private static final int ERROR_MAX_LENGTH = 512;
 
     private final IpProxyMapper mapper;
     private final IpProxyConverter converter;
     private final CountryService countryService;
+    private final IpProxyDetector detector;
 
-    public IpProxyServiceImpl(IpProxyMapper mapper, IpProxyConverter converter, CountryService countryService) {
+    public IpProxyServiceImpl(IpProxyMapper mapper,
+                              IpProxyConverter converter,
+                              CountryService countryService,
+                              IpProxyDetector detector) {
         this.mapper = mapper;
         this.converter = converter;
         this.countryService = countryService;
+        this.detector = detector;
     }
 
     @Override
@@ -80,7 +95,6 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public IpProxyImportResultVO importProxies(IpProxyImportDTO dto) {
         IpProxyImportDTO normalized = normalizeImport(dto);
         // 先校验批次级字段。国家可为空,但协议、来源、导入文本必须完整,否则不进入逐行解析。
@@ -107,6 +121,51 @@ public class IpProxyServiceImpl implements IpProxyService {
         log.info("IP代理导入 region={} allocationMode={} protocol={} total={} inserted={} skipped={} failed={}",
                 normalized.region(), normalized.allocationMode(), normalized.protocol(), total, inserted, skipped, failed);
         return new IpProxyImportResultVO(total, inserted, skipped, failed, errors);
+    }
+
+    /**
+     * 对单条代理执行真实出口检测并落库检测结果。
+     *
+     * @param id 代理主键
+     * @return 本次检测结果
+     */
+    @Override
+    public IpProxyCheckResultVO checkProxy(Long id) {
+        if (id == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+        }
+        IpProxy proxy = mapper.selectActiveById(id);
+        if (proxy == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "代理不存在或已删除");
+        }
+        return detectAndUpdate(proxy);
+    }
+
+    /**
+     * 批量检测代理出口。
+     *
+     * @param ids 代理主键列表
+     * @return 按入参顺序返回的检测结果
+     */
+    @Override
+    public List<IpProxyCheckResultVO> checkProxies(List<Long> ids) {
+        List<Long> normalized = normalizeCheckIds(ids);
+        List<IpProxy> rows = mapper.selectActiveByIds(normalized);
+        Map<Long, IpProxy> byId = new LinkedHashMap<>();
+        for (IpProxy row : rows) {
+            byId.put(row.getId(), row);
+        }
+        for (Long id : normalized) {
+            if (!byId.containsKey(id)) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "代理不存在或已删除: " + id);
+            }
+        }
+        List<IpProxyCheckResultVO> results = new ArrayList<>(normalized.size());
+        for (Long id : normalized) {
+            IpProxy row = byId.get(id);
+            results.add(detectAndUpdate(row));
+        }
+        return List.copyOf(results);
     }
 
     /**
@@ -367,9 +426,11 @@ public class IpProxyServiceImpl implements IpProxyService {
         if (dto == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "导入参数不能为空");
         }
-        String submitted = StringUtils.hasText(dto.countryValue()) ? dto.countryValue() : dto.region();
-        String region = countryService.resolveIpRegion(submitted);
         String allocationMode = IpProxyAllocationMode.fromValue(dto.allocationMode()).value();
+        String submitted = StringUtils.hasText(dto.countryValue()) ? dto.countryValue() : dto.region();
+        String region = IpProxyAllocationMode.MIXED.value().equals(allocationMode)
+                ? MIXED_REGION
+                : countryService.resolveIpRegion(submitted);
         return new IpProxyImportDTO(region, dto.protocol(), dto.source(), dto.text(), dto.countryValue(), allocationMode);
     }
 
@@ -556,12 +617,173 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setSource(dto.source());
         row.setAllocationMode(dto.allocationMode());
         row.setStatus(IpProxyStatus.IDLE.code());
+        row.setCheckFailCount(0);
         row.setOwnership(ProxyOwnership.OWNED.code());
         long now = System.currentTimeMillis();
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         mapper.insert(row);
+        if (row.getId() != null) {
+            detectAndUpdate(row);
+        }
         return true;
+    }
+
+    /**
+     * 执行检测并把结果写回当前代理行。
+     *
+     * <p>检测或国家解析失败都只影响当前行状态,不会向导入批次外抛异常导致整批回滚。</p>
+     */
+    private IpProxyCheckResultVO detectAndUpdate(IpProxy proxy) {
+        IpProxyCheckResult result;
+        try {
+            result = detector.check(new IpProxyCheckRequest(
+                    proxy.getId(),
+                    proxy.getProtocol(),
+                    proxy.getHost(),
+                    proxy.getPort(),
+                    proxy.getUsername(),
+                    proxy.getPassword()));
+            if (result == null) {
+                result = IpProxyCheckResult.failed(proxy.getId(), "检测器未返回结果", System.currentTimeMillis());
+            }
+        } catch (RuntimeException e) {
+            result = IpProxyCheckResult.failed(proxy.getId(), truncate(e.getMessage()), System.currentTimeMillis());
+        }
+        IpProxy update = toDetectionUpdate(proxy, result);
+        int updatedRows = mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
+        if (updatedRows != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "代理检测结果更新冲突: " + proxy.getId());
+        }
+        IpProxy current = mapper.selectActiveById(proxy.getId());
+        if (current == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "代理不存在或已删除: " + proxy.getId());
+        }
+        boolean checkSuccess = result.success()
+                && !Integer.valueOf(IpProxyStatus.UNAVAILABLE.code()).equals(update.getStatus());
+        return toCheckResultVO(current, checkSuccess);
+    }
+
+    /**
+     * 把检测端口返回值转换成只包含可更新字段的实体快照。
+     *
+     * <p>这里不直接修改入参 {@code proxy},避免把检测中间态误带回调用方;成功和失败分别落到后续
+     * apply 方法中处理。SMART 模式的国家解析异常会降级为检测失败,保留导入行但标记不可用。</p>
+     */
+    private IpProxy toDetectionUpdate(IpProxy proxy, IpProxyCheckResult result) {
+        IpProxy update = new IpProxy();
+        update.setId(proxy.getId());
+        update.setUpdatedAt(System.currentTimeMillis());
+        update.setLastSampleCheckAt(result.checkedAt() == null ? update.getUpdatedAt() : result.checkedAt());
+        update.setRegion(proxy.getRegion());
+        update.setCheckFailCount(proxy.getCheckFailCount() == null ? 0 : proxy.getCheckFailCount());
+        if (!result.success()) {
+            applyDetectionFailure(update, result.errorMessage());
+            return update;
+        }
+        try {
+            applyDetectionSuccess(proxy, update, result);
+            return update;
+        } catch (BusinessException e) {
+            applyDetectionFailure(update, e.getMessage());
+            return update;
+        }
+    }
+
+    /**
+     * 应用一次成功检测结果。
+     *
+     * <p>成功检测默认把目标状态写成 IDLE;Mapper SQL 会保护当前 DB 中的 IN_USE 状态,避免检测覆盖上线占用关系。
+     * SMART 分配会用检测出的 ISO2 国家码刷新 region,MIXED 分配保留混合分组。</p>
+     */
+    private void applyDetectionSuccess(IpProxy proxy, IpProxy update, IpProxyCheckResult result) {
+        update.setStatus(IpProxyStatus.IDLE.code());
+        update.setDetectedCountryCode(result.countryCode());
+        update.setOutboundIp(result.outboundIp());
+        update.setDetectedLocation(result.location());
+        update.setDetectedIsp(result.isp());
+        update.setDetectedLatitude(result.latitude());
+        update.setDetectedLongitude(result.longitude());
+        update.setCheckFailCount(0);
+        update.setLastCheckError(null);
+        if (IpProxyAllocationMode.SMART.value().equals(IpProxyAllocationMode.fromValue(proxy.getAllocationMode()).value())) {
+            update.setRegion(countryService.resolveIpRegionByIso2(result.countryCode()));
+        }
+    }
+
+    /**
+     * 应用一次失败检测结果。
+     *
+     * <p>失败时清空上一次成功检测的出口详情,失败次数在当前行快照基础上递增,错误信息截断到数据库字段长度。</p>
+     */
+    private static void applyDetectionFailure(IpProxy update, String errorMessage) {
+        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        update.setDetectedCountryCode(null);
+        update.setOutboundIp(null);
+        update.setDetectedLocation(null);
+        update.setDetectedIsp(null);
+        update.setDetectedLatitude(null);
+        update.setDetectedLongitude(null);
+        update.setCheckFailCount(update.getCheckFailCount() + 1);
+        update.setLastCheckError(truncate(StringUtils.hasText(errorMessage) ? errorMessage : "代理检测失败"));
+    }
+
+    /**
+     * 把检测后读取到的当前数据库行转换成前端弹窗结果。
+     *
+     * <p>connectionStatus 使用代理池业务状态 label;checkStatus 只表示本次检测是否通过。</p>
+     */
+    private static IpProxyCheckResultVO toCheckResultVO(IpProxy row, boolean success) {
+        return new IpProxyCheckResultVO(
+                row.getId(),
+                success ? IpProxyCheckStatus.SUCCESS.value() : IpProxyCheckStatus.FAILED.value(),
+                IpProxyStatus.labelOf(row.getStatus()),
+                WHATSAPP_STATUS_UNKNOWN,
+                row.getOutboundIp(),
+                row.getDetectedCountryCode(),
+                row.getRegion(),
+                row.getDetectedLocation(),
+                row.getDetectedIsp(),
+                row.getDetectedLatitude(),
+                row.getDetectedLongitude(),
+                row.getLastSampleCheckAt(),
+                row.getLastCheckError());
+    }
+
+    /**
+     * 校验并冻结批量检测 ID 列表。
+     *
+     * <p>批量检测会真实访问外部代理,因此这里提前拒绝空列表、超量、空 ID 和重复 ID,避免无效网络调用。</p>
+     */
+    private static List<Long> normalizeCheckIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "检测 IP 列表不能为空");
+        }
+        if (ids.size() > MAX_BATCH_CHECK_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION, "一次最多检测 " + MAX_BATCH_CHECK_SIZE + " 个 IP");
+        }
+        Set<Long> seen = new LinkedHashSet<>();
+        for (Long id : ids) {
+            if (id == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+            }
+            if (!seen.add(id)) {
+                throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能重复: " + id);
+            }
+        }
+        return List.copyOf(ids);
+    }
+
+    /**
+     * 截断可展示的检测错误。
+     *
+     * <p>错误会写入 {@code ip_proxy.last_check_error},这里统一兜底空消息并限制长度。</p>
+     */
+    private static String truncate(String message) {
+        if (!StringUtils.hasText(message)) {
+            return "代理检测失败";
+        }
+        return message.length() > ERROR_MAX_LENGTH ? message.substring(0, ERROR_MAX_LENGTH) : message;
     }
 
     /**

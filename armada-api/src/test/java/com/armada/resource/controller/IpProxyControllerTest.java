@@ -1,0 +1,103 @@
+package com.armada.resource.controller;
+
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
+import com.armada.resource.service.IpProxyDeletionService;
+import com.armada.resource.service.IpProxyService;
+import java.math.BigDecimal;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+/**
+ * IP 管理 Controller 单测:只覆盖检测路由委托和 ApiResponse 包裹。
+ */
+@ExtendWith(MockitoExtension.class)
+class IpProxyControllerTest {
+
+    @Mock
+    private IpProxyService service;
+
+    @Mock
+    private IpProxyDeletionService deletionService;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders
+                .standaloneSetup(new IpProxyController(service, deletionService))
+                .build();
+    }
+
+    @Test
+    void checkProxy_delegatesToServiceAndReturnsApiResponse() throws Exception {
+        IpProxyCheckResultVO vo = new IpProxyCheckResultVO(
+                10L,
+                "success",
+                "空闲",
+                "unknown",
+                "103.10.10.10",
+                "IN",
+                "印度",
+                "Mumbai",
+                "Example ISP",
+                new BigDecimal("19.0760000"),
+                new BigDecimal("72.8777000"),
+                1_719_800_000_000L,
+                null);
+        when(service.checkProxy(10L)).thenReturn(vo);
+
+        mockMvc.perform(post("/api/ip-proxies/{id}/check", 10L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(10))
+                .andExpect(jsonPath("$.data.checkStatus").value("success"))
+                .andExpect(jsonPath("$.data.connectionStatus").value("空闲"))
+                .andExpect(jsonPath("$.data.whatsappStatus").value("unknown"))
+                .andExpect(jsonPath("$.data.outboundIp").value("103.10.10.10"))
+                .andExpect(jsonPath("$.data.countryCode").value("IN"))
+                .andExpect(jsonPath("$.data.region").value("印度"))
+                .andExpect(jsonPath("$.data.location").value("Mumbai"))
+                .andExpect(jsonPath("$.data.isp").value("Example ISP"))
+                .andExpect(jsonPath("$.data.detectedLatitude").value(19.0760000))
+                .andExpect(jsonPath("$.data.detectedLongitude").value(72.8777000))
+                .andExpect(jsonPath("$.data.checkedAt").value(1_719_800_000_000L));
+
+        verify(service).checkProxy(10L);
+    }
+
+    @Test
+    void checkProxies_delegatesToServiceAndReturnsApiResponseList() throws Exception {
+        when(service.checkProxies(List.of(10L, 11L))).thenReturn(List.of(
+                new IpProxyCheckResultVO(
+                        10L, "success", "空闲", "unknown", "103.10.10.10", "IN", "印度",
+                        "Mumbai", "Example ISP", null, null, 1_719_800_000_000L, null),
+                new IpProxyCheckResultVO(
+                        11L, "failed", "不可用", "unknown", null, null, "混合（不限国家）",
+                        null, null, null, null, 1_719_800_000_100L, "代理连接超时")));
+
+        mockMvc.perform(post("/api/ip-proxies/check")
+                        .contentType("application/json")
+                        .content("{\"ids\":[10,11]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].id").value(10))
+                .andExpect(jsonPath("$.data[0].checkStatus").value("success"))
+                .andExpect(jsonPath("$.data[1].id").value(11))
+                .andExpect(jsonPath("$.data[1].checkStatus").value("failed"))
+                .andExpect(jsonPath("$.data[1].errorMessage").value("代理连接超时"));
+
+        verify(service).checkProxies(List.of(10L, 11L));
+    }
+}

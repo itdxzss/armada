@@ -95,4 +95,25 @@ public class CountryServiceImpl implements CountryService {
         }
         return country.getNameZh();
     }
+
+    /**
+     * 按检测出的 ISO2 国家码解析成 IP 代理池中文 region。
+     *
+     * <p>检测结果只接受真实国家码,不接受 MIXED 虚拟项或中文名。这里复用 IP 管理下拉口径:
+     * 只允许未删除、启用且支持 IP 管理的国家写入代理池。</p>
+     */
+    @Override
+    public String resolveIpRegionByIso2(String iso2) {
+        if (!StringUtils.hasText(iso2)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "检测国家码为空");
+        }
+        String normalized = iso2.trim().toUpperCase(Locale.ROOT);
+        for (Country country : mapper.selectIpSupported()) {
+            if (StringUtils.hasText(country.getIso2())
+                    && normalized.equals(country.getIso2().trim().toUpperCase(Locale.ROOT))) {
+                return country.getNameZh();
+            }
+        }
+        throw new BusinessException(ErrorCode.VALIDATION, "检测国家不支持 IP 管理: " + normalized);
+    }
 }

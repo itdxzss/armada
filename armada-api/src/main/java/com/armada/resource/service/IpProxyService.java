@@ -3,6 +3,7 @@ package com.armada.resource.service;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
@@ -43,6 +44,24 @@ public interface IpProxyService {
      * @throws BusinessException 协议/来源/内容为空，或协议码非法
      */
     IpProxyImportResultVO importProxies(IpProxyImportDTO dto);
+
+    /**
+     * 对单条 IP 代理执行真实出口检测并更新检测字段。
+     *
+     * @param id ip_proxy 主键
+     * @return 本次检测结果
+     * @throws BusinessException 当 ID 为空或代理不存在时抛出
+     */
+    IpProxyCheckResultVO checkProxy(Long id);
+
+    /**
+     * 批量执行 IP 代理真实出口检测。
+     *
+     * @param ids ip_proxy 主键列表,最多 20 个
+     * @return 按请求顺序返回的检测结果
+     * @throws BusinessException 当列表为空、超过限制或存在空 ID 时抛出
+     */
+    List<IpProxyCheckResultVO> checkProxies(List<Long> ids);
 
     /**
      * 为账号上线分配一条空闲代理。

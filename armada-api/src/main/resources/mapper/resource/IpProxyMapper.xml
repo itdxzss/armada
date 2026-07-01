@@ -18,7 +18,10 @@
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
         id, tenant_id, host, port, protocol, username, password, region,
-        status, bound_account_id, bound_at, last_sample_check_at, source, ownership, allocation_mode, remark,
+        status, bound_account_id, bound_at, last_sample_check_at,
+        detected_country_code, outbound_ip, detected_location, detected_isp,
+        detected_latitude, detected_longitude, check_fail_count, last_check_error,
+        source, ownership, allocation_mode, remark,
         created_at, updated_at, created_by, deleted_at
     </sql>
 
@@ -267,11 +270,16 @@
     <insert id="insert" parameterType="com.armada.resource.model.entity.IpProxy"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO ip_proxy
-            (host, port, protocol, username, password, region, status, source, ownership, allocation_mode, remark,
+            (host, port, protocol, username, password, region, status,
+             detected_country_code, outbound_ip, detected_location, detected_isp,
+             detected_latitude, detected_longitude, check_fail_count, last_check_error,
+             source, ownership, allocation_mode, remark,
              created_at, updated_at, created_by)
         VALUES
             (#{host}, #{port}, #{protocol}, #{username}, #{password}, #{region},
-             #{status}, #{source}, #{ownership}, #{allocationMode}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
+             #{status}, #{detectedCountryCode}, #{outboundIp}, #{detectedLocation}, #{detectedIsp},
+             #{detectedLatitude}, #{detectedLongitude}, #{checkFailCount}, #{lastCheckError},
+             #{source}, #{ownership}, #{allocationMode}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
     <select id="selectActiveById" resultType="com.armada.resource.model.entity.IpProxy">
@@ -281,6 +289,40 @@
           AND deleted_at IS NULL
         LIMIT 1
     </select>
+
+    <select id="selectActiveByIds" resultType="com.armada.resource.model.entity.IpProxy">
+        <if test="ids != null and ids.size() &gt; 0">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id ASC
+        </if>
+        <if test="ids == null or ids.size() == 0">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE 1 = 0
+        </if>
+    </select>
+
+    <update id="updateDetectionResult">
+        UPDATE ip_proxy
+        SET status = CASE WHEN status = #{inUseStatus} THEN status ELSE #{entity.status} END,
+            region = #{entity.region},
+            last_sample_check_at = #{entity.lastSampleCheckAt},
+            detected_country_code = #{entity.detectedCountryCode},
+            outbound_ip = #{entity.outboundIp},
+            detected_location = #{entity.detectedLocation},
+            detected_isp = #{entity.detectedIsp},
+            detected_latitude = #{entity.detectedLatitude},
+            detected_longitude = #{entity.detectedLongitude},
+            check_fail_count = #{entity.checkFailCount},
+            last_check_error = #{entity.lastCheckError},
+            updated_at = #{entity.updatedAt}
+        WHERE id = #{entity.id}
+          AND deleted_at IS NULL
+    </update>
 
     <select id="selectOneIdleByRegionPriorityForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
         SELECT <include refid="Columns"/>

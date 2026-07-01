@@ -1,5 +1,6 @@
 package com.armada.resource.converter;
 
+import com.armada.resource.model.IpProxyAllocationMode;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
@@ -16,13 +17,14 @@ import org.mapstruct.Mapping;
  * {@code createdAt} 为 epoch 毫秒直映。</p>
  */
 @Mapper(componentModel = "spring",
-        imports = {IpProxyStatus.class, ProxyProtocol.class, ProxyOwnership.class})
+        imports = {IpProxyStatus.class, IpProxyAllocationMode.class, ProxyProtocol.class, ProxyOwnership.class})
 public interface IpProxyConverter {
 
     @Mapping(target = "proxyAddress", expression = "java(entity.getHost() + \":\" + entity.getPort())")
     @Mapping(target = "protocolLabel", expression = "java(ProxyProtocol.labelOf(entity.getProtocol()))")
     @Mapping(target = "statusLabel", expression = "java(IpProxyStatus.labelOf(entity.getStatus()))")
     @Mapping(target = "ownershipLabel", expression = "java(ProxyOwnership.labelOf(entity.getOwnership()))")
+    @Mapping(target = "allocationModeLabel", expression = "java(IpProxyAllocationMode.labelOf(entity.getAllocationMode()))")
     @Mapping(target = "validAccountCount", expression = "java(entity.getBoundAccountId() == null ? 0 : 1)")
     IpProxyVO toVO(IpProxy entity);
 

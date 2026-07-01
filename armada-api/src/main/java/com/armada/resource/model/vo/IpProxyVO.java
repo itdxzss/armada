@@ -1,5 +1,7 @@
 package com.armada.resource.model.vo;
 
+import java.math.BigDecimal;
+
 /**
  * IP 代理列表出参（返回前端的视图对象）。
  *
@@ -50,6 +52,39 @@ public record IpProxyVO(
 
         /** 备注。 */
         String remark,
+
+        /** 分配方式:smart=智能分配 mixed=混合分组。 */
+        String allocationMode,
+
+        /** 分配方式展示中文。 */
+        String allocationModeLabel,
+
+        /** 最近抽检时间(epoch毫秒);NULL=尚未抽检。 */
+        Long lastSampleCheckAt,
+
+        /** 检测出的 ISO2 国家码。 */
+        String detectedCountryCode,
+
+        /** 真实出口公网 IP。 */
+        String outboundIp,
+
+        /** 检测出的地理位置。 */
+        String detectedLocation,
+
+        /** 检测出的 ISP。 */
+        String detectedIsp,
+
+        /** 检测纬度。 */
+        BigDecimal detectedLatitude,
+
+        /** 检测经度。 */
+        BigDecimal detectedLongitude,
+
+        /** 检测失败次数。 */
+        Integer checkFailCount,
+
+        /** 最近一次检测失败原因。 */
+        String lastCheckError,
 
         /** 创建时间，epoch 毫秒（UTC 时刻）；前端按 Asia/Shanghai 格式化。 */
         Long createdAt) {

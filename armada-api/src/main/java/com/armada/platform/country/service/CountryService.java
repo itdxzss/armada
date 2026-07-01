@@ -22,4 +22,12 @@ public interface CountryService {
      * @return 可写入/查询 ip_proxy.region 的中文 region;空值返回 null
      */
     String resolveIpRegion(String value);
+
+    /**
+     * 按检测出的 ISO2 国家码解析为 IP 代理池 region 中文快照。
+     *
+     * @param iso2 检测出的二字母国家码
+     * @return 可写入 ip_proxy.region 的中文 region
+     */
+    String resolveIpRegionByIso2(String iso2);
 }

@@ -62,6 +62,25 @@ public interface IpProxyMapper {
     IpProxy selectActiveById(@Param("id") Long id);
 
     /**
+     * 按 ID 批量查询活跃代理行。
+     *
+     * @param ids 代理主键列表
+     * @return 活跃代理行列表;空列表返回空集合
+     */
+    List<IpProxy> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 更新代理检测结果。
+     *
+     * <p>调用方在 entity 中传入本次检测状态、时间、出口详情、失败次数和失败原因。</p>
+     *
+     * @param entity 包含检测结果的代理实体
+     * @param inUseStatus 正在使用状态码;SQL 必须保留该状态,避免检测覆盖占用关系
+     * @return 更新行数
+     */
+    int updateDetectionResult(@Param("entity") IpProxy entity, @Param("inUseStatus") int inUseStatus);
+
+    /**
      * 按国家优先级锁定一条本租户空闲代理。
      *
      * <p>排序规则由调用方传入的 {@code preferredRegion} 决定:有指定国家时优先指定国家,

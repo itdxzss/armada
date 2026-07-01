@@ -1,8 +1,10 @@
 package com.armada.resource.controller;
 
 import com.armada.resource.model.dto.IpProxyBatchDeleteDTO;
+import com.armada.resource.model.dto.IpProxyBatchCheckDTO;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
+import com.armada.resource.model.vo.IpProxyCheckResultVO;
 import com.armada.resource.model.vo.IpProxyImportResultVO;
 import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.resource.service.IpProxyDeletionService;
@@ -12,6 +14,7 @@ import com.armada.shared.response.PageResult;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -62,6 +65,28 @@ public class IpProxyController {
     @PostMapping("/import")
     public ApiResponse<IpProxyImportResultVO> importProxies(@RequestBody IpProxyImportDTO dto) {
         return ApiResponse.ok(service.importProxies(dto));
+    }
+
+    /**
+     * 对单条 IP 代理执行真实出口检测。
+     *
+     * @param id 代理 ID
+     * @return 本次检测结果
+     */
+    @PostMapping("/{id}/check")
+    public ApiResponse<IpProxyCheckResultVO> checkProxy(@PathVariable Long id) {
+        return ApiResponse.ok(service.checkProxy(id));
+    }
+
+    /**
+     * 批量执行 IP 代理真实出口检测。
+     *
+     * @param request 代理 ID 列表
+     * @return 本次检测结果列表
+     */
+    @PostMapping("/check")
+    public ApiResponse<List<IpProxyCheckResultVO>> checkProxies(@RequestBody IpProxyBatchCheckDTO request) {
+        return ApiResponse.ok(service.checkProxies(request == null ? null : request.ids()));
     }
 
     /**

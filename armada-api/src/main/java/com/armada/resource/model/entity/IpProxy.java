@@ -1,6 +1,7 @@
 package com.armada.resource.model.entity;
 
 import com.armada.resource.model.IpProxyAllocationMode;
+import java.math.BigDecimal;
 
 /**
  * IP 代理实体，映射 ip_proxy 表一行。普通类 + getter/setter（无 Lombok），Mapper 直出。
@@ -47,6 +48,30 @@ public class IpProxy {
 
     /** 最近抽检时间(epoch毫秒);NULL=尚未抽检。 */
     private Long lastSampleCheckAt;
+
+    /** 检测出的 ISO2 国家码。 */
+    private String detectedCountryCode;
+
+    /** 真实出口公网 IP。 */
+    private String outboundIp;
+
+    /** 检测出的地理位置。 */
+    private String detectedLocation;
+
+    /** 检测出的 ISP。 */
+    private String detectedIsp;
+
+    /** 检测纬度。 */
+    private BigDecimal detectedLatitude;
+
+    /** 检测经度。 */
+    private BigDecimal detectedLongitude;
+
+    /** 检测失败次数。 */
+    private Integer checkFailCount;
+
+    /** 最近一次检测失败原因。 */
+    private String lastCheckError;
 
     /** 来源（服务商/批次，自由文本）。 */
     private String source;
@@ -166,6 +191,70 @@ public class IpProxy {
 
     public void setLastSampleCheckAt(Long lastSampleCheckAt) {
         this.lastSampleCheckAt = lastSampleCheckAt;
+    }
+
+    public String getDetectedCountryCode() {
+        return detectedCountryCode;
+    }
+
+    public void setDetectedCountryCode(String detectedCountryCode) {
+        this.detectedCountryCode = detectedCountryCode;
+    }
+
+    public String getOutboundIp() {
+        return outboundIp;
+    }
+
+    public void setOutboundIp(String outboundIp) {
+        this.outboundIp = outboundIp;
+    }
+
+    public String getDetectedLocation() {
+        return detectedLocation;
+    }
+
+    public void setDetectedLocation(String detectedLocation) {
+        this.detectedLocation = detectedLocation;
+    }
+
+    public String getDetectedIsp() {
+        return detectedIsp;
+    }
+
+    public void setDetectedIsp(String detectedIsp) {
+        this.detectedIsp = detectedIsp;
+    }
+
+    public BigDecimal getDetectedLatitude() {
+        return detectedLatitude;
+    }
+
+    public void setDetectedLatitude(BigDecimal detectedLatitude) {
+        this.detectedLatitude = detectedLatitude;
+    }
+
+    public BigDecimal getDetectedLongitude() {
+        return detectedLongitude;
+    }
+
+    public void setDetectedLongitude(BigDecimal detectedLongitude) {
+        this.detectedLongitude = detectedLongitude;
+    }
+
+    public Integer getCheckFailCount() {
+        return checkFailCount;
+    }
+
+    public void setCheckFailCount(Integer checkFailCount) {
+        this.checkFailCount = checkFailCount;
+    }
+
+    public String getLastCheckError() {
+        return lastCheckError;
+    }
+
+    public void setLastCheckError(String lastCheckError) {
+        this.lastCheckError = lastCheckError;
     }
 
     public String getSource() {

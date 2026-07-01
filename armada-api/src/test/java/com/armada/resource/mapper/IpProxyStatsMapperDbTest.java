@@ -75,6 +75,10 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
                 "UPDATE ip_proxy SET last_sample_check_at = ? WHERE id = ?",
                 now + 40,
                 indiaIdleA.getId());
+        jdbcTemplate.update(
+                "UPDATE ip_proxy SET check_fail_count = ? WHERE id = ?",
+                2,
+                indiaIdleA.getId());
 
         IpProxyStatsSummaryVO after = mapper.selectStatsSummary();
         assertThat(after.totalIpCount()).isEqualTo(before.totalIpCount() + 6);
@@ -130,12 +134,14 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         assertThat(sampled.getProxyPort()).isEqualTo(indiaIdleA.getPort());
         assertThat(sampled.getAllocationMode()).isEqualTo(IpProxyAllocationMode.SMART.value());
         assertThat(sampled.getLastSampleCheckAt()).isEqualTo(now + 40);
+        assertThat(sampled.getFailCount()).isEqualTo(2);
         assertThat(mapper.countStatsDetail(india, detailQuery)).isEqualTo(4);
 
         detailQuery.setAllocationMode(IpProxyAllocationMode.MIXED.value());
         assertThat(mapper.countStatsDetail(india, detailQuery)).isZero();
         assertThat(Arrays.stream(IpProxyStatsDetailVO.class.getDeclaredFields()).map(Field::getName))
-                .doesNotContain("password");
+                .contains("failCount")
+                .doesNotContain("password", "createdAt", "boundAt");
     }
 
     @Test

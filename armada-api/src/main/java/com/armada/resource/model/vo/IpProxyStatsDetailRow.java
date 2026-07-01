@@ -43,11 +43,8 @@ public class IpProxyStatsDetailRow {
     /** 最近抽检时间(epoch 毫秒);未抽检时为 null。 */
     private Long lastSampleCheckAt;
 
-    /** 入库时间(epoch 毫秒)。 */
-    private Long createdAt;
-
-    /** 绑定时间(epoch 毫秒);未绑定时为 null。 */
-    private Long boundAt;
+    /** 检测失败累计次数。 */
+    private Integer failCount;
 
     public Long getId() {
         return id;
@@ -145,19 +142,11 @@ public class IpProxyStatsDetailRow {
         this.lastSampleCheckAt = lastSampleCheckAt;
     }
 
-    public Long getCreatedAt() {
-        return createdAt;
+    public Integer getFailCount() {
+        return failCount;
     }
 
-    public void setCreatedAt(Long createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public Long getBoundAt() {
-        return boundAt;
-    }
-
-    public void setBoundAt(Long boundAt) {
-        this.boundAt = boundAt;
+    public void setFailCount(Integer failCount) {
+        this.failCount = failCount;
     }
 }

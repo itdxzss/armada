@@ -131,8 +131,7 @@ class IpProxyStatsControllerTest {
                         1,
                         "租户自有",
                         1_719_800_000_000L,
-                        1_719_700_000_000L,
-                        1_719_800_000_100L)), 1, 10, 1));
+                        3)), 1, 10, 1));
 
         mockMvc.perform(get("/api/ip-proxies/stats/countries/{region}/proxies", "印度")
                         .param("status", "2")
@@ -149,7 +148,10 @@ class IpProxyStatsControllerTest {
                 .andExpect(jsonPath("$.data.list[0].proxyPort").value(8000))
                 .andExpect(jsonPath("$.data.list[0].proxyAddress").value("1.2.3.4:8000"))
                 .andExpect(jsonPath("$.data.list[0].allocationModeLabel").value("混合分组"))
-                .andExpect(jsonPath("$.data.list[0].lastSampleCheckAt").value(1_719_800_000_000L));
+                .andExpect(jsonPath("$.data.list[0].lastSampleCheckAt").value(1_719_800_000_000L))
+                .andExpect(jsonPath("$.data.list[0].failCount").value(3))
+                .andExpect(jsonPath("$.data.list[0].createdAt").doesNotExist())
+                .andExpect(jsonPath("$.data.list[0].boundAt").doesNotExist());
     }
 
     @Test

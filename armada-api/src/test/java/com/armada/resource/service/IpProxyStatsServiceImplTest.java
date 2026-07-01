@@ -180,8 +180,7 @@ class IpProxyStatsServiceImplTest {
         row.setSource("iproyal");
         row.setOwnership(1);
         row.setLastSampleCheckAt(1_719_800_000_000L);
-        row.setCreatedAt(1_719_700_000_000L);
-        row.setBoundAt(1_719_800_000_100L);
+        row.setFailCount(3);
         when(mapper.countStatsDetail("印度", query)).thenReturn(1L);
         when(mapper.selectStatsDetailPage("印度", query)).thenReturn(List.of(row));
 
@@ -194,6 +193,7 @@ class IpProxyStatsServiceImplTest {
         assertThat(vo.statusLabel()).isEqualTo("使用中");
         assertThat(vo.ownershipLabel()).isEqualTo("租户自有");
         assertThat(vo.lastSampleCheckAt()).isEqualTo(1_719_800_000_000L);
+        assertThat(vo.failCount()).isEqualTo(3);
         verify(mapper).countStatsDetail("印度", query);
         verify(mapper).selectStatsDetailPage("印度", query);
     }
@@ -201,7 +201,8 @@ class IpProxyStatsServiceImplTest {
     @Test
     void regionProxies_exposesSeparatedAddressAndAllocationMode() throws Exception {
         assertThat(recordComponentNames(IpProxyStatsDetailVO.class))
-                .contains("proxyHost", "proxyPort", "allocationMode", "allocationModeLabel");
+                .contains("proxyHost", "proxyPort", "allocationMode", "allocationModeLabel", "failCount")
+                .doesNotContain("createdAt", "boundAt", "password");
 
         IpProxyStatsDetailQuery query = new IpProxyStatsDetailQuery();
         IpProxyStatsDetailRow row = new IpProxyStatsDetailRow();

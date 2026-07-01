@@ -261,8 +261,7 @@ public class IpProxyStatsServiceImpl implements IpProxyStatsService {
                 row.getOwnership(),
                 ProxyOwnership.labelOf(row.getOwnership()),
                 row.getLastSampleCheckAt(),
-                row.getCreatedAt(),
-                row.getBoundAt());
+                row.getFailCount());
     }
 
     /**

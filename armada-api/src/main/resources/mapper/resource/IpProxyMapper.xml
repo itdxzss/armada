@@ -287,8 +287,7 @@
             allocation_mode,
             ownership,
             last_sample_check_at,
-            created_at,
-            bound_at
+            check_fail_count AS fail_count
         FROM ip_proxy
         <include refid="StatsDetailWhere"/>
         ORDER BY id DESC

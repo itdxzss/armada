@@ -55,9 +55,6 @@ public record IpProxyStatsDetailVO(
         /** 最近抽检时间(epoch 毫秒)。 */
         Long lastSampleCheckAt,
 
-        /** 入库时间(epoch 毫秒)。 */
-        Long createdAt,
-
-        /** 绑定时间(epoch 毫秒)。 */
-        Long boundAt) {
+        /** 检测失败累计次数。 */
+        Integer failCount) {
 }

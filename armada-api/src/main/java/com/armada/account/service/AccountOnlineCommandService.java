@@ -23,6 +23,18 @@ public interface AccountOnlineCommandService {
     AccountOnlineVO online(Long accountId);
 
     /**
+     * 代理失败后自动重新上线账号。
+     *
+     * <p>调用方必须先释放账号当前绑定 IP。实现会重新分配一条可用代理并写入上线 outbox,
+     * 返回值仍只表示命令已受理,不代表账号已经 ONLINE。</p>
+     *
+     * @param accountId armada 账号主键
+     * @return outbox 上线命令受理回执
+     * @throws BusinessException 当账号、凭据或代理分配不满足上线前置条件时抛出
+     */
+    AccountOnlineVO reonlineAfterProxyFailure(Long accountId);
+
+    /**
      * 批量发起账号上线。
      *
      * <p>一次最多 500 个账号。实现会批量加载账号与凭据、批量分配代理,

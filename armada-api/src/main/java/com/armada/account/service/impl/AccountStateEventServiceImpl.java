@@ -135,8 +135,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 : event.semantic(), STATE_SOURCE_MAX_LENGTH);
 
         if (applyLifecycleTransition(account, event, stateSource, occurredAt, updatedAt)) {
-            applySideEffects(account, event, occurredAt);
             releaseIpIfOffline(account, event.to());
+            applySideEffects(account, event, occurredAt);
             log.info("协议账号状态事件已按生命周期收敛 accountId={} protocolAccountId={} from={} to={} "
                             + "semantic={} rawCode={} occurredAt={}",
                     account.getId(), event.protocolAccountId(), event.from(), event.to(),
@@ -147,8 +147,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         AccountState row = updateRow(account.getId(), mapLoginState(event.to()), null,
                 stateSource, null, occurredAt, updatedAt);
         int updated = stateMapper.updateLoginState(row);
-        applySideEffects(account, event, occurredAt);
         releaseIpIfOffline(account, event.to());
+        applySideEffects(account, event, occurredAt);
         log.info("协议账号状态事件已更新登录态 accountId={} protocolAccountId={} from={} to={} loginState={} "
                         + "stateSource={} updated={} occurredAt={}",
                 account.getId(), event.protocolAccountId(), event.from(), event.to(), row.getLoginState(),

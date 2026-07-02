@@ -25,7 +25,6 @@ public class AccountImportLoginResultSettler implements AccountStateChangedSideE
     private static final String STATE_NEED_REAUTH = "NEED_REAUTH";
     private static final String STATE_LOGGED_OUT = "LOGGED_OUT";
     private static final String STATE_DEVICE_REMOVED = "DEVICE_REMOVED";
-    private static final String SEMANTIC_PROXY_FAILED = "PROXY_FAILED";
     private static final String REASON_FORBIDDEN = "FORBIDDEN";
 
     private final AccountImportDetailMapper detailMapper;
@@ -84,7 +83,8 @@ public class AccountImportLoginResultSettler implements AccountStateChangedSideE
      *
      * <p>只有能代表“本次上线尝试已有终态”的事件才返回结算结果:
      * ONLINE 记成功;NEED_REAUTH+403 记封禁;认证失效类状态记密钥异常;
-     * OFFLINE 或代理失败语义记上线失败。RECONNECTING、CONNECTING 等中间态返回 null,等待后续终态。</p>
+     * OFFLINE 记上线失败。PROXY_FAILED 会触发换 IP 重试,不在这里冻结导入结果。
+     * RECONNECTING、CONNECTING 等中间态返回 null,等待后续终态。</p>
      *
      * @param event 协议账号状态事件
      * @return 可冻结到明细表的登录结果;中间态或未知状态返回 null
@@ -101,7 +101,7 @@ public class AccountImportLoginResultSettler implements AccountStateChangedSideE
         if (STATE_NEED_REAUTH.equals(to) || STATE_LOGGED_OUT.equals(to) || STATE_DEVICE_REMOVED.equals(to)) {
             return new LoginSettlement(AccountImportLoginResult.KEY_ABNORMAL, reason(semantic, to));
         }
-        if (STATE_OFFLINE.equals(to) || SEMANTIC_PROXY_FAILED.equals(semantic)) {
+        if (STATE_OFFLINE.equals(to)) {
             return new LoginSettlement(AccountImportLoginResult.FAILED, reason(semantic, to));
         }
         return null;

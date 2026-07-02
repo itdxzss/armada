@@ -54,6 +54,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final String SOURCE_BATCH_ONLINE = "batch_online";
     private static final String SOURCE_BATCH_OFFLINE = "batch_offline";
     private static final String SOURCE_IP_DELETE_RELOGIN = "ip_delete_relogin";
+    private static final String SOURCE_PROXY_FAILED_REONLINE = "proxy_failed_reonline";
     private static final int TRUTH_IP_MAX_LENGTH = 45;
     private static final int PROXY_COUNTRY_MAX_LENGTH = 64;
     private static final int PROXY_SOURCE_MAX_LENGTH = 64;
@@ -90,6 +91,15 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      */
     @Override
     public AccountOnlineVO online(Long accountId) {
+        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE);
+    }
+
+    @Override
+    public AccountOnlineVO reonlineAfterProxyFailure(Long accountId) {
+        return onlineWithSource(accountId, SOURCE_PROXY_FAILED_REONLINE);
+    }
+
+    private AccountOnlineVO onlineWithSource(Long accountId, String source) {
         log.info("账号上线开始 accountId={}", accountId);
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
@@ -111,7 +121,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     protocolAccountId,
                     credentialFormat,
                     allocation.proxyId(),
-                    SOURCE_MANUAL_ONLINE);
+                    source);
             updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。

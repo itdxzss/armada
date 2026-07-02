@@ -78,9 +78,10 @@ public class ProtocolAccountEventConsumer {
         if (EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
             ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
             log.info("协议账号状态事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
-                            + "from={} to={} semantic={} rawCode={} workerId={}",
+                            + "from={} to={} semantic={} rawCode={} attemptId={} workerId={}",
                     event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
-                    event.from(), event.to(), event.semantic(), event.rawCode(), event.workerId());
+                    event.from(), event.to(), event.semantic(), event.rawCode(), event.onlineAttemptId(),
+                    event.workerId());
             stateChangedSink.handleStateChanged(event);
             return;
         }
@@ -129,6 +130,7 @@ public class ProtocolAccountEventConsumer {
                 occurredAt(envelope),
                 text(data, "semantic"),
                 integer(data, "rawCode"),
+                text(data, "onlineAttemptId"),
                 text(envelope, "workerId"));
     }
 

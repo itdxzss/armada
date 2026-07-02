@@ -55,6 +55,7 @@ class AccountStateEventServiceImplTest {
                 "PROXY_FAILED",
                 2_000L,
                 "PROXY_FAILED",
+                null,
                 null);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
@@ -90,6 +91,7 @@ class AccountStateEventServiceImplTest {
                 "OFFLINE",
                 2_000L,
                 "PROXY_FAILED",
+                null,
                 null);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);

@@ -99,15 +99,20 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      */
     @Override
     public AccountOnlineVO online(Long accountId) {
-        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE);
+        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE, null);
     }
 
     @Override
     public AccountOnlineVO reonlineAfterProxyFailure(Long accountId) {
-        return onlineWithSource(accountId, SOURCE_PROXY_FAILED_REONLINE);
+        return reonlineAfterProxyFailure(accountId, null);
     }
 
-    private AccountOnlineVO onlineWithSource(Long accountId, String source) {
+    @Override
+    public AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId) {
+        return onlineWithSource(accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId);
+    }
+
+    private AccountOnlineVO onlineWithSource(Long accountId, String source, String failedOnlineAttemptId) {
         log.info("账号上线开始 accountId={}", accountId);
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
@@ -133,7 +138,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     allocation.proxyId(),
                     source,
                     onlineAttemptId,
-                    previousAttemptId(account.getId(), source));
+                    previousAttemptId(account.getId(), source, failedOnlineAttemptId));
             updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
@@ -394,7 +399,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         allocation.proxyId(),
                         source,
                         onlineAttemptId,
-                        previousAttemptId(accountId, source));
+                        previousAttemptId(accountId, source, null));
                 updateProxySnapshot(accountId, allocation.endpoint(), allocation.proxySource());
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
                 log.info("账号批量上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} source={} "
@@ -419,9 +424,12 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return new AccountBatchOnlineVO(0, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of());
     }
 
-    private String previousAttemptId(Long accountId, String source) {
+    private String previousAttemptId(Long accountId, String source, String failedOnlineAttemptId) {
         if (!SOURCE_PROXY_FAILED_REONLINE.equals(source)) {
             return null;
+        }
+        if (failedOnlineAttemptId != null && !failedOnlineAttemptId.isBlank()) {
+            return failedOnlineAttemptId;
         }
         return accountOnlineAttemptLogService.latestAttemptId(accountId);
     }

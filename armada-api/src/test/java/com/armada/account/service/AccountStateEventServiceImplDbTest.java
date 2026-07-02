@@ -262,7 +262,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
                 to,
                 occurredAt,
                 semantic,
-                rawCode);
+                rawCode,
+                null);
     }
 
     private AccountImportBatchVO importOneAccount(String wsPhone) {

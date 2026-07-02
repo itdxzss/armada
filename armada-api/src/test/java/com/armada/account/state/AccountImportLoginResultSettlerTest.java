@@ -32,6 +32,7 @@ class AccountImportLoginResultSettlerTest {
                 "PROXY_FAILED",
                 1782626401000L,
                 "PROXY_FAILED",
+                null,
                 null);
 
         settler.afterStateChanged(account, event, event.occurredAt());

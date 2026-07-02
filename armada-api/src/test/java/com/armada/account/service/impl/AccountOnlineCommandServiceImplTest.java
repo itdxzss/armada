@@ -240,6 +240,32 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void reonlineAfterProxyFailure_withFailedAttemptContextUsesEventAttemptWithoutWaitingForDiagnosisLog() {
+        Account account = onlineAccount();
+        AccountCredential credential = onlineCredential();
+        ProxyEndpoint endpoint = onlineEndpoint();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+
+        service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
+        assertThat(command.previousOnlineAttemptId()).isEqualTo("oa_failed_from_state_event");
+        assertThat(command.source()).isEqualTo("proxy_failed_reonline");
+        verify(accountOnlineAttemptLogService, never()).latestAttemptId(any());
+    }
+
+    @Test
     void onlineBatch_validAccountsCredentialsAndAllocatedProxies_enqueuesOneOutboxBatch() {
         Account accountA = account(100L, "acc_100");
         Account accountB = account(101L, "acc_101");

@@ -16,6 +16,7 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -640,6 +641,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             Long proxyId,
             String source,
             String onlineAttemptId,
+            @JsonInclude(JsonInclude.Include.ALWAYS)
             String previousOnlineAttemptId
     ) {
     }

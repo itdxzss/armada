@@ -22,7 +22,9 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayDeque;
 import java.util.List;
@@ -41,7 +43,8 @@ class ProtocolCommandOutboxServiceImplTest {
     private final ProtocolCommandOutboxMapper mapper = org.mockito.Mockito.mock(ProtocolCommandOutboxMapper.class);
     private final ProtocolCommandDispatchTrigger dispatchTrigger =
             org.mockito.Mockito.mock(ProtocolCommandDispatchTrigger.class);
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 
     @Test
     void enqueueOnlineCommands_singleCommand_insertsPendingRowWithStableEnvelopeAndSafePayload() throws Exception {
@@ -103,6 +106,26 @@ class ProtocolCommandOutboxServiceImplTest {
 
         assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getKafkaTopic)
                 .containsExactly("protocol.account.commands.test");
+    }
+
+    @Test
+    void enqueueOnlineCommands_nullPreviousAttemptKeepsPayloadFieldWithJsonNull() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-null-previous"), List.of());
+        ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
+                100L,
+                "acc_100",
+                CredentialFormat.BAILEYS_JSON,
+                7L,
+                "manual_online",
+                "oa_100",
+                null);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueOnlineCommands(List.of(command));
+
+        JsonNode payload = objectMapper.readTree(capturedRows().get(0).getPayloadJson());
+        assertThat(payload.has("previousOnlineAttemptId")).isTrue();
+        assertThat(payload.get("previousOnlineAttemptId").isNull()).isTrue();
     }
 
     @Test

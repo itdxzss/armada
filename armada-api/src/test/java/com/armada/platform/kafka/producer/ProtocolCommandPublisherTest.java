@@ -25,6 +25,7 @@ import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.shared.exception.BusinessException;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -64,7 +65,7 @@ class ProtocolCommandPublisherTest {
         properties.setSendTimeoutMs(1_000);
         publisher = new ProtocolCommandPublisher(
                 kafkaTemplate,
-                new ObjectMapper(),
+                new ObjectMapper().setSerializationInclusion(JsonInclude.Include.NON_NULL),
                 properties,
                 credentialMapper,
                 ipProxyMapper,
@@ -202,6 +203,7 @@ class ProtocolCommandPublisherTest {
         assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
         ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
         verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
+        assertThat(captor.getValue().payload().has("previousOnlineAttemptId")).isTrue();
         assertThat(captor.getValue().payload().get("previousOnlineAttemptId").isNull()).isTrue();
     }
 

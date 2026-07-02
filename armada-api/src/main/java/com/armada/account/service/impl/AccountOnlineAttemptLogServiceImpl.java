@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptLogService {
 
     private static final int RAW_REASON_MAX_LENGTH = 512;
+    private static final int EVIDENCE_JSON_MAX_LENGTH = 4096;
     private final AccountOnlineAttemptLogMapper mapper;
 
     public AccountOnlineAttemptLogServiceImpl(AccountOnlineAttemptLogMapper mapper) {
@@ -56,7 +57,7 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
         row.setRecoverability(event.recoverability());
         row.setActionTaken(event.actionTaken());
         row.setWorkerId(event.workerId());
-        row.setEvidenceJson(event.evidenceJson());
+        row.setEvidenceJson(boundedEvidenceJson(event.evidenceJson()));
         row.setOccurredAt(epochMillis(event.occurredAt()));
         row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
         mapper.insert(row);
@@ -94,5 +95,11 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
     private static String truncate(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) return value;
         return value.substring(0, maxLength);
+    }
+
+    private static String boundedEvidenceJson(String value) {
+        // Oversized evidence is dropped to keep this diagnostic table bounded and JSON valid.
+        if (value == null || value.length() <= EVIDENCE_JSON_MAX_LENGTH) return value;
+        return null;
     }
 }

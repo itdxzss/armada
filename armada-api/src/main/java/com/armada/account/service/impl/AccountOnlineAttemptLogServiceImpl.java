@@ -5,6 +5,8 @@ import com.armada.account.model.entity.AccountOnlineAttemptLog;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.service.AccountOfflineDiagnosedEvent;
 import com.armada.account.service.AccountOnlineAttemptLogService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -25,6 +27,7 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
 
     @Override
     public void applyOfflineDiagnosed(AccountOfflineDiagnosedEvent event) {
+        validate(event);
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
@@ -101,5 +104,19 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
         // Oversized evidence is dropped to keep this diagnostic table bounded and JSON valid.
         if (value == null || value.length() <= EVIDENCE_JSON_MAX_LENGTH) return value;
         return null;
+    }
+
+    private static void validate(AccountOfflineDiagnosedEvent event) {
+        if (event == null || event.tenantId() == null || event.accountId() == null
+                || isBlank(event.protocolAccountId()) || isBlank(event.onlineAttemptId())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号离线诊断事件缺少账号定位字段");
+        }
+        if (isBlank(event.to()) || isBlank(event.diagnosisCode()) || isBlank(event.diagnosisClass())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号离线诊断事件缺少诊断字段");
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

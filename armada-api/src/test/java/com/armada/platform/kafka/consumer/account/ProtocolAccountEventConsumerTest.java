@@ -196,6 +196,40 @@ class ProtocolAccountEventConsumerTest {
     }
 
     @Test
+    void onMessage_offlineDiagnosedEnvelope_usesDataEvidenceFallback() {
+        String raw = """
+                {
+                  "eventId": "evt-diagnosis-2",
+                  "event": "account.offline_diagnosed",
+                  "version": "v1",
+                  "accountId": "acc_252625852450",
+                  "occurredAt": "2026-07-02T10:18:00.123Z",
+                  "workerId": "w3",
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 9,
+                    "protocolAccountId": "acc_252625852450",
+                    "onlineAttemptId": "oa_20260702101716_x7k9m2",
+                    "to": "PROXY_FAILED",
+                    "diagnosisCode": "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE",
+                    "diagnosisClass": "PROXY_OR_WA_CONNECTIVITY",
+                    "evidence": {
+                      "source": "data"
+                    }
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolAccountOfflineDiagnosedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountOfflineDiagnosedEvent.class);
+        verify(offlineDiagnosedSink).handleOfflineDiagnosed(captor.capture());
+        assertThat(captor.getValue().evidenceJson()).isEqualTo("{\"source\":\"data\"}");
+        verifyNoInteractions(sink, groupsReportedSink);
+    }
+
+    @Test
     void onMessage_unregisteredAccountEvent_skipsSink() {
         String raw = """
                 {

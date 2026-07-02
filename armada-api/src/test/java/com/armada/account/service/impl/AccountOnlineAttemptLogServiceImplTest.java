@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountOnlineAttemptLogMapper;
 import com.armada.account.model.entity.AccountOnlineAttemptLog;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.service.AccountOfflineDiagnosedEvent;
+import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -55,6 +57,40 @@ class AccountOnlineAttemptLogServiceImplTest {
         ArgumentCaptor<AccountOnlineAttemptLog> captor = ArgumentCaptor.forClass(AccountOnlineAttemptLog.class);
         verify(mapper).insert(captor.capture());
         assertThat(captor.getValue().getEvidenceJson()).isNull();
+    }
+
+    @Test
+    void applyOfflineDiagnosed_keepsEvidenceJsonAtMaxLength() {
+        String maxLengthEvidence = "{\"payload\":\"" + "x".repeat(4082) + "\"}";
+        assertThat(maxLengthEvidence).hasSize(4096);
+
+        service.applyOfflineDiagnosed(event(1L, "reason", maxLengthEvidence));
+
+        ArgumentCaptor<AccountOnlineAttemptLog> captor = ArgumentCaptor.forClass(AccountOnlineAttemptLog.class);
+        verify(mapper).insert(captor.capture());
+        assertThat(captor.getValue().getEvidenceJson()).isEqualTo(maxLengthEvidence);
+    }
+
+    @Test
+    void applyOfflineDiagnosed_rejectsNullTenantBeforeTenantContextAndMapper() {
+        assertThatThrownBy(() -> service.applyOfflineDiagnosed(event(null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号离线诊断事件缺少账号定位字段");
+
+        assertThat(TenantContext.get()).isNull();
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void applyOfflineDiagnosed_rejectsBlankDiagnosisCodeBeforeTenantContextAndMapper() {
+        TenantContext.set(3L);
+
+        assertThatThrownBy(() -> service.applyOfflineDiagnosed(eventWithDiagnosisCode(" ")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号离线诊断事件缺少诊断字段");
+
+        assertThat(TenantContext.get()).isEqualTo(3L);
+        verifyNoInteractions(mapper);
     }
 
     @Test
@@ -170,6 +206,15 @@ class AccountOnlineAttemptLogServiceImplTest {
                 "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE", "PROXY_OR_WA_CONNECTIVITY",
                 408, rawReason, "RETRYABLE", "MARK_PROXY_FAILED_RELEASE_SLOT",
                 1782987480123L, "w3", evidenceJson);
+    }
+
+    private static AccountOfflineDiagnosedEvent eventWithDiagnosisCode(String diagnosisCode) {
+        return new AccountOfflineDiagnosedEvent(
+                1L, 9L, "acc_252625852450", "oa_1", null, "cmd_1", "batch_1",
+                4035L, "batch_online", "VERIFYING", "PROXY_FAILED",
+                diagnosisCode, "PROXY_OR_WA_CONNECTIVITY",
+                408, "reason", "RETRYABLE", "MARK_PROXY_FAILED_RELEASE_SLOT",
+                1782987480123L, "w3", "{\"wsOpen\":false}");
     }
 
     private static AccountOnlineAttemptLog row() {

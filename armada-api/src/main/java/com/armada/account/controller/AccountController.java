@@ -137,7 +137,7 @@ public class AccountController {
      * @param limit 返回数量上限
      * @return 最近诊断记录,最近优先
      */
-    @GetMapping("/{id}/online-attempts")
+    @GetMapping("/{id:\\d+}/online-attempts")
     public ApiResponse<List<AccountOnlineAttemptLogVO>> onlineAttempts(
             @PathVariable("id") Long id,
             @RequestParam(value = "limit", defaultValue = "20") int limit) {

@@ -452,6 +452,64 @@ class AccountImportListMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void service_exportDetails_txtScopeFail_includesLoginFailedAndAbnormalRows() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-txt-export-login-fail", now);
+        Long batchId = createBatch(groupId, "login-results.txt", "TXT", 5, 5, 0, 0, now);
+
+        AccountImportDetail success = detailWithPayload(
+                batchId, 1, "861399300001", 1, null, "raw-login-success", "line-1.json", now);
+        success.setLoginResult(1);
+        AccountImportDetail failed = detailWithPayload(
+                batchId, 2, "861399300002", 1, null, "raw-login-failed", "line-2.json", now);
+        failed.setLoginResult(2);
+        AccountImportDetail keyAbnormal = detailWithPayload(
+                batchId, 3, "861399300003", 1, null, "raw-key-abnormal", "line-3.json", now);
+        keyAbnormal.setLoginResult(3);
+        AccountImportDetail banned = detailWithPayload(
+                batchId, 4, "861399300004", 1, null, "raw-banned", "line-4.json", now);
+        banned.setLoginResult(4);
+        AccountImportDetail pending = detailWithPayload(
+                batchId, 5, "861399300005", 1, null, "raw-pending", "line-5.json", now);
+        detailMapper.batchInsert(List.of(success, failed, keyAbnormal, banned, pending));
+
+        AccountImportExportFile file = importService.exportDetails(batchId, "fail");
+
+        String body = new String(file.bytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("raw-login-failed", "raw-key-abnormal", "raw-banned");
+        assertThat(body).doesNotContain("raw-login-success", "raw-pending");
+    }
+
+    @Test
+    void service_exportDetails_txtScopeSuccess_usesLoginSuccessWhenLoginResultsExist() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-txt-export-login-success", now);
+        Long batchId = createBatch(groupId, "login-success.txt", "TXT", 5, 5, 0, 0, now);
+
+        AccountImportDetail success = detailWithPayload(
+                batchId, 1, "861399310001", 1, null, "raw-login-success", "line-1.json", now);
+        success.setLoginResult(1);
+        AccountImportDetail failed = detailWithPayload(
+                batchId, 2, "861399310002", 1, null, "raw-login-failed", "line-2.json", now);
+        failed.setLoginResult(2);
+        AccountImportDetail keyAbnormal = detailWithPayload(
+                batchId, 3, "861399310003", 1, null, "raw-key-abnormal", "line-3.json", now);
+        keyAbnormal.setLoginResult(3);
+        AccountImportDetail banned = detailWithPayload(
+                batchId, 4, "861399310004", 1, null, "raw-banned", "line-4.json", now);
+        banned.setLoginResult(4);
+        AccountImportDetail pending = detailWithPayload(
+                batchId, 5, "861399310005", 1, null, "raw-pending", "line-5.json", now);
+        detailMapper.batchInsert(List.of(success, failed, keyAbnormal, banned, pending));
+
+        AccountImportExportFile file = importService.exportDetails(batchId, "success");
+
+        String body = new String(file.bytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("raw-login-success");
+        assertThat(body).doesNotContain("raw-login-failed", "raw-key-abnormal", "raw-banned", "raw-pending");
+    }
+
+    @Test
     void service_exportDetails_zipScopeSuccess_exportsOnlySuccessEntries() throws Exception {
         long now = System.currentTimeMillis();
         Long groupId = createGroup("分组-zip-export-success", now);

@@ -109,7 +109,9 @@ public interface AccountImportDetailMapper {
      * 按批次 ID 查原始导出字段(不分页),用于恢复导入时的 ZIP/TXT 内容。
      *
      * @param batchId 批次 ID
-     * @param scope   结果范围:all=全部;success=只成功(parse_result=1);fail=只失败(parse_result IN 2,3,4)
+     * @param scope   结果范围:all=全部;success=已有登录结果时取登录成功(login_result=1),
+     *                完全没有登录结果时兼容导入成功(parse_result=1);
+     *                fail=导入解析失败(parse_result IN 2,3,4)或登录失败/异常(login_result IN 2,3,4)
      * @return 符合条件的原始导出投影
      */
     List<AccountImportExportRow> selectExportRowsByBatch(@Param("batchId") Long batchId,

@@ -60,7 +60,8 @@ public interface AccountImportService {
      * 无匹配行时返回对应类型的空文件。</p>
      *
      * @param batchId 批次 ID(必传)
-     * @param scope   结果范围:all=全部;success=只成功;fail=只失败
+     * @param scope   结果范围:all=全部;success=登录成功(无登录结果时兼容导入成功);
+     *                fail=导入解析失败或登录失败/异常
      * @return 文件响应对象(文件名/content-type/字节)
      * @throws BusinessException batchId 为空或批次缺少原始导出材料时抛出
      */

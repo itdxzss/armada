@@ -144,6 +144,9 @@
 
   <!--
     原始格式导出专用投影:只取恢复 ZIP/TXT 内容需要的字段,不暴露到明细列表响应。
+    scope=success 在已有登录结果的批次按登录成功(login_result=1)导出;
+    对完全没有登录结果的历史/未回写批次兼容旧口径(parse_result=1)。
+    scope=fail 包含导入解析失败(parse_result=2/3/4)和导入后登录失败/异常(login_result=2/3/4)。
   -->
   <select id="selectExportRowsByBatch" resultType="com.armada.account.model.vo.AccountImportExportRow">
     SELECT d.id, d.line_no AS lineNo, d.ws_phone AS wsPhone,
@@ -153,8 +156,24 @@
     JOIN account_import_batch b ON d.batch_id = b.id AND d.tenant_id = b.tenant_id
     WHERE d.batch_id = #{batchId}
     <choose>
-      <when test="scope == 'success'">AND d.parse_result = 1</when>
-      <when test="scope == 'fail'">AND d.parse_result IN (2, 3, 4)</when>
+      <when test="scope == 'success'">
+        AND (
+          d.login_result = 1
+          OR (
+            d.parse_result = 1
+            AND NOT EXISTS (
+              SELECT 1
+              FROM account_import_detail ld
+              WHERE ld.batch_id = d.batch_id
+                AND ld.tenant_id = d.tenant_id
+                AND ld.login_result IS NOT NULL
+            )
+          )
+        )
+      </when>
+      <when test="scope == 'fail'">
+        AND (d.parse_result IN (2, 3, 4) OR d.login_result IN (2, 3, 4))
+      </when>
     </choose>
     ORDER BY d.line_no ASC
   </select>

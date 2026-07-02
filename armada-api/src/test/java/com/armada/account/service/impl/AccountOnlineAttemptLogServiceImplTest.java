@@ -205,6 +205,15 @@ class AccountOnlineAttemptLogServiceImplTest {
     }
 
     @Test
+    void timeline_rejectsNullAttemptId() {
+        assertThatThrownBy(() -> service.timeline(null, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("上线尝试 ID 不能为空");
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
     void latestAttemptId_delegatesToMapper() {
         when(mapper.selectLatestAttemptIdByAccountId(9L)).thenReturn("oa_1");
 

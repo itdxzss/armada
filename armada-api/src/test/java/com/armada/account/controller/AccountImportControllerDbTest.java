@@ -10,10 +10,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.boot.Application;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -43,6 +45,9 @@ class AccountImportControllerDbTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     // -----------------------------------------------------------------------
     // C1: POST /api/account-imports — text 导入
@@ -129,6 +134,39 @@ class AccountImportControllerDbTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.total").isNumber())
                 .andExpect(jsonPath("$.data.list").isArray());
+    }
+
+    @Test
+    void get_listBatches_filterByLoginResult() throws Exception {
+        long suffix = System.currentTimeMillis();
+        Long failedBatchId = importFileBatch(
+                "login-filter-" + suffix + "-failed.json", "8613900100001");
+        Long cleanBatchId = importFileBatch(
+                "login-filter-" + suffix + "-clean.json", "8613900100002");
+        settleImportLoginResult(failedBatchId, 2);
+        settleImportLoginResult(cleanBatchId, 1);
+
+        mockMvc.perform(get("/api/account-imports")
+                        .param("page", "1")
+                        .param("pageSize", "10")
+                        .param("sourceFileName", "login-filter-" + suffix)
+                        .param("login", "有失败")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].id").value(failedBatchId));
+
+        mockMvc.perform(get("/api/account-imports")
+                        .param("page", "1")
+                        .param("pageSize", "10")
+                        .param("sourceFileName", "login-filter-" + suffix)
+                        .param("login", "无失败")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].id").value(cleanBatchId));
     }
 
     // -----------------------------------------------------------------------
@@ -237,6 +275,38 @@ class AccountImportControllerDbTest {
             zos.closeEntry();
         }
         return baos.toByteArray();
+    }
+
+    private Long importFileBatch(String filename, String wid) throws Exception {
+        String json = "[{\"wid\":\"" + wid + "\","
+                + "\"registrationId\":99,\"noiseKey\":{},"
+                + "\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
+        MockMultipartFile file = new MockMultipartFile(
+                "file", filename, "application/json", json.getBytes());
+
+        MvcResult result = mockMvc.perform(multipart("/api/account-imports")
+                        .file(file)
+                        .param("importFormat", "2")
+                        .param("deviceOs", "1")
+                        .param("accountType", "1")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andReturn();
+
+        Long batchId = objectMapper.readTree(result.getResponse().getContentAsString())
+                .path("data").path("id").longValue();
+        Assertions.assertTrue(batchId > 0);
+        return batchId;
+    }
+
+    private void settleImportLoginResult(Long batchId, int loginResult) {
+        int updated = jdbc.update("""
+                UPDATE account_import_detail
+                SET login_result = ?, login_settled_at = ?
+                WHERE batch_id = ?
+                """, loginResult, System.currentTimeMillis(), batchId);
+        Assertions.assertEquals(1, updated);
     }
 
     private java.util.Map<String, String> unzip(byte[] bytes) throws Exception {

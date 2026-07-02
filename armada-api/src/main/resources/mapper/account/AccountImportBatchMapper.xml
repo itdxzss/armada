@@ -48,6 +48,28 @@
     <if test="deviceOs != null">AND b.device_os = #{deviceOs}</if>
     <if test="accountType != null">AND b.account_type = #{accountType}</if>
     <if test="status != null">AND b.status = #{status}</if>
+    <if test="login != null and login != ''">
+      <choose>
+        <when test="login == '有失败'">
+          AND EXISTS (
+            SELECT 1
+            FROM account_import_detail d
+            WHERE d.batch_id = b.id
+              AND d.tenant_id = b.tenant_id
+              AND d.login_result IN (2, 3, 4)
+          )
+        </when>
+        <when test="login == '无失败'">
+          AND NOT EXISTS (
+            SELECT 1
+            FROM account_import_detail d
+            WHERE d.batch_id = b.id
+              AND d.tenant_id = b.tenant_id
+              AND d.login_result IN (2, 3, 4)
+          )
+        </when>
+      </choose>
+    </if>
   </sql>
 
   <select id="countPage" resultType="long">

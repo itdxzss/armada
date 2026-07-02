@@ -30,6 +30,9 @@ public class AccountImportQuery extends PageQuery {
     /** 批次状态:1进行中 2已完成(可选)。 */
     private Integer status;
 
+    /** 登录结果:有失败/无失败(可选)。 */
+    private String login;
+
     public Long getId() {
         return id;
     }
@@ -84,5 +87,13 @@ public class AccountImportQuery extends PageQuery {
 
     public void setStatus(Integer status) {
         this.status = status;
+    }
+
+    public String getLogin() {
+        return login;
+    }
+
+    public void setLogin(String login) {
+        this.login = login;
     }
 }

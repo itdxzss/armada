@@ -57,6 +57,9 @@ public enum JoinTaskFailureReason {
     /** 账号凭据失效,需要重新登录。 */
     NEED_REAUTH("NEED_REAUTH", "账号需重新登录"),
 
+    /** WhatsApp 限制账号主动触达或加群。 */
+    ACCOUNT_REACHOUT_RESTRICTED("ACCOUNT_REACHOUT_RESTRICTED", "账号触达受限，无法进群"),
+
     /** 未识别的协议层失败。 */
     UNKNOWN("UNKNOWN", "进群失败");
 

@@ -99,6 +99,40 @@ class ProtocolHttpExecutorTest {
     }
 
     @Test
+    void mapsAccountReachoutRestrictedProtocolCode() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ProtocolHttpExecutor executor = new ProtocolHttpExecutor(builder.build());
+
+        server.expect(requestTo("http://protocol.internal/v1/groups/join"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "code": "ACCOUNT_REACHOUT_RESTRICTED",
+                                  "message": "account reachout restricted while joining group",
+                                  "details": {
+                                    "rawMessage": "account_reachout_restricted",
+                                    "waCode": 463
+                                  }
+                                }
+                                """));
+
+        assertThatThrownBy(() -> executor.postTyped(
+                "/v1/groups/join",
+                Map.of("accountId", "acc_244938583362", "inviteCode", "B9gxXGEppjgHv2QZGhDpzl"),
+                PingResponse.class))
+                .isInstanceOfSatisfying(ProtocolException.class, ex -> {
+                    assertThat(ex.errorCode()).isEqualTo(ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED);
+                    assertThat(ex.httpStatus()).isEqualTo(422);
+                    assertThat(ex.protocolCode()).contains("ACCOUNT_REACHOUT_RESTRICTED");
+                    assertThat(ex.getMessage()).contains("account reachout restricted while joining group");
+                });
+        server.verify();
+    }
+
+    @Test
     void closesResponseAfterExchangeCallbackReadsBody() {
         AtomicBoolean closed = new AtomicBoolean(false);
         MockClientHttpResponse response = new MockClientHttpResponse(

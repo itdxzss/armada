@@ -59,6 +59,11 @@ public enum ProtocolErrorCode {
     NEED_REAUTH,
 
     /**
+     * WhatsApp 限制账号主动触达或加群,当前进群动作应明确失败。
+     */
+    ACCOUNT_REACHOUT_RESTRICTED,
+
+    /**
      * 未识别或尚未映射的协议层失败。
      */
     UNKNOWN

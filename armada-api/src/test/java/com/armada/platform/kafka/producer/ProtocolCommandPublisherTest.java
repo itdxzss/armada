@@ -131,14 +131,16 @@ class ProtocolCommandPublisherTest {
                 100L,
                 "acc_100",
                 "{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
-                        + "\"credentialFormat\":\"BAILEYS_JSON\",\"proxyId\":7,\"source\":\"batch_online\"}");
+                        + "\"credentialFormat\":\"BAILEYS_JSON\",\"proxyId\":7,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_100\",\"previousOnlineAttemptId\":\"oa_99\"}");
         ProtocolCommandOutbox second = outboxRow(
                 "cmd_101",
                 1L,
                 101L,
                 "acc_101",
                 "{\"accountId\":101,\"protocolAccountId\":\"acc_101\","
-                        + "\"credentialFormat\":\"PARAMS\",\"proxyId\":8,\"source\":\"batch_online\"}");
+                        + "\"credentialFormat\":\"PARAMS\",\"proxyId\":8,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_101\",\"previousOnlineAttemptId\":\"oa_100\"}");
         when(credentialMapper.selectByTenantAndAccountIds(1L, List.of(100L, 101L)))
                 .thenReturn(List.of(
                         credential(100L, 2, "{\"creds\":{\"noiseKey\":\"n1\"},\"keys\":{}}"),
@@ -162,6 +164,9 @@ class ProtocolCommandPublisherTest {
         ProtocolCommandEnvelope firstEnvelope = captor.getValue();
         assertThat(firstEnvelope.payload().get("tenantId").asLong()).isEqualTo(1L);
         assertThat(firstEnvelope.payload().get("format").asText()).isEqualTo("baileys_json");
+        assertThat(firstEnvelope.payload().get("onlineAttemptId").asText()).isEqualTo("oa_100");
+        assertThat(firstEnvelope.payload().get("previousOnlineAttemptId").asText()).isEqualTo("oa_99");
+        assertThat(firstEnvelope.payload().get("source").asText()).isEqualTo("batch_online");
         assertThat(firstEnvelope.payload().get("credential").get("creds").get("noiseKey").asText()).isEqualTo("n1");
         assertThat(firstEnvelope.payload().get("proxy").get("protocol").asText()).isEqualTo("socks5");
         assertThat(firstEnvelope.payload().get("proxy").get("url").asText())

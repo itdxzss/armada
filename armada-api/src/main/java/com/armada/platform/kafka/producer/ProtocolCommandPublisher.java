@@ -218,7 +218,9 @@ public class ProtocolCommandPublisher {
                                 toWireFormat(ref.format()),
                                 credentialPayload,
                                 proxyPayload,
-                                ref.source()))));
+                                ref.source(),
+                                ref.onlineAttemptId(),
+                                ref.previousOnlineAttemptId()))));
             } catch (RuntimeException ex) {
                 failures.put(commandKey(ref.row()), ex);
             }
@@ -234,8 +236,11 @@ public class ProtocolCommandPublisher {
         Long proxyId = requiredLong(payload, "proxyId", row.getCommandId());
         String protocolAccountId = textOrDefault(payload, "protocolAccountId", row.getProtocolAccountId());
         String source = textOrDefault(payload, "source", "unknown");
+        String onlineAttemptId = requiredText(payload, "onlineAttemptId", row.getCommandId());
+        String previousOnlineAttemptId = textOrDefault(payload, "previousOnlineAttemptId", null);
         CredentialFormat format = credentialFormat(requiredText(payload, "credentialFormat", row.getCommandId()));
-        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, source);
+        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, source,
+                onlineAttemptId, previousOnlineAttemptId);
     }
 
     private ProtocolCommandEnvelope toEnvelope(ProtocolCommandOutbox row) {
@@ -377,7 +382,9 @@ public class ProtocolCommandPublisher {
             String protocolAccountId,
             CredentialFormat format,
             Long proxyId,
-            String source
+            String source,
+            String onlineAttemptId,
+            String previousOnlineAttemptId
     ) {
     }
 
@@ -388,7 +395,9 @@ public class ProtocolCommandPublisher {
             String format,
             Map<String, Object> credential,
             ProxyDescriptor proxy,
-            String source
+            String source,
+            String onlineAttemptId,
+            String previousOnlineAttemptId
     ) {
     }
 }

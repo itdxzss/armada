@@ -378,12 +378,15 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * @throws BusinessException 当 payload 无法序列化时抛出
      */
     private String payloadJson(ProtocolOnlineCommandRequest command) {
+        // attempt ID 是 Armada 侧上线链路的排查主键,不含凭据或代理密钥,允许随 outbox/Kafka 透传。
         ProtocolOnlineCommandPayload payload = new ProtocolOnlineCommandPayload(
                 command.accountId(),
                 command.protocolAccountId(),
                 command.credentialFormat(),
                 command.proxyId(),
-                command.source());
+                command.source(),
+                command.onlineAttemptId(),
+                command.previousOnlineAttemptId());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -496,6 +499,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || command.proxyId() == null
                 || isBlank(command.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令缺少必要字段");
+        }
+        if (isBlank(command.onlineAttemptId())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令缺少 onlineAttemptId");
         }
     }
 
@@ -632,7 +638,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             String protocolAccountId,
             CredentialFormat credentialFormat,
             Long proxyId,
-            String source
+            String source,
+            String onlineAttemptId,
+            String previousOnlineAttemptId
     ) {
     }
 

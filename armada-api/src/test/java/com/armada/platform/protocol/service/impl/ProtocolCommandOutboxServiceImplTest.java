@@ -79,7 +79,9 @@ class ProtocolCommandOutboxServiceImplTest {
                 .containsEntry("protocolAccountId", "acc_100")
                 .containsEntry("credentialFormat", "BAILEYS_JSON")
                 .containsEntry("proxyId", 7)
-                .containsEntry("source", "manual_online");
+                .containsEntry("source", "manual_online")
+                .containsEntry("onlineAttemptId", "oa_100")
+                .containsEntry("previousOnlineAttemptId", "oa_99");
         assertThat(row.getPayloadJson())
                 .doesNotContain("credentialJson")
                 .doesNotContain("creds")
@@ -329,6 +331,27 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueOnlineCommands_missingOnlineAttemptId_throwsValidationBeforeInsert() {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-a"), List.of());
+        ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
+                100L,
+                "acc_100",
+                CredentialFormat.BAILEYS_JSON,
+                7L,
+                "manual_online",
+                null,
+                "oa_99");
+
+        assertThatThrownBy(() -> service.enqueueOnlineCommands(List.of(command)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("协议上线命令缺少 onlineAttemptId")
+                .extracting("code")
+                .isEqualTo(ErrorCode.VALIDATION.code());
+        verify(mapper, never()).batchInsertPending(anyList());
+        verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+    }
+
+    @Test
     void enqueueOnlineCommands_insertedCountMismatch_throwsConflictBeforeDispatch() {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-a", "cmd-b"), List.of("batch-1"));
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
@@ -377,8 +400,8 @@ class ProtocolCommandOutboxServiceImplTest {
                 credentialFormat,
                 proxyId,
                 "manual_online",
-                "oa_test_" + accountId,
-                null);
+                "oa_100",
+                "oa_99");
     }
 
     private static ProtocolOfflineCommandRequest offlineCommand(Long accountId, String protocolAccountId) {

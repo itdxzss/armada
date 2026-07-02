@@ -16,6 +16,7 @@ import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.task.model.enums.DistributionMode;
 import com.armada.task.model.enums.JoinResultStatus;
+import com.armada.task.model.enums.JoinTaskFailureReason;
 import com.armada.task.model.enums.JoinTaskStatus;
 import com.armada.task.model.vo.JoinResultRowVO;
 import com.armada.task.model.vo.JoinTaskDetailVO;
@@ -352,6 +353,6 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     /** 明细实体 → 明细行 VO(群链接原样直出,不脱敏)。 */
     private static JoinResultRowVO toResultRowVO(JoinTaskResult r) {
         return new JoinResultRowVO(r.getAccount(), r.getLink(),
-                r.getStatus(), r.getReason(), r.isAdmin());
+                r.getStatus(), r.getReason(), JoinTaskFailureReason.labelOf(r.getReason()), r.isAdmin());
     }
 }

@@ -1,11 +1,12 @@
 package com.armada.task.service;
 
+import com.armada.group.service.GroupLinkUrls;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** 进群链接输入框文本分类:按行拆分、去空、去重保序,含 chat.whatsapp.com 为有效,否则无效。 */
+/** 进群链接输入框文本分类:按行拆分、去空、去重保序,通过群链接格式校验为有效,否则无效。 */
 public final class LinkClassifier {
 
     private LinkClassifier() {
@@ -16,7 +17,7 @@ public final class LinkClassifier {
     }
 
     /**
-     * 按行拆分原始文本 → trim → 去空行 → 去重保序;含 "chat.whatsapp.com"(忽略大小写)入 valid,否则入 invalid。
+     * 按行拆分原始文本 → trim → 去空行 → 去重保序;能归一化为 WhatsApp 群邀请链接入 valid,否则入 invalid。
      *
      * @param linksText 输入框原始文本(可空)
      * @return 分类结果
@@ -35,7 +36,7 @@ public final class LinkClassifier {
             }
         }
         for (String line : seen) {
-            if (line.toLowerCase().contains("chat.whatsapp.com")) {
+            if (GroupLinkUrls.tryNormalize(line).isPresent()) {
                 valid.add(line);
             } else {
                 invalid.add(line);

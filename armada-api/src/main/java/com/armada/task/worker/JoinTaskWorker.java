@@ -1,9 +1,14 @@
 package com.armada.task.worker;
 
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
+import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
+import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
@@ -39,13 +44,21 @@ public class JoinTaskWorker implements DisposableBean {
 
     public static final String REASON_JOIN_PENDING_APPROVAL = "JOIN_PENDING_APPROVAL";
     public static final String REASON_ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND";
+    public static final String REASON_ACCOUNT_NOT_ONLINE = "ACCOUNT_NOT_ONLINE";
+
+    private static final String PROTOCOL_STATE_ONLINE = "ONLINE";
+    private static final String PROTOCOL_CODE_ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND";
+    private static final String STATE_SOURCE_JOIN_TASK_STATUS = "JOIN_TASK_STATUS";
+    private static final String STATE_SOURCE_JOIN_TASK_STATUS_NOT_FOUND = "JOIN_TASK_STATUS_NOT_FOUND";
 
     private static final Logger log = LoggerFactory.getLogger(JoinTaskWorker.class);
 
     private final JoinTaskMapper joinTaskMapper;
     private final JoinTaskResultMapper resultMapper;
     private final AccountMapper accountMapper;
+    private final AccountStateMapper accountStateMapper;
     private final GroupJoinPort groupJoinPort;
+    private final AccountLifecyclePort accountLifecyclePort;
     private final Executor executor;
     private final Sleeper sleeper;
     private final Set<String> activeTasks = ConcurrentHashMap.newKeySet();
@@ -60,22 +73,29 @@ public class JoinTaskWorker implements DisposableBean {
             JoinTaskMapper joinTaskMapper,
             JoinTaskResultMapper resultMapper,
             AccountMapper accountMapper,
+            AccountStateMapper accountStateMapper,
             GroupJoinPort groupJoinPort,
+            AccountLifecyclePort accountLifecyclePort,
             @Value("${armada.join-task.worker.pool-size:4}") int poolSize) {
-        this(joinTaskMapper, resultMapper, accountMapper, groupJoinPort, newPool(poolSize), Thread::sleep);
+        this(joinTaskMapper, resultMapper, accountMapper, accountStateMapper, groupJoinPort,
+                accountLifecyclePort, newPool(poolSize), Thread::sleep);
     }
 
     public JoinTaskWorker(
             JoinTaskMapper joinTaskMapper,
             JoinTaskResultMapper resultMapper,
             AccountMapper accountMapper,
+            AccountStateMapper accountStateMapper,
             GroupJoinPort groupJoinPort,
+            AccountLifecyclePort accountLifecyclePort,
             Executor executor,
             Sleeper sleeper) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
         this.accountMapper = accountMapper;
+        this.accountStateMapper = accountStateMapper;
         this.groupJoinPort = groupJoinPort;
+        this.accountLifecyclePort = accountLifecyclePort;
         this.executor = executor;
         this.sleeper = sleeper;
     }
@@ -188,6 +208,10 @@ public class JoinTaskWorker implements DisposableBean {
                 fail(row, REASON_ACCOUNT_NOT_FOUND);
                 return;
             }
+            if (!isProtocolOnline(account)) {
+                fail(row, REASON_ACCOUNT_NOT_ONLINE);
+                return;
+            }
             GroupJoinResult result = groupJoinPort.join(account.getProtocolAccountId(), row.getLink());
             if (result != null && result.joined()) {
                 resultMapper.updateResultSuccess(row.getId(), nullToEmpty(result.groupJid()), System.currentTimeMillis());
@@ -210,6 +234,46 @@ public class JoinTaskWorker implements DisposableBean {
             return null;
         }
         return account;
+    }
+
+    private boolean isProtocolOnline(Account account) {
+        try {
+            ProtocolAccountStatus status = accountLifecyclePort.status(account.getProtocolAccountId());
+            if (status != null && PROTOCOL_STATE_ONLINE.equalsIgnoreCase(status.state())) {
+                return true;
+            }
+            markAccountOffline(account, STATE_SOURCE_JOIN_TASK_STATUS);
+            log.warn("进群任务账号协议状态非 ONLINE accountId={} protocolAccountId={} protocolState={}",
+                    account.getId(), account.getProtocolAccountId(), status == null ? null : status.state());
+            return false;
+        } catch (ProtocolException ex) {
+            if (!isProtocolAccountNotFound(ex)) {
+                throw ex;
+            }
+            markAccountOffline(account, STATE_SOURCE_JOIN_TASK_STATUS_NOT_FOUND);
+            log.warn("进群任务账号协议状态不存在 accountId={} protocolAccountId={} httpStatus={} protocolCode={}",
+                    account.getId(), account.getProtocolAccountId(), ex.httpStatus(),
+                    ex.protocolCode().orElse(null));
+            return false;
+        }
+    }
+
+    private void markAccountOffline(Account account, String stateSource) {
+        AccountState row = new AccountState();
+        row.setAccountId(account.getId());
+        row.setLoginState(AccountLoginStateCode.OFFLINE);
+        row.setStateSource(stateSource);
+        long now = System.currentTimeMillis();
+        row.setLastStateSyncTime(now);
+        row.setUpdatedAt(now);
+        accountStateMapper.updateLoginState(row);
+    }
+
+    private static boolean isProtocolAccountNotFound(ProtocolException ex) {
+        return ex.httpStatus() == 404
+                || ex.protocolCode()
+                .map(PROTOCOL_CODE_ACCOUNT_NOT_FOUND::equalsIgnoreCase)
+                .orElse(false);
     }
 
     private void fail(JoinTaskResult row, String reason) {

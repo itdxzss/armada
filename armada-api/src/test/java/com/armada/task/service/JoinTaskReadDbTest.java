@@ -4,9 +4,11 @@ import com.armada.boot.Application;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.task.mapper.JoinTaskResultMapper;
 import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.JoinTaskQuery;
 import com.armada.task.model.dto.SelectedAccount;
+import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.task.model.vo.JoinResultRowVO;
 import com.armada.task.model.vo.JoinTaskDetailVO;
 import com.armada.task.model.vo.JoinTaskVO;
@@ -34,6 +36,9 @@ class JoinTaskReadDbTest extends DbTestBase {
 
     @Autowired
     private JoinTaskService service;
+
+    @Autowired
+    private JoinTaskResultMapper resultMapper;
 
     // 真 WA 群链接
     private static final String LINK1 = "https://chat.whatsapp.com/AAA111";
@@ -223,5 +228,32 @@ class JoinTaskReadDbTest extends DbTestBase {
         assertThat(rows).extracting(JoinResultRowVO::link).containsOnly(LINK1, LINK2);
         assertThat(rows.stream().filter(r -> LINK1.equals(r.link())).count()).isGreaterThanOrEqualTo(1);
         assertThat(rows.stream().filter(r -> LINK2.equals(r.link())).count()).isGreaterThanOrEqualTo(1);
+    }
+
+    /**
+     * results 返回原始失败原因码 + 中文展示文案。
+     * 机器码保留给排查和兼容老数据,页面展示使用 reasonLabel。
+     */
+    @Test
+    void case5_results_includesChineseReasonLabel() {
+        JoinTaskVO jia = createJia();
+        List<JoinTaskResult> dbRows = resultMapper.selectResultsByTask(jia.id());
+        resultMapper.updateResultFailed(dbRows.get(0).getId(), "ACCOUNT_NOT_ONLINE", System.currentTimeMillis());
+        resultMapper.updateResultFailed(dbRows.get(1).getId(), "INTERNAL_ERROR", System.currentTimeMillis());
+
+        List<JoinResultRowVO> rows = service.results(jia.id());
+        JoinResultRowVO offline = rows.stream()
+                .filter(r -> "ACCOUNT_NOT_ONLINE".equals(r.reason()))
+                .findFirst()
+                .orElseThrow();
+        JoinResultRowVO internalError = rows.stream()
+                .filter(r -> "INTERNAL_ERROR".equals(r.reason()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(offline.reason()).isEqualTo("ACCOUNT_NOT_ONLINE");
+        assertThat(offline.reasonLabel()).isEqualTo("账号未在线");
+        assertThat(internalError.reason()).isEqualTo("INTERNAL_ERROR");
+        assertThat(internalError.reasonLabel()).isEqualTo("进群失败，请检查群链接或稍后重试");
     }
 }

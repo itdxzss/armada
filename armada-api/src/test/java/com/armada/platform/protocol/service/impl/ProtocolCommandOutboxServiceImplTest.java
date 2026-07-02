@@ -376,7 +376,9 @@ class ProtocolCommandOutboxServiceImplTest {
                 protocolAccountId,
                 credentialFormat,
                 proxyId,
-                "manual_online");
+                "manual_online",
+                "oa_test_" + accountId,
+                null);
     }
 
     private static ProtocolOfflineCommandRequest offlineCommand(Long accountId, String protocolAccountId) {

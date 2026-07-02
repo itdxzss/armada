@@ -13,7 +13,9 @@ import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
+import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.account.service.OnlineAttemptIdGenerator;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -64,6 +66,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private final AccountStateMapper stateMapper;
     private final IpProxyService ipProxyService;
     private final ProtocolCommandOutboxService protocolCommandOutboxService;
+    private final OnlineAttemptIdGenerator onlineAttemptIdGenerator;
+    private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
 
     /**
      * 创建账号上线编排服务。
@@ -74,12 +78,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                            AccountCredentialMapper credentialMapper,
                                            AccountStateMapper stateMapper,
                                            IpProxyService ipProxyService,
-                                           ProtocolCommandOutboxService protocolCommandOutboxService) {
+                                           ProtocolCommandOutboxService protocolCommandOutboxService,
+                                           OnlineAttemptIdGenerator onlineAttemptIdGenerator,
+                                           AccountOnlineAttemptLogService accountOnlineAttemptLogService) {
         this.accountMapper = accountMapper;
         this.credentialMapper = credentialMapper;
         this.stateMapper = stateMapper;
         this.ipProxyService = ipProxyService;
         this.protocolCommandOutboxService = protocolCommandOutboxService;
+        this.onlineAttemptIdGenerator = onlineAttemptIdGenerator;
+        this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
     }
 
     /**
@@ -113,15 +121,19 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             // 3. outbox 只保存凭据格式和代理 ID;日志只打 JSON 长度,避免凭据泄露。
             CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
             String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-            log.info("账号上线写入 outbox 前准备 command accountId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
-                    account.getId(), allocation.proxyId(), credentialFormat, credentialLength(credential.getCredsJson()));
+            String onlineAttemptId = onlineAttemptIdGenerator.nextId();
+            log.info("账号上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
+                    account.getId(), onlineAttemptId, allocation.proxyId(), credentialFormat,
+                    credentialLength(credential.getCredsJson()));
 
             ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
                     account.getId(),
                     protocolAccountId,
                     credentialFormat,
                     allocation.proxyId(),
-                    source);
+                    source,
+                    onlineAttemptId,
+                    previousAttemptId(account.getId(), source));
             updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
@@ -374,17 +386,21 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 AccountCredential credential = credentialsByAccountId.get(accountId);
                 CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
                 String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+                String onlineAttemptId = onlineAttemptIdGenerator.nextId();
                 ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
                         accountId,
                         protocolAccountId,
                         credentialFormat,
                         allocation.proxyId(),
-                        source);
+                        source,
+                        onlineAttemptId,
+                        previousAttemptId(accountId, source));
                 updateProxySnapshot(accountId, allocation.endpoint(), allocation.proxySource());
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
-                log.info("账号批量上线写入 outbox 前准备 command accountId={} allocatedProxyId={} source={} "
+                log.info("账号批量上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} source={} "
                                 + "credentialFormat={} credentialLength={}",
-                        accountId, allocation.proxyId(), source, credentialFormat, credentialLength(credential.getCredsJson()));
+                        accountId, onlineAttemptId, allocation.proxyId(), source, credentialFormat,
+                        credentialLength(credential.getCredsJson()));
             }
 
             ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
@@ -401,6 +417,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
     private AccountBatchOnlineVO emptyBatchVO() {
         return new AccountBatchOnlineVO(0, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of());
+    }
+
+    private String previousAttemptId(Long accountId, String source) {
+        if (!SOURCE_PROXY_FAILED_REONLINE.equals(source)) {
+            return null;
+        }
+        return accountOnlineAttemptLogService.latestAttemptId(accountId);
     }
 
     private static List<AccountBatchOnlineItemVO> toOutboxItemVOs(List<PreparedOnlineCommand> prepared) {

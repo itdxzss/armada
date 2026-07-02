@@ -11,12 +11,16 @@ package com.armada.platform.protocol.model.command;
  * @param credentialFormat  凭据格式引用
  * @param proxyId           本次上线分配的代理主键
  * @param source            命令来源,如 manual_online / batch_online
+ * @param onlineAttemptId   Armada 生成的本次上线尝试 ID
+ * @param previousOnlineAttemptId 代理失败重上线时关联的上一尝试 ID
  */
 public record ProtocolOnlineCommandRequest(
         Long accountId,
         String protocolAccountId,
         CredentialFormat credentialFormat,
         Long proxyId,
-        String source
+        String source,
+        String onlineAttemptId,
+        String previousOnlineAttemptId
 ) {
 }

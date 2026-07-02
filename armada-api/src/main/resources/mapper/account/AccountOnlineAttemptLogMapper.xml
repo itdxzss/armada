@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountOnlineAttemptLogMapper">
+
+  <sql id="Columns">
+    id, tenant_id, account_id, protocol_account_id, online_attempt_id,
+    previous_online_attempt_id, command_id, batch_id, proxy_id, source,
+    from_state, to_state, diagnosis_code, diagnosis_class, raw_code, raw_reason,
+    recoverability, action_taken, worker_id, evidence_json, occurred_at, created_at
+  </sql>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_online_attempt_log (
+      account_id, protocol_account_id, online_attempt_id, previous_online_attempt_id,
+      command_id, batch_id, proxy_id, source, from_state, to_state,
+      diagnosis_code, diagnosis_class, raw_code, raw_reason, recoverability,
+      action_taken, worker_id, evidence_json, occurred_at, created_at
+    ) VALUES (
+      #{accountId}, #{protocolAccountId}, #{onlineAttemptId}, #{previousOnlineAttemptId},
+      #{commandId}, #{batchId}, #{proxyId}, #{source}, #{fromState}, #{toState},
+      #{diagnosisCode}, #{diagnosisClass}, #{rawCode}, #{rawReason}, #{recoverability},
+      #{actionTaken}, #{workerId}, #{evidenceJson}, #{occurredAt}, #{createdAt}
+    )
+  </insert>
+
+  <select id="selectByAttemptId" resultType="com.armada.account.model.entity.AccountOnlineAttemptLog">
+    SELECT <include refid="Columns"/>
+    FROM account_online_attempt_log
+    WHERE online_attempt_id = #{onlineAttemptId}
+    ORDER BY occurred_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectRecentByAccountId" resultType="com.armada.account.model.entity.AccountOnlineAttemptLog">
+    SELECT <include refid="Columns"/>
+    FROM account_online_attempt_log
+    WHERE account_id = #{accountId}
+    ORDER BY occurred_at DESC, id DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectLatestAttemptIdByAccountId" resultType="string">
+    SELECT online_attempt_id
+    FROM account_online_attempt_log
+    WHERE account_id = #{accountId}
+    ORDER BY occurred_at DESC, id DESC
+    LIMIT 1
+  </select>
+
+  <!-- 当前 TenantContext 租户内清理;tenant_id 由租户拦截器注入。 -->
+  <delete id="deleteBefore">
+    DELETE FROM account_online_attempt_log
+    WHERE occurred_at &lt; #{cutoff}
+    ORDER BY occurred_at ASC, id ASC
+    LIMIT #{limit}
+  </delete>
+</mapper>

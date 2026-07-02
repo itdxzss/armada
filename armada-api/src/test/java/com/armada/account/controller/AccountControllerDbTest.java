@@ -11,6 +11,7 @@ import com.armada.boot.Application;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -110,6 +111,28 @@ class AccountControllerDbTest {
                 COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED,
                 firstAccountId,
                 secondAccountId);
+    }
+
+    private void insertOnlineAttemptLog(Long accountId,
+                                        String protocolAccountId,
+                                        String onlineAttemptId,
+                                        Long proxyId,
+                                        String diagnosisCode,
+                                        LocalDateTime occurredAt) {
+        jdbc.update("""
+                INSERT INTO account_online_attempt_log (
+                    tenant_id, account_id, protocol_account_id, online_attempt_id,
+                    previous_online_attempt_id, command_id, batch_id, proxy_id, source,
+                    from_state, to_state, diagnosis_code, diagnosis_class, raw_code,
+                    raw_reason, recoverability, action_taken, worker_id, evidence_json,
+                    occurred_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                TEST_TENANT_ID, accountId, protocolAccountId, onlineAttemptId,
+                null, "cmd-" + onlineAttemptId, "batch-" + onlineAttemptId, proxyId, "batch_online",
+                "VERIFYING", "PROXY_FAILED", diagnosisCode, "PROXY_OR_WA_CONNECTIVITY", 408,
+                "verify timeout", "RETRYABLE", "MARK_PROXY_FAILED_RELEASE_SLOT", "worker-dbtest", null,
+                occurredAt, occurredAt.plusSeconds(1));
     }
 
     // -----------------------------------------------------------------------
@@ -396,6 +419,77 @@ class AccountControllerDbTest {
                     .doesNotContain("username")
                     .doesNotContain("proxyHost");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // A4.1: GET /api/accounts/{id}/online-attempts — 账号上线尝试诊断
+    // -----------------------------------------------------------------------
+
+    @Test
+    void get_onlineAttempts_returnsRecentDiagnosisTimeline() throws Exception {
+        long accountId = 9_000_000_000L + Math.floorMod(System.nanoTime(), 1_000_000_000L);
+        insertOnlineAttemptLog(
+                accountId,
+                "acc_recent_old",
+                "oa_recent_old",
+                4035L,
+                "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE",
+                LocalDateTime.of(2026, 7, 2, 10, 0, 0));
+        insertOnlineAttemptLog(
+                accountId,
+                "acc_recent_new",
+                "oa_recent_new",
+                4036L,
+                "PROXY_CONNECT_FAILED",
+                LocalDateTime.of(2026, 7, 2, 11, 0, 0));
+
+        mockMvc.perform(get("/api/accounts/{id}/online-attempts", accountId)
+                        .param("limit", "10")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].accountId").value(accountId))
+                .andExpect(jsonPath("$.data[0].onlineAttemptId").value("oa_recent_new"))
+                .andExpect(jsonPath("$.data[0].diagnosisCode").value("PROXY_CONNECT_FAILED"))
+                .andExpect(jsonPath("$.data[0].proxyId").value(4036))
+                .andExpect(jsonPath("$.data[1].accountId").value(accountId))
+                .andExpect(jsonPath("$.data[1].onlineAttemptId").value("oa_recent_old"))
+                .andExpect(jsonPath("$.data[1].diagnosisCode").value("VERIFY_TIMEOUT_NO_CONNECTION_UPDATE"))
+                .andExpect(jsonPath("$.data[1].proxyId").value(4035));
+    }
+
+    @Test
+    void get_onlineAttemptTimeline_returnsAttemptEventsInOccurredOrder() throws Exception {
+        long accountId = 9_500_000_000L + Math.floorMod(System.nanoTime(), 500_000_000L);
+        String onlineAttemptId = "oa_timeline_" + System.nanoTime();
+        insertOnlineAttemptLog(
+                accountId,
+                "acc_timeline",
+                onlineAttemptId,
+                5035L,
+                "PROXY_CONNECT_FAILED",
+                LocalDateTime.of(2026, 7, 2, 12, 30, 0));
+        insertOnlineAttemptLog(
+                accountId,
+                "acc_timeline",
+                onlineAttemptId,
+                5036L,
+                "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE",
+                LocalDateTime.of(2026, 7, 2, 12, 0, 0));
+
+        mockMvc.perform(get("/api/accounts/online-attempts/{onlineAttemptId}", onlineAttemptId)
+                        .param("limit", "10")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].accountId").value(accountId))
+                .andExpect(jsonPath("$.data[0].onlineAttemptId").value(onlineAttemptId))
+                .andExpect(jsonPath("$.data[0].diagnosisCode").value("VERIFY_TIMEOUT_NO_CONNECTION_UPDATE"))
+                .andExpect(jsonPath("$.data[0].proxyId").value(5036))
+                .andExpect(jsonPath("$.data[1].accountId").value(accountId))
+                .andExpect(jsonPath("$.data[1].onlineAttemptId").value(onlineAttemptId))
+                .andExpect(jsonPath("$.data[1].diagnosisCode").value("PROXY_CONNECT_FAILED"))
+                .andExpect(jsonPath("$.data[1].proxyId").value(5035));
     }
 
     // -----------------------------------------------------------------------

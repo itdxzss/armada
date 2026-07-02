@@ -173,6 +173,15 @@ class AccountOnlineAttemptLogServiceImplTest {
     }
 
     @Test
+    void recentByAccount_rejectsNullAccountId() {
+        assertThatThrownBy(() -> service.recentByAccount(null, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号 ID 不能为空");
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
     void timeline_clampsLimitAboveMaxAndMapsRows() {
         when(mapper.selectByAttemptId("oa_1", 200)).thenReturn(List.of(row()));
 
@@ -184,6 +193,15 @@ class AccountOnlineAttemptLogServiceImplTest {
             assertThat(vo.evidenceJson()).isEqualTo("{\"wsOpen\":false}");
             assertThat(vo.workerId()).isEqualTo("w3");
         });
+    }
+
+    @Test
+    void timeline_rejectsBlankAttemptId() {
+        assertThatThrownBy(() -> service.timeline(" ", 20))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("上线尝试 ID 不能为空");
+
+        verifyNoInteractions(mapper);
     }
 
     @Test

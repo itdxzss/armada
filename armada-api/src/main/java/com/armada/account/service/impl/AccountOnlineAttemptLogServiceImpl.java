@@ -68,6 +68,9 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
 
     @Override
     public List<AccountOnlineAttemptLogVO> recentByAccount(Long accountId, int limit) {
+        if (accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
+        }
         return mapper.selectRecentByAccountId(accountId, normalizeLimit(limit)).stream()
                 .map(AccountOnlineAttemptLogVO::from)
                 .toList();
@@ -75,6 +78,9 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
 
     @Override
     public List<AccountOnlineAttemptLogVO> timeline(String onlineAttemptId, int limit) {
+        if (isBlank(onlineAttemptId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "上线尝试 ID 不能为空");
+        }
         return mapper.selectByAttemptId(onlineAttemptId, normalizeLimit(limit)).stream()
                 .map(AccountOnlineAttemptLogVO::from)
                 .toList();

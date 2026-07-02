@@ -14,6 +14,7 @@ import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +43,9 @@ class AccountControllerTest {
     @Mock
     private AccountLifecycleCommandService accountLifecycleCommandService;
 
+    @Mock
+    private AccountOnlineAttemptLogService accountOnlineAttemptLogService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -51,7 +55,8 @@ class AccountControllerTest {
                         accountService,
                         accountGroupService,
                         accountOnlineCommandService,
-                        accountLifecycleCommandService))
+                        accountLifecycleCommandService,
+                        accountOnlineAttemptLogService))
                 .build();
     }
 

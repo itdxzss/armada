@@ -227,6 +227,31 @@ class JoinTaskMutationDbTest extends DbTestBase {
                                 .isEqualTo(ErrorCode.NOT_FOUND.code()));
     }
 
+    /**
+     * 用例 4.1:编辑 DRAFT 任务时群链接也必须显式使用 https:// 开头,裸 chat.whatsapp.com 不允许保存。
+     */
+    @Test
+    void case4_1_updateTask_linkWithoutHttpsSchemeThrowsValidation() {
+        JoinTaskVO created = service.createTask(anyValidReq());
+        CreateJoinTaskDTO updateReq = new CreateJoinTaskDTO(
+                "编辑缺少 https 校验",
+                null, null,
+                List.of(new SelectedAccount(1L, "911")),
+                "chat.whatsapp.com/NoHttpsOnUpdate",
+                "FIXED_ACCOUNTS_PER_LINK",
+                1, null, null,
+                5, 10, null, null,
+                false, 0, "SKIP");
+
+        assertThatThrownBy(() -> service.updateTask(created.id(), updateReq))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException be = (BusinessException) ex;
+                    assertThat(be.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(be.getMessage()).contains("https://");
+                });
+    }
+
     // =========================================================================
     // 用例 5 — batchDelete + 幂等 + 删后 NOT_FOUND
     // =========================================================================

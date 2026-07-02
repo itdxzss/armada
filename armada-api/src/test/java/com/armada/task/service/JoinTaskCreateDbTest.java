@@ -131,12 +131,10 @@ class JoinTaskCreateDbTest extends DbTestBase {
     }
 
     /**
-     * 用例 3:无效链接不计入 total。
-     * linksText = 1条有效 + 1条无效 "not-a-link"
-     * → 明细 2行(1 PENDING + 1 FAILED reason="非群链接"), VO total=1, pending=1
+     * 用例 3:进群任务保存前执行群链接格式校验,任一无效链接直接抛 VALIDATION。
      */
     @Test
-    void case3_invalidLinkNotCountedInTotal() {
+    void case3_invalidLinkThrowsValidation() {
         CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "无效链接测试",
                 null, null,
@@ -147,23 +145,13 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 5, 10, null, null,
                 false, 0, "SKIP");
 
-        JoinTaskVO vo = service.createTask(req);
-
-        assertThat(vo.total()).isEqualTo(1);
-        assertThat(vo.pending()).isEqualTo(1);
-
-        List<JoinTaskResult> rows = resultMapper.selectResultsByTask(vo.id());
-        assertThat(rows).hasSize(2);
-
-        long pendingCount = rows.stream().filter(r -> "PENDING".equals(r.getStatus())).count();
-        long failedCount = rows.stream().filter(r -> "FAILED".equals(r.getStatus())).count();
-        assertThat(pendingCount).isEqualTo(1);
-        assertThat(failedCount).isEqualTo(1);
-
-        JoinTaskResult failedRow = rows.stream()
-                .filter(r -> "FAILED".equals(r.getStatus()))
-                .findFirst().orElseThrow();
-        assertThat(failedRow.getReason()).isEqualTo("非群链接");
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException be = (BusinessException) ex;
+                    assertThat(be.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(be.getMessage()).contains("https://chat.whatsapp.com/");
+                });
     }
 
     /**
@@ -183,6 +171,30 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 .satisfies(ex ->
                         assertThat(((BusinessException) ex).getCode())
                                 .isEqualTo(ErrorCode.VALIDATION.code()));
+    }
+
+    /**
+     * 用例 4.1:进群任务保存时群链接必须显式使用 https:// 开头,裸 chat.whatsapp.com 不允许保存。
+     */
+    @Test
+    void case4_1_linkWithoutHttpsSchemeThrowsValidation() {
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
+                "缺少 https 校验",
+                null, null,
+                List.of(new SelectedAccount(1L, "911")),
+                "chat.whatsapp.com/NoHttpsScheme",
+                "FIXED_ACCOUNTS_PER_LINK",
+                1, null, null,
+                5, 10, null, null,
+                false, 0, "SKIP");
+
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException be = (BusinessException) ex;
+                    assertThat(be.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(be.getMessage()).contains("https://");
+                });
     }
 
     /**
@@ -256,9 +268,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 null, null,
                 List.of(new SelectedAccount(1L, "911")),
                 "HTTPS://CHAT.WHATSAPP.COM/CreateRegistryA/\n"
-                        + "chat.whatsapp.com/CreateRegistryA\n"
-                        + "https://chat.whatsapp.com/\n"
-                        + "not-a-link",
+                        + "https://chat.whatsapp.com/CreateRegistryA",
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,

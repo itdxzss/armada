@@ -83,6 +83,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         long now = System.currentTimeMillis();
         JoinTask task = new JoinTask();
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
+        validateLinksForSave(links);
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         task.setExecuted(0);
         task.setSuccess(0);
@@ -124,6 +125,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         JoinTask task = new JoinTask();
         task.setId(id);
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
+        validateLinksForSave(links);
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         joinTaskMapper.update(task);
         resultMapper.deleteResultsByTask(id);
@@ -185,6 +187,13 @@ public class JoinTaskServiceImpl implements JoinTaskService {
             return;
         }
         action.run();
+    }
+
+    private static void validateLinksForSave(LinkClassifier.Classified links) {
+        if (links != null && !links.invalid().isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "群链接格式错误,请填写以 https://chat.whatsapp.com/ 开头的群邀请链接");
+        }
     }
 
     /**

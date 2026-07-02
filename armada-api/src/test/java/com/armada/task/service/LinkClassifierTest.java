@@ -11,6 +11,8 @@ class LinkClassifierTest {
         LinkClassifier.Classified classified = LinkClassifier.classify("""
                 https://chat.whatsapp.com/
                 https://chat.whatsapp.com
+                http://chat.whatsapp.com/Valid123
+                chat.whatsapp.com/Valid123
                 https://example.com/Valid123
                 https://chat.whatsapp.com/Valid123
                 """);
@@ -19,6 +21,8 @@ class LinkClassifierTest {
         assertThat(classified.invalid()).containsExactly(
                 "https://chat.whatsapp.com/",
                 "https://chat.whatsapp.com",
+                "http://chat.whatsapp.com/Valid123",
+                "chat.whatsapp.com/Valid123",
                 "https://example.com/Valid123");
     }
 }

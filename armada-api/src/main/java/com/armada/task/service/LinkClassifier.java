@@ -9,6 +9,8 @@ import java.util.Set;
 /** 进群链接输入框文本分类:按行拆分、去空、去重保序,通过群链接格式校验为有效,否则无效。 */
 public final class LinkClassifier {
 
+    private static final String REQUIRED_PREFIX = "https://";
+
     private LinkClassifier() {
     }
 
@@ -17,7 +19,8 @@ public final class LinkClassifier {
     }
 
     /**
-     * 按行拆分原始文本 → trim → 去空行 → 去重保序;能归一化为 WhatsApp 群邀请链接入 valid,否则入 invalid。
+     * 按行拆分原始文本 → trim → 去空行 → 去重保序;必须是 https:// 开头的 WhatsApp 群邀请链接才入 valid,
+     * 否则入 invalid。
      *
      * @param linksText 输入框原始文本(可空)
      * @return 分类结果
@@ -36,12 +39,17 @@ public final class LinkClassifier {
             }
         }
         for (String line : seen) {
-            if (GroupLinkUrls.tryNormalize(line).isPresent()) {
+            if (isStrictHttpsInviteLink(line)) {
                 valid.add(line);
             } else {
                 invalid.add(line);
             }
         }
         return new Classified(valid, invalid);
+    }
+
+    private static boolean isStrictHttpsInviteLink(String line) {
+        return line.regionMatches(true, 0, REQUIRED_PREFIX, 0, REQUIRED_PREFIX.length())
+                && GroupLinkUrls.tryNormalize(line).isPresent();
     }
 }

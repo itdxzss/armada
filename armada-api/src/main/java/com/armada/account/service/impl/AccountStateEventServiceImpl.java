@@ -135,7 +135,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 : event.semantic(), STATE_SOURCE_MAX_LENGTH);
 
         if (applyLifecycleTransition(account, event, stateSource, occurredAt, updatedAt)) {
-            releaseIpIfOffline(account, event.to());
+            releaseIpIfOffline(account, event, occurredAt);
             applySideEffects(account, event, occurredAt);
             log.info("协议账号状态事件已按生命周期收敛 accountId={} protocolAccountId={} from={} to={} "
                             + "semantic={} rawCode={} occurredAt={}",
@@ -147,7 +147,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         AccountState row = updateRow(account.getId(), mapLoginState(event.to()), null,
                 stateSource, null, occurredAt, updatedAt);
         int updated = stateMapper.updateLoginState(row);
-        releaseIpIfOffline(account, event.to());
+        releaseIpIfOffline(account, event, occurredAt);
         applySideEffects(account, event, occurredAt);
         log.info("协议账号状态事件已更新登录态 accountId={} protocolAccountId={} from={} to={} loginState={} "
                         + "stateSource={} updated={} occurredAt={}",
@@ -210,8 +210,12 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 AccountStateCode.UNBOUND, SOURCE_UNBOUND, null, occurredAt, updatedAt));
     }
 
-    private void releaseIpIfOffline(Account account, String state) {
-        if (!shouldReleaseIp(state)) {
+    private void releaseIpIfOffline(Account account, AccountStateChangedEvent event, long occurredAt) {
+        if (isProxyFailedEvent(event)) {
+            ipProxyService.markBoundProxyUnavailableByAccount(account.getId(), occurredAt, STATE_PROXY_FAILED);
+            return;
+        }
+        if (!shouldReleaseIp(event.to())) {
             return;
         }
         ipProxyService.releaseByAccount(account.getId());
@@ -220,12 +224,14 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static boolean shouldReleaseIp(String state) {
         String normalized = state == null ? null : state.trim();
         return STATE_OFFLINE.equalsIgnoreCase(normalized)
-                // PROXY_FAILED 是协议层 B 类退避耗尽后的明确终态:
-                // 当前绑定代理已经不可信,必须释放,后续上线才能重新分配 IP。
-                || STATE_PROXY_FAILED.equalsIgnoreCase(normalized)
                 || STATE_NEED_REAUTH.equalsIgnoreCase(normalized)
                 || STATE_LOGGED_OUT.equalsIgnoreCase(normalized)
                 || STATE_DEVICE_REMOVED.equalsIgnoreCase(normalized);
+    }
+
+    private static boolean isProxyFailedEvent(AccountStateChangedEvent event) {
+        return STATE_PROXY_FAILED.equalsIgnoreCase(event.to() == null ? null : event.to().trim())
+                || STATE_PROXY_FAILED.equalsIgnoreCase(event.semantic() == null ? null : event.semantic().trim());
     }
 
     private static AccountState updateRow(Long accountId,

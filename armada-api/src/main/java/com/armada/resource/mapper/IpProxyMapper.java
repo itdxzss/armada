@@ -103,6 +103,16 @@ public interface IpProxyMapper {
     List<IpProxy> selectActiveByIds(@Param("ids") List<Long> ids);
 
     /**
+     * 跨租户拉取待重检的不可用代理。
+     *
+     * <p>后台 scheduler 没有 HTTP 租户上下文,这里显式关闭租户拦截器并返回 tenant_id,
+     * 调用方随后按行恢复 {@code TenantContext} 再写回检测结果。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<IpProxy> selectUnavailableForCheck(@Param("unavailableStatus") int unavailableStatus,
+                                            @Param("limit") int limit);
+
+    /**
      * 更新代理检测结果。
      *
      * <p>调用方在 entity 中传入本次检测状态、时间、出口详情、失败次数和失败原因。</p>
@@ -157,6 +167,17 @@ public interface IpProxyMapper {
                           @Param("idleStatus") int idleStatus,
                           @Param("usingStatus") int usingStatus,
                           @Param("updatedAt") long updatedAt);
+
+    /**
+     * 将账号当前绑定代理置为不可用并解绑。
+     *
+     * <p>仅匹配仍处于 IN_USE 且绑定时间不晚于协议事件时间的当前绑定,避免迟到事件误伤新分配 IP。
+     * 失败详情由 entity 承载,检测失败次数在 SQL 中原子递增。</p>
+     */
+    int markBoundProxyUnavailableByAccount(@Param("accountId") Long accountId,
+                                           @Param("usingStatus") int usingStatus,
+                                           @Param("maxBoundAt") long maxBoundAt,
+                                           @Param("entity") IpProxy entity);
 
     /**
      * 批量释放指定账号当前占用的代理回空闲池。

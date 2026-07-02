@@ -27,6 +27,7 @@ import com.armada.resource.model.vo.IpProxyVO;
 import com.armada.resource.service.IpProxyAccountAllocation;
 import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyAllocationRequest;
+import com.armada.resource.service.IpProxyRecheckResult;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -215,6 +216,42 @@ public class IpProxyServiceImpl implements IpProxyService {
             results.add(detectAndUpdate(row));
         }
         return List.copyOf(results);
+    }
+
+    /**
+     * 跨租户重检不可用代理。
+     *
+     * <p>候选查询关闭租户拦截器;每条代理检测写回前会恢复该代理自己的租户上下文。
+     * 单条代理发生更新冲突或被删除时只记录失败,不阻塞同轮其它代理。</p>
+     *
+     * @param batchSize 本轮最多检测数量
+     * @return 本轮重检摘要
+     */
+    @Override
+    public IpProxyRecheckResult recheckUnavailableProxies(int batchSize) {
+        if (batchSize <= 0) {
+            return new IpProxyRecheckResult(0, 0, 0);
+        }
+        List<IpProxy> proxies = mapper.selectUnavailableForCheck(IpProxyStatus.UNAVAILABLE.code(), batchSize);
+        int checked = 0;
+        int failed = 0;
+        Long previousTenant = TenantContext.get();
+        try {
+            for (IpProxy proxy : proxies) {
+                restoreTenant(proxy.getTenantId());
+                try {
+                    detectAndUpdate(proxy);
+                    checked++;
+                } catch (RuntimeException e) {
+                    failed++;
+                    log.warn("不可用IP定时重检失败 proxyId={} tenantId={}",
+                            proxy.getId(), proxy.getTenantId(), e);
+                }
+            }
+        } finally {
+            restoreTenant(previousTenant);
+        }
+        return new IpProxyRecheckResult(proxies.size(), checked, failed);
     }
 
     /**
@@ -433,6 +470,33 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     /**
+     * 将账号当前绑定的代理标记为不可用。
+     *
+     * <p>协议层明确上报 {@code PROXY_FAILED} 时,该代理不能直接回到空闲池。SQL 会同时按
+     * bound_account_id、IN_USE 状态和 bound_at 时间保护匹配,避免迟到事件误伤该账号后续新 IP。</p>
+     *
+     * @param accountId 账号主键
+     * @param occurredAt 协议事件发生时间
+     * @param reason 上游失败原因
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markBoundProxyUnavailableByAccount(Long accountId, long occurredAt, String reason) {
+        if (accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
+        }
+        long eventAt = occurredAt <= 0 ? System.currentTimeMillis() : occurredAt;
+        IpProxy update = protocolFailureUpdate(eventAt, reason);
+        int marked = mapper.markBoundProxyUnavailableByAccount(
+                accountId,
+                IpProxyStatus.IN_USE.code(),
+                eventAt,
+                update);
+        log.info("IP代理协议失败标记不可用 accountId={} marked={} occurredAt={} reason={}",
+                accountId, marked, eventAt, update.getLastCheckError());
+    }
+
+    /**
      * 校验一次导入任务的批次级属性。
      *
      * <p>这里不处理单行代理格式,只检查所有行共享的协议、来源和导入文本。批次级字段不合法时,
@@ -513,6 +577,23 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 updatedAt);
+    }
+
+    private IpProxy protocolFailureUpdate(long occurredAt, String reason) {
+        String message = StringUtils.hasText(reason)
+                ? "协议层上报当前代理不可用: " + reason
+                : "协议层上报当前代理不可用";
+        String truncated = truncate(message);
+        IpProxy update = new IpProxy();
+        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        update.setLastSampleCheckAt(occurredAt);
+        update.setLastCheckError(truncated);
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappHttpStatus(null);
+        update.setWhatsappCheckError(truncated);
+        update.setUpdatedAt(System.currentTimeMillis());
+        return update;
     }
 
     /**

@@ -45,6 +45,10 @@ armada:
       connect-ms: ${IP_PROXY_CHECK_CONNECT_TIMEOUT_MS:5000}
       read-ms: ${IP_PROXY_CHECK_READ_TIMEOUT_MS:8000}
       total-ms: ${IP_PROXY_CHECK_TOTAL_TIMEOUT_MS:15000}
+  ip-proxy-unavailable-recheck:
+    enabled: ${IP_PROXY_UNAVAILABLE_RECHECK_ENABLED:true}
+    fixed-delay-ms: ${IP_PROXY_UNAVAILABLE_RECHECK_FIXED_DELAY_MS:900000}
+    batch-size: ${IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE:20}
   # 协议层连接配置。默认连本机 armada-protocol;测试/部署环境按 yml 覆盖。
   protocol:
     base-url: http://localhost:3000

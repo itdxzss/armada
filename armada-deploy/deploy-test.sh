@@ -5,12 +5,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 
-SSH_HOST="${ARMADA_DEPLOY_HOST:-ec2-65-2-123-53.ap-south-1.compute.amazonaws.com}"
+# Use the public IP by default so local proxy fake-ip DNS cannot break ssh/rsync.
+SSH_HOST="${ARMADA_DEPLOY_HOST:-65.2.123.53}"
 SSH_USER="${ARMADA_DEPLOY_USER:-ubuntu}"
 SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/dev-1.pem}"
 REMOTE_DIR="${ARMADA_DEPLOY_REMOTE_DIR:-/home/app/armada-deploy}"
 COMPOSE_FILE="${ARMADA_DEPLOY_COMPOSE:-docker-compose.rds.yml}"
 COMPOSE_PROJECT="${ARMADA_DEPLOY_PROJECT:-armada-deploy}"
+PUBLIC_URL="${ARMADA_DEPLOY_PUBLIC_URL:-http://armada.65.2.123.53.nip.io/}"
 FRONTEND_DIR="${ARMADA_FRONTEND_DIR:-${WORKSPACE_ROOT}/wheel-saas-pure-web}"
 JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
 
@@ -114,7 +116,7 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web 到测试服。
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
 
 访问入口:
-  http://65.2.123.53:18080/
+  ${PUBLIC_URL}
 EOF
 }
 
@@ -160,7 +162,7 @@ Armada 测试环境部署指引
 
 目标:
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
-  http://65.2.123.53:18080/
+  ${PUBLIC_URL}
 
 提示:
   如果不确定要发什么,先跑 --dry-run 看计划。
@@ -201,6 +203,9 @@ fi
 BUILD_BE=0
 BUILD_FE=0
 SERVICES=""
+COMPOSE_UP_EXTRA=""
+COMPOSE_UP_ARGS=""
+COMPOSE_UP_COMMAND=""
 PNPM_AVAILABLE=0
 FRONTEND_BUILD_MODE=""
 case "${SCOPE}" in
@@ -224,6 +229,14 @@ case "${SCOPE}" in
     die "无效部署范围: ${SCOPE}"
     ;;
 esac
+
+if [ "${SCOPE}" != "all" ]; then
+  COMPOSE_UP_EXTRA="--no-deps"
+fi
+COMPOSE_UP_ARGS="up -d --build"
+[ -n "${COMPOSE_UP_EXTRA}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${COMPOSE_UP_EXTRA}"
+[ -n "${SERVICES}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${SERVICES}"
+COMPOSE_UP_COMMAND="docker compose ${COMPOSE_UP_ARGS}"
 
 find_jdk17() {
   local candidate=""
@@ -254,6 +267,7 @@ fi
 [ -f "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile"
 [ -f "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile"
 [ -f "${DEPLOY_ASSET_DIR}/nginx.conf" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.conf"
+[ -f "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" ] || die "缺少 ${DEPLOY_ASSET_DIR}/stale-chunk-reload.js"
 [ -f "${DEPLOY_ASSET_DIR}/.env.example" ] || die "缺少 ${DEPLOY_ASSET_DIR}/.env.example"
 
 if [ "${BUILD_BE}" = 1 ]; then
@@ -330,7 +344,7 @@ if [ "${DRY_RUN}" = 1 ]; then
     fi
   fi
   info "[dry-run] 将 rsync 部署文件和产物到 ${REMOTE_DIR}"
-  info "[dry-run] 将在远端执行 docker compose up -d --build ${SERVICES}"
+  info "[dry-run] 将在远端执行 ${COMPOSE_UP_COMMAND}"
   ok "dry-run 完成"
   exit 0
 fi
@@ -379,6 +393,7 @@ rsync -az -e "${RSYNC_SSH}" \
   "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" \
   "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" \
   "${DEPLOY_ASSET_DIR}/nginx.conf" \
+  "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" \
   "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" \
   "${DEPLOY_ASSET_DIR}/.env.example" \
   "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/"
@@ -392,13 +407,14 @@ fi
 
 if [ "${BUILD_FE}" = 1 ]; then
   info "同步前端 dist..."
-  rsync -az --delete -e "${RSYNC_SSH}" \
+  # Keep old hashed chunks because browsers may still reference cached entry bundles.
+  rsync -az -e "${RSYNC_SSH}" \
     "${FRONTEND_DIR}/dist/" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/wheel-saas-pure-web/dist/"
 fi
 
 info "启动容器..."
-ssh_run "cd '${REMOTE_DIR}' && docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' up -d --build ${SERVICES}"
+ssh_run "cd '${REMOTE_DIR}' && docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
 
 info "检查容器状态..."
 if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "be" ]; then
@@ -421,7 +437,7 @@ if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "be" ]; then
   ok "API 路径已打到后端"
 fi
 
-ok "部署完成: http://65.2.123.53:18080/"
+ok "部署完成: ${PUBLIC_URL}"
 
 if [ "${TAIL_LOGS}" = 1 ]; then
   ssh_run "docker logs -f --tail 120 armada-backend"

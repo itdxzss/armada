@@ -409,6 +409,15 @@
         </if>
     </select>
 
+    <select id="selectUnavailableForCheck" resultType="com.armada.resource.model.entity.IpProxy">
+        SELECT <include refid="Columns"/>
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+          AND status = #{unavailableStatus}
+        ORDER BY COALESCE(last_sample_check_at, 0) ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
     <update id="updateDetectionResult">
         UPDATE ip_proxy
         SET status = CASE WHEN status = #{inUseStatus} THEN status ELSE #{entity.status} END,
@@ -498,6 +507,31 @@
         WHERE bound_account_id = #{accountId}
           AND deleted_at IS NULL
           AND status = #{usingStatus}
+    </update>
+
+    <update id="markBoundProxyUnavailableByAccount">
+        UPDATE ip_proxy
+        SET status = #{entity.status},
+            bound_account_id = NULL,
+            bound_at = NULL,
+            last_sample_check_at = #{entity.lastSampleCheckAt},
+            detected_country_code = NULL,
+            outbound_ip = NULL,
+            detected_location = NULL,
+            detected_isp = NULL,
+            detected_latitude = NULL,
+            detected_longitude = NULL,
+            check_fail_count = COALESCE(check_fail_count, 0) + 1,
+            last_check_error = #{entity.lastCheckError},
+            check_status = #{entity.checkStatus},
+            whatsapp_check_status = #{entity.whatsappCheckStatus},
+            whatsapp_http_status = #{entity.whatsappHttpStatus},
+            whatsapp_check_error = #{entity.whatsappCheckError},
+            updated_at = #{entity.updatedAt}
+        WHERE bound_account_id = #{accountId}
+          AND deleted_at IS NULL
+          AND status = #{usingStatus}
+          AND (bound_at IS NULL OR bound_at &lt;= #{maxBoundAt})
     </update>
 
     <update id="releaseByAccounts">

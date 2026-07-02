@@ -17,6 +17,7 @@ import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.entity.IpProxy;
+import com.armada.resource.model.enums.IpProxyCheckLifecycleStatus;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
 import java.util.Map;
@@ -152,14 +153,17 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
-    void applyStateChanged_proxyFailed_releasesBoundIpForReallocation() {
+    void applyStateChanged_proxyFailed_marksBoundIpUnavailableForScheduledRecheck() {
         long now = System.currentTimeMillis();
-        Account account = insertAccount("86189" + (now % 10_000_000L), now);
-        insertDefaultState(account.getId(), now);
-        IpProxy proxy = newIdleProxy(now);
-        ipProxyMapper.insert(proxy);
+        String wsPhone = "86189" + (now % 10_000_000L);
+        importOneAccount(wsPhone);
+        Account account = accountMapper.selectActiveByWsPhone(wsPhone);
+        IpProxy failedProxy = newIdleProxy(now);
+        IpProxy replacementProxy = newIdleProxy(now + 1);
+        ipProxyMapper.insert(failedProxy);
+        ipProxyMapper.insert(replacementProxy);
         ipProxyMapper.markUsingAndBind(
-                proxy.getId(),
+                failedProxy.getId(),
                 account.getId(),
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
@@ -171,10 +175,17 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
         assertThat(state.getStateSource()).isEqualTo("PROXY_FAILED");
-        IpProxy released = ipProxyMapper.selectActiveById(proxy.getId());
-        assertThat(released.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
-        assertThat(released.getBoundAccountId()).isNull();
-        assertThat(released.getBoundAt()).isNull();
+        IpProxy unavailable = ipProxyMapper.selectActiveById(failedProxy.getId());
+        assertThat(unavailable.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
+        assertThat(unavailable.getBoundAccountId()).isNull();
+        assertThat(unavailable.getBoundAt()).isNull();
+        assertThat(unavailable.getCheckFailCount()).isEqualTo(1);
+        assertThat(unavailable.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(unavailable.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(unavailable.getLastCheckError()).contains("PROXY_FAILED");
+        IpProxy replacement = ipProxyMapper.selectActiveById(replacementProxy.getId());
+        assertThat(replacement.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
+        assertThat(replacement.getBoundAccountId()).isEqualTo(account.getId());
     }
 
     @Test

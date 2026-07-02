@@ -147,6 +147,79 @@ class IpProxyMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void markBoundProxyUnavailableByAccount_marksCurrentBindingUnavailableAndClearsBinding() {
+        long now = System.currentTimeMillis();
+        IpProxy proxy = newIdleProxy(now);
+        mapper.insert(proxy);
+        mapper.markUsingAndBind(
+                proxy.getId(),
+                501L,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 1);
+
+        IpProxy update = new IpProxy();
+        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        update.setLastSampleCheckAt(now + 2);
+        update.setLastCheckError("PROXY_FAILED");
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappHttpStatus(null);
+        update.setWhatsappCheckError("PROXY_FAILED");
+        update.setUpdatedAt(now + 3);
+
+        int marked = mapper.markBoundProxyUnavailableByAccount(
+                501L,
+                IpProxyStatus.IN_USE.code(),
+                now + 2,
+                update);
+
+        assertThat(marked).isEqualTo(1);
+        IpProxy unavailable = mapper.selectActiveById(proxy.getId());
+        assertThat(unavailable.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
+        assertThat(unavailable.getBoundAccountId()).isNull();
+        assertThat(unavailable.getBoundAt()).isNull();
+        assertThat(unavailable.getCheckFailCount()).isEqualTo(1);
+        assertThat(unavailable.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(unavailable.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(unavailable.getLastCheckError()).isEqualTo("PROXY_FAILED");
+    }
+
+    @Test
+    void markBoundProxyUnavailableByAccount_ignoresBindingsCreatedAfterEvent() {
+        long now = System.currentTimeMillis();
+        IpProxy proxy = newIdleProxy(now);
+        mapper.insert(proxy);
+        mapper.markUsingAndBind(
+                proxy.getId(),
+                501L,
+                IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(),
+                now + 10);
+
+        IpProxy update = new IpProxy();
+        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        update.setLastSampleCheckAt(now + 2);
+        update.setLastCheckError("PROXY_FAILED");
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckError("PROXY_FAILED");
+        update.setUpdatedAt(now + 3);
+
+        int marked = mapper.markBoundProxyUnavailableByAccount(
+                501L,
+                IpProxyStatus.IN_USE.code(),
+                now + 2,
+                update);
+
+        assertThat(marked).isZero();
+        IpProxy stillBound = mapper.selectActiveById(proxy.getId());
+        assertThat(stillBound.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
+        assertThat(stillBound.getBoundAccountId()).isEqualTo(501L);
+        assertThat(stillBound.getBoundAt()).isEqualTo(now + 10);
+    }
+
+    @Test
     void releaseOnlineAllocation_releasesOnlyMatchingProxyAndAccount() {
         long now = System.currentTimeMillis();
         IpProxy proxy = newIdleProxy(now);
@@ -325,6 +398,28 @@ class IpProxyMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectUnavailableForCheck_returnsOldestUnavailableActiveRows() {
+        long now = System.currentTimeMillis();
+        IpProxy laterUnavailable = newIdleProxy(now);
+        laterUnavailable.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        IpProxy idle = newIdleProxy(now + 1);
+        IpProxy earlierUnavailable = newIdleProxy(now + 2);
+        earlierUnavailable.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        mapper.insert(laterUnavailable);
+        mapper.insert(idle);
+        mapper.insert(earlierUnavailable);
+        updateCheckSnapshot(laterUnavailable.getId(), IpProxyStatus.UNAVAILABLE.code(), now + 200);
+        updateCheckSnapshot(earlierUnavailable.getId(), IpProxyStatus.UNAVAILABLE.code(), now + 100);
+
+        List<IpProxy> rows = mapper.selectUnavailableForCheck(IpProxyStatus.UNAVAILABLE.code(), 2);
+
+        assertThat(rows).extracting(IpProxy::getId)
+                .containsExactly(earlierUnavailable.getId(), laterUnavailable.getId());
+        assertThat(rows).extracting(IpProxy::getTenantId)
+                .containsOnly(TEST_TENANT_ID);
+    }
+
+    @Test
     void selectDistinctRegions_deduplicatesBlankExcludedAndMixedFirst() {
         long now = System.currentTimeMillis();
         IpProxy india = newIdleProxy(now);
@@ -365,6 +460,28 @@ class IpProxyMapperDbTest extends DbTestBase {
         proxy.setCreatedAt(suffix);
         proxy.setUpdatedAt(suffix);
         return proxy;
+    }
+
+    private void updateCheckSnapshot(Long id, int status, long checkedAt) {
+        IpProxy update = new IpProxy();
+        update.setId(id);
+        update.setStatus(status);
+        update.setRegion("印度");
+        update.setLastSampleCheckAt(checkedAt);
+        update.setDetectedCountryCode(null);
+        update.setOutboundIp(null);
+        update.setDetectedLocation(null);
+        update.setDetectedIsp(null);
+        update.setDetectedLatitude(null);
+        update.setDetectedLongitude(null);
+        update.setCheckFailCount(1);
+        update.setLastCheckError("检测失败");
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappHttpStatus(null);
+        update.setWhatsappCheckError("检测失败");
+        update.setUpdatedAt(checkedAt);
+        mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
     }
 
     private static IpProxyDedupTuple tuple(IpProxy proxy) {

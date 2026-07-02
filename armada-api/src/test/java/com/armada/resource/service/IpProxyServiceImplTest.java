@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -24,6 +25,7 @@ import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyDedupTuple;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
+import com.armada.resource.model.enums.IpProxyCheckLifecycleStatus;
 import com.armada.resource.model.dto.IpProxyImportDTO;
 import com.armada.resource.model.dto.IpProxyQuery;
 import com.armada.resource.model.entity.IpProxy;
@@ -809,6 +811,75 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void markBoundProxyUnavailableByAccount_delegatesMapperWithFailedDetectionSnapshot() {
+        when(mapper.markBoundProxyUnavailableByAccount(
+                eq(100L),
+                eq(IpProxyStatus.IN_USE.code()),
+                eq(2_000L),
+                any(IpProxy.class))).thenReturn(1);
+
+        service.markBoundProxyUnavailableByAccount(100L, 2_000L, "PROXY_FAILED");
+
+        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).markBoundProxyUnavailableByAccount(
+                eq(100L),
+                eq(IpProxyStatus.IN_USE.code()),
+                eq(2_000L),
+                updateCaptor.capture());
+        IpProxy update = updateCaptor.getValue();
+        assertThat(update.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
+        assertThat(update.getLastSampleCheckAt()).isEqualTo(2_000L);
+        assertThat(update.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(update.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(update.getLastCheckError()).contains("PROXY_FAILED");
+        assertThat(update.getWhatsappCheckError()).contains("PROXY_FAILED");
+    }
+
+    @Test
+    void recheckUnavailableProxies_checksSelectedRowsUnderTheirTenantsAndRestoresTenantContext() {
+        IpProxy tenantOneProxy = unavailableProxy(10L, "proxy-a.internal", 1L);
+        IpProxy tenantTwoProxy = unavailableProxy(11L, "proxy-b.internal", 2L);
+        when(mapper.selectUnavailableForCheck(IpProxyStatus.UNAVAILABLE.code(), 20))
+                .thenReturn(List.of(tenantOneProxy, tenantTwoProxy));
+        when(detector.check(argThat(request -> request != null && request.id().equals(10L))))
+                .thenReturn(IpProxyCheckResult.success(
+                        10L,
+                        "103.10.10.10",
+                        "IN",
+                        "Mumbai",
+                        "Example ISP",
+                        null,
+                        null,
+                        400,
+                        IpProxyCheckTiming.zero(),
+                        1_719_800_000_000L));
+        when(detector.check(argThat(request -> request != null && request.id().equals(11L))))
+                .thenReturn(IpProxyCheckResult.failed(11L, "代理连接超时", 1_719_800_000_001L));
+        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
+        IpProxy tenantOneUpdated = idleProxy(10L, "proxy-a.internal");
+        tenantOneUpdated.setTenantId(1L);
+        IpProxy tenantTwoUpdated = unavailableProxy(11L, "proxy-b.internal", 2L);
+        tenantTwoUpdated.setLastCheckError("代理连接超时");
+        when(mapper.selectActiveById(10L)).thenReturn(tenantOneUpdated);
+        when(mapper.selectActiveById(11L)).thenReturn(tenantTwoUpdated);
+
+        TenantContext.set(99L);
+        IpProxyRecheckResult result;
+        try {
+            result = service.recheckUnavailableProxies(20);
+        } finally {
+            assertThat(TenantContext.get()).isEqualTo(99L);
+            TenantContext.clear();
+        }
+
+        assertThat(result.scanned()).isEqualTo(2);
+        assertThat(result.checked()).isEqualTo(2);
+        assertThat(result.failed()).isZero();
+        verify(mapper).selectUnavailableForCheck(IpProxyStatus.UNAVAILABLE.code(), 20);
+        verify(detector, times(2)).check(any());
+    }
+
+    @Test
     void releaseOnlineAllocations_validItems_delegatesPreciseBatchRelease() {
         List<IpProxyAccountAllocation> allocations = List.of(
                 new IpProxyAccountAllocation(100L, 10L, null, null),
@@ -875,6 +946,14 @@ class IpProxyServiceImplTest {
         row.setRegion("印度");
         row.setStatus(IpProxyStatus.IDLE.code());
         row.setSource("iproyal");
+        return row;
+    }
+
+    private static IpProxy unavailableProxy(Long id, String host, Long tenantId) {
+        IpProxy row = idleProxy(id, host);
+        row.setTenantId(tenantId);
+        row.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        row.setCheckFailCount(1);
         return row;
     }
 

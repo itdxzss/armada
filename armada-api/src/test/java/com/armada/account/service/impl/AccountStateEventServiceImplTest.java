@@ -3,6 +3,8 @@ package com.armada.account.service.impl;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountMapper;
@@ -38,7 +40,7 @@ class AccountStateEventServiceImplTest {
     private AccountStateChangedSideEffect sideEffect;
 
     @Test
-    void applyStateChanged_proxyFailedReleasesIpBeforeSideEffects() {
+    void applyStateChanged_proxyFailedMarksBoundIpUnavailableBeforeSideEffects() {
         Account account = new Account();
         account.setId(100L);
         account.setProtocolAccountId("acc_8613800138000");
@@ -67,7 +69,43 @@ class AccountStateEventServiceImplTest {
 
         InOrder inOrder = inOrder(stateMapper, ipProxyService, sideEffect);
         inOrder.verify(stateMapper).updateLoginState(any(AccountState.class));
-        inOrder.verify(ipProxyService).releaseByAccount(100L);
+        inOrder.verify(ipProxyService).markBoundProxyUnavailableByAccount(100L, 2_000L, "PROXY_FAILED");
         inOrder.verify(sideEffect).afterStateChanged(eq(account), eq(event), eq(2_000L));
+        verify(ipProxyService, never()).releaseByAccount(100L);
+    }
+
+    @Test
+    void applyStateChanged_proxyFailedSemanticMarksBoundIpUnavailableBeforeSideEffects() {
+        Account account = new Account();
+        account.setId(100L);
+        account.setProtocolAccountId("acc_8613800138000");
+        AccountState currentState = new AccountState();
+        currentState.setAccountId(100L);
+        currentState.setLastStateSyncTime(1_000L);
+        AccountStateChangedEvent event = new AccountStateChangedEvent(
+                1L,
+                100L,
+                "acc_8613800138000",
+                "VERIFYING",
+                "OFFLINE",
+                2_000L,
+                "PROXY_FAILED",
+                null);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+
+        AccountStateEventServiceImpl service = new AccountStateEventServiceImpl(
+                accountMapper,
+                stateMapper,
+                ipProxyService,
+                List.of(sideEffect));
+
+        service.applyStateChanged(event);
+
+        InOrder inOrder = inOrder(stateMapper, ipProxyService, sideEffect);
+        inOrder.verify(stateMapper).updateLoginState(any(AccountState.class));
+        inOrder.verify(ipProxyService).markBoundProxyUnavailableByAccount(100L, 2_000L, "PROXY_FAILED");
+        inOrder.verify(sideEffect).afterStateChanged(eq(account), eq(event), eq(2_000L));
+        verify(ipProxyService, never()).releaseByAccount(100L);
     }
 }

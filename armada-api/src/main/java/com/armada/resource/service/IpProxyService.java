@@ -77,6 +77,17 @@ public interface IpProxyService {
     List<IpProxyCheckResultVO> checkProxies(List<Long> ids);
 
     /**
+     * 重新检测不可用 IP 代理。
+     *
+     * <p>该方法供后台定时任务调用:跨租户拉取不可用 IP,再按每条 IP 的租户上下文执行真实检测并落库。
+     * 检测成功会把代理恢复为空闲;检测失败继续保持不可用,等待下一轮。</p>
+     *
+     * @param batchSize 本轮最多检测数量;小于等于 0 时跳过
+     * @return 本轮重检摘要
+     */
+    IpProxyRecheckResult recheckUnavailableProxies(int batchSize);
+
+    /**
      * 为账号上线分配一条空闲代理。
      *
      * <p>本方法是 resource 域暴露给 account 域的跨域边界:account 域只能拿到
@@ -158,5 +169,18 @@ public interface IpProxyService {
      * @throws BusinessException 当账号 ID 为空时抛出
      */
     void releaseByAccount(Long accountId);
+
+    /**
+     * 将账号当前绑定代理标记为不可用并解绑。
+     *
+     * <p>用于协议层上报 {@code PROXY_FAILED}:旧代理不再回到空闲池,而是等待后台重检恢复。
+     * 只处理事件发生时已经绑定的当前代理;没有命中绑定时视为幂等跳过。</p>
+     *
+     * @param accountId 账号主键
+     * @param occurredAt 协议事件发生时间(epoch毫秒)
+     * @param reason 上游失败原因
+     * @throws BusinessException 当账号 ID 为空时抛出
+     */
+    void markBoundProxyUnavailableByAccount(Long accountId, long occurredAt, String reason);
 
 }

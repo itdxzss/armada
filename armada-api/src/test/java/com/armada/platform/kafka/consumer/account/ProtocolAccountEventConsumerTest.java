@@ -30,11 +30,18 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolAccountGroupsReportedSink groupsReportedSink;
 
+    @Mock
+    private ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new ProtocolAccountEventConsumer(new ObjectMapper(), sink, groupsReportedSink);
+        consumer = new ProtocolAccountEventConsumer(
+                new ObjectMapper(),
+                sink,
+                groupsReportedSink,
+                offlineDiagnosedSink);
     }
 
     @Test
@@ -55,7 +62,8 @@ class ProtocolAccountEventConsumerTest {
                     "to": "ONLINE",
                     "reason": "connected",
                     "semantic": "RECONNECTING",
-                    "rawCode": 515
+                    "rawCode": 515,
+                    "onlineAttemptId": "oa_state_1"
                   }
                 }
                 """;
@@ -75,6 +83,7 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.occurredAt()).isEqualTo(1782626401000L);
         assertThat(event.semantic()).isEqualTo("RECONNECTING");
         assertThat(event.rawCode()).isEqualTo(515);
+        assertThat(event.onlineAttemptId()).isEqualTo("oa_state_1");
         assertThat(event.workerId()).isEqualTo("worker-a");
     }
 
@@ -131,6 +140,98 @@ class ProtocolAccountEventConsumerTest {
     }
 
     @Test
+    void onMessage_offlineDiagnosedEnvelope_dispatchesParsedDiagnosisEvent() {
+        String raw = """
+                {
+                  "eventId": "evt-diagnosis-1",
+                  "event": "account.offline_diagnosed",
+                  "version": "v1",
+                  "accountId": "acc_252625852450",
+                  "occurredAt": "2026-07-02T10:18:00.123Z",
+                  "workerId": "w3",
+                  "evidence": {
+                    "connectionField": "connecting",
+                    "wsOpen": false
+                  },
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 9,
+                    "protocolAccountId": "acc_252625852450",
+                    "onlineAttemptId": "oa_20260702101716_x7k9m2",
+                    "previousOnlineAttemptId": null,
+                    "commandId": "cmd_1",
+                    "batchId": "batch_1",
+                    "proxyId": 4035,
+                    "source": "batch_online",
+                    "from": "VERIFYING",
+                    "to": "PROXY_FAILED",
+                    "diagnosisCode": "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE",
+                    "diagnosisClass": "PROXY_OR_WA_CONNECTIVITY",
+                    "rawCode": 408,
+                    "rawReason": "no connection.update open/close before verify timeout",
+                    "recoverability": "RETRYABLE",
+                    "actionTaken": "MARK_PROXY_FAILED_RELEASE_SLOT"
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolAccountOfflineDiagnosedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountOfflineDiagnosedEvent.class);
+        verify(offlineDiagnosedSink).handleOfflineDiagnosed(captor.capture());
+        ProtocolAccountOfflineDiagnosedEvent event = captor.getValue();
+        assertThat(event.eventId()).isEqualTo("evt-diagnosis-1");
+        assertThat(event.tenantId()).isEqualTo(1L);
+        assertThat(event.accountId()).isEqualTo(9L);
+        assertThat(event.protocolAccountId()).isEqualTo("acc_252625852450");
+        assertThat(event.onlineAttemptId()).isEqualTo("oa_20260702101716_x7k9m2");
+        assertThat(event.proxyId()).isEqualTo(4035L);
+        assertThat(event.from()).isEqualTo("VERIFYING");
+        assertThat(event.to()).isEqualTo("PROXY_FAILED");
+        assertThat(event.diagnosisCode()).isEqualTo("VERIFY_TIMEOUT_NO_CONNECTION_UPDATE");
+        assertThat(event.rawCode()).isEqualTo(408);
+        assertThat(event.occurredAt()).isEqualTo(1782987480123L);
+        assertThat(event.workerId()).isEqualTo("w3");
+        assertThat(event.evidenceJson()).contains("\"connectionField\":\"connecting\"");
+        verifyNoInteractions(sink, groupsReportedSink);
+    }
+
+    @Test
+    void onMessage_offlineDiagnosedEnvelope_usesDataEvidenceFallback() {
+        String raw = """
+                {
+                  "eventId": "evt-diagnosis-2",
+                  "event": "account.offline_diagnosed",
+                  "version": "v1",
+                  "accountId": "acc_252625852450",
+                  "occurredAt": "2026-07-02T10:18:00.123Z",
+                  "workerId": "w3",
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 9,
+                    "protocolAccountId": "acc_252625852450",
+                    "onlineAttemptId": "oa_20260702101716_x7k9m2",
+                    "to": "PROXY_FAILED",
+                    "diagnosisCode": "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE",
+                    "diagnosisClass": "PROXY_OR_WA_CONNECTIVITY",
+                    "evidence": {
+                      "source": "data"
+                    }
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolAccountOfflineDiagnosedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountOfflineDiagnosedEvent.class);
+        verify(offlineDiagnosedSink).handleOfflineDiagnosed(captor.capture());
+        assertThat(captor.getValue().evidenceJson()).isEqualTo("{\"source\":\"data\"}");
+        verifyNoInteractions(sink, groupsReportedSink);
+    }
+
+    @Test
     void onMessage_unregisteredAccountEvent_skipsSink() {
         String raw = """
                 {
@@ -148,6 +249,7 @@ class ProtocolAccountEventConsumerTest {
 
         verifyNoInteractions(sink);
         verifyNoInteractions(groupsReportedSink);
+        verifyNoInteractions(offlineDiagnosedSink);
     }
 
     @Test
@@ -158,6 +260,7 @@ class ProtocolAccountEventConsumerTest {
 
         verifyNoInteractions(sink);
         verifyNoInteractions(groupsReportedSink);
+        verifyNoInteractions(offlineDiagnosedSink);
     }
 
     @Test
@@ -183,6 +286,7 @@ class ProtocolAccountEventConsumerTest {
 
         verifyNoInteractions(sink);
         verifyNoInteractions(groupsReportedSink);
+        verifyNoInteractions(offlineDiagnosedSink);
     }
 
     @Test

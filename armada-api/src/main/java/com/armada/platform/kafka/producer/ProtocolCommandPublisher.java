@@ -18,6 +18,7 @@ import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -218,7 +219,9 @@ public class ProtocolCommandPublisher {
                                 toWireFormat(ref.format()),
                                 credentialPayload,
                                 proxyPayload,
-                                ref.source()))));
+                                ref.source(),
+                                ref.onlineAttemptId(),
+                                ref.previousOnlineAttemptId()))));
             } catch (RuntimeException ex) {
                 failures.put(commandKey(ref.row()), ex);
             }
@@ -234,8 +237,11 @@ public class ProtocolCommandPublisher {
         Long proxyId = requiredLong(payload, "proxyId", row.getCommandId());
         String protocolAccountId = textOrDefault(payload, "protocolAccountId", row.getProtocolAccountId());
         String source = textOrDefault(payload, "source", "unknown");
+        String onlineAttemptId = requiredText(payload, "onlineAttemptId", row.getCommandId());
+        String previousOnlineAttemptId = textOrDefault(payload, "previousOnlineAttemptId", null);
         CredentialFormat format = credentialFormat(requiredText(payload, "credentialFormat", row.getCommandId()));
-        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, source);
+        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, source,
+                onlineAttemptId, previousOnlineAttemptId);
     }
 
     private ProtocolCommandEnvelope toEnvelope(ProtocolCommandOutbox row) {
@@ -316,7 +322,7 @@ public class ProtocolCommandPublisher {
 
     private static String requiredText(JsonNode payload, String field, String commandId) {
         JsonNode value = payload.get(field);
-        if (value == null || value.asText().isBlank()) {
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
             throw validation("协议上线命令 payload 缺少字段 " + field + " commandId=" + commandId);
         }
         return value.asText();
@@ -324,7 +330,8 @@ public class ProtocolCommandPublisher {
 
     private static String textOrDefault(JsonNode payload, String field, String defaultValue) {
         JsonNode value = payload.get(field);
-        if (value == null || value.asText().isBlank()) {
+        // 可空链路字段只接受 JSON string；missing/null/blank 都保持调用方定义的默认值，避免 null 被转成字符串。
+        if (value == null || value.isNull() || !value.isTextual() || value.asText().isBlank()) {
             return defaultValue;
         }
         return value.asText();
@@ -377,7 +384,9 @@ public class ProtocolCommandPublisher {
             String protocolAccountId,
             CredentialFormat format,
             Long proxyId,
-            String source
+            String source,
+            String onlineAttemptId,
+            String previousOnlineAttemptId
     ) {
     }
 
@@ -388,7 +397,10 @@ public class ProtocolCommandPublisher {
             String format,
             Map<String, Object> credential,
             ProxyDescriptor proxy,
-            String source
+            String source,
+            String onlineAttemptId,
+            @JsonInclude(JsonInclude.Include.ALWAYS)
+            String previousOnlineAttemptId
     ) {
     }
 }

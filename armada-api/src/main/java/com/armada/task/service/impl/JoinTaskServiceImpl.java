@@ -40,7 +40,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * 进群任务业务实现(建任务 + 列表/详情/明细读路径 + 编辑/批量软删)。
  *
  * <p>租户隔离由 MyBatis 租户拦截器透明完成,本类不手写 tenant_id。</p>
- * <p>时间字段为 BIGINT epoch 毫秒,insert 时显式传入。total 只计 PENDING 计划行(无效链接转 FAILED 行不计入)。</p>
+ * <p>时间字段为 BIGINT epoch 毫秒,insert 时显式传入。保存前会拒绝非法群链接,total 只计 PENDING 计划行。</p>
  */
 @Service
 public class JoinTaskServiceImpl implements JoinTaskService {
@@ -66,7 +66,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      * {@inheritDoc}
      *
      * <p>实现要点:计划行生成委托纯函数 {@link PlanRowGenerator},本方法只做参数归一、快照列序列化
-     * (分组/账号 id → JSON)、计数与落库;total 只数 PENDING 行,无效链接的 FAILED 行入明细但不计入。
+     * (分组/账号 id → JSON)、计数与落库;保存前拒绝非法群链接,total 只数 PENDING 行。
      * 整体在单事务内:先 insert join_task 拿回自增 id,再批量 insert join_task_result。
      * 配置填充复用私有 helper {@link #populateConfigAndPlan}。</p>
      */

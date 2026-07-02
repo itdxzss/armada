@@ -27,9 +27,9 @@ public class ProxyFailedAutoReonlineSideEffect implements AccountStateChangedSid
         if (!isProxyFailed(event)) {
             return;
         }
-        log.info("账号代理失败自动重上线开始 accountId={} protocolAccountId={} occurredAt={}",
-                account.getId(), account.getProtocolAccountId(), occurredAt);
-        onlineCommandService.reonlineAfterProxyFailure(account.getId());
+        log.info("账号代理失败自动重上线开始 accountId={} protocolAccountId={} failedAttemptId={} occurredAt={}",
+                account.getId(), account.getProtocolAccountId(), event.onlineAttemptId(), occurredAt);
+        onlineCommandService.reonlineAfterProxyFailure(account.getId(), event.onlineAttemptId());
     }
 
     private static boolean isProxyFailed(AccountStateChangedEvent event) {

@@ -35,6 +35,20 @@ public interface AccountOnlineCommandService {
     AccountOnlineVO reonlineAfterProxyFailure(Long accountId);
 
     /**
+     * 代理失败后自动重新上线账号,并把刚失败的上线尝试 ID 串到新命令里。
+     *
+     * <p>{@code failedOnlineAttemptId} 来自协议层 {@code account.state_changed}。
+     * 它比离线诊断日志更早到达,用于避免 Kafka 事件顺序导致的 attempt 链路断裂。
+     * 当该字段为空时,实现会退回读取最近一次诊断日志。</p>
+     *
+     * @param accountId              armada 账号主键
+     * @param failedOnlineAttemptId  刚失败的上线尝试 ID,可空
+     * @return outbox 上线命令受理回执
+     * @throws BusinessException 当账号、凭据或代理分配不满足上线前置条件时抛出
+     */
+    AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId);
+
+    /**
      * 批量发起账号上线。
      *
      * <p>一次最多 500 个账号。实现会批量加载账号与凭据、批量分配代理,

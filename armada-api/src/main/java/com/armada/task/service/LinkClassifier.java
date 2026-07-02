@@ -6,7 +6,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** 进群链接输入框文本分类:按行拆分、去空、去重保序,通过群链接格式校验为有效,否则无效。 */
+/** 进群链接输入框文本分类:按行拆分、去空、去重保序,严格 https 群链接为有效,否则无效。 */
 public final class LinkClassifier {
 
     private static final String REQUIRED_PREFIX = "https://";

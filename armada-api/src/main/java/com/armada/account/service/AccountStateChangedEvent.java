@@ -14,6 +14,7 @@ package com.armada.account.service;
  * @param occurredAt        事件发生时间(epoch 毫秒);为空时由服务使用当前时间兜底
  * @param semantic          协议层语义分类,如 PROXY_FAILED / NEED_REAUTH / RECONNECTING
  * @param rawCode           协议层断线原始码;NEED_REAUTH 时用于区分封禁与解绑
+ * @param onlineAttemptId   当前状态事件关联的上线尝试 ID;旧协议事件可为空
  */
 public record AccountStateChangedEvent(
         Long tenantId,
@@ -23,5 +24,6 @@ public record AccountStateChangedEvent(
         String to,
         Long occurredAt,
         String semantic,
-        Integer rawCode) {
+        Integer rawCode,
+        String onlineAttemptId) {
 }

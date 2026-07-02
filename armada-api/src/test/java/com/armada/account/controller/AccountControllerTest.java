@@ -1,20 +1,25 @@
 package com.armada.account.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
+import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountLifecycleCommandService;
+import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
+import java.lang.reflect.Method;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +47,9 @@ class AccountControllerTest {
     @Mock
     private AccountLifecycleCommandService accountLifecycleCommandService;
 
+    @Mock
+    private AccountOnlineAttemptLogService accountOnlineAttemptLogService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -51,7 +59,8 @@ class AccountControllerTest {
                         accountService,
                         accountGroupService,
                         accountOnlineCommandService,
-                        accountLifecycleCommandService))
+                        accountLifecycleCommandService,
+                        accountOnlineAttemptLogService))
                 .build();
     }
 
@@ -164,6 +173,48 @@ class AccountControllerTest {
     }
 
     @Test
+    void getOnlineAttempts_usesNumericAccountIdRouteConstraint() throws Exception {
+        Method method = AccountController.class.getMethod("onlineAttempts", Long.class, int.class);
+
+        assertThat(method.getAnnotation(org.springframework.web.bind.annotation.GetMapping.class).value())
+                .containsExactly("/{id:\\d+}/online-attempts");
+    }
+
+    @Test
+    void getOnlineAttempts_delegatesToAttemptLogServiceAndReturnsApiResponse() throws Exception {
+        AccountOnlineAttemptLogVO vo = attemptLog(100L, "oa_recent", 4035L, "PROXY_CONNECT_FAILED");
+        when(accountOnlineAttemptLogService.recentByAccount(100L, 7)).thenReturn(List.of(vo));
+
+        mockMvc.perform(get("/api/accounts/100/online-attempts")
+                        .param("limit", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].accountId").value(100))
+                .andExpect(jsonPath("$.data[0].onlineAttemptId").value("oa_recent"))
+                .andExpect(jsonPath("$.data[0].proxyId").value(4035))
+                .andExpect(jsonPath("$.data[0].diagnosisCode").value("PROXY_CONNECT_FAILED"));
+
+        verify(accountOnlineAttemptLogService).recentByAccount(100L, 7);
+    }
+
+    @Test
+    void getOnlineAttemptTimeline_delegatesToAttemptLogServiceAndReturnsApiResponse() throws Exception {
+        AccountOnlineAttemptLogVO vo = attemptLog(100L, "oa_1", 4036L, "VERIFY_TIMEOUT_NO_CONNECTION_UPDATE");
+        when(accountOnlineAttemptLogService.timeline("oa_1", 8)).thenReturn(List.of(vo));
+
+        mockMvc.perform(get("/api/accounts/online-attempts/oa_1")
+                        .param("limit", "8"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].accountId").value(100))
+                .andExpect(jsonPath("$.data[0].onlineAttemptId").value("oa_1"))
+                .andExpect(jsonPath("$.data[0].proxyId").value(4036))
+                .andExpect(jsonPath("$.data[0].diagnosisCode").value("VERIFY_TIMEOUT_NO_CONNECTION_UPDATE"));
+
+        verify(accountOnlineAttemptLogService).timeline("oa_1", 8);
+    }
+
+    @Test
     void postBatchOffline_delegatesToCommandServiceAndReturnsApiResponse() throws Exception {
         AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
                 2,
@@ -192,5 +243,33 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.results[1].protocolAccountId").value("acc_101"));
 
         verify(accountOnlineCommandService).offlineBatch(List.of(100L, 101L));
+    }
+
+    private static AccountOnlineAttemptLogVO attemptLog(Long accountId,
+                                                        String onlineAttemptId,
+                                                        Long proxyId,
+                                                        String diagnosisCode) {
+        return new AccountOnlineAttemptLogVO(
+                11L,
+                accountId,
+                "acc_8613800138000",
+                onlineAttemptId,
+                null,
+                "cmd_1",
+                "batch_1",
+                proxyId,
+                "batch_online",
+                "VERIFYING",
+                "PROXY_FAILED",
+                diagnosisCode,
+                "PROXY_OR_WA_CONNECTIVITY",
+                408,
+                "reason",
+                "RETRYABLE",
+                "MARK_PROXY_FAILED_RELEASE_SLOT",
+                "worker-a",
+                "{\"wsOpen\":false}",
+                1_782_987_480_123L,
+                1_782_987_481_123L);
     }
 }

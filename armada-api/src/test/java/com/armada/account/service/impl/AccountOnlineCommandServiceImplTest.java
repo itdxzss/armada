@@ -22,6 +22,8 @@ import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
+import com.armada.account.service.AccountOnlineAttemptLogService;
+import com.armada.account.service.OnlineAttemptIdGenerator;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -68,6 +70,12 @@ class AccountOnlineCommandServiceImplTest {
     @Mock
     private ProtocolCommandOutboxService protocolCommandOutboxService;
 
+    @Mock
+    private OnlineAttemptIdGenerator onlineAttemptIdGenerator;
+
+    @Mock
+    private AccountOnlineAttemptLogService accountOnlineAttemptLogService;
+
     @InjectMocks
     private AccountOnlineCommandServiceImpl service;
 
@@ -93,6 +101,7 @@ class AccountOnlineCommandServiceImplTest {
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
         when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                 .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_test_single");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
@@ -109,6 +118,8 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.credentialFormat()).isEqualTo(CredentialFormat.BAILEYS_JSON);
         assertThat(command.proxyId()).isEqualTo(7L);
         assertThat(command.source()).isEqualTo("manual_online");
+        assertThat(command.onlineAttemptId()).isEqualTo("oa_test_single");
+        assertThat(command.previousOnlineAttemptId()).isNull();
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
 
         assertThat(result.accountId()).isEqualTo(100L);
@@ -149,6 +160,7 @@ class AccountOnlineCommandServiceImplTest {
                     .thenReturn(List.of(ipRegionRow(100L, "印度")));
             when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                     .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+            when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_log_single");
             when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                     .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
@@ -160,7 +172,7 @@ class AccountOnlineCommandServiceImplTest {
             assertThat(messages)
                     .anyMatch(message -> message.contains("账号上线开始 accountId=100"));
             assertThat(messages)
-                    .anyMatch(message -> message.contains("账号上线写入 outbox 前准备 command accountId=100 allocatedProxyId=7")
+                    .anyMatch(message -> message.contains("账号上线写入 outbox 前准备 command accountId=100 attemptId=oa_log_single allocatedProxyId=7")
                             && message.contains("credentialFormat=BAILEYS_JSON")
                             && message.contains("credentialLength=" + credentialJson.length()));
             assertThat(messages)
@@ -188,6 +200,7 @@ class AccountOnlineCommandServiceImplTest {
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
         when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                 .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_test_single");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any())).thenThrow(failure);
 
         assertThatThrownBy(() -> service.online(100L))
@@ -197,7 +210,7 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
-    void reonlineAfterProxyFailure_enqueuesOnlineCommandWithProxyFailedSource() {
+    void reonlineAfterProxyFailure_enqueuesOnlineCommandWithAttemptLineageAndProxyFailedSource() {
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
         ProxyEndpoint endpoint = onlineEndpoint();
@@ -207,6 +220,8 @@ class AccountOnlineCommandServiceImplTest {
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
         when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
                 .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
+        when(accountOnlineAttemptLogService.latestAttemptId(100L)).thenReturn("oa_previous_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
 
@@ -219,7 +234,35 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.accountId()).isEqualTo(100L);
         assertThat(command.protocolAccountId()).isEqualTo("acc_8613800138000");
         assertThat(command.proxyId()).isEqualTo(7L);
+        assertThat(command.onlineAttemptId()).isEqualTo("oa_retry_1");
+        assertThat(command.previousOnlineAttemptId()).isEqualTo("oa_previous_1");
         assertThat(command.source()).isEqualTo("proxy_failed_reonline");
+    }
+
+    @Test
+    void reonlineAfterProxyFailure_withFailedAttemptContextUsesEventAttemptWithoutWaitingForDiagnosisLog() {
+        Account account = onlineAccount();
+        AccountCredential credential = onlineCredential();
+        ProxyEndpoint endpoint = onlineEndpoint();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+
+        service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
+        assertThat(command.previousOnlineAttemptId()).isEqualTo("oa_failed_from_state_event");
+        assertThat(command.source()).isEqualTo("proxy_failed_reonline");
+        verify(accountOnlineAttemptLogService, never()).latestAttemptId(any());
     }
 
     @Test
@@ -245,6 +288,7 @@ class AccountOnlineCommandServiceImplTest {
         when(ipProxyService.allocateOnlineEndpoints(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "马来西亚")))).thenReturn(allocations);
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
 
@@ -263,6 +307,10 @@ class AccountOnlineCommandServiceImplTest {
                 .containsExactly(7L, 8L);
         assertThat(commands).extracting(ProtocolOnlineCommandRequest::source)
                 .containsExactly("batch_online", "batch_online");
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::onlineAttemptId)
+                .containsExactly("oa_batch_100", "oa_batch_101");
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::previousOnlineAttemptId)
+                .containsExactly(null, null);
 
         verify(ipProxyService, never()).releaseOnlineAllocations(any());
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
@@ -340,6 +388,7 @@ class AccountOnlineCommandServiceImplTest {
         when(ipProxyService.allocateOnlineEndpoints(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "巴基斯坦")))).thenReturn(allocations);
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any())).thenThrow(failure);
 
         assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
@@ -365,6 +414,7 @@ class AccountOnlineCommandServiceImplTest {
         when(ipProxyService.allocateOnlineEndpoints(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "巴基斯坦")))).thenReturn(allocations);
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_plan_100");
 
         assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
@@ -398,6 +448,7 @@ class AccountOnlineCommandServiceImplTest {
         when(ipProxyService.allocateOnlineEndpointsExcludingProxyIds(List.of(
                 new IpProxyAllocationRequest(100L, "印度"),
                 new IpProxyAllocationRequest(101L, "马来西亚")), proxyIds)).thenReturn(allocations);
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_relogin_100", "oa_relogin_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_relogin", List.of("cmd_100", "cmd_101"), 2));
 
@@ -414,6 +465,10 @@ class AccountOnlineCommandServiceImplTest {
                 .containsExactly(20L, 21L);
         assertThat(commands).extracting(ProtocolOnlineCommandRequest::source)
                 .containsExactly("ip_delete_relogin", "ip_delete_relogin");
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::onlineAttemptId)
+                .containsExactly("oa_relogin_100", "oa_relogin_101");
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::previousOnlineAttemptId)
+                .containsExactly(null, null);
         verify(ipProxyService, never()).allocateOnlineEndpoints(any());
         assertThat(result.requested()).isEqualTo(2);
         assertThat(result.accepted()).isEqualTo(2);

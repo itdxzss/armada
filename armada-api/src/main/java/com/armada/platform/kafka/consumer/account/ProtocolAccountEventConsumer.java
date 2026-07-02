@@ -18,7 +18,8 @@ import org.springframework.stereotype.Component;
 /**
  * 协议账号事件 Kafka consumer。
  *
- * <p>当前接入 {@code account.state_changed} 和 {@code account.groups_reported}。
+ * <p>当前接入 {@code account.state_changed}, {@code account.groups_reported}
+ * 和 {@code account.offline_diagnosed}。
  * 其它账号事件先记录并跳过,
  * 防止一次性引入过多回写规则。</p>
  */
@@ -34,9 +35,13 @@ public class ProtocolAccountEventConsumer {
     /** 协议层账号当前群列表回报事件类型。 */
     public static final String EVENT_ACCOUNT_GROUPS_REPORTED = "account.groups_reported";
 
+    /** 协议层账号离线诊断事件类型。 */
+    public static final String EVENT_ACCOUNT_OFFLINE_DIAGNOSED = "account.offline_diagnosed";
+
     private final ObjectMapper objectMapper;
     private final ProtocolAccountStateChangedSink stateChangedSink;
     private final ProtocolAccountGroupsReportedSink groupsReportedSink;
+    private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
 
     /**
      * 创建协议账号事件 consumer。
@@ -44,13 +49,16 @@ public class ProtocolAccountEventConsumer {
      * @param objectMapper     JSON 解析器
      * @param stateChangedSink  账号状态变更下游处理口
      * @param groupsReportedSink 账号当前群列表下游处理口
+     * @param offlineDiagnosedSink 账号离线诊断下游处理口
      */
     public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
                                         ProtocolAccountStateChangedSink stateChangedSink,
-                                        ProtocolAccountGroupsReportedSink groupsReportedSink) {
+                                        ProtocolAccountGroupsReportedSink groupsReportedSink,
+                                        ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
         this.groupsReportedSink = groupsReportedSink;
+        this.offlineDiagnosedSink = offlineDiagnosedSink;
     }
 
     /**
@@ -70,9 +78,10 @@ public class ProtocolAccountEventConsumer {
         if (EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
             ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
             log.info("协议账号状态事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
-                            + "from={} to={} semantic={} rawCode={} workerId={}",
+                            + "from={} to={} semantic={} rawCode={} attemptId={} workerId={}",
                     event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
-                    event.from(), event.to(), event.semantic(), event.rawCode(), event.workerId());
+                    event.from(), event.to(), event.semantic(), event.rawCode(), event.onlineAttemptId(),
+                    event.workerId());
             stateChangedSink.handleStateChanged(event);
             return;
         }
@@ -83,6 +92,15 @@ public class ProtocolAccountEventConsumer {
                     event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
                     event.groups().size(), event.workerId());
             groupsReportedSink.handleGroupsReported(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_OFFLINE_DIAGNOSED.equals(eventType)) {
+            ProtocolAccountOfflineDiagnosedEvent event = toOfflineDiagnosedEvent(envelope);
+            log.info("协议账号离线诊断事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
+                            + "attemptId={} diagnosisCode={} rawCode={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.onlineAttemptId(), event.diagnosisCode(), event.rawCode(), event.workerId());
+            offlineDiagnosedSink.handleOfflineDiagnosed(event);
             return;
         }
         log.warn("协议账号事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
@@ -112,6 +130,7 @@ public class ProtocolAccountEventConsumer {
                 occurredAt(envelope),
                 text(data, "semantic"),
                 integer(data, "rawCode"),
+                text(data, "onlineAttemptId"),
                 text(envelope, "workerId"));
     }
 
@@ -128,6 +147,37 @@ public class ProtocolAccountEventConsumer {
                 occurredAt(envelope),
                 text(envelope, "workerId"),
                 groups);
+    }
+
+    private ProtocolAccountOfflineDiagnosedEvent toOfflineDiagnosedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String evidenceJson = null;
+        JsonNode evidence = envelope.path("evidence").isObject() ? envelope.path("evidence") : data.path("evidence");
+        if (evidence.isObject()) {
+            evidenceJson = evidence.toString();
+        }
+        return new ProtocolAccountOfflineDiagnosedEvent(
+                text(envelope, "eventId"),
+                requiredLong(data, "tenantId", "协议账号离线诊断事件缺少 data.tenantId"),
+                requiredLong(data, "accountId", "协议账号离线诊断事件缺少 data.accountId"),
+                requiredText(data, "protocolAccountId", "协议账号离线诊断事件缺少 data.protocolAccountId"),
+                requiredText(data, "onlineAttemptId", "协议账号离线诊断事件缺少 data.onlineAttemptId"),
+                text(data, "previousOnlineAttemptId"),
+                text(data, "commandId"),
+                text(data, "batchId"),
+                longValue(data, "proxyId"),
+                text(data, "source"),
+                text(data, "from"),
+                requiredText(data, "to", "协议账号离线诊断事件缺少 data.to"),
+                requiredText(data, "diagnosisCode", "协议账号离线诊断事件缺少 data.diagnosisCode"),
+                requiredText(data, "diagnosisClass", "协议账号离线诊断事件缺少 data.diagnosisClass"),
+                integer(data, "rawCode"),
+                text(data, "rawReason"),
+                text(data, "recoverability"),
+                text(data, "actionTaken"),
+                occurredAt(envelope),
+                text(envelope, "workerId"),
+                evidenceJson);
     }
 
     private static JsonNode dataNode(JsonNode envelope) {

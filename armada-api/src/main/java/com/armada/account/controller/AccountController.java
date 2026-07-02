@@ -6,21 +6,25 @@ import com.armada.account.model.dto.AccountMigrateGroupDTO;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountListVO;
+import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatsVO;
 import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountLifecycleCommandService;
+import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -37,15 +41,18 @@ public class AccountController {
     private final AccountGroupService accountGroupService;
     private final AccountOnlineCommandService accountOnlineCommandService;
     private final AccountLifecycleCommandService accountLifecycleCommandService;
+    private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
 
     public AccountController(AccountService accountService,
                              AccountGroupService accountGroupService,
                              AccountOnlineCommandService accountOnlineCommandService,
-                             AccountLifecycleCommandService accountLifecycleCommandService) {
+                             AccountLifecycleCommandService accountLifecycleCommandService,
+                             AccountOnlineAttemptLogService accountOnlineAttemptLogService) {
         this.accountService = accountService;
         this.accountGroupService = accountGroupService;
         this.accountOnlineCommandService = accountOnlineCommandService;
         this.accountLifecycleCommandService = accountLifecycleCommandService;
+        this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
     }
 
     /**
@@ -121,6 +128,34 @@ public class AccountController {
     @PostMapping("/{id}/probe")
     public ApiResponse<AccountProbeVO> probe(@PathVariable("id") Long id) {
         return ApiResponse.ok(accountLifecycleCommandService.probe(id));
+    }
+
+    /**
+     * A4.3 查询账号最近上线尝试诊断记录。
+     *
+     * @param id 账号 ID
+     * @param limit 返回数量上限
+     * @return 最近诊断记录,最近优先
+     */
+    @GetMapping("/{id:\\d+}/online-attempts")
+    public ApiResponse<List<AccountOnlineAttemptLogVO>> onlineAttempts(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "limit", defaultValue = "20") int limit) {
+        return ApiResponse.ok(accountOnlineAttemptLogService.recentByAccount(id, limit));
+    }
+
+    /**
+     * A4.4 查询单次上线尝试诊断时间线。
+     *
+     * @param onlineAttemptId 上线尝试 ID
+     * @param limit 返回数量上限
+     * @return 诊断时间线,时间升序
+     */
+    @GetMapping("/online-attempts/{onlineAttemptId}")
+    public ApiResponse<List<AccountOnlineAttemptLogVO>> onlineAttemptTimeline(
+            @PathVariable("onlineAttemptId") String onlineAttemptId,
+            @RequestParam(value = "limit", defaultValue = "20") int limit) {
+        return ApiResponse.ok(accountOnlineAttemptLogService.timeline(onlineAttemptId, limit));
     }
 
     /**

@@ -1,7 +1,7 @@
 package com.armada.account.state;
 
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.account.model.entity.Account;
 import com.armada.account.service.AccountOnlineCommandService;
@@ -33,11 +33,12 @@ class ProxyFailedAutoReonlineSideEffectTest {
                 "PROXY_FAILED",
                 1782626401000L,
                 "PROXY_FAILED",
-                null);
+                null,
+                "oa_failed_1");
 
         sideEffect.afterStateChanged(account, event, event.occurredAt());
 
-        verify(onlineCommandService).reonlineAfterProxyFailure(100L);
+        verify(onlineCommandService).reonlineAfterProxyFailure(100L, "oa_failed_1");
     }
 
     @Test
@@ -53,11 +54,12 @@ class ProxyFailedAutoReonlineSideEffectTest {
                 "OFFLINE",
                 1782626401000L,
                 "OFFLINE",
-                null);
+                null,
+                "oa_offline_1");
 
         sideEffect.afterStateChanged(account, event, event.occurredAt());
 
-        verify(onlineCommandService, never()).reonlineAfterProxyFailure(100L);
+        verifyNoInteractions(onlineCommandService);
     }
 
     private static Account account(Long id) {

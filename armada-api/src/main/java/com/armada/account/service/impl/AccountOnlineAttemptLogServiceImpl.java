@@ -5,6 +5,7 @@ import com.armada.account.model.entity.AccountOnlineAttemptLog;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.service.AccountOfflineDiagnosedEvent;
 import com.armada.account.service.AccountOnlineAttemptLogService;
+import com.armada.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -23,6 +24,20 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
 
     @Override
     public void applyOfflineDiagnosed(AccountOfflineDiagnosedEvent event) {
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(event.tenantId());
+            applyOfflineDiagnosedInTenant(event);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private void applyOfflineDiagnosedInTenant(AccountOfflineDiagnosedEvent event) {
         AccountOnlineAttemptLog row = new AccountOnlineAttemptLog();
         row.setAccountId(event.accountId());
         row.setProtocolAccountId(event.protocolAccountId());

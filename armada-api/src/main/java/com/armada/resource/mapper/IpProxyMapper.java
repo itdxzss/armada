@@ -74,6 +74,16 @@ public interface IpProxyMapper {
     /** 插入（不含 tenant_id 列，由拦截器注入）。 */
     int insert(IpProxy entity);
 
+    /** 批量插入（不含 tenant_id 列，由拦截器注入）。 */
+    int insertBatch(@Param("entities") List<IpProxy> entities);
+
+    /**
+     * 批量查询本租户已存在的活跃代理完整身份。
+     *
+     * <p>用于 IP 导入时一次性判断库内重复,避免按行执行 {@link #countActiveByFullTuple}。</p>
+     */
+    List<IpProxyDedupTuple> selectActiveDedupTuples(@Param("tuples") List<IpProxyDedupTuple> tuples);
+
     /**
      * 按 ID 查活跃代理行(deleted_at IS NULL)。
      *

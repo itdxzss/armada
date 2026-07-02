@@ -343,6 +343,48 @@
              #{source}, #{ownership}, #{allocationMode}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
+    <insert id="insertBatch">
+        INSERT INTO ip_proxy
+            (host, port, protocol, username, password, region, status,
+             detected_country_code, outbound_ip, detected_location, detected_isp,
+             detected_latitude, detected_longitude, check_fail_count, last_check_error,
+             check_status, whatsapp_check_status, whatsapp_http_status, whatsapp_check_error,
+             source, ownership, allocation_mode, remark,
+             created_at, updated_at, created_by)
+        VALUES
+        <foreach collection="entities" item="entity" separator=",">
+            (#{entity.host}, #{entity.port}, #{entity.protocol}, #{entity.username}, #{entity.password}, #{entity.region},
+             #{entity.status}, #{entity.detectedCountryCode}, #{entity.outboundIp}, #{entity.detectedLocation},
+             #{entity.detectedIsp}, #{entity.detectedLatitude}, #{entity.detectedLongitude},
+             COALESCE(#{entity.checkFailCount}, 0), #{entity.lastCheckError},
+             #{entity.checkStatus}, #{entity.whatsappCheckStatus},
+             #{entity.whatsappHttpStatus}, #{entity.whatsappCheckError},
+             #{entity.source}, #{entity.ownership}, #{entity.allocationMode}, #{entity.remark},
+             #{entity.createdAt}, #{entity.updatedAt}, #{entity.createdBy})
+        </foreach>
+    </insert>
+
+    <select id="selectActiveDedupTuples" resultType="com.armada.resource.mapper.IpProxyDedupTuple">
+        <if test="tuples != null and tuples.size() &gt; 0">
+        SELECT host, port, username, password
+        FROM ip_proxy
+        WHERE deleted_at IS NULL
+          AND (
+        <foreach collection="tuples" item="tuple" separator=" OR ">
+            (host = #{tuple.host}
+             AND port = #{tuple.port}
+             AND username = #{tuple.username}
+             AND password = #{tuple.password})
+        </foreach>
+          )
+        </if>
+        <if test="tuples == null or tuples.size() == 0">
+        SELECT host, port, username, password
+        FROM ip_proxy
+        WHERE 1 = 0
+        </if>
+    </select>
+
     <select id="selectActiveById" resultType="com.armada.resource.model.entity.IpProxy">
         SELECT <include refid="Columns"/>
         FROM ip_proxy

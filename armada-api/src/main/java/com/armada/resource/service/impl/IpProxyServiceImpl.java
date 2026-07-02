@@ -9,6 +9,7 @@ import com.armada.resource.check.IpProxyCheckTiming;
 import com.armada.resource.check.IpProxyDetector;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
+import com.armada.resource.mapper.IpProxyDedupTuple;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyAllocationMode;
 import com.armada.resource.model.IpProxyCheckStatus;
@@ -65,6 +66,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     /** 一行原文字段数：host:port:username:password。 */
     private static final int IMPORT_FIELDS = 4;
     private static final int IMPORT_SAMPLE_CHECK_SIZE = 5;
+    private static final int IMPORT_DB_BATCH_SIZE = 500;
     private static final int MAX_BATCH_ALLOCATION_SIZE = 500;
     private static final int MAX_BATCH_CHECK_SIZE = 20;
     private static final String MIXED_REGION = "混合（不限国家）";
@@ -109,30 +111,38 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     @Override
     public IpProxyImportResultVO importProxies(IpProxyImportDTO dto) {
+        long startedAt = System.nanoTime();
         IpProxyImportDTO normalized = normalizeImport(dto);
         // 先校验批次级字段。国家可为空,但协议、来源、导入文本必须完整,否则不进入逐行解析。
         validateImport(normalized);
 
+        long parseStartedAt = System.nanoTime();
         List<LineOutcome<ProxyLine, Boolean>> outcomes = importOutcomes(normalized);
+        long parseMs = elapsedMs(parseStartedAt);
 
         // 汇总口径:
         // failed=格式/字段校验失败;inserted=真实新增;skipped=批内重复 + 库内已存在。
         int total = outcomes.size();
         int failed = (int) outcomes.stream().filter(o -> o.kind() == Kind.FAILED).count();
-        List<ImportCandidate> insertCandidates = insertCandidates(outcomes);
+        List<ImportCandidate> candidates = importCandidates(outcomes);
+        long dbDedupStartedAt = System.nanoTime();
+        List<ImportCandidate> insertCandidates = filterNewCandidates(candidates);
+        long dbDedupMs = elapsedMs(dbDedupStartedAt);
         int inserted = insertCandidates.size();
         int skipped = total - failed - inserted;   // 批内重复 + 库内已存在
 
         // 手动抽样检测由 /import/sample-check 负责;导入接口只按前端已通过状态提交的内容落库。
-        for (ImportCandidate candidate : insertCandidates) {
-            persistProxy(normalized, candidate.line());
-        }
+        long insertStartedAt = System.nanoTime();
+        persistProxies(normalized, insertCandidates);
+        long insertMs = elapsedMs(insertStartedAt);
 
         // 错误信息带原始行号,让页面能提示用户直接回到具体问题行。
         List<String> errors = outcomes.stream().filter(o -> o.kind() == Kind.FAILED)
                 .map(o -> "第 " + o.lineNo() + " 行：" + o.reason()).toList();
-        log.info("IP代理导入 region={} allocationMode={} protocol={} total={} inserted={} skipped={} failed={}",
-                normalized.region(), normalized.allocationMode(), normalized.protocol(), total, inserted, skipped, failed);
+        log.info("IP代理导入 region={} allocationMode={} protocol={} total={} inserted={} skipped={} failed={} "
+                        + "parseMs={} dbDedupMs={} insertMs={} totalMs={}",
+                normalized.region(), normalized.allocationMode(), normalized.protocol(), total, inserted, skipped, failed,
+                parseMs, dbDedupMs, insertMs, elapsedMs(startedAt));
         return new IpProxyImportResultVO(total, inserted, skipped, failed, errors);
     }
 
@@ -146,7 +156,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     public IpProxyImportSampleCheckVO sampleCheckImport(IpProxyImportDTO dto) {
         IpProxyImportDTO normalized = normalizeImport(dto);
         validateImport(normalized);
-        List<ImportCandidate> candidates = insertCandidates(importOutcomes(normalized));
+        List<ImportCandidate> candidates = filterNewCandidates(importCandidates(importOutcomes(normalized)));
         List<ImportCandidate> samples = randomImportSamples(candidates);
         List<IpProxyImportSampleCheckVO.SampleRow> rows = new ArrayList<>(samples.size());
         List<String> errors = new ArrayList<>();
@@ -605,10 +615,14 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     /** 一行代理：host:port:用户名:密码。 */
     private record ProxyLine(String host, int port, String username, String password) {
-        /** 批内去重键：完整身份。分隔避免字段拼接歧义。 */
-        Object dedupKey() {
-            return host + ' ' + port + ' ' + username + ' ' + password;
+        /** 批内/库内去重键：完整身份。 */
+        ProxyDedupKey dedupKey() {
+            return new ProxyDedupKey(host, port, username, password);
         }
+    }
+
+    /** 代理完整身份去重键。 */
+    private record ProxyDedupKey(String host, int port, String username, String password) {
     }
 
     /** 本批实际会新增的一行代理,保留原始行号用于抽样失败提示。 */
@@ -644,17 +658,56 @@ public class IpProxyServiceImpl implements IpProxyService {
      * 复用同一套逐行解析/去重逻辑,确保“检测按钮”和“开始导入”看到的是同一批新增候选。
      */
     private List<LineOutcome<ProxyLine, Boolean>> importOutcomes(IpProxyImportDTO dto) {
-        // LineImporter 统一处理:1)跳过空行;2)校验格式;3)批内去重;4)库内活跃行去重。
+        // LineImporter 统一处理:1)跳过空行;2)校验格式;3)批内去重。库内去重统一走批量查询。
         return LineImporter.run(
                 dto.text(), IpProxyServiceImpl::parseProxyLine, ProxyLine::dedupKey,
-                line -> mapper.countActiveByFullTuple(line.host(), line.port(), line.username(), line.password()) == 0);
+                line -> Boolean.TRUE);
     }
 
-    private static List<ImportCandidate> insertCandidates(List<LineOutcome<ProxyLine, Boolean>> outcomes) {
+    private static List<ImportCandidate> importCandidates(List<LineOutcome<ProxyLine, Boolean>> outcomes) {
         return outcomes.stream()
-                .filter(o -> o.kind() == Kind.PERSISTED && Boolean.TRUE.equals(o.persistResult()))
+                .filter(o -> o.kind() == Kind.PERSISTED)
                 .map(o -> new ImportCandidate(o.lineNo(), o.record()))
                 .toList();
+    }
+
+    private List<ImportCandidate> filterNewCandidates(List<ImportCandidate> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        Set<ProxyDedupKey> activeKeys = activeDedupKeys(candidates);
+        if (activeKeys.isEmpty()) {
+            return List.copyOf(candidates);
+        }
+        return candidates.stream()
+                .filter(candidate -> !activeKeys.contains(candidate.line().dedupKey()))
+                .toList();
+    }
+
+    private Set<ProxyDedupKey> activeDedupKeys(List<ImportCandidate> candidates) {
+        Set<ProxyDedupKey> keys = new LinkedHashSet<>();
+        for (int start = 0; start < candidates.size(); start += IMPORT_DB_BATCH_SIZE) {
+            int end = Math.min(start + IMPORT_DB_BATCH_SIZE, candidates.size());
+            List<IpProxyDedupTuple> tuples = candidates.subList(start, end).stream()
+                    .map(candidate -> toDedupTuple(candidate.line()))
+                    .toList();
+            List<IpProxyDedupTuple> activeRows = mapper.selectActiveDedupTuples(tuples);
+            if (activeRows == null || activeRows.isEmpty()) {
+                continue;
+            }
+            for (IpProxyDedupTuple row : activeRows) {
+                keys.add(toDedupKey(row));
+            }
+        }
+        return keys;
+    }
+
+    private static IpProxyDedupTuple toDedupTuple(ProxyLine line) {
+        return new IpProxyDedupTuple(line.host(), line.port(), line.username(), line.password());
+    }
+
+    private static ProxyDedupKey toDedupKey(IpProxyDedupTuple tuple) {
+        return new ProxyDedupKey(tuple.getHost(), tuple.getPort(), tuple.getUsername(), tuple.getPassword());
     }
 
     /**
@@ -760,7 +813,21 @@ public class IpProxyServiceImpl implements IpProxyService {
      * <p>协议、国家、来源、分配方式取本次统一属性。所有新增行直接可用;检测字段保持为空。
      * 业务国家来自导入时手选值,不会被检测结果回填。导入路径不再提交异步全量检测任务。</p>
      */
-    private void persistProxy(IpProxyImportDTO dto, ProxyLine line) {
+    private void persistProxies(IpProxyImportDTO dto, List<ImportCandidate> candidates) {
+        if (candidates.isEmpty()) {
+            return;
+        }
+        for (int start = 0; start < candidates.size(); start += IMPORT_DB_BATCH_SIZE) {
+            int end = Math.min(start + IMPORT_DB_BATCH_SIZE, candidates.size());
+            long now = System.currentTimeMillis();
+            List<IpProxy> rows = candidates.subList(start, end).stream()
+                    .map(candidate -> toProxyRow(dto, candidate.line(), now))
+                    .toList();
+            mapper.insertBatch(rows);
+        }
+    }
+
+    private static IpProxy toProxyRow(IpProxyImportDTO dto, ProxyLine line, long now) {
         IpProxy row = new IpProxy();
         row.setHost(line.host());
         row.setPort(line.port());
@@ -773,10 +840,9 @@ public class IpProxyServiceImpl implements IpProxyService {
         row.setStatus(IpProxyStatus.IDLE.code());
         row.setCheckFailCount(0);
         row.setOwnership(ProxyOwnership.OWNED.code());
-        long now = System.currentTimeMillis();
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
-        mapper.insert(row);
+        return row;
     }
 
     /**
@@ -1071,6 +1137,10 @@ public class IpProxyServiceImpl implements IpProxyService {
             return "代理检测失败";
         }
         return message.length() > ERROR_MAX_LENGTH ? message.substring(0, ERROR_MAX_LENGTH) : message;
+    }
+
+    private static long elapsedMs(long startedNano) {
+        return (System.nanoTime() - startedNano) / 1_000_000L;
     }
 
     /**

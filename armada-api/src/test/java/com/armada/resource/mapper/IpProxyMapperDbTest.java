@@ -86,6 +86,25 @@ class IpProxyMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void insertBatchAndSelectActiveDedupTuples_roundTripImportBatchSql() {
+        long now = System.currentTimeMillis();
+        IpProxy proxyA = newIdleProxy(now);
+        IpProxy proxyB = newIdleProxy(now + 1);
+
+        int inserted = mapper.insertBatch(List.of(proxyA, proxyB));
+
+        assertThat(inserted).isEqualTo(2);
+        List<IpProxyDedupTuple> found = mapper.selectActiveDedupTuples(List.of(
+                tuple(proxyA),
+                new IpProxyDedupTuple("missing-" + now + ".internal", 1080, "missing", "missing")));
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).getHost()).isEqualTo(proxyA.getHost());
+        assertThat(found.get(0).getPort()).isEqualTo(proxyA.getPort());
+        assertThat(found.get(0).getUsername()).isEqualTo(proxyA.getUsername());
+        assertThat(found.get(0).getPassword()).isEqualTo(proxyA.getPassword());
+    }
+
+    @Test
     void bindingLifecycle_selectIdleMarkUsingAndReleaseByAccount() {
         long now = System.currentTimeMillis();
         IpProxy proxy = newIdleProxy(now);
@@ -346,5 +365,9 @@ class IpProxyMapperDbTest extends DbTestBase {
         proxy.setCreatedAt(suffix);
         proxy.setUpdatedAt(suffix);
         return proxy;
+    }
+
+    private static IpProxyDedupTuple tuple(IpProxy proxy) {
+        return new IpProxyDedupTuple(proxy.getHost(), proxy.getPort(), proxy.getUsername(), proxy.getPassword());
     }
 }

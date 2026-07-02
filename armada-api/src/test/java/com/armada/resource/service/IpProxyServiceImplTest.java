@@ -21,6 +21,7 @@ import com.armada.resource.check.IpProxyCheckTiming;
 import com.armada.resource.check.IpProxyDetector;
 import com.armada.resource.converter.IpProxyConverter;
 import com.armada.resource.mapper.IpProxyBindTarget;
+import com.armada.resource.mapper.IpProxyDedupTuple;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.dto.IpProxyImportDTO;
@@ -96,9 +97,6 @@ class IpProxyServiceImplTest {
 
     @Test
     void importProxies_allNew_returnsCorrectStats() {
-        // 所有行全新插入
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-
         IpProxyImportResultVO result = service.importProxies(dto("1.1.1.1:8080:user1:pass1\n2.2.2.2:8080:user2:pass2"));
 
         assertThat(result.totalRows()).isEqualTo(2);
@@ -106,14 +104,50 @@ class IpProxyServiceImplTest {
         assertThat(result.skippedRows()).isEqualTo(0);
         assertThat(result.failedRows()).isEqualTo(0);
         assertThat(result.errors()).isEmpty();
-        verify(mapper, times(2)).insert(any());
+        assertThat(capturedInsertBatch()).hasSize(2);
+        verify(mapper, never()).countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString());
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
+    void importProxies_doesNotUsePerRowDedupLookupOrPerRowInsert() {
+        IpProxyImportResultVO result = service.importProxies(
+                dto("1.1.1.1:8080:user1:pass1\n2.2.2.2:9090:user2:pass2"));
+
+        assertThat(result.insertedRows()).isEqualTo(2);
+        verify(mapper, never()).countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString());
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void importProxies_batchesDbDedupAndInsert() {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < 1001; i++) {
+            if (i > 0) {
+                text.append('\n');
+            }
+            text.append("bulk-").append(i).append(".proxy:").append(10000 + i)
+                    .append(":user").append(i).append(":pass").append(i);
+        }
+
+        IpProxyImportResultVO result = service.importProxies(dto(text.toString()));
+
+        assertThat(result.insertedRows()).isEqualTo(1001);
+        ArgumentCaptor<List> dedupCaptor = ArgumentCaptor.forClass(List.class);
+        verify(mapper, times(3)).selectActiveDedupTuples(dedupCaptor.capture());
+        assertThat(dedupCaptor.getAllValues()).extracting(List::size).containsExactly(500, 500, 1);
+        ArgumentCaptor<List> insertCaptor = ArgumentCaptor.forClass(List.class);
+        verify(mapper, times(3)).insertBatch(insertCaptor.capture());
+        assertThat(insertCaptor.getAllValues()).extracting(List::size).containsExactly(500, 500, 1);
+        verify(mapper, never()).countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString());
+        verify(mapper, never()).insert(any());
     }
 
     @Test
     void importProxies_dbDuplicate_countedAsSkipped() {
         // 第一行库内已存在(countActive=1),第二行新增
-        when(mapper.countActiveByFullTuple("1.1.1.1", 8080, "user1", "pass1")).thenReturn(1L);
-        when(mapper.countActiveByFullTuple("2.2.2.2", 9090, "user2", "pass2")).thenReturn(0L);
+        when(mapper.selectActiveDedupTuples(any())).thenReturn(List.of(tuple("1.1.1.1", 8080, "user1", "pass1")));
 
         IpProxyImportResultVO result = service.importProxies(dto("1.1.1.1:8080:user1:pass1\n2.2.2.2:9090:user2:pass2"));
 
@@ -121,21 +155,21 @@ class IpProxyServiceImplTest {
         assertThat(result.insertedRows()).isEqualTo(1);
         assertThat(result.skippedRows()).isEqualTo(1);
         assertThat(result.failedRows()).isEqualTo(0);
-        verify(mapper, times(1)).insert(any());
+        List<IpProxy> inserted = capturedInsertBatch();
+        assertThat(inserted).hasSize(1);
+        assertThat(inserted.get(0).getHost()).isEqualTo("2.2.2.2");
     }
 
     @Test
     void importProxies_batchDuplicate_countedAsSkipped() {
         // 同一行出现两次:批内去重,只落库一次
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-
         IpProxyImportResultVO result = service.importProxies(dto("1.1.1.1:8080:user1:pass1\n1.1.1.1:8080:user1:pass1"));
 
         assertThat(result.totalRows()).isEqualTo(2);
         assertThat(result.insertedRows()).isEqualTo(1);
         assertThat(result.skippedRows()).isEqualTo(1);   // 批内重复
         assertThat(result.failedRows()).isEqualTo(0);
-        verify(mapper, times(1)).insert(any());
+        assertThat(capturedInsertBatch()).hasSize(1);
     }
 
     @Test
@@ -179,12 +213,11 @@ class IpProxyServiceImplTest {
 
     @Test
     void importProxies_skipsBlankLines() {
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
-
         IpProxyImportResultVO result = service.importProxies(dto("\n1.1.1.1:8080:u:p\n\n"));
 
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.insertedRows()).isEqualTo(1);
+        assertThat(capturedInsertBatch()).hasSize(1);
     }
 
     @Test
@@ -214,37 +247,31 @@ class IpProxyServiceImplTest {
     @Test
     void importProxies_resolvesCountryValueBeforePersistingRegion() {
         when(countryService.resolveIpRegion("IN")).thenReturn("印度");
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
 
         IpProxyImportResultVO result = service.importProxies(
                 new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", "IN"));
 
         assertThat(result.insertedRows()).isEqualTo(1);
-        ArgumentCaptor<IpProxy> proxyCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).insert(proxyCaptor.capture());
-        assertThat(proxyCaptor.getValue().getRegion()).isEqualTo("印度");
+        assertThat(firstInsertedProxy().getRegion()).isEqualTo("印度");
     }
 
     @Test
     void importProxies_persistsSelectedAllocationMode() throws Exception {
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
         IpProxyImportDTO dto = IpProxyImportDTO.class
                 .getConstructor(String.class, Integer.class, String.class, String.class, String.class, String.class)
                 .newInstance(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", null, "mixed");
 
         service.importProxies(dto);
 
-        ArgumentCaptor<IpProxy> proxyCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).insert(proxyCaptor.capture());
-        assertThat(proxyCaptor.getValue().getAllocationMode()).isEqualTo("mixed");
-        assertThat(proxyCaptor.getValue().getRegion()).isEqualTo("混合（不限国家）");
+        IpProxy inserted = firstInsertedProxy();
+        assertThat(inserted.getAllocationMode()).isEqualTo("mixed");
+        assertThat(inserted.getRegion()).isEqualTo("混合（不限国家）");
         verify(countryService, never()).resolveIpRegion(any());
     }
 
     @Test
     void sampleCheckImport_failureReturnsFailedResultWithoutInsert() {
         when(countryService.resolveIpRegion("US")).thenReturn("美国");
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
         when(detector.check(any()))
                 .thenReturn(IpProxyCheckResult.failed(null, "代理连接超时", 1_719_800_000_000L));
 
@@ -272,7 +299,6 @@ class IpProxyServiceImplTest {
     @Test
     void sampleCheckImport_successChecksAtMostFiveRandomCandidates() {
         when(countryService.resolveIpRegion("US")).thenReturn("美国");
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
         detectorChecksSucceed();
 
         IpProxyImportSampleCheckVO result = service.sampleCheckImport(new IpProxyImportDTO(
@@ -307,15 +333,12 @@ class IpProxyServiceImplTest {
     @Test
     void importProxies_importsIdleRowsWithoutCallingDetectorOrWritingDetectionFields() {
         when(countryService.resolveIpRegion("US")).thenReturn("美国");
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
 
         IpProxyImportResultVO result = service.importProxies(
                 new IpProxyImportDTO(null, 1, "供应商A", "1.1.1.1:8080:user1:pass1", "US"));
 
         assertThat(result.insertedRows()).isEqualTo(1);
-        ArgumentCaptor<IpProxy> insertCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).insert(insertCaptor.capture());
-        IpProxy inserted = insertCaptor.getValue();
+        IpProxy inserted = firstInsertedProxy();
         assertThat(inserted.getAllocationMode()).isEqualTo("smart");
         assertThat(inserted.getRegion()).isEqualTo("美国");
         assertThat(inserted.getStatus()).isEqualTo(IpProxyStatus.IDLE.code());
@@ -488,13 +511,10 @@ class IpProxyServiceImplTest {
     @Test
     void importProxies_legacyRegionStillResolvesThroughCountryService() {
         when(countryService.resolveIpRegion("印度")).thenReturn("印度");
-        when(mapper.countActiveByFullTuple(anyString(), anyInt(), anyString(), anyString())).thenReturn(0L);
 
         service.importProxies(new IpProxyImportDTO("印度", 1, "供应商A", "1.1.1.1:8080:user1:pass1"));
 
-        ArgumentCaptor<IpProxy> proxyCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).insert(proxyCaptor.capture());
-        assertThat(proxyCaptor.getValue().getRegion()).isEqualTo("印度");
+        assertThat(firstInsertedProxy().getRegion()).isEqualTo("印度");
     }
 
     @Test
@@ -823,6 +843,21 @@ class IpProxyServiceImplTest {
                 });
 
         verify(mapper, never()).releaseOnlineAllocation(any(), any(), anyInt(), anyInt(), anyLong());
+    }
+
+    private IpProxy firstInsertedProxy() {
+        return capturedInsertBatch().get(0);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private List<IpProxy> capturedInsertBatch() {
+        ArgumentCaptor<List> insertCaptor = ArgumentCaptor.forClass(List.class);
+        verify(mapper).insertBatch(insertCaptor.capture());
+        return (List<IpProxy>) insertCaptor.getValue();
+    }
+
+    private static IpProxyDedupTuple tuple(String host, Integer port, String username, String password) {
+        return new IpProxyDedupTuple(host, port, username, password);
     }
 
     private static IpProxy idleProxy() {

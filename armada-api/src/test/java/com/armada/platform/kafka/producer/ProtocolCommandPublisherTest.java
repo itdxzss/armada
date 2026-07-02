@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -176,6 +177,54 @@ class ProtocolCommandPublisherTest {
                 .doesNotContain("credentialJson")
                 .doesNotContain("credentialFormat")
                 .doesNotContain("\"proxyId\"");
+    }
+
+    @Test
+    void publishBatch_onlineRowWithNullPreviousAttemptKeepsKafkaPayloadJsonNull() {
+        ProtocolCommandOutbox row = outboxRow(
+                "cmd_100",
+                1L,
+                100L,
+                "acc_100",
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
+                        + "\"credentialFormat\":\"BAILEYS_JSON\",\"proxyId\":7,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_100\",\"previousOnlineAttemptId\":null}");
+        when(credentialMapper.selectByTenantAndAccountIds(1L, List.of(100L)))
+                .thenReturn(List.of(credential(100L, 2, "{\"creds\":{\"noiseKey\":\"n1\"},\"keys\":{}}")));
+        when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
+                .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
+                        "user-a", "pass_session-Aaa111", "印度")));
+        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_100"), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
+
+        assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
+        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
+        verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
+        assertThat(captor.getValue().payload().get("previousOnlineAttemptId").isNull()).isTrue();
+    }
+
+    @Test
+    void publishBatch_onlineRowWithNullOnlineAttemptReturnsValidationFailureWithoutSendingKafka() {
+        ProtocolCommandOutbox row = outboxRow(
+                "cmd_100",
+                1L,
+                100L,
+                "acc_100",
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
+                        + "\"credentialFormat\":\"BAILEYS_JSON\",\"proxyId\":7,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":null,\"previousOnlineAttemptId\":\"oa_99\"}");
+
+        List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
+
+        assertThat(outcomes).singleElement().satisfies(outcome -> {
+            assertThat(outcome.succeeded()).isFalse();
+            assertThat(outcome.error())
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("payload 缺少字段 onlineAttemptId");
+        });
+        verify(kafkaTemplate, never()).send(any(), any(), any());
     }
 
     @Test

@@ -321,7 +321,7 @@ public class ProtocolCommandPublisher {
 
     private static String requiredText(JsonNode payload, String field, String commandId) {
         JsonNode value = payload.get(field);
-        if (value == null || value.asText().isBlank()) {
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
             throw validation("协议上线命令 payload 缺少字段 " + field + " commandId=" + commandId);
         }
         return value.asText();
@@ -329,7 +329,8 @@ public class ProtocolCommandPublisher {
 
     private static String textOrDefault(JsonNode payload, String field, String defaultValue) {
         JsonNode value = payload.get(field);
-        if (value == null || value.asText().isBlank()) {
+        // 可空链路字段只接受 JSON string；missing/null/blank 都保持调用方定义的默认值，避免 null 被转成字符串。
+        if (value == null || value.isNull() || !value.isTextual() || value.asText().isBlank()) {
             return defaultValue;
         }
         return value.asText();

@@ -6,12 +6,12 @@
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account_import_batch (
       account_group_id, source_file_name, source_file_type,
-      import_format, device_os, account_type, ip_region,
+      import_format, device_os, account_type, ip_region, ip_allocation_mode,
       total_rows, imported_rows, duplicate_rows, format_error_rows,
       status, created_at, created_by
     ) VALUES (
       #{accountGroupId}, #{sourceFileName}, #{sourceFileType},
-      #{importFormat}, #{deviceOs}, #{accountType}, #{ipRegion},
+      #{importFormat}, #{deviceOs}, #{accountType}, #{ipRegion}, #{ipAllocationMode},
       #{totalRows}, #{importedRows}, #{duplicateRows}, #{formatErrorRows},
       #{status}, #{createdAt}, #{createdBy}
     )
@@ -86,6 +86,7 @@
     SELECT b.id, b.source_file_name AS sourceFileName,
            b.import_format AS importFormat, b.device_os AS deviceOs,
            b.account_type AS accountType, b.ip_region AS ipRegion,
+           b.ip_allocation_mode AS ipAllocationMode,
            b.total_rows AS totalRows, b.imported_rows AS importedRows,
            b.duplicate_rows AS duplicateRows, b.format_error_rows AS formatErrorRows,
            b.login_success AS loginSuccess, b.login_failed AS loginFailed,

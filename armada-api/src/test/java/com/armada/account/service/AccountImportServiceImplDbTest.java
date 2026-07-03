@@ -54,7 +54,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 + "{\"wid\":\"8613800138003\",\"noiseKey\":{}},"
                 + "{\"wid\":\"8613800138000\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}"
                 + "]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "r", null);
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
 
         assertThat(b.totalRows()).isEqualTo(4);
@@ -82,7 +82,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 + "{\"wid\":\"8613850000003\",\"noiseKey\":{}},"
                 + "{\"wid\":\"8613850000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}"
                 + "]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "r", null);
 
         AccountImportBatchVO batch = service.importAccounts(meta, null, json);
 
@@ -103,10 +103,41 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     }
 
     @Test
+    void import_persistsIpAllocationModeOnBatch() {
+        String json = "[{\"wid\":\"8613851000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
+        var meta = new AccountImportDTO(null, 2, 1, 2, null, "mixed", "ip-mode-test", null);
+
+        AccountImportBatchVO batch = service.importAccounts(meta, null, json);
+
+        assertThat(batch.ipAllocationMode()).isEqualTo("mixed");
+        String storedMode = jdbcTemplate.queryForObject(
+                "SELECT ip_allocation_mode FROM account_import_batch WHERE id = ?",
+                String.class,
+                batch.id());
+        assertThat(storedMode).isEqualTo("mixed");
+    }
+
+    @Test
+    void import_omittedIpAllocationModeKeepsLegacyIpRegionAllocation() {
+        String json = "[{\"wid\":\"8613852000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "legacy-ip-region", null);
+
+        AccountImportBatchVO batch = service.importAccounts(meta, null, json);
+
+        assertThat(batch.ipRegion()).isEqualTo("印度");
+        assertThat(batch.ipAllocationMode()).isNull();
+        String storedMode = jdbcTemplate.queryForObject(
+                "SELECT ip_allocation_mode FROM account_import_batch WHERE id = ?",
+                String.class,
+                batch.id());
+        assertThat(storedMode).isNull();
+    }
+
+    @Test
     void import_textPersistsTxtSourceTypeAndRawPayload() {
         String first = "{\"wid\":\"8613861000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
         String second = "{\"wid\":\"8613861000002\",\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null, null);
 
         AccountImportBatchVO batch = service.importAccounts(meta, null, "[" + first + "," + second + "]");
 
@@ -134,7 +165,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_zipPersistsZipSourceTypeAndEntryNames() throws Exception {
         String json = "{\"wid\":\"8613862000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
         byte[] zipBytes = buildZip("nested/8613862000001.json", json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, "accounts.zip");
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null, "accounts.zip");
 
         AccountImportBatchVO batch = service.importAccounts(meta, zipBytes, null);
 
@@ -163,14 +194,14 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_crossBatch_dbUqDuplicate() {
         String json = "[{\"wid\":\"8613811111111\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "r", null);
 
         // 第一批成功
         AccountImportBatchVO first = service.importAccounts(meta, null, json);
         assertThat(first.importedRows()).isEqualTo(1);
 
         // 第二批同号 → DB uq 兜底 → DUPLICATE
-        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+        var meta2 = new AccountImportDTO(null, 2, 1, 2, "印度", null, "r", null);
         AccountImportBatchVO second = service.importAccounts(meta2, null, json);
         assertThat(second.importedRows()).isEqualTo(0);
         assertThat(second.duplicateRows()).isEqualTo(1);
@@ -182,7 +213,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
      */
     @Test
     void import_emptyText_throwsBusinessException() {
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "r", null);
         assertThatThrownBy(() -> service.importAccounts(meta, null, ""))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("无可导入内容");
@@ -195,7 +226,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     @Test
     void import_success_allThreeTablesHaveRow() {
         String json = "[{\"wid\":\"8613822222222\",\"registrationId\":5,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
         assertThat(b.importedRows()).isEqualTo(1);
@@ -215,7 +246,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_deviceOsNull_doesNotNpe() {
         String json = "[{\"wid\":\"8613833333333\",\"registrationId\":7,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // deviceOs=null 模拟用户未选机型
-        var meta = new AccountImportDTO(null, 2, null, 1, "美国", null, null);
+        var meta = new AccountImportDTO(null, 2, null, 1, "美国", null, null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
         assertThat(b.importedRows()).isEqualTo(1);
@@ -234,7 +265,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_withFileName_sourceFileNameIsFileName() {
         String json = "[{\"wid\":\"8613841000001\",\"registrationId\":11,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // sourceFileName 有值,模拟文件上传
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, "accounts_20240624.json");
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null, "accounts_20240624.json");
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
 
@@ -252,7 +283,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_noFileName_sourceFileNameFallsBackToDefault() {
         String json = "[{\"wid\":\"8613842000002\",\"registrationId\":12,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // sourceFileName=null,模拟纯文本粘贴
-        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null);
+        var meta = new AccountImportDTO(null, 2, 1, 1, "美国", null, null, null);
 
         AccountImportBatchVO b = service.importAccounts(meta, null, json);
 
@@ -270,7 +301,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     void import_nonExistentGroupId_throwsNotFound_noAccountWritten() {
         String json = "[{\"wid\":\"8613843000003\",\"registrationId\":13,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         // 9999999L 必然不存在
-        var meta = new AccountImportDTO(9999999L, 2, 1, 1, "美国", null, null);
+        var meta = new AccountImportDTO(9999999L, 2, 1, 1, "美国", null, null, null);
 
         assertThatThrownBy(() -> service.importAccounts(meta, null, json))
                 .isInstanceOf(BusinessException.class)

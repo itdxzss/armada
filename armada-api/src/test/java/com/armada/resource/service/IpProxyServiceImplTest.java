@@ -534,7 +534,8 @@ class IpProxyServiceImplTest {
                     IpProxyStatus.IDLE.code(),
                     "印度",
                     "混合（不限国家）",
-                    List.of())).thenReturn(row);
+                    List.of(),
+                    true)).thenReturn(row);
             when(mapper.markUsingAndBind(
                     eq(10L),
                     eq(100L),
@@ -543,7 +544,7 @@ class IpProxyServiceImplTest {
                     anyLong())).thenReturn(1);
 
             IpProxyAllocation allocation = service.allocateOnlineEndpoint(
-                    new IpProxyAllocationRequest(100L, "印度"));
+                    new IpProxyAllocationRequest(100L, "印度", true));
 
             assertThat(allocation.proxyId()).isEqualTo(10L);
             assertThat(allocation.endpoint().protocolCode()).isEqualTo(ProxyEndpoint.PROTOCOL_SOCKS5);
@@ -563,7 +564,8 @@ class IpProxyServiceImplTest {
                     IpProxyStatus.IDLE.code(),
                     "印度",
                     "混合（不限国家）",
-                    List.of());
+                    List.of(),
+                    true);
             inOrder.verify(mapper).markUsingAndBind(
                     eq(10L), eq(100L), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
         } finally {
@@ -578,8 +580,8 @@ class IpProxyServiceImplTest {
             IpProxy proxyA = idleProxy(10L, "proxy-a.internal");
             IpProxy proxyB = idleProxy(11L, "proxy-b.internal");
             List<IpProxyAllocationRequest> requests = List.of(
-                    new IpProxyAllocationRequest(100L, "印度"),
-                    new IpProxyAllocationRequest(101L, "马来西亚"));
+                    new IpProxyAllocationRequest(100L, "印度", true),
+                    new IpProxyAllocationRequest(101L, "马来西亚", true));
             when(mapper.releaseByAccounts(
                     eq(List.of(100L, 101L)),
                     eq(IpProxyStatus.IDLE.code()),
@@ -590,13 +592,15 @@ class IpProxyServiceImplTest {
                     IpProxyStatus.IDLE.code(),
                     "印度",
                     "混合（不限国家）",
-                    List.of())).thenReturn(proxyA);
+                    List.of(),
+                    true)).thenReturn(proxyA);
             when(mapper.selectOneIdleByRegionPriorityForUpdate(
                     1L,
                     IpProxyStatus.IDLE.code(),
                     "马来西亚",
                     "混合（不限国家）",
-                    List.of(10L))).thenReturn(proxyB);
+                    List.of(10L),
+                    true)).thenReturn(proxyB);
             when(mapper.markUsingAndBindBatch(
                     any(),
                     eq(IpProxyStatus.IDLE.code()),
@@ -631,9 +635,9 @@ class IpProxyServiceImplTest {
             inOrder.verify(mapper).releaseByAccounts(
                     eq(List.of(100L, 101L)), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
             inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
-                    1L, IpProxyStatus.IDLE.code(), "印度", "混合（不限国家）", List.of());
+                    1L, IpProxyStatus.IDLE.code(), "印度", "混合（不限国家）", List.of(), true);
             inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
-                    1L, IpProxyStatus.IDLE.code(), "马来西亚", "混合（不限国家）", List.of(10L));
+                    1L, IpProxyStatus.IDLE.code(), "马来西亚", "混合（不限国家）", List.of(10L), true);
             inOrder.verify(mapper).markUsingAndBindBatch(
                     any(), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
         } finally {
@@ -646,8 +650,8 @@ class IpProxyServiceImplTest {
         TenantContext.set(1L);
         try {
             List<IpProxyAllocationRequest> requests = List.of(
-                    new IpProxyAllocationRequest(100L, "印度"),
-                    new IpProxyAllocationRequest(101L, "马来西亚"));
+                    new IpProxyAllocationRequest(100L, "印度", true),
+                    new IpProxyAllocationRequest(101L, "马来西亚", true));
             List<Long> excludedProxyIds = List.of(10L, 11L);
             IpProxy proxyA = idleProxy(20L, "proxy-a.internal");
             IpProxy proxyB = idleProxy(21L, "proxy-b.internal");
@@ -661,13 +665,15 @@ class IpProxyServiceImplTest {
                     IpProxyStatus.IDLE.code(),
                     "印度",
                     "混合（不限国家）",
-                    excludedProxyIds)).thenReturn(proxyA);
+                    excludedProxyIds,
+                    true)).thenReturn(proxyA);
             when(mapper.selectOneIdleByRegionPriorityForUpdate(
                     1L,
                     IpProxyStatus.IDLE.code(),
                     "马来西亚",
                     "混合（不限国家）",
-                    List.of(10L, 11L, 20L))).thenReturn(proxyB);
+                    List.of(10L, 11L, 20L),
+                    true)).thenReturn(proxyB);
             when(mapper.markUsingAndBindBatch(
                     any(),
                     eq(IpProxyStatus.IDLE.code()),
@@ -683,9 +689,9 @@ class IpProxyServiceImplTest {
             inOrder.verify(mapper).releaseByAccounts(
                     eq(List.of(100L, 101L)), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
             inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
-                    1L, IpProxyStatus.IDLE.code(), "印度", "混合（不限国家）", excludedProxyIds);
+                    1L, IpProxyStatus.IDLE.code(), "印度", "混合（不限国家）", excludedProxyIds, true);
             inOrder.verify(mapper).selectOneIdleByRegionPriorityForUpdate(
-                    1L, IpProxyStatus.IDLE.code(), "马来西亚", "混合（不限国家）", List.of(10L, 11L, 20L));
+                    1L, IpProxyStatus.IDLE.code(), "马来西亚", "混合（不限国家）", List.of(10L, 11L, 20L), true);
             inOrder.verify(mapper).markUsingAndBindBatch(
                     any(), eq(IpProxyStatus.IDLE.code()), eq(IpProxyStatus.IN_USE.code()), anyLong());
         } finally {
@@ -724,7 +730,7 @@ class IpProxyServiceImplTest {
     void allocateOnlineEndpoint_missingTenant_throwsTenantMissingBeforeMapper() {
         TenantContext.clear();
 
-        assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
+        assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.TENANT_MISSING.code());
                     assertThat(ex.getMessage()).contains("缺少租户上下文");
@@ -746,9 +752,10 @@ class IpProxyServiceImplTest {
                     IpProxyStatus.IDLE.code(),
                     "印度",
                     "混合（不限国家）",
-                    List.of())).thenReturn(null);
+                    List.of(),
+                    true)).thenReturn(null);
 
-            assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
                     .isInstanceOfSatisfying(BusinessException.class, ex -> {
                         assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
                         assertThat(ex.getMessage()).contains("暂无空闲代理");
@@ -773,7 +780,8 @@ class IpProxyServiceImplTest {
                     IpProxyStatus.IDLE.code(),
                     "印度",
                     "混合（不限国家）",
-                    List.of())).thenReturn(idleProxy());
+                    List.of(),
+                    true)).thenReturn(idleProxy());
             when(mapper.markUsingAndBind(
                     eq(10L),
                     eq(100L),
@@ -781,7 +789,7 @@ class IpProxyServiceImplTest {
                     eq(IpProxyStatus.IN_USE.code()),
                     anyLong())).thenReturn(0);
 
-            assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度")))
+            assertThatThrownBy(() -> service.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
                     .isInstanceOfSatisfying(BusinessException.class, ex -> {
                         assertThat(ex.getCode()).isEqualTo(ErrorCode.CONFLICT.code());
                         assertThat(ex.getMessage()).contains("代理分配冲突");

@@ -50,7 +50,7 @@ class AccountMutationDbTest extends DbTestBase {
     private Long importOneAccount(String wsPhone) {
         String json = "[{\"wid\":\"" + wsPhone + "\","
                 + "\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "r", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "r", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
         assertThat(batch.importedRows()).isEqualTo(1);
 

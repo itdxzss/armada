@@ -1,6 +1,8 @@
 package com.armada.platform.country.service;
 
 import com.armada.platform.country.model.vo.CountryOptionsVO;
+import java.util.Collection;
+import java.util.Map;
 
 /**
  * 国家/地区主数据服务。跨域消费者只能依赖本 Service,不能直接碰 admin mapper/entity。
@@ -22,6 +24,28 @@ public interface CountryService {
      * @return 可写入/查询 ip_proxy.region 的中文 region;空值返回 null
      */
     String resolveIpRegion(String value);
+
+    /**
+     * 按 WhatsApp 账号手机号国际区号解析 IP 代理池 region 中文快照。
+     *
+     * <p>实现会只保留账号和区号中的数字,按国家主数据 phone_prefix 做最长前缀匹配。
+     * 找不到匹配国家时返回 null,由调用方决定是否走混合池。</p>
+     *
+     * @param wsPhone WhatsApp 账号手机号或 JID
+     * @return 可写入/查询 ip_proxy.region 的中文 region;未匹配时返回 null
+     */
+    String resolveIpRegionByPhonePrefix(String wsPhone);
+
+    /**
+     * 批量按 WhatsApp 账号手机号国际区号解析 IP 代理池 region 中文快照。
+     *
+     * <p>用于账号批量上线场景,避免每个账号都重复读取国家主数据。返回 Map 以入参手机号原值为 key,
+     * 匹配不到时 value 为 null。</p>
+     *
+     * @param wsPhones WhatsApp 账号手机号或 JID 集合
+     * @return 原手机号到中文 region 的映射;未匹配时 value 为 null
+     */
+    Map<String, String> resolveIpRegionsByPhonePrefix(Collection<String> wsPhones);
 
     /**
      * 按检测出的 ISO2 国家码解析为 IP 代理池 region 中文快照。

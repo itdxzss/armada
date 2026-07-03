@@ -25,6 +25,9 @@ public class AccountImportBatchVoRow {
     /** 导入时选择的 IP 国家/地区。 */
     private String ipRegion;
 
+    /** 导入时选择的 IP 分配方式。 */
+    private String ipAllocationMode;
+
     /** 解析总行数。 */
     private Integer totalRows;
 
@@ -101,6 +104,14 @@ public class AccountImportBatchVoRow {
 
     public void setIpRegion(String ipRegion) {
         this.ipRegion = ipRegion;
+    }
+
+    public String getIpAllocationMode() {
+        return ipAllocationMode;
+    }
+
+    public void setIpAllocationMode(String ipAllocationMode) {
+        this.ipAllocationMode = ipAllocationMode;
     }
 
     public Integer getTotalRows() {

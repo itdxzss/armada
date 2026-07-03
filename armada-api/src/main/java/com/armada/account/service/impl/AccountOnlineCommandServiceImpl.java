@@ -16,6 +16,7 @@ import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.OnlineAttemptIdGenerator;
+import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -60,11 +61,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final int TRUTH_IP_MAX_LENGTH = 45;
     private static final int PROXY_COUNTRY_MAX_LENGTH = 64;
     private static final int PROXY_SOURCE_MAX_LENGTH = 64;
+    private static final String MIXED_REGION = "混合（不限国家）";
+    private static final String IP_ALLOCATION_MODE_SMART = "smart";
+    private static final String IP_ALLOCATION_MODE_MIXED = "mixed";
+    private static final String IP_ALLOCATION_MODE_MIXED_COUNTRY_LEGACY = "mixed_country";
 
     private final AccountMapper accountMapper;
     private final AccountCredentialMapper credentialMapper;
     private final AccountStateMapper stateMapper;
     private final IpProxyService ipProxyService;
+    private final CountryService countryService;
     private final ProtocolCommandOutboxService protocolCommandOutboxService;
     private final OnlineAttemptIdGenerator onlineAttemptIdGenerator;
     private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
@@ -78,6 +84,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                            AccountCredentialMapper credentialMapper,
                                            AccountStateMapper stateMapper,
                                            IpProxyService ipProxyService,
+                                           CountryService countryService,
                                            ProtocolCommandOutboxService protocolCommandOutboxService,
                                            OnlineAttemptIdGenerator onlineAttemptIdGenerator,
                                            AccountOnlineAttemptLogService accountOnlineAttemptLogService) {
@@ -85,6 +92,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         this.credentialMapper = credentialMapper;
         this.stateMapper = stateMapper;
         this.ipProxyService = ipProxyService;
+        this.countryService = countryService;
         this.protocolCommandOutboxService = protocolCommandOutboxService;
         this.onlineAttemptIdGenerator = onlineAttemptIdGenerator;
         this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
@@ -303,20 +311,73 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     }
 
     private List<IpProxyAllocationRequest> allocationRequests(List<Long> ids) {
-        Map<Long, String> ipRegionsByAccountId = loadIpRegions(ids);
+        Map<Long, AccountIpRegionRow> allocationsByAccountId = loadIpAllocationRows(ids);
+        Map<Long, String> smartRegionsByAccountId = resolveSmartRegions(ids, allocationsByAccountId);
         List<IpProxyAllocationRequest> requests = new ArrayList<>(ids.size());
         for (Long id : ids) {
-            requests.add(new IpProxyAllocationRequest(id, ipRegionsByAccountId.get(id)));
+            requests.add(toAllocationRequest(id, allocationsByAccountId.get(id), smartRegionsByAccountId.get(id)));
         }
         return requests;
     }
 
-    private Map<Long, String> loadIpRegions(List<Long> ids) {
-        Map<Long, String> ipRegionsByAccountId = new HashMap<>();
+    private Map<Long, AccountIpRegionRow> loadIpAllocationRows(List<Long> ids) {
+        Map<Long, AccountIpRegionRow> rowsByAccountId = new HashMap<>();
         for (AccountIpRegionRow row : accountMapper.selectIpRegionsByAccountIds(ids, ImportResult.SUCCESS.getCode())) {
-            ipRegionsByAccountId.putIfAbsent(row.getAccountId(), row.getIpRegion());
+            rowsByAccountId.putIfAbsent(row.getAccountId(), row);
         }
-        return ipRegionsByAccountId;
+        return rowsByAccountId;
+    }
+
+    private Map<Long, String> resolveSmartRegions(List<Long> ids, Map<Long, AccountIpRegionRow> rowsByAccountId) {
+        List<AccountIpRegionRow> smartRows = new ArrayList<>();
+        List<String> phones = new ArrayList<>();
+        for (Long id : ids) {
+            AccountIpRegionRow row = rowsByAccountId.get(id);
+            if (row != null && IP_ALLOCATION_MODE_SMART.equals(normalizeImportIpAllocationMode(row.getIpAllocationMode()))) {
+                smartRows.add(row);
+                phones.add(row.getWsPhone());
+            }
+        }
+        if (smartRows.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> regionsByPhone = countryService.resolveIpRegionsByPhonePrefix(phones);
+        Map<Long, String> regionsByAccountId = new HashMap<>();
+        for (AccountIpRegionRow row : smartRows) {
+            regionsByAccountId.put(row.getAccountId(), regionsByPhone.get(row.getWsPhone()));
+        }
+        return regionsByAccountId;
+    }
+
+    private IpProxyAllocationRequest toAllocationRequest(Long accountId, AccountIpRegionRow row, String smartRegion) {
+        if (row == null) {
+            return new IpProxyAllocationRequest(accountId, null, true);
+        }
+        String mode = normalizeImportIpAllocationMode(row.getIpAllocationMode());
+        if (IP_ALLOCATION_MODE_MIXED.equals(mode)) {
+            return new IpProxyAllocationRequest(accountId, MIXED_REGION, false);
+        }
+        if (IP_ALLOCATION_MODE_SMART.equals(mode)) {
+            return new IpProxyAllocationRequest(
+                    accountId,
+                    (smartRegion == null || smartRegion.isBlank()) ? MIXED_REGION : smartRegion,
+                    false);
+        }
+        return new IpProxyAllocationRequest(accountId, row.getIpRegion(), true);
+    }
+
+    private static String normalizeImportIpAllocationMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return null;
+        }
+        String trimmed = mode.trim();
+        if (IP_ALLOCATION_MODE_MIXED_COUNTRY_LEGACY.equals(trimmed)) {
+            return IP_ALLOCATION_MODE_MIXED;
+        }
+        if (IP_ALLOCATION_MODE_SMART.equals(trimmed) || IP_ALLOCATION_MODE_MIXED.equals(trimmed)) {
+            return trimmed;
+        }
+        return null;
     }
 
     /**

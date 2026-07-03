@@ -319,7 +319,7 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     private AccountImportBatchVO importOneAccount(String wsPhone) {
         String json = "[{\"wid\":\"" + wsPhone
                 + "\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", "state-event", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, "印度", null, "state-event", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
         assertThat(batch.importedRows()).isEqualTo(1);
         return batch;

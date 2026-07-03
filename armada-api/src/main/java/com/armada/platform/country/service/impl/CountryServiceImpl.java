@@ -8,8 +8,11 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -97,6 +100,57 @@ public class CountryServiceImpl implements CountryService {
     }
 
     /**
+     * 按账号手机号区号解析 IP 代理池中文 region。
+     *
+     * <p>国家主数据可能同时存在 {@code +1} 和 {@code +1-684} 这类前缀,
+     * 因此必须用最长前缀优先,避免泛化区号抢占更具体地区。</p>
+     */
+    @Override
+    public String resolveIpRegionByPhonePrefix(String wsPhone) {
+        return resolveIpRegionByPhonePrefix(wsPhone, mapper.selectIpSupported());
+    }
+
+    /**
+     * 批量按账号手机号区号解析 IP 代理池中文 region。
+     *
+     * <p>批量上线会一次处理多账号,这里集中读取国家主数据,避免 N 次重复查询。</p>
+     */
+    @Override
+    public Map<String, String> resolveIpRegionsByPhonePrefix(Collection<String> wsPhones) {
+        if (wsPhones == null || wsPhones.isEmpty()) {
+            return Map.of();
+        }
+        List<Country> countries = mapper.selectIpSupported();
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String wsPhone : wsPhones) {
+            if (!result.containsKey(wsPhone)) {
+                result.put(wsPhone, resolveIpRegionByPhonePrefix(wsPhone, countries));
+            }
+        }
+        return result;
+    }
+
+    private static String resolveIpRegionByPhonePrefix(String wsPhone, List<Country> countries) {
+        String phoneDigits = digitsOnly(wsPhone);
+        if (!StringUtils.hasText(phoneDigits)) {
+            return null;
+        }
+        String matchedRegion = null;
+        int matchedPrefixLength = 0;
+        for (Country country : countries) {
+            String prefixDigits = digitsOnly(country.getPhonePrefix());
+            if (!StringUtils.hasText(prefixDigits)) {
+                continue;
+            }
+            if (prefixDigits.length() > matchedPrefixLength && phoneDigits.startsWith(prefixDigits)) {
+                matchedRegion = country.getNameZh();
+                matchedPrefixLength = prefixDigits.length();
+            }
+        }
+        return matchedRegion;
+    }
+
+    /**
      * 按检测出的 ISO2 国家码解析成 IP 代理池中文 region。
      *
      * <p>检测结果只接受真实国家码,不接受 MIXED 虚拟项或中文名。这里复用 IP 管理下拉口径:
@@ -115,5 +169,19 @@ public class CountryServiceImpl implements CountryService {
             }
         }
         throw new BusinessException(ErrorCode.VALIDATION, "检测国家不支持 IP 管理: " + normalized);
+    }
+
+    private static String digitsOnly(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch >= '0' && ch <= '9') {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
     }
 }

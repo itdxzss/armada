@@ -72,6 +72,12 @@ public class AccountImportServiceImpl implements AccountImportService {
     /** source_file_name 兜底值:纯文本粘贴时无文件名,用此常量串标识来源,保证标识列非空。 */
     private static final String SOURCE_FILE_DEFAULT = "导入";
 
+    /** 账号导入智能分配:上线时按账号区号匹配国家池,不足时走混合池。 */
+    private static final String IP_ALLOCATION_MODE_SMART = "smart";
+
+    /** 账号导入混合国家:上线时直接使用混合池。 */
+    private static final String IP_ALLOCATION_MODE_MIXED = "mixed";
+
     /** 导出文件名日期使用运营侧时区，避免 UTC 日期和页面日期错一天。 */
     private static final ZoneId EXPORT_ZONE = ZoneId.of("Asia/Shanghai");
 
@@ -293,6 +299,7 @@ public class AccountImportServiceImpl implements AccountImportService {
         b.setDeviceOs(meta.deviceOs());
         b.setAccountType(meta.accountType());
         b.setIpRegion(meta.ipRegion());
+        b.setIpAllocationMode(normalizeIpAllocationMode(meta.ipAllocationMode()));
         b.setTotalRows(total);
         b.setImportedRows(0);
         b.setDuplicateRows(0);
@@ -323,6 +330,7 @@ public class AccountImportServiceImpl implements AccountImportService {
                 b.getDeviceOs(),
                 b.getAccountType(),
                 b.getIpRegion(),
+                b.getIpAllocationMode(),
                 b.getTotalRows(),
                 b.getImportedRows(),
                 b.getDuplicateRows(),
@@ -431,6 +439,20 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     private String exportFilename(String scope, String extension, List<AccountImportExportRow> rows) {
         return AccountImportExportFilename.build(LocalDate.now(EXPORT_ZONE), scope, extension, rows);
+    }
+
+    private static String normalizeIpAllocationMode(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (IP_ALLOCATION_MODE_SMART.equals(trimmed) || IP_ALLOCATION_MODE_MIXED.equals(trimmed)) {
+            return trimmed;
+        }
+        if ("mixed_country".equals(trimmed)) {
+            return IP_ALLOCATION_MODE_MIXED;
+        }
+        throw new BusinessException(ErrorCode.VALIDATION, "非法的 IP 分配方式: " + value);
     }
 
     /** 将 AccountImportDetailVoRow 转换为 AccountImportDetailVO(填充 parseResultLabel)。 */

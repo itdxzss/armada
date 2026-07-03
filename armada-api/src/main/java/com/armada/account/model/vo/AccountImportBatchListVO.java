@@ -13,6 +13,7 @@ package com.armada.account.model.vo;
  * @param deviceOs         机型:1安卓 2苹果
  * @param accountType      账号类型:1个人 2商业
  * @param ipRegion         导入时选择的 IP 国家/地区
+ * @param ipAllocationMode 导入时选择的 IP 分配方式
  * @param totalRows        解析总行数
  * @param importedRows     成功入库行数
  * @param duplicateRows    重复行数(批内+库内)
@@ -31,6 +32,7 @@ public record AccountImportBatchListVO(
         Integer deviceOs,
         Integer accountType,
         String ipRegion,
+        String ipAllocationMode,
         Integer totalRows,
         Integer importedRows,
         Integer duplicateRows,

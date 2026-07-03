@@ -283,7 +283,11 @@ public class IpProxyServiceImpl implements IpProxyService {
 
         // 按「指定国家 → 混合 → 其它国家」锁定一条本租户空闲代理,防止两个账号并发拿到同一行。
         // 这里不等待协议层上线结果;HTTP /online 后续是否成功由 Kafka 异步回填。
-        IpProxy proxy = selectOneIdleByPriority(tenantId, normalized.preferredRegion(), List.of());
+        IpProxy proxy = selectOneIdleByPriority(
+                tenantId,
+                normalized.preferredRegion(),
+                List.of(),
+                normalized.allowOtherRegionFallback());
         if (proxy == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "暂无空闲代理");
         }
@@ -378,7 +382,11 @@ public class IpProxyServiceImpl implements IpProxyService {
         List<Long> selectedProxyIds = new ArrayList<>(excludedProxyIds);
         List<IpProxy> proxies = new ArrayList<>(normalized.size());
         for (IpProxyAllocationRequest item : normalized) {
-            IpProxy proxy = selectOneIdleByPriority(tenantId, item.preferredRegion(), selectedProxyIds);
+            IpProxy proxy = selectOneIdleByPriority(
+                    tenantId,
+                    item.preferredRegion(),
+                    selectedProxyIds,
+                    item.allowOtherRegionFallback());
             if (proxy == null) {
                 throw new BusinessException(ErrorCode.VALIDATION,
                         "暂无足够空闲代理: requested=" + normalized.size() + " available=" + proxies.size());
@@ -553,7 +561,10 @@ public class IpProxyServiceImpl implements IpProxyService {
      * <p>实际排序规则在 Mapper SQL 中实现:指定国家优先,其次混合池,最后其它国家。
      * {@code excludedProxyIds} 用于批量分配和删除 IP 前重登,避免同一批次重复选中或选中待删代理。</p>
      */
-    private IpProxy selectOneIdleByPriority(Long tenantId, String preferredRegion, List<Long> excludedProxyIds) {
+    private IpProxy selectOneIdleByPriority(Long tenantId,
+                                            String preferredRegion,
+                                            List<Long> excludedProxyIds,
+                                            boolean allowOtherRegionFallback) {
         List<Long> excludedSnapshot = excludedProxyIds == null || excludedProxyIds.isEmpty()
                 ? List.of()
                 : List.copyOf(excludedProxyIds);
@@ -562,7 +573,8 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IDLE.code(),
                 preferredRegion,
                 MIXED_REGION,
-                excludedSnapshot);
+                excludedSnapshot,
+                allowOtherRegionFallback);
     }
 
     /**
@@ -606,7 +618,10 @@ public class IpProxyServiceImpl implements IpProxyService {
         if (request == null || request.accountId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
         }
-        return new IpProxyAllocationRequest(request.accountId(), normalizePreferredRegion(request.preferredRegion()));
+        return new IpProxyAllocationRequest(
+                request.accountId(),
+                normalizePreferredRegion(request.preferredRegion()),
+                request.allowOtherRegionFallback());
     }
 
     /**

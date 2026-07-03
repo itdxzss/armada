@@ -80,6 +80,20 @@ class AccountImportControllerDbTest {
                 .andExpect(jsonPath("$.data.status").value(2));
     }
 
+    @Test
+    void post_importPersistsIpAllocationMode() throws Exception {
+        mockMvc.perform(multipart("/api/account-imports")
+                        .param("importFormat", "2")
+                        .param("deviceOs", "1")
+                        .param("accountType", "1")
+                        .param("ipAllocationMode", "mixed")
+                        .param("text", VALID_JSON_TEXT)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.ipAllocationMode").value("mixed"));
+    }
+
     /**
      * 通过 MultipartFile 导入:文件内容与 text 相同的 JSON 字节。
      * 期望 code=0 + data.importedRows=1 + data.sourceFileName 非空。

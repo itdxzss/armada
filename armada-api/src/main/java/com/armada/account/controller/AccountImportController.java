@@ -68,7 +68,7 @@ public class AccountImportController {
         String sourceFileName = (file != null && !file.isEmpty()) ? file.getOriginalFilename() : null;
         AccountImportDTO meta = new AccountImportDTO(
                 form.getAccountGroupId(), form.getImportFormat(), form.getDeviceOs(), form.getAccountType(),
-                form.getIpRegion(), form.getRemark(), sourceFileName);
+                form.getIpRegion(), form.getIpAllocationMode(), form.getRemark(), sourceFileName);
         return ApiResponse.ok(service.importAccounts(meta, fileBytes, form.getText()));
     }
 

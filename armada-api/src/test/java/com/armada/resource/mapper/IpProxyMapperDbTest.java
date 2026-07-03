@@ -115,7 +115,8 @@ class IpProxyMapperDbTest extends DbTestBase {
                 IpProxyStatus.IDLE.code(),
                 proxy.getRegion(),
                 MIXED_REGION,
-                List.of());
+                List.of(),
+                true);
         assertThat(selected).isNotNull();
         assertThat(selected.getId()).isEqualTo(proxy.getId());
 
@@ -268,13 +269,15 @@ class IpProxyMapperDbTest extends DbTestBase {
                 IpProxyStatus.IDLE.code(),
                 proxyA.getRegion(),
                 MIXED_REGION,
-                List.of());
+                List.of(),
+                true);
         IpProxy selectedB = mapper.selectOneIdleByRegionPriorityForUpdate(
                 TEST_TENANT_ID,
                 IpProxyStatus.IDLE.code(),
                 proxyB.getRegion(),
                 MIXED_REGION,
-                List.of(selectedA.getId()));
+                List.of(selectedA.getId()),
+                true);
         List<IpProxyBindTarget> targets = List.of(
                 new IpProxyBindTarget(selectedA.getId(), 701L),
                 new IpProxyBindTarget(selectedB.getId(), 702L));
@@ -326,7 +329,8 @@ class IpProxyMapperDbTest extends DbTestBase {
                 IpProxyStatus.IDLE.code(),
                 excluded.getRegion(),
                 MIXED_REGION,
-                List.of(excluded.getId()));
+                List.of(excluded.getId()),
+                true);
 
         assertThat(selected.getId()).isEqualTo(candidate.getId());
     }
@@ -350,7 +354,8 @@ class IpProxyMapperDbTest extends DbTestBase {
                 IpProxyStatus.IDLE.code(),
                 preferredRegion,
                 MIXED_REGION,
-                List.of());
+                List.of(),
+                true);
         assertThat(selected.getId()).isEqualTo(preferred.getId());
 
         IpProxy fallback = mapper.selectOneIdleByRegionPriorityForUpdate(
@@ -358,8 +363,28 @@ class IpProxyMapperDbTest extends DbTestBase {
                 IpProxyStatus.IDLE.code(),
                 preferredRegion,
                 MIXED_REGION,
-                List.of(preferred.getId()));
+                List.of(preferred.getId()),
+                true);
         assertThat(fallback.getRegion()).isEqualTo(MIXED_REGION);
+    }
+
+    @Test
+    void selectOneIdleByRegionPriorityForUpdate_strictModeDoesNotFallbackToOtherRegion() {
+        long now = System.currentTimeMillis();
+        String preferredRegion = "strict-优先国家-" + now;
+        IpProxy other = newIdleProxy(now);
+        other.setRegion("strict-其它国家-" + now);
+        mapper.insert(other);
+
+        IpProxy selected = mapper.selectOneIdleByRegionPriorityForUpdate(
+                TEST_TENANT_ID,
+                IpProxyStatus.IDLE.code(),
+                preferredRegion,
+                MIXED_REGION,
+                List.of(),
+                false);
+
+        assertThat(selected).isNull();
     }
 
     @Test

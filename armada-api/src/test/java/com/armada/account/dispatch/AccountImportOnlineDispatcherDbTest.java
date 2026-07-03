@@ -124,7 +124,7 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
                 + "{\"wid\":\"" + secondPhone
                 + "\",\"registrationId\":2,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}"
                 + "]";
-        var meta = new AccountImportDTO(null, 2, 1, 2, ipRegion, "dispatch-test", null);
+        var meta = new AccountImportDTO(null, 2, 1, 2, ipRegion, null, "dispatch-test", null);
         AccountImportBatchVO batch = importService.importAccounts(meta, null, json);
         assertThat(batch.importedRows()).isEqualTo(2);
         return batch;

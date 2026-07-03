@@ -33,6 +33,9 @@ public class AccountImportBatch {
     /** 导入时选的 IP 国家。 */
     private String ipRegion;
 
+    /** 账号导入 IP 分配方式:smart=按账号区号匹配国家 mixed=混合国家。 */
+    private String ipAllocationMode;
+
     /** 解析总行数。 */
     private Integer totalRows;
 
@@ -136,6 +139,14 @@ public class AccountImportBatch {
 
     public void setIpRegion(String ipRegion) {
         this.ipRegion = ipRegion;
+    }
+
+    public String getIpAllocationMode() {
+        return ipAllocationMode;
+    }
+
+    public void setIpAllocationMode(String ipAllocationMode) {
+        this.ipAllocationMode = ipAllocationMode;
     }
 
     public Integer getTotalRows() {

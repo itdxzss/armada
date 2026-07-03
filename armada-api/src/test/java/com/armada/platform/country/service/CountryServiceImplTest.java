@@ -3,6 +3,7 @@ package com.armada.platform.country.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
@@ -11,6 +12,7 @@ import com.armada.platform.country.service.impl.CountryServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -61,6 +63,37 @@ class CountryServiceImplTest {
                     assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
                     assertThat(ex.getMessage()).contains("国家不存在或已停用");
                 });
+    }
+
+    @Test
+    void resolveIpRegionByPhonePrefix_usesLongestNumericPrefixAndReturnsNullWhenUnmatched() {
+        when(mapper.selectIpSupported()).thenReturn(List.of(
+                country("US", "美国", "+1", "🇺🇸"),
+                country("AS", "美属萨摩亚", "+1-684", "🇦🇸"),
+                country("IN", "印度", "+91", "🇮🇳")));
+
+        assertThat(service.resolveIpRegionByPhonePrefix("+91 9876543210")).isEqualTo("印度");
+        assertThat(service.resolveIpRegionByPhonePrefix("16841234567@s.whatsapp.net")).isEqualTo("美属萨摩亚");
+        assertThat(service.resolveIpRegionByPhonePrefix("8613812345678")).isNull();
+    }
+
+    @Test
+    void resolveIpRegionsByPhonePrefix_queriesCountriesOnceForBatch() {
+        when(mapper.selectIpSupported()).thenReturn(List.of(
+                country("US", "美国", "+1", "🇺🇸"),
+                country("AS", "美属萨摩亚", "+1-684", "🇦🇸"),
+                country("IN", "印度", "+91", "🇮🇳")));
+
+        Map<String, String> result = service.resolveIpRegionsByPhonePrefix(List.of(
+                "+91 9876543210",
+                "16841234567@s.whatsapp.net",
+                "8613812345678"));
+
+        assertThat(result)
+                .containsEntry("+91 9876543210", "印度")
+                .containsEntry("16841234567@s.whatsapp.net", "美属萨摩亚")
+                .containsEntry("8613812345678", null);
+        verify(mapper).selectIpSupported();
     }
 
     private static Country country(String iso2, String nameZh, String phonePrefix, String flag) {

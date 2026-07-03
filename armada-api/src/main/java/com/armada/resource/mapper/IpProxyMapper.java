@@ -135,7 +135,8 @@ public interface IpProxyMapper {
                                                    @Param("idleStatus") int idleStatus,
                                                    @Param("preferredRegion") String preferredRegion,
                                                    @Param("mixedRegion") String mixedRegion,
-                                                   @Param("excludedIds") List<Long> excludedIds);
+                                                   @Param("excludedIds") List<Long> excludedIds,
+                                                   @Param("allowOtherRegionFallback") boolean allowOtherRegionFallback);
 
     /**
      * 将已锁定的空闲代理绑定到账号并置为使用中。

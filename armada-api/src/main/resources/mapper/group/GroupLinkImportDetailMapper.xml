@@ -22,7 +22,22 @@
   <sql id="detailFilter">
     d.tenant_id = b.tenant_id AND b.deleted_at IS NULL
     <if test="batchId != null">AND d.batch_id = #{batchId}</if>
-    <if test="labelId != null">AND b.label_id = #{labelId}</if>
+    <if test="labelId != null">
+      AND (
+        (d.result = 1 AND (
+          EXISTS (
+            SELECT 1
+            FROM group_link g
+            WHERE g.id = d.group_link_id
+              AND g.tenant_id = d.tenant_id
+              AND g.deleted_at IS NULL
+              AND g.label_id = #{labelId}
+          )
+          OR (d.group_link_id IS NULL AND b.label_id = #{labelId})
+        ))
+        OR (d.result = 2 AND b.label_id = #{labelId})
+      )
+    </if>
     <if test="result != null">AND d.result = #{result}</if>
     <if test="failReason != null and failReason != ''">AND d.fail_reason = #{failReason}</if>
   </sql>

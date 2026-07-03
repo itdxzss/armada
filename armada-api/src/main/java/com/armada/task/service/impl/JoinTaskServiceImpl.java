@@ -194,6 +194,10 @@ public class JoinTaskServiceImpl implements JoinTaskService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "群链接格式错误,请填写以 https://chat.whatsapp.com/ 开头的群邀请链接");
         }
+        if (links == null || links.valid().isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "当前没有有效群链接，请添加有效链接后再创建任务。");
+        }
     }
 
     /**

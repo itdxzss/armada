@@ -198,6 +198,30 @@ class JoinTaskCreateDbTest extends DbTestBase {
     }
 
     /**
+     * 用例 4.2:清洗后没有有效群链接时不允许创建任务。
+     */
+    @Test
+    void case4_2_noValidLinksThrowsValidation() {
+        CreateJoinTaskDTO req = new CreateJoinTaskDTO(
+                "无有效链接校验",
+                null, null,
+                List.of(new SelectedAccount(1L, "911")),
+                "\n   \n",
+                "FIXED_ACCOUNTS_PER_LINK",
+                1, null, null,
+                5, 10, null, null,
+                false, 0, "SKIP");
+
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException be = (BusinessException) ex;
+                    assertThat(be.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(be.getMessage()).contains("当前没有有效群链接");
+                });
+    }
+
+    /**
      * 用例 5:selected_account_ids 和 account_group_ids 正确落库(JSON 快照)。
      */
     @Test

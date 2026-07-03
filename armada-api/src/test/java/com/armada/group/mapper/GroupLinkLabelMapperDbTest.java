@@ -98,6 +98,10 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
 
         insertImportBatch(label.getId(), "第一批", "a.txt", 3, 2, 0, 1);
         insertImportBatch(label.getId(), "第二批", "b.txt", 4, 1, 1, 2);
+        insertActiveLink("chat.whatsapp.com/Stats1", label.getId());
+        insertActiveLink("chat.whatsapp.com/Stats2", label.getId());
+        insertActiveLink("chat.whatsapp.com/Stats3", label.getId());
+        insertActiveLink("chat.whatsapp.com/Stats4", label.getId());
 
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
         query.setId(label.getId());
@@ -118,6 +122,40 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectPage_importStatsFollowCurrentLinkOwnershipAfterMigration() {
+        GroupLinkLabel source = buildLabel("统计当前归属-源分组");
+        GroupLinkLabel target = buildLabel("统计当前归属-目标分组");
+        mapper.insert(source);
+        mapper.insert(target);
+
+        insertImportBatch(source.getId(), "来源批次", "moved.txt", 2, 1, 0, 1);
+        Long linkId = insertActiveLink("chat.whatsapp.com/MovedStats", source.getId());
+        groupLinkMapper.migrateToLabel(List.of(linkId), target.getId(), System.currentTimeMillis());
+
+        GroupLinkLabelQuery sourceQuery = new GroupLinkLabelQuery();
+        sourceQuery.setId(source.getId());
+        sourceQuery.setPage(1);
+        sourceQuery.setPageSize(10);
+        GroupLinkLabelVoRow sourceRow = mapper.selectPage(sourceQuery).get(0);
+        assertThat(sourceRow.getLinkCount()).isEqualTo(0L);
+        assertThat(sourceRow.getSuccessRows()).isEqualTo(0L);
+        assertThat(sourceRow.getFailedRows()).isEqualTo(1L);
+        assertThat(sourceRow.getTotalRows()).isEqualTo(1L);
+        assertThat(sourceRow.getStatus()).isEqualTo("FAILED");
+
+        GroupLinkLabelQuery targetQuery = new GroupLinkLabelQuery();
+        targetQuery.setId(target.getId());
+        targetQuery.setPage(1);
+        targetQuery.setPageSize(10);
+        GroupLinkLabelVoRow targetRow = mapper.selectPage(targetQuery).get(0);
+        assertThat(targetRow.getLinkCount()).isEqualTo(1L);
+        assertThat(targetRow.getSuccessRows()).isEqualTo(1L);
+        assertThat(targetRow.getFailedRows()).isEqualTo(0L);
+        assertThat(targetRow.getTotalRows()).isEqualTo(1L);
+        assertThat(targetRow.getStatus()).isEqualTo("DONE");
+    }
+
+    @Test
     void selectPage_filtersByImportTimeAndStatus() {
         long base = 1_785_225_600_000L;
         GroupLinkLabel empty = buildLabel("导入筛选-空");
@@ -135,6 +173,10 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         insertImportBatch(partial.getId(), "部分批次", "partial.txt", 3, 1, 0, 2, base + 1_000);
         insertImportBatch(failed.getId(), "失败批次", "failed.txt", 2, 0, 0, 2, base + 1_000);
         insertImportBatch(outsideRange.getId(), "范围外批次", "outside.txt", 3, 1, 0, 2, base + 100_000);
+        insertActiveLink("chat.whatsapp.com/Done1", done.getId());
+        insertActiveLink("chat.whatsapp.com/Done2", done.getId());
+        insertActiveLink("chat.whatsapp.com/Partial1", partial.getId());
+        insertActiveLink("chat.whatsapp.com/OutsideRange1", outsideRange.getId());
 
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
         query.setKeyword("导入筛选");

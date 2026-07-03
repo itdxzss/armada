@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
+import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
 import com.armada.group.model.entity.GroupLinkLabel;
@@ -29,6 +30,9 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
     @Autowired
     private GroupLinkLabelMapper labelMapper;
+
+    @Autowired
+    private GroupLinkMapper groupLinkMapper;
 
     // ---- 辅助方法 ----
 
@@ -64,6 +68,18 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         detail.setFailReason(failReason);
         detail.setCreatedAt(System.currentTimeMillis());
         return detail;
+    }
+
+    private Long insertActiveLink(Long labelId, Long batchId, String url) {
+        GroupLink link = new GroupLink();
+        link.setLinkUrl(url);
+        link.setLabelId(labelId);
+        link.setImportBatchId(batchId);
+        long now = System.currentTimeMillis();
+        link.setCreatedAt(now);
+        link.setUpdatedAt(now);
+        groupLinkMapper.insert(link);
+        return link.getId();
     }
 
     // ---- 测试 ----
@@ -197,6 +213,42 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
         assertThat(detailMapper.countByQuery(query)).isEqualTo(2);
         assertThat(detailMapper.selectPage(query)).hasSize(2);
+    }
+
+    @Test
+    void selectPage_byLabelIdUsesCurrentLinkOwnershipForSuccessRowsAndOriginalBatchForFailures() {
+        GroupLinkLabel sourceLabel = insertLabel("明细当前归属-源分组");
+        GroupLinkLabel targetLabel = insertLabel("明细当前归属-目标分组");
+        GroupLinkImportBatch sourceBatch = insertBatch(sourceLabel.getId(), "current_owner.txt");
+
+        Long linkId = insertActiveLink(sourceLabel.getId(), sourceBatch.getId(), "chat.whatsapp.com/CurrentOwnerOk");
+        GroupLinkImportDetail success = buildDetail(sourceBatch.getId(), 1, "chat.whatsapp.com/CurrentOwnerOk",
+                GroupLinkImportResult.SUCCESS.code(), null);
+        success.setGroupLinkId(linkId);
+        GroupLinkImportDetail failed = buildDetail(sourceBatch.getId(), 2, "bad-current-owner-url",
+                GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR);
+        detailMapper.batchInsert(List.of(success, failed));
+
+        groupLinkMapper.migrateToLabel(List.of(linkId), targetLabel.getId(), System.currentTimeMillis());
+
+        GroupLinkImportDetailQuery sourceQuery = new GroupLinkImportDetailQuery();
+        sourceQuery.setLabelId(sourceLabel.getId());
+        sourceQuery.setPage(1);
+        sourceQuery.setPageSize(10);
+        assertThat(detailMapper.countByQuery(sourceQuery)).isEqualTo(1);
+        assertThat(detailMapper.selectPage(sourceQuery))
+                .extracting(GroupLinkImportDetailVoRow::getRawUrl)
+                .containsExactly("bad-current-owner-url");
+
+        GroupLinkImportDetailQuery targetQuery = new GroupLinkImportDetailQuery();
+        targetQuery.setLabelId(targetLabel.getId());
+        targetQuery.setPage(1);
+        targetQuery.setPageSize(10);
+        assertThat(detailMapper.countByQuery(targetQuery)).isEqualTo(1);
+        List<GroupLinkImportDetailVoRow> targetRows = detailMapper.selectPage(targetQuery);
+        assertThat(targetRows).hasSize(1);
+        assertThat(targetRows.get(0).getRawUrl()).isEqualTo("chat.whatsapp.com/CurrentOwnerOk");
+        assertThat(targetRows.get(0).getSourceFileName()).isEqualTo("current_owner.txt");
     }
 
     @Test

@@ -13,13 +13,42 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param batchSize    单轮最大重检数量
  */
 @ConfigurationProperties(prefix = "armada.ip-proxy-unavailable-recheck")
-public record IpProxyUnavailableRecheckJobProperties(
-        boolean enabled,
-        long fixedDelayMs,
-        int batchSize
-) {
+public class IpProxyUnavailableRecheckJobProperties {
+
+    private boolean enabled = true;
+    private long fixedDelayMs = 900_000L;
+    private int batchSize = 20;
 
     public IpProxyUnavailableRecheckJobProperties() {
-        this(true, 900_000L, 20);
+    }
+
+    public IpProxyUnavailableRecheckJobProperties(boolean enabled, long fixedDelayMs, int batchSize) {
+        this.enabled = enabled;
+        this.fixedDelayMs = fixedDelayMs;
+        this.batchSize = batchSize;
+    }
+
+    public boolean enabled() {
+        return enabled;
+    }
+
+    public long fixedDelayMs() {
+        return fixedDelayMs;
+    }
+
+    public int batchSize() {
+        return batchSize;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    public void setFixedDelayMs(long fixedDelayMs) {
+        this.fixedDelayMs = fixedDelayMs;
+    }
+
+    public void setBatchSize(int batchSize) {
+        this.batchSize = batchSize;
     }
 }

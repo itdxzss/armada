@@ -177,6 +177,30 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
+    void applyStateChanged_onlineConfirmedClearsPendingOnline() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86192" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        long pendingAt = now + 5_000L;
+        long confirmedAt = now + 6_000L;
+        jdbcTemplate.update("""
+                UPDATE account_state
+                SET login_state = ?, last_state_sync_time = ?, state_source = ?, updated_at = ?
+                WHERE account_id = ?
+                """,
+                AccountLoginStateCode.PENDING_ONLINE, pendingAt, "OUTBOX", pendingAt, account.getId());
+
+        service.applyStateChanged(event(account, "ONLINE", "ONLINE",
+                confirmedAt, "ONLINE_CONFIRMED", null));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.NORMAL);
+        assertThat(state.getStateSource()).isEqualTo("ONLINE_CONFIRMED");
+        assertThat(state.getLastStateSyncTime()).isEqualTo(confirmedAt);
+    }
+
+    @Test
     void applyStateChanged_offline_releasesBoundIpImmediately() {
         long now = System.currentTimeMillis();
         Account account = insertAccount("86185" + (now % 10_000_000L), now);

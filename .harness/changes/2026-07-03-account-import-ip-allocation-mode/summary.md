@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-03 / `main` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 账号导入优化内容：导入协议号弹窗选择 IP 改为“智能分配 / 混合国家”
-- 状态: 已完成本地实现与验证
+- 状态: 已部署测试环境
 
 ## 目标（一句话）
 
@@ -52,7 +52,16 @@
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 未部署。
+- 环境: 测试环境 `65.2.123.53` / `http://armada.65.2.123.53.nip.io/`
+- 命令: `./armada-deploy/deploy-test.sh --all -y`
+  - 结果: 本地后端 jar 和前端 dist 构建成功,远端 `armada-backend` / `armada-nginx` 重建并启动。
+  - 备注: 脚本末尾 API 验活首次过早请求返回 502;后端随后启动完成,手动复验通过。
+- Flyway: 测试 RDS `armada` 从 v033 迁移到 v034,日志显示 `Successfully applied 1 migration ... now at version v034`。
+- 部署后验证:
+  - 远端本机 `curl http://127.0.0.1/` 返回前端 HTML。
+  - 远端本机 `curl http://127.0.0.1/api/account-groups` 返回 `{"code":40101,"message":"缺少租户标识,请重新登录"}`。
+  - 公网 `http://armada.65.2.123.53.nip.io/` 返回 200 HTML。
+  - 公网 `/api/account-groups` 返回 `40101`,说明 nginx API 代理已打到后端。
 
 ## 遗留 / 跟进
 

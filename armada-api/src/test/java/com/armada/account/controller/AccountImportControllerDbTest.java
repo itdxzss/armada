@@ -10,6 +10,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.boot.Application;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +36,18 @@ class AccountImportControllerDbTest {
 
     private static final String TENANT_HEADER = "X-Tenant-Code";
     private static final String TENANT_CODE = "demo";
+    private static final ZoneId EXPORT_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter EXPORT_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
 
     /** JSON 格式完整的单账号内容,供 POST 导入时作 text 参数使用。 */
     private static final String VALID_JSON_TEXT =
             "[{\"wid\":\"8613900000001\","
                     + "\"registrationId\":99,\"noiseKey\":{},"
                     + "\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
+
+    private String exportDate() {
+        return LocalDate.now(EXPORT_ZONE).format(EXPORT_DATE_FORMAT);
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -226,8 +235,9 @@ class AccountImportControllerDbTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("text/plain"))
                 .andExpect(header().string("Content-Disposition",
-                        org.hamcrest.Matchers.containsString(
-                                "account-import-" + batchId + "-all.txt")))
+                        org.hamcrest.Matchers.containsString(exportDate())))
+                .andExpect(header().string("Content-Disposition",
+                        org.hamcrest.Matchers.containsString(".txt")))
                 .andExpect(header().string("Content-Disposition",
                         org.hamcrest.Matchers.containsString("attachment")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("8613900000001")));
@@ -259,8 +269,9 @@ class AccountImportControllerDbTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith("application/zip"))
                 .andExpect(header().string("Content-Disposition",
-                        org.hamcrest.Matchers.containsString(
-                                "account-import-" + batchId + "-all.zip")))
+                        org.hamcrest.Matchers.containsString(exportDate())))
+                .andExpect(header().string("Content-Disposition",
+                        org.hamcrest.Matchers.containsString(".zip")))
                 .andReturn();
 
         java.util.Map<String, String> entries = unzip(exportResult.getResponse().getContentAsByteArray());

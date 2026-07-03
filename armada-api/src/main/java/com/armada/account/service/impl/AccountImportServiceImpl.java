@@ -30,6 +30,8 @@ import com.armada.shared.response.PageResult;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -69,6 +71,9 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** source_file_name 兜底值:纯文本粘贴时无文件名,用此常量串标识来源,保证标识列非空。 */
     private static final String SOURCE_FILE_DEFAULT = "导入";
+
+    /** 导出文件名日期使用运营侧时区，避免 UTC 日期和页面日期错一天。 */
+    private static final ZoneId EXPORT_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final AccountImportParser parser;
     private final AccountGroupService groupService;
@@ -414,14 +419,18 @@ public class AccountImportServiceImpl implements AccountImportService {
 
         if (SourceFileType.ZIP.equals(sourceFileType)) {
             return new AccountImportExportFile(
-                    "account-import-" + batchId + "-" + resolvedScope + ".zip",
+                    exportFilename(resolvedScope, "zip", rows),
                     "application/zip",
                     buildZipExport(rows));
         }
         return new AccountImportExportFile(
-                "account-import-" + batchId + "-" + resolvedScope + ".txt",
+                exportFilename(resolvedScope, "txt", rows),
                 "text/plain;charset=UTF-8",
                 buildTextExport(rows));
+    }
+
+    private String exportFilename(String scope, String extension, List<AccountImportExportRow> rows) {
+        return AccountImportExportFilename.build(LocalDate.now(EXPORT_ZONE), scope, extension, rows);
     }
 
     /** 将 AccountImportDetailVoRow 转换为 AccountImportDetailVO(填充 parseResultLabel)。 */

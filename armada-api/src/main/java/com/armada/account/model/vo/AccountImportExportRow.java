@@ -17,6 +17,9 @@ public class AccountImportExportRow {
     /** 解析结果:1成功入库 2重复 3格式错误 4凭据不全。 */
     private Integer parseResult;
 
+    /** 登录结果:1成功 2失败 3密钥异常 4封号;为空时按解析结果口径判断。 */
+    private Integer loginResult;
+
     /** 单条原始导入内容。 */
     private String rawPayload;
 
@@ -53,6 +56,14 @@ public class AccountImportExportRow {
 
     public void setParseResult(Integer parseResult) {
         this.parseResult = parseResult;
+    }
+
+    public Integer getLoginResult() {
+        return loginResult;
+    }
+
+    public void setLoginResult(Integer loginResult) {
+        this.loginResult = loginResult;
     }
 
     public String getRawPayload() {

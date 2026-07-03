@@ -18,6 +18,9 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.vo.AccountImportDetailVO;
 import com.armada.shared.response.PageResult;
 import com.armada.testsupport.DbTestBase;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -46,6 +49,9 @@ class AccountImportListMapperDbTest extends DbTestBase {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    private static final ZoneId EXPORT_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter EXPORT_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
 
     // ---- 辅助方法 ----
 
@@ -177,6 +183,10 @@ class AccountImportListMapperDbTest extends DbTestBase {
             }
         }
         return entries;
+    }
+
+    private String exportDate() {
+        return LocalDate.now(EXPORT_ZONE).format(EXPORT_DATE_FORMAT);
     }
 
     @Test
@@ -444,7 +454,7 @@ class AccountImportListMapperDbTest extends DbTestBase {
 
         AccountImportExportFile file = importService.exportDetails(batchId, "fail");
 
-        assertThat(file.filename()).isEqualTo("account-import-" + batchId + "-fail.txt");
+        assertThat(file.filename()).isEqualTo("账号导入_" + exportDate() + "_失败_3个.txt");
         assertThat(file.contentType()).isEqualTo("text/plain;charset=UTF-8");
         String body = new String(file.bytes(), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(body).contains("raw-duplicate", "raw-format", "raw-incomplete");
@@ -504,9 +514,22 @@ class AccountImportListMapperDbTest extends DbTestBase {
 
         AccountImportExportFile file = importService.exportDetails(batchId, "success");
 
+        assertThat(file.filename()).isEqualTo("账号导入_" + exportDate() + "_成功_1个.txt");
         String body = new String(file.bytes(), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(body).contains("raw-login-success");
         assertThat(body).doesNotContain("raw-login-failed", "raw-key-abnormal", "raw-banned", "raw-pending");
+    }
+
+    @Test
+    void service_exportDetails_txtScopeAll_filenameContainsSuccessAndFailCounts() {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-txt-export-all-filename", now);
+        Long batchId = createBatch(groupId, "accounts-all.txt", "TXT", 4, 1, 1, 2, now);
+        insertDetailsWithPayloads(batchId, now);
+
+        AccountImportExportFile file = importService.exportDetails(batchId, "all");
+
+        assertThat(file.filename()).isEqualTo("账号导入_" + exportDate() + "_全部_共4个_成功1个_失败3个.txt");
     }
 
     @Test
@@ -518,7 +541,7 @@ class AccountImportListMapperDbTest extends DbTestBase {
 
         AccountImportExportFile file = importService.exportDetails(batchId, "success");
 
-        assertThat(file.filename()).isEqualTo("account-import-" + batchId + "-success.zip");
+        assertThat(file.filename()).isEqualTo("账号导入_" + exportDate() + "_成功_1个.zip");
         assertThat(file.contentType()).isEqualTo("application/zip");
         java.util.Map<String, String> entries = unzip(file.bytes());
         assertThat(entries).containsOnlyKeys("line-1.json");

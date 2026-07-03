@@ -150,7 +150,8 @@
   -->
   <select id="selectExportRowsByBatch" resultType="com.armada.account.model.vo.AccountImportExportRow">
     SELECT d.id, d.line_no AS lineNo, d.ws_phone AS wsPhone,
-           d.parse_result AS parseResult, d.raw_payload AS rawPayload,
+           d.parse_result AS parseResult, d.login_result AS loginResult,
+           d.raw_payload AS rawPayload,
            d.source_entry_name AS sourceEntryName
     FROM account_import_detail d
     JOIN account_import_batch b ON d.batch_id = b.id AND d.tenant_id = b.tenant_id

@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
@@ -540,6 +541,30 @@ class IpProxyServiceImplTest {
         });
         assertThat(result.errors()).isEmpty();
         verify(detector, times(5)).check(any());
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
+    void sampleCheckImport_checksTxtRowsEvenWhenAlreadyExistingInDb() {
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+        lenient().when(mapper.selectActiveDedupTuples(any()))
+                .thenReturn(List.of(tuple("1.1.1.1", 8080, "user1", "pass1")));
+        detectorChecksSucceed();
+
+        IpProxyImportSampleCheckVO result = service.sampleCheckImport(new IpProxyImportDTO(
+                null,
+                1,
+                "供应商A",
+                "1.1.1.1:8080:user1:pass1",
+                "US"));
+
+        assertThat(result.passed()).isTrue();
+        assertThat(result.sampleSize()).isEqualTo(1);
+        assertThat(result.samples()).hasSize(1);
+        assertThat(result.samples().get(0).host()).isEqualTo("1.1.1.1");
+        assertThat(result.samples().get(0).port()).isEqualTo(8080);
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verify(detector).check(any());
         verify(mapper, never()).insert(any());
     }
 

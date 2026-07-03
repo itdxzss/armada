@@ -157,7 +157,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     /**
      * TXT 导入弹框的手动抽样检测入口。
      *
-     * <p>每次调用都重新从本批实际新增候选中随机抽样,只返回检测结果,不写库。前端保存 passed 状态来控制
+     * <p>每次调用都重新从本批 TXT 有效候选中随机抽样,只返回检测结果,不写库。前端保存 passed 状态来控制
      * “开始导入”按钮;为了保持实现简单,导入接口不做 token 强校验。</p>
      */
     @Override
@@ -165,7 +165,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         IpProxyImportDTO normalized = normalizeImport(dto);
         validateImport(normalized);
         validateImportTextFormatOrThrow(normalized.text());
-        List<ImportCandidate> candidates = filterNewCandidates(importCandidates(importOutcomes(normalized)));
+        List<ImportCandidate> candidates = importCandidates(importOutcomes(normalized));
         List<ImportCandidate> samples = randomImportSamples(candidates);
         List<IpProxyImportSampleCheckVO.SampleRow> rows = new ArrayList<>(samples.size());
         List<String> errors = new ArrayList<>();

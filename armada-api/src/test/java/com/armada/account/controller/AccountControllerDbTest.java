@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.boot.Application;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -266,6 +268,32 @@ class AccountControllerDbTest {
         assertThat(total).isGreaterThanOrEqualTo(2);
         // 铁律:unassigned = total - assigned
         assertThat(unassigned).isEqualTo(total - assigned);
+    }
+
+    @Test
+    void get_stats_returnsPendingOnlineAndRestrictedBreakdown() throws Exception {
+        long ts = System.currentTimeMillis();
+        Long pendingId = importOneAccount("86136" + (ts % 10000000L));
+        Long mutedId = importOneAccount("86137" + (ts % 10000000L));
+        jdbc.update("UPDATE account_state SET login_state = ? WHERE account_id = ?",
+                AccountLoginStateCode.PENDING_ONLINE, pendingId);
+        jdbc.update("UPDATE account_state SET account_state = ?, mute_status = ? WHERE account_id = ?",
+                AccountStateCode.NORMAL, 1, mutedId);
+
+        MvcResult result = mockMvc.perform(get("/api/accounts/stats")
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.restrictedTotal").isNumber())
+                .andExpect(jsonPath("$.data.exported").isNumber())
+                .andExpect(jsonPath("$.data.unbound").isNumber())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        var data = objectMapper.readTree(body).path("data");
+        assertThat(data.path("pendingOnline").longValue()).isGreaterThanOrEqualTo(1L);
+        assertThat(data.path("muted").longValue()).isGreaterThanOrEqualTo(1L);
+        assertThat(data.path("restrictedTotal").longValue()).isGreaterThanOrEqualTo(data.path("muted").longValue());
     }
 
     // -----------------------------------------------------------------------

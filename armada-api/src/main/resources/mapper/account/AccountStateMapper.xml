@@ -26,6 +26,19 @@
     LIMIT 1
   </select>
 
+  <!-- Armada 上线命令成功进入 outbox 后,本地标记等待协议层最终回传。 -->
+  <update id="markPendingOnlineInternal">
+    UPDATE account_state
+    SET login_state = #{pendingLoginState},
+        last_state_sync_time = #{updatedAt},
+        state_source = #{stateSource},
+        updated_at = #{updatedAt}
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+  </update>
+
   <!-- account.state_changed 普通状态:只更新登录态与同步元数据,不改 account_state 生命周期列。 -->
   <update id="updateLoginState">
     UPDATE account_state

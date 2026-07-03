@@ -7,6 +7,7 @@ import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
@@ -114,6 +115,9 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
 
         assertThat(result.accepted()).isEqualTo(1);
         AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
+        assertThat(state.getStateSource()).isEqualTo("OUTBOX");
+        assertThat(state.getLastStateSyncTime()).isNotNull();
         assertThat(state.getProxyCountry()).isEqualTo("印度");
         assertThat(state.getProxySource()).isEqualTo("iproyal");
         assertThat(state.getTruthIp()).isEqualTo("geo.iproyal.com");

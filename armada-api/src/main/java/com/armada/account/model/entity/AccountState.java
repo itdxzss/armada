@@ -19,7 +19,7 @@ public class AccountState {
     /** 账号状态:1新增 2正常 3封禁 4导出 5解绑;NULL=未上报。 */
     private Integer accountState;
 
-    /** 登录状态:1在线 2离线;NULL=未上报。 */
+    /** 登录状态:1在线 2离线 3待上线;NULL=未上报/未发起上线。 */
     private Integer loginState;
 
     /** 风控状态:1未风控 2风控中 3待解除;NULL=未上报。 */

@@ -20,4 +20,9 @@ public final class AccountLoginStateCode {
      * 离线:协议层上报非 ONLINE 状态,包括 OFFLINE、RECONNECTING、NEED_REAUTH 等。
      */
     public static final int OFFLINE = 2;
+
+    /**
+     * 待上线:Armada 已接受上线命令并写入 outbox,正在等待协议层 Kafka 回传最终状态。
+     */
+    public static final int PENDING_ONLINE = 3;
 }

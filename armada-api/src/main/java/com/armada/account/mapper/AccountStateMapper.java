@@ -1,7 +1,9 @@
 package com.armada.account.mapper;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -10,6 +12,9 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface AccountStateMapper {
+
+    /** Armada 本地 outbox 受理状态来源。 */
+    String STATE_SOURCE_OUTBOX = "OUTBOX";
 
     /**
      * 插入默认状态行。
@@ -32,6 +37,40 @@ public interface AccountStateMapper {
      * @return 对应的账号状态行;不存在时返回 null
      */
     AccountState selectByAccountId(@Param("accountId") Long accountId);
+
+    /**
+     * 将账号登录态标记为待上线。
+     *
+     * <p>该状态由 Armada 在上线命令写入 outbox 后本地写入,用于 UI 展示“待上线”。
+     * 同时更新 last_state_sync_time 作为乱序水位,避免点击上线前的旧协议事件覆盖待上线状态。</p>
+     *
+     * @param accountIds 账号主键列表
+     * @param updatedAt  更新时间和本地乱序水位(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    default int markPendingOnline(List<Long> accountIds, long updatedAt) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return 0;
+        }
+        return markPendingOnlineInternal(accountIds,
+                AccountLoginStateCode.PENDING_ONLINE,
+                STATE_SOURCE_OUTBOX,
+                updatedAt);
+    }
+
+    /**
+     * 将账号登录态标记为待上线的 SQL 实现。
+     *
+     * @param accountIds         账号主键列表
+     * @param pendingLoginState  待上线登录态码
+     * @param stateSource        状态来源
+     * @param updatedAt          更新时间和本地乱序水位(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int markPendingOnlineInternal(@Param("accountIds") List<Long> accountIds,
+                                  @Param("pendingLoginState") int pendingLoginState,
+                                  @Param("stateSource") String stateSource,
+                                  @Param("updatedAt") long updatedAt);
 
     /**
      * 更新账号登录态以及同步元数据。

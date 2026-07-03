@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -104,6 +105,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_test_single");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         AccountOnlineVO result = service.online(100L);
 
@@ -120,6 +122,10 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.source()).isEqualTo("manual_online");
         assertThat(command.onlineAttemptId()).isEqualTo("oa_test_single");
         assertThat(command.previousOnlineAttemptId()).isNull();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Long>> pendingIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(stateMapper).markPendingOnline(pendingIdsCaptor.capture(), anyLong());
+        assertThat(pendingIdsCaptor.getValue()).containsExactly(100L);
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
 
         assertThat(result.accountId()).isEqualTo(100L);
@@ -163,6 +169,7 @@ class AccountOnlineCommandServiceImplTest {
             when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_log_single");
             when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                     .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+            when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
             service.online(100L);
 
@@ -207,6 +214,7 @@ class AccountOnlineCommandServiceImplTest {
                 .isSameAs(failure);
 
         verify(ipProxyService).releaseOnlineAllocation(100L, 7L);
+        verify(stateMapper, never()).markPendingOnline(any(), anyLong());
     }
 
     @Test
@@ -224,6 +232,7 @@ class AccountOnlineCommandServiceImplTest {
         when(accountOnlineAttemptLogService.latestAttemptId(100L)).thenReturn("oa_previous_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         service.reonlineAfterProxyFailure(100L);
 
@@ -253,6 +262,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event");
 
@@ -291,6 +301,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         AccountBatchOnlineVO result = service.onlineBatch(List.of(100L, 101L));
 
@@ -311,6 +322,10 @@ class AccountOnlineCommandServiceImplTest {
                 .containsExactly("oa_batch_100", "oa_batch_101");
         assertThat(commands).extracting(ProtocolOnlineCommandRequest::previousOnlineAttemptId)
                 .containsExactly(null, null);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Long>> pendingIdsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(stateMapper).markPendingOnline(pendingIdsCaptor.capture(), anyLong());
+        assertThat(pendingIdsCaptor.getValue()).containsExactly(100L, 101L);
 
         verify(ipProxyService, never()).releaseOnlineAllocations(any());
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
@@ -451,6 +466,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_relogin_100", "oa_relogin_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_relogin", List.of("cmd_100", "cmd_101"), 2));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         AccountBatchOnlineVO result = service.reloginOnlineAccountsByProxyIds(proxyIds);
 

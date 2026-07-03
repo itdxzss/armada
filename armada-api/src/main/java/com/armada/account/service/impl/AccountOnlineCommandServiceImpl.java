@@ -43,8 +43,8 @@ import org.springframework.stereotype.Service;
  * 账号生命周期命令应用服务实现。
  *
  * <p>本类是账号域的上线/下线入口编排:上线负责查凭据、分配代理并写 outbox;
- * 下线只校验账号并写 outbox。它不直接调用协议层,也不修改登录状态,
- * 避免把"已受理"误写成"已在线/已离线"。</p>
+ * 下线只校验账号并写 outbox。它不直接调用协议层;上线命令进入 outbox 后仅把登录态标记为待上线,
+ * 不把"已受理"误写成"已在线"。</p>
  */
 @Service
 public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandService {
@@ -118,15 +118,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
         Account account = loadAccount(accountId);
         AccountCredential credential = loadCredential(account.getId());
+        CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
+        String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+        String onlineAttemptId = onlineAttemptIdGenerator.nextId();
 
         // 2. resource 服务先释放该账号旧 IP,再按国家偏好锁定一条空闲代理并置为使用中。
         IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(allocationRequest(account.getId()));
 
+        ProtocolCommandOutboxEnqueueResult enqueueResult;
         try {
             // 3. outbox 只保存凭据格式和代理 ID;日志只打 JSON 长度,避免凭据泄露。
-            CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
-            String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
-            String onlineAttemptId = onlineAttemptIdGenerator.nextId();
             log.info("账号上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} credentialFormat={} credentialLength={}",
                     account.getId(), onlineAttemptId, allocation.proxyId(), credentialFormat,
                     credentialLength(credential.getCredsJson()));
@@ -142,17 +143,17 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
-            ProtocolCommandOutboxEnqueueResult enqueueResult =
-                    protocolCommandOutboxService.enqueueOnlineCommands(List.of(command));
-            log.info("账号上线 outbox 已受理 accountId={} allocatedProxyId={} commandIds={} inserted={}",
-                    account.getId(), allocation.proxyId(), enqueueResult.commandIds().size(), enqueueResult.inserted());
-
-            // 5. 对外返回本地受理结果;worker 路由信息要等消费端执行后再由状态回写补齐。
-            return toOutboxAcceptedVO(account.getId(), protocolAccountId, System.currentTimeMillis());
+            enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(List.of(command));
         } catch (RuntimeException ex) {
             releaseAllocationAfterFailure(account.getId(), allocation.proxyId(), ex);
             throw ex;
         }
+        markPendingOnline(List.of(account.getId()));
+        log.info("账号上线 outbox 已受理 accountId={} allocatedProxyId={} commandIds={} inserted={}",
+                account.getId(), allocation.proxyId(), enqueueResult.commandIds().size(), enqueueResult.inserted());
+
+        // 5. 对外返回本地受理结果;worker 路由信息要等消费端执行后再由状态回写补齐。
+        return toOutboxAcceptedVO(account.getId(), protocolAccountId, System.currentTimeMillis());
     }
 
     /**
@@ -383,6 +384,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         List<PreparedOnlineCommand> prepared = new ArrayList<>(ids.size());
         List<IpProxyAccountAllocation> allocations = List.of();
 
+        ProtocolCommandOutboxEnqueueResult enqueueResult;
         try {
             allocations = allocationSupplier.allocate();
             for (IpProxyAccountAllocation allocation : allocations) {
@@ -408,16 +410,17 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         credentialLength(credential.getCredsJson()));
             }
 
-            ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
+            enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
                     prepared.stream().map(PreparedOnlineCommand::command).toList());
-            log.info("账号上线 outbox 已受理 source={} requested={} inserted={} batchId={} commandIds={}",
-                    source, ids.size(), enqueueResult.inserted(), enqueueResult.batchId(),
-                    enqueueResult.commandIds().size());
-            return toOutboxBatchVO(ids.size(), prepared, enqueueResult);
         } catch (RuntimeException ex) {
             releaseAllocationsAfterFailure(allocations, ex);
             throw ex;
         }
+        markPendingOnline(prepared.stream().map(PreparedOnlineCommand::accountId).toList());
+        log.info("账号上线 outbox 已受理 source={} requested={} inserted={} batchId={} commandIds={}",
+                source, ids.size(), enqueueResult.inserted(), enqueueResult.batchId(),
+                enqueueResult.commandIds().size());
+        return toOutboxBatchVO(ids.size(), prepared, enqueueResult);
     }
 
     private AccountBatchOnlineVO emptyBatchVO() {
@@ -458,6 +461,15 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             }
         }
         return List.copyOf(result);
+    }
+
+    private void markPendingOnline(List<Long> accountIds) {
+        long now = System.currentTimeMillis();
+        int updated = stateMapper.markPendingOnline(accountIds, now);
+        if (updated != accountIds.size()) {
+            log.warn("账号上线待回传状态更新数量不一致 expected={} updated={} accountIds={}",
+                    accountIds.size(), updated, accountIds);
+        }
     }
 
     private static List<AccountBatchOnlineItemVO> toOutboxOfflineItemVOs(List<PreparedOfflineCommand> prepared) {

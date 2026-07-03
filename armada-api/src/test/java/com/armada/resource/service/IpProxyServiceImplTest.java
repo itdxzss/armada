@@ -175,16 +175,26 @@ class IpProxyServiceImplTest {
     }
 
     @Test
-    void importProxies_badFormat_countedAsFailed() {
-        // 格式错误行不触发 insert;第二行合法但此处只测格式失败行的统计
-        // "bad-line" 缺少冒号分隔符,解析必然失败
-        IpProxyImportResultVO result = service.importProxies(dto("bad-line"));
+    void importProxies_badFormatThrowsFormatGateBeforeInsert() {
+        IpProxyImportDTO request = new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:8080:user1:pass1\nbad-line",
+                "US",
+                "smart");
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
 
-        assertThat(result.totalRows()).isEqualTo(1);
-        assertThat(result.failedRows()).isEqualTo(1);
-        assertThat(result.errors()).hasSize(1);
-        assertThat(result.errors().get(0)).contains("第 1 行");
-        verify(mapper, never()).insert(any());
+        assertThatThrownBy(() -> service.importProxies(request))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 2 行：格式错误，应为 代理地址:端口:用户名:密码");
+                });
+
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verify(mapper, never()).insertBatch(any());
+        verifyNoInteractions(detector);
     }
 
     @Test
@@ -214,12 +224,17 @@ class IpProxyServiceImplTest {
     }
 
     @Test
-    void importProxies_skipsBlankLines() {
-        IpProxyImportResultVO result = service.importProxies(dto("\n1.1.1.1:8080:u:p\n\n"));
+    void importProxies_blankLineThrowsFormatGateBeforeInsert() {
+        assertThatThrownBy(() -> service.importProxies(dto("\n1.1.1.1:8080:u:p")))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 1 行：格式错误，空行不允许");
+                });
 
-        assertThat(result.totalRows()).isEqualTo(1);
-        assertThat(result.insertedRows()).isEqualTo(1);
-        assertThat(capturedInsertBatch()).hasSize(1);
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verify(mapper, never()).insertBatch(any());
+        verifyNoInteractions(detector);
     }
 
     @Test
@@ -272,6 +287,139 @@ class IpProxyServiceImplTest {
     }
 
     @Test
+    void sampleCheckImport_blankLineThrowsFormatGateBeforeDetectorOrDb() {
+        IpProxyImportDTO request = new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:8080:user1:pass1\n\n2.2.2.2:8080:user2:pass2",
+                "US",
+                "smart");
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+
+        assertThatThrownBy(() -> service.sampleCheckImport(request))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 2 行：格式错误，空行不允许");
+                });
+
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verifyNoInteractions(detector);
+    }
+
+    @Test
+    void sampleCheckImport_badFieldCountThrowsFormatGateBeforeDetectorOrDb() {
+        IpProxyImportDTO request = new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:8080:user1:pass1\nbad-line",
+                "US",
+                "smart");
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+
+        assertThatThrownBy(() -> service.sampleCheckImport(request))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 2 行：格式错误，应为 代理地址:端口:用户名:密码");
+                });
+
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verifyNoInteractions(detector);
+    }
+
+    @Test
+    void sampleCheckImport_emptyFieldThrowsFormatGateBeforeDetectorOrDb() {
+        IpProxyImportDTO request = new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:8080::pass1",
+                "US",
+                "smart");
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+
+        assertThatThrownBy(() -> service.sampleCheckImport(request))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 1 行：格式错误，存在空字段");
+                });
+
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verifyNoInteractions(detector);
+    }
+
+    @Test
+    void sampleCheckImport_invalidPortThrowsFormatGateBeforeDetectorOrDb() {
+        IpProxyImportDTO request = new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:0:user1:pass1",
+                "US",
+                "smart");
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+
+        assertThatThrownBy(() -> service.sampleCheckImport(request))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 1 行：格式错误，端口必须为正整数");
+                });
+
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verifyNoInteractions(detector);
+    }
+
+    @Test
+    void sampleCheckImport_outOfIntPortThrowsFormatGateBeforeDetectorOrDb() {
+        IpProxyImportDTO request = new IpProxyImportDTO(
+                "美国",
+                1,
+                "供应商A",
+                "1.1.1.1:2147483648:user1:pass1",
+                "US",
+                "smart");
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+
+        assertThatThrownBy(() -> service.sampleCheckImport(request))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).isEqualTo(
+                            "上传的文件中存在格式错误数据：第 1 行：格式错误，端口必须为正整数");
+                });
+
+        verify(mapper, never()).selectActiveDedupTuples(any());
+        verifyNoInteractions(detector);
+    }
+
+    @Test
+    void sampleCheckImport_singleTerminalNewlinePassesAndChecksDetectorOnce() {
+        when(countryService.resolveIpRegion("US")).thenReturn("美国");
+        detectorChecksSucceed();
+
+        IpProxyImportSampleCheckVO result = service.sampleCheckImport(new IpProxyImportDTO(
+                null,
+                1,
+                "供应商A",
+                "1.1.1.1:8080:user1:pass1\n",
+                "US"));
+
+        assertThat(result.passed()).isTrue();
+        assertThat(result.sampleSize()).isEqualTo(1);
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.samples()).hasSize(1);
+        assertThat(result.samples().get(0).lineNo()).isEqualTo(1);
+        assertThat(result.samples().get(0).host()).isEqualTo("1.1.1.1");
+        assertThat(result.samples().get(0).port()).isEqualTo(8080);
+        assertThat(result.samples().get(0).passed()).isTrue();
+        verify(detector, times(1)).check(any());
+    }
+
+    @Test
     void sampleCheckImport_failureReturnsFailedResultWithoutInsert() {
         when(countryService.resolveIpRegion("US")).thenReturn("美国");
         when(detector.check(any()))
@@ -307,14 +455,12 @@ class IpProxyServiceImplTest {
                 null,
                 1,
                 "供应商A",
-                """
-                1.1.1.1:8001:user1:pass1
-                1.1.1.2:8002:user2:pass2
-                1.1.1.3:8003:user3:pass3
-                1.1.1.4:8004:user4:pass4
-                1.1.1.5:8005:user5:pass5
-                1.1.1.6:8006:user6:pass6
-                """,
+                "1.1.1.1:8001:user1:pass1\n"
+                        + "1.1.1.2:8002:user2:pass2\n"
+                        + "1.1.1.3:8003:user3:pass3\n"
+                        + "1.1.1.4:8004:user4:pass4\n"
+                        + "1.1.1.5:8005:user5:pass5\n"
+                        + "1.1.1.6:8006:user6:pass6",
                 "US"));
 
         assertThat(result.passed()).isTrue();

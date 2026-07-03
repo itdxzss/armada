@@ -88,7 +88,8 @@ public interface AccountStateMapper {
      *
      * <p>用于 NEED_REAUTH、LOGGED_OUT、DEVICE_REMOVED 等必须收敛为封禁/解绑的终态事件。</p>
      *
-     * @param row 包含 accountId、loginState、accountState、lastStateSyncTime、stateSource、updatedAt
+     * @param row 包含 accountId、loginState、accountState、lastStateSyncTime、stateSource、updatedAt;
+     *            非正常 accountState 会写入 invalidated_at,恢复正常时清空
      * @return 实际更新行数
      */
     int updateLifecycleState(AccountState row);
@@ -108,7 +109,8 @@ public interface AccountStateMapper {
      *
      * <p>只更新未上报、待上线、解绑状态,封禁/导出等终态不会被 ONLINE 事件误改。</p>
      *
-     * @param row 包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt
+     * @param row 包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt;
+     *            同时清空 invalidated_at
      * @return 实际更新行数
      */
     default int markOnlineNormalState(AccountState row) {
@@ -118,7 +120,8 @@ public interface AccountStateMapper {
     /**
      * 协议回传 ONLINE 时把可恢复生命周期状态收敛为正常的 SQL 实现。
      *
-     * @param row          包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt
+     * @param row          包含 accountId、accountState=正常、lastStateSyncTime、stateSource、updatedAt;
+     *                     同时清空 invalidated_at
      * @param newState     待上线状态码,用于 WHERE 限定
      * @param unboundState 解绑状态码,用于 WHERE 限定
      * @return 实际更新行数

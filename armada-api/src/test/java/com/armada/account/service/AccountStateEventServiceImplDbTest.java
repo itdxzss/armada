@@ -92,6 +92,32 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
+    void applyStateChanged_onlineRecoveringUnbound_clearsInvalidatedAt() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86191" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        long invalidatedAt = now + 1_000L;
+        int prepared = jdbcTemplate.update(
+                """
+                UPDATE account_state
+                SET account_state = ?, invalidated_at = ?, updated_at = ?
+                WHERE account_id = ?
+                """,
+                AccountStateCode.UNBOUND, invalidatedAt, invalidatedAt, account.getId());
+        assertThat(prepared).isEqualTo(1);
+
+        service.applyStateChanged(event(account, "RECONNECTING", "ONLINE",
+                now + 2_000L, "CONNECTED", null));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.NORMAL);
+        assertThat(state.getInvalidatedAt()).isNull();
+        assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
+        assertThat(state.getStateSource()).isEqualTo("CONNECTED");
+    }
+
+    @Test
     void applyStateChanged_needReauthForbidden_marksBannedAndOffline() {
         long now = System.currentTimeMillis();
         Account account = insertAccount("86183" + (now % 10_000_000L), now);
@@ -105,6 +131,7 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         assertThat(state.getAccountState()).isEqualTo(AccountStateCode.BANNED);
         assertThat(state.getBlockReason()).isEqualTo("FORBIDDEN");
         assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
+        assertThat(state.getInvalidatedAt()).isEqualTo(now + 2_000L);
         assertThat(state.getStateSource()).isEqualTo("BANNED");
     }
 
@@ -226,6 +253,7 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
         assertThat(state.getAccountState()).isEqualTo(AccountStateCode.UNBOUND);
         assertThat(state.getLastStateSyncTime()).isEqualTo(now + 2_000L);
+        assertThat(state.getInvalidatedAt()).isEqualTo(now + 2_000L);
         assertThat(state.getStateSource()).isEqualTo("UNBOUND");
     }
 

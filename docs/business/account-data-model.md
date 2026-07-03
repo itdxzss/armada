@@ -78,7 +78,7 @@ CREATE TABLE account_state (
     block_reason          VARCHAR(255)         DEFAULT NULL   COMMENT '封号原因(落库前按列宽截断)',
     state_source          VARCHAR(64)          DEFAULT NULL   COMMENT '状态来源前缀 NEED_REAUTH/PROXY_FAILED(截断)',
     last_state_sync_time  BIGINT               DEFAULT NULL   COMMENT '最后对账时间(epoch毫秒)',
-    invalidated_at        BIGINT               DEFAULT NULL   COMMENT '失效时间(epoch毫秒;导出/解绑)',
+    invalidated_at        BIGINT               DEFAULT NULL   COMMENT '失效时间(epoch毫秒;账号状态非正常;恢复正常清空)',
     truth_ip              VARCHAR(45)          DEFAULT NULL   COMMENT '真实出口公网IP(上线探测;≠ip_proxy.host网关)',
     proxy_country         VARCHAR(64)          DEFAULT NULL   COMMENT '出口国家',
     proxy_source          VARCHAR(64)          DEFAULT NULL   COMMENT '代理来源展示快照',

@@ -46,7 +46,7 @@ public class AccountState {
     /** 最后对账时间(epoch 毫秒)。 */
     private Long lastStateSyncTime;
 
-    /** 失效时间(epoch 毫秒;导出/解绑)。 */
+    /** 失效时间(epoch 毫秒;账号状态非正常;恢复正常清空)。 */
     private Long invalidatedAt;
 
     /** 真实出口公网 IP(上线探测;≠ip_proxy.host 网关)。 */

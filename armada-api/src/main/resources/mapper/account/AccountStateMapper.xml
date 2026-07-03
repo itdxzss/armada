@@ -49,11 +49,15 @@
     WHERE account_id = #{accountId}
   </update>
 
-  <!-- account.state_changed 终态:封禁/解绑需要同时更新 login_state 与 account_state。 -->
+  <!-- account.state_changed 终态:封禁/解绑需要同时更新 login_state、account_state 与失效时间。 -->
   <update id="updateLifecycleState">
     UPDATE account_state
     SET login_state = #{loginState},
         account_state = #{accountState},
+        invalidated_at = CASE
+          WHEN #{accountState} = 2 THEN NULL
+          ELSE #{lastStateSyncTime}
+        END,
         last_state_sync_time = #{lastStateSyncTime},
         state_source = #{stateSource},
         updated_at = #{updatedAt}
@@ -70,10 +74,11 @@
     WHERE account_id = #{accountId}
   </update>
 
-  <!-- ONLINE 只把未上报/待上线/解绑状态收敛为正常,其它终态不受影响。 -->
+  <!-- ONLINE 只把未上报/待上线/解绑状态收敛为正常并清空失效时间,其它终态不受影响。 -->
   <update id="markOnlineNormalStateInternal">
     UPDATE account_state
     SET account_state = #{row.accountState},
+        invalidated_at = NULL,
         last_state_sync_time = #{row.lastStateSyncTime},
         state_source = #{row.stateSource},
         updated_at = #{row.updatedAt}

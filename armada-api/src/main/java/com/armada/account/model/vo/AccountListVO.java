@@ -80,7 +80,7 @@ public record AccountListVO(
         /** 拉人数量。 */
         Integer pullIntoGroupCount,
 
-        /** 失效时间(epoch 毫秒;导出/解绑)。 */
+        /** 失效时间(epoch 毫秒;账号状态非正常;恢复正常清空)。 */
         Long invalidatedAt,
 
         // ---- step1 占位字段(恒常量,step3 再接真值) ----

@@ -89,7 +89,7 @@ public class AccountListVoRow {
     /** 拉人数量。 */
     private Integer pullIntoGroupCount;
 
-    /** 失效时间(epoch 毫秒;导出/解绑)。 */
+    /** 失效时间(epoch 毫秒;账号状态非正常;恢复正常清空)。 */
     private Long invalidatedAt;
 
     /** 最后对账时间(epoch 毫秒)。 */

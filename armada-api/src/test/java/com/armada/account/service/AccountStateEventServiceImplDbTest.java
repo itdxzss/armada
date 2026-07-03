@@ -175,7 +175,7 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
-    void applyStateChanged_proxyFailed_marksBoundIpUnavailableForScheduledRecheck() {
+    void applyStateChanged_proxyFailed_marksBoundIpUnavailableAndPendingReonline() {
         long now = System.currentTimeMillis();
         String wsPhone = "86189" + (now % 10_000_000L);
         importOneAccount(wsPhone);
@@ -195,8 +195,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
                 now + 2_000L, "PROXY_FAILED", null));
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
-        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
-        assertThat(state.getStateSource()).isEqualTo("PROXY_FAILED");
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
+        assertThat(state.getStateSource()).isEqualTo(AccountStateMapper.STATE_SOURCE_OUTBOX);
         IpProxy unavailable = ipProxyMapper.selectActiveById(failedProxy.getId());
         assertThat(unavailable.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
         assertThat(unavailable.getBoundAccountId()).isNull();

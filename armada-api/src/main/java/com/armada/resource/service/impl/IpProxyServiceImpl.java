@@ -43,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import org.slf4j.Logger;
@@ -68,6 +69,11 @@ public class IpProxyServiceImpl implements IpProxyService {
     private static final int IMPORT_FIELDS = 4;
     private static final int IMPORT_SAMPLE_CHECK_SIZE = 5;
     private static final int IMPORT_DB_BATCH_SIZE = 500;
+    private static final int IMPORT_PORT_MIN = 1;
+    private static final int IMPORT_PORT_MAX = 65535;
+    private static final String IMPORT_FORMAT_ERROR_TITLE = "上传的文件中存在格式错误数据";
+    private static final String IMPORT_FORMAT_EXAMPLE = "代理地址:端口:用户名:密码";
+    private static final String IMPORT_PORT_ERROR_REASON = "格式错误，端口必须为 1-65535 的整数";
     private static final int MAX_BATCH_ALLOCATION_SIZE = 500;
     private static final int MAX_BATCH_CHECK_SIZE = 20;
     private static final String MIXED_REGION = "混合（不限国家）";
@@ -116,13 +122,14 @@ public class IpProxyServiceImpl implements IpProxyService {
         IpProxyImportDTO normalized = normalizeImport(dto);
         // 先校验批次级字段。国家可为空,但协议、来源、导入文本必须完整,否则不进入逐行解析。
         validateImport(normalized);
+        validateImportTextFormatOrThrow(normalized.text());
 
         long parseStartedAt = System.nanoTime();
         List<LineOutcome<ProxyLine, Boolean>> outcomes = importOutcomes(normalized);
         long parseMs = elapsedMs(parseStartedAt);
 
-        // 汇总口径:
-        // failed=格式/字段校验失败;inserted=真实新增;skipped=批内重复 + 库内已存在。
+        // 格式错误已由 TXT 门禁 fail-fast;这里保留 LineImporter 的失败统计作为兜底。
+        // inserted=真实新增;skipped=批内重复 + 库内已存在。
         int total = outcomes.size();
         int failed = (int) outcomes.stream().filter(o -> o.kind() == Kind.FAILED).count();
         List<ImportCandidate> candidates = importCandidates(outcomes);
@@ -137,7 +144,7 @@ public class IpProxyServiceImpl implements IpProxyService {
         persistProxies(normalized, insertCandidates);
         long insertMs = elapsedMs(insertStartedAt);
 
-        // 错误信息带原始行号,让页面能提示用户直接回到具体问题行。
+        // 兜底错误信息带原始行号,让页面能提示用户直接回到具体问题行。
         List<String> errors = outcomes.stream().filter(o -> o.kind() == Kind.FAILED)
                 .map(o -> "第 " + o.lineNo() + " 行：" + o.reason()).toList();
         log.info("IP代理导入 region={} allocationMode={} protocol={} total={} inserted={} skipped={} failed={} "
@@ -157,6 +164,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     public IpProxyImportSampleCheckVO sampleCheckImport(IpProxyImportDTO dto) {
         IpProxyImportDTO normalized = normalizeImport(dto);
         validateImport(normalized);
+        validateImportTextFormatOrThrow(normalized.text());
         List<ImportCandidate> candidates = filterNewCandidates(importCandidates(importOutcomes(normalized)));
         List<ImportCandidate> samples = randomImportSamples(candidates);
         List<IpProxyImportSampleCheckVO.SampleRow> rows = new ArrayList<>(samples.size());
@@ -726,6 +734,46 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     /**
+     * 在抽检和正式导入前做 TXT 文件级格式门禁。
+     *
+     * <p>{@link LineImporter} 会跳过空行,但 IP 管理的产品口径是空行也属于格式错误。
+     * 因此这里必须先扫原始文本,第一次碰到错误就抛业务异常,避免坏文件进入抽检或部分入库。</p>
+     */
+    private static void validateImportTextFormatOrThrow(String text) {
+        String[] lines = text == null ? new String[0] : text.split("\\R", -1);
+        for (int i = 0; i < lines.length; i++) {
+            int lineNo = i + 1;
+            String raw = lines[i].trim();
+            if (raw.isEmpty()) {
+                if (i == lines.length - 1 && lines[i].isEmpty()) {
+                    continue;
+                }
+                throw importFormatException(lineNo, "格式错误，空行不允许");
+            }
+            String[] parts = raw.split(":", -1);
+            if (parts.length != IMPORT_FIELDS) {
+                throw importFormatException(lineNo, "格式错误，应为 " + IMPORT_FORMAT_EXAMPLE);
+            }
+            String host = parts[0].trim();
+            String portText = parts[1].trim();
+            String username = parts[2].trim();
+            String password = parts[3].trim();
+            if (host.isEmpty() || username.isEmpty() || password.isEmpty()) {
+                throw importFormatException(lineNo, "格式错误，存在空字段");
+            }
+            if (parseImportPort(portText).isEmpty()) {
+                throw importFormatException(lineNo, IMPORT_PORT_ERROR_REASON);
+            }
+        }
+    }
+
+    private static BusinessException importFormatException(int lineNo, String reason) {
+        return new BusinessException(
+                ErrorCode.VALIDATION,
+                IMPORT_FORMAT_ERROR_TITLE + "：第 " + lineNo + " 行：" + reason);
+    }
+
+    /**
      * 解析并校验一行代理文本。
      *
      * <p>当前导入格式固定为 {@code host:port:username:password}。这里故意只接受四段,
@@ -741,13 +789,14 @@ public class IpProxyServiceImpl implements IpProxyService {
         String portText = parts[1].trim();
         String username = parts[2].trim();
         String password = parts[3].trim();
-        if (!isPositiveInt(portText)) {
-            throw new ImportLineException("端口非法");
+        OptionalInt port = parseImportPort(portText);
+        if (port.isEmpty()) {
+            throw new ImportLineException(IMPORT_PORT_ERROR_REASON);
         }
         if (host.isEmpty() || username.isEmpty() || password.isEmpty()) {
             throw new ImportLineException("存在空字段");
         }
-        return new ProxyLine(host, Integer.parseInt(portText), username, password);
+        return new ProxyLine(host, port.getAsInt(), username, password);
     }
 
     /**
@@ -1255,20 +1304,28 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     /**
-     * 判断文本是否为正整数字符串。
+     * 解析导入文本中的代理端口。
      *
-     * <p>端口解析前先逐字符校验,避免 {@link Integer#parseInt(String)} 的异常泄露到导入流程里。
-     * 这里不接受正负号、小数和空字符串。</p>
+     * <p>端口解析前先逐字符校验,避免数值转换异常泄露到导入流程里。
+     * 这里只接受 {@code 1..65535} 范围内的十进制整数。</p>
      */
-    private static boolean isPositiveInt(String s) {
+    private static OptionalInt parseImportPort(String s) {
         if (s.isEmpty()) {
-            return false;
+            return OptionalInt.empty();
         }
+        long value = 0L;
         for (int i = 0; i < s.length(); i++) {
             if (!Character.isDigit(s.charAt(i))) {
-                return false;
+                return OptionalInt.empty();
+            }
+            value = value * 10 + (s.charAt(i) - '0');
+            if (value > IMPORT_PORT_MAX) {
+                return OptionalInt.empty();
             }
         }
-        return true;
+        if (value < IMPORT_PORT_MIN) {
+            return OptionalInt.empty();
+        }
+        return OptionalInt.of((int) value);
     }
 }

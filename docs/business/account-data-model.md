@@ -21,7 +21,8 @@
 
 **字段口径(2026-06-25 核对):**
 - 「入库时间」= `account.created_at`(导入入库真实时间戳),**不是** first_login_time(wheel 恒 NULL);删该死列。
-- `account_state` / `login_state` / `risk_status` / `mute_status` **可空、无默认**:`NULL` = 未上报(列表渲「待上线 / —」,不渲离线/正常,避免给业务假确定性)。连带:统计卡「在线+离线 < 总数」,差额=未上报号,step3 接 Kafka 后收敛。计数列保留 DEFAULT 0。
+- `account_state` / `risk_status` / `mute_status` **可空、无默认**:`NULL` = 未上报,不渲正常/风控/禁言等假确定性。计数列保留 DEFAULT 0。
+- `login_state` 可空、无默认:`NULL` = 未上报/未发起上线;`3` = Armada 已写入上线 outbox、等待协议 Kafka 回传结果。统计卡里的待上线只看 `login_state=3`,不再用 `total-online-offline` 推导;离线只统计 `account_state=2 AND login_state=2`。
 - `truth_ip` = 真实出口公网 IP(住宅 IP,WA 实际看到的),上线时由出口探测器解析;**不等于** `ip_proxy.host`(代理网关入口地址)。step3 才有值。
 
 ---
@@ -68,7 +69,7 @@ CREATE TABLE account_state (
     tenant_id             BIGINT      NOT NULL                COMMENT '租户ID',
     account_id            BIGINT      NOT NULL                COMMENT '→account.id',
     account_state         TINYINT              DEFAULT NULL   COMMENT '1新增 2正常 3封禁 4导出 5解绑;NULL=未上报',
-    login_state           TINYINT              DEFAULT NULL   COMMENT '1在线 2离线;NULL=未上报',
+    login_state           TINYINT              DEFAULT NULL   COMMENT '1在线 2离线 3待上线;NULL=未上报/未发起上线',
     risk_status           TINYINT              DEFAULT NULL   COMMENT '1未风控 2风控中 3待解除;NULL=未上报',
     risk_end_time         BIGINT               DEFAULT NULL   COMMENT '风控倒计时终点(epoch毫秒)',
     cooldown_until        BIGINT               DEFAULT NULL   COMMENT '冷却到期(epoch毫秒)',
@@ -198,7 +199,7 @@ CREATE TABLE account_import_detail (
 | 列 | 来源 | step1 |
 |---|---|---|
 | 账号 / 账号类型·设备 / 渠道·来源 / 协议 / 分组 / 入库时间 | `account`(ws_phone/account_type+device_os/channel_name+number_source/protocol_id/account_group_id→组名/created_at) | ✓ 真值 |
-| 状态 / 登录 / 风控 / 封号码·原因 / 拉人数 / IP地址 / IP来源 / 失效时间 | `account_state` | NULL=待上线;step3 点亮 |
+| 状态 / 登录 / 风控 / 封号码·原因 / 拉人数 / IP地址 / IP来源 / 失效时间 | `account_state` | login_state=NULL 为未上报/未发起上线,login_state=3 为待上线;step3 点亮 |
 | 头像 / 好友·群 / 超链寿命 | **VO 占位**(禁死列;协议回写,step3/二期) | 常量 |
 | 国家 / IP来源 | **JOIN ip_proxy**(经 IP 绑定 region/source) | 待绑定;见 TODO-2 |
 

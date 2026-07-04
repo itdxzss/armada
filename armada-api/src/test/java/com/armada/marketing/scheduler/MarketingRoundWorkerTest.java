@@ -1,5 +1,8 @@
 package com.armada.marketing.scheduler;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -15,6 +18,7 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -93,6 +97,48 @@ class MarketingRoundWorkerTest {
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::commandId)
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType).containsOnly("TEXT");
+    }
+
+    @Test
+    void dueRoundLogsRoundGenerationSummary() {
+        Logger logger = (Logger) LoggerFactory.getLogger(MarketingRoundWorker.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+            ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+            MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+            properties.setBacklogMultiplier(2);
+
+            MarketingTask task = task();
+            when(taskMapper.selectTaskById(42L)).thenReturn(task);
+            when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+            when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(2));
+            when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+            doAnswer(invocation -> {
+                @SuppressWarnings("unchecked")
+                List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
+                long id = 9000L;
+                for (MarketingTaskSendAttempt attempt : attempts) {
+                    attempt.setId(++id);
+                }
+                return attempts.size();
+            }).when(taskMapper).insertSendAttempts(any());
+
+            MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+            worker.runRound(1L, 42L);
+
+            assertThat(appender.list)
+                    .anyMatch(event -> event.getFormattedMessage().contains("营销任务轮次发送命令已生成")
+                            && event.getFormattedMessage().contains("tenantId=1")
+                            && event.getFormattedMessage().contains("taskId=42")
+                            && event.getFormattedMessage().contains("roundNo=1")
+                            && event.getFormattedMessage().contains("targetCount=2")
+                            && event.getFormattedMessage().contains("messageType=TEXT"));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

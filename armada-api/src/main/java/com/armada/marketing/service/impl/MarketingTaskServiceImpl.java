@@ -161,11 +161,12 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (!List.of(STATUS_PENDING, STATUS_STOPPED).contains(task.getStatus())) {
             throw new BusinessException(ErrorCode.VALIDATION, "只有待启动或已停止的任务可以启动");
         }
-        int updated = taskMapper.startTask(id, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        int updated = taskMapper.startTask(id, now);
         if (updated == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
         }
-        log.info("营销任务启动 id={}", id);
+        log.info("营销任务启动 id={} tenantId={} nextRoundAt={}", id, task.getTenantId(), now);
         return toVO(requireTask(id));
     }
 

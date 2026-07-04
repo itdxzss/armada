@@ -21,6 +21,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -35,6 +37,7 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("kafka")
 public class MarketingRoundWorker {
+    private static final Logger log = LoggerFactory.getLogger(MarketingRoundWorker.class);
     private static final String SOURCE_MARKETING_TASK = "marketing_task";
 
     private final MarketingTaskMapper taskMapper;
@@ -81,24 +84,36 @@ public class MarketingRoundWorker {
 
     private void doRunRound(Long taskId) {
         MarketingTask task = taskMapper.selectTaskById(taskId);
-        if (task == null || !Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())) {
+        if (task == null) {
+            log.warn("营销任务轮次跳过:任务不存在 taskId={}", taskId);
+            return;
+        }
+        if (!Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())) {
+            log.debug("营销任务轮次跳过:任务非发送中 tenantId={} taskId={} status={}",
+                    task.getTenantId(), task.getId(), task.getStatus());
             return;
         }
         List<MarketingTaskTarget> targets = taskMapper.selectTargetsByTaskId(taskId);
         if (targets.isEmpty()) {
+            log.warn("营销任务轮次跳过:没有目标 tenantId={} taskId={}", task.getTenantId(), task.getId());
             return;
         }
         long now = System.currentTimeMillis();
         long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
         long unfinished = taskMapper.countUnfinishedAttempts(taskId);
+        long backlogThreshold = (long) Math.max(1, properties.getBacklogMultiplier()) * targets.size();
         // 下游协议层积压过高时只推迟下一轮,避免持续生成新 attempt 把 outbox 堆穿。
-        if (unfinished >= (long) Math.max(1, properties.getBacklogMultiplier()) * targets.size()) {
+        if (unfinished >= backlogThreshold) {
             taskMapper.postponeDueRound(taskId, now, nextRoundAt);
+            log.info("营销任务轮次因积压推迟 tenantId={} taskId={} targetCount={} unfinished={} "
+                            + "backlogThreshold={} nextRoundAt={}",
+                    task.getTenantId(), task.getId(), targets.size(), unfinished, backlogThreshold, nextRoundAt);
             return;
         }
         // claimDueRound 是并发闸门:只有一个线程能把到期任务推进到下一轮。
         int claimed = taskMapper.claimDueRound(taskId, now, nextRoundAt);
         if (claimed == 0) {
+            log.debug("营销任务轮次抢占失败 tenantId={} taskId={}", task.getTenantId(), task.getId());
             return;
         }
 
@@ -118,7 +133,13 @@ public class MarketingRoundWorker {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "营销发送尝试写入数量不一致: expected=" + attempts.size() + ", inserted=" + inserted);
         }
-        enqueueCommands(task, targets, attempts, message);
+        EnqueueSummary summary = enqueueCommands(task, targets, attempts, message);
+        log.info("营销任务轮次发送命令已生成 tenantId={} taskId={} roundNo={} targetCount={} "
+                        + "attemptCount={} commandCount={} outboxBatches={} batchSize={} messageType={} "
+                        + "imageBytes={} nextRoundAt={}",
+                task.getTenantId(), task.getId(), roundNo, targets.size(), attempts.size(),
+                summary.commandCount(), summary.batchCount(), summary.batchSize(), message.messageType(),
+                imageBytesLength(message), nextRoundAt);
     }
 
     /** 模板在轮次执行时必须存在;否则本轮应整体回滚并等待人工修正任务配置。 */
@@ -154,13 +175,15 @@ public class MarketingRoundWorker {
      * <p>attempt 已经带有预生成 commandId,这里把同一个 commandId 带到协议 outbox,
      * 保证 attempt 与协议命令可以一一对应。</p>
      */
-    private void enqueueCommands(MarketingTask task,
-                                 List<MarketingTaskTarget> targets,
-                                 List<MarketingTaskSendAttempt> attempts,
-                                 MarketingMessageComposer.ComposedMessage message) {
+    private EnqueueSummary enqueueCommands(MarketingTask task,
+                                           List<MarketingTaskTarget> targets,
+                                           List<MarketingTaskSendAttempt> attempts,
+                                           MarketingMessageComposer.ComposedMessage message) {
         int batchSize = outboxBatchSize(message);
         List<ProtocolMarketingMessageCommandRequest> batch = new ArrayList<>(batchSize);
         String imageBase64 = message.imageBytes() == null ? null : Base64.getEncoder().encodeToString(message.imageBytes());
+        int batchCount = 0;
+        int commandCount = 0;
         for (int i = 0; i < attempts.size(); i++) {
             MarketingTaskTarget target = targets.get(i);
             MarketingTaskSendAttempt attempt = attempts.get(i);
@@ -181,12 +204,17 @@ public class MarketingRoundWorker {
                     attempt.getCommandId()));
             if (batch.size() == batchSize) {
                 outboxService.enqueueMarketingMessageCommands(batch);
+                batchCount++;
+                commandCount += batch.size();
                 batch = new ArrayList<>(batchSize);
             }
         }
         if (!batch.isEmpty()) {
             outboxService.enqueueMarketingMessageCommands(batch);
+            batchCount++;
+            commandCount += batch.size();
         }
+        return new EnqueueSummary(batchSize, batchCount, commandCount);
     }
 
     private int outboxBatchSize(MarketingMessageComposer.ComposedMessage message) {
@@ -216,5 +244,12 @@ public class MarketingRoundWorker {
     private static long sendIntervalSeconds(MarketingTask task) {
         Integer configured = task.getSendIntervalSeconds();
         return configured == null || configured < 1 ? 30L : configured.longValue();
+    }
+
+    private static int imageBytesLength(MarketingMessageComposer.ComposedMessage message) {
+        return message.imageBytes() == null ? 0 : message.imageBytes().length;
+    }
+
+    private record EnqueueSummary(int batchSize, int batchCount, int commandCount) {
     }
 }

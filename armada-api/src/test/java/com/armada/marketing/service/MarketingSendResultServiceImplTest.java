@@ -1,10 +1,16 @@
 package com.armada.marketing.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.service.impl.MarketingSendResultServiceImpl;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -30,6 +36,30 @@ class MarketingSendResultServiceImplTest {
 
         verify(mapper).markAttemptSuccess(9001L, "wamid.1", 1783159200000L);
         verify(mapper).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
+    }
+
+    @Test
+    void successEventLogsAppliedResult() {
+        Logger logger = (Logger) LoggerFactory.getLogger(MarketingSendResultServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ProtocolMessageSendResultReportedEvent event = event(true);
+            when(mapper.markAttemptSuccess(9001L, "wamid.1", 1783159200000L)).thenReturn(1);
+
+            service.handleSendResultReported(event);
+
+            assertThat(appender.list)
+                    .anyMatch(log -> log.getFormattedMessage().contains("营销发送结果已回写")
+                            && log.getFormattedMessage().contains("tenantId=1")
+                            && log.getFormattedMessage().contains("taskId=42")
+                            && log.getFormattedMessage().contains("attemptId=9001")
+                            && log.getFormattedMessage().contains("commandId=cmd_1")
+                            && log.getFormattedMessage().contains("success=true"));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 
     @Test

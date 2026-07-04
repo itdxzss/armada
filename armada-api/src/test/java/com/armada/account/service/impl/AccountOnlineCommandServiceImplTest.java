@@ -507,6 +507,34 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void reonlineForTakeover_loginReplacedBypassesCooldownAndEnqueuesOnline() {
+        Account account = onlineAccount();
+        AccountCredential credential = onlineCredential();
+        ProxyEndpoint endpoint = onlineEndpoint();
+        when(stateMapper.selectByAccountId(100L)).thenReturn(takingOverState(100L, AccountLoginStateCode.OFFLINE));
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_takeover_retry");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+
+        AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "login_replaced_takeover");
+
+        assertThat(result.accepted()).isTrue();
+        verify(takeoverReonlineCooldown, never()).tryAcquire(anyLong(), anyLong());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
+        assertThat(command.source()).isEqualTo("login_replaced_takeover");
+    }
+
+    @Test
     void onlineBatch_importSmartModeResolvesPhonePrefixAndDisablesOtherRegionFallback() {
         Account accountA = account(100L, "acc_919876543210");
         Account accountB = account(101L, "acc_8613812345678");

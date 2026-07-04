@@ -1,9 +1,9 @@
 package com.armada.marketing.model.vo;
 
 /**
- * 营销账号树 Mapper 平铺行:一个账号×一个可营销群。
+ * 营销账号树 Mapper 平铺行:一个账号×一个当前可营销群。
  *
- * <p>该对象只服务于 MyBatis 查询投影。SQL 负责把账号可用性、群健康状态和账号基线过滤好,
+ * <p>该对象只服务于 MyBatis 查询投影。SQL 负责把账号可用性、当前在群关系、群健康状态和账号基线过滤好,
  * Service 再把多行按 {@link #accountId} 聚合成前端需要的账号树。</p>
  */
 public class MarketingAccountTreeRow {
@@ -26,7 +26,7 @@ public class MarketingAccountTreeRow {
     /** 群邀请链接,来自 group_link.link_url,用于页面展示和任务目标快照。 */
     private String linkUrl;
 
-    /** 当前账号是否该群管理员;营销选择口径不依赖 membership,默认 false。 */
+    /** 当前账号是否该群管理员,来自账号当前在群关系。 */
     private Boolean admin;
 
     public Long getAccountId() {

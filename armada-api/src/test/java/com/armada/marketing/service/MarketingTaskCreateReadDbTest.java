@@ -126,41 +126,37 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
-    void createTask_acceptsSelectionWithoutActiveMembership() {
+    void createTask_rejectsSelectionWithoutActiveMembership() {
         Fixture fixture = seedFixture("missing-membership");
         jdbc.update("UPDATE account_group_membership SET deleted_at = ? WHERE account_id = ? AND group_link_id = ?",
                 System.currentTimeMillis(), fixture.accountId(), fixture.groupLinkId());
 
-        MarketingTaskVO created = service.createTask(request(
+        CreateMarketingTaskDTO req = request(
                 "无在群关系任务",
                 fixture.accountGroupId(),
                 fixture.templateId(),
                 "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
 
-        MarketingTaskDetailVO detail = service.getDetail(created.id());
-        assertThat(detail.targets()).singleElement().satisfies(target -> {
-            assertThat(target.accountPhone()).isEqualTo(fixture.phone());
-            assertThat(target.groupJid()).isEqualTo(fixture.groupJid());
-        });
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号或群组不可用");
     }
 
     @Test
-    void createTask_usesLoginStateOnlyForOnlineSelectionBeforeMembershipSyncReports() {
+    void createTask_rejectsSelectionBeforeMembershipSyncReports() {
         Fixture fixture = seedFixture("before-membership-sync", false, 6);
 
-        MarketingTaskVO created = service.createTask(request(
+        CreateMarketingTaskDTO req = request(
                 "群同步前任务",
                 fixture.accountGroupId(),
                 fixture.templateId(),
                 "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
 
-        MarketingTaskDetailVO detail = service.getDetail(created.id());
-        assertThat(detail.targets()).singleElement().satisfies(target -> {
-            assertThat(target.accountPhone()).isEqualTo(fixture.phone());
-            assertThat(target.groupJid()).isEqualTo(fixture.groupJid());
-        });
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号或群组不可用");
     }
 
     private CreateMarketingTaskDTO request(String taskName,

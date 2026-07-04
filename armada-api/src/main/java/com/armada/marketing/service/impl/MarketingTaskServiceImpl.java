@@ -221,8 +221,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     /**
      * 查询建营销任务用的账号→可营销群树。
      *
-     * <p>只返回账号分组内登录态在线、无风控/禁言的账号。群组按群池可发送入口展示,
-     * 不依赖账号群 membership 回填。若账号已拍登录前群基线,SQL 层会用 `baseline_group_jids`
+     * <p>只返回账号分组内登录态在线、无风控/禁言的账号。群组按账号当前在群关系展示,
+     * 不把全局群池挂到每个账号下面。若账号已拍登录前群基线,SQL 层会用 `baseline_group_jids`
      * JSON 排除历史群。</p>
      *
      * @param groupId 账号分组 ID
@@ -463,6 +463,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         }
 
         private void addGroup(MarketingAccountTreeRow row) {
+            if (row.getGroupLinkId() == null) {
+                return;
+            }
             groups.add(new MarketingTreeGroupVO(row.getGroupLinkId(), row.getGroupJid(),
                     row.getGroupName(), row.getLinkUrl(), Boolean.TRUE.equals(row.getAdmin())));
         }

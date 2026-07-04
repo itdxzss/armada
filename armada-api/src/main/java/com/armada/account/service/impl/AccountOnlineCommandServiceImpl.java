@@ -173,11 +173,15 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             return skippedTakeoverVO(accountId);
         }
         long now = System.currentTimeMillis();
-        if (!takeoverReonlineCooldown.tryAcquire(accountId, now)) {
+        if (shouldApplyTakeoverCooldown(source) && !takeoverReonlineCooldown.tryAcquire(accountId, now)) {
             log.info("抢登续上线跳过:账号处于短窗口冷却 accountId={} source={}", accountId, source);
             return skippedTakeoverVO(accountId);
         }
         return onlineWithSource(accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId);
+    }
+
+    private static boolean shouldApplyTakeoverCooldown(String source) {
+        return !SOURCE_LOGIN_REPLACED_TAKEOVER.equals(source);
     }
 
     private AccountOnlineVO onlineWithSource(Long accountId, String source, String failedOnlineAttemptId) {

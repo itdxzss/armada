@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 营销任务建任务抽屉的账号→可营销群树。
  *
- * <p>营销树按账号分组内登录态在线账号展示群池可营销群,再按账号登录前基线 JSON 排除历史群。</p>
+ * <p>营销树按账号分组内登录态在线账号展示其当前在群关系,再按账号登录前基线 JSON 排除历史群。</p>
  */
 class MarketingTaskAccountTreeDbTest extends DbTestBase {
 
@@ -76,7 +76,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountTree_showsAvailablePoolGroupsForEveryOnlineAccount() {
+    void accountTree_showsOnlyCurrentMembershipGroupsForEachOnlineAccount() {
         long accountGroupId = seedAccountGroup("tree-pool");
         long firstAccountId = seedAccount("923300000005", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         long secondAccountId = seedAccount("923300000006", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
@@ -93,15 +93,15 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
         assertThat(tree.accounts().get(0).accountId()).isEqualTo(firstAccountId);
         assertThat(tree.accounts().get(0).groups())
                 .extracting(MarketingTreeGroupVO::groupJid)
-                .containsExactly(firstJid, secondJid);
+                .containsExactly(firstJid);
         assertThat(tree.accounts().get(1).accountId()).isEqualTo(secondAccountId);
         assertThat(tree.accounts().get(1).groups())
                 .extracting(MarketingTreeGroupVO::groupJid)
-                .containsExactly(firstJid, secondJid);
+                .containsExactly(secondJid);
     }
 
     @Test
-    void accountTree_usesLoginStateOnlyForOnlineAccountBeforeMembershipSyncReports() {
+    void accountTree_doesNotShowPoolGroupsBeforeMembershipSyncReports() {
         long accountGroupId = seedAccountGroup("tree-no-membership");
         long accountId = seedAccount("923300000007", accountGroupId, BASELINE_CAPTURED, 6, 1, 1, null);
         String groupJid = "120363000007@g.us";
@@ -114,8 +114,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
             assertThat(account.accountId()).isEqualTo(accountId);
             assertThat(account.wsPhone()).isEqualTo("923300000007");
             assertThat(account.status()).isEqualTo("ONLINE");
-            assertThat(account.groups()).singleElement().satisfies(group ->
-                    assertThat(group.groupJid()).isEqualTo(groupJid));
+            assertThat(account.groups()).isEmpty();
         });
     }
 

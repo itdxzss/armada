@@ -88,6 +88,6 @@ public interface MarketingTaskMapper {
                                                       @Param("accountId") Long accountId,
                                                       @Param("groupLinkId") Long groupLinkId);
 
-    /** 查询建营销任务用的账号×可营销群平铺行。 */
+    /** 查询建营销任务用的账号×当前可营销群平铺行。 */
     List<MarketingAccountTreeRow> selectAccountTreeRows(@Param("groupId") Long groupId);
 }

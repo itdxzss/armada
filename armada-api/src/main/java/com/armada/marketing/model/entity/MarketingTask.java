@@ -24,8 +24,11 @@ public class MarketingTask {
     private Boolean abnormalGroupSkipped;
     private Boolean autoRetryEnabled;
     private Integer retryLimit;
+    private Long currentRoundNo;
     private String remark;
     private Long startedAt;
+    private Long nextRoundAt;
+    private Long lastRoundStartedAt;
     private Long lastSentAt;
     private Long finishedAt;
     private Long createdBy;
@@ -185,6 +188,14 @@ public class MarketingTask {
         this.retryLimit = retryLimit;
     }
 
+    public Long getCurrentRoundNo() {
+        return currentRoundNo;
+    }
+
+    public void setCurrentRoundNo(Long currentRoundNo) {
+        this.currentRoundNo = currentRoundNo;
+    }
+
     public String getRemark() {
         return remark;
     }
@@ -199,6 +210,22 @@ public class MarketingTask {
 
     public void setStartedAt(Long startedAt) {
         this.startedAt = startedAt;
+    }
+
+    public Long getNextRoundAt() {
+        return nextRoundAt;
+    }
+
+    public void setNextRoundAt(Long nextRoundAt) {
+        this.nextRoundAt = nextRoundAt;
+    }
+
+    public Long getLastRoundStartedAt() {
+        return lastRoundStartedAt;
+    }
+
+    public void setLastRoundStartedAt(Long lastRoundStartedAt) {
+        this.lastRoundStartedAt = lastRoundStartedAt;
     }
 
     public Long getLastSentAt() {

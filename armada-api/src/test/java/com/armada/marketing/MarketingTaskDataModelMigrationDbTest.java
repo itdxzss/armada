@@ -90,7 +90,7 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
 
         assertThat(columnType("marketing_task_send_attempt", "status")).isEqualTo("tinyint");
         assertThat(columnType("marketing_task_send_attempt", "attempted_at")).isEqualTo("bigint");
-        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_no")).isTrue();
+        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_round")).isTrue();
     }
 
     private boolean tableExists(String tableName) {

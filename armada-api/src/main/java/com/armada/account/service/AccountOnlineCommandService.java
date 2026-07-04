@@ -49,6 +49,30 @@ public interface AccountOnlineCommandService {
     AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId);
 
     /**
+     * 批量发起一键抢登。
+     *
+     * <p>只有全部账号当前为“被抢登”且未禁言时才允许进入抢登中。实现会先把账号状态改为抢登中,
+     * 再复用批量上线 outbox 编排。</p>
+     *
+     * @param accountIds armada 账号主键列表
+     * @return outbox 批量上线命令受理汇总
+     * @throws BusinessException 当账号列表为空、存在非被抢登账号或上线前置条件不满足时抛出
+     */
+    AccountBatchOnlineVO takeoverBatch(List<Long> accountIds);
+
+    /**
+     * 抢登中账号在再次离线或被抢登后自动续上线。
+     *
+     * <p>实现必须重新读取账号状态并检查禁言与短窗口冷却,确保用户手动停止或状态变化后不再重投。</p>
+     *
+     * @param accountId              armada 账号主键
+     * @param failedOnlineAttemptId  刚失败的上线尝试 ID,可空
+     * @param source                 本次续上线来源,如 login_replaced_takeover/offline_takeover
+     * @return outbox 上线命令受理回执;不满足续上线条件时 accepted=false
+     */
+    AccountOnlineVO reonlineForTakeover(Long accountId, String failedOnlineAttemptId, String source);
+
+    /**
      * 批量发起账号上线。
      *
      * <p>一次最多 500 个账号。实现会批量加载账号与凭据、批量分配代理,

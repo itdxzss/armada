@@ -36,24 +36,36 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static final int BLOCK_REASON_MAX_LENGTH = 255;
     /** WhatsApp forbidden 断线码,按封禁处理。 */
     private static final int WA_CODE_FORBIDDEN = 403;
+    /** WhatsApp connectionReplaced 断线码,按被抢登处理。 */
+    private static final int WA_CODE_LOGIN_REPLACED = 440;
     /** 协议层在线状态。 */
     private static final String STATE_ONLINE = "ONLINE";
     /** 协议层离线状态。 */
     private static final String STATE_OFFLINE = "OFFLINE";
     /** 协议层需重新认证状态。 */
     private static final String STATE_NEED_REAUTH = "NEED_REAUTH";
+    /** 协议层确认当前连接被另一端登录替换。 */
+    private static final String STATE_LOGIN_REPLACED = "LOGIN_REPLACED";
     /** 协议层已登出状态。 */
     private static final String STATE_LOGGED_OUT = "LOGGED_OUT";
     /** 协议层设备移除状态。 */
     private static final String STATE_DEVICE_REMOVED = "DEVICE_REMOVED";
     /** 协议层确认当前代理/IP 重连耗尽。 */
     private static final String STATE_PROXY_FAILED = "PROXY_FAILED";
+    /** 协议层确认当前账号触发限流。 */
+    private static final String STATE_RATE_LIMITED = "RATE_LIMITED";
+    /** 批量离线命令来源,用于停止抢登循环。 */
+    private static final String SOURCE_BATCH_OFFLINE_COMMAND = "batch_offline";
+    /** 手动离线命令来源,用于停止抢登循环。 */
+    private static final String SOURCE_MANUAL_OFFLINE_COMMAND = "manual_offline";
     /** 上游未给 semantic 时的默认来源。 */
     private static final String SOURCE_STATE_CHANGED = "STATE_CHANGED";
     /** 封禁状态来源。 */
     private static final String SOURCE_BANNED = "BANNED";
     /** 解绑状态来源。 */
     private static final String SOURCE_UNBOUND = "UNBOUND";
+    /** 被抢登状态来源。 */
+    private static final String SOURCE_LOGIN_REPLACED = "LOGIN_REPLACED";
     /** NEED_REAUTH + 403 收敛为封禁时写入的原因码。 */
     private static final String BAN_REASON_FORBIDDEN = "FORBIDDEN";
 
@@ -103,7 +115,14 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         }
     }
 
+    /**
+     * 在事件租户上下文内收敛账号状态。
+     *
+     * <p>协议层事件可能乱序、延迟或带着旧的协议账号 ID 回来。这里先做账号定位和事件新鲜度校验,
+     * 再按“会改变账号生命周期的状态优先,普通登录态兜底”的顺序落库。</p>
+     */
     private void applyStateChangedInTenant(AccountStateChangedEvent event) {
+        // 账号已删除或从未入库时只记录并跳过,避免 Kafka 消费被历史事件卡住。
         Account account = accountMapper.selectActiveById(event.accountId());
         if (account == null) {
             log.warn("协议账号状态事件跳过,账号不存在 tenantId={} accountId={} protocolAccountId={} "
@@ -112,6 +131,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                     event.from(), event.to(), event.semantic(), event.rawCode());
             return;
         }
+
+        // 同一个业务账号重新绑定协议号后,旧协议 worker 仍可能回补状态;这里防止旧事件串改新账号状态。
         if (!event.protocolAccountId().equals(account.getProtocolAccountId())) {
             log.warn("协议账号状态事件跳过,账号映射不一致 tenantId={} accountId={} eventProtocolAccountId={} "
                             + "dbProtocolAccountId={} from={} to={}",
@@ -120,8 +141,11 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
             return;
         }
 
+        // occurredAt 是状态收敛的业务时间。协议未上报时退回本机时间,保证仍可更新 last_state_sync_time。
         long occurredAt = event.occurredAt() == null ? System.currentTimeMillis() : event.occurredAt();
         AccountState currentState = stateMapper.selectByAccountId(account.getId());
+
+        // 延迟到达的旧离线/解绑事件不能覆盖更新的在线或抢登状态。
         if (isStaleEvent(currentState, occurredAt)) {
             log.warn("协议账号状态事件跳过,事件时间早于当前状态 accountId={} protocolAccountId={} from={} to={} "
                             + "eventOccurredAt={} currentLastStateSyncTime={}",
@@ -130,11 +154,11 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
             return;
         }
         long updatedAt = System.currentTimeMillis();
-        String stateSource = clamp(event.semantic() == null || event.semantic().isBlank()
-                ? SOURCE_STATE_CHANGED
-                : event.semantic(), STATE_SOURCE_MAX_LENGTH);
+        String stateSource = stateSource(event);
 
-        if (applyLifecycleTransition(account, event, stateSource, occurredAt, updatedAt)) {
+        // 生命周期状态会同时影响 account_state 和 login_state,例如被抢登、封禁、解绑、抢登中续上线。
+        // 这类状态必须先处理,不能落入下面只更新登录态的兜底分支。
+        if (applyLifecycleTransition(account, currentState, event, stateSource, occurredAt, updatedAt)) {
             releaseIpIfOffline(account, event, occurredAt);
             applySideEffects(account, event, occurredAt);
             log.info("协议账号状态事件已按生命周期收敛 accountId={} protocolAccountId={} from={} to={} "
@@ -144,6 +168,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
             return;
         }
 
+        // 剩余事件只表达在线/离线等登录态变化,不改变正常、被抢登、封禁、解绑等账号生命周期状态。
         AccountState row = updateRow(account.getId(), mapLoginState(event.to()), null,
                 stateSource, null, occurredAt, updatedAt);
         int updated = stateMapper.updateLoginState(row);
@@ -156,10 +181,34 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     }
 
     private boolean applyLifecycleTransition(Account account,
+                                             AccountState currentState,
                                              AccountStateChangedEvent event,
                                              String stateSource,
                                              long occurredAt,
                                              long updatedAt) {
+        if (isLoginReplaced(event)) {
+            if (isTakingOver(currentState)) {
+                markTakingOverLogin(account, AccountLoginStateCode.OFFLINE, stateSource, occurredAt, updatedAt);
+            } else {
+                markLoginReplaced(account, occurredAt, updatedAt);
+            }
+            return true;
+        }
+        if (isTakingOver(currentState)) {
+            if (STATE_ONLINE.equalsIgnoreCase(event.to())) {
+                markTakingOverLogin(account, AccountLoginStateCode.ONLINE, stateSource, occurredAt, updatedAt);
+                return true;
+            }
+            if (isUserOfflineStop(event)) {
+                stateMapper.updateLoginAndAccountState(updateRow(account.getId(), AccountLoginStateCode.OFFLINE,
+                        AccountStateCode.LOGIN_REPLACED, SOURCE_LOGIN_REPLACED, null, occurredAt, updatedAt));
+                return true;
+            }
+            if (isTakeoverContinuableOffline(event)) {
+                markTakingOverLogin(account, AccountLoginStateCode.OFFLINE, stateSource, occurredAt, updatedAt);
+                return true;
+            }
+        }
         if (STATE_NEED_REAUTH.equalsIgnoreCase(event.to())) {
             if (isForbidden(event.rawCode())) {
                 markBanned(account, occurredAt, updatedAt);
@@ -182,6 +231,15 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         return false;
     }
 
+    private static String stateSource(AccountStateChangedEvent event) {
+        if (isLoginReplaced(event)) {
+            return SOURCE_LOGIN_REPLACED;
+        }
+        return clamp(event.semantic() == null || event.semantic().isBlank()
+                ? SOURCE_STATE_CHANGED
+                : event.semantic(), STATE_SOURCE_MAX_LENGTH);
+    }
+
     private void applySideEffects(Account account, AccountStateChangedEvent event, long occurredAt) {
         for (AccountStateChangedSideEffect sideEffect : sideEffects) {
             sideEffect.afterStateChanged(account, event, occurredAt);
@@ -190,6 +248,31 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
 
     private static boolean isForbidden(Integer rawCode) {
         return rawCode != null && rawCode == WA_CODE_FORBIDDEN;
+    }
+
+    private static boolean isLoginReplaced(AccountStateChangedEvent event) {
+        return STATE_LOGIN_REPLACED.equalsIgnoreCase(event.to())
+                || STATE_LOGIN_REPLACED.equalsIgnoreCase(event.semantic())
+                || (event.rawCode() != null && event.rawCode() == WA_CODE_LOGIN_REPLACED);
+    }
+
+    private static boolean isTakingOver(AccountState state) {
+        return state != null
+                && state.getAccountState() != null
+                && state.getAccountState() == AccountStateCode.TAKING_OVER;
+    }
+
+    private static boolean isUserOfflineStop(AccountStateChangedEvent event) {
+        return STATE_OFFLINE.equalsIgnoreCase(event.to())
+                && (SOURCE_BATCH_OFFLINE_COMMAND.equalsIgnoreCase(event.source())
+                || SOURCE_MANUAL_OFFLINE_COMMAND.equalsIgnoreCase(event.source()));
+    }
+
+    private static boolean isTakeoverContinuableOffline(AccountStateChangedEvent event) {
+        return STATE_OFFLINE.equalsIgnoreCase(event.to())
+                || STATE_RATE_LIMITED.equalsIgnoreCase(event.to())
+                || STATE_RATE_LIMITED.equalsIgnoreCase(event.semantic())
+                || isProxyFailedEvent(event);
     }
 
     private static boolean isStaleEvent(AccountState currentState, long occurredAt) {
@@ -210,6 +293,20 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 AccountStateCode.UNBOUND, SOURCE_UNBOUND, null, occurredAt, updatedAt));
     }
 
+    private void markLoginReplaced(Account account, long occurredAt, long updatedAt) {
+        stateMapper.updateLifecycleState(updateRow(account.getId(), AccountLoginStateCode.OFFLINE,
+                AccountStateCode.LOGIN_REPLACED, SOURCE_LOGIN_REPLACED, null, occurredAt, updatedAt));
+    }
+
+    private void markTakingOverLogin(Account account,
+                                     int loginState,
+                                     String stateSource,
+                                     long occurredAt,
+                                     long updatedAt) {
+        stateMapper.updateLoginAndAccountState(updateRow(account.getId(), loginState, AccountStateCode.TAKING_OVER,
+                stateSource, null, occurredAt, updatedAt));
+    }
+
     private void releaseIpIfOffline(Account account, AccountStateChangedEvent event, long occurredAt) {
         if (isProxyFailedEvent(event)) {
             ipProxyService.markBoundProxyUnavailableByAccount(account.getId(), occurredAt, STATE_PROXY_FAILED);
@@ -224,7 +321,9 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static boolean shouldReleaseIp(String state) {
         String normalized = state == null ? null : state.trim();
         return STATE_OFFLINE.equalsIgnoreCase(normalized)
+                || STATE_LOGIN_REPLACED.equalsIgnoreCase(normalized)
                 || STATE_NEED_REAUTH.equalsIgnoreCase(normalized)
+                || STATE_RATE_LIMITED.equalsIgnoreCase(normalized)
                 || STATE_LOGGED_OUT.equalsIgnoreCase(normalized)
                 || STATE_DEVICE_REMOVED.equalsIgnoreCase(normalized);
     }

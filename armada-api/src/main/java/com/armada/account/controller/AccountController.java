@@ -105,6 +105,19 @@ public class AccountController {
     }
 
     /**
+     * A4.0 批量发起一键抢登。
+     *
+     * <p>只允许全部为“被抢登”的账号进入抢登中并写入上线 outbox。最终在线状态仍由 Kafka 回写。</p>
+     *
+     * @param request 账号 ID 列表
+     * @return outbox 批量上线命令受理汇总
+     */
+    @PostMapping("/batch-takeover")
+    public ApiResponse<AccountBatchOnlineVO> batchTakeover(@RequestBody AccountIdsDTO request) {
+        return ApiResponse.ok(accountOnlineCommandService.takeoverBatch(request.ids()));
+    }
+
+    /**
      * A4.1 主动从协议层拉一次账号状态快照。
      *
      * <p>只用于账号页人工刷新/诊断;本接口不落账号登录态,本地状态仍由 Kafka 事件回填。</p>

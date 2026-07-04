@@ -136,6 +136,38 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
+    void applyStateChanged_loginReplaced_marksReplacedAndOffline() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86193" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+
+        service.applyStateChanged(event(account, "ONLINE", "LOGIN_REPLACED",
+                now + 2_000L, "LOGIN_REPLACED", 440));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.LOGIN_REPLACED);
+        assertThat(state.getStateSource()).isEqualTo("LOGIN_REPLACED");
+        assertThat(state.getInvalidatedAt()).isEqualTo(now + 2_000L);
+    }
+
+    @Test
+    void applyStateChanged_needReauthRaw440_marksReplacedForBackwardCompatibility() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86194" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+
+        service.applyStateChanged(event(account, "ONLINE", "NEED_REAUTH",
+                now + 2_000L, "NEED_REAUTH", 440));
+
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.LOGIN_REPLACED);
+        assertThat(state.getStateSource()).isEqualTo("LOGIN_REPLACED");
+        assertThat(state.getInvalidatedAt()).isEqualTo(now + 2_000L);
+    }
+
+    @Test
     void applyStateChanged_staleEvent_doesNotRollbackNewerState() {
         long now = System.currentTimeMillis();
         Account account = insertAccount("86184" + (now % 10_000_000L), now);
@@ -337,6 +369,7 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
                 occurredAt,
                 semantic,
                 rawCode,
+                null,
                 null);
     }
 

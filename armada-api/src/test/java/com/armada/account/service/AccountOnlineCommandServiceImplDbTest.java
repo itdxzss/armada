@@ -9,6 +9,7 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
@@ -123,6 +124,33 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         assertThat(state.getTruthIp()).isEqualTo("geo.iproyal.com");
     }
 
+    @Test
+    void takeoverBatch_replacedAccount_marksTakingOverAndPersistsTakeoverOnlineOutbox() throws Exception {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86183" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+        insertCredential(account, now);
+        insertIdleProxy(now);
+        jdbc.update("""
+                UPDATE account_state
+                SET account_state = ?, login_state = ?, updated_at = ?
+                WHERE account_id = ?
+                """,
+                AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.OFFLINE, now, account.getId());
+
+        AccountBatchOnlineVO result = service.takeoverBatch(List.of(account.getId()));
+
+        assertThat(result.accepted()).isEqualTo(1);
+        AccountState state = stateMapper.selectByAccountId(account.getId());
+        assertThat(state.getAccountState()).isEqualTo(AccountStateCode.TAKING_OVER);
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
+        Map<String, Object> payload = objectMapper.readValue(selectOnlineOutboxPayload(account.getId()), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("protocolAccountId", account.getProtocolAccountId())
+                .containsEntry("source", "login_replaced_takeover");
+    }
+
     private Account insertAccount(String wsPhone, long now) {
         Account account = new Account();
         account.setWsPhone(wsPhone);
@@ -193,6 +221,17 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
                 "account.offline.requested",
                 firstAccountId,
                 secondAccountId);
+    }
+
+    private String selectOnlineOutboxPayload(Long accountId) {
+        return jdbc.queryForObject(
+                "SELECT payload_json FROM protocol_command_outbox "
+                        + "WHERE tenant_id = ? AND command_type = ? AND aggregate_id = ? "
+                        + "ORDER BY id DESC LIMIT 1",
+                String.class,
+                TEST_TENANT_ID,
+                "account.online.requested",
+                accountId);
     }
 
     private record OutboxRow(

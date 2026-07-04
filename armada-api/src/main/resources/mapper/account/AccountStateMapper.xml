@@ -26,6 +26,15 @@
     LIMIT 1
   </select>
 
+  <select id="selectByAccountIds" resultType="com.armada.account.model.entity.AccountState">
+    SELECT account_id, account_state, login_state, mute_status, last_state_sync_time
+    FROM account_state
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+  </select>
+
   <!-- Armada 上线命令成功进入 outbox 后,本地标记等待协议层最终回传。 -->
   <update id="markPendingOnlineInternal">
     UPDATE account_state
@@ -47,6 +56,30 @@
         state_source = #{stateSource},
         updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
+  </update>
+
+  <!-- 抢登中状态保持/停止:同时写登录态和账号状态,不改代理展示快照。 -->
+  <update id="updateLoginAndAccountState">
+    UPDATE account_state
+    SET login_state = #{loginState},
+        account_state = #{accountState},
+        last_state_sync_time = #{lastStateSyncTime},
+        state_source = #{stateSource},
+        updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+  </update>
+
+  <!-- 一键抢登只允许从“被抢登”转“抢登中”,且禁言账号不能进入抢登循环。 -->
+  <update id="markTakingOverByAccountIds">
+    UPDATE account_state
+    SET account_state = #{targetState},
+        updated_at = #{updatedAt}
+    WHERE account_state = #{expectedState}
+      AND mute_status IS NULL
+      AND account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
   </update>
 
   <!-- account.state_changed 终态:封禁/解绑需要同时更新 login_state、account_state 与失效时间。 -->

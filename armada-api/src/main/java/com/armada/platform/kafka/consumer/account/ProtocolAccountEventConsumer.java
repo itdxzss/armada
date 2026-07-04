@@ -130,6 +130,7 @@ public class ProtocolAccountEventConsumer {
                 occurredAt(envelope),
                 text(data, "semantic"),
                 integer(data, "rawCode"),
+                text(data, "source"),
                 text(data, "onlineAttemptId"),
                 text(envelope, "workerId"));
     }

@@ -39,6 +39,16 @@ public interface AccountStateMapper {
     AccountState selectByAccountId(@Param("accountId") Long accountId);
 
     /**
+     * 批量读取账号状态行。
+     *
+     * <p>用于批量抢登前的全量状态校验,调用方必须确认返回行数与请求账号数一致。</p>
+     *
+     * @param accountIds 账号主键列表
+     * @return 状态行列表
+     */
+    List<AccountState> selectByAccountIds(@Param("accountIds") List<Long> accountIds);
+
+    /**
      * 将账号登录态标记为待上线。
      *
      * <p>该状态由 Armada 在上线命令写入 outbox 后本地写入,用于 UI 展示“待上线”。
@@ -82,6 +92,33 @@ public interface AccountStateMapper {
      * @return 实际更新行数
      */
     int updateLoginState(AccountState row);
+
+    /**
+     * 同时更新登录态和账号业务状态。
+     *
+     * <p>用于抢登中账号的状态保持:ONLINE 只改登录态为在线但账号状态仍保持抢登中;
+     * 用户手动离线时把抢登中回落为被抢登。</p>
+     *
+     * @param row 包含 accountId、loginState、accountState、lastStateSyncTime、stateSource、updatedAt
+     * @return 实际更新行数
+     */
+    int updateLoginAndAccountState(AccountState row);
+
+    /**
+     * 将被抢登账号批量标记为抢登中。
+     *
+     * <p>该更新带 expectedState 与 mute_status 条件,避免前端并发选择或禁言状态变化导致误抢登。</p>
+     *
+     * @param accountIds     账号主键列表
+     * @param expectedState  允许转换的原账号状态
+     * @param targetState    抢登中目标状态
+     * @param updatedAt      更新时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int markTakingOverByAccountIds(@Param("accountIds") List<Long> accountIds,
+                                   @Param("expectedState") Integer expectedState,
+                                   @Param("targetState") Integer targetState,
+                                   @Param("updatedAt") Long updatedAt);
 
     /**
      * 更新账号登录态、生命周期状态以及同步元数据。

@@ -39,6 +39,7 @@ class AccountStateChangedSinkAdapterTest {
                 1782626401000L,
                 "NEED_REAUTH",
                 403,
+                "batch_online",
                 "oa_state_1",
                 "worker-a");
 
@@ -55,6 +56,7 @@ class AccountStateChangedSinkAdapterTest {
         assertThat(event.occurredAt()).isEqualTo(1782626401000L);
         assertThat(event.semantic()).isEqualTo("NEED_REAUTH");
         assertThat(event.rawCode()).isEqualTo(403);
+        assertThat(event.source()).isEqualTo("batch_online");
         assertThat(event.onlineAttemptId()).isEqualTo("oa_state_1");
     }
 }

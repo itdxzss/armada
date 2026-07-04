@@ -1,5 +1,6 @@
 package com.armada.marketing.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
@@ -28,7 +29,8 @@ public interface MarketingTaskMapper {
     /** 按任务 ID 查目标明细。 */
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
 
-    /** 查询已到下一轮生成时间的发送中任务。 */
+    /** 查询已到下一轮生成时间的发送中任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
+    @InterceptorIgnore(tenantLine = "true")
     List<MarketingTask> selectDueSendingTasks(@Param("now") long now, @Param("limit") int limit);
 
     /** 抢占一个到期轮次,成功时递增 current_round_no 并推进 next_round_at。 */

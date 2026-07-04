@@ -101,3 +101,12 @@ mvn -q -Dtest=MarketingTaskDataModelMigrationDbTest,MarketingTaskCreateReadDbTes
 - 当前 `armada` 测试 schema 已有 `V013__protocol_command_outbox.sql` 的 Flyway 历史,但当前工作树缺该迁移文件。对现有 schema 跑 DbTest 会被 Flyway 校验拦截,需要单独补齐或修复该迁移缺口。
 - 本轮不接协议层发送引擎,不实际发 WhatsApp 消息。
 - 账号群树暂不能证明“账号当前真的在该群内”或“账号是群管理员”,后续需要协议层成员事实回流后再收紧。
+
+## 2026-07-04 发送内容二选一
+
+- `marketing_task` 新增 `send_content_type` 和 `text_content`,模板字段改为可空。
+- `POST /api/marketing-tasks` 支持模板任务和纯文本任务二选一。
+- 文本内容中的 URL 按普通文字保存,不校验 URL,不生成链接卡片。
+- 文本任务不支持 `PUT /api/marketing-tasks/{id}/marketing-template`。
+- 删除营销模板只会停止模板任务,不会影响纯文本任务。
+- 新增/更新 DbTest:`MarketingTaskDataModelMigrationDbTest`、`MarketingTaskCreateReadDbTest`、`MarketingTaskControllerDbTest`、`MarketingTaskMaterialUpdateDbTest`、`MarketingTemplateDeletionDbTest`。

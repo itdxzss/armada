@@ -113,10 +113,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         // 事务顺序固定:先校验共享事实,再生成目标快照,最后插主表和明细。
         // 任何一个目标不可用都整单失败,避免页面看到"半个任务"。
         validateRequest(request);
-        MarketingTemplate template = requireTemplate(request.marketingTemplateId());
+        NormalizedSendContent content = normalizeSendContent(request);
         long now = System.currentTimeMillis();
         List<MarketingTaskTarget> targets = buildTargets(request, now);
-        MarketingTask task = buildTask(request, template, targets, now);
+        MarketingTask task = buildTask(request, content, targets, now);
         taskMapper.insertTask(task);
         // 主表自增 id 回填后才能写 target.marketing_task_id。
         for (MarketingTaskTarget target : targets) {
@@ -278,9 +278,6 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (request.accountGroupId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "请选择账号分组");
         }
-        if (request.marketingTemplateId() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请选择营销模板");
-        }
         if (positive(request.sendPerRound()) < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "单次发送数量必须为正整数");
         }
@@ -290,6 +287,37 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (request.selections() == null || request.selections().isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个发送账号和群组");
         }
+    }
+
+    private NormalizedSendContent normalizeSendContent(CreateMarketingTaskDTO request) {
+        boolean hasTemplateId = request.marketingTemplateId() != null;
+        boolean hasTemplateName = StringUtils.hasText(request.marketingTemplateName());
+        boolean hasTemplate = hasTemplateId || hasTemplateName;
+        String trimmedText = StringUtils.hasText(request.textContent()) ? request.textContent().trim() : null;
+        boolean hasText = StringUtils.hasText(trimmedText);
+        if (hasTemplate && hasText) {
+            throw new BusinessException(ErrorCode.VALIDATION, "营销模板和文本内容只能选择其中一种");
+        }
+        if (!hasTemplate && !hasText) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择营销模板或填写文本内容");
+        }
+
+        MarketingTaskContentType contentType =
+                MarketingTaskContentType.fromRequest(request.sendContentType(), hasTemplate, hasText);
+        if (contentType == MarketingTaskContentType.TEMPLATE) {
+            if (!hasTemplateId) {
+                throw new BusinessException(ErrorCode.VALIDATION, "请选择营销模板或填写文本内容");
+            }
+            if (hasText) {
+                throw new BusinessException(ErrorCode.VALIDATION, "营销模板和文本内容只能选择其中一种");
+            }
+            MarketingTemplate template = requireTemplate(request.marketingTemplateId());
+            return new NormalizedSendContent(contentType, template.getId(), template.getTemplateName(), null);
+        }
+        if (hasTemplate || !hasText) {
+            throw new BusinessException(ErrorCode.VALIDATION, "营销模板和文本内容只能选择其中一种");
+        }
+        return new NormalizedSendContent(contentType, null, null, trimmedText);
     }
 
     private MarketingTemplate requireTemplate(Long id) {
@@ -370,7 +398,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return target;
     }
 
-    private MarketingTask buildTask(CreateMarketingTaskDTO request, MarketingTemplate template,
+    private MarketingTask buildTask(CreateMarketingTaskDTO request, NormalizedSendContent content,
                                     List<MarketingTaskTarget> targets, long now) {
         // 立即启动在当前 checkpoint 只改变主表状态和 started_at;发送计数仍保持 0。
         MarketingTaskStatus status = MarketingTaskStatus.fromStartMode(request.startMode());
@@ -378,10 +406,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setTaskName(request.taskName().trim());
         task.setAccountGroupId(request.accountGroupId());
         task.setAccountGroupName(snapshotName(request.accountGroupName(), "账号分组-" + request.accountGroupId()));
-        task.setMarketingTemplateId(template.getId());
-        task.setMarketingTemplateName(template.getTemplateName());
-        task.setSendContentType(MarketingTaskContentType.TEMPLATE.code());
-        task.setTextContent(null);
+        task.setMarketingTemplateId(content.templateId());
+        task.setMarketingTemplateName(content.templateName());
+        task.setSendContentType(content.contentType().code());
+        task.setTextContent(content.textContent());
         task.setStatus(status.code());
         // 三个计数含义不同:
         // selectedAccountCount=去重账号数,targetGroupCount=去重群数,targetPairCount=真实执行目标行数。
@@ -402,6 +430,12 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;
+    }
+
+    private record NormalizedSendContent(MarketingTaskContentType contentType,
+                                         Long templateId,
+                                         String templateName,
+                                         String textContent) {
     }
 
     private static List<Long> normalizeIds(List<Long> ids) {

@@ -549,6 +549,29 @@ class AccountImportListMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void service_exportDetails_zipScopeAll_splitsSuccessAndFailedEntriesIntoFolders() throws Exception {
+        long now = System.currentTimeMillis();
+        Long groupId = createGroup("分组-zip-export-all-folders", now);
+        Long batchId = createBatch(groupId, "accounts.zip", "ZIP", 4, 1, 1, 2, now);
+        insertDetailsWithPayloads(batchId, now);
+
+        AccountImportExportFile file = importService.exportDetails(batchId, "all");
+
+        assertThat(file.filename()).isEqualTo("账号导入_" + exportDate() + "_全部_共4个_成功1个_失败3个.zip");
+        assertThat(file.contentType()).isEqualTo("application/zip");
+        java.util.Map<String, String> entries = unzip(file.bytes());
+        assertThat(entries).containsOnlyKeys(
+                "成功/line-1.json",
+                "失败/line-2.json",
+                "失败/line-3.json",
+                "失败/line-4.json");
+        assertThat(entries).containsEntry("成功/line-1.json", "raw-success");
+        assertThat(entries).containsEntry("失败/line-2.json", "raw-duplicate");
+        assertThat(entries).containsEntry("失败/line-3.json", "raw-format");
+        assertThat(entries).containsEntry("失败/line-4.json", "raw-incomplete");
+    }
+
+    @Test
     void service_exportDetails_missingOriginalPayload_throwsBusinessError() {
         long now = System.currentTimeMillis();
         Long groupId = createGroup("分组-missing-payload", now);

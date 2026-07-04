@@ -103,7 +103,7 @@ public class AccountImportController {
      * C4 按导入时的原始容器格式导出指定批次明细。
      *
      * <p>导入 ZIP 则导出 ZIP,导入 TXT/粘贴则导出 TXT。导出不走 ApiResponse 信封,
-     * 直接返回 {@code ResponseEntity<byte[]>} 文件流。</p>
+     * 直接返回 {@code ResponseEntity<byte[]>} 文件流。ZIP 全量导出会按成功/失败目录分包。</p>
      *
      * @param batchId 批次 ID
      * @param scope   结果范围:all(默认)/success/fail

@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
+import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.ButtonType;
 import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.MessageButton;
@@ -19,6 +20,7 @@ import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.service.impl.MarketingTemplateServiceImpl;
 import com.armada.shared.exception.BusinessException;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,6 +36,9 @@ class MarketingTemplateServiceImplTest {
 
     @Mock
     private MarketingTemplateMapper mapper;
+
+    @Mock
+    private MarketingTaskMapper taskMapper;
 
     @Mock
     private MarketingTemplateConverter converter;
@@ -113,7 +118,16 @@ class MarketingTemplateServiceImplTest {
     @Test
     void batchDelete_empty_noop() {
         service.batchDelete(List.of());
+        verify(taskMapper, never()).stopRunnableTasksByTemplateIds(any(), anyLong());
         verify(mapper, never()).softDeleteByIds(any(), anyLong());
+    }
+
+    @Test
+    void batchDelete_stopsRunnableTasksBeforeSoftDelete() {
+        service.batchDelete(Arrays.asList(1L, null, 1L, 2L));
+
+        verify(taskMapper).stopRunnableTasksByTemplateIds(eq(List.of(1L, 2L)), anyLong());
+        verify(mapper).softDeleteByIds(eq(List.of(1L, 2L)), anyLong());
     }
 
     @Test

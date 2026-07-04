@@ -57,7 +57,7 @@ public interface AccountImportService {
      * 导出指定批次的明细为导入时的原始容器格式。
      *
      * <p>ZIP 导入导出 ZIP,TXT/粘贴导入导出 TXT。scope=all/success/fail;
-     * 无匹配行时返回对应类型的空文件。</p>
+     * ZIP 的 all 范围会在包内按「成功/」「失败/」目录分包;无匹配行时返回对应类型的空文件。</p>
      *
      * @param batchId 批次 ID(必传)
      * @param scope   结果范围:all=全部;success=登录成功(无登录结果时兼容导入成功);

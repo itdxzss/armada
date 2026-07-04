@@ -289,7 +289,7 @@ class AccountImportControllerDbTest {
                 .andReturn();
 
         java.util.Map<String, String> entries = unzip(exportResult.getResponse().getContentAsByteArray());
-        assertThat(entries).containsEntry("8613900000099.json", json);
+        assertThat(entries).containsEntry("成功/8613900000099.json", json);
     }
 
     private byte[] zip(String entryName, String content) throws Exception {

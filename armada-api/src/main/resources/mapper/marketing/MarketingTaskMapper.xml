@@ -150,6 +150,16 @@
           AND status = 2
     </update>
 
+    <update id="stopRunnableTasksByTemplateIds">
+        UPDATE marketing_task
+        SET status = 5,
+            updated_at = #{now}
+        WHERE deleted_at IS NULL
+          AND status IN (1, 2)
+          AND marketing_template_id IN
+        <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
     <select id="countSendingByIds" resultType="int">
         SELECT COUNT(*)
         FROM marketing_task

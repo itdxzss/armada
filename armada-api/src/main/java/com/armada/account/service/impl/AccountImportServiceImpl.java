@@ -9,6 +9,7 @@ import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.enums.SourceFileType;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
+import com.armada.account.model.entity.AccountImportLoginResult;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
@@ -80,6 +81,15 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /** 导出文件名日期使用运营侧时区，避免 UTC 日期和页面日期错一天。 */
     private static final ZoneId EXPORT_ZONE = ZoneId.of("Asia/Shanghai");
+
+    /** 导出全部范围。 */
+    private static final String EXPORT_SCOPE_ALL = "all";
+
+    /** ZIP 全量导出中成功 JSON 条目的目录前缀。 */
+    private static final String ZIP_SUCCESS_PREFIX = "成功/";
+
+    /** ZIP 全量导出中失败 JSON 条目的目录前缀。 */
+    private static final String ZIP_FAILED_PREFIX = "失败/";
 
     private final AccountImportParser parser;
     private final AccountGroupService groupService;
@@ -421,7 +431,7 @@ public class AccountImportServiceImpl implements AccountImportService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "导入批次不存在");
         }
         String sourceFileType = SourceFileType.requireSupported(batch.getSourceFileType());
-        String resolvedScope = (scope == null || scope.isBlank()) ? "all" : scope;
+        String resolvedScope = (scope == null || scope.isBlank()) ? EXPORT_SCOPE_ALL : scope;
         List<AccountImportExportRow> rows = detailMapper.selectExportRowsByBatch(batchId, resolvedScope);
         ensureExportRowsHavePayload(rows);
 
@@ -429,7 +439,7 @@ public class AccountImportServiceImpl implements AccountImportService {
             return new AccountImportExportFile(
                     exportFilename(resolvedScope, "zip", rows),
                     "application/zip",
-                    buildZipExport(rows));
+                    buildZipExport(rows, resolvedScope));
         }
         return new AccountImportExportFile(
                 exportFilename(resolvedScope, "txt", rows),
@@ -507,13 +517,14 @@ public class AccountImportServiceImpl implements AccountImportService {
 
     /**
      * 构造 ZIP 导出:一条明细一个 entry,内容为对应 rawPayload 的 UTF-8 字节。
+     * 全量导出时按结果分入「成功/」与「失败/」目录,方便运营一次下载后直接分包处理。
      */
-    private byte[] buildZipExport(List<AccountImportExportRow> rows) {
+    private byte[] buildZipExport(List<AccountImportExportRow> rows, String scope) {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              ZipOutputStream zos = new ZipOutputStream(baos, StandardCharsets.UTF_8)) {
             LinkedHashSet<String> usedNames = new LinkedHashSet<>();
             for (AccountImportExportRow row : rows) {
-                String entryName = uniqueEntryName(resolveEntryName(row), usedNames);
+                String entryName = uniqueEntryName(resolveScopedEntryName(row, scope), usedNames);
                 zos.putNextEntry(new ZipEntry(entryName));
                 zos.write(row.getRawPayload().getBytes(StandardCharsets.UTF_8));
                 zos.closeEntry();
@@ -523,6 +534,28 @@ public class AccountImportServiceImpl implements AccountImportService {
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.VALIDATION, "导出文件生成失败");
         }
+    }
+
+    /**
+     * ZIP 全量导出需要同时包含成功和失败两个包;单独 success/fail 导出保持原始 entry 名。
+     */
+    private String resolveScopedEntryName(AccountImportExportRow row, String scope) {
+        String entryName = resolveEntryName(row);
+        if (!EXPORT_SCOPE_ALL.equals(scope)) {
+            return entryName;
+        }
+        return (isFailedExportRow(row) ? ZIP_FAILED_PREFIX : ZIP_SUCCESS_PREFIX) + entryName;
+    }
+
+    /**
+     * 导出失败口径:解析失败/重复/凭据不全,或已回写的登录失败/密钥异常/封号。
+     */
+    private boolean isFailedExportRow(AccountImportExportRow row) {
+        Integer loginResult = row.getLoginResult();
+        if (loginResult != null) {
+            return loginResult != AccountImportLoginResult.SUCCESS;
+        }
+        return !Integer.valueOf(ImportResult.SUCCESS.getCode()).equals(row.getParseResult());
     }
 
     /**

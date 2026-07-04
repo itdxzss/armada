@@ -2,6 +2,7 @@ package com.armada.marketing.service.impl;
 
 import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
+import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.ButtonType;
 import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.MessageButton;
@@ -14,6 +15,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,10 +39,14 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     private static final String CLONE_SUFFIX = "副本";
 
     private final MarketingTemplateMapper mapper;
+    private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateConverter converter;
 
-    public MarketingTemplateServiceImpl(MarketingTemplateMapper mapper, MarketingTemplateConverter converter) {
+    public MarketingTemplateServiceImpl(MarketingTemplateMapper mapper,
+                                        MarketingTaskMapper taskMapper,
+                                        MarketingTemplateConverter converter) {
         this.mapper = mapper;
+        this.taskMapper = taskMapper;
         this.converter = converter;
     }
 
@@ -138,18 +144,23 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:软删除(置 {@code deleted_at} 而非物理删行,保留历史与外键引用);
-     * 空列表直接返回、不触库。</p>
+     * <p>实现要点:同一事务内先停止仍可执行的关联营销任务(待启动/发送中),再软删除模板;
+     * 已成功/失败等终态任务保留历史状态。空列表直接返回、不触库。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void batchDelete(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
+        List<Long> normalizedIds = ids == null
+                ? List.of()
+                : ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (normalizedIds.isEmpty()) {
             return;
         }
-        // 跨域:被删模板关联的营销任务需停止——待 marketing/task 域建成后接入(当前一期模板先行)。
-        mapper.softDeleteByIds(ids, System.currentTimeMillis());
-        log.info("营销模板批量软删除 count={} ids={}", ids.size(), ids);
+        long now = System.currentTimeMillis();
+        int stoppedTasks = taskMapper.stopRunnableTasksByTemplateIds(normalizedIds, now);
+        mapper.softDeleteByIds(normalizedIds, now);
+        log.info("营销模板批量软删除 count={} stoppedTasks={} ids={}",
+                normalizedIds.size(), stoppedTasks, normalizedIds);
     }
 
     /** 按 ID 取未删模板,不存在即抛 404;update/clone 等写操作都先过这道存在性校验。 */

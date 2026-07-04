@@ -33,6 +33,9 @@ public interface MarketingTaskMapper {
     /** 发送中任务置为已停止。 */
     int stopTask(@Param("id") Long id, @Param("now") long now);
 
+    /** 删除模板时,将关联的待启动/发送中任务置为已停止。 */
+    int stopRunnableTasksByTemplateIds(@Param("templateIds") List<Long> templateIds, @Param("now") long now);
+
     /** 统计指定任务里仍处于发送中的未删任务数量。 */
     int countSendingByIds(@Param("ids") List<Long> ids);
 

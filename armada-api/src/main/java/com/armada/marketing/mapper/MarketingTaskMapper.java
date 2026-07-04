@@ -34,6 +34,9 @@ public interface MarketingTaskMapper {
     /** 抢占一个到期轮次,成功时递增 current_round_no 并推进 next_round_at。 */
     int claimDueRound(@Param("id") Long id, @Param("now") long now, @Param("nextRoundAt") long nextRoundAt);
 
+    /** backlog 过高时只推迟下一轮,不递增轮次。 */
+    int postponeDueRound(@Param("id") Long id, @Param("now") long now, @Param("nextRoundAt") long nextRoundAt);
+
     /** 统计尚未收到协议层结果的尝试数。 */
     long countUnfinishedAttempts(@Param("taskId") Long taskId);
 

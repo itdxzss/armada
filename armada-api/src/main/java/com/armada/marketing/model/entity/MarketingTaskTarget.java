@@ -10,6 +10,7 @@ public class MarketingTaskTarget {
     private Long marketingTaskId;
     private Long accountId;
     private String accountPhone;
+    private String protocolAccountId;
     private Long groupLinkId;
     private String groupJid;
     private String groupLinkUrl;
@@ -62,6 +63,14 @@ public class MarketingTaskTarget {
 
     public void setAccountPhone(String accountPhone) {
         this.accountPhone = accountPhone;
+    }
+
+    public String getProtocolAccountId() {
+        return protocolAccountId;
+    }
+
+    public void setProtocolAccountId(String protocolAccountId) {
+        this.protocolAccountId = protocolAccountId;
     }
 
     public Long getGroupLinkId() {

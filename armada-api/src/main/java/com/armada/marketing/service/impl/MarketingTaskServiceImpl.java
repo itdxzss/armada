@@ -394,8 +394,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setAutoRetryEnabled(Boolean.TRUE.equals(request.autoRetryEnabled()));
         // 一期需求只表达"失败后自动重试一次";后续若做可配置次数再扩 DTO。
         task.setRetryLimit(Boolean.TRUE.equals(request.autoRetryEnabled()) ? 1 : 0);
+        task.setCurrentRoundNo(0L);
         task.setRemark(request.remark());
         task.setStartedAt(status == MarketingTaskStatus.SENDING ? now : null);
+        task.setNextRoundAt(status == MarketingTaskStatus.SENDING ? now : null);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;

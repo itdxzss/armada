@@ -13,6 +13,25 @@ public record ProtocolMarketingMessageCommandRequest(
         String text,
         String imageBase64,
         String imageMimetype,
-        String source
+        String source,
+        String commandId
 ) {
+    public ProtocolMarketingMessageCommandRequest(
+            Long tenantId,
+            Long marketingTaskId,
+            Long attemptId,
+            Long targetId,
+            Long roundNo,
+            Long accountId,
+            String protocolAccountId,
+            String groupJid,
+            String messageType,
+            String text,
+            String imageBase64,
+            String imageMimetype,
+            String source) {
+        this(tenantId, marketingTaskId, attemptId, targetId, roundNo, accountId,
+                protocolAccountId, groupJid, messageType, text, imageBase64, imageMimetype,
+                source, null);
+    }
 }

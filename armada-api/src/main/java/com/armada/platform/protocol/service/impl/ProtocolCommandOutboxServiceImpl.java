@@ -230,7 +230,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         Set<String> uniqueCommandIds = new HashSet<>(commands.size());
 
         for (ProtocolMarketingMessageCommandRequest command : commands) {
-            String commandId = newCommandId();
+            String commandId = isBlank(command.commandId()) ? newCommandId() : command.commandId();
             if (!uniqueCommandIds.add(commandId)) {
                 throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
             }

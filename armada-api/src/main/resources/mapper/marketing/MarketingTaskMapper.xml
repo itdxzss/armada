@@ -42,6 +42,7 @@
         <result column="marketing_task_id" property="marketingTaskId"/>
         <result column="account_id" property="accountId"/>
         <result column="account_phone" property="accountPhone"/>
+        <result column="protocol_account_id" property="protocolAccountId"/>
         <result column="group_link_id" property="groupLinkId"/>
         <result column="group_jid" property="groupJid"/>
         <result column="group_link_url" property="groupLinkUrl"/>
@@ -78,9 +79,10 @@
     </sql>
 
     <sql id="TargetColumns">
-        id, tenant_id, marketing_task_id, account_id, account_phone, group_link_id, group_jid,
-        group_link_url, group_name, status, sent_message_count, failed_message_count, retry_count,
-        last_attempt_at, last_sent_at, last_reason, created_at, updated_at
+        t.id, t.tenant_id, t.marketing_task_id, t.account_id, t.account_phone,
+        a.protocol_account_id, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
+        t.status, t.sent_message_count, t.failed_message_count, t.retry_count,
+        t.last_attempt_at, t.last_sent_at, t.last_reason, t.created_at, t.updated_at
     </sql>
 
     <sql id="TaskFilter">
@@ -101,13 +103,15 @@
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
              failed_message_count, send_per_round, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
-             remark, started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
+             current_round_no, remark, started_at, next_round_at, last_round_started_at, last_sent_at,
+             finished_at, created_by, created_at, updated_at)
         VALUES
             (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
              #{failedMessageCount}, #{sendPerRound}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
-             #{remark}, #{startedAt}, #{lastSentAt}, #{finishedAt}, #{createdBy}, #{createdAt}, #{updatedAt})
+             #{currentRoundNo}, #{remark}, #{startedAt}, #{nextRoundAt}, #{lastRoundStartedAt},
+             #{lastSentAt}, #{finishedAt}, #{createdBy}, #{createdAt}, #{updatedAt})
     </insert>
 
     <insert id="insertTargets">
@@ -131,9 +135,10 @@
 
     <select id="selectTargetsByTaskId" resultMap="MarketingTaskTargetResultMap">
         SELECT <include refid="TargetColumns"/>
-        FROM marketing_task_target
-        WHERE marketing_task_id = #{taskId}
-        ORDER BY id ASC
+        FROM marketing_task_target t
+        LEFT JOIN account a ON a.id = t.account_id AND a.deleted_at IS NULL
+        WHERE t.marketing_task_id = #{taskId}
+        ORDER BY t.id ASC
     </select>
 
     <select id="selectDueSendingTasks" resultMap="MarketingTaskResultMap">
@@ -152,6 +157,17 @@
         SET current_round_no = current_round_no + 1,
             last_round_started_at = #{now},
             next_round_at = #{nextRoundAt},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 2
+          AND next_round_at IS NOT NULL
+          AND next_round_at &lt;= #{now}
+    </update>
+
+    <update id="postponeDueRound">
+        UPDATE marketing_task
+        SET next_round_at = #{nextRoundAt},
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
@@ -213,6 +229,7 @@
         UPDATE marketing_task
         SET status = 2,
             started_at = COALESCE(started_at, #{now}),
+            next_round_at = #{now},
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL

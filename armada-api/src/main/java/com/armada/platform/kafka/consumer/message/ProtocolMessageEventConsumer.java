@@ -13,6 +13,12 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+/**
+ * 协议 message topic 消费器。
+ *
+ * <p>当前只接入营销发送闭环需要的 {@code message.send_result_reported}。
+ * 其它 message 事件先跳过,避免未来协议层新增事件时误触发营销回写。</p>
+ */
 @Component
 @Profile("kafka")
 public class ProtocolMessageEventConsumer {
@@ -29,6 +35,7 @@ public class ProtocolMessageEventConsumer {
         this.sink = sink;
     }
 
+    /** 解析协议事件 envelope,识别发送结果事件后交给业务 sink 处理。 */
     @KafkaListener(
             topics = "${armada.protocol.kafka.message-events.topic:protocol.message.events.v1}",
             groupId = "${armada.protocol.kafka.message-events.group-id:armada-api-message-events}")
@@ -49,6 +56,7 @@ public class ProtocolMessageEventConsumer {
         sink.handleSendResultReported(event);
     }
 
+    /** Kafka value 必须是协议事件 JSON envelope;非法 JSON 交给 Spring Kafka 重试/DLT。 */
     private JsonNode readEnvelope(String rawMessage) {
         if (rawMessage == null || rawMessage.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议消息事件消息为空");
@@ -60,6 +68,7 @@ public class ProtocolMessageEventConsumer {
         }
     }
 
+    /** 将宽松 JSON envelope 收窄为营销发送结果事件,必要字段缺失时直接失败重试。 */
     private static ProtocolMessageSendResultReportedEvent toSendResultReportedEvent(JsonNode envelope, JsonNode data) {
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
@@ -79,10 +88,12 @@ public class ProtocolMessageEventConsumer {
                 text(envelope, "workerId"));
     }
 
+    /** 兼容协议层 envelope.data 包裹格式;测试或临时工具也可直接传扁平字段。 */
     private static JsonNode dataNode(JsonNode envelope) {
         return envelope.path("data").isObject() ? envelope.path("data") : envelope;
     }
 
+    /** 优先使用 data.timestamp;缺失时回退 envelope.occurredAt 并转成 epoch 毫秒。 */
     private static Long timestamp(JsonNode envelope, JsonNode data) {
         Long value = longValue(data, "timestamp");
         if (value != null) {

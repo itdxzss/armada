@@ -25,6 +25,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+/**
+ * 单个营销任务的一轮发送生成器。
+ *
+ * <p>每轮会对任务下全部目标各生成一条 {@code marketing_task_send_attempt},
+ * 再按批写入 {@code message.send.requested} 协议 outbox 命令。真实 WhatsApp 发送发生在协议层,
+ * 不在 API 事务内同步执行。</p>
+ */
 @Component
 @Profile("kafka")
 public class MarketingRoundWorker {
@@ -51,6 +58,12 @@ public class MarketingRoundWorker {
         this.properties = properties;
     }
 
+    /**
+     * 生成一个任务的一轮发送命令。
+     *
+     * <p>调度器在无请求上下文的后台线程中调用这里,所以必须显式设置 TenantContext,
+     * 让 MyBatis 租户拦截器把所有读写限制在当前租户内。</p>
+     */
     @Transactional(rollbackFor = Exception.class)
     public void runRound(Long tenantId, Long taskId) {
         Long previousTenant = TenantContext.get();
@@ -78,10 +91,12 @@ public class MarketingRoundWorker {
         long now = System.currentTimeMillis();
         long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
         long unfinished = taskMapper.countUnfinishedAttempts(taskId);
+        // 下游协议层积压过高时只推迟下一轮,避免持续生成新 attempt 把 outbox 堆穿。
         if (unfinished >= (long) Math.max(1, properties.getBacklogMultiplier()) * targets.size()) {
             taskMapper.postponeDueRound(taskId, now, nextRoundAt);
             return;
         }
+        // claimDueRound 是并发闸门:只有一个线程能把到期任务推进到下一轮。
         int claimed = taskMapper.claimDueRound(taskId, now, nextRoundAt);
         if (claimed == 0) {
             return;
@@ -106,6 +121,7 @@ public class MarketingRoundWorker {
         enqueueCommands(task, targets, attempts, message);
     }
 
+    /** 模板在轮次执行时必须存在;否则本轮应整体回滚并等待人工修正任务配置。 */
     private MarketingTemplate requireTemplate(Long templateId) {
         MarketingTemplate template = templateMapper.selectById(templateId);
         if (template == null) {
@@ -132,6 +148,12 @@ public class MarketingRoundWorker {
         return attempt;
     }
 
+    /**
+     * 按 outbox 批大小写协议命令。
+     *
+     * <p>attempt 已经带有预生成 commandId,这里把同一个 commandId 带到协议 outbox,
+     * 保证 attempt 与协议命令可以一一对应。</p>
+     */
     private void enqueueCommands(MarketingTask task,
                                  List<MarketingTaskTarget> targets,
                                  List<MarketingTaskSendAttempt> attempts,
@@ -167,6 +189,7 @@ public class MarketingRoundWorker {
         }
     }
 
+    /** 优先使用 account.protocol_account_id;测试或历史数据缺失时用账号手机号派生旧协议句柄。 */
     private static String protocolAccountId(MarketingTaskTarget target) {
         if (StringUtils.hasText(target.getProtocolAccountId())) {
             return target.getProtocolAccountId();
@@ -177,10 +200,12 @@ public class MarketingRoundWorker {
         throw new BusinessException(ErrorCode.VALIDATION, "营销目标缺少协议账号ID: targetId=" + target.getId());
     }
 
+    /** 预生成 commandId,让 attempt 行和协议 outbox 行在同一事务里建立可追踪关系。 */
     private static String newCommandId() {
         return "cmd_" + UUID.randomUUID().toString().replace("-", "");
     }
 
+    /** 无效间隔兜底为 30 秒,避免后台异常配置导致轮次紧循环。 */
     private static long sendIntervalSeconds(MarketingTask task) {
         Integer configured = task.getSendIntervalSeconds();
         return configured == null || configured < 1 ? 30L : configured.longValue();

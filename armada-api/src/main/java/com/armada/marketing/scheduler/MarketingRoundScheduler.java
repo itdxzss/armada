@@ -14,6 +14,12 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * 营销轮次调度器。
+ *
+ * <p>调度线程只扫描到期任务并投递到固定线程池,真正的抢占、写 attempt 和写 outbox
+ * 都在 {@link MarketingRoundWorker} 的事务里完成。</p>
+ */
 @Component
 @Profile("kafka")
 @EnableConfigurationProperties(MarketingRoundSchedulerProperties.class)
@@ -40,6 +46,7 @@ public class MarketingRoundScheduler {
         });
     }
 
+    /** 按配置周期扫描已到 {@code next_round_at} 的发送中任务。 */
     @Scheduled(fixedDelayString = "${armada.marketing.round-scheduler.scan-fixed-delay-ms:1000}")
     public void scanDueTasks() {
         if (!properties.isEnabled()) {
@@ -52,6 +59,7 @@ public class MarketingRoundScheduler {
         }
     }
 
+    /** 单个任务失败只记录日志,不影响同批其他任务继续提交到线程池执行。 */
     private void runSafely(MarketingTask task) {
         try {
             worker.runRound(task.getTenantId(), task.getId());
@@ -60,6 +68,7 @@ public class MarketingRoundScheduler {
         }
     }
 
+    /** 应用关闭时停止轮次执行线程池,避免测试和部署退出时悬挂后台线程。 */
     @PreDestroy
     public void shutdown() {
         executor.shutdownNow();

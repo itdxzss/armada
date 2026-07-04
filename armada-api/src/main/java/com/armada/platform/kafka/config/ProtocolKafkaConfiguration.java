@@ -34,7 +34,8 @@ import org.springframework.util.backoff.FixedBackOff;
         ProtocolCommandPublisherProperties.class,
         ProtocolCommandDispatcherProperties.class,
         ProtocolAccountEventConsumerProperties.class,
-        ProtocolGroupEventConsumerProperties.class
+        ProtocolGroupEventConsumerProperties.class,
+        ProtocolMessageEventConsumerProperties.class
 })
 public class ProtocolKafkaConfiguration {
 

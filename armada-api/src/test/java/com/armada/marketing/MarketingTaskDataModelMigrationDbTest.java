@@ -65,6 +65,18 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
     }
 
     @Test
+    void marketingTask_supportsTemplateOrTextContent() {
+        assertThat(columnType("marketing_task", "send_content_type")).isEqualTo("tinyint");
+        assertThat(columnComment("marketing_task", "send_content_type"))
+                .isEqualTo("发送内容类型:1=营销模板 2=纯文本");
+        assertThat(columnType("marketing_task", "text_content")).isEqualTo("text");
+        assertThat(columnComment("marketing_task", "text_content"))
+                .isEqualTo("纯文本发送内容;send_content_type=2时使用");
+        assertThat(nullable("marketing_task", "marketing_template_id")).isEqualTo("YES");
+        assertThat(nullable("marketing_task", "marketing_template_name")).isEqualTo("YES");
+    }
+
+    @Test
     void targetAndAttemptTables_haveExecutionIndexesAndStatusColumns() {
         assertThat(columnType("marketing_task_target", "status")).isEqualTo("tinyint");
         assertThat(columnType("marketing_task_target", "last_sent_at")).isEqualTo("bigint");
@@ -105,6 +117,15 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
     private String columnComment(String tableName, String columnName) {
         return jdbc.queryForObject(
                 "SELECT column_comment FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
+                String.class,
+                tableName,
+                columnName);
+    }
+
+    private String nullable(String tableName, String columnName) {
+        return jdbc.queryForObject(
+                "SELECT is_nullable FROM information_schema.columns "
                         + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
                 String.class,
                 tableName,

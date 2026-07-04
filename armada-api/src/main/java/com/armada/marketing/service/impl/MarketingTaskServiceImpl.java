@@ -221,9 +221,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     /**
      * 查询建营销任务用的账号→可营销群树。
      *
-     * <p>只返回账号分组内在线、正常、无风控/禁言的账号;群组来自
-     * `account_group_membership` 中该账号当前仍在的群,并要求群入口可用且有 `group_jid`。
-     * 若账号已拍登录前群基线,SQL 层会用 `baseline_group_jids` JSON 排除历史群。</p>
+     * <p>只返回账号分组内登录态在线、无风控/禁言的账号。群组按群池可发送入口展示,
+     * 不依赖账号群 membership 回填。若账号已拍登录前群基线,SQL 层会用 `baseline_group_jids`
+     * JSON 排除历史群。</p>
      *
      * @param groupId 账号分组 ID
      * @return 账号→可营销群树
@@ -340,7 +340,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     private MarketingTargetCandidateRow requireCandidate(Long accountGroupId, Long accountId, Long groupLinkId) {
-        // 目标候选必须同时满足:账号存在且属于本次选择的分组、账号当前仍在该群、群入口未软删且有 group_jid。
+        // 目标候选必须同时满足:账号存在且属于本次选择的分组、登录态在线、群入口未软删且有 group_jid。
         // group_jid 是协议层发送寻址必需字段,没有它时不能等到发送阶段才失败。
         MarketingTargetCandidateRow row = taskMapper.selectTargetCandidate(accountGroupId, accountId, groupLinkId);
         if (row == null) {

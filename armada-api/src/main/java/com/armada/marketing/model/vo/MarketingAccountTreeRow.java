@@ -26,7 +26,7 @@ public class MarketingAccountTreeRow {
     /** 群邀请链接,来自 group_link.link_url,用于页面展示和任务目标快照。 */
     private String linkUrl;
 
-    /** 当前账号是否该群管理员,来自 account_group_membership.is_admin。 */
+    /** 当前账号是否该群管理员;营销选择口径不依赖 membership,默认 false。 */
     private Boolean admin;
 
     public Long getAccountId() {

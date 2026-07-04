@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 营销任务建任务抽屉的账号→可营销群树。
  *
- * <p>营销树只展示账号自身当前参与的群,再按账号登录前基线 JSON 排除历史群。</p>
+ * <p>营销树按账号分组内登录态在线账号展示群池可营销群,再按账号登录前基线 JSON 排除历史群。</p>
  */
 class MarketingTaskAccountTreeDbTest extends DbTestBase {
 
@@ -34,7 +34,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
         long accountGroupId = seedAccountGroup("tree-filter");
         long onlineAccountId = seedAccount("923300000001", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         seedAccount("923300000002", accountGroupId, BASELINE_CAPTURED, 2, 2, 1, null);
-        seedAccount("923300000003", accountGroupId, BASELINE_CAPTURED, 3, 1, 1, null);
+        seedAccount("923300000003", accountGroupId, BASELINE_CAPTURED, 2, 2, 1, null);
         String oldJid = "120363000001@g.us";
         String newJid = "120363000002@g.us";
         String bannedJid = "120363000003@g.us";
@@ -76,8 +76,8 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountTree_onlyShowsGroupsBelongingToEachAccount() {
-        long accountGroupId = seedAccountGroup("tree-membership");
+    void accountTree_showsAvailablePoolGroupsForEveryOnlineAccount() {
+        long accountGroupId = seedAccountGroup("tree-pool");
         long firstAccountId = seedAccount("923300000005", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         long secondAccountId = seedAccount("923300000006", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         String firstJid = "120363000005@g.us";
@@ -93,11 +93,30 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
         assertThat(tree.accounts().get(0).accountId()).isEqualTo(firstAccountId);
         assertThat(tree.accounts().get(0).groups())
                 .extracting(MarketingTreeGroupVO::groupJid)
-                .containsExactly(firstJid);
+                .containsExactly(firstJid, secondJid);
         assertThat(tree.accounts().get(1).accountId()).isEqualTo(secondAccountId);
         assertThat(tree.accounts().get(1).groups())
                 .extracting(MarketingTreeGroupVO::groupJid)
-                .containsExactly(secondJid);
+                .containsExactly(firstJid, secondJid);
+    }
+
+    @Test
+    void accountTree_usesLoginStateOnlyForOnlineAccountBeforeMembershipSyncReports() {
+        long accountGroupId = seedAccountGroup("tree-no-membership");
+        long accountId = seedAccount("923300000007", accountGroupId, BASELINE_CAPTURED, 6, 1, 1, null);
+        String groupJid = "120363000007@g.us";
+        seedBaseline(accountId, "[]");
+        seedGroup("pool-before-sync", groupJid, 1, 0);
+
+        MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
+
+        assertThat(tree.accounts()).singleElement().satisfies(account -> {
+            assertThat(account.accountId()).isEqualTo(accountId);
+            assertThat(account.wsPhone()).isEqualTo("923300000007");
+            assertThat(account.status()).isEqualTo("ONLINE");
+            assertThat(account.groups()).singleElement().satisfies(group ->
+                    assertThat(group.groupJid()).isEqualTo(groupJid));
+        });
     }
 
     @Test

@@ -126,17 +126,41 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
-    void createTask_rejectsSelectionWithoutActiveMembership() {
+    void createTask_acceptsSelectionWithoutActiveMembership() {
         Fixture fixture = seedFixture("missing-membership");
         jdbc.update("UPDATE account_group_membership SET deleted_at = ? WHERE account_id = ? AND group_link_id = ?",
                 System.currentTimeMillis(), fixture.accountId(), fixture.groupLinkId());
 
-        CreateMarketingTaskDTO req = request("无在群关系任务", fixture.accountGroupId(), fixture.templateId(), "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
+        MarketingTaskVO created = service.createTask(request(
+                "无在群关系任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
 
-        assertThatThrownBy(() -> service.createTask(req))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("不可用");
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+        assertThat(detail.targets()).singleElement().satisfies(target -> {
+            assertThat(target.accountPhone()).isEqualTo(fixture.phone());
+            assertThat(target.groupJid()).isEqualTo(fixture.groupJid());
+        });
+    }
+
+    @Test
+    void createTask_usesLoginStateOnlyForOnlineSelectionBeforeMembershipSyncReports() {
+        Fixture fixture = seedFixture("before-membership-sync", false, 6);
+
+        MarketingTaskVO created = service.createTask(request(
+                "群同步前任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+        assertThat(detail.targets()).singleElement().satisfies(target -> {
+            assertThat(target.accountPhone()).isEqualTo(fixture.phone());
+            assertThat(target.groupJid()).isEqualTo(fixture.groupJid());
+        });
     }
 
     private CreateMarketingTaskDTO request(String taskName,
@@ -181,6 +205,14 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     private Fixture seedFixture(String suffix) {
+        return seedFixture(suffix, true);
+    }
+
+    private Fixture seedFixture(String suffix, boolean withMembership) {
+        return seedFixture(suffix, withMembership, 2);
+    }
+
+    private Fixture seedFixture(String suffix, boolean withMembership, int accountState) {
         long now = System.currentTimeMillis();
         long accountGroupId = insertAndReturnId("""
                 INSERT INTO account_group (tenant_id, name, system_builtin, created_at, updated_at)
@@ -216,8 +248,8 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         jdbc.update("""
                 INSERT INTO account_state
                     (tenant_id, account_id, account_state, login_state, risk_status, created_at, updated_at)
-                VALUES (?, ?, 2, 1, 1, ?, ?)
-                """, TEST_TENANT_ID, accountId, now, now);
+                VALUES (?, ?, ?, 1, 1, ?, ?)
+                """, TEST_TENANT_ID, accountId, accountState, now, now);
         String groupUrl = "https://chat.whatsapp.com/" + suffix;
         long groupLinkId = insertAndReturnId("""
                 INSERT INTO group_link
@@ -241,11 +273,13 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                     (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
                 VALUES (?, ?, 1, 0, ?, ?)
                 """, TEST_TENANT_ID, groupLinkId, now, now);
-        jdbc.update("""
-                INSERT INTO account_group_membership
-                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+        if (withMembership) {
+            jdbc.update("""
+                    INSERT INTO account_group_membership
+                        (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+        }
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
     }
 

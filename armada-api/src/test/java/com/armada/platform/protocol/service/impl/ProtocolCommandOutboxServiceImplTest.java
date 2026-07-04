@@ -14,6 +14,7 @@ import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -320,6 +321,63 @@ class ProtocolCommandOutboxServiceImplTest {
                 .doesNotContain("password")
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueMarketingMessageCommands_singleCommand_insertsMasterRoutedAttemptCommand() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-marketing-message"), List.of());
+        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
+                1L,
+                42L,
+                9001L,
+                7001L,
+                1L,
+                501L,
+                "acc_8613800138000",
+                "120363001@g.us",
+                "TEXT",
+                "hello",
+                null,
+                null,
+                "marketing_task");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueMarketingMessageCommands(List.of(command));
+
+        assertThat(result.batchId()).isNull();
+        assertThat(result.commandIds()).containsExactly("cmd-marketing-message");
+        assertThat(result.inserted()).isEqualTo(1);
+
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).hasSize(1);
+        ProtocolCommandOutbox row = rows.get(0);
+        assertThat(row.getTenantId()).isNull();
+        assertThat(row.getCommandId()).isEqualTo("cmd-marketing-message");
+        assertThat(row.getCommandType()).isEqualTo("message.send.requested");
+        assertThat(row.getAggregateType()).isEqualTo("MARKETING_SEND_ATTEMPT");
+        assertThat(row.getAggregateId()).isEqualTo(9001L);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_8613800138000");
+        assertThat(row.getProtocolAccountId()).isEqualTo("acc_8613800138000");
+        assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(row.getRetryCount()).isZero();
+        assertThat(row.getNextRetryAt()).isZero();
+
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("tenantId", 1)
+                .containsEntry("marketingTaskId", 42)
+                .containsEntry("attemptId", 9001)
+                .containsEntry("targetId", 7001)
+                .containsEntry("roundNo", 1)
+                .containsEntry("accountId", 501)
+                .containsEntry("protocolAccountId", "acc_8613800138000")
+                .containsEntry("groupJid", "120363001@g.us")
+                .containsEntry("messageType", "TEXT")
+                .containsEntry("text", "hello")
+                .containsEntry("source", "marketing_task");
         verify(dispatchTrigger).dispatchAfterCommit(rows);
     }
 

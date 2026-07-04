@@ -229,6 +229,21 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void online_takingOverAccountThrowsValidationBeforeCredentialOrProxyWork() {
+        Account account = onlineAccount();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L)).thenReturn(takingOverState(100L, AccountLoginStateCode.ONLINE));
+
+        assertThatThrownBy(() -> service.online(100L))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("账号抢登中，请先离线");
+                });
+
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
     void reonlineAfterProxyFailure_enqueuesOnlineCommandWithAttemptLineageAndProxyFailedSource() {
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
@@ -357,6 +372,23 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void onlineBatch_containsTakingOverAccountThrowsValidationBeforeCredentialOrProxyWork() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(stateMapper.selectByAccountIds(List.of(100L, 101L)))
+                .thenReturn(List.of(takingOverState(101L, AccountLoginStateCode.ONLINE)));
+
+        assertThatThrownBy(() -> service.onlineBatch(List.of(100L, 101L)))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("账号抢登中，请先离线");
+                });
+
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
     void takeoverBatch_allReplacedMarksTakingOverAndEnqueuesTakeoverOnlineBatch() {
         Account accountA = account(100L, "acc_100");
         Account accountB = account(101L, "acc_101");
@@ -418,7 +450,7 @@ class AccountOnlineCommandServiceImplTest {
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
         ProxyEndpoint endpoint = onlineEndpoint();
-        when(stateMapper.selectByAccountId(100L)).thenReturn(state(100L, AccountStateCode.TAKING_OVER, null));
+        when(stateMapper.selectByAccountId(100L)).thenReturn(takingOverState(100L, AccountLoginStateCode.OFFLINE));
         when(takeoverReonlineCooldown.tryAcquire(eq(100L), anyLong())).thenReturn(true);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
@@ -443,6 +475,17 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void reonlineForTakeover_takingOverButOnlineSkipsWithoutOutbox() {
+        when(stateMapper.selectByAccountId(100L)).thenReturn(takingOverState(100L, AccountLoginStateCode.ONLINE));
+
+        AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "login_replaced_takeover");
+
+        assertThat(result.accepted()).isFalse();
+        verifyNoInteractions(accountMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+        verify(takeoverReonlineCooldown, never()).tryAcquire(anyLong(), anyLong());
+    }
+
+    @Test
     void reonlineForTakeover_notTakingOverSkipsWithoutOutbox() {
         when(stateMapper.selectByAccountId(100L)).thenReturn(state(100L, AccountStateCode.LOGIN_REPLACED, null));
 
@@ -454,7 +497,7 @@ class AccountOnlineCommandServiceImplTest {
 
     @Test
     void reonlineForTakeover_withinCooldownSkipsWithoutOutbox() {
-        when(stateMapper.selectByAccountId(100L)).thenReturn(state(100L, AccountStateCode.TAKING_OVER, null));
+        when(stateMapper.selectByAccountId(100L)).thenReturn(takingOverState(100L, AccountLoginStateCode.OFFLINE));
         when(takeoverReonlineCooldown.tryAcquire(eq(100L), anyLong())).thenReturn(false);
 
         AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "offline_takeover");
@@ -767,6 +810,12 @@ class AccountOnlineCommandServiceImplTest {
         state.setAccountId(accountId);
         state.setAccountState(accountState);
         state.setMuteStatus(muteStatus);
+        return state;
+    }
+
+    private static AccountState takingOverState(Long accountId, Integer loginState) {
+        AccountState state = state(accountId, AccountStateCode.TAKING_OVER, null);
+        state.setLoginState(loginState);
         return state;
     }
 

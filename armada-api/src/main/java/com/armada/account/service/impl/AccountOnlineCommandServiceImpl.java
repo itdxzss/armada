@@ -62,6 +62,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final String SOURCE_PROXY_FAILED_REONLINE = "proxy_failed_reonline";
     private static final String SOURCE_LOGIN_REPLACED_TAKEOVER = "login_replaced_takeover";
     private static final String TAKEOVER_SELECTION_MESSAGE = "当前所选账号存在非被抢登状态，请重新选择";
+    private static final String TAKING_OVER_ONLINE_MESSAGE = "账号抢登中，请先离线";
     private static final String TAKEOVER_SKIPPED_SOURCE = "TAKEOVER_SKIPPED";
     private static final int TRUTH_IP_MAX_LENGTH = 45;
     private static final int PROXY_COUNTRY_MAX_LENGTH = 64;
@@ -168,7 +169,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         }
         AccountState state = stateMapper.selectByAccountId(accountId);
         if (!isTakeoverEligible(state)) {
-            log.info("抢登续上线跳过:账号已不在抢登中或已禁言 accountId={} source={}", accountId, source);
+            log.info("抢登续上线跳过:账号不满足抢登中离线条件或已禁言 accountId={} source={}", accountId, source);
             return skippedTakeoverVO(accountId);
         }
         long now = System.currentTimeMillis();
@@ -184,6 +185,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
         Account account = loadAccount(accountId);
+        validateManualOnlineState(account.getId(), source);
         AccountCredential credential = loadCredential(account.getId());
         CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
         String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
@@ -385,7 +387,40 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return state != null
                 && state.getAccountState() != null
                 && state.getAccountState() == AccountStateCode.TAKING_OVER
+                && state.getLoginState() != null
+                && state.getLoginState() == AccountLoginStateCode.OFFLINE
                 && state.getMuteStatus() == null;
+    }
+
+    private void validateManualOnlineState(Long accountId, String source) {
+        if (!SOURCE_MANUAL_ONLINE.equals(source)) {
+            return;
+        }
+        AccountState state = stateMapper.selectByAccountId(accountId);
+        if (isTakingOver(state)) {
+            throw new BusinessException(ErrorCode.VALIDATION, TAKING_OVER_ONLINE_MESSAGE);
+        }
+    }
+
+    private void validateBatchOnlineStates(List<Long> ids, String source) {
+        if (!SOURCE_BATCH_ONLINE.equals(source)) {
+            return;
+        }
+        List<AccountState> states = stateMapper.selectByAccountIds(ids);
+        if (states == null) {
+            return;
+        }
+        for (AccountState state : states) {
+            if (isTakingOver(state)) {
+                throw new BusinessException(ErrorCode.VALIDATION, TAKING_OVER_ONLINE_MESSAGE);
+            }
+        }
+    }
+
+    private static boolean isTakingOver(AccountState state) {
+        return state != null
+                && state.getAccountState() != null
+                && state.getAccountState() == AccountStateCode.TAKING_OVER;
     }
 
     private IpProxyAllocationRequest allocationRequest(Long accountId) {
@@ -523,6 +558,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                                     String source,
                                                     OnlineAllocationSupplier allocationSupplier) {
         Map<Long, Account> accountsById = loadAccounts(ids);
+        validateBatchOnlineStates(ids, source);
         Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
         List<PreparedOnlineCommand> prepared = new ArrayList<>(ids.size());
         List<IpProxyAccountAllocation> allocations = List.of();

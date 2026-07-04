@@ -2,6 +2,7 @@ package com.armada.marketing.mapper;
 
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.vo.MarketingAccountTreeRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
@@ -26,6 +27,35 @@ public interface MarketingTaskMapper {
 
     /** 按任务 ID 查目标明细。 */
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
+
+    /** 查询已到下一轮生成时间的发送中任务。 */
+    List<MarketingTask> selectDueSendingTasks(@Param("now") long now, @Param("limit") int limit);
+
+    /** 抢占一个到期轮次,成功时递增 current_round_no 并推进 next_round_at。 */
+    int claimDueRound(@Param("id") Long id, @Param("now") long now, @Param("nextRoundAt") long nextRoundAt);
+
+    /** 统计尚未收到协议层结果的尝试数。 */
+    long countUnfinishedAttempts(@Param("taskId") Long taskId);
+
+    /** 批量插入一轮发送尝试。 */
+    int insertSendAttempts(@Param("attempts") List<MarketingTaskSendAttempt> attempts);
+
+    /** 协议层成功结果幂等回写。 */
+    int markAttemptSuccess(@Param("attemptId") Long attemptId,
+                           @Param("messageId") String messageId,
+                           @Param("resultAt") long resultAt);
+
+    /** 协议层失败结果幂等回写。 */
+    int markAttemptFailed(@Param("attemptId") Long attemptId,
+                          @Param("reasonCode") String reasonCode,
+                          @Param("reasonMessage") String reasonMessage,
+                          @Param("resultAt") long resultAt);
+
+    /** 按协议结果增量更新任务累计计数。 */
+    int incrementTaskSendCounters(@Param("taskId") Long taskId,
+                                  @Param("successDelta") int successDelta,
+                                  @Param("failedDelta") int failedDelta,
+                                  @Param("now") long now);
 
     /** 待启动/已停止任务置为发送中,并首次补 started_at。 */
     int startTask(@Param("id") Long id, @Param("now") long now);

@@ -23,8 +23,11 @@
         <result column="is_abnormal_group_skipped" property="abnormalGroupSkipped"/>
         <result column="is_auto_retry_enabled" property="autoRetryEnabled"/>
         <result column="retry_limit" property="retryLimit"/>
+        <result column="current_round_no" property="currentRoundNo"/>
         <result column="remark" property="remark"/>
         <result column="started_at" property="startedAt"/>
+        <result column="next_round_at" property="nextRoundAt"/>
+        <result column="last_round_started_at" property="lastRoundStartedAt"/>
         <result column="last_sent_at" property="lastSentAt"/>
         <result column="finished_at" property="finishedAt"/>
         <result column="created_by" property="createdBy"/>
@@ -69,7 +72,8 @@
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
         sent_message_count, failed_message_count,
         send_per_round, send_interval_seconds, is_online_check_enabled, is_abnormal_group_skipped,
-        is_auto_retry_enabled, retry_limit, remark, started_at, last_sent_at, finished_at,
+        is_auto_retry_enabled, retry_limit, current_round_no, remark, started_at, next_round_at,
+        last_round_started_at, last_sent_at, finished_at,
         created_by, created_at, updated_at, deleted_at
     </sql>
 
@@ -131,6 +135,79 @@
         WHERE marketing_task_id = #{taskId}
         ORDER BY id ASC
     </select>
+
+    <select id="selectDueSendingTasks" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE deleted_at IS NULL
+          AND status = 2
+          AND next_round_at IS NOT NULL
+          AND next_round_at &lt;= #{now}
+        ORDER BY next_round_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="claimDueRound">
+        UPDATE marketing_task
+        SET current_round_no = current_round_no + 1,
+            last_round_started_at = #{now},
+            next_round_at = #{nextRoundAt},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 2
+          AND next_round_at IS NOT NULL
+          AND next_round_at &lt;= #{now}
+    </update>
+
+    <select id="countUnfinishedAttempts" resultType="long">
+        SELECT COUNT(*)
+        FROM marketing_task_send_attempt
+        WHERE marketing_task_id = #{taskId}
+          AND status = 0
+    </select>
+
+    <insert id="insertSendAttempts" useGeneratedKeys="true" keyProperty="attempts.id">
+        INSERT INTO marketing_task_send_attempt
+            (marketing_task_id, target_id, round_no, attempt_no, is_retry, command_id,
+             status, reason_code, reason_message, message_id, submitted_at, result_at,
+             attempted_at, created_at)
+        VALUES
+        <foreach collection="attempts" item="a" separator=",">
+            (#{a.marketingTaskId}, #{a.targetId}, #{a.roundNo}, #{a.attemptNo}, #{a.retry},
+             #{a.commandId}, #{a.status}, #{a.reasonCode}, #{a.reasonMessage}, #{a.messageId},
+             #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt}, #{a.createdAt})
+        </foreach>
+    </insert>
+
+    <update id="markAttemptSuccess">
+        UPDATE marketing_task_send_attempt
+        SET status = 1,
+            message_id = #{messageId},
+            result_at = #{resultAt}
+        WHERE id = #{attemptId}
+          AND status = 0
+    </update>
+
+    <update id="markAttemptFailed">
+        UPDATE marketing_task_send_attempt
+        SET status = 2,
+            reason_code = #{reasonCode},
+            reason_message = #{reasonMessage},
+            result_at = #{resultAt}
+        WHERE id = #{attemptId}
+          AND status = 0
+    </update>
+
+    <update id="incrementTaskSendCounters">
+        UPDATE marketing_task
+        SET sent_message_count = sent_message_count + #{successDelta},
+            failed_message_count = failed_message_count + #{failedDelta},
+            last_sent_at = CASE WHEN #{successDelta} &gt; 0 THEN #{now} ELSE last_sent_at END,
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND deleted_at IS NULL
+    </update>
 
     <update id="startTask">
         UPDATE marketing_task

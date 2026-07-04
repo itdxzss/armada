@@ -146,6 +146,8 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 true,
                 false,
                 "备注",
+                "TEMPLATE",
+                null,
                 selections);
     }
 

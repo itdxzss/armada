@@ -91,6 +91,8 @@ class MarketingTaskMaterialUpdateDbTest extends DbTestBase {
                 true,
                 false,
                 "素材更新测试",
+                "TEMPLATE",
+                null,
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
     }
 

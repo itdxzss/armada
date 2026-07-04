@@ -9,6 +9,7 @@ import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.armada.marketing.model.enums.MarketingTaskContentType;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.vo.MarketingAccountTreeRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
@@ -379,6 +380,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setAccountGroupName(snapshotName(request.accountGroupName(), "账号分组-" + request.accountGroupId()));
         task.setMarketingTemplateId(template.getId());
         task.setMarketingTemplateName(template.getTemplateName());
+        task.setSendContentType(MarketingTaskContentType.TEMPLATE.code());
+        task.setTextContent(null);
         task.setStatus(status.code());
         // 三个计数含义不同:
         // selectedAccountCount=去重账号数,targetGroupCount=去重群数,targetPairCount=真实执行目标行数。
@@ -423,7 +426,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskVO toVO(MarketingTask task) {
         return new MarketingTaskVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
-                task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
+                task.getMarketingTemplateId(), task.getMarketingTemplateName(),
+                task.getSendContentType(), task.getTextContent(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
@@ -440,7 +444,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskDetailVO toDetailVO(MarketingTask task, List<MarketingTaskTargetVO> targets) {
         return new MarketingTaskDetailVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
-                task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
+                task.getMarketingTemplateId(), task.getMarketingTemplateName(),
+                task.getSendContentType(), task.getTextContent(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),

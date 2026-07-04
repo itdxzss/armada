@@ -116,6 +116,8 @@ class MarketingTaskMutationDbTest extends DbTestBase {
                 true,
                 false,
                 "状态变更测试",
+                "TEMPLATE",
+                null,
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
     }
 

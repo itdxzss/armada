@@ -17,6 +17,8 @@ import java.util.List;
  * @param abnormalGroupSkipped  是否跳过异常群
  * @param autoRetryEnabled      失败是否自动重试
  * @param remark                备注
+ * @param sendContentType       发送内容类型:TEMPLATE/TEXT;为空时按模板或文本内容推断
+ * @param textContent           纯文本发送内容,仅文本任务使用
  * @param selections            账号→群组选择
  */
 public record CreateMarketingTaskDTO(
@@ -32,5 +34,7 @@ public record CreateMarketingTaskDTO(
         Boolean abnormalGroupSkipped,
         Boolean autoRetryEnabled,
         String remark,
+        String sendContentType,
+        String textContent,
         List<MarketingSelectionDTO> selections) {
 }

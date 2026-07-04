@@ -11,6 +11,8 @@
         <result column="account_group_name" property="accountGroupName"/>
         <result column="marketing_template_id" property="marketingTemplateId"/>
         <result column="marketing_template_name" property="marketingTemplateName"/>
+        <result column="send_content_type" property="sendContentType"/>
+        <result column="text_content" property="textContent"/>
         <result column="status" property="status"/>
         <result column="selected_account_count" property="selectedAccountCount"/>
         <result column="target_group_count" property="targetGroupCount"/>
@@ -66,10 +68,11 @@
 
     <sql id="TaskColumns">
         id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
-        marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
-        sent_message_count, failed_message_count, send_per_round, send_interval_seconds,
-        is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
-        remark, started_at, last_sent_at, finished_at, created_by, created_at, updated_at, deleted_at
+        marketing_template_name, send_content_type, text_content, status, selected_account_count,
+        target_group_count, target_pair_count, sent_message_count, failed_message_count,
+        send_per_round, send_interval_seconds, is_online_check_enabled, is_abnormal_group_skipped,
+        is_auto_retry_enabled, retry_limit, remark, started_at, last_sent_at, finished_at,
+        created_by, created_at, updated_at, deleted_at
     </sql>
 
     <sql id="TargetColumns">
@@ -93,13 +96,13 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_task
             (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
-             status, selected_account_count, target_group_count, target_pair_count,
+             send_content_type, text_content, status, selected_account_count, target_group_count, target_pair_count,
              sent_message_count, failed_message_count, send_per_round, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
              remark, started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
             (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
-             #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount},
+             #{sendContentType}, #{textContent}, #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount},
              #{sentMessageCount}, #{failedMessageCount}, #{sendPerRound}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
              #{remark}, #{startedAt}, #{lastSentAt}, #{finishedAt}, #{createdBy}, #{createdAt}, #{updatedAt})
@@ -156,6 +159,7 @@
             updated_at = #{now}
         WHERE deleted_at IS NULL
           AND status IN (1, 2)
+          AND send_content_type = 1
           AND marketing_template_id IN
         <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>

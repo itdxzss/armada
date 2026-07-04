@@ -12,6 +12,8 @@ public record MarketingTaskDetailVO(
         String accountGroupName,
         Long marketingTemplateId,
         String marketingTemplateName,
+        Integer sendContentType,
+        String textContent,
         Integer status,
         Integer selectedAccountCount,
         Integer targetGroupCount,

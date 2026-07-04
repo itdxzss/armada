@@ -224,6 +224,8 @@ class MarketingTaskControllerDbTest {
                 true,
                 false,
                 "Controller测试备注",
+                "TEMPLATE",
+                null,
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
     }
 

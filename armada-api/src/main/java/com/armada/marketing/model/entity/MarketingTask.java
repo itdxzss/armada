@@ -12,6 +12,8 @@ public class MarketingTask {
     private String accountGroupName;
     private Long marketingTemplateId;
     private String marketingTemplateName;
+    private Integer sendContentType;
+    private String textContent;
     private Integer status;
     private Integer selectedAccountCount;
     private Integer targetGroupCount;
@@ -87,6 +89,22 @@ public class MarketingTask {
 
     public void setMarketingTemplateName(String marketingTemplateName) {
         this.marketingTemplateName = marketingTemplateName;
+    }
+
+    public Integer getSendContentType() {
+        return sendContentType;
+    }
+
+    public void setSendContentType(Integer sendContentType) {
+        this.sendContentType = sendContentType;
+    }
+
+    public String getTextContent() {
+        return textContent;
+    }
+
+    public void setTextContent(String textContent) {
+        this.textContent = textContent;
     }
 
     public Integer getStatus() {

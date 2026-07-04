@@ -14,6 +14,7 @@ import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.util.HttpUrlValidator;
 import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -173,7 +174,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * 保存前统一校验:模板名/内容/文本必填、名称在租户内不重复、超链模式合法、按钮规则。
+     * 保存前统一校验:模板名/内容/文本必填、名称在租户内不重复、消息类型合法、按钮规则。
      *
      * @param excludeId 名称查重时要排除的 ID;新增传 {@code null},编辑传当前模板 ID 以放过自身
      */
@@ -190,24 +191,27 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         if (mapper.existsByName(dto.templateName(), excludeId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板名称已存在: " + dto.templateName());
         }
+        if (StringUtils.hasText(dto.promotionLink()) && !HttpUrlValidator.isHttpUrl(dto.promotionLink())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "推广链接格式不正确,必须是以 http(s):// 开头的合法链接");
+        }
         LinkMode mode = LinkMode.fromCode(dto.linkMode());
         validateButtons(mode, dto.buttons());
     }
 
     /**
-     * 按超链模式校验按钮。普通超链与按钮超链是互斥的两种消息形态:
-     * 普通超链把链接当内容卡片展示、不得配按钮;按钮超链须由 1~3 个按钮承载,逐个按类型校验。
+     * 按消息类型校验按钮。只有按钮超链允许配置按钮;普通超链和图文内容都不携带按钮。
      */
     private void validateButtons(LinkMode mode, List<MessageButton> buttons) {
         boolean hasButtons = buttons != null && !buttons.isEmpty();
-        if (mode == LinkMode.NORMAL) {
+        if (mode != LinkMode.BUTTON) {
             if (hasButtons) {
-                throw new BusinessException(ErrorCode.VALIDATION, "普通超链模式不可配置消息按钮");
+                String modeName = mode == LinkMode.IMAGE_TEXT ? "图文内容消息类型" : "普通超链消息类型";
+                throw new BusinessException(ErrorCode.VALIDATION, modeName + "不可配置消息按钮");
             }
             return;
         }
         if (!hasButtons) {
-            throw new BusinessException(ErrorCode.VALIDATION, "按钮超链模式至少配置 1 个消息按钮");
+            throw new BusinessException(ErrorCode.VALIDATION, "按钮超链消息类型至少配置 1 个消息按钮");
         }
         if (buttons.size() > MAX_BUTTONS) {
             throw new BusinessException(ErrorCode.VALIDATION, "消息按钮最多 " + MAX_BUTTONS + " 个");
@@ -227,6 +231,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         // 快捷回复点击即回发按钮文字,无需 param;链接跳转(目标 URL)、复制内容(待复制文本)必须带 param
         if (button.type() != ButtonType.QUICK_REPLY && !StringUtils.hasText(button.param())) {
             throw new BusinessException(ErrorCode.VALIDATION, button.type() + " 按钮必须填写参数");
+        }
+        if (button.type() == ButtonType.LINK_JUMP && !HttpUrlValidator.isHttpUrl(button.param())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "跳转链接格式不正确,必须是以 http(s):// 开头的合法链接");
         }
     }
 }

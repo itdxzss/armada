@@ -30,7 +30,7 @@ public class MarketingTemplateController {
     }
 
     /**
-     * 查询营销模板列表:按 ID / 模板名 / 文本类型 / 超链模式组合筛选并分页,供列表页展示。
+     * 查询营销模板列表:按 ID / 模板名 / 文本类型 / 消息类型组合筛选并分页,供列表页展示。
      *
      * @param query 搜索与分页条件
      * @return 当前页模板及总数

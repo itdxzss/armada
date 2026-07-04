@@ -115,54 +115,14 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
-    void createTask_withTextContent_persistsPlainTextWithoutTemplate() {
-        Fixture fixture = seedFixture("text-content");
-        String text = "活动说明:https://example.com/path?a=1 按普通文字发送";
-        CreateMarketingTaskDTO req = request("纯文本任务", fixture.accountGroupId(), null, "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))),
-                "TEXT",
-                text);
-
-        MarketingTaskVO created = service.createTask(req);
-
-        assertThat(created.marketingTemplateId()).isNull();
-        assertThat(created.marketingTemplateName()).isNull();
-        assertThat(created.sendContentType()).isEqualTo(2);
-        assertThat(created.textContent()).isEqualTo(text);
-        assertThat(jdbc.queryForObject(
-                "SELECT text_content FROM marketing_task WHERE id = ?",
-                String.class,
-                created.id())).isEqualTo(text);
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM marketing_task_target WHERE marketing_task_id = ?",
-                Integer.class,
-                created.id())).isEqualTo(1);
-    }
-
-    @Test
-    void createTask_withoutTemplateAndText_throwsValidation() {
-        Fixture fixture = seedFixture("empty-content");
-        CreateMarketingTaskDTO req = request("空内容任务", fixture.accountGroupId(), null, "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))),
-                null,
-                null);
+    void createTask_withoutTemplate_throwsValidation() {
+        Fixture fixture = seedFixture("missing-template");
+        CreateMarketingTaskDTO req = requestWithoutTemplate("缺模板任务", fixture.accountGroupId(), "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("请选择营销模板或填写文本内容");
-    }
-
-    @Test
-    void createTask_withTemplateAndText_throwsValidation() {
-        Fixture fixture = seedFixture("both-content");
-        CreateMarketingTaskDTO req = request("双内容任务", fixture.accountGroupId(), fixture.templateId(), "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))),
-                "TEMPLATE",
-                "不允许同时填写");
-
-        assertThatThrownBy(() -> service.createTask(req))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("营销模板和文本内容只能选择其中一种");
+                .hasMessageContaining("请选择营销模板");
     }
 
     @Test
@@ -184,22 +144,12 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                                            long templateId,
                                            String startMode,
                                            List<MarketingSelectionDTO> selections) {
-        return request(taskName, accountGroupId, templateId, startMode, selections, "TEMPLATE", null);
-    }
-
-    private CreateMarketingTaskDTO request(String taskName,
-                                           long accountGroupId,
-                                           Long templateId,
-                                           String startMode,
-                                           List<MarketingSelectionDTO> selections,
-                                           String sendContentType,
-                                           String textContent) {
         return new CreateMarketingTaskDTO(
                 taskName,
                 accountGroupId,
                 "营销账号组",
                 templateId,
-                templateId == null ? null : "营销模板",
+                "营销模板",
                 startMode,
                 1,
                 30,
@@ -207,8 +157,26 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 true,
                 false,
                 "备注",
-                sendContentType,
-                textContent,
+                selections);
+    }
+
+    private CreateMarketingTaskDTO requestWithoutTemplate(String taskName,
+                                                          long accountGroupId,
+                                                          String startMode,
+                                                          List<MarketingSelectionDTO> selections) {
+        return new CreateMarketingTaskDTO(
+                taskName,
+                accountGroupId,
+                "营销账号组",
+                null,
+                null,
+                startMode,
+                1,
+                30,
+                true,
+                true,
+                false,
+                "备注",
                 selections);
     }
 

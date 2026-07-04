@@ -65,15 +65,21 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
     }
 
     @Test
-    void marketingTask_supportsTemplateOrTextContent() {
-        assertThat(columnType("marketing_task", "send_content_type")).isEqualTo("tinyint");
-        assertThat(columnComment("marketing_task", "send_content_type"))
-                .isEqualTo("发送内容类型:1=营销模板 2=纯文本");
-        assertThat(columnType("marketing_task", "text_content")).isEqualTo("text");
-        assertThat(columnComment("marketing_task", "text_content"))
-                .isEqualTo("纯文本发送内容;send_content_type=2时使用");
-        assertThat(nullable("marketing_task", "marketing_template_id")).isEqualTo("YES");
-        assertThat(nullable("marketing_task", "marketing_template_name")).isEqualTo("YES");
+    void marketingTask_requiresMarketingTemplateContent() {
+        assertThat(columnExists("marketing_task", "send_content_type")).isFalse();
+        assertThat(columnExists("marketing_task", "text_content")).isFalse();
+        assertThat(nullable("marketing_task", "marketing_template_id")).isEqualTo("NO");
+        assertThat(nullable("marketing_task", "marketing_template_name")).isEqualTo("NO");
+        assertThat(columnComment("marketing_task", "marketing_template_id"))
+                .isEqualTo("营销模板ID(→marketing_template.id)");
+        assertThat(columnComment("marketing_task", "marketing_template_name"))
+                .isEqualTo("营销模板名称快照");
+    }
+
+    @Test
+    void marketingTemplate_linkModeSupportsImageTextContent() {
+        assertThat(columnComment("marketing_template", "link_mode"))
+                .isEqualTo("消息类型:1=普通超链 2=按钮超链 3=图文内容");
     }
 
     @Test

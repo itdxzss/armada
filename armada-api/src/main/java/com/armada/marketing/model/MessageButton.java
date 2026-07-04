@@ -1,7 +1,7 @@
 package com.armada.marketing.model;
 
 /**
- * 消息按钮值对象。营销模板按钮超链模式下使用,最多 3 个。
+ * 消息按钮值对象。营销模板按钮超链消息类型下使用,最多 3 个。
  */
 public record MessageButton(
 

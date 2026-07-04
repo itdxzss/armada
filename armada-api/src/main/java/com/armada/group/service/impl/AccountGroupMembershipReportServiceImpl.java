@@ -108,7 +108,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     private Set<String> loadBaselineGroupJids(Long accountId) {
         String json = membershipMapper.selectBaselineGroupJidsJson(accountId);
         if (json == null || json.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "账号群基线不存在: " + accountId);
+            return Set.of();
         }
         List<String> groupJids;
         try {

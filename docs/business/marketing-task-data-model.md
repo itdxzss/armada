@@ -4,7 +4,7 @@
 
 ## 设计原则
 
-1. 发送内容支持「营销模板」或「纯文本内容」二选一:模板任务引用 `marketing_template`,文本任务直接保存 `text_content`。
+1. 新增营销任务的发送内容只引用 `marketing_template`,模板字段必填;任务表不再保存临时纯文本内容。
 2. `account_state` 仍是账号在线、封禁、风控、禁言事实源,任务表不复制账号状态事实。
 3. `group_link` / `group_link_preview` / `group_link_health` 仍是群入口、群协议元数据、群健康事实源,任务目标只保存执行快照与 `group_jid`。
 4. 营销任务按「任务配置 → 账号×群目标 → 发送尝试历史」三层拆表,避免宽表。
@@ -71,10 +71,8 @@
 | `task_name` | `VARCHAR(128) NOT NULL` | 任务名称 |
 | `account_group_id` | `BIGINT NOT NULL` | 创建时选择的账号分组 ID |
 | `account_group_name` | `VARCHAR(100) NOT NULL` | 分组名称快照 |
-| `marketing_template_id` | `BIGINT NULL` | 模板任务使用,`send_content_type=1` 时必填 |
-| `marketing_template_name` | `VARCHAR(128) NULL` | 模板名称快照,`send_content_type=1` 时必填 |
-| `send_content_type` | `TINYINT NOT NULL DEFAULT 1` | 发送内容类型:1=营销模板 2=纯文本 |
-| `text_content` | `TEXT NULL` | 纯文本发送内容,`send_content_type=2` 时使用;URL 按普通文本保存 |
+| `marketing_template_id` | `BIGINT NOT NULL` | 营销模板 ID(→marketing_template.id) |
+| `marketing_template_name` | `VARCHAR(128) NOT NULL` | 营销模板名称快照 |
 | `status` | `TINYINT NOT NULL DEFAULT 1` | 1=待启动/未发送 2=发送中 3=发送成功 4=发送失败 5=已停止 6=部分失败 |
 | `selected_account_count` | `INT NOT NULL DEFAULT 0` | 选中去重发送账号数 |
 | `target_group_count` | `INT NOT NULL DEFAULT 0` | 选中去重目标群数 |
@@ -105,12 +103,11 @@
 | `idx_marketing_task_template` | `tenant_id, marketing_template_id` | 模板删除时查找关联任务 |
 | `idx_marketing_task_account_group` | `tenant_id, account_group_id` | 账号分组维度排查 |
 
-发送内容二选一:
+发送内容来源:
 
-- 模板任务:`send_content_type=1`,`marketing_template_id/name` 非空,`text_content=NULL`。
-- 文本任务:`send_content_type=2`,`marketing_template_id/name=NULL`,`text_content` 非空。
-- 用户输入 URL 时不做 URL 校验、不生成链接卡片,按普通文本发送。
-- 文本任务不支持任务侧修改营销模板;删除营销模板只影响模板任务。
+- 每个营销任务必须引用一个营销模板,创建任务时保存模板 ID 与名称快照。
+- 任务侧修改营销素材仍通过任务引用的共享模板完成,不会生成任务私有素材副本。
+- 营销模板删除时会停止仍可执行的关联任务。
 
 ## marketing_task_target
 
@@ -192,6 +189,7 @@
 
 Flyway 文件: `armada-api/src/main/resources/db/migration/V014__marketing_task_data_model.sql`。
 
-纯文本发送内容扩展文件: `armada-api/src/main/resources/db/migration/V036__marketing_task_text_content.sql`。
+历史说明:`V036__marketing_task_text_content.sql` 曾短暂调整任务内容来源,当前需求已回收;最终结构通过
+`V037__marketing_template_only_and_image_text_mode.sql` 前滚删除 `send_content_type`、`text_content`,并恢复模板字段必填。
 
 本地测试库已有 `V013__protocol_command_outbox.sql` 迁移历史,当前工作树缺这个文件,所以本轮营销任务迁移排到 V014 防撞号。

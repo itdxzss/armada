@@ -5,7 +5,7 @@ import com.armada.shared.paging.PageQuery;
 /**
  * 营销模板列表查询。GET 列表用 {@code @ModelAttribute} 绑定,故为可变 class extends PageQuery。
  *
- * <p>对应需求搜索项:ID(精准)、模板名称(模糊)、文本类型、超链模式。推广链接为二期,暂不含。</p>
+ * <p>对应需求搜索项:ID(精准)、模板名称(模糊)、文本类型、消息类型。推广链接为二期,暂不含。</p>
  */
 public class MarketingTemplateQuery extends PageQuery {
 
@@ -18,7 +18,7 @@ public class MarketingTemplateQuery extends PageQuery {
     /** 文本类型,枚举筛选;为空/"全部类型"不参与。 */
     private String textType;
 
-    /** 超链模式码(1普通/2按钮);为空不参与。 */
+    /** 消息类型码(1普通/2按钮/3图文内容);为空不参与。 */
     private Integer linkMode;
 
     public Long getId() {

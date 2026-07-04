@@ -89,7 +89,9 @@
   </select>
 
   <!--
-    账号当前群同步候选:跨租户扫描在线正常账号,并要求登录前群基线已经拍完。
+    账号当前群同步候选:跨租户扫描在线正常账号。
+    已拍 baseline 的账号按 baseline 做差集;待拍/不启用 baseline 的账号也允许同步,
+    由 markGroupSyncRequested 补空 baseline 水位,避免账号树因 baseline 链路未初始化而永久为空。
     调度线程没有租户上下文,所以 mapper 方法关闭租户拦截器,这里显式按 tenant_id 连接。
   -->
   <select id="selectGroupSyncCandidates" resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
@@ -100,11 +102,11 @@
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
-    INNER JOIN account_group_baseline b
+    LEFT JOIN account_group_baseline b
       ON b.tenant_id = a.tenant_id
      AND b.account_id = a.id
     WHERE a.deleted_at IS NULL
-      AND a.group_baseline_state = #{baselineCapturedState}
+      AND a.group_baseline_state IN (1, #{baselineCapturedState}, 3)
       AND a.protocol_account_id IS NOT NULL
       AND a.protocol_account_id != ''
       AND s.login_state = #{onlineLoginState}
@@ -117,13 +119,19 @@
     LIMIT #{limit}
   </select>
 
-  <update id="markGroupSyncRequested">
-    UPDATE account_group_baseline
-    SET last_group_sync_requested_at = #{requestedAt},
-        updated_at = #{requestedAt}
-    WHERE account_id IN
-    <foreach collection="accountIds" item="id" open="(" separator="," close=")">#{id}</foreach>
-  </update>
+  <insert id="markGroupSyncRequested">
+    INSERT INTO account_group_baseline (
+      account_id, baseline_group_jids, group_count, captured_at,
+      last_group_sync_requested_at, created_at, updated_at
+    )
+    VALUES
+    <foreach collection="accountIds" item="id" separator=",">
+      (#{id}, JSON_ARRAY(), 0, #{requestedAt}, #{requestedAt}, #{requestedAt}, #{requestedAt})
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      last_group_sync_requested_at = VALUES(last_group_sync_requested_at),
+      updated_at = VALUES(updated_at)
+  </insert>
 
   <!--
     共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入,不手写。

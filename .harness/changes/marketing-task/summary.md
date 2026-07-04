@@ -102,11 +102,10 @@ mvn -q -Dtest=MarketingTaskDataModelMigrationDbTest,MarketingTaskCreateReadDbTes
 - 本轮不接协议层发送引擎,不实际发 WhatsApp 消息。
 - 账号群树暂不能证明“账号当前真的在该群内”或“账号是群管理员”,后续需要协议层成员事实回流后再收紧。
 
-## 2026-07-04 发送内容二选一
+## 2026-07-04 需求回收:任务恢复模板必填,模板新增图文内容
 
-- `marketing_task` 新增 `send_content_type` 和 `text_content`,模板字段改为可空。
-- `POST /api/marketing-tasks` 支持模板任务和纯文本任务二选一。
-- 文本内容中的 URL 按普通文字保存,不校验 URL,不生成链接卡片。
-- 文本任务不支持 `PUT /api/marketing-tasks/{id}/marketing-template`。
-- 删除营销模板只会停止模板任务,不会影响纯文本任务。
-- 新增/更新 DbTest:`MarketingTaskDataModelMigrationDbTest`、`MarketingTaskCreateReadDbTest`、`MarketingTaskControllerDbTest`、`MarketingTaskMaterialUpdateDbTest`、`MarketingTemplateDeletionDbTest`。
+- `marketing_task` 最终不保留 `send_content_type` 和 `text_content`;`marketing_template_id`、`marketing_template_name` 恢复为必填。
+- 因 `V036__marketing_task_text_content.sql` 已在测试环境执行,不删除历史迁移;新增 `V037__marketing_template_only_and_image_text_mode.sql` 前滚删除两列。
+- `POST /api/marketing-tasks` 恢复为必须选择营销模板,不再支持任务内填写文本内容。
+- `marketing_template.link_mode` 消息类型新增 `3=图文内容`;仅 `2=按钮超链` 允许配置消息按钮。
+- 新增/更新测试:`MarketingTaskDataModelMigrationDbTest`、`MarketingTaskCreateReadDbTest`、`MarketingTaskControllerDbTest`、`MarketingTaskMaterialUpdateDbTest`、`MarketingTemplateDeletionDbTest`、`MarketingTemplateServiceImplTest`。

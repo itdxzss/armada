@@ -128,6 +128,47 @@ class AccountOnlineMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectGroupSyncCandidates_includesPendingBaselineAccountsWithoutBaselineRow() {
+        long now = System.currentTimeMillis();
+        Account pending = insertAccount("86162" + (now % 10000000L), now);
+        insertDefaultState(pending.getId(), now);
+        markNormalOnline(pending.getId());
+        jdbc.update("UPDATE account SET group_baseline_state = ? WHERE id = ?",
+                AccountGroupBaselineStateCode.PENDING, pending.getId());
+
+        List<AccountGroupSyncCandidate> candidates = accountMapper.selectGroupSyncCandidates(
+                50,
+                AccountLoginStateCode.ONLINE,
+                AccountStateCode.NORMAL,
+                AccountGroupBaselineStateCode.CAPTURED);
+
+        assertThat(candidates).extracting(AccountGroupSyncCandidate::accountId)
+                .contains(pending.getId());
+    }
+
+    @Test
+    void markGroupSyncRequested_createsEmptyBaselineWatermarkWhenMissing() {
+        long now = System.currentTimeMillis();
+        Account pending = insertAccount("86163" + (now % 10000000L), now);
+        jdbc.update("UPDATE account SET group_baseline_state = ? WHERE id = ?",
+                AccountGroupBaselineStateCode.PENDING, pending.getId());
+
+        int affected = accountMapper.markGroupSyncRequested(List.of(pending.getId()), now + 1_000);
+
+        assertThat(affected).isGreaterThanOrEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT baseline_group_jids
+                FROM account_group_baseline
+                WHERE account_id = ?
+                """, String.class, pending.getId())).isEqualTo("[]");
+        assertThat(jdbc.queryForObject("""
+                SELECT last_group_sync_requested_at
+                FROM account_group_baseline
+                WHERE account_id = ?
+                """, Long.class, pending.getId())).isEqualTo(now + 1_000);
+    }
+
+    @Test
     void selectGroupSyncCandidates_ordersByOldestGroupSyncRequestWatermark() {
         long now = System.currentTimeMillis();
         Account neverRequested = insertAccount("86159" + (now % 10000000L), now + 30);

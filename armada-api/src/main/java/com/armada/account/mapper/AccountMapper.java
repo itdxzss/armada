@@ -86,8 +86,8 @@ public interface AccountMapper {
      * 跨租户扫描账号当前群同步候选。
      *
      * <p>调度线程没有 HTTP 租户上下文,因此关闭租户拦截器并在 SQL 内显式按 tenant_id
-     * 连接 account/account_state/account_group_baseline。只选择已拍 baseline 的在线正常账号,
-     * 避免上线前历史群被误纳入“系统上线后群”。</p>
+     * 连接 account/account_state/account_group_baseline。已拍 baseline 的在线正常账号按 baseline 做差集;
+     * 待拍/不启用 baseline 的在线正常账号也允许同步,避免账号树因 baseline 未初始化而永久为空。</p>
      *
      * @param limit                 本轮最大候选数
      * @param onlineLoginState      在线登录态码

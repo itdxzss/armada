@@ -4,7 +4,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 
 /**
- * 营销模板超链模式。
+ * 营销模板消息类型。
  */
 public enum LinkMode {
 
@@ -12,7 +12,10 @@ public enum LinkMode {
     NORMAL(1),
 
     /** 按钮超链:通过消息按钮承载,最多 3 个按钮。 */
-    BUTTON(2);
+    BUTTON(2),
+
+    /** 图文内容:按图文模板内容发送,不配置消息按钮。 */
+    IMAGE_TEXT(3);
 
     private final int code;
 
@@ -33,6 +36,6 @@ public enum LinkMode {
                 }
             }
         }
-        throw new BusinessException(ErrorCode.VALIDATION, "非法的超链模式: " + code);
+        throw new BusinessException(ErrorCode.VALIDATION, "非法的消息类型: " + code);
     }
 }

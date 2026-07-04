@@ -73,7 +73,7 @@ class MarketingTemplateServiceImplTest {
         List<MessageButton> buttons = List.of(new MessageButton(ButtonType.QUICK_REPLY, "回复", null));
         assertThatThrownBy(() -> service.create(dto("t", LinkMode.NORMAL.code(), buttons)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("普通超链模式不可配置消息按钮");
+                .hasMessageContaining("普通超链消息类型不可配置消息按钮");
     }
 
     @Test
@@ -82,6 +82,29 @@ class MarketingTemplateServiceImplTest {
         assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), List.of())))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("至少配置 1 个");
+    }
+
+    @Test
+    void create_imageTextModeWithoutButtons_insertsAndReturnsVO() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+        MarketingTemplate entity = new MarketingTemplate();
+        when(converter.toEntity(any())).thenReturn(entity);
+        when(mapper.selectById(any())).thenReturn(entity);
+
+        service.create(dto("图文模板", LinkMode.IMAGE_TEXT.code(), null));
+
+        verify(mapper).insert(entity);
+        verify(converter).toVO(entity);
+    }
+
+    @Test
+    void create_imageTextModeWithButtons_throws() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+        List<MessageButton> buttons = List.of(new MessageButton(ButtonType.QUICK_REPLY, "回复", null));
+
+        assertThatThrownBy(() -> service.create(dto("图文模板", LinkMode.IMAGE_TEXT.code(), buttons)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("图文内容消息类型不可配置消息按钮");
     }
 
     @Test
@@ -100,6 +123,36 @@ class MarketingTemplateServiceImplTest {
         assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), buttons)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必须填写参数");
+    }
+
+    @Test
+    void create_invalidPromotionLink_throws() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+
+        MarketingTemplateDTO request = new MarketingTemplateDTO(
+                "t",
+                LinkMode.NORMAL.code(),
+                "PROMO",
+                null,
+                "内容",
+                "正文",
+                null,
+                "not-a-url",
+                "备注");
+
+        assertThatThrownBy(() -> service.create(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("推广链接格式不正确");
+    }
+
+    @Test
+    void create_linkJumpButtonWithInvalidUrl_throws() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+        List<MessageButton> buttons = List.of(new MessageButton(ButtonType.LINK_JUMP, "去看看", "abc"));
+
+        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), buttons)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("跳转链接格式不正确");
     }
 
     @Test

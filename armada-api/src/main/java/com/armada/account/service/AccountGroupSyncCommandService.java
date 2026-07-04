@@ -110,7 +110,7 @@ public class AccountGroupSyncCommandService {
         long requestedAt = System.currentTimeMillis();
         List<Long> accountIds = accountIds(commands);
         int updated = accountMapper.markGroupSyncRequested(accountIds, requestedAt);
-        if (updated != accountIds.size()) {
+        if (updated < accountIds.size()) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "账号群同步水位更新数量不一致: expected=" + accountIds.size() + ", updated=" + updated);
         }

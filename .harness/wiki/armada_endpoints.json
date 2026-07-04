@@ -968,7 +968,7 @@
         "method": "GET",
         "path": "/api/marketing-templates",
         "name": "list",
-        "summary": "查询营销模板列表:按 ID / 模板名 / 文本类型 / 超链模式组合筛选并分页,供列表页展示。",
+        "summary": "查询营销模板列表:按 ID / 模板名 / 文本类型 / 消息类型组合筛选并分页,供列表页展示。",
         "perm": null,
         "params": [
           {

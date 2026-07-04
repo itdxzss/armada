@@ -69,52 +69,7 @@ class MarketingTaskControllerDbTest {
     }
 
     @Test
-    void postCreate_withTextContent_returnsCreatedTextTask() throws Exception {
-        Fixture fixture = seedFixture("controller-text");
-        String text = "https://example.com/promo 按普通文字发送";
-        String body = """
-                {
-                  "taskName":"纯文本接口任务",
-                  "accountGroupId":%d,
-                  "accountGroupName":"营销账号组",
-                  "marketingTemplateId":null,
-                  "marketingTemplateName":null,
-                  "sendContentType":"TEXT",
-                  "textContent":"%s",
-                  "startMode":"PENDING",
-                  "sendPerRound":1,
-                  "sendIntervalSeconds":30,
-                  "onlineCheckEnabled":true,
-                  "abnormalGroupSkipped":true,
-                  "autoRetryEnabled":false,
-                  "selections":[{"accountId":%d,"groupLinkIds":[%d]}]
-                }
-                """.formatted(fixture.accountGroupId(), text, fixture.accountId(), fixture.groupLinkId());
-
-        MvcResult result = mockMvc.perform(post("/api/marketing-tasks")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(body)
-                        .header(TENANT_HEADER, TENANT_CODE))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.sendContentType").value(2))
-                .andExpect(jsonPath("$.data.textContent").value(text))
-                .andReturn();
-        long taskId = objectMapper.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
-                .path("data").path("id").asLong();
-
-        assertThat(jdbc.queryForObject(
-                "SELECT marketing_template_id FROM marketing_task WHERE id = ?",
-                Long.class,
-                taskId)).isNull();
-        assertThat(jdbc.queryForObject(
-                "SELECT marketing_template_name FROM marketing_task WHERE id = ?",
-                String.class,
-                taskId)).isNull();
-    }
-
-    @Test
-    void postCreate_withoutTemplateAndText_returnsValidationMessage() throws Exception {
+    void postCreate_withoutTemplate_returnsValidationMessage() throws Exception {
         Fixture fixture = seedFixture("controller-empty");
         String body = """
                 {
@@ -136,7 +91,7 @@ class MarketingTaskControllerDbTest {
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION.code()))
-                .andExpect(jsonPath("$.message").value("请选择营销模板或填写文本内容"));
+                .andExpect(jsonPath("$.message").value("请选择营销模板"));
     }
 
     @Test
@@ -296,8 +251,6 @@ class MarketingTaskControllerDbTest {
                 true,
                 false,
                 "Controller测试备注",
-                "TEMPLATE",
-                null,
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
     }
 

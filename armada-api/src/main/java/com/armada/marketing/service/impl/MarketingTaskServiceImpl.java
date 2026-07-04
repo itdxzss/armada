@@ -9,7 +9,6 @@ import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
-import com.armada.marketing.model.enums.MarketingTaskContentType;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.vo.MarketingAccountTreeRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
@@ -113,10 +112,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         // 事务顺序固定:先校验共享事实,再生成目标快照,最后插主表和明细。
         // 任何一个目标不可用都整单失败,避免页面看到"半个任务"。
         validateRequest(request);
-        NormalizedSendContent content = normalizeSendContent(request);
+        MarketingTemplate template = requireTemplate(request.marketingTemplateId());
         long now = System.currentTimeMillis();
         List<MarketingTaskTarget> targets = buildTargets(request, now);
-        MarketingTask task = buildTask(request, content, targets, now);
+        MarketingTask task = buildTask(request, template, targets, now);
         taskMapper.insertTask(task);
         // 主表自增 id 回填后才能写 target.marketing_task_id。
         for (MarketingTaskTarget target : targets) {
@@ -262,10 +261,6 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO updateMarketingTemplate(Long id, MarketingTemplateDTO request) {
         MarketingTask task = requireTask(id);
-        if (!Integer.valueOf(MarketingTaskContentType.TEMPLATE.code()).equals(task.getSendContentType())
-                || task.getMarketingTemplateId() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "文本任务没有营销模板");
-        }
         MarketingTemplateVO updated = templateService.update(task.getMarketingTemplateId(), request);
         log.info("营销任务侧更新模板 taskId={} templateId={}", id, task.getMarketingTemplateId());
         return updated;
@@ -282,6 +277,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (request.accountGroupId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "请选择账号分组");
         }
+        if (request.marketingTemplateId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择营销模板");
+        }
         if (positive(request.sendPerRound()) < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "单次发送数量必须为正整数");
         }
@@ -291,37 +289,6 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (request.selections() == null || request.selections().isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个发送账号和群组");
         }
-    }
-
-    private NormalizedSendContent normalizeSendContent(CreateMarketingTaskDTO request) {
-        boolean hasTemplateId = request.marketingTemplateId() != null;
-        boolean hasTemplateName = StringUtils.hasText(request.marketingTemplateName());
-        boolean hasTemplate = hasTemplateId || hasTemplateName;
-        String trimmedText = StringUtils.hasText(request.textContent()) ? request.textContent().trim() : null;
-        boolean hasText = StringUtils.hasText(trimmedText);
-        if (hasTemplate && hasText) {
-            throw new BusinessException(ErrorCode.VALIDATION, "营销模板和文本内容只能选择其中一种");
-        }
-        if (!hasTemplate && !hasText) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请选择营销模板或填写文本内容");
-        }
-
-        MarketingTaskContentType contentType =
-                MarketingTaskContentType.fromRequest(request.sendContentType(), hasTemplate, hasText);
-        if (contentType == MarketingTaskContentType.TEMPLATE) {
-            if (!hasTemplateId) {
-                throw new BusinessException(ErrorCode.VALIDATION, "请选择营销模板或填写文本内容");
-            }
-            if (hasText) {
-                throw new BusinessException(ErrorCode.VALIDATION, "营销模板和文本内容只能选择其中一种");
-            }
-            MarketingTemplate template = requireTemplate(request.marketingTemplateId());
-            return new NormalizedSendContent(contentType, template.getId(), template.getTemplateName(), null);
-        }
-        if (hasTemplate || !hasText) {
-            throw new BusinessException(ErrorCode.VALIDATION, "营销模板和文本内容只能选择其中一种");
-        }
-        return new NormalizedSendContent(contentType, null, null, trimmedText);
     }
 
     private MarketingTemplate requireTemplate(Long id) {
@@ -402,7 +369,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return target;
     }
 
-    private MarketingTask buildTask(CreateMarketingTaskDTO request, NormalizedSendContent content,
+    private MarketingTask buildTask(CreateMarketingTaskDTO request, MarketingTemplate template,
                                     List<MarketingTaskTarget> targets, long now) {
         // 立即启动在当前 checkpoint 只改变主表状态和 started_at;发送计数仍保持 0。
         MarketingTaskStatus status = MarketingTaskStatus.fromStartMode(request.startMode());
@@ -410,10 +377,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setTaskName(request.taskName().trim());
         task.setAccountGroupId(request.accountGroupId());
         task.setAccountGroupName(snapshotName(request.accountGroupName(), "账号分组-" + request.accountGroupId()));
-        task.setMarketingTemplateId(content.templateId());
-        task.setMarketingTemplateName(content.templateName());
-        task.setSendContentType(content.contentType().code());
-        task.setTextContent(content.textContent());
+        task.setMarketingTemplateId(template.getId());
+        task.setMarketingTemplateName(template.getTemplateName());
         task.setStatus(status.code());
         // 三个计数含义不同:
         // selectedAccountCount=去重账号数,targetGroupCount=去重群数,targetPairCount=真实执行目标行数。
@@ -434,12 +399,6 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;
-    }
-
-    private record NormalizedSendContent(MarketingTaskContentType contentType,
-                                         Long templateId,
-                                         String templateName,
-                                         String textContent) {
     }
 
     private static List<Long> normalizeIds(List<Long> ids) {
@@ -464,8 +423,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskVO toVO(MarketingTask task) {
         return new MarketingTaskVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
-                task.getMarketingTemplateId(), task.getMarketingTemplateName(),
-                task.getSendContentType(), task.getTextContent(), task.getStatus(),
+                task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
@@ -482,8 +440,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskDetailVO toDetailVO(MarketingTask task, List<MarketingTaskTargetVO> targets) {
         return new MarketingTaskDetailVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
-                task.getMarketingTemplateId(), task.getMarketingTemplateName(),
-                task.getSendContentType(), task.getTextContent(), task.getStatus(),
+                task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),

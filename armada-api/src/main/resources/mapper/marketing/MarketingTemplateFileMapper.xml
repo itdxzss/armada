@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.mapper.MarketingTemplateFileMapper">
+
+    <resultMap id="MarketingTemplateFileResultMap" type="com.armada.marketing.model.entity.MarketingTemplateFile">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="original_filename" property="originalFilename"/>
+        <result column="content_type" property="contentType"/>
+        <result column="size_bytes" property="sizeBytes"/>
+        <result column="content" property="content"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.armada.marketing.model.entity.MarketingTemplateFile"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_template_file
+            (original_filename, content_type, size_bytes, content, created_at)
+        VALUES
+            (#{originalFilename}, #{contentType}, #{sizeBytes}, #{content}, #{createdAt})
+    </insert>
+
+    <select id="selectById" resultMap="MarketingTemplateFileResultMap">
+        SELECT id, tenant_id, original_filename, content_type, size_bytes, content, created_at, deleted_at
+        FROM marketing_template_file
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+</mapper>

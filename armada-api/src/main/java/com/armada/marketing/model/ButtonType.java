@@ -1,7 +1,7 @@
 package com.armada.marketing.model;
 
 /**
- * 消息按钮类型(仅按钮超链模式下可配)。
+ * 消息按钮类型(仅按钮超链消息类型下可配)。
  */
 public enum ButtonType {
 

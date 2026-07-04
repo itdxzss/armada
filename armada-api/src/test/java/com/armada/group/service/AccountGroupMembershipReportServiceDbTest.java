@@ -97,6 +97,23 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 Integer.class, groupLinkId)).isEqualTo(55);
     }
 
+    @Test
+    void applyGroupsReported_withoutBaselineTreatsAllGroupsAsVisible() {
+        long accountId = seedAccountWithoutBaseline("923300001003");
+        String visibleJid = "120363visible-no-baseline@g.us";
+
+        service.applyGroupsReported(new AccountGroupsReportedEvent(
+                TEST_TENANT_ID,
+                accountId,
+                "acc_923300001003",
+                1782626401000L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        visibleJid, "无基线账号当前群", 12, null, null, false, false, null)),
+                "evt-groups-db-3"));
+
+        assertThat(countMembership(accountId, visibleJid, true)).isOne();
+    }
+
     private long seedAccount(String phone) {
         long now = System.currentTimeMillis();
         return insertAndReturnId("""
@@ -104,6 +121,22 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                     (tenant_id, ws_phone, account_type, ownership, protocol_account_id,
                      group_baseline_state, priority, created_at, updated_at)
                 VALUES (?, ?, 1, 1, ?, 2, 0, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, phone);
+            ps.setString(3, "acc_" + phone);
+            ps.setLong(4, now);
+            ps.setLong(5, now);
+        });
+    }
+
+    private long seedAccountWithoutBaseline(String phone) {
+        long now = System.currentTimeMillis();
+        return insertAndReturnId("""
+                INSERT INTO account
+                    (tenant_id, ws_phone, account_type, ownership, protocol_account_id,
+                     group_baseline_state, priority, created_at, updated_at)
+                VALUES (?, ?, 1, 1, ?, 1, 0, ?, ?)
                 """, ps -> {
             ps.setLong(1, TEST_TENANT_ID);
             ps.setString(2, phone);

@@ -262,6 +262,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO updateMarketingTemplate(Long id, MarketingTemplateDTO request) {
         MarketingTask task = requireTask(id);
+        if (!Integer.valueOf(MarketingTaskContentType.TEMPLATE.code()).equals(task.getSendContentType())
+                || task.getMarketingTemplateId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "文本任务没有营销模板");
+        }
         MarketingTemplateVO updated = templateService.update(task.getMarketingTemplateId(), request);
         log.info("营销任务侧更新模板 taskId={} templateId={}", id, task.getMarketingTemplateId());
         return updated;

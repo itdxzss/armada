@@ -77,6 +77,41 @@ class MarketingTaskMaterialUpdateDbTest extends DbTestBase {
                         .isEqualTo(ErrorCode.NOT_FOUND.code()));
     }
 
+    @Test
+    void updateMarketingTemplate_textTask_throwsValidation() {
+        Fixture fixture = seedFixture("text-material-update");
+        MarketingTaskVO task = service.createTask(new CreateMarketingTaskDTO(
+                "文本任务",
+                fixture.accountGroupId(),
+                "营销账号组",
+                null,
+                null,
+                "PENDING",
+                1,
+                30,
+                true,
+                true,
+                false,
+                "文本任务",
+                "TEXT",
+                "https://example.com 按普通文字发送",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        MarketingTemplateDTO request = new MarketingTemplateDTO(
+                "文本任务不可改模板",
+                1,
+                "PROMO",
+                null,
+                "内容",
+                "正文",
+                null,
+                null,
+                "备注");
+
+        assertThatThrownBy(() -> service.updateMarketingTemplate(task.id(), request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("文本任务没有营销模板");
+    }
+
     private MarketingTaskVO createTask(String taskName, Fixture fixture) {
         return service.createTask(new CreateMarketingTaskDTO(
                 taskName,

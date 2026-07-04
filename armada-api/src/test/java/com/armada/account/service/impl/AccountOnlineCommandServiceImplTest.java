@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -18,6 +19,8 @@ import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
@@ -81,6 +84,9 @@ class AccountOnlineCommandServiceImplTest {
 
     @Mock
     private AccountOnlineAttemptLogService accountOnlineAttemptLogService;
+
+    @Mock
+    private AccountTakeoverReonlineCooldown takeoverReonlineCooldown;
 
     @InjectMocks
     private AccountOnlineCommandServiceImpl service;
@@ -348,6 +354,113 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(result.results()).extracting(AccountBatchOnlineItemVO::result)
                 .containsExactly("ACCEPTED", "ACCEPTED");
         assertThat(result.remoteRoutes()).isEmpty();
+    }
+
+    @Test
+    void takeoverBatch_allReplacedMarksTakingOverAndEnqueuesTakeoverOnlineBatch() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        AccountCredential credentialB = credential(101L, 2, "{\"creds\":{},\"keys\":{}}");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(stateMapper.selectByAccountIds(List.of(100L, 101L)))
+                .thenReturn(List.of(state(100L, AccountStateCode.LOGIN_REPLACED, null),
+                        state(101L, AccountStateCode.LOGIN_REPLACED, null)));
+        when(stateMapper.markTakingOverByAccountIds(
+                eq(List.of(100L, 101L)),
+                eq(AccountStateCode.LOGIN_REPLACED),
+                eq(AccountStateCode.TAKING_OVER),
+                anyLong())).thenReturn(2);
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L, 101L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度"), ipRegionRow(101L, "马来西亚")));
+        when(ipProxyService.allocateOnlineEndpoints(List.of(
+                new IpProxyAllocationRequest(100L, "印度", true),
+                new IpProxyAllocationRequest(101L, "马来西亚", true))))
+                .thenReturn(List.of(
+                        new IpProxyAccountAllocation(100L, 7L, onlineEndpoint(), "iproyal"),
+                        new IpProxyAccountAllocation(101L, 8L, onlineEndpoint(), "iproyal")));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_takeover_100", "oa_takeover_101");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_takeover", List.of("cmd_100", "cmd_101"), 2));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+
+        AccountBatchOnlineVO result = service.takeoverBatch(List.of(100L, 101L));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).extracting(ProtocolOnlineCommandRequest::source)
+                .containsExactly("login_replaced_takeover", "login_replaced_takeover");
+        assertThat(result.accepted()).isEqualTo(2);
+    }
+
+    @Test
+    void takeoverBatch_containsNonReplacedThrowsValidation() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(stateMapper.selectByAccountIds(List.of(100L, 101L)))
+                .thenReturn(List.of(state(100L, AccountStateCode.LOGIN_REPLACED, null),
+                        state(101L, AccountStateCode.NORMAL, null)));
+
+        assertThatThrownBy(() -> service.takeoverBatch(List.of(100L, 101L)))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code());
+                    assertThat(ex.getMessage()).contains("当前所选账号存在非被抢登状态，请重新选择");
+                });
+
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void reonlineForTakeover_currentTakingOverEnqueuesSingleOnlineWithTakeoverSource() {
+        Account account = onlineAccount();
+        AccountCredential credential = onlineCredential();
+        ProxyEndpoint endpoint = onlineEndpoint();
+        when(stateMapper.selectByAccountId(100L)).thenReturn(state(100L, AccountStateCode.TAKING_OVER, null));
+        when(takeoverReonlineCooldown.tryAcquire(eq(100L), anyLong())).thenReturn(true);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_takeover_retry");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+
+        AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "offline_takeover");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
+        assertThat(command.source()).isEqualTo("offline_takeover");
+        assertThat(command.previousOnlineAttemptId()).isNull();
+        assertThat(result.accepted()).isTrue();
+    }
+
+    @Test
+    void reonlineForTakeover_notTakingOverSkipsWithoutOutbox() {
+        when(stateMapper.selectByAccountId(100L)).thenReturn(state(100L, AccountStateCode.LOGIN_REPLACED, null));
+
+        AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "offline_takeover");
+
+        assertThat(result.accepted()).isFalse();
+        verifyNoInteractions(accountMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void reonlineForTakeover_withinCooldownSkipsWithoutOutbox() {
+        when(stateMapper.selectByAccountId(100L)).thenReturn(state(100L, AccountStateCode.TAKING_OVER, null));
+        when(takeoverReonlineCooldown.tryAcquire(eq(100L), anyLong())).thenReturn(false);
+
+        AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "offline_takeover");
+
+        assertThat(result.accepted()).isFalse();
+        verifyNoInteractions(accountMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
     }
 
     @Test
@@ -647,6 +760,14 @@ class AccountOnlineCommandServiceImplTest {
         credential.setCredFormat(format);
         credential.setCredsJson(json);
         return credential;
+    }
+
+    private static AccountState state(Long accountId, Integer accountState, Integer muteStatus) {
+        AccountState state = new AccountState();
+        state.setAccountId(accountId);
+        state.setAccountState(accountState);
+        state.setMuteStatus(muteStatus);
+        return state;
     }
 
     private static AccountIpRegionRow ipRegionRow(Long accountId, String ipRegion) {

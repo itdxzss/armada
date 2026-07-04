@@ -22,7 +22,7 @@ public final class AccountStateCode {
     public static final int NORMAL = 2;
 
     /**
-     * 封禁:账号被 WhatsApp 封禁(401/403/440 NEED_REAUTH),不可正常使用。
+     * 封禁:账号被 WhatsApp 封禁(401/403 NEED_REAUTH),不可正常使用。
      */
     public static final int BANNED = 3;
 
@@ -35,4 +35,14 @@ public final class AccountStateCode {
      * 解绑:账号已从当前租户解绑,仅限在此状态下可执行删除。
      */
     public static final int UNBOUND = 5;
+
+    /**
+     * 被抢登:协议层确认 WhatsApp 返回 440 connection replaced,当前连接被另一端登录替换。
+     */
+    public static final int LOGIN_REPLACED = 6;
+
+    /**
+     * 抢登中:用户要求 Armada 持续尝试把被抢登账号重新上线。
+     */
+    public static final int TAKING_OVER = 7;
 }

@@ -7,6 +7,7 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.vo.AccountIpRegionRow;
@@ -39,6 +40,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 账号生命周期命令应用服务实现。
@@ -58,6 +60,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final String SOURCE_BATCH_OFFLINE = "batch_offline";
     private static final String SOURCE_IP_DELETE_RELOGIN = "ip_delete_relogin";
     private static final String SOURCE_PROXY_FAILED_REONLINE = "proxy_failed_reonline";
+    private static final String SOURCE_LOGIN_REPLACED_TAKEOVER = "login_replaced_takeover";
+    private static final String TAKEOVER_SELECTION_MESSAGE = "当前所选账号存在非被抢登状态，请重新选择";
+    private static final String TAKEOVER_SKIPPED_SOURCE = "TAKEOVER_SKIPPED";
     private static final int TRUTH_IP_MAX_LENGTH = 45;
     private static final int PROXY_COUNTRY_MAX_LENGTH = 64;
     private static final int PROXY_SOURCE_MAX_LENGTH = 64;
@@ -74,6 +79,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private final ProtocolCommandOutboxService protocolCommandOutboxService;
     private final OnlineAttemptIdGenerator onlineAttemptIdGenerator;
     private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
+    private final AccountTakeoverReonlineCooldown takeoverReonlineCooldown;
 
     /**
      * 创建账号上线编排服务。
@@ -87,7 +93,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                            CountryService countryService,
                                            ProtocolCommandOutboxService protocolCommandOutboxService,
                                            OnlineAttemptIdGenerator onlineAttemptIdGenerator,
-                                           AccountOnlineAttemptLogService accountOnlineAttemptLogService) {
+                                           AccountOnlineAttemptLogService accountOnlineAttemptLogService,
+                                           AccountTakeoverReonlineCooldown takeoverReonlineCooldown) {
         this.accountMapper = accountMapper;
         this.credentialMapper = credentialMapper;
         this.stateMapper = stateMapper;
@@ -96,6 +103,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         this.protocolCommandOutboxService = protocolCommandOutboxService;
         this.onlineAttemptIdGenerator = onlineAttemptIdGenerator;
         this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
+        this.takeoverReonlineCooldown = takeoverReonlineCooldown;
     }
 
     /**
@@ -118,6 +126,57 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Override
     public AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId) {
         return onlineWithSource(accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId);
+    }
+
+    /**
+     * 批量一键抢登被抢登账号。
+     *
+     * <p>该方法把“全部为被抢登且未禁言”的业务校验放在写 outbox 前,并在同一事务里把账号改为抢登中。
+     * 后续是否真的在线仍由协议层状态事件回填。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AccountBatchOnlineVO takeoverBatch(List<Long> accountIds) {
+        List<Long> ids = normalizeBatchAccountIds(accountIds);
+        loadAccounts(ids);
+        validateTakeoverStates(ids);
+        long now = System.currentTimeMillis();
+        int updated = stateMapper.markTakingOverByAccountIds(
+                ids,
+                AccountStateCode.LOGIN_REPLACED,
+                AccountStateCode.TAKING_OVER,
+                now);
+        if (updated != ids.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION, TAKEOVER_SELECTION_MESSAGE);
+        }
+        log.info("账号批量一键抢登开始 requested={}", ids.size());
+        return enqueueOnlineBatch(
+                ids,
+                SOURCE_LOGIN_REPLACED_TAKEOVER,
+                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)));
+    }
+
+    /**
+     * 抢登中账号自动续上线。
+     *
+     * <p>调用方通常是状态事件 side effect。这里再次读取账号状态,确保用户手动离线、禁言或状态变化后不会继续写 outbox。</p>
+     */
+    @Override
+    public AccountOnlineVO reonlineForTakeover(Long accountId, String failedOnlineAttemptId, String source) {
+        if (accountId == null) {
+            return skippedTakeoverVO(null);
+        }
+        AccountState state = stateMapper.selectByAccountId(accountId);
+        if (!isTakeoverEligible(state)) {
+            log.info("抢登续上线跳过:账号已不在抢登中或已禁言 accountId={} source={}", accountId, source);
+            return skippedTakeoverVO(accountId);
+        }
+        long now = System.currentTimeMillis();
+        if (!takeoverReonlineCooldown.tryAcquire(accountId, now)) {
+            log.info("抢登续上线跳过:账号处于短窗口冷却 accountId={} source={}", accountId, source);
+            return skippedTakeoverVO(accountId);
+        }
+        return onlineWithSource(accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId);
     }
 
     private AccountOnlineVO onlineWithSource(Long accountId, String source, String failedOnlineAttemptId) {
@@ -306,6 +365,29 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return credentialsByAccountId;
     }
 
+    private void validateTakeoverStates(List<Long> ids) {
+        Map<Long, AccountState> statesByAccountId = new HashMap<>();
+        for (AccountState state : stateMapper.selectByAccountIds(ids)) {
+            statesByAccountId.put(state.getAccountId(), state);
+        }
+        for (Long id : ids) {
+            AccountState state = statesByAccountId.get(id);
+            if (state == null
+                    || state.getAccountState() == null
+                    || state.getAccountState() != AccountStateCode.LOGIN_REPLACED
+                    || state.getMuteStatus() != null) {
+                throw new BusinessException(ErrorCode.VALIDATION, TAKEOVER_SELECTION_MESSAGE);
+            }
+        }
+    }
+
+    private static boolean isTakeoverEligible(AccountState state) {
+        return state != null
+                && state.getAccountState() != null
+                && state.getAccountState() == AccountStateCode.TAKING_OVER
+                && state.getMuteStatus() == null;
+    }
+
     private IpProxyAllocationRequest allocationRequest(Long accountId) {
         return allocationRequests(List.of(accountId)).get(0);
     }
@@ -486,6 +568,19 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
     private AccountBatchOnlineVO emptyBatchVO() {
         return new AccountBatchOnlineVO(0, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of());
+    }
+
+    private static AccountOnlineVO skippedTakeoverVO(Long accountId) {
+        return new AccountOnlineVO(
+                accountId,
+                null,
+                false,
+                TAKEOVER_SKIPPED_SOURCE,
+                System.currentTimeMillis(),
+                null,
+                null,
+                null,
+                false);
     }
 
     private String previousAttemptId(Long accountId, String source, String failedOnlineAttemptId) {

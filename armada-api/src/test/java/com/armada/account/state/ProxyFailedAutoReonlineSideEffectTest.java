@@ -34,6 +34,7 @@ class ProxyFailedAutoReonlineSideEffectTest {
                 1782626401000L,
                 "PROXY_FAILED",
                 null,
+                null,
                 "oa_failed_1");
 
         sideEffect.afterStateChanged(account, event, event.occurredAt());
@@ -54,6 +55,7 @@ class ProxyFailedAutoReonlineSideEffectTest {
                 "OFFLINE",
                 1782626401000L,
                 "OFFLINE",
+                null,
                 null,
                 "oa_offline_1");
 

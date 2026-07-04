@@ -63,6 +63,7 @@ class ProtocolAccountEventConsumerTest {
                     "reason": "connected",
                     "semantic": "RECONNECTING",
                     "rawCode": 515,
+                    "source": "batch_offline",
                     "onlineAttemptId": "oa_state_1"
                   }
                 }
@@ -83,6 +84,7 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.occurredAt()).isEqualTo(1782626401000L);
         assertThat(event.semantic()).isEqualTo("RECONNECTING");
         assertThat(event.rawCode()).isEqualTo(515);
+        assertThat(event.source()).isEqualTo("batch_offline");
         assertThat(event.onlineAttemptId()).isEqualTo("oa_state_1");
         assertThat(event.workerId()).isEqualTo("worker-a");
     }

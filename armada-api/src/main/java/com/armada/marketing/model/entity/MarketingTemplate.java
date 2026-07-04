@@ -23,7 +23,7 @@ public class MarketingTemplate {
     /** 文本类型(搜索筛选,dict 配置)。 */
     private String textType;
 
-    /** 图片文件 ID(≤500KB)。 */
+    /** 图片文件 ID。 */
     private Long imageFileId;
 
     /** 内容(标题/核心卖点)。 */

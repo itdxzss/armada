@@ -18,9 +18,6 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileService {
 
-    // 图片直接落库，限制体积可以避免单个模板素材占用过多数据库空间。
-    private static final long MAX_IMAGE_BYTES = 500L * 1024L;
-
     private final MarketingTemplateFileMapper mapper;
 
     public MarketingTemplateFileServiceImpl(MarketingTemplateFileMapper mapper) {
@@ -59,10 +56,6 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         // 空文件通常来自未选择文件或表单字段异常，直接返回业务校验错误。
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "请选择图片");
-        }
-        // 当前模板图片作为内联素材使用，超过限制会影响接口响应和数据库存储成本。
-        if (file.getSize() > MAX_IMAGE_BYTES) {
-            throw new BusinessException(ErrorCode.VALIDATION, "图片超过 500KB 限制");
         }
         String contentType = file.getContentType();
         // 这里只接受浏览器上传声明为 image/* 的文件，其他素材类型由模板文本字段处理。

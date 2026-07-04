@@ -3,7 +3,6 @@ package com.armada.marketing.service;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.service.impl.MarketingTemplateFileServiceImpl;
-import com.armada.shared.exception.BusinessException;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,7 +13,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
@@ -56,13 +54,25 @@ class MarketingTemplateFileServiceImplTest {
     }
 
     @Test
-    void uploadImage_largerThan500Kb_throws() {
-        byte[] bytes = new byte[500 * 1024 + 1];
+    void uploadImage_largeImage_persistsBytes() {
+        byte[] bytes = new byte[600 * 1024];
         Arrays.fill(bytes, (byte) 1);
         MockMultipartFile file = new MockMultipartFile("file", "large.png", "image/png", bytes);
+        ArgumentCaptor<MarketingTemplateFile> captor = ArgumentCaptor.forClass(MarketingTemplateFile.class);
+        doAnswer(invocation -> {
+            MarketingTemplateFile row = invocation.getArgument(0);
+            row.setId(78L);
+            return 1;
+        }).when(mapper).insert(any(MarketingTemplateFile.class));
 
-        assertThatThrownBy(() -> service.uploadImage(file))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("500KB");
+        var result = service.uploadImage(file);
+
+        verify(mapper).insert(captor.capture());
+        MarketingTemplateFile saved = captor.getValue();
+        assertThat(saved.getOriginalFilename()).isEqualTo("large.png");
+        assertThat(saved.getContentType()).isEqualTo("image/png");
+        assertThat(saved.getSizeBytes()).isEqualTo(bytes.length);
+        assertThat(saved.getContent()).hasSize(bytes.length);
+        assertThat(result.id()).isEqualTo(78L);
     }
 }

@@ -9,6 +9,7 @@ public class MarketingRoundSchedulerProperties {
     private int executorPoolSize = 5;
     private int scanLimit = 20;
     private int outboxBatchSize = 500;
+    private int imageOutboxBatchSize = 200;
     private int backlogMultiplier = 2;
 
     public boolean isEnabled() {
@@ -49,6 +50,14 @@ public class MarketingRoundSchedulerProperties {
 
     public void setOutboxBatchSize(int outboxBatchSize) {
         this.outboxBatchSize = outboxBatchSize;
+    }
+
+    public int getImageOutboxBatchSize() {
+        return imageOutboxBatchSize;
+    }
+
+    public void setImageOutboxBatchSize(int imageOutboxBatchSize) {
+        this.imageOutboxBatchSize = imageOutboxBatchSize;
     }
 
     public int getBacklogMultiplier() {

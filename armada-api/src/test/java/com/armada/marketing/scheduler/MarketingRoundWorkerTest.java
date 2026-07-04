@@ -8,6 +8,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -21,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -93,6 +95,48 @@ class MarketingRoundWorkerTest {
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType).containsOnly("TEXT");
     }
 
+    @Test
+    void imageRoundUsesTwoHundredCommandBatchSize() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        properties.setBacklogMultiplier(2);
+        properties.setOutboxBatchSize(500);
+
+        MarketingTask task = task();
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(450));
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
+            long id = 9000L;
+            for (MarketingTaskSendAttempt attempt : attempts) {
+                attempt.setId(++id);
+            }
+            return attempts.size();
+        }).when(taskMapper).insertSendAttempts(any());
+
+        MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
+        MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
+        when(templateMapper.selectById(77L)).thenReturn(imageTemplate());
+        when(fileMapper.selectById(88L)).thenReturn(imageFile());
+        MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
+                new MarketingMessageComposer(), outbox, properties);
+
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox, times(3)).enqueueMarketingMessageCommands(commandsCaptor.capture());
+        List<List<ProtocolMarketingMessageCommandRequest>> batches = commandsCaptor.getAllValues();
+        assertThat(batches).extracting(List::size).containsExactly(200, 200, 50);
+        assertThat(batches.stream().flatMap(List::stream).toList())
+                .extracting(ProtocolMarketingMessageCommandRequest::messageType)
+                .containsOnly("IMAGE");
+    }
+
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
                                         ProtocolCommandOutboxService outbox,
                                         MarketingRoundSchedulerProperties properties) {
@@ -136,5 +180,20 @@ class MarketingRoundWorkerTest {
         template.setLinkMode(LinkMode.BUTTON.code());
         template.setContent("hello");
         return template;
+    }
+
+    private static MarketingTemplate imageTemplate() {
+        MarketingTemplate template = template();
+        template.setLinkMode(LinkMode.IMAGE_TEXT.code());
+        template.setImageFileId(88L);
+        return template;
+    }
+
+    private static MarketingTemplateFile imageFile() {
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setId(88L);
+        file.setContentType("image/png");
+        file.setContent(new byte[] {1, 2, 3});
+        return file;
     }
 }

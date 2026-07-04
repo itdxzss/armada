@@ -158,7 +158,7 @@ public class MarketingRoundWorker {
                                  List<MarketingTaskTarget> targets,
                                  List<MarketingTaskSendAttempt> attempts,
                                  MarketingMessageComposer.ComposedMessage message) {
-        int batchSize = Math.max(1, Math.min(500, properties.getOutboxBatchSize()));
+        int batchSize = outboxBatchSize(message);
         List<ProtocolMarketingMessageCommandRequest> batch = new ArrayList<>(batchSize);
         String imageBase64 = message.imageBytes() == null ? null : Base64.getEncoder().encodeToString(message.imageBytes());
         for (int i = 0; i < attempts.size(); i++) {
@@ -187,6 +187,13 @@ public class MarketingRoundWorker {
         if (!batch.isEmpty()) {
             outboxService.enqueueMarketingMessageCommands(batch);
         }
+    }
+
+    private int outboxBatchSize(MarketingMessageComposer.ComposedMessage message) {
+        int configured = "IMAGE".equals(message.messageType())
+                ? properties.getImageOutboxBatchSize()
+                : properties.getOutboxBatchSize();
+        return Math.max(1, Math.min(500, configured));
     }
 
     /** 优先使用 account.protocol_account_id;测试或历史数据缺失时用账号手机号派生旧协议句柄。 */

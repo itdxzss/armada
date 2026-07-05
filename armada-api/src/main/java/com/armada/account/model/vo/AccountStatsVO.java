@@ -8,7 +8,7 @@ package com.armada.account.model.vo;
  *
  * @param total           本租户未软删账号总数
  * @param online          在线账号数(login_state=1)
- * @param offline         正常离线账号数(account_state=2 AND login_state=2)
+ * @param offline         离线账号数(account_state IN (1,2,6,7) AND login_state=2)
  * @param pendingOnline   待上线账号数(login_state=3)
  * @param restrictedTotal 异常账号总计(banned + unbound + muted + exported)
  * @param banned          封禁账号数(account_state=3)

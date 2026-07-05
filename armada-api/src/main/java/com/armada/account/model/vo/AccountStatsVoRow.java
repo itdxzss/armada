@@ -8,7 +8,7 @@ package com.armada.account.model.vo;
  * <ul>
  *   <li>total    — 本租户未软删账号总数(COUNT *)</li>
  *   <li>online   — login_state=1(在线)</li>
- *   <li>offline  — account_state=2 AND login_state=2(正常离线)</li>
+ *   <li>offline  — account_state IN (1,2,6,7) AND login_state=2(离线)</li>
  *   <li>pendingOnline — login_state=3(待上线)</li>
  *   <li>banned   — account_state=3(封禁)</li>
  *   <li>unbound  — account_state=5(解绑)</li>
@@ -29,7 +29,7 @@ public class AccountStatsVoRow {
     /** login_state=1 在线账号数。 */
     private long online;
 
-    /** account_state=2 AND login_state=2 正常离线账号数。 */
+    /** account_state IN (1,2,6,7) AND login_state=2 离线账号数。 */
     private long offline;
 
     /** login_state=3 待上线账号数。 */

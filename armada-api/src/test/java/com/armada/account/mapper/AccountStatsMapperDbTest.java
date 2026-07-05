@@ -201,4 +201,45 @@ class AccountStatsMapperDbTest extends DbTestBase {
         assertThat(after.getMuted() - before.getMuted()).isEqualTo(1L);
         assertThat(after.getExported() - before.getExported()).isEqualTo(1L);
     }
+
+    @Test
+    void statsSummary_operableLifecycleOfflineStatesCountAsOffline() {
+        long now = System.currentTimeMillis();
+        AccountStatsVoRow before = accountMapper.statsSummary();
+
+        Account newOffline = insertAccount("86211" + (now % 100000000L), now);
+        Account normalOffline = insertAccount("86212" + (now % 100000000L), now);
+        Account replaced = insertAccount("86213" + (now % 100000000L), now);
+        Account takingOver = insertAccount("86214" + (now % 100000000L), now);
+        Account banned = insertAccount("86215" + (now % 100000000L), now);
+        Account exported = insertAccount("86216" + (now % 100000000L), now);
+        Account unbound = insertAccount("86217" + (now % 100000000L), now);
+
+        insertDefaultState(newOffline.getId(), now);
+        insertDefaultState(normalOffline.getId(), now);
+        insertDefaultState(replaced.getId(), now);
+        insertDefaultState(takingOver.getId(), now);
+        insertDefaultState(banned.getId(), now);
+        insertDefaultState(exported.getId(), now);
+        insertDefaultState(unbound.getId(), now);
+
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.NEW, AccountLoginStateCode.OFFLINE, newOffline.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, normalOffline.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.OFFLINE, replaced.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.TAKING_OVER, AccountLoginStateCode.OFFLINE, takingOver.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.BANNED, AccountLoginStateCode.OFFLINE, banned.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.EXPORTED, AccountLoginStateCode.OFFLINE, exported.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.UNBOUND, AccountLoginStateCode.OFFLINE, unbound.getId());
+
+        AccountStatsVoRow after = accountMapper.statsSummary();
+
+        assertThat(after.getOffline() - before.getOffline()).isEqualTo(4L);
+    }
 }

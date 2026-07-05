@@ -118,6 +118,7 @@ class ProtocolCommandPublisherTest {
         assertThat(envelope.aggregateType()).isEqualTo("ACCOUNT");
         assertThat(envelope.aggregateId()).isEqualTo(100L);
         assertThat(envelope.protocolAccountId()).isEqualTo("acc_100");
+        assertThat(envelope.payload().get("tenantId").asLong()).isEqualTo(1L);
         assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
         assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_100");
         assertThat(envelope.payload().get("source").asText()).isEqualTo("batch_offline");

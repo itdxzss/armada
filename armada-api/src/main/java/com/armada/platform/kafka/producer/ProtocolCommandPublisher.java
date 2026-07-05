@@ -23,6 +23,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,6 +47,7 @@ public class ProtocolCommandPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolCommandPublisher.class);
     private static final String COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED = "account.online.requested";
+    private static final String COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED = "account.offline.requested";
     private static final TypeReference<Map<String, Object>> CREDENTIAL_TYPE = new TypeReference<>() {
     };
 
@@ -157,6 +159,8 @@ public class ProtocolCommandPublisher {
                 if (COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED.equals(row.getCommandType())) {
                     OnlineRowRef ref = onlineRef(row, payload(row));
                     onlineByTenant.computeIfAbsent(ref.tenantId(), ignored -> new ArrayList<>()).add(ref);
+                } else if (COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED.equals(row.getCommandType())) {
+                    envelopes.put(commandKey(row), toOfflineEnvelope(row, payload(row)));
                 } else {
                     envelopes.put(commandKey(row), toEnvelope(row, payload(row)));
                 }
@@ -246,6 +250,19 @@ public class ProtocolCommandPublisher {
 
     private ProtocolCommandEnvelope toEnvelope(ProtocolCommandOutbox row) {
         return toEnvelope(row, payload(row));
+    }
+
+    private ProtocolCommandEnvelope toOfflineEnvelope(ProtocolCommandOutbox row, JsonNode payload) {
+        Long tenantId = row.getTenantId();
+        if (tenantId == null) {
+            throw validation("协议下线命令缺少租户 ID commandId=" + row.getCommandId());
+        }
+        if (!payload.isObject()) {
+            throw validation("协议下线命令 payload 必须是 JSON object commandId=" + row.getCommandId());
+        }
+        ObjectNode hydratedPayload = payload.deepCopy();
+        hydratedPayload.put("tenantId", tenantId);
+        return toEnvelope(row, hydratedPayload);
     }
 
     private ProtocolCommandEnvelope toEnvelope(ProtocolCommandOutbox row, JsonNode payload) {

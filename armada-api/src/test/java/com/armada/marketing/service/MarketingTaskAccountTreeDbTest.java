@@ -76,6 +76,22 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
+    void accountTree_keepsOnlineAccountWhenAllMembershipGroupsAreBaseline() {
+        long accountGroupId = seedAccountGroup("tree-baseline-only");
+        long accountId = seedAccount("923300000008", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
+        String oldJid = "120363000008@g.us";
+        seedBaseline(accountId, "[\"" + oldJid + "\"]");
+        seedMembership(accountId, seedGroup("baseline-only", oldJid, 1, 0), oldJid);
+
+        MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
+
+        assertThat(tree.accounts()).singleElement().satisfies(account -> {
+            assertThat(account.accountId()).isEqualTo(accountId);
+            assertThat(account.groups()).isEmpty();
+        });
+    }
+
+    @Test
     void accountTree_showsOnlyCurrentMembershipGroupsForEachOnlineAccount() {
         long accountGroupId = seedAccountGroup("tree-pool");
         long firstAccountId = seedAccount("923300000005", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);

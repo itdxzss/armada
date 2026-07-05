@@ -332,6 +332,8 @@
                gm.is_admin AS is_admin
         FROM account a
         JOIN account_state s ON s.account_id = a.id
+        LEFT JOIN account_group_baseline b ON b.account_id = a.id
+                                           AND a.group_baseline_state = 2
         LEFT JOIN (
             SELECT
                    m.account_id AS account_id,
@@ -352,20 +354,16 @@
               AND TRIM(p.group_jid) &lt;&gt; ''
               AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
         ) gm ON gm.account_id = a.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
-                                           AND a.group_baseline_state = 2
+             AND (
+                 a.group_baseline_state &lt;&gt; 2
+                 OR b.id IS NULL
+                 OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(gm.group_jid)), 0) = 0
+             )
         WHERE a.account_group_id = #{groupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
-          AND (
-              gm.group_jid IS NULL
-              OR
-              a.group_baseline_state &lt;&gt; 2
-              OR b.id IS NULL
-              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(gm.group_jid)), 0) = 0
-          )
         ORDER BY a.id ASC, gm.group_link_id ASC
     </select>
 </mapper>

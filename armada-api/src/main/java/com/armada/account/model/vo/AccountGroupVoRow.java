@@ -14,6 +14,7 @@ public class AccountGroupVoRow {
     private long accountCount;
     private long onlineCount;
     private long riskCount;
+    private long restrictedCount;
     private long bannedCount;
     private Long createdAt;
     private Long updatedAt;
@@ -72,6 +73,14 @@ public class AccountGroupVoRow {
 
     public void setRiskCount(long riskCount) {
         this.riskCount = riskCount;
+    }
+
+    public long getRestrictedCount() {
+        return restrictedCount;
+    }
+
+    public void setRestrictedCount(long restrictedCount) {
+        this.restrictedCount = restrictedCount;
     }
 
     public long getBannedCount() {

@@ -10,6 +10,8 @@ import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
+import com.armada.marketing.model.enums.MarketingTargetScope;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -82,6 +84,12 @@ public class MarketingRoundWorker {
         }
     }
 
+    /**
+     * 在已设置租户上下文后执行一轮营销发送生成。
+     *
+     * <p>这里按固定顺序完成任务状态校验、目标解析、积压保护、轮次抢占、attempt 入库和 outbox 写入。
+     * 先解析目标再抢占轮次,是为了账号动态维度没有可发送群时只推迟下一轮,不空耗一个轮次号。</p>
+     */
     private void doRunRound(Long taskId) {
         MarketingTask task = taskMapper.selectTaskById(taskId);
         if (task == null) {
@@ -100,14 +108,21 @@ public class MarketingRoundWorker {
         }
         long now = System.currentTimeMillis();
         long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
+        List<ResolvedMarketingTarget> sendTargets = resolveSendTargets(targets);
+        if (sendTargets.isEmpty()) {
+            taskMapper.postponeDueRound(taskId, now, nextRoundAt);
+            log.info("营销任务轮次推迟:没有解析到本轮可发送群 tenantId={} taskId={} sourceTargetCount={} nextRoundAt={}",
+                    task.getTenantId(), task.getId(), targets.size(), nextRoundAt);
+            return;
+        }
         long unfinished = taskMapper.countUnfinishedAttempts(taskId);
-        long backlogThreshold = (long) Math.max(1, properties.getBacklogMultiplier()) * targets.size();
+        long backlogThreshold = (long) Math.max(1, properties.getBacklogMultiplier()) * sendTargets.size();
         // 下游协议层积压过高时只推迟下一轮,避免持续生成新 attempt 把 outbox 堆穿。
         if (unfinished >= backlogThreshold) {
             taskMapper.postponeDueRound(taskId, now, nextRoundAt);
             log.info("营销任务轮次因积压推迟 tenantId={} taskId={} targetCount={} unfinished={} "
                             + "backlogThreshold={} nextRoundAt={}",
-                    task.getTenantId(), task.getId(), targets.size(), unfinished, backlogThreshold, nextRoundAt);
+                    task.getTenantId(), task.getId(), sendTargets.size(), unfinished, backlogThreshold, nextRoundAt);
             return;
         }
         // claimDueRound 是并发闸门:只有一个线程能把到期任务推进到下一轮。
@@ -124,22 +139,85 @@ public class MarketingRoundWorker {
                 : fileMapper.selectById(template.getImageFileId());
         MarketingMessageComposer.ComposedMessage message = messageComposer.compose(template, imageFile);
 
-        List<MarketingTaskSendAttempt> attempts = new ArrayList<>(targets.size());
-        for (MarketingTaskTarget target : targets) {
-            attempts.add(toAttempt(task, target, roundNo, now));
+        List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
+        for (ResolvedMarketingTarget sendTarget : sendTargets) {
+            attempts.add(toAttempt(task, sendTarget, roundNo, now));
         }
         int inserted = taskMapper.insertSendAttempts(attempts);
         if (inserted != attempts.size()) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "营销发送尝试写入数量不一致: expected=" + attempts.size() + ", inserted=" + inserted);
         }
-        EnqueueSummary summary = enqueueCommands(task, targets, attempts, message);
+        EnqueueSummary summary = enqueueCommands(task, sendTargets, attempts, message);
         log.info("营销任务轮次发送命令已生成 tenantId={} taskId={} roundNo={} targetCount={} "
-                        + "attemptCount={} commandCount={} outboxBatches={} batchSize={} messageType={} "
+                        + "sourceTargetCount={} attemptCount={} commandCount={} outboxBatches={} batchSize={} messageType={} "
                         + "imageBytes={} nextRoundAt={}",
-                task.getTenantId(), task.getId(), roundNo, targets.size(), attempts.size(),
-                summary.commandCount(), summary.batchCount(), summary.batchSize(), message.messageType(),
-                imageBytesLength(message), nextRoundAt);
+                task.getTenantId(), task.getId(), roundNo, sendTargets.size(), targets.size(),
+                attempts.size(), summary.commandCount(), summary.batchCount(), summary.batchSize(),
+                message.messageType(), imageBytesLength(message), nextRoundAt);
+    }
+
+    /**
+     * 把任务 target 解析成本轮真实要发送的群列表。
+     *
+     * <p>固定群组 target 直接使用保存时的群快照;账号动态 target 会展开成当前账号下的 0 到多条群。
+     * 后续 attempt 和 outbox 只消费 {@link ResolvedMarketingTarget},避免再关心目标来源维度。</p>
+     */
+    private List<ResolvedMarketingTarget> resolveSendTargets(List<MarketingTaskTarget> targets) {
+        List<ResolvedMarketingTarget> sendTargets = new ArrayList<>();
+        for (MarketingTaskTarget target : targets) {
+            if (isAccountDynamicTarget(target)) {
+                appendAccountDynamicSendTargets(target, sendTargets);
+            } else {
+                appendFixedGroupSendTarget(target, sendTargets);
+            }
+        }
+        return sendTargets;
+    }
+
+    /**
+     * 追加固定群组维度的本轮发送目标。
+     *
+     * <p>固定群组语义是“用户明确选择哪些群就发哪些群”,所以这里不再查询账号当前所有群,
+     * 只做 groupJid 的防御性校验。</p>
+     */
+    private void appendFixedGroupSendTarget(MarketingTaskTarget target, List<ResolvedMarketingTarget> sendTargets) {
+        // 固定群组维度直接使用 target 创建时保存的群快照,不再查账号当前所有群。
+        if (!StringUtils.hasText(target.getGroupJid())) {
+            log.warn("营销固定群目标缺少groupJid,本轮跳过 tenantId={} taskId={} targetId={}",
+                    target.getTenantId(), target.getMarketingTaskId(), target.getId());
+            return;
+        }
+        sendTargets.add(new ResolvedMarketingTarget(target, target.getGroupLinkId(),
+                target.getGroupJid(), target.getGroupName()));
+    }
+
+    /**
+     * 追加账号动态维度的本轮发送目标。
+     *
+     * <p>动态维度每轮都从账号当前在群关系里取群,并由 SQL 层排除账号导入云控前记录的 baseline 群。
+     * 这样任务创建后账号新进群,下一轮就能自然覆盖到。</p>
+     */
+    private void appendAccountDynamicSendTargets(MarketingTaskTarget target, List<ResolvedMarketingTarget> sendTargets) {
+        // 账号动态维度每轮实时查询当前在群关系,SQL 层会排除账号导入云控前记录的 baseline 群。
+        List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(target.getAccountId());
+        if (groups.isEmpty()) {
+            log.debug("营销账号动态目标本轮无可发送群 tenantId={} taskId={} targetId={} accountId={}",
+                    target.getTenantId(), target.getMarketingTaskId(), target.getId(), target.getAccountId());
+            return;
+        }
+        for (MarketingTargetCandidateRow group : groups) {
+            if (!StringUtils.hasText(group.getGroupJid())) {
+                continue;
+            }
+            sendTargets.add(new ResolvedMarketingTarget(target, group.getGroupLinkId(),
+                    group.getGroupJid(), group.getGroupName()));
+        }
+    }
+
+    /** 判断 target 是否按账号动态维度发送;历史数据 targetScope 为空时默认走固定群组兼容路径。 */
+    private static boolean isAccountDynamicTarget(MarketingTaskTarget target) {
+        return Integer.valueOf(MarketingTargetScope.ACCOUNT_DYNAMIC.code()).equals(target.getTargetScope());
     }
 
     /** 模板在轮次执行时必须存在;否则本轮应整体回滚并等待人工修正任务配置。 */
@@ -151,13 +229,22 @@ public class MarketingRoundWorker {
         return template;
     }
 
+    /**
+     * 构造一条已提交状态的发送 attempt。
+     *
+     * <p>attempt 保存本轮实际群快照,这是账号动态目标“一条 target 多个群”的审计依据;
+     * commandId 在这里预生成,随后带入协议 outbox 建立一一对应关系。</p>
+     */
     private MarketingTaskSendAttempt toAttempt(MarketingTask task,
-                                               MarketingTaskTarget target,
+                                               ResolvedMarketingTarget sendTarget,
                                                long roundNo,
                                                long now) {
         MarketingTaskSendAttempt attempt = new MarketingTaskSendAttempt();
         attempt.setMarketingTaskId(task.getId());
-        attempt.setTargetId(target.getId());
+        attempt.setTargetId(sendTarget.target().getId());
+        attempt.setGroupLinkId(sendTarget.groupLinkId());
+        attempt.setGroupJid(sendTarget.groupJid());
+        attempt.setGroupName(sendTarget.groupName());
         attempt.setRoundNo(roundNo);
         attempt.setAttemptNo(1);
         attempt.setRetry(false);
@@ -176,7 +263,7 @@ public class MarketingRoundWorker {
      * 保证 attempt 与协议命令可以一一对应。</p>
      */
     private EnqueueSummary enqueueCommands(MarketingTask task,
-                                           List<MarketingTaskTarget> targets,
+                                           List<ResolvedMarketingTarget> sendTargets,
                                            List<MarketingTaskSendAttempt> attempts,
                                            MarketingMessageComposer.ComposedMessage message) {
         int batchSize = outboxBatchSize(message);
@@ -185,7 +272,8 @@ public class MarketingRoundWorker {
         int batchCount = 0;
         int commandCount = 0;
         for (int i = 0; i < attempts.size(); i++) {
-            MarketingTaskTarget target = targets.get(i);
+            ResolvedMarketingTarget sendTarget = sendTargets.get(i);
+            MarketingTaskTarget target = sendTarget.target();
             MarketingTaskSendAttempt attempt = attempts.get(i);
             batch.add(new ProtocolMarketingMessageCommandRequest(
                     task.getTenantId(),
@@ -195,7 +283,7 @@ public class MarketingRoundWorker {
                     attempt.getRoundNo(),
                     target.getAccountId(),
                     protocolAccountId(target),
-                    target.getGroupJid(),
+                    sendTarget.groupJid(),
                     message.messageType(),
                     message.text(),
                     imageBase64,
@@ -217,6 +305,11 @@ public class MarketingRoundWorker {
         return new EnqueueSummary(batchSize, batchCount, commandCount);
     }
 
+    /**
+     * 计算本轮协议 outbox 批大小。
+     *
+     * <p>图片消息体更大,默认使用单独配置;最终值限制在 1 到 500,避免错误配置造成空批或超大事务。</p>
+     */
     private int outboxBatchSize(MarketingMessageComposer.ComposedMessage message) {
         int configured = "IMAGE".equals(message.messageType())
                 ? properties.getImageOutboxBatchSize()
@@ -246,10 +339,24 @@ public class MarketingRoundWorker {
         return configured == null || configured < 1 ? 30L : configured.longValue();
     }
 
+    /** 仅用于日志统计图片体大小;文本消息没有图片内容时返回 0。 */
     private static int imageBytesLength(MarketingMessageComposer.ComposedMessage message) {
         return message.imageBytes() == null ? 0 : message.imageBytes().length;
     }
 
+    /**
+     * 一条库里的 target 在本轮解析出来的实际发送目标。
+     *
+     * <p>固定群组 target 会解析成一条;账号动态 target 可能解析成 0 到多条。</p>
+     */
+    private record ResolvedMarketingTarget(
+            MarketingTaskTarget target,
+            Long groupLinkId,
+            String groupJid,
+            String groupName) {
+    }
+
+    /** 协议 outbox 写入结果摘要,用于轮次日志排查批量拆分是否符合预期。 */
     private record EnqueueSummary(int batchSize, int batchCount, int commandCount) {
     }
 }

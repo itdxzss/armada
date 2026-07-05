@@ -43,6 +43,7 @@
         <result column="account_id" property="accountId"/>
         <result column="account_phone" property="accountPhone"/>
         <result column="protocol_account_id" property="protocolAccountId"/>
+        <result column="target_scope" property="targetScope"/>
         <result column="group_link_id" property="groupLinkId"/>
         <result column="group_jid" property="groupJid"/>
         <result column="group_link_url" property="groupLinkUrl"/>
@@ -80,7 +81,7 @@
 
     <sql id="TargetColumns">
         t.id, t.tenant_id, t.marketing_task_id, t.account_id, t.account_phone,
-        a.protocol_account_id, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
+        a.protocol_account_id, t.target_scope, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
         t.status, t.sent_message_count, t.failed_message_count, t.retry_count,
         t.last_attempt_at, t.last_sent_at, t.last_reason, t.created_at, t.updated_at
     </sql>
@@ -116,14 +117,15 @@
 
     <insert id="insertTargets">
         INSERT INTO marketing_task_target
-            (marketing_task_id, account_id, account_phone, group_link_id, group_jid, group_link_url, group_name,
-             status, sent_message_count, failed_message_count, retry_count, last_attempt_at, last_sent_at,
-             last_reason, created_at, updated_at)
+            (marketing_task_id, account_id, account_phone, target_scope, group_link_id, group_jid, group_link_url,
+             group_name, status, sent_message_count, failed_message_count, retry_count, last_attempt_at,
+             last_sent_at, last_reason, created_at, updated_at)
         VALUES
         <foreach collection="targets" item="t" separator=",">
-            (#{t.marketingTaskId}, #{t.accountId}, #{t.accountPhone}, #{t.groupLinkId}, #{t.groupJid},
-             #{t.groupLinkUrl}, #{t.groupName}, #{t.status}, #{t.sentMessageCount}, #{t.failedMessageCount},
-             #{t.retryCount}, #{t.lastAttemptAt}, #{t.lastSentAt}, #{t.lastReason}, #{t.createdAt}, #{t.updatedAt})
+            (#{t.marketingTaskId}, #{t.accountId}, #{t.accountPhone}, #{t.targetScope}, #{t.groupLinkId},
+             #{t.groupJid}, #{t.groupLinkUrl}, #{t.groupName}, #{t.status}, #{t.sentMessageCount},
+             #{t.failedMessageCount}, #{t.retryCount}, #{t.lastAttemptAt}, #{t.lastSentAt},
+             #{t.lastReason}, #{t.createdAt}, #{t.updatedAt})
         </foreach>
     </insert>
 
@@ -185,14 +187,15 @@
 
     <insert id="insertSendAttempts" useGeneratedKeys="true" keyProperty="attempts.id">
         INSERT INTO marketing_task_send_attempt
-            (marketing_task_id, target_id, round_no, attempt_no, is_retry, command_id,
+            (marketing_task_id, target_id, group_link_id, group_jid, group_name, round_no, attempt_no, is_retry, command_id,
              status, reason_code, reason_message, message_id, submitted_at, result_at,
              attempted_at, created_at)
         VALUES
         <foreach collection="attempts" item="a" separator=",">
-            (#{a.marketingTaskId}, #{a.targetId}, #{a.roundNo}, #{a.attemptNo}, #{a.retry},
-             #{a.commandId}, #{a.status}, #{a.reasonCode}, #{a.reasonMessage}, #{a.messageId},
-             #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt}, #{a.createdAt})
+            (#{a.marketingTaskId}, #{a.targetId}, #{a.groupLinkId}, #{a.groupJid}, #{a.groupName},
+             #{a.roundNo}, #{a.attemptNo}, #{a.retry}, #{a.commandId}, #{a.status}, #{a.reasonCode},
+             #{a.reasonMessage}, #{a.messageId}, #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt},
+             #{a.createdAt})
         </foreach>
     </insert>
 
@@ -319,6 +322,55 @@
               OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
           )
         LIMIT 1
+    </select>
+
+    <select id="selectAccountTargetCandidate" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id
+        WHERE a.id = #{accountId}
+          AND a.account_group_id = #{accountGroupId}
+          AND a.deleted_at IS NULL
+          AND s.login_state = 1
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="selectDynamicTargetGroups" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               m.group_link_id AS groupLinkId,
+               m.group_jid AS groupJid,
+               g.link_url AS groupLinkUrl,
+               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id
+        JOIN account_group_membership m ON m.account_id = a.id
+        JOIN group_link g ON g.id = m.group_link_id
+                         AND g.deleted_at IS NULL
+                         AND g.membership_state IN (2, 3)
+        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
+                                      AND p.group_jid = m.group_jid
+        LEFT JOIN group_link_health h ON h.group_link_id = g.id
+        LEFT JOIN account_group_baseline b ON b.account_id = a.id
+                                           AND a.group_baseline_state = 2
+        WHERE a.id = #{accountId}
+          AND a.deleted_at IS NULL
+          AND s.login_state = 1
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          AND m.deleted_at IS NULL
+          AND m.group_jid IS NOT NULL
+          AND TRIM(m.group_jid) &lt;&gt; ''
+          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
+          AND (
+              a.group_baseline_state &lt;&gt; 2
+              OR b.id IS NULL
+              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
+          )
+        ORDER BY m.group_link_id ASC
     </select>
 
     <select id="selectAccountTreeRows" resultMap="MarketingAccountTreeRowResultMap">

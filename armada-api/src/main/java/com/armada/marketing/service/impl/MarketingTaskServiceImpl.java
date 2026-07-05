@@ -10,6 +10,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
+import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.vo.MarketingAccountTreeRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
@@ -97,10 +98,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     /**
-     * 新建营销任务并生成账号×群组目标明细。
+     * 新建营销任务并生成固定群组或账号动态目标明细。
      *
-     * <p>本方法会校验基础入参、确认营销模板存在、把前端提交的账号→群组选择拆成
-     * `marketing_task_target` 执行目标,再写入 `marketing_task` 主表。若启动模式是
+     * <p>本方法会校验基础入参、确认营销模板存在、把前端提交的账号维度选择拆成
+     * `marketing_task_target` 执行目标:固定群组维度落账号+群组多行,账号动态维度只落账号一行。
+     * 若启动模式是
      * `IMMEDIATE`,只把任务状态置为发送中并写 `started_at`,不调用协议层、不发送消息。</p>
      *
      * @param request 新建任务表单入参
@@ -288,7 +290,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             throw new BusinessException(ErrorCode.VALIDATION, "发送间隔必须为正整数");
         }
         if (request.selections() == null || request.selections().isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个发送账号和群组");
+            throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个发送账号");
         }
     }
 
@@ -310,33 +312,72 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     private List<MarketingTaskTarget> buildTargets(CreateMarketingTaskDTO request, long now) {
-        // 前端按账号分组提交 account -> groupLinkIds,后台落库按执行粒度拆成 account x group 一行。
+        // 同一任务可以混合两种维度:
+        // GROUP_FIXED 保存 account x group 多行;ACCOUNT_DYNAMIC 只保存账号一行,发送前再解析当前新增群。
         // LinkedHashSet 既去重,又保留前端选择顺序,详情默认按插入顺序展示。
-        Set<String> seenPairs = new LinkedHashSet<>();
+        Set<String> seenTargets = new LinkedHashSet<>();
         List<MarketingTaskTarget> targets = new ArrayList<>();
         for (MarketingSelectionDTO selection : request.selections()) {
-            appendSelectionTargets(request.accountGroupId(), selection, seenPairs, targets, now);
+            appendSelectionTargets(request.accountGroupId(), selection, seenTargets, targets, now);
         }
         if (targets.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个可执行群组");
+            throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个可执行账号或群组");
         }
         return targets;
     }
 
-    private void appendSelectionTargets(Long accountGroupId, MarketingSelectionDTO selection, Set<String> seenPairs,
+    private void appendSelectionTargets(Long accountGroupId, MarketingSelectionDTO selection, Set<String> seenTargets,
                                         List<MarketingTaskTarget> targets, long now) {
-        // 一个 selection 代表一个发言账号。空账号或空群组是前端状态不一致,直接拒绝。
-        if (selection == null || selection.accountId() == null
-                || selection.groupLinkIds() == null || selection.groupLinkIds().isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "账号和群组选择不能为空");
+        // 一个 selection 代表一个发言账号。账号为空是前端状态不一致,直接拒绝。
+        if (selection == null || selection.accountId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "发送账号不能为空");
         }
-        for (Long groupLinkId : selection.groupLinkIds()) {
-            // 重复 pair 静默跳过:这不是业务错误,只是前端重复提交或用户重复勾选的防御。
-            if (groupLinkId == null || !seenPairs.add(selection.accountId() + ":" + groupLinkId)) {
+        MarketingTargetScope targetScope = selectionScope(selection);
+        if (targetScope.isAccountDynamic()) {
+            appendAccountDynamicTarget(accountGroupId, selection.accountId(), seenTargets, targets, now);
+            return;
+        }
+
+        List<Long> groupLinkIds = normalizeGroupLinkIds(selection.groupLinkIds());
+        if (groupLinkIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "固定群组维度请至少选择一个群组");
+        }
+        for (Long groupLinkId : groupLinkIds) {
+            // 重复固定群目标静默跳过:这不是业务错误,只是前端重复提交或用户重复勾选的防御。
+            if (!seenTargets.add(targetKey(targetScope, selection.accountId(), groupLinkId))) {
                 continue;
             }
-            targets.add(toTarget(requireCandidate(accountGroupId, selection.accountId(), groupLinkId), now));
+            targets.add(toFixedGroupTarget(requireCandidate(accountGroupId, selection.accountId(), groupLinkId), now));
         }
+    }
+
+    private void appendAccountDynamicTarget(Long accountGroupId, Long accountId, Set<String> seenTargets,
+                                            List<MarketingTaskTarget> targets, long now) {
+        // 账号动态维度不在创建任务时展开群,否则就无法覆盖账号导入云控后新进入的群。
+        if (!seenTargets.add(targetKey(MarketingTargetScope.ACCOUNT_DYNAMIC, accountId, null))) {
+            return;
+        }
+        targets.add(toAccountDynamicTarget(requireAccountCandidate(accountGroupId, accountId), now));
+    }
+
+    private MarketingTargetScope selectionScope(MarketingSelectionDTO selection) {
+        if (StringUtils.hasText(selection.targetScope())) {
+            return MarketingTargetScope.fromApiValue(selection.targetScope());
+        }
+        return normalizeGroupLinkIds(selection.groupLinkIds()).isEmpty()
+                ? MarketingTargetScope.ACCOUNT_DYNAMIC
+                : MarketingTargetScope.GROUP_FIXED;
+    }
+
+    private static String targetKey(MarketingTargetScope scope, Long accountId, Long groupLinkId) {
+        return scope.apiValue() + ":" + accountId + ":" + (groupLinkId == null ? 0 : groupLinkId);
+    }
+
+    private static List<Long> normalizeGroupLinkIds(List<Long> groupLinkIds) {
+        return groupLinkIds == null ? List.of() : groupLinkIds.stream()
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
     }
 
     private MarketingTargetCandidateRow requireCandidate(Long accountGroupId, Long accountId, Long groupLinkId) {
@@ -352,22 +393,43 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return row;
     }
 
-    private MarketingTaskTarget toTarget(MarketingTargetCandidateRow row, long now) {
+    private MarketingTargetCandidateRow requireAccountCandidate(Long accountGroupId, Long accountId) {
+        // 账号动态目标只校验账号归属、在线、无风控/禁言。群是否可发由每轮发送前的动态群查询决定。
+        MarketingTargetCandidateRow row = taskMapper.selectAccountTargetCandidate(accountGroupId, accountId);
+        if (row == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: account=" + accountId);
+        }
+        return row;
+    }
+
+    private MarketingTaskTarget toFixedGroupTarget(MarketingTargetCandidateRow row, long now) {
         // target 保存的是执行时需要稳定展示/寻址的快照。账号或群名后续变更不回写历史任务明细。
         MarketingTaskTarget target = new MarketingTaskTarget();
-        target.setAccountId(row.getAccountId());
-        target.setAccountPhone(row.getAccountPhone());
+        fillTargetDefaults(target, row, now);
+        target.setTargetScope(MarketingTargetScope.GROUP_FIXED.code());
         target.setGroupLinkId(row.getGroupLinkId());
         target.setGroupJid(row.getGroupJid());
         target.setGroupLinkUrl(row.getGroupLinkUrl());
         target.setGroupName(row.getGroupName());
+        return target;
+    }
+
+    private MarketingTaskTarget toAccountDynamicTarget(MarketingTargetCandidateRow row, long now) {
+        MarketingTaskTarget target = new MarketingTaskTarget();
+        fillTargetDefaults(target, row, now);
+        target.setTargetScope(MarketingTargetScope.ACCOUNT_DYNAMIC.code());
+        return target;
+    }
+
+    private void fillTargetDefaults(MarketingTaskTarget target, MarketingTargetCandidateRow row, long now) {
+        target.setAccountId(row.getAccountId());
+        target.setAccountPhone(row.getAccountPhone());
         target.setStatus(MarketingTaskStatus.PENDING.code());
         target.setSentMessageCount(0);
         target.setFailedMessageCount(0);
         target.setRetryCount(0);
         target.setCreatedAt(now);
         target.setUpdatedAt(now);
-        return target;
     }
 
     private MarketingTask buildTask(CreateMarketingTaskDTO request, MarketingTemplate template,
@@ -421,7 +483,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     private static int distinctGroupCount(List<MarketingTaskTarget> targets) {
-        return (int) targets.stream().map(MarketingTaskTarget::getGroupLinkId).distinct().count();
+        return (int) targets.stream()
+                .map(MarketingTaskTarget::getGroupLinkId)
+                .filter(groupLinkId -> groupLinkId != null)
+                .distinct()
+                .count();
     }
 
     private static MarketingTaskVO toVO(MarketingTask task) {
@@ -436,7 +502,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskTargetVO toTargetVO(MarketingTaskTarget target) {
         return new MarketingTaskTargetVO(target.getId(), target.getAccountId(), target.getAccountPhone(),
-                target.getGroupLinkId(), target.getGroupJid(), target.getGroupLinkUrl(), target.getGroupName(),
+                MarketingTargetScope.apiValueOf(target.getTargetScope()), target.getGroupLinkId(),
+                target.getGroupJid(), target.getGroupLinkUrl(), target.getGroupName(),
                 target.getStatus(), target.getSentMessageCount(), target.getFailedMessageCount(), target.getRetryCount(),
                 target.getLastAttemptAt(), target.getLastSentAt(), target.getLastReason());
     }

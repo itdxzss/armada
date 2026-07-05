@@ -60,7 +60,7 @@ class AccountGroupServiceImplTest {
     void list_callsSelectPage_whenTotalNonZero() {
         AccountGroupQuery q = new AccountGroupQuery();
         AccountGroupVoRow row = new AccountGroupVoRow();
-        AccountGroupVO vo = new AccountGroupVO(1L, "分组A", null, 0, 0L, 0L, 0L, 0L, null, null);
+        AccountGroupVO vo = new AccountGroupVO(1L, "分组A", null, 0, 0L, 0L, 0L, 0L, 0L, null, null);
         when(mapper.countPage(q)).thenReturn(1L);
         when(mapper.selectPage(q)).thenReturn(List.of(row));
         when(converter.toGroupVOList(List.of(row))).thenReturn(List.of(vo));

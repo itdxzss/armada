@@ -12,6 +12,8 @@ import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
+import com.armada.marketing.model.enums.MarketingTargetScope;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -97,6 +99,72 @@ class MarketingRoundWorkerTest {
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::commandId)
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType).containsOnly("TEXT");
+    }
+
+    @Test
+    void accountDynamicTargetExpandsCurrentGroupsBeforeSending() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        properties.setBacklogMultiplier(2);
+
+        MarketingTask task = task();
+        MarketingTaskTarget target = dynamicTarget();
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
+        when(taskMapper.selectDynamicTargetGroups(5001L)).thenReturn(List.of(
+                dynamicGroup(8101L, "12036308101@g.us", "新增群A"),
+                dynamicGroup(8102L, "12036308102@g.us", "新增群B")));
+        when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
+            long id = 9100L;
+            for (MarketingTaskSendAttempt attempt : attempts) {
+                attempt.setId(++id);
+            }
+            return attempts.size();
+        }).when(taskMapper).insertSendAttempts(any());
+
+        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketingTaskSendAttempt>> attemptsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(taskMapper).insertSendAttempts(attemptsCaptor.capture());
+        List<MarketingTaskSendAttempt> attempts = attemptsCaptor.getValue();
+        assertThat(attempts).hasSize(2);
+        assertThat(attempts).extracting(MarketingTaskSendAttempt::getTargetId).containsOnly(7101L);
+        assertThat(attempts).extracting(MarketingTaskSendAttempt::getGroupLinkId).containsExactly(8101L, 8102L);
+        assertThat(attempts).extracting(MarketingTaskSendAttempt::getGroupJid)
+                .containsExactly("12036308101@g.us", "12036308102@g.us");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).extracting(ProtocolMarketingMessageCommandRequest::groupJid)
+                .containsExactly("12036308101@g.us", "12036308102@g.us");
+    }
+
+    @Test
+    void accountDynamicTargetWithoutResolvedGroupsPostponesRound() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+
+        MarketingTask task = task();
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(dynamicTarget()));
+        when(taskMapper.selectDynamicTargetGroups(5001L)).thenReturn(List.of());
+
+        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        worker.runRound(1L, 42L);
+
+        verify(taskMapper).postponeDueRound(any(), anyLong(), anyLong());
+        verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
+        verify(taskMapper, never()).insertSendAttempts(any());
+        verify(outbox, never()).enqueueMarketingMessageCommands(any());
     }
 
     @Test
@@ -213,10 +281,33 @@ class MarketingRoundWorkerTest {
                     target.setAccountId(5000L + i);
                     target.setAccountPhone("92300000" + i);
                     target.setProtocolAccountId("acc_92300000" + i);
+                    target.setTargetScope(MarketingTargetScope.GROUP_FIXED.code());
+                    target.setGroupLinkId(8000L + i);
                     target.setGroupJid("12036300" + i + "@g.us");
                     return target;
                 })
                 .toList();
+    }
+
+    private static MarketingTaskTarget dynamicTarget() {
+        MarketingTaskTarget target = new MarketingTaskTarget();
+        target.setId(7101L);
+        target.setMarketingTaskId(42L);
+        target.setAccountId(5001L);
+        target.setAccountPhone("923000001");
+        target.setProtocolAccountId("acc_923000001");
+        target.setTargetScope(MarketingTargetScope.ACCOUNT_DYNAMIC.code());
+        return target;
+    }
+
+    private static MarketingTargetCandidateRow dynamicGroup(Long groupLinkId, String groupJid, String groupName) {
+        MarketingTargetCandidateRow row = new MarketingTargetCandidateRow();
+        row.setAccountId(5001L);
+        row.setAccountPhone("923000001");
+        row.setGroupLinkId(groupLinkId);
+        row.setGroupJid(groupJid);
+        row.setGroupName(groupName);
+        return row;
     }
 
     private static MarketingTemplate template() {

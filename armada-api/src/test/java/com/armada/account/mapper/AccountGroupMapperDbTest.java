@@ -3,12 +3,17 @@ package com.armada.account.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.model.dto.AccountGroupQuery;
+import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountGroupVoRow;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * AccountGroupMapper 真库测试:验 insert/软删/复活/countAccountsByGroupId 流程。
@@ -18,6 +23,15 @@ class AccountGroupMapperDbTest extends DbTestBase {
 
     @Autowired
     AccountGroupMapper mapper;
+
+    @Autowired
+    AccountMapper accountMapper;
+
+    @Autowired
+    AccountStateMapper stateMapper;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     private AccountGroup build(String name) {
         return build(name, 0, 1_700_000_000_000L);
@@ -31,6 +45,30 @@ class AccountGroupMapperDbTest extends DbTestBase {
         g.setCreatedAt(createdAt);
         g.setUpdatedAt(createdAt);
         return g;
+    }
+
+    private Account insertAccountInGroup(String wsPhone, Long groupId, long now) {
+        Account account = new Account();
+        account.setWsPhone(wsPhone);
+        account.setAccountType(1);
+        account.setOwnership(1);
+        account.setAccountGroupId(groupId);
+        account.setPriority(0);
+        account.setCreatedAt(now);
+        account.setUpdatedAt(now);
+        accountMapper.insert(account);
+        insertDefaultState(account.getId(), now);
+        return account;
+    }
+
+    private void insertDefaultState(Long accountId, long now) {
+        AccountState state = new AccountState();
+        state.setAccountId(accountId);
+        state.setProxyFailureCount(0);
+        state.setPullIntoGroupCount(0);
+        state.setCreatedAt(now);
+        state.setUpdatedAt(now);
+        stateMapper.insert(state);
     }
 
     @Test
@@ -77,5 +115,47 @@ class AccountGroupMapperDbTest extends DbTestBase {
         assertThat(rows)
                 .extracting(AccountGroupVoRow::getName)
                 .containsExactly("排序系统默认分组", "排序普通新分组", "排序普通旧分组");
+    }
+
+    @Test
+    void selectPage_restrictedCount_matchesAccountStatsRestrictedTotalLogic() {
+        long now = System.currentTimeMillis();
+        AccountGroup group = build("异常统计分组-" + now, 0, now);
+        mapper.insert(group);
+
+        Account banned = insertAccountInGroup("86301" + (now % 100000000L), group.getId(), now);
+        Account unbound = insertAccountInGroup("86302" + (now % 100000000L), group.getId(), now);
+        Account muted = insertAccountInGroup("86303" + (now % 100000000L), group.getId(), now);
+        Account exported = insertAccountInGroup("86304" + (now % 100000000L), group.getId(), now);
+        Account risk = insertAccountInGroup("86305" + (now % 100000000L), group.getId(), now);
+        Account normal = insertAccountInGroup("86306" + (now % 100000000L), group.getId(), now);
+        Account bannedMuted = insertAccountInGroup("86307" + (now % 100000000L), group.getId(), now);
+
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.BANNED, AccountLoginStateCode.OFFLINE, banned.getId());
+        jdbc.update("UPDATE account_state SET account_state = ? WHERE account_id = ?",
+                AccountStateCode.UNBOUND, unbound.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, mute_status = ? WHERE account_id = ?",
+                AccountStateCode.NORMAL, 1, muted.getId());
+        jdbc.update("UPDATE account_state SET account_state = ? WHERE account_id = ?",
+                AccountStateCode.EXPORTED, exported.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, risk_status = ? WHERE account_id = ?",
+                AccountStateCode.NORMAL, 2, risk.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
+                AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, normal.getId());
+        jdbc.update("UPDATE account_state SET account_state = ?, mute_status = ? WHERE account_id = ?",
+                AccountStateCode.BANNED, 1, bannedMuted.getId());
+
+        AccountGroupQuery query = new AccountGroupQuery();
+        query.setId(group.getId());
+        query.setPageSize(10);
+
+        AccountGroupVoRow row = mapper.selectPage(query).get(0);
+
+        assertThat(row.getAccountCount()).isEqualTo(7L);
+        assertThat(row.getOnlineCount()).isEqualTo(1L);
+        assertThat(row.getRiskCount()).isEqualTo(1L);
+        assertThat(row.getBannedCount()).isEqualTo(2L);
+        assertThat(row.getRestrictedCount()).isEqualTo(6L);
     }
 }

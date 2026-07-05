@@ -78,6 +78,34 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
+    void createTask_accountDynamicSelectionPersistsAccountTargetWithoutGroupSnapshot() {
+        Fixture fixture = seedFixture("account-dynamic", false);
+        MarketingTaskVO created = service.createTask(request(
+                "账号动态任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), "ACCOUNT_DYNAMIC", List.of()))));
+
+        assertThat(created.selectedAccountCount()).isEqualTo(1);
+        assertThat(created.targetGroupCount()).isZero();
+        assertThat(created.targetPairCount()).isEqualTo(1);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+        assertThat(detail.targets()).singleElement().satisfies(target -> {
+            assertThat(target.targetScope()).isEqualTo("ACCOUNT_DYNAMIC");
+            assertThat(target.groupLinkId()).isNull();
+            assertThat(target.groupJid()).isNull();
+            assertThat(target.groupLinkUrl()).isNull();
+        });
+        Integer targetScope = jdbc.queryForObject(
+                "SELECT target_scope FROM marketing_task_target WHERE marketing_task_id = ?",
+                Integer.class,
+                created.id());
+        assertThat(targetScope).isEqualTo(2);
+    }
+
+    @Test
     void listTasks_filtersByKeywordAndStatus() {
         Fixture one = seedFixture("list-one");
         Fixture two = seedFixture("list-two");

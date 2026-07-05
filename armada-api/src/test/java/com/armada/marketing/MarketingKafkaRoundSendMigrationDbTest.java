@@ -27,8 +27,25 @@ class MarketingKafkaRoundSendMigrationDbTest extends DbTestBase {
         assertThat(columnType("marketing_task_send_attempt", "message_id")).isEqualTo("varchar");
         assertThat(columnType("marketing_task_send_attempt", "submitted_at")).isEqualTo("bigint");
         assertThat(columnType("marketing_task_send_attempt", "result_at")).isEqualTo("bigint");
-        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_round")).isTrue();
+        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_round")).isFalse();
         assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_no")).isFalse();
+    }
+
+    @Test
+    void marketingTargetSupportsMixedAccountAndGroupScopes() {
+        assertThat(columnType("marketing_task_target", "target_scope")).isEqualTo("tinyint");
+        assertThat(isNullable("marketing_task_target", "group_link_id")).isTrue();
+        assertThat(isNullable("marketing_task_target", "group_jid")).isTrue();
+        assertThat(isNullable("marketing_task_target", "group_link_url")).isTrue();
+        assertThat(indexExists("marketing_task_target", "uq_marketing_task_target_scope")).isTrue();
+    }
+
+    @Test
+    void marketingAttemptStoresResolvedGroupSnapshot() {
+        assertThat(columnType("marketing_task_send_attempt", "group_link_id")).isEqualTo("bigint");
+        assertThat(columnType("marketing_task_send_attempt", "group_jid")).isEqualTo("varchar");
+        assertThat(columnType("marketing_task_send_attempt", "group_name")).isEqualTo("varchar");
+        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_group_round")).isTrue();
     }
 
     private String columnType(String tableName, String columnName) {
@@ -48,5 +65,15 @@ class MarketingKafkaRoundSendMigrationDbTest extends DbTestBase {
                 tableName,
                 indexName);
         return count != null && count > 0;
+    }
+
+    private boolean isNullable(String tableName, String columnName) {
+        String nullable = jdbc.queryForObject(
+                "SELECT is_nullable FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
+                String.class,
+                tableName,
+                columnName);
+        return "YES".equals(nullable);
     }
 }

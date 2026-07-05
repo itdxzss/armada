@@ -17,7 +17,7 @@ import java.util.List;
  * @param abnormalGroupSkipped  是否跳过异常群
  * @param autoRetryEnabled      失败是否自动重试
  * @param remark                备注
- * @param selections            账号→群组选择
+ * @param selections            账号维度目标选择;每个账号可按固定群组或账号动态群组发送
  */
 public record CreateMarketingTaskDTO(
         String taskName,

@@ -3,6 +3,7 @@ package com.armada.marketing.mapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -58,6 +59,9 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         MarketingTaskSendAttempt attempt = new MarketingTaskSendAttempt();
         attempt.setMarketingTaskId(taskId);
         attempt.setTargetId(targetId);
+        attempt.setGroupLinkId(400L);
+        attempt.setGroupJid("120363001@g.us");
+        attempt.setGroupName("round group");
         attempt.setRoundNo(1L);
         attempt.setAttemptNo(1);
         attempt.setRetry(false);
@@ -75,6 +79,32 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         assertThat(first).isEqualTo(1);
         assertThat(second).isZero();
         assertThat(mapper.countUnfinishedAttempts(taskId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT group_jid FROM marketing_task_send_attempt WHERE id = ?",
+                String.class,
+                attempt.getId())).isEqualTo("120363001@g.us");
+    }
+
+    @Test
+    void selectDynamicTargetGroupsExcludesBaselineGroups() {
+        long accountGroupId = insertAccountGroup("dynamic-baseline");
+        long accountId = insertAccount(accountGroupId, "923900000001", 2);
+        String baselineJid = "1203630baseline@g.us";
+        String joinedAfterImportJid = "1203630joined@g.us";
+        long baselineGroupId = insertGroup("baseline", baselineJid);
+        long joinedAfterImportGroupId = insertGroup("joined-after-import", joinedAfterImportJid);
+        insertBaseline(accountId, "[\"" + baselineJid + "\"]");
+        insertMembership(accountId, baselineGroupId, baselineJid);
+        insertMembership(accountId, joinedAfterImportGroupId, joinedAfterImportJid);
+
+        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(accountId);
+
+        assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly(joinedAfterImportJid);
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.getAccountId()).isEqualTo(accountId);
+            assertThat(row.getGroupLinkId()).isEqualTo(joinedAfterImportGroupId);
+        });
     }
 
     private Long insertTask(String suffix, int status, long nextRoundAt) {
@@ -123,6 +153,86 @@ class MarketingRoundMapperDbTest extends DbTestBase {
             ps.setLong(4, now);
             ps.setLong(5, now);
         });
+    }
+
+    private Long insertAccountGroup(String suffix) {
+        long now = System.currentTimeMillis();
+        return insertAndReturnId("""
+                INSERT INTO account_group (tenant_id, name, system_builtin, created_at, updated_at)
+                VALUES (?, ?, 0, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, "round-account-group-" + suffix);
+            ps.setLong(3, now);
+            ps.setLong(4, now);
+        });
+    }
+
+    private Long insertAccount(Long accountGroupId, String phone, int baselineState) {
+        long now = System.currentTimeMillis();
+        Long accountId = insertAndReturnId("""
+                INSERT INTO account
+                    (tenant_id, ws_phone, account_type, ownership, account_group_id,
+                     group_baseline_state, priority, created_at, updated_at)
+                VALUES (?, ?, 1, 1, ?, ?, 0, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, phone);
+            ps.setLong(3, accountGroupId);
+            ps.setInt(4, baselineState);
+            ps.setLong(5, now);
+            ps.setLong(6, now);
+        });
+        jdbc.update("""
+                INSERT INTO account_state
+                    (tenant_id, account_id, account_state, login_state, risk_status, mute_status, created_at, updated_at)
+                VALUES (?, ?, 2, 1, 1, NULL, ?, ?)
+                """, TEST_TENANT_ID, accountId, now, now);
+        return accountId;
+    }
+
+    private Long insertGroup(String suffix, String groupJid) {
+        long now = System.currentTimeMillis();
+        Long groupLinkId = insertAndReturnId("""
+                INSERT INTO group_link
+                    (tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
+                VALUES (?, ?, ?, 5, 2, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, "https://chat.whatsapp.com/round-" + suffix);
+            ps.setString(3, "round-group-" + suffix);
+            ps.setLong(4, now);
+            ps.setLong(5, now);
+        });
+        jdbc.update("""
+                INSERT INTO group_link_preview
+                    (tenant_id, group_link_id, group_jid, wa_subject, announce_only, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?)
+                """, TEST_TENANT_ID, groupLinkId, groupJid, "WA-round-" + suffix, now, now);
+        jdbc.update("""
+                INSERT INTO group_link_health
+                    (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
+                VALUES (?, ?, 1, 0, ?, ?)
+                """, TEST_TENANT_ID, groupLinkId, now, now);
+        return groupLinkId;
+    }
+
+    private void insertBaseline(Long accountId, String baselineGroupJids) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO account_group_baseline
+                    (tenant_id, account_id, baseline_group_jids, group_count, captured_at, created_at, updated_at)
+                VALUES (?, ?, ?, JSON_LENGTH(?), ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, baselineGroupJids, baselineGroupJids, now, now, now);
+    }
+
+    private void insertMembership(Long accountId, Long groupLinkId, String groupJid) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
     }
 
     private Long insertAndReturnId(String sql, SqlBinder binder) {

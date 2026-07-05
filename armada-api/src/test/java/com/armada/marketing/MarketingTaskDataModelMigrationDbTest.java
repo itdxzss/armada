@@ -86,11 +86,13 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
     void targetAndAttemptTables_haveExecutionIndexesAndStatusColumns() {
         assertThat(columnType("marketing_task_target", "status")).isEqualTo("tinyint");
         assertThat(columnType("marketing_task_target", "last_sent_at")).isEqualTo("bigint");
-        assertThat(indexExists("marketing_task_target", "uq_marketing_task_target_pair")).isTrue();
+        assertThat(indexExists("marketing_task_target", "uq_marketing_task_target_pair")).isFalse();
+        assertThat(indexExists("marketing_task_target", "uq_marketing_task_target_scope")).isTrue();
 
         assertThat(columnType("marketing_task_send_attempt", "status")).isEqualTo("tinyint");
         assertThat(columnType("marketing_task_send_attempt", "attempted_at")).isEqualTo("bigint");
-        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_round")).isTrue();
+        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_round")).isFalse();
+        assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_group_round")).isTrue();
     }
 
     private boolean tableExists(String tableName) {

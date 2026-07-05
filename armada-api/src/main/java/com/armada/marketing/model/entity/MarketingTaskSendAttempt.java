@@ -1,10 +1,19 @@
 package com.armada.marketing.model.entity;
 
+/**
+ * 营销任务发送尝试实体。
+ *
+ * <p>固定群组目标和账号动态目标都会在 attempt 上保存本次实际发送群快照,
+ * 避免账号动态目标一行 target 对应多个群时丢失审计信息。</p>
+ */
 public class MarketingTaskSendAttempt {
     private Long id;
     private Long tenantId;
     private Long marketingTaskId;
     private Long targetId;
+    private Long groupLinkId;
+    private String groupJid;
+    private String groupName;
     private Long roundNo;
     private Integer attemptNo;
     private Boolean retry;
@@ -48,6 +57,30 @@ public class MarketingTaskSendAttempt {
 
     public void setTargetId(Long targetId) {
         this.targetId = targetId;
+    }
+
+    public Long getGroupLinkId() {
+        return groupLinkId;
+    }
+
+    public void setGroupLinkId(Long groupLinkId) {
+        this.groupLinkId = groupLinkId;
+    }
+
+    public String getGroupJid() {
+        return groupJid;
+    }
+
+    public void setGroupJid(String groupJid) {
+        this.groupJid = groupJid;
+    }
+
+    public String getGroupName() {
+        return groupName;
+    }
+
+    public void setGroupName(String groupName) {
+        this.groupName = groupName;
     }
 
     public Long getRoundNo() {

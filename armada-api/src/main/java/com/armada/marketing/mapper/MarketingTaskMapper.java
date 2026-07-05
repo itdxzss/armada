@@ -88,6 +88,13 @@ public interface MarketingTaskMapper {
                                                       @Param("accountId") Long accountId,
                                                       @Param("groupLinkId") Long groupLinkId);
 
+    /** 查询一个账号是否能形成账号动态目标。 */
+    MarketingTargetCandidateRow selectAccountTargetCandidate(@Param("accountGroupId") Long accountGroupId,
+                                                             @Param("accountId") Long accountId);
+
+    /** 查询账号动态目标在本轮可发送的当前群,已排除账号导入云控前的 baseline 群。 */
+    List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId);
+
     /** 查询建营销任务用的账号×当前可营销群平铺行。 */
     List<MarketingAccountTreeRow> selectAccountTreeRows(@Param("groupId") Long groupId);
 }

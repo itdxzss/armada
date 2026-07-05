@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.GroupMemberQueryAccount;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -11,12 +12,38 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountGroupMembershipMapper {
 
     /**
-     * 查询账号登录前群基线 JSON。
+     * 查询账号群 baseline 状态。
      *
      * @param accountId 账号 ID
-     * @return JSON 数组字符串;不存在时返回 null
+     * @return 活跃账号的 baseline 行;账号不存在或已删除时返回 null
      */
-    String selectBaselineGroupJidsJson(@Param("accountId") Long accountId);
+    AccountGroupBaselineRow selectAccountBaselineRow(@Param("accountId") Long accountId);
+
+    /**
+     * 捕获待拍账号的当前全部群作为 baseline JSON。
+     *
+     * @param accountId              账号 ID
+     * @param baselineGroupJidsJson  去重后的群 JID JSON 数组
+     * @param groupCount             JSON 数组长度
+     * @param capturedAt             协议查询时间(epoch 毫秒)
+     * @param now                    写库时间(epoch 毫秒)
+     * @return 影响行数;账号已不是待拍状态时返回 0
+     */
+    int capturePendingAccountGroupBaseline(@Param("accountId") Long accountId,
+                                           @Param("baselineGroupJidsJson") String baselineGroupJidsJson,
+                                           @Param("groupCount") int groupCount,
+                                           @Param("capturedAt") long capturedAt,
+                                           @Param("now") long now);
+
+    /**
+     * 将待拍账号标记为已拍 baseline。
+     *
+     * @param accountId 账号 ID
+     * @param now       更新时间(epoch 毫秒)
+     * @return 影响行数
+     */
+    int markAccountBaselineCaptured(@Param("accountId") Long accountId,
+                                    @Param("now") long now);
 
     /**
      * 按群 JID 查租户内活跃 group_link。

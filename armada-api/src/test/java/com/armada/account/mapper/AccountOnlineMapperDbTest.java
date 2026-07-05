@@ -128,7 +128,7 @@ class AccountOnlineMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void selectGroupSyncCandidates_includesPendingBaselineAccountsWithoutBaselineRow() {
+    void selectGroupSyncCandidates_excludesPendingBaselineAccountsWithoutBaselineRow() {
         long now = System.currentTimeMillis();
         Account pending = insertAccount("86162" + (now % 10000000L), now);
         insertDefaultState(pending.getId(), now);
@@ -143,7 +143,7 @@ class AccountOnlineMapperDbTest extends DbTestBase {
                 AccountGroupBaselineStateCode.CAPTURED);
 
         assertThat(candidates).extracting(AccountGroupSyncCandidate::accountId)
-                .contains(pending.getId());
+                .doesNotContain(pending.getId());
     }
 
     @Test

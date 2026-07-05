@@ -2,12 +2,41 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.AccountGroupMembershipMapper">
 
-  <select id="selectBaselineGroupJidsJson" resultType="string">
-    SELECT baseline_group_jids
-    FROM account_group_baseline
-    WHERE account_id = #{accountId}
+  <select id="selectAccountBaselineRow" resultType="com.armada.group.model.vo.AccountGroupBaselineRow">
+    SELECT a.id AS accountId,
+           a.group_baseline_state AS groupBaselineState,
+           b.baseline_group_jids AS baselineGroupJidsJson
+    FROM account a
+    LEFT JOIN account_group_baseline b ON b.account_id = a.id
+    WHERE a.id = #{accountId}
+      AND a.deleted_at IS NULL
     LIMIT 1
   </select>
+
+  <insert id="capturePendingAccountGroupBaseline">
+    INSERT INTO account_group_baseline (
+      account_id, baseline_group_jids, group_count, captured_at, created_at, updated_at
+    )
+    SELECT a.id, #{baselineGroupJidsJson}, #{groupCount}, #{capturedAt}, #{now}, #{now}
+    FROM account a
+    WHERE a.id = #{accountId}
+      AND a.deleted_at IS NULL
+      AND a.group_baseline_state = 1
+    ON DUPLICATE KEY UPDATE
+      baseline_group_jids = VALUES(baseline_group_jids),
+      group_count = VALUES(group_count),
+      captured_at = VALUES(captured_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <update id="markAccountBaselineCaptured">
+    UPDATE account
+    SET group_baseline_state = 2,
+        updated_at = #{now}
+    WHERE id = #{accountId}
+      AND deleted_at IS NULL
+      AND group_baseline_state = 1
+  </update>
 
   <select id="selectActiveGroupLinkIdByGroupJid" resultType="long">
     SELECT g.id

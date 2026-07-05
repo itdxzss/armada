@@ -5,7 +5,7 @@ import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
-import com.armada.marketing.model.vo.MarketingAccountTreeRow;
+import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -95,6 +95,6 @@ public interface MarketingTaskMapper {
     /** 查询账号动态目标在本轮可发送的当前群,已排除账号导入云控前的 baseline 群。 */
     List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId);
 
-    /** 查询建营销任务用的账号×当前可营销群平铺行。 */
-    List<MarketingAccountTreeRow> selectAccountTreeRows(@Param("groupId") Long groupId);
+    /** 查询建营销任务用的在线账号候选;群列表由协议实时查询。 */
+    List<MarketingAccountTreeAccountRow> selectAccountTreeAccounts(@Param("groupId") Long groupId);
 }

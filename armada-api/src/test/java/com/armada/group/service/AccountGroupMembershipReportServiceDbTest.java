@@ -98,9 +98,12 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     }
 
     @Test
-    void applyGroupsReported_withoutBaselineTreatsAllGroupsAsVisible() {
+    void applyGroupsReported_pendingBaselineCapturesJsonAndDoesNotWriteVisibleMembership() {
         long accountId = seedAccountWithoutBaseline("923300001003");
-        String visibleJid = "120363visible-no-baseline@g.us";
+        String importedJid = "120363imported-baseline@g.us";
+        String staleJid = "120363pending-stale@g.us";
+        long staleGroupLinkId = seedExistingGroup(staleJid);
+        seedMembership(accountId, staleGroupLinkId, staleJid);
 
         service.applyGroupsReported(new AccountGroupsReportedEvent(
                 TEST_TENANT_ID,
@@ -108,10 +111,13 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 "acc_923300001003",
                 1782626401000L,
                 List.of(new AccountGroupsReportedEvent.Group(
-                        visibleJid, "无基线账号当前群", 12, null, null, false, false, null)),
+                        importedJid, "导入时已有群", 12, null, null, false, false, null)),
                 "evt-groups-db-3"));
 
-        assertThat(countMembership(accountId, visibleJid, true)).isOne();
+        assertThat(countMembership(accountId, importedJid, true)).isZero();
+        assertThat(countMembership(accountId, staleJid, true)).isZero();
+        assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
+        assertThat(groupBaselineState(accountId)).isEqualTo(2);
     }
 
     private long seedAccount(String phone) {
@@ -208,6 +214,11 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     private String baselineJson(long accountId) {
         return jdbc.queryForObject("SELECT baseline_group_jids FROM account_group_baseline WHERE account_id = ?",
                 String.class, accountId);
+    }
+
+    private int groupBaselineState(long accountId) {
+        return jdbc.queryForObject("SELECT group_baseline_state FROM account WHERE id = ?",
+                Integer.class, accountId);
     }
 
     private long insertAndReturnId(String sql, SqlBinder binder) {

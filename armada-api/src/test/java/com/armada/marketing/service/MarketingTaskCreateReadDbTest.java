@@ -154,29 +154,31 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
-    void createTask_rejectsSelectionWithoutActiveMembership() {
-        Fixture fixture = seedFixture("missing-membership");
-        jdbc.update("UPDATE account_group_membership SET deleted_at = ? WHERE account_id = ? AND group_link_id = ?",
-                System.currentTimeMillis(), fixture.accountId(), fixture.groupLinkId());
+    void createTask_fixedGroupDoesNotRequireActiveMembership() {
+        Fixture fixture = seedFixture("missing-membership", false);
 
-        CreateMarketingTaskDTO req = request(
-                "无在群关系任务",
+        MarketingTaskVO created = service.createTask(request(
+                "无在群关系但来自实时树任务",
                 fixture.accountGroupId(),
                 fixture.templateId(),
                 "PENDING",
-                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
 
-        assertThatThrownBy(() -> service.createTask(req))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("账号或群组不可用");
+        assertThat(created.targetPairCount()).isEqualTo(1);
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+        assertThat(detail.targets()).singleElement().satisfies(target -> {
+            assertThat(target.groupLinkId()).isEqualTo(fixture.groupLinkId());
+            assertThat(target.groupJid()).isEqualTo(fixture.groupJid());
+        });
     }
 
     @Test
-    void createTask_rejectsSelectionBeforeMembershipSyncReports() {
-        Fixture fixture = seedFixture("before-membership-sync", false, 6);
+    void createTask_fixedGroupStillRejectsBaselineGroup() {
+        Fixture fixture = seedFixture("baseline-fixed", false);
+        seedBaseline(fixture.accountId(), "[\"" + fixture.groupJid() + "\"]");
 
         CreateMarketingTaskDTO req = request(
-                "群同步前任务",
+                "baseline旧群固定任务",
                 fixture.accountGroupId(),
                 fixture.templateId(),
                 "PENDING",
@@ -305,6 +307,15 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                     """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
         }
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
+    }
+
+    private void seedBaseline(long accountId, String baselineGroupJids) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO account_group_baseline
+                    (tenant_id, account_id, baseline_group_jids, group_count, captured_at, created_at, updated_at)
+                VALUES (?, ?, ?, JSON_LENGTH(?), ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, baselineGroupJids, baselineGroupJids, now, now, now);
     }
 
     private long insertAndReturnId(String sql, SqlBinder binder) {

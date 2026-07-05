@@ -59,16 +59,6 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
-    <resultMap id="MarketingAccountTreeRowResultMap" type="com.armada.marketing.model.vo.MarketingAccountTreeRow">
-        <result column="account_id" property="accountId"/>
-        <result column="ws_phone" property="wsPhone"/>
-        <result column="group_link_id" property="groupLinkId"/>
-        <result column="group_jid" property="groupJid"/>
-        <result column="group_name" property="groupName"/>
-        <result column="link_url" property="linkUrl"/>
-        <result column="is_admin" property="admin"/>
-    </resultMap>
-
     <sql id="TaskColumns">
         id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
@@ -302,10 +292,6 @@
         JOIN account_state s ON s.account_id = a.id
         JOIN group_link g ON g.id = #{groupLinkId} AND g.deleted_at IS NULL
         JOIN group_link_preview p ON p.group_link_id = g.id
-        JOIN account_group_membership m ON m.account_id = a.id
-                                       AND m.group_link_id = g.id
-                                       AND m.group_jid = p.group_jid
-                                       AND m.deleted_at IS NULL
         LEFT JOIN account_group_baseline b ON b.account_id = a.id
                                            AND a.group_baseline_state = 2
         WHERE a.id = #{accountId}
@@ -373,49 +359,23 @@
         ORDER BY m.group_link_id ASC
     </select>
 
-    <select id="selectAccountTreeRows" resultMap="MarketingAccountTreeRowResultMap">
-        SELECT
-               a.id AS account_id,
-               a.ws_phone AS ws_phone,
-               gm.group_link_id AS group_link_id,
-               gm.group_jid AS group_jid,
-               gm.group_name AS group_name,
-               gm.link_url AS link_url,
-               gm.is_admin AS is_admin
+    <select id="selectAccountTreeAccounts" resultType="com.armada.marketing.model.vo.MarketingAccountTreeAccountRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS wsPhone,
+               a.protocol_account_id AS protocolAccountId,
+               a.group_baseline_state AS groupBaselineState,
+               b.baseline_group_jids AS baselineGroupJidsJson
         FROM account a
         JOIN account_state s ON s.account_id = a.id
         LEFT JOIN account_group_baseline b ON b.account_id = a.id
-                                           AND a.group_baseline_state = 2
-        LEFT JOIN (
-            SELECT
-                   m.account_id AS account_id,
-                   g.id AS group_link_id,
-                   p.group_jid AS group_jid,
-                   COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS group_name,
-                   g.link_url AS link_url,
-                   m.is_admin AS is_admin
-            FROM account_group_membership m
-            JOIN group_link g ON g.id = m.group_link_id
-                             AND g.deleted_at IS NULL
-                             AND g.membership_state IN (2, 3)
-            JOIN group_link_preview p ON p.group_link_id = g.id
-                                     AND p.group_jid = m.group_jid
-            LEFT JOIN group_link_health h ON h.group_link_id = g.id
-            WHERE m.deleted_at IS NULL
-              AND p.group_jid IS NOT NULL
-              AND TRIM(p.group_jid) &lt;&gt; ''
-              AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
-        ) gm ON gm.account_id = a.id
-             AND (
-                 a.group_baseline_state &lt;&gt; 2
-                 OR b.id IS NULL
-                 OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(gm.group_jid)), 0) = 0
-             )
         WHERE a.account_group_id = #{groupId}
           AND a.deleted_at IS NULL
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND s.login_state = 1
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
-        ORDER BY a.id ASC, gm.group_link_id ASC
+        ORDER BY a.id ASC
     </select>
+
 </mapper>

@@ -90,8 +90,8 @@
 
   <!--
     账号当前群同步候选:跨租户扫描在线正常账号。
-    已拍 baseline 的账号按 baseline 做差集;待拍/不启用 baseline 的账号也允许同步,
-    由 markGroupSyncRequested 补空 baseline 水位,避免账号树因 baseline 链路未初始化而永久为空。
+    已拍 baseline 的账号按 baseline 做差集;不启用 baseline 的账号直接同步。
+    待拍账号必须由营销账号树的实时协议查询捕获 baseline,避免定时任务晚到后把新进群误拍进旧群 JSON。
     调度线程没有租户上下文,所以 mapper 方法关闭租户拦截器,这里显式按 tenant_id 连接。
   -->
   <select id="selectGroupSyncCandidates" resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
@@ -106,7 +106,7 @@
       ON b.tenant_id = a.tenant_id
      AND b.account_id = a.id
     WHERE a.deleted_at IS NULL
-      AND a.group_baseline_state IN (1, #{baselineCapturedState}, 3)
+      AND a.group_baseline_state IN (#{baselineCapturedState}, 3)
       AND a.protocol_account_id IS NOT NULL
       AND a.protocol_account_id != ''
       AND s.login_state = #{onlineLoginState}

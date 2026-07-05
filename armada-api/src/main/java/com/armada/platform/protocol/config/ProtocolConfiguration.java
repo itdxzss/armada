@@ -2,11 +2,13 @@ package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
+import com.armada.platform.protocol.http.account.HttpAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupJoinAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
@@ -83,6 +85,17 @@ public class ProtocolConfiguration {
     @Bean
     public AccountLifecyclePort accountLifecyclePort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpAccountLifecycleAdapter(protocolHttpExecutor);
+    }
+
+    /**
+     * 注册账号当前参与群查询协议端口。
+     *
+     * @param protocolHttpExecutor 协议层 HTTP 执行器
+     * @return 账号参与群查询端口 HTTP 实现
+     */
+    @Bean
+    public AccountParticipatingGroupPort accountParticipatingGroupPort(ProtocolHttpExecutor protocolHttpExecutor) {
+        return new HttpAccountParticipatingGroupAdapter(protocolHttpExecutor);
     }
 
     /**

@@ -87,7 +87,7 @@ public interface AccountMapper {
      *
      * <p>调度线程没有 HTTP 租户上下文,因此关闭租户拦截器并在 SQL 内显式按 tenant_id
      * 连接 account/account_state/account_group_baseline。已拍 baseline 的在线正常账号按 baseline 做差集;
-     * 待拍/不启用 baseline 的在线正常账号也允许同步,避免账号树因 baseline 未初始化而永久为空。</p>
+     * 不启用 baseline 的在线正常账号直接同步。待拍账号由营销账号树实时捕获 baseline,不由定时任务抢拍。</p>
      *
      * @param limit                 本轮最大候选数
      * @param onlineLoginState      在线登录态码

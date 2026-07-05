@@ -11,11 +11,8 @@ import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
-import com.armada.marketing.model.vo.MarketingAccountTreeRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
-import com.armada.marketing.model.vo.MarketingTreeAccountVO;
-import com.armada.marketing.model.vo.MarketingTreeGroupVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskTargetVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
@@ -26,10 +23,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +53,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
     private final MarketingTemplateService templateService;
+    private final MarketingAccountTreeRealtimeService accountTreeRealtimeService;
 
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
@@ -68,13 +64,16 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
      * @param taskMapper      营销任务与目标明细数据访问
      * @param templateMapper  营销模板数据访问
      * @param templateService 营销模板业务服务
+     * @param accountTreeRealtimeService 营销账号树实时查询服务
      */
     public MarketingTaskServiceImpl(MarketingTaskMapper taskMapper,
                                     MarketingTemplateMapper templateMapper,
-                                    MarketingTemplateService templateService) {
+                                    MarketingTemplateService templateService,
+                                    MarketingAccountTreeRealtimeService accountTreeRealtimeService) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
         this.templateService = templateService;
+        this.accountTreeRealtimeService = accountTreeRealtimeService;
     }
 
     /**
@@ -232,21 +231,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
      */
     @Override
     public MarketingAccountTreeVO accountTree(Long groupId) {
-        if (groupId == null) {
-            return new MarketingAccountTreeVO(List.of());
-        }
-        List<MarketingAccountTreeRow> rows = taskMapper.selectAccountTreeRows(groupId);
-        Map<Long, AccountTreeDraft> accounts = new LinkedHashMap<>();
-        for (MarketingAccountTreeRow row : rows) {
-            AccountTreeDraft account = accounts.computeIfAbsent(row.getAccountId(),
-                    ignored -> new AccountTreeDraft(row.getAccountId(), row.getWsPhone()));
-            account.addGroup(row);
-        }
-        List<MarketingTreeAccountVO> accountVOs = accounts.values().stream()
-                .map(AccountTreeDraft::toVO)
-                .toList();
-        log.info("营销账号群树查询 groupId={} accounts={} rows={}", groupId, accountVOs.size(), rows.size());
-        return new MarketingAccountTreeVO(accountVOs);
+        return accountTreeRealtimeService.accountTree(groupId);
     }
 
     /**
@@ -518,27 +503,4 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(), targets);
     }
 
-    private static final class AccountTreeDraft {
-
-        private final Long accountId;
-        private final String wsPhone;
-        private final List<MarketingTreeGroupVO> groups = new ArrayList<>();
-
-        private AccountTreeDraft(Long accountId, String wsPhone) {
-            this.accountId = accountId;
-            this.wsPhone = wsPhone;
-        }
-
-        private void addGroup(MarketingAccountTreeRow row) {
-            if (row.getGroupLinkId() == null) {
-                return;
-            }
-            groups.add(new MarketingTreeGroupVO(row.getGroupLinkId(), row.getGroupJid(),
-                    row.getGroupName(), row.getLinkUrl(), Boolean.TRUE.equals(row.getAdmin())));
-        }
-
-        private MarketingTreeAccountVO toVO() {
-            return new MarketingTreeAccountVO(accountId, wsPhone, "ONLINE", false, groups);
-        }
-    }
 }

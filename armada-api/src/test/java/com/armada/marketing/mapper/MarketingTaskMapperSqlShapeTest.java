@@ -11,21 +11,22 @@ class MarketingTaskMapperSqlShapeTest {
     private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskMapper.xml";
 
     @Test
-    void marketingAccountSelectionUsesSimpleBusinessPredicate() throws IOException {
+    void marketingAccountSelectionUsesRealtimeProtocolAndFixedSaveDoesNotRequireMembership() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
                 StandardCharsets.UTF_8);
 
         String candidateSql = selectBlock(xml, "selectTargetCandidate");
-        String treeSql = selectBlock(xml, "selectAccountTreeRows");
+        String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
 
         assertThat(candidateSql).contains("p.group_jid AS groupJid");
-        assertThat(treeSql).contains("p.group_jid AS group_jid");
-        assertThat(candidateSql + treeSql)
+        assertThat(candidateSql)
+                .doesNotContain("JOIN account_group_membership")
+                .doesNotContain("m.group_jid");
+        assertThat(treeAccountSql).contains("a.protocol_account_id AS protocolAccountId");
+        assertThat(treeAccountSql)
                 .doesNotContain("account_group_membership")
-                .doesNotContain("NOT EXISTS")
-                .doesNotContain("m.group_jid")
-                .doesNotContain("COALESCE(NULLIF(TRIM(m.group_jid)");
+                .doesNotContain("group_link_preview p");
     }
 
     private static String selectBlock(String xml, String id) {

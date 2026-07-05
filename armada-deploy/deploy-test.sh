@@ -14,6 +14,13 @@ COMPOSE_FILE="${ARMADA_DEPLOY_COMPOSE:-docker-compose.rds.yml}"
 COMPOSE_PROJECT="${ARMADA_DEPLOY_PROJECT:-armada-deploy}"
 PUBLIC_URL="${ARMADA_DEPLOY_PUBLIC_URL:-http://armada.65.2.123.53.nip.io/}"
 FRONTEND_DIR="${ARMADA_FRONTEND_DIR:-${WORKSPACE_ROOT}/wheel-saas-pure-web}"
+PROTOCOL_DIR="${ARMADA_PROTOCOL_DIR:-${WORKSPACE_ROOT}/armada-protocol}"
+PROTOCOL_LAYER_DIR="${PROTOCOL_DIR}/protocol-layer"
+PROTOCOL_SSH_HOST="${ARMADA_PROTOCOL_DEPLOY_HOST:-65.2.122.109}"
+PROTOCOL_SSH_USER="${ARMADA_PROTOCOL_DEPLOY_USER:-ec2-user}"
+PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/protocol.pem}"
+PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-/home/ec2-user/armada-protocol}"
+PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-armada.ecosystem.config.cjs}"
 JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
 
 SCOPE="all"
@@ -26,6 +33,7 @@ DEPLOY_ASSET_DIR="${SCRIPT_DIR}"
 BRANCH_WORKTREE=""
 API_DIR=""
 JAR_PATH=""
+BUILD_PROTOCOL=0
 
 if [ -t 1 ]; then
   C_B=$'\033[1m'
@@ -88,16 +96,18 @@ refresh_build_paths
 
 usage() {
   cat <<EOF
-deploy-test.sh - 部署 armada API + wheel-saas-pure-web 到测试服。
+deploy-test.sh - 部署 armada API + wheel-saas-pure-web + 协议层到测试服。
 
 用法:
   ./armada-deploy/deploy-test.sh [options]
   ./armada-deploy/deploy-test.sh          只显示部署指引,不执行部署。
 
 参数:
-  --all            构建并部署后端 + 前端。
+  --all            构建并部署后端 + 前端。保持旧语义,不部署协议层。
+  --full           构建并部署后端 + 前端 + 协议层。
   --be             只构建并部署后端。
   --fe             只构建并部署前端/nginx。
+  --protocol       只部署协议层。
   --branch <name>  从指定 armada 远端分支创建临时 worktree 构建并部署。
   -y, --yes        跳过确认提示。
   --logs           部署后跟随后端日志。
@@ -111,9 +121,17 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web 到测试服。
   ARMADA_DEPLOY_REMOTE_DIR
   ARMADA_DEPLOY_BRANCH
   ARMADA_FRONTEND_DIR
+  ARMADA_PROTOCOL_DIR
+  ARMADA_PROTOCOL_DEPLOY_HOST
+  ARMADA_PROTOCOL_DEPLOY_USER
+  ARMADA_PROTOCOL_DEPLOY_KEY
+  ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR
+  ARMADA_PROTOCOL_PM2_CONFIG
 
-目标服务器:
+Armada 目标服务器:
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
+协议目标服务器:
+  ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}
 
 访问入口:
   ${PUBLIC_URL}
@@ -128,11 +146,17 @@ Armada 测试环境部署指引
   后端 + 前端:
     ./armada-deploy/deploy-test.sh --all -y
 
+  后端 + 前端 + 协议层:
+    ./armada-deploy/deploy-test.sh --full -y
+
   只部署后端:
     ./armada-deploy/deploy-test.sh --be -y
 
   只部署前端/nginx:
     ./armada-deploy/deploy-test.sh --fe -y
+
+  只部署协议层:
+    ./armada-deploy/deploy-test.sh --protocol -y
 
   只看部署计划,不真正执行:
     ./armada-deploy/deploy-test.sh --dry-run
@@ -152,8 +176,10 @@ Armada 测试环境部署指引
 
 常用参数:
   --all        本地构建后端 jar 和前端 dist,同步两者并重启两个容器。
+  --full       部署后端 + 前端 + 协议层。
   --be         本地构建后端 jar,同步 jar,只重建/重启 armada-backend。
   --fe         本地构建前端 dist,同步 dist,只重建/重启 armada-nginx。
+  --protocol   同步协议源码到协议机,远端 npm ci + npm run build,PM2 滚动重载。
   --branch     从 origin/<branch> 创建临时 worktree 构建 armada 与部署编排,不切换当前工作区。
   -y, --yes    跳过确认提示。
   --logs       部署完成后跟随 armada-backend 日志。
@@ -161,7 +187,8 @@ Armada 测试环境部署指引
   -h, --help   显示完整参数说明。
 
 目标:
-  ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
+  Armada: ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
+  协议层: ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}
   ${PUBLIC_URL}
 
 提示:
@@ -177,8 +204,10 @@ fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --all) SCOPE="all" ;;
+    --full) SCOPE="full" ;;
     --be) SCOPE="be" ;;
     --fe) SCOPE="fe" ;;
+    --protocol) SCOPE="protocol" ;;
     --branch)
       shift
       [ $# -gt 0 ] || die "--branch 需要分支名"
@@ -202,6 +231,7 @@ fi
 
 BUILD_BE=0
 BUILD_FE=0
+BUILD_PROTOCOL=0
 SERVICES=""
 COMPOSE_UP_EXTRA=""
 COMPOSE_UP_ARGS=""
@@ -215,6 +245,13 @@ case "${SCOPE}" in
     SERVICES=""
     SCOPE_DESC="后端 + 前端"
     ;;
+  full)
+    BUILD_BE=1
+    BUILD_FE=1
+    BUILD_PROTOCOL=1
+    SERVICES=""
+    SCOPE_DESC="后端 + 前端 + 协议层"
+    ;;
   be)
     BUILD_BE=1
     SERVICES="backend"
@@ -225,12 +262,16 @@ case "${SCOPE}" in
     SERVICES="nginx"
     SCOPE_DESC="只前端"
     ;;
+  protocol)
+    BUILD_PROTOCOL=1
+    SCOPE_DESC="只协议层"
+    ;;
   *)
     die "无效部署范围: ${SCOPE}"
     ;;
 esac
 
-if [ "${SCOPE}" != "all" ]; then
+if [ "${SCOPE}" != "all" ] && [ "${SCOPE}" != "full" ]; then
   COMPOSE_UP_EXTRA="--no-deps"
 fi
 COMPOSE_UP_ARGS="up -d --build"
@@ -258,17 +299,34 @@ if [ "${BUILD_BE}" = 1 ]; then
   JDK17_HOME="$(find_jdk17)" || die "需要 JDK 17。请安装 JDK 17 或设置 JAVA17_HOME。"
 fi
 
-[ -f "${SSH_KEY}" ] || die "找不到 SSH 私钥: ${SSH_KEY}"
-[ -d "${API_DIR}" ] || die "找不到 armada-api 目录: ${API_DIR}"
-[ -f "${API_DIR}/pom.xml" ] || die "找不到 armada-api/pom.xml"
-[ -d "${FRONTEND_DIR}" ] || die "找不到前端目录: ${FRONTEND_DIR}"
-[ -f "${FRONTEND_DIR}/package.json" ] || die "找不到前端 package.json"
-[ -f "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" ] || die "缺少 ${DEPLOY_ASSET_DIR}/docker-compose.rds.yml"
-[ -f "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile"
-[ -f "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile"
-[ -f "${DEPLOY_ASSET_DIR}/nginx.conf" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.conf"
-[ -f "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" ] || die "缺少 ${DEPLOY_ASSET_DIR}/stale-chunk-reload.js"
-[ -f "${DEPLOY_ASSET_DIR}/.env.example" ] || die "缺少 ${DEPLOY_ASSET_DIR}/.env.example"
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  [ -f "${SSH_KEY}" ] || die "找不到 SSH 私钥: ${SSH_KEY}"
+  [ -f "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" ] || die "缺少 ${DEPLOY_ASSET_DIR}/docker-compose.rds.yml"
+  [ -f "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile"
+  [ -f "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile"
+  [ -f "${DEPLOY_ASSET_DIR}/nginx.conf" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.conf"
+  [ -f "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" ] || die "缺少 ${DEPLOY_ASSET_DIR}/stale-chunk-reload.js"
+  [ -f "${DEPLOY_ASSET_DIR}/.env.example" ] || die "缺少 ${DEPLOY_ASSET_DIR}/.env.example"
+fi
+if [ "${BUILD_BE}" = 1 ]; then
+  [ -d "${API_DIR}" ] || die "找不到 armada-api 目录: ${API_DIR}"
+  [ -f "${API_DIR}/pom.xml" ] || die "找不到 armada-api/pom.xml"
+fi
+if [ "${BUILD_FE}" = 1 ]; then
+  [ -d "${FRONTEND_DIR}" ] || die "找不到前端目录: ${FRONTEND_DIR}"
+  [ -f "${FRONTEND_DIR}/package.json" ] || die "找不到前端 package.json"
+fi
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  [ -f "${PROTOCOL_SSH_KEY}" ] || die "找不到协议 SSH 私钥: ${PROTOCOL_SSH_KEY}"
+  [ -d "${PROTOCOL_DIR}" ] || die "找不到协议仓库目录: ${PROTOCOL_DIR}"
+  [ -d "${PROTOCOL_LAYER_DIR}" ] || die "找不到协议层目录: ${PROTOCOL_LAYER_DIR}"
+  [ -f "${PROTOCOL_LAYER_DIR}/package.json" ] || die "找不到协议层 package.json"
+  [ -f "${PROTOCOL_LAYER_DIR}/package-lock.json" ] || die "找不到协议层 package-lock.json"
+  [ -f "${PROTOCOL_LAYER_DIR}/tsconfig.json" ] || die "找不到协议层 tsconfig.json"
+  [ -d "${PROTOCOL_LAYER_DIR}/src" ] || die "找不到协议层 src 目录"
+  [ -d "${PROTOCOL_LAYER_DIR}/deploy" ] || die "找不到协议层 deploy 目录"
+  [ -d "${PROTOCOL_DIR}/openapi" ] || die "找不到协议 openapi 目录"
+fi
 
 if [ "${BUILD_BE}" = 1 ]; then
   command -v mvn >/dev/null 2>&1 || die "构建后端需要 mvn"
@@ -293,9 +351,20 @@ SSH_OPTS=(
   -o StrictHostKeyChecking=accept-new
 )
 RSYNC_SSH="ssh -i ${SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+PROTOCOL_SSH_OPTS=(
+  -i "${PROTOCOL_SSH_KEY}"
+  -o BatchMode=yes
+  -o ConnectTimeout=15
+  -o StrictHostKeyChecking=accept-new
+)
+PROTOCOL_RSYNC_SSH="ssh -i ${PROTOCOL_SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
 
 ssh_run() {
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" "$@"
+}
+
+protocol_ssh_run() {
+  ssh "${PROTOCOL_SSH_OPTS[@]}" "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}" "$@"
 }
 
 remote_required_env_check='
@@ -305,6 +374,27 @@ test -f .env || { echo "远端缺少 .env: $1/.env" >&2; exit 20; }
 for key in DB_URL DB_USER DB_PASSWORD; do
   grep -Eq "^${key}=.+" .env || { echo "$1/.env 缺少必需配置 ${key}" >&2; exit 21; }
 done
+'
+
+protocol_remote_deploy='
+set -eu
+remote_dir="$1"
+preferred_pm2_config="$2"
+cd "${remote_dir}/protocol-layer"
+command -v npm >/dev/null 2>&1 || { echo "远端缺少 npm" >&2; exit 30; }
+command -v pm2 >/dev/null 2>&1 || { echo "远端缺少 pm2" >&2; exit 31; }
+npm ci --no-audit --no-fund
+npm run build
+if [ -f "${preferred_pm2_config}" ]; then
+  pm2_config="${preferred_pm2_config}"
+elif [ -f deploy/pm2.config.cjs ]; then
+  pm2_config="deploy/pm2.config.cjs"
+else
+  echo "远端缺少 PM2 配置: ${preferred_pm2_config} 或 deploy/pm2.config.cjs" >&2
+  exit 32
+fi
+pm2 startOrReload "${pm2_config}" --update-env
+pm2 save >/dev/null 2>&1 || true
 '
 
 print_plan() {
@@ -318,9 +408,18 @@ print_plan() {
   fi
   printf '  构建目录      : %s\n' "${BUILD_REPO_ROOT}"
   printf '  编排目录      : %s\n' "${DEPLOY_ASSET_DIR}"
-  printf '  前端目录      : %s\n' "${FRONTEND_DIR}"
-  printf '  目标服务器    : %s@%s:%s\n' "${SSH_USER}" "${SSH_HOST}" "${REMOTE_DIR}"
-  printf '  compose       : %s / project=%s\n' "${COMPOSE_FILE}" "${COMPOSE_PROJECT}"
+  if [ "${BUILD_FE}" = 1 ]; then
+    printf '  前端目录      : %s\n' "${FRONTEND_DIR}"
+  fi
+  if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+    printf '  Armada 目标   : %s@%s:%s\n' "${SSH_USER}" "${SSH_HOST}" "${REMOTE_DIR}"
+    printf '  compose       : %s / project=%s\n' "${COMPOSE_FILE}" "${COMPOSE_PROJECT}"
+  fi
+  if [ "${BUILD_PROTOCOL}" = 1 ]; then
+    printf '  协议目录      : %s\n' "${PROTOCOL_DIR}"
+    printf '  协议目标      : %s@%s:%s\n' "${PROTOCOL_SSH_USER}" "${PROTOCOL_SSH_HOST}" "${PROTOCOL_REMOTE_DIR}"
+    printf '  协议 PM2      : %s\n' "${PROTOCOL_PM2_CONFIG}"
+  fi
   if [ "${BUILD_BE}" = 1 ]; then
     printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
   fi
@@ -333,7 +432,12 @@ print_plan() {
 print_plan
 
 if [ "${DRY_RUN}" = 1 ]; then
-  info "[dry-run] 将检查 SSH 连通性"
+  if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+    info "[dry-run] 将检查 Armada SSH 连通性"
+  fi
+  if [ "${BUILD_PROTOCOL}" = 1 ]; then
+    info "[dry-run] 将检查协议 SSH 连通性"
+  fi
   [ -n "${DEPLOY_BRANCH}" ] && info "[dry-run] 实际部署时将 fetch origin/${DEPLOY_BRANCH} 并创建临时 worktree"
   [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
@@ -343,15 +447,29 @@ if [ "${DRY_RUN}" = 1 ]; then
       info "[dry-run] 将执行: (cd ${FRONTEND_DIR} && npm run build)"
     fi
   fi
-  info "[dry-run] 将 rsync 部署文件和产物到 ${REMOTE_DIR}"
-  info "[dry-run] 将在远端执行 ${COMPOSE_UP_COMMAND}"
+  if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+    info "[dry-run] 将 rsync Armada 部署文件和产物到 ${REMOTE_DIR}"
+    info "[dry-run] 将在 Armada 远端执行 ${COMPOSE_UP_COMMAND}"
+  fi
+  if [ "${BUILD_PROTOCOL}" = 1 ]; then
+    info "[dry-run] 将同步协议层源码到 ${PROTOCOL_REMOTE_DIR}"
+    info "[dry-run] 将构建协议层: cd ${PROTOCOL_REMOTE_DIR}/protocol-layer && npm ci --no-audit --no-fund && npm run build"
+    info "[dry-run] 将重载协议 PM2: pm2 startOrReload ${PROTOCOL_PM2_CONFIG} --update-env"
+  fi
   ok "dry-run 完成"
   exit 0
 fi
 
-info "检查 SSH 连通性..."
-ssh_run true || die "SSH 连接失败"
-ok "服务器可达"
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  info "检查 Armada SSH 连通性..."
+  ssh_run true || die "Armada SSH 连接失败"
+  ok "Armada 服务器可达"
+fi
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  info "检查协议 SSH 连通性..."
+  protocol_ssh_run true || die "协议 SSH 连接失败"
+  ok "协议服务器可达"
+fi
 
 if [ "${ASSUME_YES}" != 1 ]; then
   printf '确认部署到测试服? [y/N] '
@@ -381,22 +499,24 @@ if [ "${BUILD_FE}" = 1 ]; then
   ok "前端 dist 已就绪: ${FRONTEND_DIR}/dist"
 fi
 
-info "准备远端目录..."
-ssh_run "mkdir -p '${REMOTE_DIR}/armada-api/target' '${REMOTE_DIR}/wheel-saas-pure-web/dist'"
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  info "准备 Armada 远端目录..."
+  ssh_run "mkdir -p '${REMOTE_DIR}/armada-api/target' '${REMOTE_DIR}/wheel-saas-pure-web/dist'"
 
-info "检查远端 .env..."
-ssh_run "bash -s -- '${REMOTE_DIR}'" <<<"${remote_required_env_check}"
-ok "远端 .env 已包含必需数据库配置"
+  info "检查 Armada 远端 .env..."
+  ssh_run "bash -s -- '${REMOTE_DIR}'" <<<"${remote_required_env_check}"
+  ok "Armada 远端 .env 已包含必需数据库配置"
 
-info "同步部署编排文件..."
-rsync -az -e "${RSYNC_SSH}" \
-  "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" \
-  "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" \
-  "${DEPLOY_ASSET_DIR}/nginx.conf" \
-  "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" \
-  "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" \
-  "${DEPLOY_ASSET_DIR}/.env.example" \
-  "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/"
+  info "同步 Armada 部署编排文件..."
+  rsync -az -e "${RSYNC_SSH}" \
+    "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" \
+    "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" \
+    "${DEPLOY_ASSET_DIR}/nginx.conf" \
+    "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" \
+    "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" \
+    "${DEPLOY_ASSET_DIR}/.env.example" \
+    "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/"
+fi
 
 if [ "${BUILD_BE}" = 1 ]; then
   info "同步后端 jar..."
@@ -413,32 +533,86 @@ if [ "${BUILD_FE}" = 1 ]; then
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/wheel-saas-pure-web/dist/"
 fi
 
-info "启动容器..."
-ssh_run "cd '${REMOTE_DIR}' && docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  info "准备协议远端目录..."
+  protocol_ssh_run "mkdir -p '${PROTOCOL_REMOTE_DIR}/protocol-layer' '${PROTOCOL_REMOTE_DIR}/openapi'"
 
-info "检查容器状态..."
-if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "be" ]; then
+  info "同步协议层源码..."
+  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+    "${PROTOCOL_LAYER_DIR}/src/" \
+    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/src/"
+  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+    "${PROTOCOL_LAYER_DIR}/deploy/" \
+    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/deploy/"
+  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+    "${PROTOCOL_DIR}/openapi/" \
+    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/openapi/"
+  rsync -az -e "${PROTOCOL_RSYNC_SSH}" \
+    "${PROTOCOL_LAYER_DIR}/package.json" \
+    "${PROTOCOL_LAYER_DIR}/package-lock.json" \
+    "${PROTOCOL_LAYER_DIR}/tsconfig.json" \
+    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/"
+  if [ -f "${PROTOCOL_LAYER_DIR}/jest.config.mjs" ]; then
+    rsync -az -e "${PROTOCOL_RSYNC_SSH}" \
+      "${PROTOCOL_LAYER_DIR}/jest.config.mjs" \
+      "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/"
+  fi
+  if [ -d "${PROTOCOL_LAYER_DIR}/patches" ]; then
+    rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+      "${PROTOCOL_LAYER_DIR}/patches/" \
+      "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/patches/"
+  fi
+
+  info "构建并重载协议层..."
+  protocol_ssh_run "bash -s -- '${PROTOCOL_REMOTE_DIR}' '${PROTOCOL_PM2_CONFIG}'" <<<"${protocol_remote_deploy}"
+fi
+
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  info "启动 Armada 容器..."
+  ssh_run "cd '${REMOTE_DIR}' && docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+fi
+
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  info "检查 Armada 容器状态..."
+fi
+if [ "${BUILD_BE}" = 1 ]; then
   ssh_run "docker inspect -f '{{.State.Status}}' armada-backend | grep -q '^running$'"
 fi
-if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "fe" ]; then
+if [ "${BUILD_FE}" = 1 ]; then
   ssh_run "docker inspect -f '{{.State.Status}}' armada-nginx | grep -q '^running$'"
 fi
-ok "容器运行中"
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  ok "Armada 容器运行中"
+fi
 
-if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "fe" ]; then
+if [ "${BUILD_FE}" = 1 ]; then
   info "检查前端访问..."
   ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; curl -fsS -m 8 \"http://127.0.0.1:\${port}/\" | grep -qi '<!doctype html'"
   ok "前端可访问"
 fi
 
-if [ "${SCOPE}" = "all" ] || [ "${SCOPE}" = "be" ]; then
+if [ "${BUILD_BE}" = 1 ]; then
   info "检查 API 代理路径..."
   ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -fsS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|0|40001)'"
   ok "API 路径已打到后端"
 fi
 
-ok "部署完成: ${PUBLIC_URL}"
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  info "检查协议层访问..."
+  protocol_ssh_run "pm2 describe armada-protocol-master >/dev/null 2>&1 || pm2 describe protocol-master >/dev/null 2>&1"
+  protocol_ssh_run "curl -fsS -m 8 http://127.0.0.1:8080/healthz >/dev/null"
+  ok "协议层可访问"
+fi
 
-if [ "${TAIL_LOGS}" = 1 ]; then
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  ok "Armada 部署完成: ${PUBLIC_URL}"
+fi
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  ok "协议层部署完成: ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}"
+fi
+
+if [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_BE}" = 1 ]; then
   ssh_run "docker logs -f --tail 120 armada-backend"
+elif [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_PROTOCOL}" = 1 ]; then
+  protocol_ssh_run "pm2 logs --lines 120"
 fi

@@ -40,6 +40,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static final int WA_CODE_LOGIN_REPLACED = 440;
     /** 协议层在线状态。 */
     private static final String STATE_ONLINE = "ONLINE";
+    /** 协议层正在验证登录态。 */
+    private static final String STATE_VERIFYING = "VERIFYING";
     /** 协议层离线状态。 */
     private static final String STATE_OFFLINE = "OFFLINE";
     /** 协议层需重新认证状态。 */
@@ -352,9 +354,14 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     }
 
     private static Integer mapLoginState(String state) {
-        return STATE_ONLINE.equalsIgnoreCase(state == null ? null : state.trim())
-                ? AccountLoginStateCode.ONLINE
-                : AccountLoginStateCode.OFFLINE;
+        String normalized = state == null ? null : state.trim();
+        if (STATE_ONLINE.equalsIgnoreCase(normalized)) {
+            return AccountLoginStateCode.ONLINE;
+        }
+        if (STATE_VERIFYING.equalsIgnoreCase(normalized)) {
+            return AccountLoginStateCode.PENDING_ONLINE;
+        }
+        return AccountLoginStateCode.OFFLINE;
     }
 
     private static void validate(AccountStateChangedEvent event) {

@@ -102,6 +102,25 @@ class AccountStateEventServiceImplTest {
     }
 
     @Test
+    void applyStateChanged_verifyingMarksLoginStatePendingOnline() {
+        Account account = account();
+        AccountState currentState = currentState(AccountStateCode.NORMAL, 1_000L);
+        AccountStateChangedEvent event = event("OFFLINE", "VERIFYING",
+                2_000L, "ws_open", null, "batch_online", "oa_verifying");
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+
+        service().applyStateChanged(event);
+
+        ArgumentCaptor<AccountState> rowCaptor = ArgumentCaptor.forClass(AccountState.class);
+        verify(stateMapper).updateLoginState(rowCaptor.capture());
+        AccountState row = rowCaptor.getValue();
+        assertThat(row.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
+        assertThat(row.getStateSource()).isEqualTo("ws_open");
+        verify(ipProxyService, never()).releaseByAccount(100L);
+    }
+
+    @Test
     void applyStateChanged_takingOverBatchOfflineStopsTakeover() {
         Account account = account();
         AccountState currentState = currentState(AccountStateCode.TAKING_OVER, 1_000L);

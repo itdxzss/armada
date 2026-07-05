@@ -50,20 +50,22 @@ C        ACCOUNT_DYNAMIC
 
 ## 3. 创建任务
 
-前端提交仍使用现有 `selections` 结构:
+前端提交的 `selections` 需要显式携带账号目标范围,不能只靠 `groupLinkIds` 是否为空推断。
+原因是当前 Element Plus 树默认父子联动:用户点击账号父节点时,会默认把账号下所有群组也勾选上;
+如果后端只看 `groupLinkIds`,会把“账号维度发送”误判为“固定群组发送”。
 
 ```json
 [
-  { "accountId": 101, "groupLinkIds": [11, 12] },
-  { "accountId": 102, "groupLinkIds": [] }
+  { "accountId": 101, "targetScope": "GROUP_FIXED", "groupLinkIds": [11, 12] },
+  { "accountId": 102, "targetScope": "ACCOUNT_DYNAMIC", "groupLinkIds": [] }
 ]
 ```
 
 后端规则:
 
-- `groupLinkIds` 非空:对每个群调用现有候选校验,生成 `GROUP_FIXED` target 行。
-- `groupLinkIds` 为空或缺省:校验账号属于本次账号分组、在线可用,生成一条 `ACCOUNT_DYNAMIC` target 行。
-- 同一个账号不能同时提交空 `groupLinkIds` 和非空 `groupLinkIds`;如果前端出现这种状态,后端第一版直接拒绝,避免用户选择语义不清。
+- `targetScope=GROUP_FIXED`:要求 `groupLinkIds` 非空,对每个群调用现有候选校验,生成 `GROUP_FIXED` target 行。
+- `targetScope=ACCOUNT_DYNAMIC`:忽略 `groupLinkIds`,校验账号属于本次账号分组、在线可用,生成一条 `ACCOUNT_DYNAMIC` target 行。
+- 同一个账号不能同时提交 `GROUP_FIXED` 和 `ACCOUNT_DYNAMIC`;如果前端出现这种状态,后端第一版直接拒绝,避免用户选择语义不清。
 - `selected_account_count` 统计去重账号数。
 - `target_group_count` 和 `target_pair_count` 对动态账号在创建时无法确定,列表可先统计固定群组数量;动态账号实际发送数量由每轮 attempt 体现。
 
@@ -120,8 +122,10 @@ tenant_id, target_id, round_no, group_jid
 新增营销任务抽屉保留账号树和群组展示,但保存规则改为账号优先:
 
 - 勾选账号父节点即可提交,不要求勾选群组;
-- 若账号下没有勾选任何群组,提交 `groupLinkIds: []`;
-- 若账号下勾选了群组,提交具体 `groupLinkIds`;
+- 前端必须关闭或绕开树的父子级联,让“勾选账号”和“勾选账号下所有群”成为两种不同意图;
+- 勾选账号父节点时提交 `targetScope: "ACCOUNT_DYNAMIC"` 和 `groupLinkIds: []`;
+- 只勾选账号下群组时提交 `targetScope: "GROUP_FIXED"` 和具体 `groupLinkIds`;
+- 同一账号不允许同时处于账号维度和固定群组维度;页面应阻止这种选择,后端也会兜底拒绝;
 - 文案从“请至少选择一个账号和群组”改为“请至少选择一个发送账号”;
 - 树上继续展示当前可选群,便于用户选择固定群组;
 - “全选账号”只选择账号维度目标,不默认勾选所有群。
@@ -138,8 +142,9 @@ tenant_id, target_id, round_no, group_jid
 
 后端 DbTest:
 
-- 只传账号且 `groupLinkIds=[]` 时创建 `ACCOUNT_DYNAMIC` target。
+- `targetScope=ACCOUNT_DYNAMIC` 且 `groupLinkIds=[]` 时创建 `ACCOUNT_DYNAMIC` target。
 - 传具体群组时创建多条 `GROUP_FIXED` target。
+- 父子级联造成的“账号维度 + 固定群组”混合 selection 会被拒绝。
 - 同一任务内混合动态账号和固定群组。
 - 动态账号每轮解析当前群,排除 baseline 群,只生成导入后新增群 attempt。
 - 动态账号一轮多个群时可以插入多条 attempt。

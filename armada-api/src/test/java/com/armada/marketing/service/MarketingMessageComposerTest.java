@@ -64,7 +64,7 @@ class MarketingMessageComposerTest {
         MarketingMessageComposer.ComposedMessage message = composer.compose(template, file);
 
         assertThat(message.messageType()).isEqualTo("LINK_CARD");
-        assertThat(message.text()).contains("标题");
+        assertThat(message.text()).isEqualTo("https://example.com/promo");
         assertThat(message.imageBytes()).isNull();
         assertThat(message.linkCard()).isNotNull();
         assertThat(message.linkCard().url()).isEqualTo("https://example.com/promo");

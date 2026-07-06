@@ -98,6 +98,28 @@ class MarketingTemplateServiceImplTest {
     }
 
     @Test
+    void create_blankBodyText_insertsAndReturnsVO() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+        MarketingTemplate entity = new MarketingTemplate();
+        when(converter.toEntity(any())).thenReturn(entity);
+        when(mapper.selectById(any())).thenReturn(entity);
+
+        service.create(new MarketingTemplateDTO(
+                "无文本模板",
+                LinkMode.NORMAL.code(),
+                "PROMO",
+                null,
+                "内容",
+                " ",
+                null,
+                "https://promo.example/vip",
+                "备注"));
+
+        verify(mapper).insert(entity);
+        verify(converter).toVO(entity);
+    }
+
+    @Test
     void create_imageTextModeWithButtons_throws() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         List<MessageButton> buttons = List.of(new MessageButton(ButtonType.QUICK_REPLY, "回复", null));

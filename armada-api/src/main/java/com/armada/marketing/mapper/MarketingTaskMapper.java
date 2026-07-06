@@ -6,6 +6,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
+import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -28,6 +29,9 @@ public interface MarketingTaskMapper {
 
     /** 按任务 ID 查目标明细。 */
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
+
+    /** 从真实发送记录按账号+群组聚合营销明细。 */
+    List<MarketingTaskAccountGroupStatRow> selectAccountGroupStatsByTaskId(@Param("taskId") Long taskId);
 
     /** 查询已到下一轮生成时间的发送中任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
     @InterceptorIgnore(tenantLine = "true")

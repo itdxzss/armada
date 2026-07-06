@@ -133,6 +133,63 @@
         ORDER BY t.id ASC
     </select>
 
+    <select id="selectAccountGroupStatsByTaskId"
+            resultType="com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow">
+        SELECT t.account_id AS accountId,
+               t.account_phone AS accountPhone,
+               COALESCE(a.group_link_id, p.group_link_id, t.group_link_id) AS groupLinkId,
+               COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''), t.group_jid) AS groupJid,
+               SUBSTRING_INDEX(
+                   GROUP_CONCAT(
+                       COALESCE(g.link_url, t.group_link_url)
+                       ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC
+                       SEPARATOR '\n'
+                   ),
+                   '\n',
+                   1
+               ) AS groupLinkUrl,
+               SUBSTRING_INDEX(
+                   GROUP_CONCAT(
+                       COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name)
+                       ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC
+                       SEPARATOR '\n'
+                   ),
+                   '\n',
+                   1
+               ) AS groupName,
+               SUM(CASE WHEN a.status = 1 THEN 1 ELSE 0 END) AS sentMessageCount,
+               SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
+               MAX(COALESCE(a.result_at, a.attempted_at, a.created_at)) AS lastAttemptAt,
+               MAX(CASE WHEN a.status = 1 THEN COALESCE(a.result_at, a.attempted_at, a.created_at) ELSE NULL END) AS lastSentAt,
+               SUBSTRING_INDEX(
+                   GROUP_CONCAT(
+                       CASE
+                           WHEN a.status = 2 THEN COALESCE(NULLIF(TRIM(a.reason_message), ''), a.reason_code, '发送失败')
+                           ELSE NULL
+                       END
+                       ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC
+                       SEPARATOR '\n'
+                   ),
+                   '\n',
+                   1
+               ) AS lastReason
+        FROM marketing_task_target t
+        JOIN marketing_task_send_attempt a ON a.target_id = t.id
+                                          AND a.marketing_task_id = t.marketing_task_id
+        LEFT JOIN group_link_preview p ON p.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
+        LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
+        WHERE t.marketing_task_id = #{taskId}
+          AND a.marketing_task_id = #{taskId}
+          AND a.status IN (1, 2)
+        GROUP BY t.account_id,
+                 t.account_phone,
+                 COALESCE(a.group_link_id, p.group_link_id, t.group_link_id),
+                 COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''), t.group_jid)
+        ORDER BY t.account_id ASC,
+                 MAX(COALESCE(a.result_at, a.attempted_at, a.created_at)) DESC,
+                 COALESCE(a.group_link_id, p.group_link_id, t.group_link_id) ASC
+    </select>
+
     <select id="selectDueSendingTasks" resultMap="MarketingTaskResultMap">
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task

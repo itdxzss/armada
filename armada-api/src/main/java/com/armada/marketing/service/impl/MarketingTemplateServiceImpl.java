@@ -174,7 +174,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * 保存前统一校验:模板名/内容/文本必填、名称在租户内不重复、消息类型合法、按钮规则。
+     * 保存前统一校验:模板名/内容必填、名称在租户内不重复、消息类型合法、按钮规则。
      *
      * @param excludeId 名称查重时要排除的 ID;新增传 {@code null},编辑传当前模板 ID 以放过自身
      */
@@ -184,9 +184,6 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         }
         if (!StringUtils.hasText(dto.content())) {
             throw new BusinessException(ErrorCode.VALIDATION, "内容不能为空");
-        }
-        if (!StringUtils.hasText(dto.bodyText())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "文本不能为空");
         }
         if (mapper.existsByName(dto.templateName(), excludeId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板名称已存在: " + dto.templateName());

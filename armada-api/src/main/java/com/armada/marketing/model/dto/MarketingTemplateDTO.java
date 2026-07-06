@@ -23,7 +23,7 @@ public record MarketingTemplateDTO(
         /** 内容:标题 / 核心卖点(必填)。 */
         String content,
 
-        /** 文本:正文 / 活动说明(必填)。 */
+        /** 文本:正文 / 活动说明(选填)。 */
         String bodyText,
 
         /** 消息按钮:最多 3 个,仅按钮超链消息类型可配。 */

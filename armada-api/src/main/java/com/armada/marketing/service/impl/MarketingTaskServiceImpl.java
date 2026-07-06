@@ -13,7 +13,10 @@ import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
+import com.armada.marketing.model.vo.MarketingTaskAccountTargetVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
+import com.armada.marketing.model.vo.MarketingTaskGroupStatVO;
 import com.armada.marketing.model.vo.MarketingTaskTargetVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
@@ -24,8 +27,11 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -143,8 +149,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         MarketingTask task = requireTask(id);
         List<MarketingTaskTargetVO> targets = taskMapper.selectTargetsByTaskId(id)
                 .stream().map(MarketingTaskServiceImpl::toTargetVO).toList();
-        log.info("营销任务详情查询 id={} targets={}", id, targets.size());
-        return toDetailVO(task, targets);
+        List<MarketingTaskAccountGroupStatRow> groupStats = taskMapper.selectAccountGroupStatsByTaskId(id);
+        List<MarketingTaskAccountTargetVO> accountTargets = toAccountTargets(targets, groupStats);
+        log.info("营销任务详情查询 id={} targets={} accounts={}", id, targets.size(), accountTargets.size());
+        return toDetailVO(task, targets, accountTargets);
     }
 
     /**
@@ -498,14 +506,78 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 target.getLastAttemptAt(), target.getLastSentAt(), target.getLastReason());
     }
 
-    private static MarketingTaskDetailVO toDetailVO(MarketingTask task, List<MarketingTaskTargetVO> targets) {
+    private static List<MarketingTaskAccountTargetVO> toAccountTargets(List<MarketingTaskTargetVO> targets,
+                                                                       List<MarketingTaskAccountGroupStatRow> groupStats) {
+        Map<Long, MarketingTaskTargetVO> targetByAccount = new LinkedHashMap<>();
+        for (MarketingTaskTargetVO target : targets) {
+            targetByAccount.putIfAbsent(target.accountId(), target);
+        }
+        Map<Long, List<MarketingTaskAccountGroupStatRow>> statsByAccount = new LinkedHashMap<>();
+        for (MarketingTaskAccountGroupStatRow row : groupStats) {
+            statsByAccount.computeIfAbsent(row.getAccountId(), ignored -> new ArrayList<>()).add(row);
+        }
+        return targetByAccount.values().stream()
+                .map(target -> toAccountTarget(target, statsByAccount.getOrDefault(target.accountId(), List.of())))
+                .toList();
+    }
+
+    private static MarketingTaskAccountTargetVO toAccountTarget(MarketingTaskTargetVO target,
+                                                                List<MarketingTaskAccountGroupStatRow> rows) {
+        List<MarketingTaskGroupStatVO> groups = rows.stream()
+                .map(MarketingTaskServiceImpl::toGroupStatVO)
+                .toList();
+        int sent = rows.stream().mapToInt(row -> zero(row.getSentMessageCount())).sum();
+        int failed = rows.stream().mapToInt(row -> zero(row.getFailedMessageCount())).sum();
+        int status = MarketingTaskAccountStatusResolver.resolve(target.status(), sent, failed);
+        return new MarketingTaskAccountTargetVO(target.accountId(), target.accountPhone(), status,
+                sent, failed, latestAttemptAt(rows), latestSentAt(rows), latestReason(rows), groups);
+    }
+
+    private static MarketingTaskGroupStatVO toGroupStatVO(MarketingTaskAccountGroupStatRow row) {
+        return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
+                row.getGroupName(), zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
+                row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());
+    }
+
+    private static Long latestAttemptAt(List<MarketingTaskAccountGroupStatRow> rows) {
+        return rows.stream()
+                .map(MarketingTaskAccountGroupStatRow::getLastAttemptAt)
+                .filter(value -> value != null)
+                .max(Long::compareTo)
+                .orElse(null);
+    }
+
+    private static Long latestSentAt(List<MarketingTaskAccountGroupStatRow> rows) {
+        return rows.stream()
+                .map(MarketingTaskAccountGroupStatRow::getLastSentAt)
+                .filter(value -> value != null)
+                .max(Long::compareTo)
+                .orElse(null);
+    }
+
+    private static String latestReason(List<MarketingTaskAccountGroupStatRow> rows) {
+        return rows.stream()
+                .filter(row -> StringUtils.hasText(row.getLastReason()))
+                .max(Comparator.comparing(row -> row.getLastAttemptAt() == null ? 0L : row.getLastAttemptAt()))
+                .map(MarketingTaskAccountGroupStatRow::getLastReason)
+                .orElse(null);
+    }
+
+    private static int zero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private static MarketingTaskDetailVO toDetailVO(MarketingTask task,
+                                                    List<MarketingTaskTargetVO> targets,
+                                                    List<MarketingTaskAccountTargetVO> accountTargets) {
         return new MarketingTaskDetailVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(), task.getStartedAt(),
-                task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(), targets);
+                task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
+                targets, accountTargets);
     }
 
 }

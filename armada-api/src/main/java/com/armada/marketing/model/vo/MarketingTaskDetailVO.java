@@ -30,5 +30,6 @@ public record MarketingTaskDetailVO(
         Long finishedAt,
         Long createdAt,
         Long updatedAt,
-        List<MarketingTaskTargetVO> targets) {
+        List<MarketingTaskTargetVO> targets,
+        List<MarketingTaskAccountTargetVO> accountTargets) {
 }

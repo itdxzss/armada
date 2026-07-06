@@ -136,14 +136,6 @@ public class MarketingMessageComposer {
      * link preview 的正文优先使用模板标题,其次正文,最后用推广链接兜底,避免卡片文本为空。
      */
     private static String linkCardText(MarketingTemplate template) {
-        String content = trimToNull(template.getContent());
-        if (content != null) {
-            return content;
-        }
-        String body = trimToNull(template.getBodyText());
-        if (body != null) {
-            return body;
-        }
         return template.getPromotionLink().trim();
     }
 

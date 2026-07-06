@@ -29,6 +29,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
 
     private static final int STATUS_PENDING = 1;
     private static final int STATUS_SENDING = 2;
+    private static final int TARGET_STATUS_PARTIAL_FAILED = 5;
 
     @Autowired
     private MarketingTaskService service;
@@ -140,6 +141,75 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         assertThat(detail.targets().get(0).accountPhone()).isEqualTo(fixture.phone());
         assertThat(detail.targets().get(0).groupJid()).isEqualTo(fixture.groupJid());
         assertThat(detail.targets().get(0).groupLinkUrl()).isEqualTo(fixture.groupUrl());
+    }
+
+    @Test
+    void getDetail_rollsUpAccountGroupsFromSendAttempts() {
+        Fixture fixture = seedFixture("detail-rollup");
+        GroupFixture secondGroup = seedGroup("detail-rollup-second",
+                "120363099@g.us",
+                "https://chat.whatsapp.com/detail-rollup-second");
+        MarketingTaskVO created = service.createTask(request(
+                "发送记录聚合任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        List.of(fixture.groupLinkId(), secondGroup.groupLinkId())))));
+        List<Long> targetIds = jdbc.queryForList(
+                "SELECT id FROM marketing_task_target WHERE marketing_task_id = ? ORDER BY id ASC",
+                Long.class,
+                created.id());
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 1, 1, null, null, 1000L);
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 2, 2, "MUTED", "群禁言", 2000L);
+        insertAttempt(created.id(), targetIds.get(1), secondGroup.groupLinkId(), secondGroup.groupJid(),
+                "群B", 1, 1, null, null, 3000L);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.accountId()).isEqualTo(fixture.accountId());
+            assertThat(account.accountPhone()).isEqualTo(fixture.phone());
+            assertThat(account.status()).isEqualTo(TARGET_STATUS_PARTIAL_FAILED);
+            assertThat(account.sentMessageCount()).isEqualTo(2);
+            assertThat(account.failedMessageCount()).isEqualTo(1);
+            assertThat(account.lastAttemptAt()).isEqualTo(3000L);
+            assertThat(account.lastSentAt()).isEqualTo(3000L);
+            assertThat(account.lastReason()).isEqualTo("群禁言");
+            assertThat(account.groups()).hasSize(2);
+            assertThat(account.groups().get(0).groupJid()).isEqualTo(secondGroup.groupJid());
+            assertThat(account.groups().get(0).sentMessageCount()).isEqualTo(1);
+            assertThat(account.groups().get(0).failedMessageCount()).isZero();
+            assertThat(account.groups().get(1).groupJid()).isEqualTo(fixture.groupJid());
+            assertThat(account.groups().get(1).sentMessageCount()).isEqualTo(1);
+            assertThat(account.groups().get(1).failedMessageCount()).isEqualTo(1);
+            assertThat(account.groups().get(1).lastReason()).isEqualTo("群禁言");
+        });
+    }
+
+    @Test
+    void getDetail_keepsAccountRowsWithoutSendAttempts() {
+        Fixture fixture = seedFixture("detail-empty-rollup");
+        MarketingTaskVO created = service.createTask(request(
+                "未发送聚合任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.accountId()).isEqualTo(fixture.accountId());
+            assertThat(account.accountPhone()).isEqualTo(fixture.phone());
+            assertThat(account.status()).isEqualTo(STATUS_PENDING);
+            assertThat(account.sentMessageCount()).isZero();
+            assertThat(account.failedMessageCount()).isZero();
+            assertThat(account.groups()).isEmpty();
+        });
     }
 
     @Test
@@ -309,6 +379,53 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
     }
 
+    private GroupFixture seedGroup(String suffix, String groupJid, String groupUrl) {
+        long now = System.currentTimeMillis();
+        long groupLinkId = insertAndReturnId("""
+                INSERT INTO group_link
+                    (tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
+                VALUES (?, ?, ?, 2, 2, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, groupUrl);
+            ps.setString(3, "营销群-" + suffix);
+            ps.setLong(4, now);
+            ps.setLong(5, now);
+        });
+        jdbc.update("""
+                INSERT INTO group_link_preview
+                    (tenant_id, group_link_id, group_jid, wa_subject, announce_only, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?)
+                """, TEST_TENANT_ID, groupLinkId, groupJid, "WA群-" + suffix, now, now);
+        jdbc.update("""
+                INSERT INTO group_link_health
+                    (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
+                VALUES (?, ?, 1, 0, ?, ?)
+                """, TEST_TENANT_ID, groupLinkId, now, now);
+        return new GroupFixture(groupLinkId, groupUrl, groupJid);
+    }
+
+    private void insertAttempt(long taskId,
+                               long targetId,
+                               long groupLinkId,
+                               String groupJid,
+                               String groupName,
+                               long roundNo,
+                               int status,
+                               String reasonCode,
+                               String reasonMessage,
+                               long resultAt) {
+        jdbc.update("""
+                INSERT INTO marketing_task_send_attempt
+                    (tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
+                     round_no, attempt_no, is_retry, command_id, status, reason_code, reason_message,
+                     submitted_at, result_at, attempted_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, taskId, targetId, groupLinkId, groupJid, groupName, roundNo,
+                "cmd-" + targetId + "-" + resultAt, status, reasonCode, reasonMessage,
+                resultAt - 10, resultAt, resultAt - 20, resultAt - 30);
+    }
+
     private void seedBaseline(long accountId, String baselineGroupJids) {
         long now = System.currentTimeMillis();
         jdbc.update("""
@@ -340,6 +457,12 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             long templateId,
             long accountId,
             String phone,
+            long groupLinkId,
+            String groupUrl,
+            String groupJid) {
+    }
+
+    private record GroupFixture(
             long groupLinkId,
             String groupUrl,
             String groupJid) {

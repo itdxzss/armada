@@ -418,6 +418,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 .containsEntry("url", "https://example.com/promo")
                 .containsEntry("title", "标题")
                 .containsEntry("description", "正文");
+        assertThat(linkCard).doesNotContainKey("suppressBody");
         @SuppressWarnings("unchecked")
         Map<String, Object> thumbnail = (Map<String, Object>) linkCard.get("thumbnail");
         assertThat(thumbnail)

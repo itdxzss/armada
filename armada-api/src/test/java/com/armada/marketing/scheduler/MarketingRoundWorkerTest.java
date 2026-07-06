@@ -292,6 +292,7 @@ class MarketingRoundWorkerTest {
         verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
         ProtocolMarketingMessageCommandRequest command = commandsCaptor.getValue().get(0);
         assertThat(command.messageType()).isEqualTo("LINK_CARD");
+        assertThat(command.text()).isEqualTo("https://example.com/promo");
         assertThat(command.linkCard().url()).isEqualTo("https://example.com/promo");
         assertThat(command.linkCard().thumbnail().base64()).isEqualTo("AQID");
         assertThat(command.buttonCard()).isNull();

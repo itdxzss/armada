@@ -382,6 +382,93 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueMarketingMessageCommands_linkCardPayload_serializesStructuredCard() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-link-card"), List.of());
+        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
+                1L,
+                42L,
+                9001L,
+                7001L,
+                1L,
+                501L,
+                "acc_1",
+                "120363001@g.us",
+                "LINK_CARD",
+                "标题",
+                null,
+                null,
+                new ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload(
+                        "https://example.com/promo",
+                        "标题",
+                        "正文",
+                        new ProtocolMarketingMessageCommandRequest.MarketingMediaPayload("AQID", "image/png")),
+                null,
+                "marketing_task");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueMarketingMessageCommands(List.of(command));
+
+        Map<String, Object> payload = objectMapper.readValue(capturedRows().get(0).getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload).containsEntry("messageType", "LINK_CARD");
+        assertThat(payload).containsEntry("text", "标题");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> linkCard = (Map<String, Object>) payload.get("linkCard");
+        assertThat(linkCard)
+                .containsEntry("url", "https://example.com/promo")
+                .containsEntry("title", "标题")
+                .containsEntry("description", "正文");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> thumbnail = (Map<String, Object>) linkCard.get("thumbnail");
+        assertThat(thumbnail)
+                .containsEntry("base64", "AQID")
+                .containsEntry("mimetype", "image/png");
+    }
+
+    @Test
+    void enqueueMarketingMessageCommands_buttonCardPayload_serializesButtons() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-button-card"), List.of());
+        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
+                1L,
+                42L,
+                9002L,
+                7002L,
+                1L,
+                502L,
+                "acc_2",
+                "120363002@g.us",
+                "BUTTON_CARD",
+                "按钮正文",
+                null,
+                null,
+                null,
+                new ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload(
+                        "按钮标题",
+                        null,
+                        List.of(new ProtocolMarketingMessageCommandRequest.MarketingButtonPayload(
+                                "link", "访问", "https://example.com")),
+                        null),
+                "marketing_task");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueMarketingMessageCommands(List.of(command));
+
+        Map<String, Object> payload = objectMapper.readValue(capturedRows().get(0).getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload).containsEntry("messageType", "BUTTON_CARD");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
+        assertThat(buttonCard).containsEntry("title", "按钮标题");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> buttons = (List<Map<String, Object>>) buttonCard.get("buttons");
+        assertThat(buttons).hasSize(1);
+        assertThat(buttons.get(0))
+                .containsEntry("type", "link")
+                .containsEntry("displayText", "访问")
+                .containsEntry("value", "https://example.com");
+    }
+
+    @Test
     void enqueueOnlineCommands_duplicateGeneratedCommandId_throwsConflictBeforeMapperInsert() {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-dupe", "cmd-dupe"), List.of("batch-1"));
         List<ProtocolOnlineCommandRequest> commands = List.of(

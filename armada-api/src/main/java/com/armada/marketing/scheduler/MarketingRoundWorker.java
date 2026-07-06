@@ -41,6 +41,7 @@ import org.springframework.util.StringUtils;
 public class MarketingRoundWorker {
     private static final Logger log = LoggerFactory.getLogger(MarketingRoundWorker.class);
     private static final String SOURCE_MARKETING_TASK = "marketing_task";
+    private static final String REASON_INVALID_TEMPLATE_CONFIG = "INVALID_TEMPLATE_CONFIG";
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
@@ -137,7 +138,17 @@ public class MarketingRoundWorker {
         MarketingTemplateFile imageFile = template.getImageFileId() == null
                 ? null
                 : fileMapper.selectById(template.getImageFileId());
-        MarketingMessageComposer.ComposedMessage message = messageComposer.compose(template, imageFile);
+        MarketingMessageComposer.ComposedMessage message;
+        try {
+            message = messageComposer.compose(template, imageFile);
+        } catch (BusinessException ex) {
+            recordLocalFailedAttempts(task, sendTargets, roundNo, now, ex.getMessage());
+            log.warn("营销任务模板配置错误,本轮不下发协议命令 tenantId={} taskId={} roundNo={} "
+                            + "targetCount={} reasonCode={} reason={}",
+                    task.getTenantId(), task.getId(), roundNo, sendTargets.size(),
+                    REASON_INVALID_TEMPLATE_CONFIG, ex.getMessage());
+            return;
+        }
 
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
         for (ResolvedMarketingTarget sendTarget : sendTargets) {
@@ -257,6 +268,35 @@ public class MarketingRoundWorker {
     }
 
     /**
+     * 历史脏数据可能绕过保存期校验。这里本地记录失败,避免继续下发“看似成功但按钮丢失”的纯文本消息。
+     */
+    private void recordLocalFailedAttempts(MarketingTask task,
+                                           List<ResolvedMarketingTarget> sendTargets,
+                                           long roundNo,
+                                           long now,
+                                           String reasonMessage) {
+        List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
+        for (ResolvedMarketingTarget sendTarget : sendTargets) {
+            MarketingTaskSendAttempt attempt = toAttempt(task, sendTarget, roundNo, now);
+            attempt.setStatus(MarketingSendAttemptStatus.FAILED.code());
+            attempt.setReasonCode(REASON_INVALID_TEMPLATE_CONFIG);
+            attempt.setReasonMessage(reasonMessage);
+            attempt.setResultAt(now);
+            attempts.add(attempt);
+        }
+        int inserted = taskMapper.insertSendAttempts(attempts);
+        if (inserted != attempts.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "营销发送失败尝试写入数量不一致: expected=" + attempts.size() + ", inserted=" + inserted);
+        }
+        taskMapper.incrementTaskSendCounters(task.getId(), 0, attempts.size(), now);
+        for (MarketingTaskSendAttempt attempt : attempts) {
+            taskMapper.markTargetFailedFromAttempt(attempt.getTargetId(), attempt.getId(),
+                    REASON_INVALID_TEMPLATE_CONFIG, reasonMessage, now);
+        }
+    }
+
+    /**
      * 按 outbox 批大小写协议命令。
      *
      * <p>attempt 已经带有预生成 commandId,这里把同一个 commandId 带到协议 outbox,
@@ -269,6 +309,8 @@ public class MarketingRoundWorker {
         int batchSize = outboxBatchSize(message);
         List<ProtocolMarketingMessageCommandRequest> batch = new ArrayList<>(batchSize);
         String imageBase64 = message.imageBytes() == null ? null : Base64.getEncoder().encodeToString(message.imageBytes());
+        ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard = linkCardPayload(message.linkCard());
+        ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard = buttonCardPayload(message.buttonCard());
         int batchCount = 0;
         int commandCount = 0;
         for (int i = 0; i < attempts.size(); i++) {
@@ -288,6 +330,8 @@ public class MarketingRoundWorker {
                     message.text(),
                     imageBase64,
                     message.imageMimetype(),
+                    linkCard,
+                    buttonCard,
                     SOURCE_MARKETING_TASK,
                     attempt.getCommandId()));
             if (batch.size() == batchSize) {
@@ -311,10 +355,53 @@ public class MarketingRoundWorker {
      * <p>图片消息体更大,默认使用单独配置;最终值限制在 1 到 500,避免错误配置造成空批或超大事务。</p>
      */
     private int outboxBatchSize(MarketingMessageComposer.ComposedMessage message) {
-        int configured = "IMAGE".equals(message.messageType())
+        int configured = hasLargeMediaPayload(message)
                 ? properties.getImageOutboxBatchSize()
                 : properties.getOutboxBatchSize();
         return Math.max(1, Math.min(500, configured));
+    }
+
+    private static ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCardPayload(
+            MarketingMessageComposer.LinkCardPayload linkCard) {
+        if (linkCard == null) {
+            return null;
+        }
+        return new ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload(
+                linkCard.url(),
+                linkCard.title(),
+                linkCard.description(),
+                mediaPayload(linkCard.thumbnail()));
+    }
+
+    private static ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCardPayload(
+            MarketingMessageComposer.ButtonCardPayload buttonCard) {
+        if (buttonCard == null) {
+            return null;
+        }
+        return new ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload(
+                buttonCard.title(),
+                buttonCard.footer(),
+                buttonCard.buttons().stream()
+                        .map(button -> new ProtocolMarketingMessageCommandRequest.MarketingButtonPayload(
+                                button.type(), button.displayText(), button.value()))
+                        .toList(),
+                mediaPayload(buttonCard.thumbnail()));
+    }
+
+    private static ProtocolMarketingMessageCommandRequest.MarketingMediaPayload mediaPayload(
+            MarketingMessageComposer.MediaPayload media) {
+        if (media == null || media.bytes() == null || media.bytes().length == 0) {
+            return null;
+        }
+        return new ProtocolMarketingMessageCommandRequest.MarketingMediaPayload(
+                Base64.getEncoder().encodeToString(media.bytes()),
+                media.mimetype());
+    }
+
+    private static boolean hasLargeMediaPayload(MarketingMessageComposer.ComposedMessage message) {
+        return "IMAGE".equals(message.messageType())
+                || (message.linkCard() != null && message.linkCard().thumbnail() != null)
+                || (message.buttonCard() != null && message.buttonCard().thumbnail() != null);
     }
 
     /** 优先使用 account.protocol_account_id;测试或历史数据缺失时用账号手机号派生旧协议句柄。 */

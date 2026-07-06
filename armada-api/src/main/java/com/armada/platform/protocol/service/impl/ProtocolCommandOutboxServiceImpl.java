@@ -546,6 +546,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 isBlank(command.imageBase64())
                         ? null
                         : new MarketingImagePayload(command.imageBase64(), command.imageMimetype()),
+                command.linkCard(),
+                command.buttonCard(),
                 sourceOrDefault(command.source(), "marketing_task"));
         try {
             return objectMapper.writeValueAsString(payload);
@@ -757,6 +759,39 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || isBlank(command.messageType())) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少必要字段");
         }
+        String type = command.messageType().trim().toUpperCase();
+        if ("LINK_CARD".equals(type)) {
+            validateMarketingLinkCardCommand(command.linkCard());
+        }
+        if ("BUTTON_CARD".equals(type)) {
+            validateMarketingButtonCardCommand(command.buttonCard());
+        }
+    }
+
+    private void validateMarketingLinkCardCommand(
+            ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard) {
+        if (linkCard == null
+                || isBlank(linkCard.url())
+                || isBlank(linkCard.title())
+                || linkCard.thumbnail() == null
+                || isBlank(linkCard.thumbnail().base64())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "LINK_CARD 营销消息缺少卡片字段");
+        }
+    }
+
+    private void validateMarketingButtonCardCommand(
+            ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard) {
+        if (buttonCard == null
+                || buttonCard.buttons() == null
+                || buttonCard.buttons().isEmpty()
+                || buttonCard.buttons().size() > 3) {
+            throw new BusinessException(ErrorCode.VALIDATION, "BUTTON_CARD 营销消息按钮数量必须为1-3个");
+        }
+        for (ProtocolMarketingMessageCommandRequest.MarketingButtonPayload button : buttonCard.buttons()) {
+            if (button == null || isBlank(button.type()) || isBlank(button.displayText())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "BUTTON_CARD 营销消息按钮字段不完整");
+            }
+        }
     }
 
     /**
@@ -823,6 +858,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             String messageType,
             String text,
             MarketingImagePayload image,
+            ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard,
+            ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard,
             String source
     ) {
     }

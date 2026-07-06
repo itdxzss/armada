@@ -193,6 +193,7 @@
         UPDATE marketing_task_send_attempt
         SET status = 1,
             message_id = #{messageId},
+            group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), '')),
             result_at = #{resultAt}
         WHERE id = #{attemptId}
           AND status = 0
@@ -203,6 +204,7 @@
         SET status = 2,
             reason_code = #{reasonCode},
             reason_message = #{reasonMessage},
+            group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), '')),
             result_at = #{resultAt}
         WHERE id = #{attemptId}
           AND status = 0
@@ -216,6 +218,43 @@
             updated_at = #{now}
         WHERE id = #{taskId}
           AND deleted_at IS NULL
+    </update>
+
+    <update id="markTargetSuccessFromAttempt">
+        UPDATE marketing_task_target t
+        JOIN marketing_task_send_attempt a ON a.id = #{attemptId}
+                                          AND a.target_id = t.id
+        LEFT JOIN group_link_preview p ON p.group_jid = COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), ''))
+        LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
+        SET t.group_link_id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id),
+            t.group_jid = COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''), t.group_jid),
+            t.group_link_url = COALESCE(g.link_url, t.group_link_url),
+            t.group_name = COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name),
+            t.status = CASE WHEN t.failed_message_count &gt; 0 THEN 5 ELSE 3 END,
+            t.sent_message_count = t.sent_message_count + 1,
+            t.last_attempt_at = #{resultAt},
+            t.last_sent_at = #{resultAt},
+            t.last_reason = CASE WHEN t.failed_message_count &gt; 0 THEN t.last_reason ELSE NULL END,
+            t.updated_at = #{resultAt}
+        WHERE t.id = #{targetId}
+    </update>
+
+    <update id="markTargetFailedFromAttempt">
+        UPDATE marketing_task_target t
+        JOIN marketing_task_send_attempt a ON a.id = #{attemptId}
+                                          AND a.target_id = t.id
+        LEFT JOIN group_link_preview p ON p.group_jid = COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), ''))
+        LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
+        SET t.group_link_id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id),
+            t.group_jid = COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''), t.group_jid),
+            t.group_link_url = COALESCE(g.link_url, t.group_link_url),
+            t.group_name = COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name),
+            t.status = CASE WHEN t.sent_message_count &gt; 0 THEN 5 ELSE 4 END,
+            t.failed_message_count = t.failed_message_count + 1,
+            t.last_attempt_at = #{resultAt},
+            t.last_reason = COALESCE(NULLIF(TRIM(#{reasonMessage}), ''), #{reasonCode}, '发送失败'),
+            t.updated_at = #{resultAt}
+        WHERE t.id = #{targetId}
     </update>
 
     <update id="startTask">

@@ -30,12 +30,27 @@ class MarketingSendResultServiceImplTest {
     @Test
     void successEventUpdatesAttemptAndIncrementsSuccessCountOnce() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(9001L, "wamid.1", 1783159200000L)).thenReturn(1);
+        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
 
         service.handleSendResultReported(event);
 
-        verify(mapper).markAttemptSuccess(9001L, "wamid.1", 1783159200000L);
+        verify(mapper).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L);
+        verify(mapper).markTargetSuccessFromAttempt(501L, 9001L, 1783159200000L);
         verify(mapper).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
+    }
+
+    @Test
+    void failedEventUpdatesAttemptTargetAndIncrementsFailureCountOnce() {
+        ProtocolMessageSendResultReportedEvent event = failedEvent();
+        when(mapper.markAttemptFailed(9001L, "SEND_FAILED", "rate limited",
+                "120363001@g.us", 1783159200000L)).thenReturn(1);
+
+        service.handleSendResultReported(event);
+
+        verify(mapper).markAttemptFailed(9001L, "SEND_FAILED", "rate limited",
+                "120363001@g.us", 1783159200000L);
+        verify(mapper).markTargetFailedFromAttempt(501L, 9001L, "SEND_FAILED", "rate limited", 1783159200000L);
+        verify(mapper).incrementTaskSendCounters(42L, 0, 1, 1783159200000L);
     }
 
     @Test
@@ -46,7 +61,7 @@ class MarketingSendResultServiceImplTest {
         logger.addAppender(appender);
         try {
             ProtocolMessageSendResultReportedEvent event = event(true);
-            when(mapper.markAttemptSuccess(9001L, "wamid.1", 1783159200000L)).thenReturn(1);
+            when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
 
             service.handleSendResultReported(event);
 
@@ -65,11 +80,13 @@ class MarketingSendResultServiceImplTest {
     @Test
     void duplicateSuccessEventDoesNotIncrementCountersAgain() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(9001L, "wamid.1", 1783159200000L)).thenReturn(0);
+        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(0);
 
         service.handleSendResultReported(event);
 
-        verify(mapper).markAttemptSuccess(9001L, "wamid.1", 1783159200000L);
+        verify(mapper).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L);
+        verify(mapper, never()).markTargetSuccessFromAttempt(501L, 9001L, 1783159200000L);
+        verify(mapper, never()).markTargetFailedFromAttempt(501L, 9001L, null, null, 1783159200000L);
         verify(mapper, never()).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
     }
 
@@ -88,6 +105,25 @@ class MarketingSendResultServiceImplTest {
                 "wamid.1",
                 null,
                 null,
+                1783159200000L,
+                "worker-a");
+    }
+
+    private static ProtocolMessageSendResultReportedEvent failedEvent() {
+        return new ProtocolMessageSendResultReportedEvent(
+                "evt_1",
+                1L,
+                42L,
+                501L,
+                9001L,
+                1L,
+                "acc_8613800138000",
+                "120363001@g.us",
+                "cmd_1",
+                false,
+                null,
+                "SEND_FAILED",
+                "rate limited",
                 1783159200000L,
                 "worker-a");
     }

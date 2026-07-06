@@ -48,12 +48,14 @@ public interface MarketingTaskMapper {
     /** 协议层成功结果幂等回写。 */
     int markAttemptSuccess(@Param("attemptId") Long attemptId,
                            @Param("messageId") String messageId,
+                           @Param("groupJid") String groupJid,
                            @Param("resultAt") long resultAt);
 
     /** 协议层失败结果幂等回写。 */
     int markAttemptFailed(@Param("attemptId") Long attemptId,
                           @Param("reasonCode") String reasonCode,
                           @Param("reasonMessage") String reasonMessage,
+                          @Param("groupJid") String groupJid,
                           @Param("resultAt") long resultAt);
 
     /** 按协议结果增量更新任务累计计数。 */
@@ -61,6 +63,18 @@ public interface MarketingTaskMapper {
                                   @Param("successDelta") int successDelta,
                                   @Param("failedDelta") int failedDelta,
                                   @Param("now") long now);
+
+    /** 协议层成功结果幂等落地后,把本次 attempt 的真实群快照和计数汇总到 target 明细。 */
+    int markTargetSuccessFromAttempt(@Param("targetId") Long targetId,
+                                     @Param("attemptId") Long attemptId,
+                                     @Param("resultAt") long resultAt);
+
+    /** 协议层失败结果幂等落地后,把本次 attempt 的真实群快照、失败计数和原因汇总到 target 明细。 */
+    int markTargetFailedFromAttempt(@Param("targetId") Long targetId,
+                                    @Param("attemptId") Long attemptId,
+                                    @Param("reasonCode") String reasonCode,
+                                    @Param("reasonMessage") String reasonMessage,
+                                    @Param("resultAt") long resultAt);
 
     /** 待启动/已停止任务置为发送中,并首次补 started_at。 */
     int startTask(@Param("id") Long id, @Param("now") long now);

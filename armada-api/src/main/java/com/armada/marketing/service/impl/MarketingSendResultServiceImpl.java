@@ -33,10 +33,17 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
         try {
             long resultAt = event.timestamp() == null ? System.currentTimeMillis() : event.timestamp();
             int updated = event.success()
-                    ? taskMapper.markAttemptSuccess(event.attemptId(), event.messageId(), resultAt)
-                    : taskMapper.markAttemptFailed(event.attemptId(), event.reasonCode(), event.reasonMessage(), resultAt);
+                    ? taskMapper.markAttemptSuccess(event.attemptId(), event.messageId(), event.groupJid(), resultAt)
+                    : taskMapper.markAttemptFailed(event.attemptId(), event.reasonCode(),
+                            event.reasonMessage(), event.groupJid(), resultAt);
             // markAttempt* 只更新 SUBMITTED 状态;重复事件 updated=0,避免任务计数重复累加。
             if (updated > 0) {
+                if (event.success()) {
+                    taskMapper.markTargetSuccessFromAttempt(event.targetId(), event.attemptId(), resultAt);
+                } else {
+                    taskMapper.markTargetFailedFromAttempt(event.targetId(), event.attemptId(),
+                            event.reasonCode(), event.reasonMessage(), resultAt);
+                }
                 taskMapper.incrementTaskSendCounters(event.marketingTaskId(),
                         event.success() ? 1 : 0,
                         event.success() ? 0 : 1,

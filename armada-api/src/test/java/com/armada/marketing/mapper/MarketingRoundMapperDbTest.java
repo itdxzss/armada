@@ -72,8 +72,8 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         attempt.setCreatedAt(now);
 
         mapper.insertSendAttempts(List.of(attempt));
-        int first = mapper.markAttemptSuccess(attempt.getId(), "wamid.1", now + 10);
-        int second = mapper.markAttemptSuccess(attempt.getId(), "wamid.1", now + 20);
+        int first = mapper.markAttemptSuccess(attempt.getId(), "wamid.1", attempt.getGroupJid(), now + 10);
+        int second = mapper.markAttemptSuccess(attempt.getId(), "wamid.1", attempt.getGroupJid(), now + 20);
 
         assertThat(attempt.getId()).isNotNull();
         assertThat(first).isEqualTo(1);

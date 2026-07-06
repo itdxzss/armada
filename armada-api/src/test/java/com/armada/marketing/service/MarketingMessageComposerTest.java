@@ -39,6 +39,7 @@ class MarketingMessageComposerTest {
         MarketingTemplate template = template(LinkMode.IMAGE_TEXT.code(), 99L);
         template.setContent("标题");
         template.setBodyText("正文");
+        template.setPromotionLink("https://example.com/image-text");
         MarketingTemplateFile file = new MarketingTemplateFile();
         file.setContent(new byte[] {1, 2, 3});
         file.setContentType("image/png");
@@ -46,7 +47,7 @@ class MarketingMessageComposerTest {
         MarketingMessageComposer.ComposedMessage message = composer.compose(template, file);
 
         assertThat(message.messageType()).isEqualTo("IMAGE");
-        assertThat(message.text()).contains("标题", "正文");
+        assertThat(message.text()).contains("标题", "正文", "https://example.com/image-text");
         assertThat(message.imageBytes()).containsExactly(1, 2, 3);
         assertThat(message.imageMimetype()).isEqualTo("image/png");
     }
@@ -94,6 +95,7 @@ class MarketingMessageComposerTest {
         MarketingTemplate template = template(LinkMode.BUTTON.code(), 99L);
         template.setContent("按钮标题");
         template.setBodyText("按钮正文");
+        template.setPromotionLink("https://example.com/legacy-promo");
         template.setButtons(OBJECT_MAPPER.writeValueAsString(List.of(
                 new MessageButton(ButtonType.LINK_JUMP, "访问", "https://example.com"),
                 new MessageButton(ButtonType.COPY_CONTENT, "复制", "VIP88"),
@@ -106,6 +108,7 @@ class MarketingMessageComposerTest {
 
         assertThat(message.messageType()).isEqualTo("BUTTON_CARD");
         assertThat(message.text()).contains("按钮标题", "按钮正文");
+        assertThat(message.text()).doesNotContain("https://example.com/legacy-promo");
         assertThat(message.buttonCard()).isNotNull();
         assertThat(message.buttonCard().title()).isEqualTo("按钮标题");
         assertThat(message.buttonCard().buttons())

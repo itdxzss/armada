@@ -76,8 +76,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO create(MarketingTemplateDTO dto) {
-        validate(dto, null);
+        LinkMode mode = validate(dto, null);
         MarketingTemplate entity = converter.toEntity(dto);
+        normalizeByMode(entity, mode);
         long now = System.currentTimeMillis();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
@@ -98,8 +99,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO update(Long id, MarketingTemplateDTO dto) {
         requireExisting(id);
-        validate(dto, id);
+        LinkMode mode = validate(dto, id);
         MarketingTemplate entity = converter.toEntity(dto);
+        normalizeByMode(entity, mode);
         entity.setId(id);
         entity.setUpdatedAt(System.currentTimeMillis());
         mapper.updateById(entity);
@@ -133,6 +135,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setBodyText(origin.getBodyText());
         copy.setButtons(origin.getButtons());
         copy.setPromotionLink(origin.getPromotionLink());
+        normalizeByMode(copy, LinkMode.fromCode(copy.getLinkMode()));
         copy.setRemark(origin.getRemark());
         long now = System.currentTimeMillis();
         copy.setCreatedAt(now);
@@ -178,7 +181,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      *
      * @param excludeId 名称查重时要排除的 ID;新增传 {@code null},编辑传当前模板 ID 以放过自身
      */
-    private void validate(MarketingTemplateDTO dto, Long excludeId) {
+    private LinkMode validate(MarketingTemplateDTO dto, Long excludeId) {
         if (!StringUtils.hasText(dto.templateName())) {
             throw new BusinessException(ErrorCode.VALIDATION, "模板名称不能为空");
         }
@@ -188,11 +191,23 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         if (mapper.existsByName(dto.templateName(), excludeId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板名称已存在: " + dto.templateName());
         }
-        if (StringUtils.hasText(dto.promotionLink()) && !HttpUrlValidator.isHttpUrl(dto.promotionLink())) {
+        LinkMode mode = LinkMode.fromCode(dto.linkMode());
+        if (mode != LinkMode.BUTTON
+                && StringUtils.hasText(dto.promotionLink())
+                && !HttpUrlValidator.isHttpUrl(dto.promotionLink())) {
             throw new BusinessException(ErrorCode.VALIDATION, "推广链接格式不正确,必须是以 http(s):// 开头的合法链接");
         }
-        LinkMode mode = LinkMode.fromCode(dto.linkMode());
         validateButtons(mode, dto.buttons());
+        return mode;
+    }
+
+    /**
+     * 按消息类型归一化不生效的字段。按钮模式的跳转链接只来自按钮配置,历史 promotion_link 不再参与保存。
+     */
+    private static void normalizeByMode(MarketingTemplate entity, LinkMode mode) {
+        if (mode == LinkMode.BUTTON) {
+            entity.setPromotionLink(null);
+        }
     }
 
     /**

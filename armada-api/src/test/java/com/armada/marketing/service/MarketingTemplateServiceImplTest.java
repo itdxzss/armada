@@ -85,6 +85,60 @@ class MarketingTemplateServiceImplTest {
     }
 
     @Test
+    void create_buttonModeClearsPromotionLinkBeforeInsert() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+        MarketingTemplate entity = new MarketingTemplate();
+        entity.setPromotionLink("https://promo.example/legacy");
+        when(converter.toEntity(any())).thenReturn(entity);
+        when(mapper.selectById(any())).thenReturn(entity);
+        List<MessageButton> buttons = List.of(new MessageButton(
+                ButtonType.LINK_JUMP,
+                "访问",
+                "https://button.example/open"));
+
+        service.create(new MarketingTemplateDTO(
+                "按钮模板",
+                LinkMode.BUTTON.code(),
+                "PROMO",
+                null,
+                "内容",
+                "",
+                buttons,
+                "https://promo.example/legacy",
+                "备注"));
+
+        assertThat(entity.getPromotionLink()).isNull();
+        verify(mapper).insert(entity);
+    }
+
+    @Test
+    void create_buttonModeIgnoresInvalidPromotionLinkBeforeInsert() {
+        when(mapper.existsByName(any(), isNull())).thenReturn(false);
+        MarketingTemplate entity = new MarketingTemplate();
+        entity.setPromotionLink("not-a-url");
+        when(converter.toEntity(any())).thenReturn(entity);
+        when(mapper.selectById(any())).thenReturn(entity);
+        List<MessageButton> buttons = List.of(new MessageButton(
+                ButtonType.LINK_JUMP,
+                "访问",
+                "https://button.example/open"));
+
+        service.create(new MarketingTemplateDTO(
+                "按钮模板",
+                LinkMode.BUTTON.code(),
+                "PROMO",
+                null,
+                "内容",
+                "",
+                buttons,
+                "not-a-url",
+                "备注"));
+
+        assertThat(entity.getPromotionLink()).isNull();
+        verify(mapper).insert(entity);
+    }
+
+    @Test
     void create_imageTextModeWithoutButtons_insertsAndReturnsVO() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         MarketingTemplate entity = new MarketingTemplate();

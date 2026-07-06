@@ -38,7 +38,7 @@ public class MarketingMessageComposer {
             throw new BusinessException(ErrorCode.VALIDATION, "营销模板不能为空");
         }
         LinkMode mode = LinkMode.fromCode(template.getLinkMode());
-        String text = composeText(template);
+        String text = composeText(template, mode);
         MediaPayload thumbnail = mediaPayload(imageFile);
         if (mode == LinkMode.IMAGE_TEXT && thumbnail != null) {
             return new ComposedMessage("IMAGE", text, thumbnail.bytes(), thumbnail.mimetype());
@@ -166,11 +166,13 @@ public class MarketingMessageComposer {
     }
 
     /** 按标题/正文/推广链接顺序拼接,并统一做空内容与 WhatsApp 文本长度校验。 */
-    private static String composeText(MarketingTemplate template) {
+    private static String composeText(MarketingTemplate template, LinkMode mode) {
         StringBuilder sb = new StringBuilder();
         appendLine(sb, template.getContent());
         appendLine(sb, template.getBodyText());
-        appendLine(sb, template.getPromotionLink());
+        if (mode != LinkMode.BUTTON) {
+            appendLine(sb, template.getPromotionLink());
+        }
         String text = sb.toString().trim();
         if (!StringUtils.hasText(text)) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销模板发送内容为空");

@@ -17,6 +17,7 @@ import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskTargetVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
+import com.armada.marketing.model.vo.MarketingTreeAccountVO;
 import com.armada.marketing.service.MarketingTaskService;
 import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
@@ -220,11 +221,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     /**
-     * 查询建营销任务用的账号→可营销群树。
+     * 查询建营销任务用的账号树首屏。
      *
-     * <p>只返回账号分组内登录态在线、无风控/禁言的账号。群组按账号当前在群关系展示,
-     * 不把全局群池挂到每个账号下面。若账号已拍登录前群基线,SQL 层会用 `baseline_group_jids`
-     * JSON 排除历史群。</p>
+     * <p>只返回账号分组内登录态在线、无风控/禁言的账号,不在首屏调用协议层查群。
+     * 群组由前端展开账号节点时懒加载。</p>
      *
      * @param groupId 账号分组 ID
      * @return 账号→可营销群树
@@ -232,6 +232,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Override
     public MarketingAccountTreeVO accountTree(Long groupId) {
         return accountTreeRealtimeService.accountTree(groupId);
+    }
+
+    @Override
+    public MarketingTreeAccountVO accountGroups(Long accountId) {
+        return accountTreeRealtimeService.accountGroups(accountId);
     }
 
     /**

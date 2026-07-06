@@ -7,6 +7,7 @@ import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
+import com.armada.marketing.model.vo.MarketingTreeAccountVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
 
@@ -33,8 +34,11 @@ public interface MarketingTaskService {
     /** 批量软删非发送中的营销任务。 */
     int batchDelete(List<Long> ids);
 
-    /** 查询建营销任务用的账号→可营销群树。 */
+    /** 查询建营销任务用的账号树首屏;只返回账号,不实时查群。 */
     MarketingAccountTreeVO accountTree(Long groupId);
+
+    /** 懒加载单个账号的实时可营销群。 */
+    MarketingTreeAccountVO accountGroups(Long accountId);
 
     /** 通过任务更新其引用的共享营销模板。 */
     MarketingTemplateVO updateMarketingTemplate(Long id, MarketingTemplateDTO request);

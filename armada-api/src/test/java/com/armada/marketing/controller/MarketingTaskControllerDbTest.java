@@ -181,7 +181,7 @@ class MarketingTaskControllerDbTest {
     }
 
     @Test
-    void getAccountTree_returnsOnlineAccountAndGroups() throws Exception {
+    void getAccountTree_returnsOnlineAccountsWithoutGroups() throws Exception {
         Fixture fixture = seedFixture("controller-account-tree");
 
         mockMvc.perform(get("/api/marketing-tasks/account-tree")
@@ -194,9 +194,7 @@ class MarketingTaskControllerDbTest {
                 .andExpect(jsonPath("$.data.accounts[0].wsPhone").value(fixture.phone()))
                 .andExpect(jsonPath("$.data.accounts[0].status").value("ONLINE"))
                 .andExpect(jsonPath("$.data.accounts[0].groupsError").value(false))
-                .andExpect(jsonPath("$.data.accounts[0].groups[0].groupLinkId").value(fixture.groupLinkId()))
-                .andExpect(jsonPath("$.data.accounts[0].groups[0].groupJid").value(fixture.groupJid()))
-                .andExpect(jsonPath("$.data.accounts[0].groups[0].isAdmin").value(false));
+                .andExpect(jsonPath("$.data.accounts[0].groups").isEmpty());
     }
 
     @Test

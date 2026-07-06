@@ -97,4 +97,7 @@ public interface MarketingTaskMapper {
 
     /** 查询建营销任务用的在线账号候选;群列表由协议实时查询。 */
     List<MarketingAccountTreeAccountRow> selectAccountTreeAccounts(@Param("groupId") Long groupId);
+
+    /** 查询单个账号的懒加载查群候选;不校验账号分组,但保留在线、风控、禁言等账号可用条件。 */
+    MarketingAccountTreeAccountRow selectAccountTreeAccount(@Param("accountId") Long accountId);
 }

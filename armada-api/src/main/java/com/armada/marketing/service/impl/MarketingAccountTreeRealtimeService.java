@@ -12,10 +12,11 @@ import com.armada.marketing.model.vo.MarketingTreeAccountVO;
 import com.armada.marketing.model.vo.MarketingTreeGroupVO;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -27,9 +28,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 营销任务账号树实时查群服务。
+ * 营销任务账号树懒加载查群服务。
  *
- * <p>账号候选仍由本地库按在线、风控、禁言等条件筛选;群列表每次打开账号树时调用协议层实时查询,
+ * <p>账号候选由本地库按在线、风控、禁言等条件筛选;群列表只在用户展开某个账号时调用协议层实时查询,
  * 再用 {@code account_group_baseline.baseline_group_jids} 做差集,避免导入前旧群进入营销候选。</p>
  */
 @Service
@@ -75,13 +76,13 @@ public class MarketingAccountTreeRealtimeService {
     }
 
     /**
-     * 查询指定账号分组下新增营销任务可选择的账号树。
+     * 查询指定账号分组下新增营销任务可选择的账号树首屏。
      *
-     * <p>本方法只读取本地账号候选,群列表每次调用协议层实时获取。待拍账号会把协议返回的当前全部群
-     * 写成 baseline JSON,并清空当前可见 membership,避免导入前旧群被展示成可营销新群。</p>
+     * <p>本方法只读取本地账号候选,不调用协议层查群。群列表由 {@link #accountGroups(Long)}
+     * 在用户展开单个账号时懒加载,避免大分组打开抽屉时出现前端超时。</p>
      *
      * @param groupId 账号分组 ID;为空时返回空树
-     * @return 营销账号树
+     * @return 只包含账号节点的营销账号树
      */
     public MarketingAccountTreeVO accountTree(Long groupId) {
         if (groupId == null) {
@@ -89,44 +90,55 @@ public class MarketingAccountTreeRealtimeService {
         }
         List<MarketingAccountTreeAccountRow> accounts = taskMapper.selectAccountTreeAccounts(groupId);
         if (accounts.isEmpty()) {
-            log.info("营销账号群树实时查询 groupId={} accounts=0", groupId);
+            log.info("营销账号树首屏查询 groupId={} accounts=0", groupId);
             return new MarketingAccountTreeVO(List.of());
         }
 
-        Map<String, AccountParticipatingGroupResult> results;
-        try {
-            results = resultsByProtocolAccountId(groupPort.listBatch(
-                    accounts.stream().map(MarketingAccountTreeAccountRow::getProtocolAccountId).toList(),
-                    PROTOCOL_GROUP_QUERY_CONCURRENCY));
-        } catch (RuntimeException ex) {
-            log.warn("营销账号群树协议批量查群失败 groupId={} accounts={}", groupId, accounts.size(), ex);
-            return new MarketingAccountTreeVO(accounts.stream()
-                    .map(account -> toAccountVO(account, true, List.of()))
-                    .toList());
+        List<MarketingTreeAccountVO> nodes = accounts.stream()
+                .map(account -> toAccountVO(account, false, List.of()))
+                .toList();
+        log.info("营销账号树首屏查询完成 groupId={} accounts={}", groupId, nodes.size());
+        return new MarketingAccountTreeVO(nodes);
+    }
+
+    /**
+     * 懒加载单个账号的实时可营销群。
+     *
+     * <p>本接口不校验账号分组归属。前端只会对首屏账号树里的账号触发懒加载,
+     * 后端保留租户隔离、在线、风控、禁言等账号候选条件,并复用 baseline 排除逻辑。</p>
+     *
+     * @param accountId 账号 ID
+     * @return 账号节点及其可营销群
+     */
+    public MarketingTreeAccountVO accountGroups(Long accountId) {
+        if (accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号不能为空");
+        }
+        MarketingAccountTreeAccountRow account = taskMapper.selectAccountTreeAccount(accountId);
+        if (account == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: " + accountId);
         }
 
-        List<MarketingTreeAccountVO> nodes = new ArrayList<>();
-        int errorAccounts = 0;
-        int visibleGroups = 0;
-        for (MarketingAccountTreeAccountRow account : accounts) {
-            AccountParticipatingGroupResult result = results.get(account.getProtocolAccountId());
-            if (result == null || !result.success()) {
-                errorAccounts++;
-                log.warn("营销账号群树单账号查群失败 accountId={} protocolAccountId={} error={}",
-                        account.getAccountId(), account.getProtocolAccountId(), result == null ? "missing_result" : result.error());
-                nodes.add(toAccountVO(account, true, List.of()));
-                continue;
-            }
-            MarketingTreeAccountVO node = refreshAccount(account, result);
-            if (Boolean.TRUE.equals(node.groupsError())) {
-                errorAccounts++;
-            }
-            visibleGroups += node.groups().size();
-            nodes.add(node);
+        AccountParticipatingGroupResult result;
+        try {
+            result = resultsByProtocolAccountId(groupPort.listBatch(
+                    List.of(account.getProtocolAccountId()), PROTOCOL_GROUP_QUERY_CONCURRENCY))
+                    .get(account.getProtocolAccountId());
+        } catch (RuntimeException ex) {
+            log.warn("营销账号懒加载协议查群失败 accountId={} protocolAccountId={}",
+                    account.getAccountId(), account.getProtocolAccountId(), ex);
+            return toAccountVO(account, true, List.of());
         }
-        log.info("营销账号群树实时查询完成 groupId={} accounts={} errorAccounts={} visibleGroups={}",
-                groupId, nodes.size(), errorAccounts, visibleGroups);
-        return new MarketingAccountTreeVO(nodes);
+        if (result == null || !result.success()) {
+            log.warn("营销账号懒加载单账号查群失败 accountId={} protocolAccountId={} error={}",
+                    account.getAccountId(), account.getProtocolAccountId(), result == null ? "missing_result" : result.error());
+            return toAccountVO(account, true, List.of());
+        }
+
+        MarketingTreeAccountVO node = refreshAccount(account, result);
+        log.info("营销账号懒加载查群完成 accountId={} protocolAccountId={} groupsError={} visibleGroups={}",
+                account.getAccountId(), account.getProtocolAccountId(), node.groupsError(), node.groups().size());
+        return node;
     }
 
     private MarketingTreeAccountVO refreshAccount(MarketingAccountTreeAccountRow account,

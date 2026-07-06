@@ -8,6 +8,7 @@ import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
+import com.armada.marketing.model.vo.MarketingTreeAccountVO;
 import com.armada.marketing.service.MarketingTaskService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
@@ -70,10 +71,10 @@ public class MarketingTaskController {
     }
 
     /**
-     * 查询建任务抽屉的账号→可营销群树。
+     * 查询建任务抽屉的账号树首屏。
      *
-     * <p>前端选择账号分组后调用本接口。返回账号分组内在线可用账号,以及租户群池中可用于营销、
-     * 且未被该账号登录前基线排除的群。</p>
+     * <p>前端选择账号分组后调用本接口。这里只返回账号分组内在线可用账号,
+     * 不调用协议层查群,避免大分组打开抽屉时触发长耗时批量协议请求。</p>
      *
      * @param groupId 账号分组 ID
      * @return 账号→可营销群树
@@ -81,6 +82,20 @@ public class MarketingTaskController {
     @GetMapping("/account-tree")
     public ApiResponse<MarketingAccountTreeVO> accountTree(@RequestParam Long groupId) {
         return ApiResponse.ok(service.accountTree(groupId));
+    }
+
+    /**
+     * 懒加载单个账号的实时可营销群。
+     *
+     * <p>前端展开某个账号节点时调用。账号来自首屏账号树,因此本接口不再重复校验账号分组归属,
+     * 只按账号本身在线、风控、禁言和租户隔离条件读取并实时刷新群列表。</p>
+     *
+     * @param accountId 账号 ID
+     * @return 账号节点及其可营销群
+     */
+    @GetMapping("/account-tree/accounts/{accountId}/groups")
+    public ApiResponse<MarketingTreeAccountVO> accountGroups(@PathVariable Long accountId) {
+        return ApiResponse.ok(service.accountGroups(accountId));
     }
 
     /**

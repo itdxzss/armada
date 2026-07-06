@@ -5,7 +5,10 @@ import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 协议层账号参与群查询 HTTP 适配器。
@@ -15,7 +18,14 @@ import java.util.List;
  */
 public class HttpAccountParticipatingGroupAdapter implements AccountParticipatingGroupPort {
 
+    private static final Logger log = LoggerFactory.getLogger(HttpAccountParticipatingGroupAdapter.class);
+
     private static final String BATCH_GROUPS_URI = "/v1/accounts/groups/batch";
+
+    /**
+     * 协议层 route 目前限制单次最多 200 个账号;这里切片，避免营销分组里账号数超过 200 时整批 400。
+     */
+    private static final int PROTOCOL_BATCH_LIMIT = 200;
 
     private final ProtocolHttpExecutor httpExecutor;
 
@@ -37,16 +47,27 @@ public class HttpAccountParticipatingGroupAdapter implements AccountParticipatin
         if (concurrency < 1) {
             throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "协议层账号群查询 concurrency 必须大于 0");
         }
-        BatchGroupsResponse response = httpExecutor.postTyped(
-                BATCH_GROUPS_URI,
-                new BatchGroupsRequest(accountIds, concurrency),
-                BatchGroupsResponse.class);
-        if (response == null || response.results() == null) {
-            return List.of();
+        List<AccountParticipatingGroupResult> merged = new ArrayList<>(accountIds.size());
+        for (int start = 0; start < accountIds.size(); start += PROTOCOL_BATCH_LIMIT) {
+            int end = Math.min(start + PROTOCOL_BATCH_LIMIT, accountIds.size());
+            List<String> batchAccountIds = accountIds.subList(start, end);
+            if (accountIds.size() > PROTOCOL_BATCH_LIMIT) {
+                log.info("协议层账号群查询切片发送 total={} batchStart={} batchSize={} concurrency={}",
+                        accountIds.size(), start, batchAccountIds.size(), concurrency);
+            }
+            BatchGroupsResponse response = httpExecutor.postTyped(
+                    BATCH_GROUPS_URI,
+                    new BatchGroupsRequest(batchAccountIds, concurrency),
+                    BatchGroupsResponse.class);
+            if (response == null || response.results() == null) {
+                log.warn("协议层账号群查询返回空结果 batchStart={} batchSize={}", start, batchAccountIds.size());
+                continue;
+            }
+            response.results().stream()
+                    .map(HttpAccountParticipatingGroupAdapter::toResult)
+                    .forEach(merged::add);
         }
-        return response.results().stream()
-                .map(HttpAccountParticipatingGroupAdapter::toResult)
-                .toList();
+        return merged;
     }
 
     private static AccountParticipatingGroupResult toResult(AccountGroupsResponse response) {

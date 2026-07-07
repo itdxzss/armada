@@ -382,6 +382,59 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueMarketingMessageCommands_groupCreationSourceDoesNotRequireMarketingAttempt() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-unused"), List.of());
+        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
+                1L,
+                null,
+                null,
+                null,
+                null,
+                501L,
+                "acc_8613800138000",
+                "120363001@g.us",
+                "TEXT",
+                "hello",
+                null,
+                null,
+                null,
+                null,
+                "group_creation_marketing",
+                "cmd_gcm_item_11",
+                22L,
+                11L);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueMarketingMessageCommands(List.of(command));
+
+        assertThat(result.batchId()).isNull();
+        assertThat(result.commandIds()).containsExactly("cmd_gcm_item_11");
+
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        ProtocolCommandOutbox row = rows.get(0);
+        assertThat(row.getCommandId()).isEqualTo("cmd_gcm_item_11");
+        assertThat(row.getCommandType()).isEqualTo("message.send.requested");
+        assertThat(row.getAggregateType()).isEqualTo("GROUP_CREATION_MARKETING_ITEM");
+        assertThat(row.getAggregateId()).isEqualTo(11L);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_8613800138000");
+
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("tenantId", 1)
+                .containsEntry("groupCreationTaskId", 22)
+                .containsEntry("groupCreationItemId", 11)
+                .containsEntry("accountId", 501)
+                .containsEntry("protocolAccountId", "acc_8613800138000")
+                .containsEntry("groupJid", "120363001@g.us")
+                .containsEntry("messageType", "TEXT")
+                .containsEntry("text", "hello")
+                .containsEntry("source", "group_creation_marketing");
+        assertThat(payload).doesNotContainKeys("marketingTaskId", "attemptId", "targetId", "roundNo");
+    }
+
+    @Test
     void enqueueMarketingMessageCommands_linkCardPayload_serializesStructuredCard() throws Exception {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-link-card"), List.of());
         ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(

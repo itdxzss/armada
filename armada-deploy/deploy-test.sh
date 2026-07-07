@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec /usr/bin/env bash "$0" "$@"
+fi
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +11,7 @@ WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 # Use the public IP by default so local proxy fake-ip DNS cannot break ssh/rsync.
 SSH_HOST="${ARMADA_DEPLOY_HOST:-65.2.123.53}"
 SSH_USER="${ARMADA_DEPLOY_USER:-ubuntu}"
-SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/dev-1.pem}"
+SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/dev-1.pem}"
 REMOTE_DIR="${ARMADA_DEPLOY_REMOTE_DIR:-/home/app/armada-deploy}"
 COMPOSE_FILE="${ARMADA_DEPLOY_COMPOSE:-docker-compose.rds.yml}"
 COMPOSE_PROJECT="${ARMADA_DEPLOY_PROJECT:-armada-deploy}"
@@ -18,7 +21,7 @@ PROTOCOL_DIR="${ARMADA_PROTOCOL_DIR:-${WORKSPACE_ROOT}/armada-protocol}"
 PROTOCOL_LAYER_DIR="${PROTOCOL_DIR}/protocol-layer"
 PROTOCOL_SSH_HOST="${ARMADA_PROTOCOL_DEPLOY_HOST:-65.2.122.109}"
 PROTOCOL_SSH_USER="${ARMADA_PROTOCOL_DEPLOY_USER:-ec2-user}"
-PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/protocol.pem}"
+PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/protocol.pem}"
 PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-/home/ec2-user/armada-protocol}"
 PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-armada.ecosystem.config.cjs}"
 JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"

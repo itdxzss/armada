@@ -22,6 +22,9 @@ package com.armada.platform.kafka.consumer.message;
  * @param reasonMessage   失败原因描述;成功时为空
  * @param timestamp       协议层结果时间(epoch毫秒)
  * @param workerId        处理该命令的协议 worker
+ * @param groupCreationTaskId 建群营销任务 ID;source=group_creation_marketing 时使用
+ * @param groupCreationItemId 建群营销执行项 ID;source=group_creation_marketing 时使用
+ * @param source          命令来源
  */
 public record ProtocolMessageSendResultReportedEvent(
         String eventId,
@@ -38,6 +41,9 @@ public record ProtocolMessageSendResultReportedEvent(
         String reasonCode,
         String reasonMessage,
         Long timestamp,
-        String workerId
+        String workerId,
+        Long groupCreationTaskId,
+        Long groupCreationItemId,
+        String source
 ) {
 }

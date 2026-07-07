@@ -24,6 +24,9 @@ public interface MarketingTaskMapper {
     /** 批量插入任务目标。 */
     int insertTargets(@Param("targets") List<MarketingTaskTarget> targets);
 
+    /** 插入单个任务目标并回填 id。 */
+    int insertTarget(MarketingTaskTarget target);
+
     /** 按 ID 查未删任务。 */
     MarketingTask selectTaskById(@Param("id") Long id);
 
@@ -48,6 +51,9 @@ public interface MarketingTaskMapper {
 
     /** 批量插入一轮发送尝试。 */
     int insertSendAttempts(@Param("attempts") List<MarketingTaskSendAttempt> attempts);
+
+    /** 插入单个发送尝试并回填 id。 */
+    int insertSendAttempt(MarketingTaskSendAttempt attempt);
 
     /** 协议层成功结果幂等回写。 */
     int markAttemptSuccess(@Param("attemptId") Long attemptId,

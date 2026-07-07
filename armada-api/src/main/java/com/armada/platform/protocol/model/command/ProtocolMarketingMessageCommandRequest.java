@@ -24,6 +24,8 @@ import java.util.List;
  * @param buttonCard      按钮卡片 payload;仅 BUTTON_CARD 使用
  * @param source          命令来源,默认 marketing_task
  * @param commandId       预生成协议命令 ID;为空时 outbox service 会生成
+ * @param groupCreationTaskId 建群营销任务 ID;source=group_creation_marketing 时使用
+ * @param groupCreationItemId 建群营销执行项 ID;source=group_creation_marketing 时使用
  */
 public record ProtocolMarketingMessageCommandRequest(
         Long tenantId,
@@ -41,7 +43,9 @@ public record ProtocolMarketingMessageCommandRequest(
         MarketingLinkCardPayload linkCard,
         MarketingButtonCardPayload buttonCard,
         String source,
-        String commandId
+        String commandId,
+        Long groupCreationTaskId,
+        Long groupCreationItemId
 ) {
     /**
      * 兼容旧调用方的构造器。没有预生成 commandId 时,由 outbox service 在入库前生成。
@@ -62,7 +66,7 @@ public record ProtocolMarketingMessageCommandRequest(
             String source) {
         this(tenantId, marketingTaskId, attemptId, targetId, roundNo, accountId,
                 protocolAccountId, groupJid, messageType, text, imageBase64, imageMimetype,
-                null, null, source, null);
+                null, null, source, null, null, null);
     }
 
     public ProtocolMarketingMessageCommandRequest(
@@ -82,7 +86,7 @@ public record ProtocolMarketingMessageCommandRequest(
             String commandId) {
         this(tenantId, marketingTaskId, attemptId, targetId, roundNo, accountId,
                 protocolAccountId, groupJid, messageType, text, imageBase64, imageMimetype,
-                null, null, source, commandId);
+                null, null, source, commandId, null, null);
     }
 
     /**
@@ -107,7 +111,29 @@ public record ProtocolMarketingMessageCommandRequest(
             String source) {
         this(tenantId, marketingTaskId, attemptId, targetId, roundNo, accountId,
                 protocolAccountId, groupJid, messageType, text, imageBase64, imageMimetype,
-                linkCard, buttonCard, source, null);
+                linkCard, buttonCard, source, null, null, null);
+    }
+
+    public ProtocolMarketingMessageCommandRequest(
+            Long tenantId,
+            Long marketingTaskId,
+            Long attemptId,
+            Long targetId,
+            Long roundNo,
+            Long accountId,
+            String protocolAccountId,
+            String groupJid,
+            String messageType,
+            String text,
+            String imageBase64,
+            String imageMimetype,
+            MarketingLinkCardPayload linkCard,
+            MarketingButtonCardPayload buttonCard,
+            String source,
+            String commandId) {
+        this(tenantId, marketingTaskId, attemptId, targetId, roundNo, accountId,
+                protocolAccountId, groupJid, messageType, text, imageBase64, imageMimetype,
+                linkCard, buttonCard, source, commandId, null, null);
     }
 
     public record MarketingMediaPayload(

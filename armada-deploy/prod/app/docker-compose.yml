@@ -1,0 +1,60 @@
+services:
+  backend:
+    image: armada/backend:__VERSION__
+    container_name: armada-backend
+    env_file: .env
+    environment:
+      DB_URL: ${DB_URL}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-kafka}
+      SPRING_TASK_SCHEDULING_POOL_SIZE: ${SPRING_TASK_SCHEDULING_POOL_SIZE:-4}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKERS}
+      SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL: ${SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL:-}
+      ARMADA_PROTOCOL_BASE_URL: ${ARMADA_PROTOCOL_BASE_URL}
+      ARMADA_PROTOCOL_API_KEY: ${ARMADA_PROTOCOL_API_KEY}
+      PROTOCOL_ACCOUNT_COMMANDS_TOPIC: ${PROTOCOL_ACCOUNT_COMMANDS_TOPIC:-protocol.account.commands.v1}
+      PROTOCOL_MASTER_COMMANDS_TOPIC: ${PROTOCOL_MASTER_COMMANDS_TOPIC:-protocol.master.commands.v1}
+      PROTOCOL_ACCOUNT_EVENTS_TOPIC: ${PROTOCOL_ACCOUNT_EVENTS_TOPIC:-protocol.account.events.v1}
+      ARMADA_PROTOCOL_KAFKA_MESSAGE_EVENTS_TOPIC: ${PROTOCOL_MESSAGE_EVENTS_TOPIC:-protocol.message.events.v1}
+      PROTOCOL_GROUP_EVENTS_TOPIC: ${PROTOCOL_GROUP_EVENTS_TOPIC:-protocol.group.events.v1}
+      PROTOCOL_ACCOUNT_EVENTS_GROUP_ID: ${PROTOCOL_ACCOUNT_EVENTS_GROUP_ID:-armada-api-account-events}
+      ARMADA_PROTOCOL_KAFKA_MESSAGE_EVENTS_GROUP_ID: ${PROTOCOL_MESSAGE_EVENTS_GROUP_ID:-armada-api-message-events}
+      PROTOCOL_GROUP_EVENTS_GROUP_ID: ${PROTOCOL_GROUP_EVENTS_GROUP_ID:-armada-api-group-events}
+      PROTOCOL_COMMAND_DISPATCH_IMMEDIATE_ENABLED: ${PROTOCOL_COMMAND_DISPATCH_IMMEDIATE_ENABLED:-true}
+      PROTOCOL_COMMAND_DISPATCH_SCHEDULER_ENABLED: ${PROTOCOL_COMMAND_DISPATCH_SCHEDULER_ENABLED:-true}
+      ACCOUNT_IMPORT_ONLINE_DISPATCH_SCHEDULER_ENABLED: ${ACCOUNT_IMPORT_ONLINE_DISPATCH_SCHEDULER_ENABLED:-true}
+      IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: ${IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE:-20}
+      ARMADA_IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: ${ARMADA_IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE:-20}
+      DEV_LOGIN_PASSWORD: ${DEV_LOGIN_PASSWORD}
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--Xms1024m -Xmx1024m}"
+      LOGGING_FILE_NAME: /app/logs/armada-api.log
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 500MB
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 10
+      LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 5GB
+    volumes:
+      - ./logs/backend:/app/logs
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped
+
+  nginx:
+    image: armada/nginx:__VERSION__
+    container_name: armada-nginx
+    depends_on:
+      - backend
+    ports:
+      - "${ARMADA_HTTP_PORT:-18080}:80"
+    volumes:
+      - ./logs/nginx:/var/log/nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped

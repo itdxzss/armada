@@ -1,0 +1,530 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.mapper.GroupCreationMarketingTaskMapper">
+
+    <resultMap id="TaskResultMap" type="com.armada.marketing.model.entity.GroupCreationMarketingTask">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="task_name" property="taskName"/>
+        <result column="account_group_id" property="accountGroupId"/>
+        <result column="account_group_name" property="accountGroupName"/>
+        <result column="marketing_template_id" property="marketingTemplateId"/>
+        <result column="marketing_template_name" property="marketingTemplateName"/>
+        <result column="marketing_task_id" property="marketingTaskId"/>
+        <result column="status" property="status"/>
+        <result column="matched_item_count" property="matchedItemCount"/>
+        <result column="unmatched_file_count" property="unmatchedFileCount"/>
+        <result column="success_count" property="successCount"/>
+        <result column="failed_count" property="failedCount"/>
+        <result column="abandoned_count" property="abandonedCount"/>
+        <result column="send_interval_seconds" property="sendIntervalSeconds"/>
+        <result column="group_name_prefix" property="groupNamePrefix"/>
+        <result column="remark" property="remark"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <resultMap id="ItemResultMap" type="com.armada.marketing.model.entity.GroupCreationMarketingItem">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="task_id" property="taskId"/>
+        <result column="file_index" property="fileIndex"/>
+        <result column="file_name" property="fileName"/>
+        <result column="material_content" property="materialContent"/>
+        <result column="participant_count" property="participantCount"/>
+        <result column="account_id" property="accountId"/>
+        <result column="account_phone" property="accountPhone"/>
+        <result column="protocol_account_id" property="protocolAccountId"/>
+        <result column="group_subject" property="groupSubject"/>
+        <result column="group_jid" property="groupJid"/>
+        <result column="group_link_id" property="groupLinkId"/>
+        <result column="participant_result_json" property="participantResultJson"/>
+        <result column="retry_history_json" property="retryHistoryJson"/>
+        <result column="marketing_task_id" property="marketingTaskId"/>
+        <result column="marketing_target_id" property="marketingTargetId"/>
+        <result column="marketing_attempt_id" property="marketingAttemptId"/>
+        <result column="command_id" property="commandId"/>
+        <result column="status" property="status"/>
+        <result column="reason_code" property="reasonCode"/>
+        <result column="reason_message" property="reasonMessage"/>
+        <result column="next_run_at" property="nextRunAt"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="TaskColumns">
+        id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
+        marketing_template_name, marketing_task_id, status, matched_item_count, unmatched_file_count,
+        success_count, failed_count, abandoned_count, send_interval_seconds, group_name_prefix, remark, created_by,
+        created_at, updated_at, finished_at, deleted_at
+    </sql>
+
+    <sql id="ItemColumns">
+        id, tenant_id, task_id, file_index, file_name, material_content, participant_count,
+        account_id, account_phone, protocol_account_id, group_subject, group_jid, group_link_id,
+        participant_result_json, retry_history_json, marketing_task_id, marketing_target_id,
+        marketing_attempt_id, command_id, status, reason_code, reason_message, next_run_at,
+        started_at, finished_at, created_at, updated_at
+    </sql>
+
+    <sql id="TaskFilter">
+        <where>
+            deleted_at IS NULL
+            <if test="q.id != null">AND id = #{q.id}</if>
+            <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
+            <if test="q.status != null">AND status = #{q.status}</if>
+        </where>
+    </sql>
+
+    <insert id="insertTask" parameterType="com.armada.marketing.model.entity.GroupCreationMarketingTask"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO group_creation_marketing_task
+            (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
+             marketing_task_id, status, matched_item_count, unmatched_file_count, success_count, failed_count,
+             abandoned_count, send_interval_seconds, group_name_prefix, remark, created_by, created_at, updated_at, finished_at)
+        VALUES
+            (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
+             #{marketingTaskId}, #{status}, #{matchedItemCount}, #{unmatchedFileCount}, #{successCount},
+             #{failedCount}, #{abandonedCount}, #{sendIntervalSeconds}, #{groupNamePrefix}, #{remark}, #{createdBy},
+             #{createdAt}, #{updatedAt}, #{finishedAt})
+    </insert>
+
+    <insert id="insertItems">
+        INSERT INTO group_creation_marketing_item
+            (task_id, file_index, file_name, material_content, participant_count, account_id, account_phone,
+             protocol_account_id, group_subject, group_jid, group_link_id, participant_result_json,
+             marketing_task_id, marketing_target_id, marketing_attempt_id, command_id, status, reason_code,
+             reason_message, next_run_at, started_at, finished_at, created_at, updated_at)
+        VALUES
+        <foreach collection="items" item="i" separator=",">
+            (#{i.taskId}, #{i.fileIndex}, #{i.fileName}, #{i.materialContent}, #{i.participantCount},
+             #{i.accountId}, #{i.accountPhone}, #{i.protocolAccountId}, #{i.groupSubject}, #{i.groupJid},
+             #{i.groupLinkId}, #{i.participantResultJson}, #{i.marketingTaskId}, #{i.marketingTargetId},
+             #{i.marketingAttemptId}, #{i.commandId}, #{i.status}, #{i.reasonCode}, #{i.reasonMessage},
+             #{i.nextRunAt}, #{i.startedAt}, #{i.finishedAt}, #{i.createdAt}, #{i.updatedAt})
+        </foreach>
+    </insert>
+
+    <select id="selectTaskById" resultMap="TaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM group_creation_marketing_task
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="selectItemById" resultMap="ItemResultMap">
+        SELECT <include refid="ItemColumns"/>
+        FROM group_creation_marketing_item
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="selectItemsByTaskId" resultMap="ItemResultMap">
+        SELECT <include refid="ItemColumns"/>
+        FROM group_creation_marketing_item
+        WHERE task_id = #{taskId}
+        ORDER BY file_index ASC, id ASC
+    </select>
+
+    <select id="countPage" resultType="long">
+        SELECT COUNT(*)
+        FROM group_creation_marketing_task
+        <include refid="TaskFilter"/>
+    </select>
+
+    <select id="selectPage" resultMap="TaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM group_creation_marketing_task
+        <include refid="TaskFilter"/>
+        ORDER BY id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="selectAccountCandidatesByGroupId"
+            resultType="com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState,
+               s.risk_status AS riskStatus,
+               s.mute_status AS muteStatus
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+        WHERE a.deleted_at IS NULL
+          AND a.account_group_id = #{accountGroupId}
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND s.login_state = 1
+          AND s.account_state = 2
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+        ORDER BY a.id ASC
+    </select>
+
+    <select id="selectFirstAvailableAccountCandidateByGroupId"
+            resultType="com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState,
+               s.risk_status AS riskStatus,
+               s.mute_status AS muteStatus
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+        WHERE a.deleted_at IS NULL
+          AND a.account_group_id = #{accountGroupId}
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND s.login_state = 1
+          AND s.account_state = 2
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+        ORDER BY a.id ASC
+        LIMIT 1
+    </select>
+
+    <select id="selectFirstAvailableAccountCandidateByGroupIdExcluding"
+            resultType="com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState,
+               s.risk_status AS riskStatus,
+               s.mute_status AS muteStatus
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+        WHERE a.deleted_at IS NULL
+          AND a.account_group_id = #{accountGroupId}
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND s.login_state = 1
+          AND s.account_state = 2
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          <if test="excludedAccountIds != null and excludedAccountIds.size() > 0">
+              AND a.id NOT IN
+              <foreach collection="excludedAccountIds" item="accountId" open="(" separator="," close=")">
+                  #{accountId}
+              </foreach>
+          </if>
+        ORDER BY a.id ASC
+        LIMIT 1
+    </select>
+
+    <select id="countStoppableItems" resultType="int">
+        SELECT COUNT(*)
+        FROM group_creation_marketing_item
+        WHERE task_id = #{taskId}
+          AND status IN (1, 2, 3)
+    </select>
+
+    <update id="stopStoppableItems">
+        UPDATE group_creation_marketing_item
+        SET status = 6,
+            reason_code = #{reasonCode},
+            reason_message = #{reasonMessage},
+            finished_at = #{finishedAt},
+            updated_at = #{finishedAt}
+        WHERE task_id = #{taskId}
+          AND status IN (1, 2, 3)
+    </update>
+
+    <update id="stopTask">
+        UPDATE group_creation_marketing_task
+        SET status = #{status},
+            abandoned_count = abandoned_count + #{abandonedDelta},
+            finished_at = COALESCE(finished_at, #{finishedAt}),
+            updated_at = #{finishedAt}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status IN (1, 2)
+    </update>
+
+    <select id="selectDueItems" resultMap="ItemResultMap">
+        SELECT <include refid="ItemColumns"/>
+        FROM group_creation_marketing_item
+        WHERE status = 1
+          AND next_run_at &lt;= #{now}
+        ORDER BY next_run_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="claimItem">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = #{toStatus},
+            i.started_at = COALESCE(i.started_at, #{now}),
+            i.updated_at = #{now},
+            t.status = CASE WHEN t.status = 1 THEN 2 ELSE t.status END,
+            t.updated_at = #{now}
+        WHERE i.id = #{id}
+          AND i.status = #{fromStatus}
+    </update>
+
+    <select id="selectAccountCandidateByAccountId"
+            resultType="com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState,
+               s.risk_status AS riskStatus,
+               s.mute_status AS muteStatus
+        FROM account a
+        LEFT JOIN account_state s ON s.account_id = a.id
+        WHERE a.id = #{accountId}
+          AND a.deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <update id="updateItemAccountIfCreating">
+        UPDATE group_creation_marketing_item
+        SET account_id = #{accountId},
+            account_phone = #{accountPhone},
+            protocol_account_id = #{protocolAccountId},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 2
+    </update>
+
+    <update id="updateItemAccountForClaimRetry">
+        UPDATE group_creation_marketing_item
+        SET account_id = #{accountId},
+            account_phone = #{accountPhone},
+            protocol_account_id = #{protocolAccountId},
+            retry_history_json = #{retryHistoryJson},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 2
+    </update>
+
+    <update id="resetItemForAccountRetry">
+        UPDATE group_creation_marketing_item
+        SET account_id = #{accountId},
+            account_phone = #{accountPhone},
+            protocol_account_id = #{protocolAccountId},
+            group_jid = NULL,
+            group_link_id = NULL,
+            participant_result_json = NULL,
+            marketing_task_id = NULL,
+            marketing_target_id = NULL,
+            marketing_attempt_id = NULL,
+            command_id = NULL,
+            status = #{pendingStatus},
+            reason_code = NULL,
+            reason_message = NULL,
+            next_run_at = #{nextRunAt},
+            retry_history_json = #{retryHistoryJson},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+          <if test="expectedCommandId != null and expectedCommandId != ''">
+              AND command_id = #{expectedCommandId}
+          </if>
+    </update>
+
+    <update id="updateTaskMarketingTaskIdIfAbsent">
+        UPDATE group_creation_marketing_task
+        SET marketing_task_id = #{marketingTaskId},
+            updated_at = #{updatedAt}
+        WHERE id = #{taskId}
+          AND deleted_at IS NULL
+          AND marketing_task_id IS NULL
+    </update>
+
+    <update id="markItemMarketingSending">
+        UPDATE group_creation_marketing_item
+        SET group_jid = #{groupJid},
+            group_link_id = #{groupLinkId},
+            participant_result_json = #{participantResultJson},
+            marketing_task_id = #{marketingTaskId},
+            marketing_target_id = #{marketingTargetId},
+            marketing_attempt_id = #{marketingAttemptId},
+            command_id = #{commandId},
+            status = 3,
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 2
+    </update>
+
+    <update id="markItemAbandoned">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 6,
+            i.reason_code = #{reasonCode},
+            i.reason_message = #{reasonMessage},
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.abandoned_count = t.abandoned_count + 1,
+            t.status = CASE
+                WHEN t.success_count + t.failed_count + t.abandoned_count + 1 &gt;= t.matched_item_count
+                    THEN CASE WHEN t.success_count = 0 AND t.failed_count = 0 THEN 4 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + t.failed_count + t.abandoned_count + 1 &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.id = #{id}
+          AND i.status IN (1, 2)
+    </update>
+
+    <update id="markItemNoAvailableAccount">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 6,
+            i.reason_code = #{reasonCode},
+            i.reason_message = #{reasonMessage},
+            i.retry_history_json = #{retryHistoryJson},
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.abandoned_count = t.abandoned_count + 1,
+            t.status = CASE
+                WHEN t.success_count + t.failed_count + t.abandoned_count + 1 &gt;= t.matched_item_count
+                    THEN CASE WHEN t.success_count = 0 AND t.failed_count = 0 THEN 4 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + t.failed_count + t.abandoned_count + 1 &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.id = #{id}
+          AND i.status = #{fromStatus}
+          <if test="expectedCommandId != null and expectedCommandId != ''">
+              AND i.command_id = #{expectedCommandId}
+          </if>
+    </update>
+
+    <update id="markItemFailed">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 5,
+            i.reason_code = #{reasonCode},
+            i.reason_message = #{reasonMessage},
+            i.participant_result_json = #{participantResultJson},
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.failed_count = t.failed_count + 1,
+            t.status = CASE
+                WHEN t.success_count + t.failed_count + 1 + t.abandoned_count &gt;= t.matched_item_count
+                    THEN CASE WHEN t.success_count = 0 AND t.abandoned_count = 0 THEN 4 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + t.failed_count + 1 + t.abandoned_count &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.id = #{id}
+          AND i.status IN (1, 2, 3)
+    </update>
+
+    <update id="markItemSuccessByMarketingAttemptId">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 4,
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.success_count = t.success_count + 1,
+            t.status = CASE
+                WHEN t.success_count + 1 + t.failed_count + t.abandoned_count &gt;= t.matched_item_count
+                    THEN CASE WHEN t.failed_count = 0 AND t.abandoned_count = 0 THEN 3 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + 1 + t.failed_count + t.abandoned_count &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.marketing_attempt_id = #{attemptId}
+          AND i.status = 3
+    </update>
+
+    <update id="markItemFailedByMarketingAttemptId">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 5,
+            i.reason_code = #{reasonCode},
+            i.reason_message = #{reasonMessage},
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.failed_count = t.failed_count + 1,
+            t.status = CASE
+                WHEN t.success_count + t.failed_count + 1 + t.abandoned_count &gt;= t.matched_item_count
+                    THEN CASE WHEN t.success_count = 0 AND t.abandoned_count = 0 THEN 4 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + t.failed_count + 1 + t.abandoned_count &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.marketing_attempt_id = #{attemptId}
+          AND i.status = 3
+    </update>
+
+    <update id="markItemSuccessByCommandId">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 4,
+            i.group_jid = COALESCE(#{groupJid}, i.group_jid),
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.success_count = t.success_count + 1,
+            t.status = CASE
+                WHEN t.success_count + 1 + t.failed_count + t.abandoned_count &gt;= t.matched_item_count
+                    THEN CASE WHEN t.failed_count = 0 AND t.abandoned_count = 0 THEN 3 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + 1 + t.failed_count + t.abandoned_count &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.id = #{itemId}
+          AND i.command_id = #{commandId}
+          AND i.status = 3
+    </update>
+
+    <update id="markItemFailedByCommandId">
+        UPDATE group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        SET i.status = 5,
+            i.reason_code = #{reasonCode},
+            i.reason_message = #{reasonMessage},
+            i.finished_at = #{finishedAt},
+            i.updated_at = #{finishedAt},
+            t.failed_count = t.failed_count + 1,
+            t.status = CASE
+                WHEN t.success_count + t.failed_count + 1 + t.abandoned_count &gt;= t.matched_item_count
+                    THEN CASE WHEN t.success_count = 0 AND t.abandoned_count = 0 THEN 4 ELSE 5 END
+                ELSE t.status
+            END,
+            t.finished_at = CASE
+                WHEN t.success_count + t.failed_count + 1 + t.abandoned_count &gt;= t.matched_item_count
+                    THEN #{finishedAt}
+                ELSE t.finished_at
+            END,
+            t.updated_at = #{finishedAt}
+        WHERE i.id = #{itemId}
+          AND i.command_id = #{commandId}
+          AND i.status = 3
+    </update>
+</mapper>

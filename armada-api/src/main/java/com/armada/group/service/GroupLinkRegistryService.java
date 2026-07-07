@@ -16,4 +16,11 @@ public interface GroupLinkRegistryService {
      * @param rawLinks 进群任务输入中的候选群链接
      */
     void registerJoinTaskTargets(List<String> rawLinks);
+
+    Long registerSelfBuiltGroup(String groupJid,
+                                String groupName,
+                                Long ownerAccountId,
+                                String ownerPhone,
+                                Integer memberCount,
+                                long now);
 }

@@ -66,6 +66,10 @@ public interface GroupLinkMapper {
      */
     int reviveAsStandaloneTarget(@Param("id") Long id, @Param("updatedAt") long updatedAt);
 
+    int markSelfBuiltGroup(@Param("id") Long id,
+                           @Param("groupName") String groupName,
+                           @Param("updatedAt") long updatedAt);
+
     /**
      * 群组列表分页总数(与 selectPageByLabel 共用 filter,口径一致)。
      *

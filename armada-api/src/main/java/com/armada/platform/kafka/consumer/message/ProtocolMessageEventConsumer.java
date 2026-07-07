@@ -25,6 +25,7 @@ public class ProtocolMessageEventConsumer {
     private static final Logger log = LoggerFactory.getLogger(ProtocolMessageEventConsumer.class);
 
     public static final String EVENT_MESSAGE_SEND_RESULT_REPORTED = "message.send_result_reported";
+    private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
 
     private final ObjectMapper objectMapper;
     private final ProtocolMessageSendResultReportedSink sink;
@@ -70,13 +71,23 @@ public class ProtocolMessageEventConsumer {
 
     /** 将宽松 JSON envelope 收窄为营销发送结果事件,必要字段缺失时直接失败重试。 */
     private static ProtocolMessageSendResultReportedEvent toSendResultReportedEvent(JsonNode envelope, JsonNode data) {
+        String source = text(data, "source");
+        boolean groupCreationMarketing = SOURCE_GROUP_CREATION_MARKETING.equals(source);
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
-                requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
-                requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
-                requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
-                requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
+                groupCreationMarketing
+                        ? longValue(data, "marketingTaskId")
+                        : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
+                groupCreationMarketing
+                        ? longValue(data, "targetId")
+                        : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
+                groupCreationMarketing
+                        ? longValue(data, "attemptId")
+                        : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
+                groupCreationMarketing
+                        ? longValue(data, "roundNo")
+                        : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
                 requiredText(data, "groupJid", "协议消息发送结果事件缺少 data.groupJid"),
                 text(data, "commandId"),
@@ -85,7 +96,14 @@ public class ProtocolMessageEventConsumer {
                 text(data, "reasonCode"),
                 text(data, "reasonMessage"),
                 timestamp(envelope, data),
-                text(envelope, "workerId"));
+                text(envelope, "workerId"),
+                groupCreationMarketing
+                        ? requiredLong(data, "groupCreationTaskId", "协议消息发送结果事件缺少 data.groupCreationTaskId")
+                        : longValue(data, "groupCreationTaskId"),
+                groupCreationMarketing
+                        ? requiredLong(data, "groupCreationItemId", "协议消息发送结果事件缺少 data.groupCreationItemId")
+                        : longValue(data, "groupCreationItemId"),
+                source);
     }
 
     /** 兼容协议层 envelope.data 包裹格式;测试或临时工具也可直接传扁平字段。 */

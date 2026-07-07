@@ -1,0 +1,155 @@
+x-protocol-common-env: &protocol-common-env
+  NODE_ENV: prod
+  HTTP_HOST: 0.0.0.0
+  NODE_ID: ${NODE_ID:-protocol-prod-1}
+  REGION: ${REGION:-aws-prod}
+  EVENT_BACKEND: kafka
+  REDIS_URL: ${REDIS_URL}
+  REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-armada:prod:}
+  MYSQL_ENABLED: ${MYSQL_ENABLED:-true}
+  MYSQL_CONNECTION_URI: ${MYSQL_CONNECTION_URI}
+  MYSQL_CONNECTION_LIMIT: ${MYSQL_CONNECTION_LIMIT:-8}
+  KAFKA_BROKERS: ${KAFKA_BROKERS}
+  KAFKA_SSL: ${KAFKA_SSL:-true}
+  KAFKA_USERNAME: ${KAFKA_USERNAME:-}
+  KAFKA_PASSWORD: ${KAFKA_PASSWORD:-}
+  KAFKA_SASL_MECHANISM: ${KAFKA_SASL_MECHANISM:-scram-sha-512}
+  KAFKA_TOPIC_ACCOUNT: ${KAFKA_TOPIC_ACCOUNT:-protocol.account.events.v1}
+  KAFKA_TOPIC_OWNER: ${KAFKA_TOPIC_OWNER:-protocol.owner.events.v1}
+  KAFKA_TOPIC_MESSAGE: ${KAFKA_TOPIC_MESSAGE:-protocol.message.events.v1}
+  KAFKA_TOPIC_GROUP: ${KAFKA_TOPIC_GROUP:-protocol.group.events.v1}
+  KAFKA_TOPIC_PAIRING: ${KAFKA_TOPIC_PAIRING:-protocol.pairing.events.v1}
+  KAFKA_TOPIC_COMMANDS: ${KAFKA_TOPIC_COMMANDS:-protocol.master.commands.v1}
+  KAFKA_COMMAND_CONSUMER_GROUP: ${KAFKA_COMMAND_CONSUMER_GROUP:-protocol-master-commands}
+  KAFKA_COMMAND_CONSUMER_ENABLED: ${KAFKA_COMMAND_CONSUMER_ENABLED:-true}
+  KAFKA_PRODUCER_ACKS: ${KAFKA_PRODUCER_ACKS:-1}
+  KAFKA_PRODUCER_IDEMPOTENT: ${KAFKA_PRODUCER_IDEMPOTENT:-false}
+  API_KEYS: ${API_KEYS}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  LOG_PRETTY: ${LOG_PRETTY:-false}
+  AUDIT_LOG_SAMPLE_RATE: ${AUDIT_LOG_SAMPLE_RATE:-0.1}
+  MAX_ACCOUNTS_PER_WORKER: ${MAX_ACCOUNTS_PER_WORKER:-500}
+  MAX_OLD_SPACE_MB: ${MAX_OLD_SPACE_MB:-1536}
+  NODE_RECONNECT_PER_SEC: ${NODE_RECONNECT_PER_SEC:-20}
+  RECONNECT_BURST: ${RECONNECT_BURST:-40}
+  WORKER_GROUP_OP_PER_SEC: ${WORKER_GROUP_OP_PER_SEC:-100}
+  WORKER_GROUP_OP_BURST: ${WORKER_GROUP_OP_BURST:-200}
+  COLD_START_BATCH_SIZE: ${COLD_START_BATCH_SIZE:-25}
+  COLD_START_INTERVAL_MS: ${COLD_START_INTERVAL_MS:-15000}
+  HEARTBEAT_EVENT_ENABLED: ${HEARTBEAT_EVENT_ENABLED:-false}
+  KEYS_L1_SIZE: ${KEYS_L1_SIZE:-200000}
+  CREDS_L1_SIZE: ${CREDS_L1_SIZE:-50000}
+
+services:
+  protocol-master:
+    image: armada/protocol:__VERSION__
+    container_name: armada-protocol-master
+    env_file: .env
+    environment:
+      <<: *protocol-common-env
+      WORKER_ROLE: master
+      WORKER_ID: ${NODE_ID:-protocol-prod-1}-master
+      HTTP_PORT: "8080"
+      MAX_OLD_SPACE_MB: "512"
+    ports:
+      - "${PROTOCOL_MASTER_PORT:-8080}:8080"
+    volumes:
+      - ./logs/master:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped
+
+  protocol-worker-1:
+    image: armada/protocol:__VERSION__
+    container_name: armada-protocol-worker-1
+    env_file: .env
+    environment:
+      <<: *protocol-common-env
+      WORKER_ROLE: worker
+      WORKER_ID: ${NODE_ID:-protocol-prod-1}-w1
+      HTTP_PORT: "8081"
+      PUBLIC_ENDPOINT: http://${PROTOCOL_PUBLIC_HOST}:${PROTOCOL_WORKER_1_PORT:-8081}
+    ports:
+      - "${PROTOCOL_WORKER_1_PORT:-8081}:8081"
+    volumes:
+      - ./logs/worker-1:/app/logs
+    depends_on:
+      - protocol-master
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped
+
+  protocol-worker-2:
+    image: armada/protocol:__VERSION__
+    container_name: armada-protocol-worker-2
+    env_file: .env
+    environment:
+      <<: *protocol-common-env
+      WORKER_ROLE: worker
+      WORKER_ID: ${NODE_ID:-protocol-prod-1}-w2
+      HTTP_PORT: "8082"
+      PUBLIC_ENDPOINT: http://${PROTOCOL_PUBLIC_HOST}:${PROTOCOL_WORKER_2_PORT:-8082}
+    ports:
+      - "${PROTOCOL_WORKER_2_PORT:-8082}:8082"
+    volumes:
+      - ./logs/worker-2:/app/logs
+    depends_on:
+      - protocol-master
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped
+
+  protocol-worker-3:
+    image: armada/protocol:__VERSION__
+    container_name: armada-protocol-worker-3
+    env_file: .env
+    environment:
+      <<: *protocol-common-env
+      WORKER_ROLE: worker
+      WORKER_ID: ${NODE_ID:-protocol-prod-1}-w3
+      HTTP_PORT: "8083"
+      PUBLIC_ENDPOINT: http://${PROTOCOL_PUBLIC_HOST}:${PROTOCOL_WORKER_3_PORT:-8083}
+    ports:
+      - "${PROTOCOL_WORKER_3_PORT:-8083}:8083"
+    volumes:
+      - ./logs/worker-3:/app/logs
+    depends_on:
+      - protocol-master
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped
+
+  protocol-worker-4:
+    image: armada/protocol:__VERSION__
+    container_name: armada-protocol-worker-4
+    env_file: .env
+    environment:
+      <<: *protocol-common-env
+      WORKER_ROLE: worker
+      WORKER_ID: ${NODE_ID:-protocol-prod-1}-w4
+      HTTP_PORT: "8084"
+      PUBLIC_ENDPOINT: http://${PROTOCOL_PUBLIC_HOST}:${PROTOCOL_WORKER_4_PORT:-8084}
+    ports:
+      - "${PROTOCOL_WORKER_4_PORT:-8084}:8084"
+    volumes:
+      - ./logs/worker-4:/app/logs
+    depends_on:
+      - protocol-master
+    logging:
+      driver: json-file
+      options:
+        max-size: "500m"
+        max-file: "5"
+    restart: unless-stopped

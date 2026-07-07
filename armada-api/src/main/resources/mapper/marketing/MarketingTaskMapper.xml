@@ -119,6 +119,18 @@
         </foreach>
     </insert>
 
+    <insert id="insertTarget" parameterType="com.armada.marketing.model.entity.MarketingTaskTarget"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_task_target
+            (marketing_task_id, account_id, account_phone, target_scope, group_link_id, group_jid, group_link_url,
+             group_name, status, sent_message_count, failed_message_count, retry_count, last_attempt_at,
+             last_sent_at, last_reason, created_at, updated_at)
+        VALUES
+            (#{marketingTaskId}, #{accountId}, #{accountPhone}, #{targetScope}, #{groupLinkId}, #{groupJid},
+             #{groupLinkUrl}, #{groupName}, #{status}, #{sentMessageCount}, #{failedMessageCount},
+             #{retryCount}, #{lastAttemptAt}, #{lastSentAt}, #{lastReason}, #{createdAt}, #{updatedAt})
+    </insert>
+
     <select id="selectTaskById" resultMap="MarketingTaskResultMap">
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task
@@ -244,6 +256,18 @@
              #{a.reasonMessage}, #{a.messageId}, #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt},
              #{a.createdAt})
         </foreach>
+    </insert>
+
+    <insert id="insertSendAttempt" parameterType="com.armada.marketing.model.entity.MarketingTaskSendAttempt"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_task_send_attempt
+            (marketing_task_id, target_id, group_link_id, group_jid, group_name, round_no, attempt_no, is_retry, command_id,
+             status, reason_code, reason_message, message_id, submitted_at, result_at,
+             attempted_at, created_at)
+        VALUES
+            (#{marketingTaskId}, #{targetId}, #{groupLinkId}, #{groupJid}, #{groupName}, #{roundNo},
+             #{attemptNo}, #{retry}, #{commandId}, #{status}, #{reasonCode}, #{reasonMessage}, #{messageId},
+             #{submittedAt}, #{resultAt}, #{attemptedAt}, #{createdAt})
     </insert>
 
     <update id="markAttemptSuccess">

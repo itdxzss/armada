@@ -66,10 +66,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 营销发送尝试聚合类型。 */
     public static final String AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT = "MARKETING_SEND_ATTEMPT";
 
+    /** 建群营销执行项聚合类型。 */
+    public static final String AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM = "GROUP_CREATION_MARKETING_ITEM";
+
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
     private static final String BATCH_ID_PREFIX = "batch_";
+    private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
 
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
@@ -414,8 +418,13 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandId(commandId);
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_MESSAGE_SEND_REQUESTED);
-        row.setAggregateType(AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT);
-        row.setAggregateId(command.attemptId());
+        if (isGroupCreationMarketing(command)) {
+            row.setAggregateType(AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM);
+            row.setAggregateId(command.groupCreationItemId());
+        } else {
+            row.setAggregateType(AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT);
+            row.setAggregateId(command.attemptId());
+        }
         row.setKafkaTopic(masterCommandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
@@ -548,7 +557,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                         : new MarketingImagePayload(command.imageBase64(), command.imageMimetype()),
                 command.linkCard(),
                 command.buttonCard(),
-                sourceOrDefault(command.source(), "marketing_task"));
+                sourceOrDefault(command.source(), "marketing_task"),
+                command.groupCreationTaskId(),
+                command.groupCreationItemId());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -749,15 +760,23 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private void validateMarketingMessageCommand(ProtocolMarketingMessageCommandRequest command) {
         if (command == null
                 || command.tenantId() == null
-                || command.marketingTaskId() == null
-                || command.attemptId() == null
-                || command.targetId() == null
-                || command.roundNo() == null
                 || command.accountId() == null
                 || isBlank(command.protocolAccountId())
                 || isBlank(command.groupJid())
                 || isBlank(command.messageType())) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少必要字段");
+        }
+        if (isGroupCreationMarketing(command)) {
+            if (command.groupCreationTaskId() == null
+                    || command.groupCreationItemId() == null
+                    || isBlank(command.commandId())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "建群营销消息发送命令缺少执行项字段");
+            }
+        } else if (command.marketingTaskId() == null
+                || command.attemptId() == null
+                || command.targetId() == null
+                || command.roundNo() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少营销回写字段");
         }
         String type = command.messageType().trim().toUpperCase();
         if ("LINK_CARD".equals(type)) {
@@ -806,6 +825,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     private static String sourceOrDefault(String value, String defaultValue) {
         return isBlank(value) ? defaultValue : value;
+    }
+
+    private static boolean isGroupCreationMarketing(ProtocolMarketingMessageCommandRequest command) {
+        return command != null && SOURCE_GROUP_CREATION_MARKETING.equals(command.source());
     }
 
     private record ProtocolOnlineCommandPayload(
@@ -860,7 +883,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             MarketingImagePayload image,
             ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard,
             ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard,
-            String source
+            String source,
+            Long groupCreationTaskId,
+            Long groupCreationItemId
     ) {
     }
 

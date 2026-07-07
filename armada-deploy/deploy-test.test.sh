@@ -50,6 +50,28 @@ test_protocol_dry_run_is_protocol_only() {
   assert_not_contains "${out}" "前端构建"
 }
 
+test_protocol_default_key_uses_testpem_directory() {
+  local script_content
+  script_content="$(sed -n '1,40p' "${SCRIPT}")"
+  assert_contains "${script_content}" 'PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/protocol.pem}"'
+}
+
+test_armada_default_key_uses_testpem_directory() {
+  local script_content
+  script_content="$(sed -n '1,40p' "${SCRIPT}")"
+  assert_contains "${script_content}" 'SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/dev-1.pem}"'
+}
+
+test_sh_invocation_reexecs_bash_for_help() {
+  local out
+  out="$(sh "${SCRIPT}" --help)"
+  assert_contains "${out}" "deploy-test.sh - 部署 armada API"
+  assert_contains "${out}" "--protocol"
+}
+
 test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
+test_protocol_default_key_uses_testpem_directory
+test_armada_default_key_uses_testpem_directory
+test_sh_invocation_reexecs_bash_for_help
 printf 'OK deploy-test.sh protocol tests passed\n'

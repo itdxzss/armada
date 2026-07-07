@@ -81,6 +81,24 @@ armada:
       group-events:
         topic: ${PROTOCOL_GROUP_EVENTS_TOPIC:protocol.group.events.v1}
         group-id: ${PROTOCOL_GROUP_EVENTS_GROUP_ID:armada-api-group-events}
+  protocol-restart:
+    pm2-bin: ${ARMADA_PROTOCOL_RESTART_PM2_BIN:pm2}
+    process-names:
+      - ${ARMADA_PROTOCOL_RESTART_MASTER_PROCESS:protocol-master}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_1_PROCESS:protocol-worker-1}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_2_PROCESS:protocol-worker-2}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_3_PROCESS:protocol-worker-3}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_4_PROCESS:protocol-worker-4}
+    ready-urls:
+      - ${ARMADA_PROTOCOL_RESTART_MASTER_READY_URL:http://127.0.0.1:8080/readyz}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_1_READY_URL:http://127.0.0.1:8081/readyz}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_2_READY_URL:http://127.0.0.1:8082/readyz}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_3_READY_URL:http://127.0.0.1:8083/readyz}
+      - ${ARMADA_PROTOCOL_RESTART_WORKER_4_READY_URL:http://127.0.0.1:8084/readyz}
+    command-timeout-ms: ${ARMADA_PROTOCOL_RESTART_COMMAND_TIMEOUT_MS:30000}
+    ready-timeout-ms: ${ARMADA_PROTOCOL_RESTART_READY_TIMEOUT_MS:60000}
+    ready-poll-interval-ms: ${ARMADA_PROTOCOL_RESTART_READY_POLL_INTERVAL_MS:1000}
+    ready-request-timeout-ms: ${ARMADA_PROTOCOL_RESTART_READY_REQUEST_TIMEOUT_MS:2000}
   account:
     import-online-dispatcher:
       scheduler:

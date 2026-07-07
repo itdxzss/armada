@@ -278,6 +278,30 @@ class AccountListMapperDbTest extends DbTestBase {
         assertThat(hasOther).isFalse();
     }
 
+    @Test
+    void listAccounts_filterByRestrictedState_onlyMatchingReturned() {
+        long now = System.currentTimeMillis();
+        String phonePrefix = "86188" + (now % 10000000L);
+
+        Account restricted = insertAccount(phonePrefix + "1", now);
+        insertDefaultState(restricted.getId(), now);
+        jdbc.update("UPDATE account_state SET account_state = 8 WHERE account_id = ?", restricted.getId());
+
+        Account normal = insertAccount(phonePrefix + "2", now);
+        insertDefaultState(normal.getId(), now);
+        jdbc.update("UPDATE account_state SET account_state = 2 WHERE account_id = ?", normal.getId());
+
+        AccountQuery query = new AccountQuery();
+        query.setPhone(phonePrefix);
+        query.setAccountState(8);
+        query.setPageSize(50);
+
+        List<AccountListVoRow> rows = accountMapper.selectPage(query);
+
+        assertThat(accountMapper.countPage(query)).isEqualTo(1);
+        assertThat(rows).extracting(AccountListVoRow::getId).containsExactly(restricted.getId());
+    }
+
     /**
      * 一期账号列表可用筛选必须真实 SQL 下推:关键字/账号/账号类型/协议/来源/登录/风控/
      * 禁言/国家/IP 地址同时生效,不能只在前端展示。

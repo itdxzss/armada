@@ -14,10 +14,11 @@ package com.armada.account.model.vo;
  *   <li>unbound  — account_state=5(解绑)</li>
  *   <li>muted    — mute_status IS NOT NULL(禁言)</li>
  *   <li>exported — account_state=4(导出)</li>
+ *   <li>restricted — account_state=8(账号受限)</li>
  *   <li>risk     — risk_status &gt; 1(风控中/待解除)</li>
  *   <li>assigned — dispatched_at IS NOT NULL(已分配/已派单)</li>
  * </ul>
- * unassigned(未分配) = total - assigned,restrictedTotal = banned + unbound + muted + exported,
+ * unassigned(未分配) = total - assigned,restrictedTotal = banned + unbound + muted + exported + restricted,
  * 均由 Service 层派生。
  * </p>
  */
@@ -46,6 +47,9 @@ public class AccountStatsVoRow {
 
     /** account_state=4 导出账号数。 */
     private long exported;
+
+    /** account_state=8 账号受限账号数。 */
+    private long restricted;
 
     /** risk_status&gt;1 风控中/待解除账号数。 */
     private long risk;
@@ -115,6 +119,14 @@ public class AccountStatsVoRow {
 
     public void setExported(long exported) {
         this.exported = exported;
+    }
+
+    public long getRestricted() {
+        return restricted;
+    }
+
+    public void setRestricted(long restricted) {
+        this.restricted = restricted;
     }
 
     public long getRisk() {

@@ -53,7 +53,7 @@ public record AccountListVO(
 
         // ---- account_state 状态列(LEFT JOIN,全可空) ----
 
-        /** 账号状态:1新增 2正常 3封禁 4导出 5解绑;NULL=未上报。 */
+        /** 账号状态:1新增 2正常 3封禁 4导出 5解绑 6被抢登 7抢登中 8账号受限;NULL=未上报。 */
         Integer accountState,
 
         /** 登录状态:1在线 2离线;NULL=未上报。 */

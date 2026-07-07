@@ -45,4 +45,9 @@ public final class AccountStateCode {
      * 抢登中:用户要求 Armada 持续尝试把被抢登账号重新上线。
      */
     public static final int TAKING_OVER = 7;
+
+    /**
+     * 账号受限:WhatsApp 限制账号主动触达、建群或拉人,不可继续派单。
+     */
+    public static final int RESTRICTED = 8;
 }

@@ -171,6 +171,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         Account unbound = insertAccount("86204" + (now % 100000000L), now);
         Account muted = insertAccount("86205" + (now % 100000000L), now);
         Account exported = insertAccount("86206" + (now % 100000000L), now);
+        Account restricted = insertAccount("86207" + (now % 100000000L), now);
 
         insertDefaultState(normalOffline.getId(), now);
         insertDefaultState(bannedOffline.getId(), now);
@@ -178,6 +179,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         insertDefaultState(unbound.getId(), now);
         insertDefaultState(muted.getId(), now);
         insertDefaultState(exported.getId(), now);
+        insertDefaultState(restricted.getId(), now);
 
         jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
                 AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, normalOffline.getId());
@@ -191,6 +193,8 @@ class AccountStatsMapperDbTest extends DbTestBase {
                 AccountStateCode.NORMAL, 1, muted.getId());
         jdbc.update("UPDATE account_state SET account_state = ? WHERE account_id = ?",
                 AccountStateCode.EXPORTED, exported.getId());
+        jdbc.update("UPDATE account_state SET account_state = 8, login_state = ? WHERE account_id = ?",
+                AccountLoginStateCode.OFFLINE, restricted.getId());
 
         AccountStatsVoRow after = accountMapper.statsSummary();
 
@@ -200,6 +204,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         assertThat(after.getUnbound() - before.getUnbound()).isEqualTo(1L);
         assertThat(after.getMuted() - before.getMuted()).isEqualTo(1L);
         assertThat(after.getExported() - before.getExported()).isEqualTo(1L);
+        assertThat(after.getRestricted() - before.getRestricted()).isEqualTo(1L);
     }
 
     @Test

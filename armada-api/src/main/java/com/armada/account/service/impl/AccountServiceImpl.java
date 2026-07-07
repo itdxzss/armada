@@ -71,14 +71,18 @@ public class AccountServiceImpl implements AccountService {
     /**
      * {@inheritDoc}
      *
-     * <p>unassigned = total - assigned,restrictedTotal = banned + unbound + muted + exported
+     * <p>unassigned = total - assigned,restrictedTotal = banned + unbound + muted + exported + restricted
      * 在此派生,Mapper 聚合 SQL 不含这两个派生列。</p>
      */
     @Override
     public AccountStatsVO getStats() {
         AccountStatsVoRow row = accountMapper.statsSummary();
         long unassigned = row.getTotal() - row.getAssigned();
-        long restrictedTotal = row.getBanned() + row.getUnbound() + row.getMuted() + row.getExported();
+        long restrictedTotal = row.getBanned()
+                + row.getUnbound()
+                + row.getMuted()
+                + row.getExported()
+                + row.getRestricted();
         return new AccountStatsVO(
                 row.getTotal(),
                 row.getOnline(),
@@ -89,6 +93,7 @@ public class AccountServiceImpl implements AccountService {
                 row.getUnbound(),
                 row.getMuted(),
                 row.getExported(),
+                row.getRestricted(),
                 row.getRisk(),
                 row.getAssigned(),
                 unassigned

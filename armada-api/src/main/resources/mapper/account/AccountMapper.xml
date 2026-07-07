@@ -206,7 +206,7 @@
     平台级统计卡:本租户全量单条聚合 SQL。
     tenant_id 由拦截器注入,不手写。
     offline 统计可操作生命周期下的离线登录态:account_state IN (1,2,6,7) AND login_state=2。
-    封禁/导出/解绑不计入离线账号,待上线单独按 login_state=3 统计。
+    封禁/导出/解绑/账号受限不计入离线账号,待上线单独按 login_state=3 统计。
     risk_status &gt; 1:XML 里 > 须转义为 &gt; 否则运行时 XML 解析炸 crash-loop。
     状态列来自 LEFT JOIN account_state,若无状态行则 COALESCE(SUM(...), 0) = 0。
   -->
@@ -220,6 +220,7 @@
       COALESCE(SUM(CASE WHEN s.account_state = 5 THEN 1 ELSE 0 END), 0) AS unbound,
       COALESCE(SUM(CASE WHEN s.mute_status IS NOT NULL THEN 1 ELSE 0 END), 0) AS muted,
       COALESCE(SUM(CASE WHEN s.account_state = 4 THEN 1 ELSE 0 END), 0) AS exported,
+      COALESCE(SUM(CASE WHEN s.account_state = 8 THEN 1 ELSE 0 END), 0) AS restricted,
       COALESCE(SUM(CASE WHEN s.risk_status &gt; 1 THEN 1 ELSE 0 END), 0) AS risk,
       COALESCE(SUM(CASE WHEN a.dispatched_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS assigned
     FROM account a

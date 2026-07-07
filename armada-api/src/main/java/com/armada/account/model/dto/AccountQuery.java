@@ -21,7 +21,7 @@ public class AccountQuery extends PageQuery {
     /** 接入协议标识(可选)。 */
     private String protocolId;
 
-    /** 账号状态:1新增 2正常 3封禁 4导出 5解绑(可选;step1 state 全 NULL 天然不命中)。 */
+    /** 账号状态:1新增 2正常 3封禁 4导出 5解绑 6被抢登 7抢登中 8账号受限(可选;step1 state 全 NULL 天然不命中)。 */
     private Integer accountState;
 
     /** 风控状态:1未风控 2风控中 3待解除(可选;step1 state 全 NULL 天然不命中)。 */

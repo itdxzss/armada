@@ -41,4 +41,16 @@ class AccountSchemaDbTest extends DbTestBase {
 
         assertThat(columns).containsExactly("tenant_id", "protocol_account_id");
     }
+
+    @Test
+    void accountStateCommentIncludesRestrictedState() {
+        String comment = jdbc.queryForObject(
+                "SELECT column_comment FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?",
+                String.class,
+                "account_state",
+                "account_state");
+
+        assertThat(comment).contains("8账号受限");
+    }
 }

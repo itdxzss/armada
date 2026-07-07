@@ -2,6 +2,7 @@ package com.armada.marketing.service;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.service.AccountRestrictionService;
 import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -12,6 +13,8 @@ import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.impl.GroupCreationMarketingRetryService;
 import com.armada.marketing.service.impl.GroupCreationMarketingWorker;
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.port.ContactPort;
@@ -69,6 +72,8 @@ class GroupCreationMarketingWorkerTest {
     @Mock
     private GroupCreationMarketingRetryService retryService;
     @Mock
+    private AccountRestrictionService accountRestrictionService;
+    @Mock
     private PlatformTransactionManager transactionManager;
 
     private GroupCreationMarketingWorker worker;
@@ -85,6 +90,7 @@ class GroupCreationMarketingWorkerTest {
                 contactPort,
                 groupCreatePort,
                 retryService,
+                accountRestrictionService,
                 new ObjectMapper(),
                 transactionManager);
     }
@@ -357,6 +363,85 @@ class GroupCreationMarketingWorkerTest {
                 eq("protocol down"), anyLong());
         verify(groupCreationMapper, never()).markItemFailed(anyLong(), eq("GROUP_CREATE_FAILED"),
                 any(), any(), anyLong());
+    }
+
+    @Test
+    void processRestrictedGroupCreateFailureMarksActualAccountRestrictedAndRetries() {
+        GroupCreationMarketingItem item = item();
+        GroupCreationMarketingTask task = task(null);
+        when(groupCreationMapper.selectDueItems(anyInt(), anyLong())).thenReturn(List.of(item));
+        when(groupCreationMapper.claimItem(eq(11L), eq(GroupCreationMarketingItemStatus.PENDING.code()),
+                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), anyLong())).thenReturn(1);
+        when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
+        when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
+                .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
+        when(groupCreatePort.create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true)))
+                .thenThrow(new ProtocolException(ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED,
+                        "协议层错误 422 ACCOUNT_REACHOUT_RESTRICTED: account_reachout_restricted"));
+        when(retryService.resetItemForAccountRetry(eq(item), eq(task),
+                eq(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE), eq("GROUP_CREATE_FAILED"),
+                anyString(), anyLong())).thenReturn(true);
+
+        worker.processDueItems(10);
+
+        verify(accountRestrictionService).markGroupCreateRestricted(
+                eq(7L), eq("acc_7"), eq("account_reachout_restricted"), anyLong());
+        verify(retryService).resetItemForAccountRetry(eq(item), eq(task),
+                eq(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE), eq("GROUP_CREATE_FAILED"),
+                anyString(), anyLong());
+    }
+
+    @Test
+    void processRestrictedFailureAfterAccountReplacementMarksReplacementAccount() {
+        GroupCreationMarketingItem item = item();
+        GroupCreationMarketingTask task = task(null);
+        GroupCreationMarketingAccountCandidate replacement =
+                account(8L, "8613000000001", "acc_8", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        when(groupCreationMapper.selectDueItems(anyInt(), anyLong())).thenReturn(List.of(item));
+        when(groupCreationMapper.claimItem(eq(11L), eq(GroupCreationMarketingItemStatus.PENDING.code()),
+                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), anyLong())).thenReturn(1);
+        when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
+        when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
+                .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE));
+        when(retryService.replaceClaimedItemAccountForRetry(eq(item), eq(task),
+                eq(GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK),
+                eq("ACCOUNT_OFFLINE"), eq("账号离线"), anyLong())).thenReturn(replacement);
+        when(groupCreatePort.create(eq("acc_8"), eq("活动群-1"), anyList(), eq(true)))
+                .thenThrow(new ProtocolException(ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED,
+                        "协议层错误 429 ACCOUNT_REACHOUT_RESTRICTED: rate-overlimit"));
+        when(retryService.resetItemForAccountRetry(eq(item), eq(task),
+                eq(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE), eq("GROUP_CREATE_FAILED"),
+                anyString(), anyLong())).thenReturn(true);
+
+        worker.processDueItems(10);
+
+        verify(accountRestrictionService).markGroupCreateRestricted(
+                eq(8L), eq("acc_8"), eq("rate-overlimit"), anyLong());
+    }
+
+    @Test
+    void processAccountBusyGroupCreateFailureDoesNotMarkRestricted() {
+        GroupCreationMarketingItem item = item();
+        GroupCreationMarketingTask task = task(null);
+        when(groupCreationMapper.selectDueItems(anyInt(), anyLong())).thenReturn(List.of(item));
+        when(groupCreationMapper.claimItem(eq(11L), eq(GroupCreationMarketingItemStatus.PENDING.code()),
+                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), anyLong())).thenReturn(1);
+        when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
+        when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
+                .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
+        when(groupCreatePort.create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true)))
+                .thenThrow(new ProtocolException(ProtocolErrorCode.ACCOUNT_BUSY,
+                        "协议层错误 429 ACCOUNT_BUSY: group operation in progress"));
+        when(retryService.resetItemForAccountRetry(eq(item), eq(task),
+                eq(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE), eq("GROUP_CREATE_FAILED"),
+                anyString(), anyLong())).thenReturn(true);
+
+        worker.processDueItems(10);
+
+        verify(accountRestrictionService, never()).markGroupCreateRestricted(anyLong(), anyString(), anyString(), anyLong());
+        verify(retryService).resetItemForAccountRetry(eq(item), eq(task),
+                eq(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE), eq("GROUP_CREATE_FAILED"),
+                anyString(), anyLong());
     }
 
     private void seedSuccessfulOnlineItem() {

@@ -2,6 +2,7 @@ package com.armada.marketing.service.impl;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.service.AccountRestrictionService;
 import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -10,6 +11,7 @@ import com.armada.marketing.model.entity.GroupCreationMarketingTask;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
+import com.armada.marketing.model.support.GroupCreateRestrictionClassifier;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
@@ -26,6 +28,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -71,6 +74,7 @@ public class GroupCreationMarketingWorker {
     private final ContactPort contactPort;
     private final GroupCreatePort groupCreatePort;
     private final GroupCreationMarketingRetryService retryService;
+    private final AccountRestrictionService accountRestrictionService;
     private final ObjectMapper objectMapper;
     private final TransactionOperations transactionOperations;
 
@@ -82,6 +86,7 @@ public class GroupCreationMarketingWorker {
                                         ContactPort contactPort,
                                         GroupCreatePort groupCreatePort,
                                         GroupCreationMarketingRetryService retryService,
+                                        AccountRestrictionService accountRestrictionService,
                                         ObjectMapper objectMapper,
                                         PlatformTransactionManager transactionManager) {
         this.groupCreationMapper = groupCreationMapper;
@@ -92,6 +97,7 @@ public class GroupCreationMarketingWorker {
         this.contactPort = contactPort;
         this.groupCreatePort = groupCreatePort;
         this.retryService = retryService;
+        this.accountRestrictionService = accountRestrictionService;
         this.objectMapper = objectMapper;
         this.transactionOperations = new TransactionTemplate(transactionManager);
     }
@@ -178,9 +184,18 @@ public class GroupCreationMarketingWorker {
             groupResult = groupCreatePort.create(account.getProtocolAccountId(), item.getGroupSubject(), participants, true);
         } catch (RuntimeException ex) {
             String reason = readableMessage(ex);
-            transactionOperations.executeWithoutResult(status -> retryService.resetItemForAccountRetry(
-                    item, task, GroupCreationMarketingRetryService.STAGE_GROUP_CREATE,
-                    REASON_GROUP_CREATE_FAILED, reason, System.currentTimeMillis()));
+            Optional<String> restrictedReason = GroupCreateRestrictionClassifier.restrictedReason(ex);
+            long failedAt = System.currentTimeMillis();
+            transactionOperations.executeWithoutResult(status -> {
+                restrictedReason.ifPresent(value -> accountRestrictionService.markGroupCreateRestricted(
+                        account.getAccountId(),
+                        account.getProtocolAccountId(),
+                        value,
+                        failedAt));
+                retryService.resetItemForAccountRetry(
+                        item, task, GroupCreationMarketingRetryService.STAGE_GROUP_CREATE,
+                        REASON_GROUP_CREATE_FAILED, reason, failedAt);
+            });
             return;
         }
         if (groupResult == null || !StringUtils.hasText(groupResult.groupJid())) {

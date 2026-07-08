@@ -2,6 +2,8 @@ package com.armada.marketing.mapper;
 
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
 import com.armada.marketing.model.enums.GroupCreationMarketingTaskStatus;
+import com.armada.marketing.model.support.GroupCreationMarketingNoAvailableAccountUpdate;
+import com.armada.marketing.model.support.GroupCreationMarketingRetryResetUpdate;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -93,17 +95,19 @@ class GroupCreationMarketingTaskMapperDbTest extends DbTestBase {
         Long itemId = insertItem(taskId, 0, GroupCreationMarketingItemStatus.MARKETING_SENDING.code(), null, now);
         jdbc.update("UPDATE group_creation_marketing_item SET command_id = ? WHERE id = ?", "cmd_1", itemId);
 
-        assertThat(mapper.resetItemForAccountRetry(
-                itemId,
-                9L,
-                "8613999999999",
-                "acc_9",
-                GroupCreationMarketingItemStatus.MARKETING_SENDING.code(),
-                "cmd_1",
-                GroupCreationMarketingItemStatus.PENDING.code(),
-                now + 1,
-                "{\"entries\":[]}",
-                now + 1)).isEqualTo(1);
+        GroupCreationMarketingRetryResetUpdate update = new GroupCreationMarketingRetryResetUpdate();
+        update.setId(itemId);
+        update.setAccountId(9L);
+        update.setAccountPhone("8613999999999");
+        update.setProtocolAccountId("acc_9");
+        update.setFromStatus(GroupCreationMarketingItemStatus.MARKETING_SENDING.code());
+        update.setExpectedCommandId("cmd_1");
+        update.setPendingStatus(GroupCreationMarketingItemStatus.PENDING.code());
+        update.setNextRunAt(now + 1);
+        update.setRetryHistoryJson("{\"entries\":[]}");
+        update.setUpdatedAt(now + 1);
+
+        assertThat(mapper.resetItemForAccountRetry(update)).isEqualTo(1);
 
         assertThat(itemStatus(itemId)).isEqualTo(GroupCreationMarketingItemStatus.PENDING.code());
         assertThat(itemLongColumn(itemId, "account_id")).isEqualTo(9L);
@@ -121,14 +125,16 @@ class GroupCreationMarketingTaskMapperDbTest extends DbTestBase {
         Long taskId = insertTask("mapper-no-account-" + now, 1, now);
         Long itemId = insertItem(taskId, 0, GroupCreationMarketingItemStatus.GROUP_CREATING.code(), null, now);
 
-        assertThat(mapper.markItemNoAvailableAccount(
-                itemId,
-                "NO_AVAILABLE_ACCOUNT",
-                "没有可用账号",
-                GroupCreationMarketingItemStatus.GROUP_CREATING.code(),
-                null,
-                "{\"entries\":[]}",
-                now + 1)).isEqualTo(1);
+        GroupCreationMarketingNoAvailableAccountUpdate update = new GroupCreationMarketingNoAvailableAccountUpdate();
+        update.setId(itemId);
+        update.setReasonCode("NO_AVAILABLE_ACCOUNT");
+        update.setReasonMessage("没有可用账号");
+        update.setFromStatus(GroupCreationMarketingItemStatus.GROUP_CREATING.code());
+        update.setExpectedCommandId(null);
+        update.setRetryHistoryJson("{\"entries\":[]}");
+        update.setFinishedAt(now + 1);
+
+        assertThat(mapper.markItemNoAvailableAccount(update)).isEqualTo(1);
 
         assertThat(itemStatus(itemId)).isEqualTo(GroupCreationMarketingItemStatus.ABANDONED.code());
         assertThat(itemStringColumn(itemId, "reason_code")).isEqualTo("NO_AVAILABLE_ACCOUNT");
@@ -136,6 +142,25 @@ class GroupCreationMarketingTaskMapperDbTest extends DbTestBase {
         assertThat(itemStringColumn(itemId, "retry_history_json")).isEqualTo("{\"entries\": []}");
         assertThat(taskColumn(taskId, "abandoned_count")).isEqualTo(1);
         assertThat(taskFinishedAt(taskId)).isEqualTo(now + 1);
+    }
+
+    @Test
+    void itemMemberSnapshotColumnsAreMapped() {
+        long now = System.currentTimeMillis();
+        Long taskId = insertTask("mapper-export-snapshot-" + now, 1, now);
+        Long itemId = insertItem(taskId, 0, GroupCreationMarketingItemStatus.MARKETING_SENDING.code(), null, now);
+
+        jdbc.update("""
+                UPDATE group_creation_marketing_item
+                SET send_member_count = ?,
+                    send_member_count_checked_at = ?
+                WHERE id = ?
+                """, 6, now + 2, itemId);
+
+        var item = mapper.selectItemById(itemId);
+
+        assertThat(item.getSendMemberCount()).isEqualTo(6);
+        assertThat(item.getSendMemberCountCheckedAt()).isEqualTo(now + 2);
     }
 
     private Long insertTask(String name, int matchedItemCount, long now) {

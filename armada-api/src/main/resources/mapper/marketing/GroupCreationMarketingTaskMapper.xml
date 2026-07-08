@@ -43,6 +43,8 @@
         <result column="group_jid" property="groupJid"/>
         <result column="group_link_id" property="groupLinkId"/>
         <result column="participant_result_json" property="participantResultJson"/>
+        <result column="send_member_count" property="sendMemberCount"/>
+        <result column="send_member_count_checked_at" property="sendMemberCountCheckedAt"/>
         <result column="retry_history_json" property="retryHistoryJson"/>
         <result column="marketing_task_id" property="marketingTaskId"/>
         <result column="marketing_target_id" property="marketingTargetId"/>
@@ -68,7 +70,7 @@
     <sql id="ItemColumns">
         id, tenant_id, task_id, file_index, file_name, material_content, participant_count,
         account_id, account_phone, protocol_account_id, group_subject, group_jid, group_link_id,
-        participant_result_json, retry_history_json, marketing_task_id, marketing_target_id,
+        participant_result_json, send_member_count, send_member_count_checked_at, retry_history_json, marketing_task_id, marketing_target_id,
         marketing_attempt_id, command_id, status, reason_code, reason_message, next_run_at,
         started_at, finished_at, created_at, updated_at
     </sql>
@@ -144,6 +146,26 @@
         <include refid="TaskFilter"/>
         ORDER BY id DESC
         LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="selectExportRowsByTaskIds"
+            resultType="com.armada.marketing.model.vo.GroupCreationMarketingExportRow">
+        SELECT i.task_id AS taskId,
+               i.group_subject AS groupSubject,
+               i.participant_count AS participantCount,
+               i.send_member_count AS sendMemberCount
+        FROM group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+        WHERE t.deleted_at IS NULL
+          AND i.task_id IN
+          <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+              #{taskId}
+          </foreach>
+        ORDER BY FIELD(i.task_id,
+          <foreach collection="taskIds" item="taskId" separator=",">
+              #{taskId}
+          </foreach>
+        ), i.file_index ASC, i.id ASC
     </select>
 
     <select id="selectAccountCandidatesByGroupId"
@@ -298,20 +320,20 @@
 
     <update id="updateItemAccountForClaimRetry">
         UPDATE group_creation_marketing_item
-        SET account_id = #{accountId},
-            account_phone = #{accountPhone},
-            protocol_account_id = #{protocolAccountId},
-            retry_history_json = #{retryHistoryJson},
-            updated_at = #{updatedAt}
-        WHERE id = #{id}
+        SET account_id = #{update.accountId},
+            account_phone = #{update.accountPhone},
+            protocol_account_id = #{update.protocolAccountId},
+            retry_history_json = #{update.retryHistoryJson},
+            updated_at = #{update.updatedAt}
+        WHERE id = #{update.id}
           AND status = 2
     </update>
 
     <update id="resetItemForAccountRetry">
         UPDATE group_creation_marketing_item
-        SET account_id = #{accountId},
-            account_phone = #{accountPhone},
-            protocol_account_id = #{protocolAccountId},
+        SET account_id = #{update.accountId},
+            account_phone = #{update.accountPhone},
+            protocol_account_id = #{update.protocolAccountId},
             group_jid = NULL,
             group_link_id = NULL,
             participant_result_json = NULL,
@@ -319,16 +341,16 @@
             marketing_target_id = NULL,
             marketing_attempt_id = NULL,
             command_id = NULL,
-            status = #{pendingStatus},
+            status = #{update.pendingStatus},
             reason_code = NULL,
             reason_message = NULL,
-            next_run_at = #{nextRunAt},
-            retry_history_json = #{retryHistoryJson},
-            updated_at = #{updatedAt}
-        WHERE id = #{id}
-          AND status = #{fromStatus}
-          <if test="expectedCommandId != null and expectedCommandId != ''">
-              AND command_id = #{expectedCommandId}
+            next_run_at = #{update.nextRunAt},
+            retry_history_json = #{update.retryHistoryJson},
+            updated_at = #{update.updatedAt}
+        WHERE id = #{update.id}
+          AND status = #{update.fromStatus}
+          <if test="update.expectedCommandId != null and update.expectedCommandId != ''">
+              AND command_id = #{update.expectedCommandId}
           </if>
     </update>
 
@@ -343,16 +365,18 @@
 
     <update id="markItemMarketingSending">
         UPDATE group_creation_marketing_item
-        SET group_jid = #{groupJid},
-            group_link_id = #{groupLinkId},
-            participant_result_json = #{participantResultJson},
-            marketing_task_id = #{marketingTaskId},
-            marketing_target_id = #{marketingTargetId},
-            marketing_attempt_id = #{marketingAttemptId},
-            command_id = #{commandId},
+        SET group_jid = #{dispatch.groupJid},
+            group_link_id = #{dispatch.groupLinkId},
+            participant_result_json = #{dispatch.participantResultJson},
+            send_member_count = #{dispatch.sendMemberCount},
+            send_member_count_checked_at = #{dispatch.sendMemberCountCheckedAt},
+            marketing_task_id = #{dispatch.marketingTaskId},
+            marketing_target_id = #{dispatch.marketingTargetId},
+            marketing_attempt_id = #{dispatch.marketingAttemptId},
+            command_id = #{dispatch.commandId},
             status = 3,
-            updated_at = #{updatedAt}
-        WHERE id = #{id}
+            updated_at = #{dispatch.updatedAt}
+        WHERE id = #{dispatch.id}
           AND status = 2
     </update>
 
@@ -384,11 +408,11 @@
         UPDATE group_creation_marketing_item i
         JOIN group_creation_marketing_task t ON t.id = i.task_id
         SET i.status = 6,
-            i.reason_code = #{reasonCode},
-            i.reason_message = #{reasonMessage},
-            i.retry_history_json = #{retryHistoryJson},
-            i.finished_at = #{finishedAt},
-            i.updated_at = #{finishedAt},
+            i.reason_code = #{update.reasonCode},
+            i.reason_message = #{update.reasonMessage},
+            i.retry_history_json = #{update.retryHistoryJson},
+            i.finished_at = #{update.finishedAt},
+            i.updated_at = #{update.finishedAt},
             t.abandoned_count = t.abandoned_count + 1,
             t.status = CASE
                 WHEN t.success_count + t.failed_count + t.abandoned_count + 1 &gt;= t.matched_item_count
@@ -397,14 +421,14 @@
             END,
             t.finished_at = CASE
                 WHEN t.success_count + t.failed_count + t.abandoned_count + 1 &gt;= t.matched_item_count
-                    THEN #{finishedAt}
+                    THEN #{update.finishedAt}
                 ELSE t.finished_at
             END,
-            t.updated_at = #{finishedAt}
-        WHERE i.id = #{id}
-          AND i.status = #{fromStatus}
-          <if test="expectedCommandId != null and expectedCommandId != ''">
-              AND i.command_id = #{expectedCommandId}
+            t.updated_at = #{update.finishedAt}
+        WHERE i.id = #{update.id}
+          AND i.status = #{update.fromStatus}
+          <if test="update.expectedCommandId != null and update.expectedCommandId != ''">
+              AND i.command_id = #{update.expectedCommandId}
           </if>
     </update>
 

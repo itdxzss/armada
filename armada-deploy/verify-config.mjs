@@ -28,6 +28,11 @@ expectIncludes(
 );
 expectIncludes(envExample, "ARMADA_PROTOCOL_API_KEY=", ".env.example");
 expectIncludes(
+  envExample,
+  "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL=http://65.2.122.109:8080/readyz",
+  ".env.example"
+);
+expectIncludes(
   compose,
   "ARMADA_PROTOCOL_BASE_URL: ${ARMADA_PROTOCOL_BASE_URL:-http://65.2.122.109:8080}",
   "docker-compose.rds.yml"
@@ -35,6 +40,11 @@ expectIncludes(
 expectIncludes(
   compose,
   "ARMADA_PROTOCOL_API_KEY: ${ARMADA_PROTOCOL_API_KEY:-}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL: ${ARMADA_PROTOCOL_RESTART_MASTER_READY_URL:-http://65.2.122.109:8080/readyz}",
   "docker-compose.rds.yml"
 );
 

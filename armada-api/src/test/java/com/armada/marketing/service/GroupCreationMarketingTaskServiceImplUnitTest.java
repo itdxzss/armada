@@ -12,6 +12,7 @@ import com.armada.marketing.model.entity.GroupCreationMarketingTask;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.GroupCreationMarketingTaskStatus;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
+import com.armada.marketing.service.impl.GroupCreationMarketingExportWorkbookWriter;
 import com.armada.marketing.service.impl.GroupCreationMarketingTaskServiceImpl;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,11 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
 
     @BeforeEach
     void setUp() {
-        service = new GroupCreationMarketingTaskServiceImpl(mapper, templateMapper, marketingTaskMapper);
+        service = new GroupCreationMarketingTaskServiceImpl(
+                mapper,
+                templateMapper,
+                marketingTaskMapper,
+                new GroupCreationMarketingExportWorkbookWriter());
     }
 
     @Test

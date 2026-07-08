@@ -1,8 +1,10 @@
 package com.armada.marketing.controller;
 
+import com.armada.marketing.model.vo.GroupCreationMarketingExportFile;
 import com.armada.marketing.model.vo.GroupCreationMarketingTaskDetailVO;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.GroupCreationMarketingTaskService;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +19,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -123,5 +126,26 @@ class GroupCreationMarketingTaskControllerTest {
                 .andExpect(jsonPath("$.data[0].loginState").value(2));
 
         verify(service).accountCandidates(8L);
+    }
+
+    @Test
+    void exportSelectedTasksReturnsXlsxAttachment() throws Exception {
+        when(service.exportTasks(List.of(7L, 8L))).thenReturn(new GroupCreationMarketingExportFile(
+                "建群营销统计导出_20260707_153000.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "xlsx".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(post("/api/group-creation-marketing-tasks/export")
+                        .contentType("application/json")
+                        .content("{\"ids\":[7,8]}"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .andExpect(result -> org.assertj.core.api.Assertions.assertThat(
+                                result.getResponse().getHeader("Content-Disposition"))
+                        .contains("attachment")
+                        .contains("filename*="))
+                .andExpect(content().bytes("xlsx".getBytes(StandardCharsets.UTF_8)));
+
+        verify(service).exportTasks(List.of(7L, 8L));
     }
 }

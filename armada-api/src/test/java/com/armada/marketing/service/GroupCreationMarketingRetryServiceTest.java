@@ -6,7 +6,10 @@ import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.model.entity.GroupCreationMarketingItem;
 import com.armada.marketing.model.entity.GroupCreationMarketingTask;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
+import com.armada.marketing.model.support.GroupCreationMarketingClaimRetryAccountUpdate;
+import com.armada.marketing.model.support.GroupCreationMarketingNoAvailableAccountUpdate;
 import com.armada.marketing.model.support.GroupCreationMarketingRetryHistory;
+import com.armada.marketing.model.support.GroupCreationMarketingRetryResetUpdate;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.impl.GroupCreationMarketingRetryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,31 +44,34 @@ class GroupCreationMarketingRetryServiceTest {
         GroupCreationMarketingAccountCandidate replacement = account(9L, "acc_9");
         when(mapper.selectFirstAvailableAccountCandidateByGroupIdExcluding(eq(8L), eq(List.of(7L))))
                 .thenReturn(replacement);
-        when(mapper.resetItemForAccountRetry(eq(11L), eq(9L), eq("phone-9"), eq("acc_9"),
-                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), org.mockito.ArgumentMatchers.isNull(),
-                eq(GroupCreationMarketingItemStatus.PENDING.code()), eq(1000L),
-                org.mockito.ArgumentMatchers.any(), eq(1000L))).thenReturn(1);
-        ArgumentCaptor<String> historyJson = ArgumentCaptor.forClass(String.class);
+        when(mapper.resetItemForAccountRetry(any(GroupCreationMarketingRetryResetUpdate.class))).thenReturn(1);
+        ArgumentCaptor<GroupCreationMarketingRetryResetUpdate> update =
+                ArgumentCaptor.forClass(GroupCreationMarketingRetryResetUpdate.class);
 
         boolean retried = service.resetItemForAccountRetry(
                 item, task, GroupCreationMarketingRetryService.STAGE_GROUP_CREATE,
                 "GROUP_CREATE_FAILED", "rate-overlimit", 1000L);
 
         assertThat(retried).isTrue();
-        verify(mapper).resetItemForAccountRetry(eq(11L), eq(9L), eq("phone-9"), eq("acc_9"),
-                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), org.mockito.ArgumentMatchers.isNull(),
-                eq(GroupCreationMarketingItemStatus.PENDING.code()), eq(1000L), historyJson.capture(), eq(1000L));
+        verify(mapper).resetItemForAccountRetry(update.capture());
+        assertThat(update.getValue().getId()).isEqualTo(11L);
+        assertThat(update.getValue().getAccountId()).isEqualTo(9L);
+        assertThat(update.getValue().getAccountPhone()).isEqualTo("phone-9");
+        assertThat(update.getValue().getProtocolAccountId()).isEqualTo("acc_9");
+        assertThat(update.getValue().getFromStatus()).isEqualTo(GroupCreationMarketingItemStatus.GROUP_CREATING.code());
+        assertThat(update.getValue().getExpectedCommandId()).isNull();
+        assertThat(update.getValue().getPendingStatus()).isEqualTo(GroupCreationMarketingItemStatus.PENDING.code());
+        assertThat(update.getValue().getNextRunAt()).isEqualTo(1000L);
+        assertThat(update.getValue().getUpdatedAt()).isEqualTo(1000L);
         GroupCreationMarketingRetryHistory history =
-                GroupCreationMarketingRetryHistory.parse(objectMapper, historyJson.getValue());
+                GroupCreationMarketingRetryHistory.parse(objectMapper, update.getValue().getRetryHistoryJson());
         assertThat(history.attemptedAccountIds()).containsExactly(7L);
         assertThat(history.entries()).singleElement().satisfies(entry -> {
             assertThat(entry.stage()).isEqualTo(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE);
             assertThat(entry.reasonCode()).isEqualTo("GROUP_CREATE_FAILED");
             assertThat(entry.reasonMessage()).isEqualTo("rate-overlimit");
         });
-        verify(mapper, never()).markItemNoAvailableAccount(anyLong(), eq("NO_AVAILABLE_ACCOUNT"), eq("没有可用账号"),
-                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), org.mockito.ArgumentMatchers.isNull(),
-                org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(mapper, never()).markItemNoAvailableAccount(any(GroupCreationMarketingNoAvailableAccountUpdate.class));
     }
 
     @Test
@@ -75,22 +81,23 @@ class GroupCreationMarketingRetryServiceTest {
         GroupCreationMarketingTask task = task();
         when(mapper.selectFirstAvailableAccountCandidateByGroupIdExcluding(eq(8L), eq(List.of(7L))))
                 .thenReturn(null);
-        when(mapper.markItemNoAvailableAccount(eq(11L), eq("NO_AVAILABLE_ACCOUNT"), eq("没有可用账号"),
-                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), org.mockito.ArgumentMatchers.isNull(),
-                org.mockito.ArgumentMatchers.any(), eq(1000L))).thenReturn(1);
+        when(mapper.markItemNoAvailableAccount(any(GroupCreationMarketingNoAvailableAccountUpdate.class))).thenReturn(1);
+        ArgumentCaptor<GroupCreationMarketingNoAvailableAccountUpdate> update =
+                ArgumentCaptor.forClass(GroupCreationMarketingNoAvailableAccountUpdate.class);
 
         boolean retried = service.resetItemForAccountRetry(
                 item, task, GroupCreationMarketingRetryService.STAGE_GROUP_CREATE,
                 "GROUP_CREATE_FAILED", "rate-overlimit", 1000L);
 
         assertThat(retried).isFalse();
-        verify(mapper).markItemNoAvailableAccount(eq(11L), eq("NO_AVAILABLE_ACCOUNT"), eq("没有可用账号"),
-                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), org.mockito.ArgumentMatchers.isNull(),
-                org.mockito.ArgumentMatchers.any(), eq(1000L));
-        verify(mapper, never()).resetItemForAccountRetry(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()),
-                org.mockito.ArgumentMatchers.isNull(), eq(GroupCreationMarketingItemStatus.PENDING.code()),
-                anyLong(), org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(mapper).markItemNoAvailableAccount(update.capture());
+        assertThat(update.getValue().getId()).isEqualTo(11L);
+        assertThat(update.getValue().getReasonCode()).isEqualTo("NO_AVAILABLE_ACCOUNT");
+        assertThat(update.getValue().getReasonMessage()).isEqualTo("没有可用账号");
+        assertThat(update.getValue().getFromStatus()).isEqualTo(GroupCreationMarketingItemStatus.GROUP_CREATING.code());
+        assertThat(update.getValue().getExpectedCommandId()).isNull();
+        assertThat(update.getValue().getFinishedAt()).isEqualTo(1000L);
+        verify(mapper, never()).resetItemForAccountRetry(any(GroupCreationMarketingRetryResetUpdate.class));
     }
 
     @Test
@@ -101,8 +108,9 @@ class GroupCreationMarketingRetryServiceTest {
         GroupCreationMarketingAccountCandidate replacement = account(9L, "acc_9");
         when(mapper.selectFirstAvailableAccountCandidateByGroupIdExcluding(eq(8L), eq(List.of(7L))))
                 .thenReturn(replacement);
-        when(mapper.updateItemAccountForClaimRetry(eq(11L), eq(9L), eq("phone-9"), eq("acc_9"),
-                org.mockito.ArgumentMatchers.any(), eq(1000L))).thenReturn(1);
+        when(mapper.updateItemAccountForClaimRetry(any(GroupCreationMarketingClaimRetryAccountUpdate.class))).thenReturn(1);
+        ArgumentCaptor<GroupCreationMarketingClaimRetryAccountUpdate> update =
+                ArgumentCaptor.forClass(GroupCreationMarketingClaimRetryAccountUpdate.class);
 
         GroupCreationMarketingAccountCandidate selected = service.replaceClaimedItemAccountForRetry(
                 item, task, GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK,
@@ -112,12 +120,14 @@ class GroupCreationMarketingRetryServiceTest {
         assertThat(item.getAccountId()).isEqualTo(9L);
         assertThat(item.getAccountPhone()).isEqualTo("phone-9");
         assertThat(item.getProtocolAccountId()).isEqualTo("acc_9");
-        verify(mapper).updateItemAccountForClaimRetry(eq(11L), eq(9L), eq("phone-9"), eq("acc_9"),
-                org.mockito.ArgumentMatchers.any(), eq(1000L));
-        verify(mapper, never()).resetItemForAccountRetry(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()),
-                org.mockito.ArgumentMatchers.isNull(), eq(GroupCreationMarketingItemStatus.PENDING.code()),
-                anyLong(), org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(mapper).updateItemAccountForClaimRetry(update.capture());
+        assertThat(update.getValue().getId()).isEqualTo(11L);
+        assertThat(update.getValue().getAccountId()).isEqualTo(9L);
+        assertThat(update.getValue().getAccountPhone()).isEqualTo("phone-9");
+        assertThat(update.getValue().getProtocolAccountId()).isEqualTo("acc_9");
+        assertThat(update.getValue().getRetryHistoryJson()).isNotBlank();
+        assertThat(update.getValue().getUpdatedAt()).isEqualTo(1000L);
+        verify(mapper, never()).resetItemForAccountRetry(any(GroupCreationMarketingRetryResetUpdate.class));
     }
 
     @Test
@@ -128,19 +138,18 @@ class GroupCreationMarketingRetryServiceTest {
         GroupCreationMarketingAccountCandidate replacement = account(9L, "acc_9");
         when(mapper.selectFirstAvailableAccountCandidateByGroupIdExcluding(eq(8L), eq(List.of(7L))))
                 .thenReturn(replacement);
-        when(mapper.resetItemForAccountRetry(eq(11L), eq(9L), eq("phone-9"), eq("acc_9"),
-                eq(GroupCreationMarketingItemStatus.MARKETING_SENDING.code()), eq("cmd_1"),
-                eq(GroupCreationMarketingItemStatus.PENDING.code()), eq(1000L),
-                org.mockito.ArgumentMatchers.any(), eq(1000L))).thenReturn(1);
+        when(mapper.resetItemForAccountRetry(any(GroupCreationMarketingRetryResetUpdate.class))).thenReturn(1);
+        ArgumentCaptor<GroupCreationMarketingRetryResetUpdate> update =
+                ArgumentCaptor.forClass(GroupCreationMarketingRetryResetUpdate.class);
 
         boolean retried = service.resetMarketingSendingItemForAccountRetry(
                 item, task, "cmd_1", "SEND_FAILED", "rate limited", 1000L);
 
         assertThat(retried).isTrue();
-        verify(mapper).resetItemForAccountRetry(eq(11L), eq(9L), eq("phone-9"), eq("acc_9"),
-                eq(GroupCreationMarketingItemStatus.MARKETING_SENDING.code()), eq("cmd_1"),
-                eq(GroupCreationMarketingItemStatus.PENDING.code()), eq(1000L),
-                org.mockito.ArgumentMatchers.any(), eq(1000L));
+        verify(mapper).resetItemForAccountRetry(update.capture());
+        assertThat(update.getValue().getId()).isEqualTo(11L);
+        assertThat(update.getValue().getFromStatus()).isEqualTo(GroupCreationMarketingItemStatus.MARKETING_SENDING.code());
+        assertThat(update.getValue().getExpectedCommandId()).isEqualTo("cmd_1");
     }
 
     @Test
@@ -150,17 +159,18 @@ class GroupCreationMarketingRetryServiceTest {
         GroupCreationMarketingTask task = task();
         when(mapper.selectFirstAvailableAccountCandidateByGroupIdExcluding(eq(8L), eq(List.of(7L))))
                 .thenReturn(null);
-        when(mapper.markItemNoAvailableAccount(eq(11L), eq("NO_AVAILABLE_ACCOUNT"), eq("没有可用账号"),
-                eq(GroupCreationMarketingItemStatus.MARKETING_SENDING.code()), eq("cmd_1"),
-                org.mockito.ArgumentMatchers.any(), eq(1000L))).thenReturn(1);
+        when(mapper.markItemNoAvailableAccount(any(GroupCreationMarketingNoAvailableAccountUpdate.class))).thenReturn(1);
+        ArgumentCaptor<GroupCreationMarketingNoAvailableAccountUpdate> update =
+                ArgumentCaptor.forClass(GroupCreationMarketingNoAvailableAccountUpdate.class);
 
         boolean retried = service.resetMarketingSendingItemForAccountRetry(
                 item, task, "cmd_1", "SEND_FAILED", "rate limited", 1000L);
 
         assertThat(retried).isFalse();
-        verify(mapper).markItemNoAvailableAccount(eq(11L), eq("NO_AVAILABLE_ACCOUNT"), eq("没有可用账号"),
-                eq(GroupCreationMarketingItemStatus.MARKETING_SENDING.code()), eq("cmd_1"),
-                org.mockito.ArgumentMatchers.any(), eq(1000L));
+        verify(mapper).markItemNoAvailableAccount(update.capture());
+        assertThat(update.getValue().getId()).isEqualTo(11L);
+        assertThat(update.getValue().getFromStatus()).isEqualTo(GroupCreationMarketingItemStatus.MARKETING_SENDING.code());
+        assertThat(update.getValue().getExpectedCommandId()).isEqualTo("cmd_1");
     }
 
     @Test
@@ -170,9 +180,7 @@ class GroupCreationMarketingRetryServiceTest {
         GroupCreationMarketingTask task = task();
         when(mapper.selectFirstAvailableAccountCandidateByGroupIdExcluding(eq(8L), eq(List.of(7L))))
                 .thenReturn(null);
-        when(mapper.markItemNoAvailableAccount(eq(11L), eq("NO_AVAILABLE_ACCOUNT"), eq("没有可用账号"),
-                eq(GroupCreationMarketingItemStatus.MARKETING_SENDING.code()), eq("cmd_1"),
-                org.mockito.ArgumentMatchers.any(), eq(1000L))).thenReturn(0);
+        when(mapper.markItemNoAvailableAccount(any(GroupCreationMarketingNoAvailableAccountUpdate.class))).thenReturn(0);
 
         assertThatThrownBy(() -> service.resetMarketingSendingItemForAccountRetry(
                 item, task, "cmd_1", "SEND_FAILED", "rate limited", 1000L))

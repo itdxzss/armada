@@ -12,13 +12,16 @@ import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
 import com.armada.marketing.model.support.GroupCreateRestrictionClassifier;
+import com.armada.marketing.model.support.GroupCreationMarketingItemMarketingDispatch;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -43,19 +46,43 @@ import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
+/**
+ * 建群营销后台执行器。
+ *
+ * <p>Worker 从到期执行项中抢占一行,按任务快照预保存联系人、创建 WhatsApp 群、提交营销消息命令,
+ * 并把协议结果和成员数快照写回执行项。执行失败时通过换号重试服务重置为待处理或终态放弃。</p>
+ */
 @Component
 public class GroupCreationMarketingWorker {
 
+    /** Worker 日志,用于记录建群、预保存联系人和换号重试过程。 */
     private static final Logger log = LoggerFactory.getLogger(GroupCreationMarketingWorker.class);
 
+    /** 协议 outbox source,用于区分普通营销任务与建群营销触发的营销消息。 */
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
+
+    /** 当前账号离线时写入重试历史的原因码。 */
     private static final String REASON_ACCOUNT_OFFLINE = "ACCOUNT_OFFLINE";
+
+    /** 当前账号状态、风控或禁言不可用时写入重试历史的原因码。 */
     private static final String REASON_ACCOUNT_UNUSABLE = "ACCOUNT_UNUSABLE";
+
+    /** 协议层建群失败时写入重试历史的原因码。 */
     private static final String REASON_GROUP_CREATE_FAILED = "GROUP_CREATE_FAILED";
+
+    /** 单轮最多并发处理的建群营销执行项数量。 */
     private static final int MAX_PROCESS_CONCURRENCY = 5;
+
+    /** 联系人预保存异步线程池大小,避免单个大料子阻塞建群主流程。 */
     private static final int MAX_CONTACT_PRE_SAVE_CONCURRENCY = 10;
+
+    /** 建群营销 worker 线程名序号。 */
     private static final AtomicInteger THREAD_SEQUENCE = new AtomicInteger();
+
+    /** 联系人预保存线程名序号。 */
     private static final AtomicInteger CONTACT_PRE_SAVE_THREAD_SEQUENCE = new AtomicInteger();
+
+    /** 联系人预保存使用独立守护线程池,失败只记录摘要,不阻断建群。 */
     private static final ExecutorService CONTACT_PRE_SAVE_EXECUTOR = Executors.newFixedThreadPool(
             MAX_CONTACT_PRE_SAVE_CONCURRENCY,
             runnable -> {
@@ -66,18 +93,58 @@ public class GroupCreationMarketingWorker {
                 return thread;
             });
 
+    /** 建群营销任务和执行项 Mapper。 */
     private final GroupCreationMarketingTaskMapper groupCreationMapper;
+
+    /** 营销模板 Mapper,用于读取任务快照关联的模板。 */
     private final MarketingTemplateMapper templateMapper;
+
+    /** 营销模板文件 Mapper,用于读取图文素材图片。 */
     private final MarketingTemplateFileMapper fileMapper;
+
+    /** 营销消息组装器,按模板配置生成协议层发送载荷。 */
     private final MarketingMessageComposer messageComposer;
+
+    /** 协议命令 outbox 服务,负责异步派发营销消息命令。 */
     private final ProtocolCommandOutboxService outboxService;
+
+    /** 联系人协议端口,用于建群前预保存目标号码。 */
     private final ContactPort contactPort;
+
+    /** 建群协议端口。 */
     private final GroupCreatePort groupCreatePort;
+
+    /** 群成员协议端口,用于发送前读取群成员数快照。 */
+    private final GroupParticipantPort groupParticipantPort;
+
+    /** 换号重试服务,负责重置执行项或终态放弃。 */
     private final GroupCreationMarketingRetryService retryService;
+
+    /** 账号受限标记服务,用于协议返回 reachout 限制时冻结账号状态。 */
     private final AccountRestrictionService accountRestrictionService;
+
+    /** JSON 序列化器,用于保存协议摘要。 */
     private final ObjectMapper objectMapper;
+
+    /** 事务模板,保证执行项抢占、重置和营销派发状态写入的原子性。 */
     private final TransactionOperations transactionOperations;
 
+    /**
+     * 注入建群营销 worker 所需的数据访问、协议端口和事务管理组件。
+     *
+     * @param groupCreationMapper       建群营销任务 Mapper
+     * @param templateMapper            营销模板 Mapper
+     * @param fileMapper                营销模板文件 Mapper
+     * @param messageComposer           营销消息组装器
+     * @param outboxService             协议命令 outbox 服务
+     * @param contactPort               联系人协议端口
+     * @param groupCreatePort           建群协议端口
+     * @param groupParticipantPort      群成员协议端口
+     * @param retryService              换号重试服务
+     * @param accountRestrictionService 账号受限标记服务
+     * @param objectMapper              JSON 序列化器
+     * @param transactionManager        Spring 事务管理器
+     */
     public GroupCreationMarketingWorker(GroupCreationMarketingTaskMapper groupCreationMapper,
                                         MarketingTemplateMapper templateMapper,
                                         MarketingTemplateFileMapper fileMapper,
@@ -85,6 +152,7 @@ public class GroupCreationMarketingWorker {
                                         ProtocolCommandOutboxService outboxService,
                                         ContactPort contactPort,
                                         GroupCreatePort groupCreatePort,
+                                        GroupParticipantPort groupParticipantPort,
                                         GroupCreationMarketingRetryService retryService,
                                         AccountRestrictionService accountRestrictionService,
                                         ObjectMapper objectMapper,
@@ -96,12 +164,21 @@ public class GroupCreationMarketingWorker {
         this.outboxService = outboxService;
         this.contactPort = contactPort;
         this.groupCreatePort = groupCreatePort;
+        this.groupParticipantPort = groupParticipantPort;
         this.retryService = retryService;
         this.accountRestrictionService = accountRestrictionService;
         this.objectMapper = objectMapper;
         this.transactionOperations = new TransactionTemplate(transactionManager);
     }
 
+    /**
+     * 扫描并处理到期的建群营销执行项。
+     *
+     * <p>执行项来自跨租户扫描,单条执行时会按 item.tenantId 临时恢复租户上下文。
+     * 多条执行项最多 5 并发,任一子任务异常会向调用方抛出,便于调度器记录失败。</p>
+     *
+     * @param limit 本轮最多处理的执行项数量;小于 1 时按 1 处理
+     */
     public void processDueItems(int limit) {
         int normalizedLimit = Math.max(1, limit);
         long now = System.currentTimeMillis();
@@ -152,6 +229,14 @@ public class GroupCreationMarketingWorker {
         }
     }
 
+    /**
+     * 处理单个建群营销执行项。
+     *
+     * <p>调用方可以直接传入从 Mapper 取出的执行项。方法会临时切换到执行项租户上下文,
+     * 抢占成功后才执行协议调用,抢占失败直接返回。</p>
+     *
+     * @param item 建群营销执行项
+     */
     public void processOne(GroupCreationMarketingItem item) {
         Long previousTenant = TenantContext.get();
         if (item.getTenantId() != null) {
@@ -210,19 +295,19 @@ public class GroupCreationMarketingWorker {
         MarketingTemplateFile imageFile = template.getImageFileId() == null ? null : fileMapper.selectById(template.getImageFileId());
         MarketingMessageComposer.ComposedMessage message = messageComposer.compose(template, imageFile);
         String protocolResultJson = protocolResultJson(contactSaveSummary, groupResult);
+        GroupMemberSnapshot memberSnapshot = groupMemberSnapshot(account.getProtocolAccountId(), groupResult.groupJid());
         String commandId = newCommandId();
         transactionOperations.executeWithoutResult(status -> {
             enqueueMarketingCommand(task.getTenantId(), task.getId(), item, groupResult.groupJid(), commandId, message);
-            int marked = groupCreationMapper.markItemMarketingSending(
-                    item.getId(),
-                    groupResult.groupJid(),
-                    null,
-                    null,
-                    null,
-                    null,
-                    commandId,
-                    protocolResultJson,
-                    System.currentTimeMillis());
+            GroupCreationMarketingItemMarketingDispatch dispatch = new GroupCreationMarketingItemMarketingDispatch();
+            dispatch.setId(item.getId());
+            dispatch.setGroupJid(groupResult.groupJid());
+            dispatch.setCommandId(commandId);
+            dispatch.setParticipantResultJson(protocolResultJson);
+            dispatch.setSendMemberCount(memberSnapshot.memberCount());
+            dispatch.setSendMemberCountCheckedAt(memberSnapshot.checkedAt());
+            dispatch.setUpdatedAt(System.currentTimeMillis());
+            int marked = groupCreationMapper.markItemMarketingSending(dispatch);
             if (marked == 0) {
                 throw new BusinessException(ErrorCode.CONFLICT, "建群营销执行项状态已变化: " + item.getId());
             }
@@ -318,6 +403,18 @@ public class GroupCreationMarketingWorker {
             return objectMapper.writeValueAsString(result);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("建群营销协议结果摘要序列化失败", ex);
+        }
+    }
+
+    private GroupMemberSnapshot groupMemberSnapshot(String protocolAccountId, String groupJid) {
+        try {
+            List<GroupParticipantResult> participants = groupParticipantPort.listParticipants(protocolAccountId, groupJid);
+            long checkedAt = System.currentTimeMillis();
+            return new GroupMemberSnapshot(participants == null ? 0 : participants.size(), checkedAt);
+        } catch (RuntimeException ex) {
+            log.warn("建群营销发送前群人数查询失败 protocolAccountId={} groupJid={} reason={}",
+                    protocolAccountId, groupJid, readableMessage(ex));
+            return GroupMemberSnapshot.empty();
         }
     }
 
@@ -445,6 +542,12 @@ public class GroupCreationMarketingWorker {
     private record GroupCreateProtocolResult(Boolean partial,
                                              List<GroupCreateParticipantResult> results,
                                              String failureReason) {
+    }
+
+    private record GroupMemberSnapshot(Integer memberCount, Long checkedAt) {
+        static GroupMemberSnapshot empty() {
+            return new GroupMemberSnapshot(null, null);
+        }
     }
 
     private record ClaimedItemContext(GroupCreationMarketingTask task,

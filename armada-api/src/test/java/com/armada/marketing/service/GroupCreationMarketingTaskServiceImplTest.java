@@ -1,5 +1,8 @@
 package com.armada.marketing.service;
 
+import cn.idev.excel.FastExcel;
+import cn.idev.excel.context.AnalysisContext;
+import cn.idev.excel.read.listener.ReadListener;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.marketing.model.dto.CreateGroupCreationMarketingTaskDTO;
@@ -7,9 +10,12 @@ import com.armada.marketing.model.dto.GroupCreationMarketingMaterialDTO;
 import com.armada.marketing.model.vo.GroupCreationMarketingTaskDetailVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.testsupport.DbTestBase;
+import java.io.ByteArrayInputStream;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -152,6 +158,51 @@ class GroupCreationMarketingTaskServiceImplTest extends DbTestBase {
         assertThat(service.accountCandidates(groupId)).extracting("accountId").containsExactly(usableId);
     }
 
+    @Test
+    void exportSelectedTasksExpandsItemsAndCalculatesCounts() {
+        long now = System.currentTimeMillis();
+        Long firstTaskId = insertExportTask("导出任务A-" + now, 2, now);
+        Long secondTaskId = insertExportTask("导出任务B-" + now, 1, now);
+        insertExportItem(firstTaskId, 0, "A群-1", 2, 4, now);
+        insertExportItem(firstTaskId, 1, "A群-2", 3, null, now);
+        insertExportItem(secondTaskId, 0, "B群-1", 1, 2, now);
+
+        var file = service.exportTasks(List.of(secondTaskId, firstTaskId, firstTaskId));
+
+        assertThat(file.filename()).startsWith("建群营销统计导出_").endsWith(".xlsx");
+        assertThat(file.contentType()).isEqualTo("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        assertThat(file.bytes()).isNotEmpty();
+
+        ArrayList<Map<Integer, String>> rows = readExportRows(file.bytes());
+        assertThat(rows.get(0).get(0)).startsWith("建群统计导出-");
+        assertThat(rows.get(1).get(0)).isEqualTo("任务ID");
+        assertThat(rows.get(1).get(1)).isEqualTo("群名称");
+        assertThat(rows.get(1).get(2)).isEqualTo("建群人数");
+        assertThat(rows.get(1).get(3)).isEqualTo("进群人数（目标数据人数）");
+        assertThat(rows.get(2).get(0)).isEqualTo(String.valueOf(secondTaskId));
+        assertThat(rows.get(2).get(1)).isEqualTo("B群-1");
+        assertThat(rows.get(2).get(2)).isEqualTo("2");
+        assertThat(rows.get(2).get(3)).isEqualTo("1");
+        assertThat(rows.get(3).get(0)).isEqualTo(String.valueOf(firstTaskId));
+        assertThat(rows.get(3).get(1)).isEqualTo("A群-1");
+        assertThat(rows.get(3).get(2)).isEqualTo("3");
+        assertThat(rows.get(3).get(3)).isEqualTo("3");
+        assertThat(rows.get(4).get(0)).isEqualTo(String.valueOf(firstTaskId));
+        assertThat(rows.get(4).get(1)).isEqualTo("A群-2");
+        assertThat(rows.get(4).get(2)).isEqualTo("4");
+        assertThat(rows.get(4).get(3)).isNull();
+        assertThat(rows.get(5).get(0)).isEqualTo("合计");
+        assertThat(rows.get(5).get(2)).isEqualTo("9");
+        assertThat(rows.get(5).get(3)).isEqualTo("4");
+    }
+
+    @Test
+    void exportRejectsEmptySelection() {
+        assertThatThrownBy(() -> service.exportTasks(List.of()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("请选择要导出的建群营销任务");
+    }
+
     private CreateGroupCreationMarketingTaskDTO request(String taskName,
                                                         Fixture fixture,
                                                         List<GroupCreationMarketingMaterialDTO> materials) {
@@ -238,6 +289,53 @@ class GroupCreationMarketingTaskServiceImplTest extends DbTestBase {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, TEST_TENANT_ID, accountId, accountState, loginState, riskStatus, muteStatus, now, now);
         return accountId;
+    }
+
+    private ArrayList<Map<Integer, String>> readExportRows(byte[] bytes) {
+        ArrayList<Map<Integer, String>> rows = new ArrayList<>();
+        FastExcel.read(new ByteArrayInputStream(bytes), new ReadListener<Map<Integer, String>>() {
+            @Override
+            public void invoke(Map<Integer, String> row, AnalysisContext context) {
+                rows.add(row);
+            }
+
+            @Override
+            public void doAfterAllAnalysed(AnalysisContext context) {
+            }
+        }).sheet().headRowNumber(0).doRead();
+        return rows;
+    }
+
+    private Long insertExportTask(String name, int matchedItemCount, long now) {
+        return insertReturningId("""
+                INSERT INTO group_creation_marketing_task
+                    (tenant_id, task_name, account_group_id, account_group_name,
+                     marketing_template_id, marketing_template_name, status,
+                     matched_item_count, unmatched_file_count, success_count,
+                     failed_count, abandoned_count, send_interval_seconds,
+                     created_at, updated_at)
+                VALUES (?, ?, 1, 'A组', 1, '模板', 3, ?, 0, ?, 0, 0, 30, ?, ?)
+                """, TEST_TENANT_ID, name, matchedItemCount, matchedItemCount, now, now);
+    }
+
+    private Long insertExportItem(Long taskId,
+                                  int fileIndex,
+                                  String groupSubject,
+                                  int participantCount,
+                                  Integer sendMemberCount,
+                                  long now) {
+        return insertReturningId("""
+                INSERT INTO group_creation_marketing_item
+                    (tenant_id, task_id, file_index, file_name, material_content,
+                     participant_count, account_id, account_phone, protocol_account_id,
+                     group_subject, group_jid, participant_result_json,
+                     send_member_count, send_member_count_checked_at,
+                     status, next_run_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, '8613900000000', ?, 1, '8613000000000',
+                        'acc_1', ?, '120363export@g.us', '{}', ?, ?, 4, 0, ?, ?)
+                """, TEST_TENANT_ID, taskId, fileIndex, "file-" + fileIndex + ".txt",
+                participantCount, groupSubject, sendMemberCount,
+                sendMemberCount == null ? null : now + 1, now, now);
     }
 
     private Long insertReturningId(String sql, Object... args) {

@@ -10,6 +10,7 @@ import com.armada.marketing.model.entity.GroupCreationMarketingItem;
 import com.armada.marketing.model.entity.GroupCreationMarketingTask;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
+import com.armada.marketing.model.support.GroupCreationMarketingItemMarketingDispatch;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.impl.GroupCreationMarketingRetryService;
 import com.armada.marketing.service.impl.GroupCreationMarketingWorker;
@@ -17,8 +18,10 @@ import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -44,8 +47,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -70,6 +73,8 @@ class GroupCreationMarketingWorkerTest {
     @Mock
     private GroupCreatePort groupCreatePort;
     @Mock
+    private GroupParticipantPort groupParticipantPort;
+    @Mock
     private GroupCreationMarketingRetryService retryService;
     @Mock
     private AccountRestrictionService accountRestrictionService;
@@ -89,6 +94,7 @@ class GroupCreationMarketingWorkerTest {
                 outboxService,
                 contactPort,
                 groupCreatePort,
+                groupParticipantPort,
                 retryService,
                 accountRestrictionService,
                 new ObjectMapper(),
@@ -115,8 +121,14 @@ class GroupCreationMarketingWorkerTest {
             assertThat(command.text()).isEqualTo("hello");
             assertThat(command.source()).isEqualTo("group_creation_marketing");
         });
-        verify(groupCreationMapper).markItemMarketingSending(eq(11L), eq("120363created@g.us"), isNull(),
-                isNull(), isNull(), isNull(), any(), any(), anyLong());
+        verify(groupCreationMapper).markItemMarketingSending(argThat(dispatch ->
+                Long.valueOf(11L).equals(dispatch.getId())
+                        && "120363created@g.us".equals(dispatch.getGroupJid())
+                        && dispatch.getMarketingTaskId() == null
+                        && dispatch.getMarketingTargetId() == null
+                        && dispatch.getMarketingAttemptId() == null
+                        && dispatch.getCommandId() != null
+                        && dispatch.getParticipantResultJson() != null));
     }
 
     @Test
@@ -126,6 +138,43 @@ class GroupCreationMarketingWorkerTest {
         worker.processDueItems(10);
 
         verify(groupCreationMapper, never()).updateTaskMarketingTaskIdIfAbsent(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void processOnlineItemStoresSendMemberCountSnapshotBeforeMarketingSend() {
+        seedSuccessfulOnlineItem();
+        when(groupParticipantPort.listParticipants("acc_7", "120363created@g.us"))
+                .thenReturn(List.of(
+                        new GroupParticipantResult("8613000000000@s.whatsapp.net", "8613000000000", true, true, "superadmin"),
+                        new GroupParticipantResult("8613900000000@s.whatsapp.net", "8613900000000", false, false, null),
+                        new GroupParticipantResult("8613911111111@s.whatsapp.net", "8613911111111", false, false, null)));
+
+        worker.processDueItems(10);
+
+        verify(groupParticipantPort).listParticipants("acc_7", "120363created@g.us");
+        verify(groupCreationMapper).markItemMarketingSending(argThat(dispatch ->
+                Long.valueOf(11L).equals(dispatch.getId())
+                        && "120363created@g.us".equals(dispatch.getGroupJid())
+                        && Integer.valueOf(3).equals(dispatch.getSendMemberCount())
+                        && dispatch.getSendMemberCountCheckedAt() != null
+                        && dispatch.getUpdatedAt() != null));
+    }
+
+    @Test
+    void processOnlineItemContinuesWhenMemberSnapshotQueryFails() {
+        seedSuccessfulOnlineItem();
+        when(groupParticipantPort.listParticipants("acc_7", "120363created@g.us"))
+                .thenThrow(new IllegalStateException("participants timeout"));
+
+        worker.processDueItems(10);
+
+        verify(outboxService).enqueueMarketingMessageCommands(anyList());
+        verify(groupCreationMapper).markItemMarketingSending(argThat(dispatch ->
+                Long.valueOf(11L).equals(dispatch.getId())
+                        && "120363created@g.us".equals(dispatch.getGroupJid())
+                        && dispatch.getSendMemberCount() == null
+                        && dispatch.getSendMemberCountCheckedAt() == null
+                        && dispatch.getUpdatedAt() != null));
     }
 
     @Test
@@ -153,8 +202,7 @@ class GroupCreationMarketingWorkerTest {
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
-        when(groupCreationMapper.markItemMarketingSending(anyLong(), anyString(), isNull(), isNull(), isNull(),
-                isNull(), any(), any(), anyLong())).thenReturn(1);
+        when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
 
         CountDownLatch bothStarted = new CountDownLatch(2);
         AtomicInteger active = new AtomicInteger();
@@ -200,8 +248,7 @@ class GroupCreationMarketingWorkerTest {
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
-        when(groupCreationMapper.markItemMarketingSending(eq(11L), eq("120363created@g.us"), isNull(),
-                isNull(), isNull(), isNull(), any(), any(), anyLong())).thenReturn(1);
+        when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
         CountDownLatch contactSaveStarted = new CountDownLatch(1);
         CountDownLatch releaseContactSave = new CountDownLatch(1);
         CountDownLatch groupCreateStarted = new CountDownLatch(1);
@@ -229,23 +276,15 @@ class GroupCreationMarketingWorkerTest {
     @Test
     void contactPreSaveSummaryCountsSubmittedRequestsAndDoesNotBlockGroupCreate() {
         seedSuccessfulOnlineItem();
-        ArgumentCaptor<String> protocolJson = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<GroupCreationMarketingItemMarketingDispatch> dispatch =
+                ArgumentCaptor.forClass(GroupCreationMarketingItemMarketingDispatch.class);
 
         worker.processDueItems(10);
 
         verify(groupCreatePort).create("acc_7", "活动群-1",
                 List.of("8613900000000", "8613911111111"), true);
-        verify(groupCreationMapper).markItemMarketingSending(
-                eq(11L),
-                eq("120363created@g.us"),
-                isNull(),
-                isNull(),
-                isNull(),
-                isNull(),
-                any(),
-                protocolJson.capture(),
-                anyLong());
-        assertThat(protocolJson.getValue())
+        verify(groupCreationMapper).markItemMarketingSending(dispatch.capture());
+        assertThat(dispatch.getValue().getParticipantResultJson())
                 .contains("\"contactSave\"")
                 .contains("\"total\":2")
                 .contains("\"success\":2")
@@ -301,8 +340,7 @@ class GroupCreationMarketingWorkerTest {
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
-        when(groupCreationMapper.markItemMarketingSending(eq(11L), eq("120363created@g.us"), isNull(),
-                isNull(), isNull(), isNull(), any(), any(), anyLong())).thenReturn(1);
+        when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
 
         worker.processDueItems(10);
 
@@ -459,8 +497,7 @@ class GroupCreationMarketingWorkerTest {
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
-        when(groupCreationMapper.markItemMarketingSending(eq(11L), eq("120363created@g.us"), isNull(),
-                isNull(), isNull(), isNull(), any(), any(), anyLong())).thenReturn(1);
+        when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
     }
 
     private GroupCreationMarketingItem item() {

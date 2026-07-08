@@ -20,7 +20,7 @@ public interface ProtocolCommandOutboxService {
     /**
      * 批量写入账号上线 outbox 命令。
      *
-     * @param commands 待 enqueue 的账号上线命令,最多 500 条
+     * @param commands 待 enqueue 的账号上线命令,最多 1000 条
      * @return 本次生成的批次 ID、命令 ID 和插入行数
      * @throws BusinessException 入参非法或 command_id 冲突时抛出
      */
@@ -29,7 +29,7 @@ public interface ProtocolCommandOutboxService {
     /**
      * 批量写入账号下线 outbox 命令。
      *
-     * @param commands 待 enqueue 的账号下线命令,最多 500 条
+     * @param commands 待 enqueue 的账号下线命令,最多 1000 条
      * @return 本次生成的批次 ID、命令 ID 和插入行数
      * @throws BusinessException 入参非法或 command_id 冲突时抛出
      */

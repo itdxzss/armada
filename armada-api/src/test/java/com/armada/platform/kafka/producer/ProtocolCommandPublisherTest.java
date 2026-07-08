@@ -209,6 +209,34 @@ class ProtocolCommandPublisherTest {
     }
 
     @Test
+    void publishBatch_onlineAndroidRowKeepsProtocolBackendInKafkaPayload() {
+        ProtocolCommandOutbox row = outboxRow(
+                "cmd_android",
+                1L,
+                100L,
+                "acc_100",
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
+                        + "\"credentialFormat\":\"SIX_SEGMENT\",\"proxyId\":7,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_100\",\"protocolBackend\":\"ANDROID\"}");
+        row.setKafkaTopic("protocol.android.commands.v1");
+        row.setProtocolBackend("ANDROID");
+        when(credentialMapper.selectByTenantAndAccountIds(1L, List.of(100L)))
+                .thenReturn(List.of(credential(100L, 1, "{\"segments\":[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\"]}")));
+        when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
+                .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
+                        "user-a", "pass_session-Aaa111", "印度")));
+        when(kafkaTemplate.send(eq("protocol.android.commands.v1"), eq("acc_100"), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
+
+        assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
+        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
+        verify(kafkaTemplate).send(eq("protocol.android.commands.v1"), eq("acc_100"), captor.capture());
+        assertThat(captor.getValue().payload().get("protocolBackend").asText()).isEqualTo("ANDROID");
+    }
+
+    @Test
     void publishBatch_onlineRowWithNullOnlineAttemptReturnsValidationFailureWithoutSendingKafka() {
         ProtocolCommandOutbox row = outboxRow(
                 "cmd_100",

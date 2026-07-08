@@ -39,7 +39,10 @@ Android 协议服务 `whatsapp-server-feature-android` 是 Go + Gin 服务，暴
 
 ## 核心模型
 
-账号需要明确绑定协议后端:
+账号需要明确绑定协议后端。导入时按凭据类型确定协议归属:
+
+- JSON / Baileys JSON: `WEB`
+- 六段号: `ANDROID`
 
 ```text
 account
@@ -51,7 +54,20 @@ account
 
 如果短期不新增列，可以先复用 `protocol_id` 表达后端，但长期应收敛成明确枚举，避免把实例 ID、协议类型、服务地址混在一个字段里。
 
-业务调用协议能力时不应只传 `protocolAccountId`，而应传一个协议账号引用:
+账号列表查询应返回协议后端给前端。前端可以不展示该字段，但批量上下线时要把它随账号 ID 带回:
+
+```json
+{
+  "accounts": [
+    { "id": 100, "protocolBackend": "WEB" },
+    { "id": 101, "protocolBackend": "ANDROID" }
+  ]
+}
+```
+
+账号生命周期命令使用请求项里的 `protocolBackend` 做路由，不再为了判断 Web/Android 额外回表。后端仍会读取账号、凭据、状态和代理信息完成上线前置校验。
+
+其它内部协议能力调用不应只传 `protocolAccountId`，而应传一个协议账号引用:
 
 ```java
 public record ProtocolAccountRef(
@@ -62,7 +78,7 @@ public record ProtocolAccountRef(
 }
 ```
 
-这样业务域在查账号时一次性带出协议后端，`platform/protocol` 不需要反向依赖 `account` mapper，也不会破坏现有架构规则。
+这样 `platform/protocol` 不需要反向依赖 `account` mapper，也不会破坏现有架构规则。
 
 ## Port 与路由
 
@@ -92,10 +108,11 @@ Routing port 只负责根据 `ProtocolAccountRef.backend` 选择后端。具体 
 
 ## 命令通道
 
-账号上线、下线、批量任务、营销发送这类需要可靠投递和重试的操作继续走 outbox:
+账号上线、下线、批量任务、营销发送这类需要可靠投递和重试的操作继续走 outbox。账号生命周期批量接口一次最多 1000 个账号，单账号上下线也使用同一个批量接口传 1 个账号:
 
 ```text
-业务服务
+批量上下线请求(accounts[].protocolBackend)
+  -> 业务服务
   -> protocol_command_outbox(protocol_backend)
   -> dispatcher
   -> Web command topic / Android command topic

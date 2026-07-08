@@ -170,6 +170,7 @@
   <!--
     LEFT JOIN account_state:状态列 step1 导入后全 NULL,正常投影。
     LEFT JOIN account_group:分组被软删时 groupName 为 null,不过滤该账号。
+    LEFT JOIN account_credential:用于按导入凭据格式给列表返回协议后端;同一次分页 SQL 完成,不为上下线另查。
     LEFT JOIN ip_proxy:账号状态无代理快照时,列表从当前绑定代理展示国家和 IP 来源;IP 地址只展示 truth_ip。
     时间列均为 BIGINT epoch 毫秒,直接映射到 Long。
   -->
@@ -178,6 +179,12 @@
            a.account_type AS accountType, a.device_os AS deviceOs,
            a.number_source AS numberSource, a.channel_name AS channelName,
            a.protocol_id AS protocolId,
+           CASE
+             WHEN c.cred_format = 1 THEN 'ANDROID'
+             WHEN c.cred_format IN (2, 3) THEN 'WEB'
+             WHEN UPPER(a.protocol_id) = 'ANDROID' THEN 'ANDROID'
+             ELSE 'WEB'
+           END AS protocolBackend,
            a.account_group_id AS accountGroupId, g.name AS groupName,
            a.ownership, a.lease_until AS leaseUntil,
            a.dispatched_at AS dispatchedAt, a.created_at AS createdAt,
@@ -194,6 +201,8 @@
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     LEFT JOIN account_group g ON g.id = a.account_group_id AND g.deleted_at IS NULL
+    LEFT JOIN account_credential c ON c.account_id = a.id AND c.tenant_id = a.tenant_id
+      AND c.deleted_at IS NULL
     LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
       AND p.deleted_at IS NULL AND p.status = 2
     WHERE <include refid="filter"/>

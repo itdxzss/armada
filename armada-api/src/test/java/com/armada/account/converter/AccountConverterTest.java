@@ -47,4 +47,15 @@ class AccountConverterTest {
         assertThat(vo.country()).isEqualTo("印度");
         assertThat(vo.ipSource()).isEqualTo("iproyal");
     }
+
+    @Test
+    void toAccountListVO_mapsProtocolBackendForLifecycleRouting() {
+        AccountListVoRow row = new AccountListVoRow();
+        row.setId(9L);
+        row.setProtocolBackend("ANDROID");
+
+        AccountListVO vo = converter.toAccountListVO(row);
+
+        assertThat(vo.protocolBackend()).isEqualTo("ANDROID");
+    }
 }

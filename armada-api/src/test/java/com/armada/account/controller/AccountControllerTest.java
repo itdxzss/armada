@@ -1,6 +1,7 @@
 package com.armada.account.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -19,6 +20,8 @@ import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
+import com.armada.account.model.command.AccountLifecycleCommandItem;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.lang.reflect.Method;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -119,6 +122,44 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.results[1].result").value("TIMEOUT"));
 
         verify(accountOnlineCommandService).onlineBatch(List.of(100L, 101L));
+    }
+
+    @Test
+    void postBatchOnline_withProtocolBackendsDelegatesAccountsToCommandService() throws Exception {
+        AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
+                2,
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0L,
+                List.of(
+                        new AccountBatchOnlineItemVO(100L, "acc_100", "ACCEPTED", null, null),
+                        new AccountBatchOnlineItemVO(101L, "acc_101", "ACCEPTED", null, null)),
+                List.of());
+        List<AccountLifecycleCommandItem> commandItems = List.of(
+                new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
+                new AccountLifecycleCommandItem(101L, ProtocolBackend.ANDROID));
+        when(accountOnlineCommandService.onlineBatchWithProtocolBackends(eq(commandItems))).thenReturn(vo);
+
+        mockMvc.perform(post("/api/accounts/batch-online")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "accounts": [
+                                    {"id": 100, "protocolBackend": "WEB"},
+                                    {"id": 101, "protocolBackend": "ANDROID"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.accepted").value(2));
+
+        verify(accountOnlineCommandService).onlineBatchWithProtocolBackends(commandItems);
     }
 
     @Test
@@ -243,6 +284,44 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.results[1].protocolAccountId").value("acc_101"));
 
         verify(accountOnlineCommandService).offlineBatch(List.of(100L, 101L));
+    }
+
+    @Test
+    void postBatchOffline_withProtocolBackendsDelegatesAccountsToCommandService() throws Exception {
+        AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
+                2,
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0L,
+                List.of(
+                        new AccountBatchOnlineItemVO(100L, "acc_100", "ACCEPTED", null, null),
+                        new AccountBatchOnlineItemVO(101L, "acc_101", "ACCEPTED", null, null)),
+                List.of());
+        List<AccountLifecycleCommandItem> commandItems = List.of(
+                new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
+                new AccountLifecycleCommandItem(101L, ProtocolBackend.ANDROID));
+        when(accountOnlineCommandService.offlineBatchWithProtocolBackends(eq(commandItems))).thenReturn(vo);
+
+        mockMvc.perform(post("/api/accounts/batch-offline")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "accounts": [
+                                    {"id": 100, "protocolBackend": "WEB"},
+                                    {"id": 101, "protocolBackend": "ANDROID"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.accepted").value(2));
+
+        verify(accountOnlineCommandService).offlineBatchWithProtocolBackends(commandItems);
     }
 
     private static AccountOnlineAttemptLogVO attemptLog(Long accountId,

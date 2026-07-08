@@ -2,6 +2,7 @@ package com.armada.account.controller;
 
 import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountIdsDTO;
+import com.armada.account.model.dto.AccountLifecycleBatchDTO;
 import com.armada.account.model.dto.AccountMigrateGroupDTO;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
@@ -93,14 +94,17 @@ public class AccountController {
     /**
      * A4 批量发起账号上线(后端逐账号分配空闲代理,批量写入 outbox)。
      *
-     * <p>一次最多 500 个账号。返回的 accepted 表示已写入 outbox 的命令数,
+     * <p>一次最多 1000 个账号。返回的 accepted 表示已写入 outbox 的命令数,
      * 不代表账号最终在线状态;最终登录状态由后续 Kafka 回写切片更新。</p>
      *
-     * @param request 账号 ID 列表
+     * @param request 账号列表;新请求体可为每个账号携带协议后端
      * @return outbox 批量上线命令受理汇总
      */
     @PostMapping("/batch-online")
-    public ApiResponse<AccountBatchOnlineVO> batchOnline(@RequestBody AccountIdsDTO request) {
+    public ApiResponse<AccountBatchOnlineVO> batchOnline(@RequestBody AccountLifecycleBatchDTO request) {
+        if (request.hasAccounts()) {
+            return ApiResponse.ok(accountOnlineCommandService.onlineBatchWithProtocolBackends(request.commandItems()));
+        }
         return ApiResponse.ok(accountOnlineCommandService.onlineBatch(request.ids()));
     }
 
@@ -174,14 +178,17 @@ public class AccountController {
     /**
      * A5 批量发起账号下线(批量写入 outbox)。
      *
-     * <p>一次最多 500 个账号。返回的 accepted 表示已写入 outbox 的命令数,
+     * <p>一次最多 1000 个账号。返回的 accepted 表示已写入 outbox 的命令数,
      * 不代表账号最终离线状态;最终登录状态由后续 Kafka 回写切片更新。</p>
      *
-     * @param request 账号 ID 列表
+     * @param request 账号列表;新请求体可为每个账号携带协议后端
      * @return outbox 批量下线命令受理汇总
      */
     @PostMapping("/batch-offline")
-    public ApiResponse<AccountBatchOnlineVO> batchOffline(@RequestBody AccountIdsDTO request) {
+    public ApiResponse<AccountBatchOnlineVO> batchOffline(@RequestBody AccountLifecycleBatchDTO request) {
+        if (request.hasAccounts()) {
+            return ApiResponse.ok(accountOnlineCommandService.offlineBatchWithProtocolBackends(request.commandItems()));
+        }
         return ApiResponse.ok(accountOnlineCommandService.offlineBatch(request.ids()));
     }
 

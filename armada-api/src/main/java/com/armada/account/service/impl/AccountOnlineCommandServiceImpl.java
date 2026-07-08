@@ -21,6 +21,7 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.BatchOnlineResultStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -212,7 +213,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     allocation.proxyId(),
                     source,
                     onlineAttemptId,
-                    previousAttemptId(account.getId(), source, failedOnlineAttemptId));
+                    previousAttemptId(account.getId(), source, failedOnlineAttemptId),
+                    ProtocolBackend.fromProtocolId(account.getProtocolId()));
             updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
@@ -561,6 +563,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private AccountBatchOnlineVO enqueueOnlineBatch(List<Long> ids,
                                                     String source,
                                                     OnlineAllocationSupplier allocationSupplier) {
+        // 先批量加载账号和凭据,在分配代理前完成本地前置校验。
+        // 这里不做登录态过滤:调用方传入哪些账号,只要未软删、有凭据且不是被禁止的业务状态,就会尝试写上线命令。
         Map<Long, Account> accountsById = loadAccounts(ids);
         validateBatchOnlineStates(ids, source);
         Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
@@ -569,6 +573,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
         ProtocolCommandOutboxEnqueueResult enqueueResult;
         try {
+            // 代理分配由调用方注入,普通批量上线直接分配空闲代理;删除 IP 前重登会排除待删除代理。
+            // allocationSupplier 内部会先释放账号旧绑定,再把新代理置为 IN_USE。
             allocations = allocationSupplier.allocate();
             for (IpProxyAccountAllocation allocation : allocations) {
                 Long accountId = allocation.accountId();
@@ -577,6 +583,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
                 String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
                 String onlineAttemptId = onlineAttemptIdGenerator.nextId();
+                // outbox payload 只保存协议执行上线所需的字段:账号、凭据格式、代理 ID、来源和 attemptId。
+                // 凭据正文由 dispatcher 发送时再读取,日志也只记录长度,避免敏感信息落日志。
                 ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
                         accountId,
                         protocolAccountId,
@@ -584,7 +592,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         allocation.proxyId(),
                         source,
                         onlineAttemptId,
-                        previousAttemptId(accountId, source, null));
+                        previousAttemptId(accountId, source, null),
+                        ProtocolBackend.fromProtocolId(account.getProtocolId()));
                 updateProxySnapshot(accountId, allocation.endpoint(), allocation.proxySource());
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
                 log.info("账号批量上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} source={} "
@@ -593,12 +602,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         credentialLength(credential.getCredsJson()));
             }
 
+            // 批量写入协议命令 outbox。accepted/inserted 只代表本地命令已可靠入队,
+            // 不代表 WhatsApp 已经 ONLINE;最终在线状态仍以后续协议层 Kafka 状态事件为准。
             enqueueResult = protocolCommandOutboxService.enqueueOnlineCommands(
                     prepared.stream().map(PreparedOnlineCommand::command).toList());
         } catch (RuntimeException ex) {
+            // 如果代理已分配但 outbox 写入失败,按账号+代理精确释放本次分配,避免误释放该账号后续新绑定。
             releaseAllocationsAfterFailure(allocations, ex);
             throw ex;
         }
+        // 命令入队后本地先标记为待上线,用于列表即时反馈;ONLINE/OFFLINE 终态由状态事件再覆盖。
         markPendingOnline(prepared.stream().map(PreparedOnlineCommand::accountId).toList());
         log.info("账号上线 outbox 已受理 source={} requested={} inserted={} batchId={} commandIds={}",
                 source, ids.size(), enqueueResult.inserted(), enqueueResult.batchId(),

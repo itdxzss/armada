@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
+import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
@@ -18,6 +19,7 @@ import com.armada.platform.protocol.model.command.ProtocolMarketingMessageComman
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.shared.exception.BusinessException;
@@ -70,6 +72,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getKafkaTopic()).isEqualTo("protocol.account.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_100");
         assertThat(row.getProtocolAccountId()).isEqualTo("acc_100");
+        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
         assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
         assertThat(row.getRetryCount()).isZero();
         assertThat(row.getNextRetryAt()).isZero();
@@ -85,7 +88,8 @@ class ProtocolCommandOutboxServiceImplTest {
                 .containsEntry("proxyId", 7)
                 .containsEntry("source", "manual_online")
                 .containsEntry("onlineAttemptId", "oa_100")
-                .containsEntry("previousOnlineAttemptId", "oa_99");
+                .containsEntry("previousOnlineAttemptId", "oa_99")
+                .containsEntry("protocolBackend", "WEB");
         assertThat(row.getPayloadJson())
                 .doesNotContain("credentialJson")
                 .doesNotContain("creds")
@@ -107,6 +111,35 @@ class ProtocolCommandOutboxServiceImplTest {
 
         assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getKafkaTopic)
                 .containsExactly("protocol.account.commands.test");
+    }
+
+    @Test
+    void enqueueOnlineCommands_androidBackend_usesAndroidTopicAndPersistsBackendInSafePayload() throws Exception {
+        TestableProtocolCommandOutboxService service =
+                newService(List.of("cmd-android"), List.of(), ProtocolAccountCommandProperties.DEFAULT_TOPIC,
+                        ProtocolMasterCommandProperties.DEFAULT_TOPIC, "protocol.android.commands.test");
+        ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
+                100L,
+                "acc_100",
+                CredentialFormat.BAILEYS_JSON,
+                7L,
+                "manual_online",
+                "oa_100",
+                "oa_99",
+                ProtocolBackend.ANDROID);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueOnlineCommands(List.of(command));
+
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.commands.test");
+        assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("protocolBackend", "ANDROID")
+                .containsEntry("protocolAccountId", "acc_100")
+                .containsEntry("onlineAttemptId", "oa_100");
     }
 
     @Test
@@ -590,19 +623,30 @@ class ProtocolCommandOutboxServiceImplTest {
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {
         return newService(commandIds, batchIds, ProtocolAccountCommandProperties.DEFAULT_TOPIC,
-                ProtocolMasterCommandProperties.DEFAULT_TOPIC);
+                ProtocolMasterCommandProperties.DEFAULT_TOPIC, ProtocolAndroidCommandProperties.DEFAULT_TOPIC);
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds,
                                                             List<String> batchIds,
                                                             String accountCommandTopic,
                                                             String masterCommandTopic) {
+        return newService(commandIds, batchIds, accountCommandTopic, masterCommandTopic,
+                ProtocolAndroidCommandProperties.DEFAULT_TOPIC);
+    }
+
+    private TestableProtocolCommandOutboxService newService(List<String> commandIds,
+                                                            List<String> batchIds,
+                                                            String accountCommandTopic,
+                                                            String masterCommandTopic,
+                                                            String androidCommandTopic) {
         ProtocolAccountCommandProperties accountProperties = new ProtocolAccountCommandProperties();
         accountProperties.setTopic(accountCommandTopic);
         ProtocolMasterCommandProperties masterProperties = new ProtocolMasterCommandProperties();
         masterProperties.setTopic(masterCommandTopic);
+        ProtocolAndroidCommandProperties androidProperties = new ProtocolAndroidCommandProperties();
+        androidProperties.setTopic(androidCommandTopic);
         return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, accountProperties,
-                masterProperties, commandIds, batchIds);
+                masterProperties, androidProperties, commandIds, batchIds);
     }
 
     private List<ProtocolCommandOutbox> capturedRows() {
@@ -667,9 +711,10 @@ class ProtocolCommandOutboxServiceImplTest {
                                                      ProtocolCommandDispatchTrigger dispatchTrigger,
                                                      ProtocolAccountCommandProperties accountProperties,
                                                      ProtocolMasterCommandProperties masterProperties,
+                                                     ProtocolAndroidCommandProperties androidProperties,
                                                      List<String> commandIds,
                                                      List<String> batchIds) {
-            super(mapper, objectMapper, dispatchTrigger, accountProperties, masterProperties);
+            super(mapper, objectMapper, dispatchTrigger, accountProperties, masterProperties, androidProperties);
             this.commandIds = new ArrayDeque<>(commandIds);
             this.batchIds = new ArrayDeque<>(batchIds);
         }

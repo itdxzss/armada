@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.model.command;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+
 /**
  * 协议账号上线 outbox 命令请求。
  *
@@ -13,6 +15,7 @@ package com.armada.platform.protocol.model.command;
  * @param source            命令来源,如 manual_online / batch_online
  * @param onlineAttemptId   Armada 生成的本次上线尝试 ID
  * @param previousOnlineAttemptId 代理失败重上线时关联的上一尝试 ID
+ * @param protocolBackend   协议后端,默认 WEB
  */
 public record ProtocolOnlineCommandRequest(
         Long accountId,
@@ -21,6 +24,30 @@ public record ProtocolOnlineCommandRequest(
         Long proxyId,
         String source,
         String onlineAttemptId,
-        String previousOnlineAttemptId
+        String previousOnlineAttemptId,
+        ProtocolBackend protocolBackend
 ) {
+
+    public ProtocolOnlineCommandRequest(Long accountId,
+                                        String protocolAccountId,
+                                        CredentialFormat credentialFormat,
+                                        Long proxyId,
+                                        String source,
+                                        String onlineAttemptId,
+                                        String previousOnlineAttemptId) {
+        this(accountId,
+                protocolAccountId,
+                credentialFormat,
+                proxyId,
+                source,
+                onlineAttemptId,
+                previousOnlineAttemptId,
+                ProtocolBackend.WEB);
+    }
+
+    public ProtocolOnlineCommandRequest {
+        if (protocolBackend == null) {
+            protocolBackend = ProtocolBackend.WEB;
+        }
+    }
 }

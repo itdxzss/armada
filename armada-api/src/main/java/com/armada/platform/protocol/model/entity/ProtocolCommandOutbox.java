@@ -38,6 +38,9 @@ public class ProtocolCommandOutbox {
     /** 协议层账号 ID。 */
     private String protocolAccountId;
 
+    /** 协议后端:WEB/ANDROID。 */
+    private String protocolBackend;
+
     /** 轻量命令 payload(JSON),不包含凭据和代理密码。 */
     private String payloadJson;
 
@@ -149,6 +152,14 @@ public class ProtocolCommandOutbox {
 
     public void setProtocolAccountId(String protocolAccountId) {
         this.protocolAccountId = protocolAccountId;
+    }
+
+    public String getProtocolBackend() {
+        return protocolBackend;
+    }
+
+    public void setProtocolBackend(String protocolBackend) {
+        this.protocolBackend = protocolBackend;
     }
 
     public String getPayloadJson() {

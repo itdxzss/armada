@@ -1,6 +1,7 @@
 package com.armada.platform.protocol.service.impl;
 
 import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
+import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
@@ -11,6 +12,7 @@ import com.armada.platform.protocol.model.command.ProtocolMarketingMessageComman
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -80,6 +82,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private final ProtocolCommandDispatchTrigger dispatchTrigger;
     private final ProtocolAccountCommandProperties accountCommandProperties;
     private final ProtocolMasterCommandProperties masterCommandProperties;
+    private final ProtocolAndroidCommandProperties androidCommandProperties;
 
     /**
      * 创建协议命令 Outbox service。
@@ -89,17 +92,20 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * @param dispatchTrigger outbox 提交后 dispatch 触发器
      * @param accountCommandProperties 账号上线命令 Kafka topic 配置
      * @param masterCommandProperties  master 路由命令 Kafka topic 配置
+     * @param androidCommandProperties Android 上线命令 Kafka topic 配置
      */
     public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper,
                                             ObjectMapper objectMapper,
                                             ProtocolCommandDispatchTrigger dispatchTrigger,
                                             ProtocolAccountCommandProperties accountCommandProperties,
-                                            ProtocolMasterCommandProperties masterCommandProperties) {
+                                            ProtocolMasterCommandProperties masterCommandProperties,
+                                            ProtocolAndroidCommandProperties androidCommandProperties) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.dispatchTrigger = dispatchTrigger;
         this.accountCommandProperties = accountCommandProperties;
         this.masterCommandProperties = masterCommandProperties;
+        this.androidCommandProperties = androidCommandProperties;
     }
 
     /**
@@ -317,9 +323,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(accountCommandProperties.getTopic());
+        row.setKafkaTopic(onlineCommandTopic(command.protocolBackend()));
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
+        row.setProtocolBackend(command.protocolBackend().name());
         row.setPayloadJson(payloadJson(command));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
@@ -455,7 +462,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 command.proxyId(),
                 command.source(),
                 command.onlineAttemptId(),
-                command.previousOnlineAttemptId());
+                command.previousOnlineAttemptId(),
+                command.protocolBackend());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -831,6 +839,12 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return command != null && SOURCE_GROUP_CREATION_MARKETING.equals(command.source());
     }
 
+    private String onlineCommandTopic(ProtocolBackend protocolBackend) {
+        return protocolBackend == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getTopic()
+                : accountCommandProperties.getTopic();
+    }
+
     private record ProtocolOnlineCommandPayload(
             Long accountId,
             String protocolAccountId,
@@ -839,7 +853,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             String source,
             String onlineAttemptId,
             @JsonInclude(JsonInclude.Include.ALWAYS)
-            String previousOnlineAttemptId
+            String previousOnlineAttemptId,
+            ProtocolBackend protocolBackend
     ) {
     }
 

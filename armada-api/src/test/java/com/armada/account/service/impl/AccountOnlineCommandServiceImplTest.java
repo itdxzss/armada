@@ -32,6 +32,7 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.platform.proxy.ProxyCredentials;
@@ -133,6 +134,7 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.source()).isEqualTo("manual_online");
         assertThat(command.onlineAttemptId()).isEqualTo("oa_test_single");
         assertThat(command.previousOnlineAttemptId()).isNull();
+        assertThat(command.protocolBackend()).isEqualTo(ProtocolBackend.WEB);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> pendingIdsCaptor = ArgumentCaptor.forClass(List.class);
         verify(stateMapper).markPendingOnline(pendingIdsCaptor.capture(), anyLong());
@@ -148,6 +150,45 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(result.ownerEndpoint()).isNull();
         assertThat(result.currentWorkerId()).isNull();
         assertThat(result.local()).isFalse();
+    }
+
+    @Test
+    void online_androidProtocolAccount_enqueuesAndroidBackendCommand() {
+        Account account = new Account();
+        account.setId(100L);
+        account.setWsPhone("8613800138000");
+        account.setProtocolAccountId("acc_8613800138000");
+        account.setProtocolId("ANDROID");
+        AccountCredential credential = new AccountCredential();
+        credential.setAccountId(100L);
+        credential.setCredFormat(2);
+        credential.setCredsJson("{\"phone\":\"8613800138000\"}");
+        ProxyEndpoint endpoint = new ProxyEndpoint(
+                ProxyEndpoint.PROTOCOL_SOCKS5,
+                "proxy.internal",
+                1080,
+                new ProxyCredentials("user", "pass_session-Abc123"),
+                "印度");
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
+                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_android_single");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_android"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+
+        service.online(100L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
+        assertThat(command.protocolBackend()).isEqualTo(ProtocolBackend.ANDROID);
+        assertThat(command.protocolAccountId()).isEqualTo("acc_8613800138000");
+        assertThat(command.onlineAttemptId()).isEqualTo("oa_android_single");
     }
 
     @Test

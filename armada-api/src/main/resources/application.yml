@@ -70,6 +70,8 @@ armada:
     kafka:
       account-commands:
         topic: ${PROTOCOL_ACCOUNT_COMMANDS_TOPIC:protocol.account.commands.v1}
+      android-commands:
+        topic: ${PROTOCOL_ANDROID_COMMANDS_TOPIC:protocol.android.commands.v1}
       master-commands:
         topic: ${PROTOCOL_MASTER_COMMANDS_TOPIC:${PROTOCOL_COMMANDS_TOPIC:protocol.master.commands.v1}}
       account-events:

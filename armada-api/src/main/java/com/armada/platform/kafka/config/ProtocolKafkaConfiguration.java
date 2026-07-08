@@ -30,6 +30,7 @@ import org.springframework.util.backoff.FixedBackOff;
 @EnableScheduling
 @EnableConfigurationProperties({
         ProtocolAccountCommandProperties.class,
+        ProtocolAndroidCommandProperties.class,
         ProtocolMasterCommandProperties.class,
         ProtocolCommandPublisherProperties.class,
         ProtocolCommandDispatcherProperties.class,

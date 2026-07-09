@@ -59,10 +59,15 @@ test_help_and_dry_run_contract() {
 test_app_package_templates() {
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "image: armada/backend:__VERSION__"
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "image: armada/nginx:__VERSION__"
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'APP_TITLE: ${APP_TITLE:-Wheel SaaS}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'ARMADA_PROTOCOL_BASE_URL: ${ARMADA_PROTOCOL_BASE_URL}'
+  assert_file_contains "${PROD_DIR}/app/.env.example" "APP_TITLE=Wheel SaaS"
   assert_file_contains "${PROD_DIR}/app/.env.example" "DB_URL=jdbc:mysql://"
   assert_file_contains "${PROD_DIR}/app/.env.example" "KAFKA_BROKERS="
   assert_file_contains "${PROD_DIR}/app/.env.example" "ARMADA_PROTOCOL_BASE_URL=http://PROTOCOL_PRIVATE_IP:8080"
+  assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "render-platform-config.sh"
+  assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "PLATFORM_CONFIG_ROOT=/usr/share/nginx/html/saas"
+  assert_file_contains "${SCRIPT_DIR}/render-platform-config.sh" "platform-config.template.json"
 }
 
 test_protocol_package_templates() {

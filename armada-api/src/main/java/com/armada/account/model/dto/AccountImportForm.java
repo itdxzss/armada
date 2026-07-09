@@ -13,7 +13,7 @@ public class AccountImportForm {
 
     /** 目标账号分组 ID;为空则导入落系统默认分组。 */
     private Long accountGroupId;
-    /** 导入格式:1=六段(暂不支持) 2=JSON 3=全参。 */
+    /** 导入格式:1=六段 2=JSON 3=全参。 */
     private Integer importFormat;
     /** 机型:1=安卓 2=苹果;可空。 */
     private Integer deviceOs;

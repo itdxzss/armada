@@ -16,6 +16,7 @@ REMOTE_DIR="${ARMADA_DEPLOY_REMOTE_DIR:-/home/app/armada-deploy}"
 COMPOSE_FILE="${ARMADA_DEPLOY_COMPOSE:-docker-compose.rds.yml}"
 COMPOSE_PROJECT="${ARMADA_DEPLOY_PROJECT:-armada-deploy}"
 PUBLIC_URL="${ARMADA_DEPLOY_PUBLIC_URL:-http://armada.65.2.123.53.nip.io/}"
+APP_TITLE="${ARMADA_APP_TITLE:-${APP_TITLE:-}}"
 FRONTEND_DIR="${ARMADA_FRONTEND_DIR:-${WORKSPACE_ROOT}/wheel-saas-pure-web}"
 PROTOCOL_DIR="${ARMADA_PROTOCOL_DIR:-${WORKSPACE_ROOT}/armada-protocol}"
 PROTOCOL_LAYER_DIR="${PROTOCOL_DIR}/protocol-layer"
@@ -97,6 +98,26 @@ prepare_branch_worktree() {
 
 refresh_build_paths
 
+if [ -z "${APP_TITLE}" ]; then
+  case "${SSH_HOST}" in
+    65.2.123.53|ec2-65-2-123-53.ap-south-1.compute.amazonaws.com)
+      APP_TITLE="第一套环境"
+      ;;
+    3.110.124.52|ec2-3-110-124-52.ap-south-1.compute.amazonaws.com)
+      APP_TITLE="第二套环境"
+      ;;
+    *)
+      APP_TITLE="Wheel SaaS"
+      ;;
+  esac
+fi
+
+shell_single_quote() {
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+}
+
+APP_TITLE_REMOTE="$(shell_single_quote "${APP_TITLE}")"
+
 usage() {
   cat <<EOF
 deploy-test.sh - 部署 armada API + wheel-saas-pure-web + 协议层到测试服。
@@ -123,6 +144,7 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web + 协议层到测试服
   ARMADA_DEPLOY_KEY
   ARMADA_DEPLOY_REMOTE_DIR
   ARMADA_DEPLOY_BRANCH
+  ARMADA_APP_TITLE       前端左上角环境标识;未设置时按 ARMADA_DEPLOY_HOST 推断
   ARMADA_FRONTEND_DIR
   ARMADA_PROTOCOL_DIR
   ARMADA_PROTOCOL_DEPLOY_HOST
@@ -307,6 +329,7 @@ if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   [ -f "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" ] || die "缺少 ${DEPLOY_ASSET_DIR}/docker-compose.rds.yml"
   [ -f "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile"
   [ -f "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile"
+  [ -f "${DEPLOY_ASSET_DIR}/render-platform-config.sh" ] || die "缺少 ${DEPLOY_ASSET_DIR}/render-platform-config.sh"
   [ -f "${DEPLOY_ASSET_DIR}/nginx.conf" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.conf"
   [ -f "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" ] || die "缺少 ${DEPLOY_ASSET_DIR}/stale-chunk-reload.js"
   [ -f "${DEPLOY_ASSET_DIR}/.env.example" ] || die "缺少 ${DEPLOY_ASSET_DIR}/.env.example"
@@ -417,6 +440,7 @@ print_plan() {
   if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
     printf '  Armada 目标   : %s@%s:%s\n' "${SSH_USER}" "${SSH_HOST}" "${REMOTE_DIR}"
     printf '  compose       : %s / project=%s\n' "${COMPOSE_FILE}" "${COMPOSE_PROJECT}"
+    printf '  环境标识      : %s\n' "${APP_TITLE}"
   fi
   if [ "${BUILD_PROTOCOL}" = 1 ]; then
     printf '  协议目录      : %s\n' "${PROTOCOL_DIR}"
@@ -452,7 +476,7 @@ if [ "${DRY_RUN}" = 1 ]; then
   fi
   if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
     info "[dry-run] 将 rsync Armada 部署文件和产物到 ${REMOTE_DIR}"
-    info "[dry-run] 将在 Armada 远端执行 ${COMPOSE_UP_COMMAND}"
+    info "[dry-run] 将在 Armada 远端执行 APP_TITLE='${APP_TITLE}' ${COMPOSE_UP_COMMAND}"
   fi
   if [ "${BUILD_PROTOCOL}" = 1 ]; then
     info "[dry-run] 将同步协议层源码到 ${PROTOCOL_REMOTE_DIR}"
@@ -514,6 +538,7 @@ if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   rsync -az -e "${RSYNC_SSH}" \
     "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" \
     "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" \
+    "${DEPLOY_ASSET_DIR}/render-platform-config.sh" \
     "${DEPLOY_ASSET_DIR}/nginx.conf" \
     "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" \
     "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" \
@@ -572,7 +597,7 @@ fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   info "启动 Armada 容器..."
-  ssh_run "cd '${REMOTE_DIR}' && docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
@@ -592,6 +617,10 @@ if [ "${BUILD_FE}" = 1 ]; then
   info "检查前端访问..."
   ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; curl -fsS -m 8 \"http://127.0.0.1:\${port}/\" | grep -qi '<!doctype html'"
   ok "前端可访问"
+
+  info "检查前端环境标识..."
+  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; curl -fsS -m 8 \"http://127.0.0.1:\${port}/platform-config.json\" | grep -F \"\${APP_TITLE}\" >/dev/null"
+  ok "前端环境标识: ${APP_TITLE}"
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then

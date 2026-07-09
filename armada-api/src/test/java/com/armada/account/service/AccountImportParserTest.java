@@ -39,9 +39,29 @@ class AccountImportParserTest {
     }
 
     @Test
-    void six_isRejected() {
-        assertThatThrownBy(() -> parser.parse(ImportFormat.SIX, null, "x,x,x,x,x,x"))
-                .isInstanceOf(BusinessException.class).hasMessageContaining("六段暂不支持");
+    void six_csvParsesPhoneAndFiveKeys() {
+        String line = "27612057408,"
+                + "c9clgpLWoCRbZ0Pc/rJ+14uq/9wSYkgHx868Jp16/gI=,"
+                + "sJwfYX1+66e2w4qxPQSXmH0b7BcA4WVl8oqKY7Zy7Xc=,"
+                + "yvpYZKxcsS6Qkndvz6xaf260xiHF73O8ygsRHg0HIyg=,"
+                + "+Lkuzy4DQosuALQFD7rTmGu0oAimFgD2TVOO84rfd2s=,"
+                + "keNhVSvZYT6+j1e38BCCJ1rjj5U=";
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.SIX, null, line);
+
+        assertThat(entries).hasSize(1);
+        ParsedEntry entry = entries.get(0);
+        assertThat(entry.getParseError()).isNull();
+        assertThat(entry.getWid()).isEqualTo("27612057408");
+        assertThat(entry.getRawPayload()).isEqualTo(line);
+        assertThat(entry.getSourceEntryName()).isEqualTo("six-input[1]");
+        assertThat(entry.getData().get("phone").asText()).isEqualTo("27612057408");
+        assertThat(entry.getData().get("id_pri_key").asText()).startsWith("c9cl");
+        assertThat(entry.getData().get("id_pub_key").asText()).startsWith("sJwf");
+        assertThat(entry.getData().get("static_pri_key").asText()).startsWith("yvpY");
+        assertThat(entry.getData().get("static_pub_key").asText()).startsWith("+Lku");
+        assertThat(entry.getData().get("device_identity_key").asText()).startsWith("keNh");
+        assertThat(entry.getData().has("ws_device_id")).isFalse();
     }
 
     // ---- JSON 格式:其他完整性键 ----

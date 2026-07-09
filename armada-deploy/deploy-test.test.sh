@@ -29,6 +29,7 @@ test_help_mentions_protocol_scope() {
   assert_contains "${out}" "--protocol"
   assert_contains "${out}" "--full"
   assert_contains "${out}" "ARMADA_PROTOCOL_DEPLOY_HOST"
+  assert_contains "${out}" "ARMADA_APP_TITLE"
 }
 
 test_protocol_dry_run_is_protocol_only() {
@@ -62,6 +63,23 @@ test_armada_default_key_uses_testpem_directory() {
   assert_contains "${script_content}" 'SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/dev-1.pem}"'
 }
 
+test_frontend_dry_run_infers_second_environment_title() {
+  local key out
+  key="$(mktemp)"
+  chmod 600 "${key}"
+  out="$(
+    ARMADA_DEPLOY_HOST="3.110.124.52" \
+    ARMADA_DEPLOY_USER="ec2-user" \
+    ARMADA_DEPLOY_KEY="${key}" \
+    "${SCRIPT}" --fe --dry-run
+  )"
+  rm -f "${key}"
+
+  assert_contains "${out}" "范围          : 只前端"
+  assert_contains "${out}" "环境标识      : 第二套环境"
+  assert_contains "${out}" "APP_TITLE='第二套环境' docker compose"
+}
+
 test_sh_invocation_reexecs_bash_for_help() {
   local out
   out="$(sh "${SCRIPT}" --help)"
@@ -73,5 +91,6 @@ test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
 test_protocol_default_key_uses_testpem_directory
 test_armada_default_key_uses_testpem_directory
+test_frontend_dry_run_infers_second_environment_title
 test_sh_invocation_reexecs_bash_for_help
 printf 'OK deploy-test.sh protocol tests passed\n'

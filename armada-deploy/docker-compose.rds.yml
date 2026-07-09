@@ -56,6 +56,8 @@ services:
     container_name: armada-nginx
     depends_on:
       - backend
+    environment:
+      APP_TITLE: ${APP_TITLE:-Wheel SaaS}
     ports:
       - "${ARMADA_HTTP_PORT:-18080}:80"
     volumes:

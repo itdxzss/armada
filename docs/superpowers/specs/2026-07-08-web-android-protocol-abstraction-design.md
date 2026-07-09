@@ -131,17 +131,17 @@ dispatcher 根据 `protocol_backend` 选择目标 topic 或目标 publisher。We
 protocol.android.commands.v1
 ```
 
-Android 命令不建议由 Armada Java 直接同步调用 Go 服务。推荐新增 Android bridge:
+Android 命令不建议由 Armada Java 直接同步调用 Go 服务。Android 协议服务本身应消费自己的命令 topic:
 
 ```text
 protocol.android.commands.v1
-  -> android bridge
-  -> whatsapp-server-feature-android HTTP API
-  -> HTTP callback
+  -> whatsapp-server-feature-android Kafka consumer
+  -> service.LoginService / service.LogOutService
+  -> 本服务内回调 hook
   -> unified Kafka events
 ```
 
-这样 Java 业务层仍保持 outbox 语义，不因为 Android 是 HTTP 服务就退化成请求线程直连。
+这样 Java 业务层仍保持 outbox 语义，不因为 Android 现有 HTTP API 就退化成请求线程直连；同时 Android 协议执行逻辑、Kafka 消费和 callback 归一化都留在 Android 协议服务内。
 
 ## 事件回写
 
@@ -155,7 +155,7 @@ message.send_result_reported
 group.health_reported
 ```
 
-Android callback 到 Armada 时，不直接让业务服务处理原始 callback。应由 Android bridge 或 `platform/protocol/android` callback adapter 转换成统一 Kafka event。
+Android callback 到 Armada 时，不直接让业务服务处理原始 callback。应由 `whatsapp-server-feature-android` 内部 callback hook 转换成统一 Kafka event。
 
 Android callback 映射示例:
 
@@ -187,8 +187,8 @@ Android callback 映射示例:
 
 - 账号协议后端枚举。
 - 上线命令按后端路由。
-- Android bridge 消费上线/下线命令并调用 Go 服务。
-- Android callback 转 `account.state_changed`。
+- `whatsapp-server-feature-android` 消费上线/下线命令并调用本地登录/下线服务。
+- `whatsapp-server-feature-android` callback hook 转 `account.state_changed`。
 - 支持状态、探活、主动下线。
 - 保留现有 Web 协议行为不变。
 

@@ -49,9 +49,11 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(columnType("account_group_membership", "group_link_id")).isEqualTo("bigint");
         assertThat(columnType("account_group_membership", "group_jid")).isEqualTo("varchar");
         assertThat(columnType("account_group_membership", "is_admin")).isEqualTo("tinyint");
+        assertThat(columnType("account_group_membership", "joined_at")).isEqualTo("bigint");
         assertThat(columnType("account_group_membership", "last_seen_at")).isEqualTo("bigint");
         assertThat(indexExists("account_group_membership", "uq_account_group_membership")).isTrue();
         assertThat(indexExists("account_group_membership", "idx_account_group_membership_account")).isTrue();
+        assertThat(indexExists("account_group_membership", "idx_account_group_membership_account_joined")).isTrue();
     }
 
     @Test

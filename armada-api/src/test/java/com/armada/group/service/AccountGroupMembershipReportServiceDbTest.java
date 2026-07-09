@@ -32,6 +32,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         long staleGroupLinkId = seedExistingGroup(staleJid);
         seedMembership(accountId, staleGroupLinkId, staleJid);
 
+        long beforeSync = System.currentTimeMillis();
         service.applyGroupsReported(new AccountGroupsReportedEvent(
                 TEST_TENANT_ID,
                 accountId,
@@ -44,6 +45,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                                 visibleJid, "上线后新群", 88, "861300000000@s.whatsapp.net",
                                 null, true, false, "https://example.test/avatar.jpg")),
                 "evt-groups-db-1"));
+        long afterSync = System.currentTimeMillis();
 
         assertThat(countMembership(accountId, baselineJid, true)).isZero();
         assertThat(countMembership(accountId, visibleJid, true)).isOne();
@@ -72,6 +74,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         assertThat(jdbc.queryForObject("SELECT is_admin FROM account_group_membership WHERE account_id = ? "
                         + "AND group_jid = ? AND deleted_at IS NULL",
                 Boolean.class, accountId, visibleJid)).isTrue();
+        assertThat(activeJoinedAt(accountId, visibleJid)).isBetween(beforeSync, afterSync);
         assertThat(jdbc.queryForObject("SELECT current_count FROM group_link_health WHERE group_link_id = ?",
                 Integer.class, groupLinkId)).isEqualTo(88);
     }
@@ -118,6 +121,48 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         assertThat(countMembership(accountId, staleJid, true)).isZero();
         assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
         assertThat(groupBaselineState(accountId)).isEqualTo(2);
+    }
+
+    @Test
+    void applyGroupsReported_preservesJoinedAtForStillActiveMembershipAndResetsAfterRejoin() {
+        long accountId = seedAccount("923300001004");
+        String groupJid = "120363joined-at@g.us";
+        seedBaseline(accountId, "[]");
+        long groupLinkId = seedExistingGroup(groupJid);
+        long originalJoinedAt = 1782626300000L;
+        seedMembership(accountId, groupLinkId, groupJid, originalJoinedAt);
+
+        service.applyGroupsReported(new AccountGroupsReportedEvent(
+                TEST_TENANT_ID,
+                accountId,
+                "acc_923300001004",
+                1782626401000L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        groupJid, "持续在群", 12, null, null, false, false, null)),
+                "evt-joined-at-1"));
+
+        assertThat(activeJoinedAt(accountId, groupJid)).isEqualTo(originalJoinedAt);
+
+        service.applyGroupsReported(new AccountGroupsReportedEvent(
+                TEST_TENANT_ID,
+                accountId,
+                "acc_923300001004",
+                1782626501000L,
+                List.of(),
+                "evt-joined-at-2"));
+
+        long beforeRejoin = System.currentTimeMillis();
+        service.applyGroupsReported(new AccountGroupsReportedEvent(
+                TEST_TENANT_ID,
+                accountId,
+                "acc_923300001004",
+                1782626601000L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        groupJid, "重新入群", 12, null, null, false, false, null)),
+                "evt-joined-at-3"));
+        long afterRejoin = System.currentTimeMillis();
+
+        assertThat(activeJoinedAt(accountId, groupJid)).isBetween(beforeRejoin, afterRejoin);
     }
 
     private long seedAccount(String phone) {
@@ -191,6 +236,16 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
     }
 
+    private void seedMembership(long accountId, long groupLinkId, String groupJid, long joinedAt) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid, is_admin,
+                     joined_at, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, joinedAt, now, now, now);
+    }
+
     private void seedHealth(long groupLinkId, int currentCount) {
         long now = System.currentTimeMillis();
         jdbc.update("""
@@ -219,6 +274,16 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     private int groupBaselineState(long accountId) {
         return jdbc.queryForObject("SELECT group_baseline_state FROM account WHERE id = ?",
                 Integer.class, accountId);
+    }
+
+    private Long activeJoinedAt(long accountId, String groupJid) {
+        return jdbc.queryForObject("""
+                SELECT joined_at
+                FROM account_group_membership
+                WHERE account_id = ?
+                  AND group_jid = ?
+                  AND deleted_at IS NULL
+                """, Long.class, accountId, groupJid);
     }
 
     private long insertAndReturnId(String sql, SqlBinder binder) {

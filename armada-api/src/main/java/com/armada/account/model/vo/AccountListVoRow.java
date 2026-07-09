@@ -95,6 +95,9 @@ public class AccountListVoRow {
     /** 最后对账时间(epoch 毫秒)。 */
     private Long lastStateSyncTime;
 
+    /** 上控后当前有效群组数。 */
+    private int groupsNum;
+
     // ---- getters / setters ----
 
     public Long getId() {
@@ -319,5 +322,13 @@ public class AccountListVoRow {
 
     public void setLastStateSyncTime(Long lastStateSyncTime) {
         this.lastStateSyncTime = lastStateSyncTime;
+    }
+
+    public int getGroupsNum() {
+        return groupsNum;
+    }
+
+    public void setGroupsNum(int groupsNum) {
+        this.groupsNum = groupsNum;
     }
 }

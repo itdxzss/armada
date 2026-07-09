@@ -60,7 +60,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountGroups_pendingBaselineCapturesCurrentGroupsAndShowsNoGroups() {
+    void accountGroups_pendingBaselineDoesNotCaptureFromMarketingLazyLoad() {
         long accountGroupId = seedAccountGroup("tree-pending");
         long accountId = seedAccount("923300000101", accountGroupId, BASELINE_PENDING, 2, 1, 1, null);
         String oldJid = "120363pending-old@g.us";
@@ -76,13 +76,17 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
             assertThat(node.groupsError()).isFalse();
             assertThat(node.groups()).isEmpty();
         });
-        assertThat(baselineJson(accountId)).contains(oldJid);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM account_group_baseline
+                WHERE account_id = ?
+                """, Integer.class, accountId)).isZero();
         assertThat(activeMembershipJids(accountId)).isEmpty();
         Integer state = jdbc.queryForObject(
                 "SELECT group_baseline_state FROM account WHERE id = ?",
                 Integer.class,
                 accountId);
-        assertThat(state).isEqualTo(BASELINE_CAPTURED);
+        assertThat(state).isEqualTo(BASELINE_PENDING);
     }
 
     @Test

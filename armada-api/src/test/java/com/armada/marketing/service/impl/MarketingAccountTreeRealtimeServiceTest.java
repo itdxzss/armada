@@ -8,7 +8,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
@@ -26,14 +25,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 class MarketingAccountTreeRealtimeServiceTest {
 
     private final MarketingTaskMapper taskMapper = Mockito.mock(MarketingTaskMapper.class);
-    private final AccountGroupMembershipMapper membershipMapper = Mockito.mock(AccountGroupMembershipMapper.class);
     private final AccountParticipatingGroupPort groupPort = Mockito.mock(AccountParticipatingGroupPort.class);
     private final AccountGroupMembershipSnapshotService snapshotService =
             Mockito.mock(AccountGroupMembershipSnapshotService.class);
     private final TransactionTemplate transactionTemplate = Mockito.mock(TransactionTemplate.class);
     private final MarketingAccountTreeRealtimeService service = new MarketingAccountTreeRealtimeService(
             taskMapper,
-            membershipMapper,
             groupPort,
             snapshotService,
             new ObjectMapper(),
@@ -73,6 +70,30 @@ class MarketingAccountTreeRealtimeServiceTest {
         assertThat(account.accountId()).isEqualTo(3L);
         assertThat(account.groupsError()).isFalse();
         verify(groupPort).listBatch(List.of("acc_923300000003"), 5);
+    }
+
+    @Test
+    void accountGroupsDoesNotCapturePendingBaselineFromLazyLoad() {
+        MarketingAccountTreeAccountRow row = accountRow(4L, "923300000004", 1);
+        when(taskMapper.selectAccountTreeAccount(4L)).thenReturn(row);
+        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
+                new AccountParticipatingGroupResult(
+                        row.getProtocolAccountId(),
+                        true,
+                        List.of(new AccountParticipatingGroupResult.Group(
+                                "120363pending@g.us", "旧群", 9, null, false, false)),
+                        null)));
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            TransactionStatus status = new SimpleTransactionStatus();
+            return callback.doInTransaction(status);
+        });
+
+        var account = service.accountGroups(4L);
+
+        assertThat(account.groupsError()).isFalse();
+        assertThat(account.groups()).isEmpty();
+        verify(snapshotService, never()).replaceVisibleGroups(Mockito.anyLong(), anyList(), Mockito.anyLong());
     }
 
     private static MarketingAccountTreeAccountRow accountRow(Long accountId, String phone, Integer baselineState) {

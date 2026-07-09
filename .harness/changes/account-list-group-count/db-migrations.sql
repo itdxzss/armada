@@ -1,0 +1,2 @@
+-- See Flyway migration:
+-- armada-api/src/main/resources/db/migration/V047__account_group_membership_joined_at.sql

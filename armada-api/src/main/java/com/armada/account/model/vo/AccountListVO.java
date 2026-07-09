@@ -5,7 +5,7 @@ package com.armada.account.model.vo;
  *
  * <p>码值字段(accountType/loginState 等)以 Integer 透传,前端自行映射标签,后端不转中文。</p>
  * <p>时间字段为 Long epoch 毫秒(UTC)。</p>
- * <p>step1 占位字段:avatarUrl/friendsNum/groupsNum/hyperlinkSentCount 恒为 null/0。
+ * <p>占位字段:avatarUrl/friendsNum/hyperlinkSentCount 恒为 null/0;groupsNum 来自账号当前有效群关系聚合。
  * country/ipSource 来自账号状态或当前绑定 IP 代理行;truthIp 只来自账号状态。</p>
  */
 public record AccountListVO(
@@ -83,15 +83,15 @@ public record AccountListVO(
         /** 失效时间(epoch 毫秒;账号状态非正常;恢复正常清空)。 */
         Long invalidatedAt,
 
-        // ---- step1 占位字段(恒常量,step3 再接真值) ----
+        // ---- 占位字段与当前群聚合 ----
 
         /** 头像 URL(step1 占位,恒 null)。 */
         String avatarUrl,
 
-        /** 好友数(step1 占位,恒 0)。 */
+        /** 好友数(本期占位,恒 0)。 */
         int friendsNum,
 
-        /** 参与群组数(step1 占位,恒 0)。 */
+        /** 上控后当前有效群组数。 */
         int groupsNum,
 
         /** 超链发送数(step1 占位,恒 0)。 */

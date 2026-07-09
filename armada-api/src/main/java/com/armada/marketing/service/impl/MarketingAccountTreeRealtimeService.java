@@ -1,7 +1,6 @@
 package com.armada.marketing.service.impl;
 
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
@@ -45,7 +44,6 @@ public class MarketingAccountTreeRealtimeService {
     private static final String ACCOUNT_STATUS_ONLINE = "ONLINE";
 
     private final MarketingTaskMapper taskMapper;
-    private final AccountGroupMembershipMapper membershipMapper;
     private final AccountParticipatingGroupPort groupPort;
     private final AccountGroupMembershipSnapshotService snapshotService;
     private final ObjectMapper objectMapper;
@@ -55,20 +53,17 @@ public class MarketingAccountTreeRealtimeService {
      * 创建营销账号树实时查群服务。
      *
      * @param taskMapper          营销任务 mapper,用于查询账号候选
-     * @param membershipMapper    账号群关系 mapper,用于捕获待拍 baseline
      * @param groupPort           协议层实时查群端口
      * @param snapshotService     账号可见群关系快照写入服务
      * @param objectMapper        JSON 序列化器
      * @param transactionTemplate 单账号快照写入事务模板
      */
     public MarketingAccountTreeRealtimeService(MarketingTaskMapper taskMapper,
-                                               AccountGroupMembershipMapper membershipMapper,
                                                AccountParticipatingGroupPort groupPort,
                                                AccountGroupMembershipSnapshotService snapshotService,
                                                ObjectMapper objectMapper,
                                                TransactionTemplate transactionTemplate) {
         this.taskMapper = taskMapper;
-        this.membershipMapper = membershipMapper;
         this.groupPort = groupPort;
         this.snapshotService = snapshotService;
         this.objectMapper = objectMapper;
@@ -149,9 +144,7 @@ public class MarketingAccountTreeRealtimeService {
                 Map<String, AccountParticipatingGroupResult.Group> currentGroups = normalizeProtocolGroups(result.groups());
                 int baselineState = baselineState(account);
                 if (baselineState == BASELINE_PENDING) {
-                    capturePendingBaseline(account.getAccountId(), currentGroups.keySet(), now);
-                    snapshotService.replaceVisibleGroups(account.getAccountId(), List.of(), now);
-                    log.info("营销账号群树已拍待拍基线 accountId={} protocolAccountId={} baselineGroups={}",
+                    log.info("营销账号群树跳过待拍账号 baseline 捕获 accountId={} protocolAccountId={} rawGroups={}",
                             account.getAccountId(), account.getProtocolAccountId(), currentGroups.size());
                     return List.<MarketingTreeGroupVO>of();
                 }
@@ -176,23 +169,6 @@ public class MarketingAccountTreeRealtimeService {
             log.warn("营销账号群树账号处理失败 accountId={} protocolAccountId={}",
                     account.getAccountId(), account.getProtocolAccountId(), ex);
             return toAccountVO(account, true, List.of());
-        }
-    }
-
-    private void capturePendingBaseline(Long accountId, Set<String> groupJids, long now) {
-        try {
-            List<String> baseline = List.copyOf(groupJids);
-            int captured = membershipMapper.capturePendingAccountGroupBaseline(
-                    accountId, objectMapper.writeValueAsString(baseline), baseline.size(), now, now);
-            if (captured <= 0) {
-                throw new IllegalStateException("账号群基线已不处于待拍状态 accountId=" + accountId);
-            }
-            int updated = membershipMapper.markAccountBaselineCaptured(accountId, now);
-            if (updated <= 0) {
-                throw new IllegalStateException("账号群基线状态更新失败 accountId=" + accountId);
-            }
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("账号群基线 JSON 序列化失败 accountId=" + accountId, ex);
         }
     }
 

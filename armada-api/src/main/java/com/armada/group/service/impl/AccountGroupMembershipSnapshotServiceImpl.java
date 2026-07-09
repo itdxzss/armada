@@ -164,6 +164,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         row.setGroupLinkId(groupLinkId);
         row.setGroupJid(groupJid);
         row.setAdmin(group.admin());
+        row.setJoinedAt(now);
         row.setLastSeenAt(syncAt);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);

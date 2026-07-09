@@ -190,12 +190,19 @@
            COALESCE(s.proxy_source, p.source) AS ipSource,
            s.pull_into_group_count AS pullIntoGroupCount,
            s.invalidated_at AS invalidatedAt,
-           s.last_state_sync_time AS lastStateSyncTime
+           s.last_state_sync_time AS lastStateSyncTime,
+           COALESCE(gm.groups_num, 0) AS groupsNum
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     LEFT JOIN account_group g ON g.id = a.account_group_id AND g.deleted_at IS NULL
     LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
       AND p.deleted_at IS NULL AND p.status = 2
+    LEFT JOIN (
+      SELECT tenant_id, account_id, COUNT(*) AS groups_num
+      FROM account_group_membership
+      WHERE deleted_at IS NULL
+      GROUP BY tenant_id, account_id
+    ) gm ON gm.tenant_id = a.tenant_id AND gm.account_id = a.id
     WHERE <include refid="filter"/>
     ORDER BY a.created_at DESC
     LIMIT #{offset}, #{pageSize}

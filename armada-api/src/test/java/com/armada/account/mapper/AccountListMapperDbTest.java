@@ -8,10 +8,14 @@ import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.testsupport.DbTestBase;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 
 /**
  * 账号列表查询 Mapper 真库测试:验 countPage/selectPage 的三表 LEFT JOIN、8 维筛选下推、
@@ -169,6 +173,26 @@ class AccountListMapperDbTest extends DbTestBase {
         assertThat(hasBPhone).isFalse();
     }
 
+    @Test
+    void listAccounts_mapsActiveMembershipCountToGroupsNum() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86135" + (now % 10000000L), now);
+        insertDefaultState(account.getId(), now);
+        seedAccountMembership(account.getId(), "120363list-active-1@g.us", null, now);
+        seedAccountMembership(account.getId(), "120363list-active-2@g.us", null, now);
+        seedAccountMembership(account.getId(), "120363list-deleted@g.us", now, now);
+
+        AccountQuery q = new AccountQuery();
+        q.setPhone(account.getWsPhone());
+
+        AccountListVoRow row = accountMapper.selectPage(q).stream()
+                .filter(item -> item.getId().equals(account.getId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(row.getGroupsNum()).isEqualTo(2);
+    }
+
     /**
      * selectActiveById:按主键能查回未软删账号,供手动上线入口加载账号身份。
      */
@@ -276,6 +300,42 @@ class AccountListMapperDbTest extends DbTestBase {
         // state=1 的账号不出现
         boolean hasOther = page.stream().anyMatch(r -> r.getId().equals(other.getId()));
         assertThat(hasOther).isFalse();
+    }
+
+    private void seedAccountMembership(Long accountId, String groupJid, Long deletedAt, long now) {
+        long groupLinkId = insertAndReturnId("""
+                INSERT INTO group_link
+                    (tenant_id, link_url, origin, membership_state, created_at, updated_at)
+                VALUES (?, ?, 5, 2, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, "wa://group/" + groupJid);
+            ps.setLong(3, now);
+            ps.setLong(4, now);
+        });
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid, joined_at,
+                     last_seen_at, created_at, updated_at, deleted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now, now, deletedAt);
+    }
+
+    private long insertAndReturnId(String sql, SqlBinder binder) {
+        KeyHolder keys = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            binder.bind(ps);
+            return ps;
+        }, keys);
+        Number key = keys.getKey();
+        assertThat(key).as("generated key for " + sql).isNotNull();
+        return key.longValue();
+    }
+
+    @FunctionalInterface
+    private interface SqlBinder {
+        void bind(PreparedStatement ps) throws java.sql.SQLException;
     }
 
     @Test

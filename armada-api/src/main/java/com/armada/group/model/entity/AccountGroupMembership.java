@@ -21,6 +21,9 @@ public class AccountGroupMembership {
     /** 该账号是否管理员。 */
     private Boolean admin;
 
+    /** 账号上控后首次探测到进入该群的时间(epoch毫秒)。 */
+    private Long joinedAt;
+
     /** 最近看到该关系的时间(epoch毫秒)。 */
     private Long lastSeenAt;
 
@@ -79,6 +82,14 @@ public class AccountGroupMembership {
 
     public void setAdmin(Boolean admin) {
         this.admin = admin;
+    }
+
+    public Long getJoinedAt() {
+        return joinedAt;
+    }
+
+    public void setJoinedAt(Long joinedAt) {
+        this.joinedAt = joinedAt;
     }
 
     public Long getLastSeenAt() {

@@ -47,4 +47,15 @@ class AccountConverterTest {
         assertThat(vo.country()).isEqualTo("印度");
         assertThat(vo.ipSource()).isEqualTo("iproyal");
     }
+
+    @Test
+    void toAccountListVO_mapsGroupsNumFromProjectionAndKeepsFriendsNumZero() {
+        AccountListVoRow row = new AccountListVoRow();
+        row.setGroupsNum(3);
+
+        AccountListVO vo = converter.toAccountListVO(row);
+
+        assertThat(vo.friendsNum()).isZero();
+        assertThat(vo.groupsNum()).isEqualTo(3);
+    }
 }

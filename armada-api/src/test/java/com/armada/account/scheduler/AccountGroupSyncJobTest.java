@@ -15,6 +15,15 @@ class AccountGroupSyncJobTest {
     private final AccountGroupSyncCommandService service = Mockito.mock(AccountGroupSyncCommandService.class);
 
     @Test
+    void propertiesDefaultDisabledKeepsScheduledSyncOff() {
+        AccountGroupSyncJobProperties properties = new AccountGroupSyncJobProperties();
+
+        assertThat(properties.enabled()).isFalse();
+        assertThat(properties.fixedDelayMs()).isEqualTo(180_000);
+        assertThat(properties.batchSize()).isEqualTo(500);
+    }
+
+    @Test
     void runOnce_disabled_skipsServiceCall() {
         AccountGroupSyncJob job = new AccountGroupSyncJob(
                 service, new AccountGroupSyncJobProperties(false, 180_000, 50));

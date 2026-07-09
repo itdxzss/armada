@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @EnableConfigurationProperties(AccountGroupSyncJobProperties.class)
+@ConditionalOnProperty(prefix = "armada.account-group-sync", name = "enabled", havingValue = "true")
 public class AccountGroupSyncJob {
 
     private static final Logger log = LoggerFactory.getLogger(AccountGroupSyncJob.class);

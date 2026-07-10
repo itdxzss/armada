@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
  * 即使单条解析失败或凭据不完整,也会产出带 {@code parseError} 的条目,
  * 不抛异常——整个导入批次仍可继续,明细行展示具体原因。</p>
  *
- * <p>注意:SIX 格式是整体拒绝(抛 BusinessException),不走此条目路径。</p>
+ * <p>SIX 格式会把 CSV 行规范化为 JSON 节点,逐条返回解析结果。</p>
  */
 public class ParsedEntry {
 

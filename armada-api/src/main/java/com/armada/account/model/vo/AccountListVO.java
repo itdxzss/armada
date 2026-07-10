@@ -33,6 +33,9 @@ public record AccountListVO(
         /** 接入协议标识。 */
         String protocolId,
 
+        /** 协议后端:WEB/ANDROID。前端上下线时随账号 ID 原样带回。 */
+        String protocolBackend,
+
         /** 归属分组 ID(→account_group.id)。 */
         Long accountGroupId,
 

@@ -39,7 +39,10 @@ Android 协议服务 `whatsapp-server-feature-android` 是 Go + Gin 服务，暴
 
 ## 核心模型
 
-账号需要明确绑定协议后端:
+账号需要明确绑定协议后端。导入时按凭据类型确定协议归属:
+
+- JSON / Baileys JSON: `WEB`
+- 六段号: `ANDROID`
 
 ```text
 account
@@ -51,7 +54,20 @@ account
 
 如果短期不新增列，可以先复用 `protocol_id` 表达后端，但长期应收敛成明确枚举，避免把实例 ID、协议类型、服务地址混在一个字段里。
 
-业务调用协议能力时不应只传 `protocolAccountId`，而应传一个协议账号引用:
+账号列表查询应返回协议后端给前端。前端可以不展示该字段，但批量上下线时要把它随账号 ID 带回:
+
+```json
+{
+  "accounts": [
+    { "id": 100, "protocolBackend": "WEB" },
+    { "id": 101, "protocolBackend": "ANDROID" }
+  ]
+}
+```
+
+账号生命周期命令使用请求项里的 `protocolBackend` 做路由，不再为了判断 Web/Android 额外回表。后端仍会读取账号、凭据、状态和代理信息完成上线前置校验。
+
+其它内部协议能力调用不应只传 `protocolAccountId`，而应传一个协议账号引用:
 
 ```java
 public record ProtocolAccountRef(
@@ -62,7 +78,7 @@ public record ProtocolAccountRef(
 }
 ```
 
-这样业务域在查账号时一次性带出协议后端，`platform/protocol` 不需要反向依赖 `account` mapper，也不会破坏现有架构规则。
+这样 `platform/protocol` 不需要反向依赖 `account` mapper，也不会破坏现有架构规则。
 
 ## Port 与路由
 
@@ -92,10 +108,11 @@ Routing port 只负责根据 `ProtocolAccountRef.backend` 选择后端。具体 
 
 ## 命令通道
 
-账号上线、下线、批量任务、营销发送这类需要可靠投递和重试的操作继续走 outbox:
+账号上线、下线、批量任务、营销发送这类需要可靠投递和重试的操作继续走 outbox。账号生命周期批量接口一次最多 1000 个账号，单账号上下线也使用同一个批量接口传 1 个账号:
 
 ```text
-业务服务
+批量上下线请求(accounts[].protocolBackend)
+  -> 业务服务
   -> protocol_command_outbox(protocol_backend)
   -> dispatcher
   -> Web command topic / Android command topic
@@ -114,17 +131,17 @@ dispatcher 根据 `protocol_backend` 选择目标 topic 或目标 publisher。We
 protocol.android.commands.v1
 ```
 
-Android 命令不建议由 Armada Java 直接同步调用 Go 服务。推荐新增 Android bridge:
+Android 命令不建议由 Armada Java 直接同步调用 Go 服务。Android 协议服务本身应消费自己的命令 topic:
 
 ```text
 protocol.android.commands.v1
-  -> android bridge
-  -> whatsapp-server-feature-android HTTP API
-  -> HTTP callback
+  -> whatsapp-server-feature-android Kafka consumer
+  -> service.LoginService / service.LogOutService
+  -> 本服务内回调 hook
   -> unified Kafka events
 ```
 
-这样 Java 业务层仍保持 outbox 语义，不因为 Android 是 HTTP 服务就退化成请求线程直连。
+这样 Java 业务层仍保持 outbox 语义，不因为 Android 现有 HTTP API 就退化成请求线程直连；同时 Android 协议执行逻辑、Kafka 消费和 callback 归一化都留在 Android 协议服务内。
 
 ## 事件回写
 
@@ -138,7 +155,7 @@ message.send_result_reported
 group.health_reported
 ```
 
-Android callback 到 Armada 时，不直接让业务服务处理原始 callback。应由 Android bridge 或 `platform/protocol/android` callback adapter 转换成统一 Kafka event。
+Android callback 到 Armada 时，不直接让业务服务处理原始 callback。应由 `whatsapp-server-feature-android` 内部 callback hook 转换成统一 Kafka event。
 
 Android callback 映射示例:
 
@@ -170,8 +187,8 @@ Android callback 映射示例:
 
 - 账号协议后端枚举。
 - 上线命令按后端路由。
-- Android bridge 消费上线/下线命令并调用 Go 服务。
-- Android callback 转 `account.state_changed`。
+- `whatsapp-server-feature-android` 消费上线/下线命令并调用本地登录/下线服务。
+- `whatsapp-server-feature-android` callback hook 转 `account.state_changed`。
 - 支持状态、探活、主动下线。
 - 保留现有 Web 协议行为不变。
 

@@ -71,6 +71,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 建群营销执行项聚合类型。 */
     public static final String AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM = "GROUP_CREATION_MARKETING_ITEM";
 
+    private static final int MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH = 1_000;
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
@@ -358,9 +359,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(masterCommandProperties.getTopic());
+        row.setKafkaTopic(offlineCommandTopic(command.protocolBackend()));
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
+        row.setProtocolBackend(command.protocolBackend().name());
         row.setPayloadJson(payloadJson(command));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
@@ -484,7 +486,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         ProtocolOfflineCommandPayload payload = new ProtocolOfflineCommandPayload(
                 command.accountId(),
                 command.protocolAccountId(),
-                command.source());
+                command.source(),
+                command.protocolBackend());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -587,9 +590,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         if (commands == null || commands.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议上线命令不能为空");
         }
-        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+        if (commands.size() > MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "协议上线命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+                    "协议上线命令不能超过 " + MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH + " 条");
         }
         for (ProtocolOnlineCommandRequest command : commands) {
             validateOnlineCommand(command);
@@ -630,9 +633,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         if (commands == null || commands.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议下线命令不能为空");
         }
-        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+        if (commands.size() > MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "协议下线命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+                    "协议下线命令不能超过 " + MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH + " 条");
         }
         for (ProtocolOfflineCommandRequest command : commands) {
             validateOfflineCommand(command);
@@ -739,7 +742,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /**
      * 校验营销消息发送命令批次。
      *
-     * <p>批次约束与其它协议命令保持一致,调度器会按配置把一轮 1000 条拆成多个 500 条 outbox 批次。</p>
+     * <p>批次约束与其它协议命令保持一致,避免单轮营销发送写入过大的 outbox 批次。</p>
      *
      * @param commands 待入队的营销消息命令列表
      * @throws BusinessException 当批次为空、超限或单条命令缺少必要字段时抛出
@@ -845,6 +848,12 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 : accountCommandProperties.getTopic();
     }
 
+    private String offlineCommandTopic(ProtocolBackend protocolBackend) {
+        return protocolBackend == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getTopic()
+                : masterCommandProperties.getTopic();
+    }
+
     private record ProtocolOnlineCommandPayload(
             Long accountId,
             String protocolAccountId,
@@ -861,7 +870,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private record ProtocolOfflineCommandPayload(
             Long accountId,
             String protocolAccountId,
-            String source
+            String source,
+            ProtocolBackend protocolBackend
     ) {
     }
 

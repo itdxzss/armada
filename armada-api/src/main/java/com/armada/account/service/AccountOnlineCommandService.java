@@ -1,5 +1,6 @@
 package com.armada.account.service;
 
+import com.armada.account.model.command.AccountLifecycleCommandItem;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.shared.exception.BusinessException;
@@ -75,7 +76,7 @@ public interface AccountOnlineCommandService {
     /**
      * 批量发起账号上线。
      *
-     * <p>一次最多 500 个账号。实现会批量加载账号与凭据、批量分配代理,
+     * <p>一次最多 1000 个账号。实现会批量加载账号与凭据、批量分配代理,
      * 然后批量写入协议命令 outbox。</p>
      *
      * @param accountIds armada 账号主键列表
@@ -83,6 +84,18 @@ public interface AccountOnlineCommandService {
      * @throws BusinessException 当账号列表、账号、凭据或代理分配不满足上线前置条件时抛出
      */
     AccountBatchOnlineVO onlineBatch(List<Long> accountIds);
+
+    /**
+     * 批量发起账号上线,由请求项携带协议后端路由。
+     *
+     * <p>用于账号列表前端已经拿到协议后端的场景。实现仍会读取账号、凭据、状态和代理完成上线前置校验,
+     * 但生成协议命令时使用请求项里的协议后端。</p>
+     *
+     * @param accounts 账号生命周期命令项
+     * @return outbox 批量上线命令受理回执
+     * @throws BusinessException 当账号列表、协议后端、账号、凭据或代理分配不满足上线前置条件时抛出
+     */
+    AccountBatchOnlineVO onlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts);
 
     /**
      * 对指定代理绑定的在线账号发起换 IP 重登。
@@ -99,7 +112,7 @@ public interface AccountOnlineCommandService {
     /**
      * 批量发起账号下线。
      *
-     * <p>一次最多 500 个账号。实现会批量加载账号并写入协议命令 outbox,
+     * <p>一次最多 1000 个账号。实现会批量加载账号并写入协议命令 outbox,
      * 不在请求线程直接修改登录状态或释放代理绑定。</p>
      *
      * @param accountIds armada 账号主键列表
@@ -107,4 +120,13 @@ public interface AccountOnlineCommandService {
      * @throws BusinessException 当账号列表或账号不满足下线前置条件时抛出
      */
     AccountBatchOnlineVO offlineBatch(List<Long> accountIds);
+
+    /**
+     * 批量发起账号下线,由请求项携带协议后端路由。
+     *
+     * @param accounts 账号生命周期命令项
+     * @return outbox 批量下线命令受理回执
+     * @throws BusinessException 当账号列表、协议后端或账号不满足下线前置条件时抛出
+     */
+    AccountBatchOnlineVO offlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts);
 }

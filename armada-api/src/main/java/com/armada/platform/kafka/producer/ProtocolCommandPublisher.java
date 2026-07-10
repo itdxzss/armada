@@ -225,7 +225,8 @@ public class ProtocolCommandPublisher {
                                 proxyPayload,
                                 ref.source(),
                                 ref.onlineAttemptId(),
-                                ref.previousOnlineAttemptId()))));
+                                ref.previousOnlineAttemptId(),
+                                ref.protocolBackend()))));
             } catch (RuntimeException ex) {
                 failures.put(commandKey(ref.row()), ex);
             }
@@ -243,9 +244,10 @@ public class ProtocolCommandPublisher {
         String source = textOrDefault(payload, "source", "unknown");
         String onlineAttemptId = requiredText(payload, "onlineAttemptId", row.getCommandId());
         String previousOnlineAttemptId = textOrDefault(payload, "previousOnlineAttemptId", null);
+        String protocolBackend = protocolBackend(payload, row);
         CredentialFormat format = credentialFormat(requiredText(payload, "credentialFormat", row.getCommandId()));
         return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, source,
-                onlineAttemptId, previousOnlineAttemptId);
+                onlineAttemptId, previousOnlineAttemptId, protocolBackend);
     }
 
     private ProtocolCommandEnvelope toEnvelope(ProtocolCommandOutbox row) {
@@ -354,6 +356,17 @@ public class ProtocolCommandPublisher {
         return value.asText();
     }
 
+    private static String protocolBackend(JsonNode payload, ProtocolCommandOutbox row) {
+        String payloadBackend = textOrDefault(payload, "protocolBackend", null);
+        if (!isBlank(payloadBackend)) {
+            return payloadBackend;
+        }
+        if (!isBlank(row.getProtocolBackend())) {
+            return row.getProtocolBackend();
+        }
+        return "WEB";
+    }
+
     private void validateRow(ProtocolCommandOutbox row) {
         if (row == null
                 || isBlank(row.getCommandId())
@@ -403,7 +416,8 @@ public class ProtocolCommandPublisher {
             Long proxyId,
             String source,
             String onlineAttemptId,
-            String previousOnlineAttemptId
+            String previousOnlineAttemptId,
+            String protocolBackend
     ) {
     }
 
@@ -417,7 +431,8 @@ public class ProtocolCommandPublisher {
             String source,
             String onlineAttemptId,
             @JsonInclude(JsonInclude.Include.ALWAYS)
-            String previousOnlineAttemptId
+            String previousOnlineAttemptId,
+            String protocolBackend
     ) {
     }
 }

@@ -40,7 +40,7 @@ public class AccountImportOnlineDispatcher {
     /**
      * 扫描并派发一轮待上线导入明细。
      *
-     * <p>单租户单轮最多派发 500 个账号,与账号批量上线和协议 outbox 批次上限保持一致。</p>
+     * <p>单租户单轮最多派发 500 个账号,用于控制导入自动上线节奏。</p>
      *
      * @return 本轮成功推进到 DISPATCHED 的明细行数
      */

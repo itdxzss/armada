@@ -254,6 +254,72 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueOfflineCommands_batch1000_usesOneBatchIdAndOneRowPerCommand() {
+        List<String> commandIds = java.util.stream.IntStream.rangeClosed(1, 1000)
+                .mapToObj(i -> "cmd-offline-1000-" + i)
+                .toList();
+        TestableProtocolCommandOutboxService service = newService(commandIds, List.of("batch-offline-1000"));
+        List<ProtocolOfflineCommandRequest> commands = java.util.stream.IntStream.rangeClosed(1, 1000)
+                .mapToObj(i -> offlineCommand((long) i, "acc_" + i))
+                .toList();
+        when(mapper.batchInsertPending(anyList())).thenReturn(1000);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueOfflineCommands(commands);
+
+        assertThat(result.batchId()).isEqualTo("batch-offline-1000");
+        assertThat(result.commandIds()).containsExactlyElementsOf(commandIds);
+        assertThat(result.inserted()).isEqualTo(1000);
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).hasSize(1000);
+        assertThat(rows).allSatisfy(row -> assertThat(row.getBatchId()).isEqualTo("batch-offline-1000"));
+        assertThat(rows).extracting(ProtocolCommandOutbox::getProtocolBackend)
+                .containsOnly(ProtocolBackend.WEB.name());
+        verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueOfflineCommands_androidBackend_usesAndroidTopicAndPersistsBackendInSafePayload() throws Exception {
+        TestableProtocolCommandOutboxService service =
+                newService(List.of("cmd-android-offline"), List.of(), ProtocolAccountCommandProperties.DEFAULT_TOPIC,
+                        ProtocolMasterCommandProperties.DEFAULT_TOPIC, "protocol.android.commands.test");
+        ProtocolOfflineCommandRequest command = new ProtocolOfflineCommandRequest(
+                100L,
+                "acc_100",
+                "batch_offline",
+                ProtocolBackend.ANDROID);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueOfflineCommands(List.of(command));
+
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.commands.test");
+        assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
+        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("protocolBackend", "ANDROID")
+                .containsEntry("protocolAccountId", "acc_100")
+                .containsEntry("source", "batch_offline");
+    }
+
+    @Test
+    void enqueueGroupHealthCheckCommands_batch501_keepsNonLifecycleLimitAt500() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        List<ProtocolGroupHealthCheckCommandRequest> commands = java.util.stream.IntStream.rangeClosed(1, 501)
+                .mapToObj(i -> groupHealthCommand(1L, (long) i, "1203630" + i + "@g.us",
+                        1000L + i, "acc_" + i))
+                .toList();
+
+        assertThatThrownBy(() -> service.enqueueGroupHealthCheckCommands(commands))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("群链接健康检查命令不能超过 500 条")
+                .extracting("code")
+                .isEqualTo(ErrorCode.VALIDATION.code());
+        verify(mapper, never()).batchInsertPending(anyList());
+        verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+    }
+
+    @Test
     void enqueueGroupHealthCheckCommands_singleCommand_insertsGroupLinkCommandWithRoutablePayload() throws Exception {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-group-health"), List.of());
         ProtocolGroupHealthCheckCommandRequest command = groupHealthCommand(

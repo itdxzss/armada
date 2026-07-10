@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.model.command;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+
 /**
  * 协议账号下线 outbox 命令请求。
  *
@@ -9,10 +11,24 @@ package com.armada.platform.protocol.model.command;
  * @param accountId         Armada 账号主键
  * @param protocolAccountId 协议层账号句柄
  * @param source            命令来源,如 batch_offline
+ * @param protocolBackend   协议后端,默认 WEB
  */
 public record ProtocolOfflineCommandRequest(
         Long accountId,
         String protocolAccountId,
-        String source
+        String source,
+        ProtocolBackend protocolBackend
 ) {
+
+    public ProtocolOfflineCommandRequest(Long accountId,
+                                         String protocolAccountId,
+                                         String source) {
+        this(accountId, protocolAccountId, source, ProtocolBackend.WEB);
+    }
+
+    public ProtocolOfflineCommandRequest {
+        if (protocolBackend == null) {
+            protocolBackend = ProtocolBackend.WEB;
+        }
+    }
 }

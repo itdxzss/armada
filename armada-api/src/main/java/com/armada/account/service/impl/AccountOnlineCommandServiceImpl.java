@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.command.AccountLifecycleCommandItem;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
@@ -54,7 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountOnlineCommandServiceImpl.class);
-    private static final int BATCH_COMMAND_MAX_SIZE = 500;
+    private static final int BATCH_COMMAND_MAX_SIZE = 1_000;
     private static final String OUTBOX_STATE_SOURCE = "OUTBOX";
     private static final String SOURCE_MANUAL_ONLINE = "manual_online";
     private static final String SOURCE_BATCH_ONLINE = "batch_online";
@@ -254,6 +255,25 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return vo;
     }
 
+    @Override
+    public AccountBatchOnlineVO onlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts) {
+        List<AccountLifecycleCommandItem> items = normalizeLifecycleCommandItems(accounts);
+        List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
+        Map<Long, ProtocolBackend> protocolBackendByAccountId = protocolBackendByAccountId(items);
+        log.info("账号批量上线开始 requested={} protocolBackendFromRequest=true", ids.size());
+
+        AccountBatchOnlineVO vo = enqueueOnlineBatch(
+                ids,
+                SOURCE_BATCH_ONLINE,
+                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)),
+                protocolBackendByAccountId);
+        log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
+                        + "error={} remote={} elapsedMs={} protocolBackendFromRequest=true",
+                vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
+                vo.error(), vo.remote(), vo.elapsedMs());
+        return vo;
+    }
+
     /**
      * 对即将删除的代理绑定账号发起在线账号换 IP 重登。
      *
@@ -299,17 +319,32 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         log.info("账号批量下线开始 requested={}", ids.size());
 
+        return offlineBatch(ids, Map.of());
+    }
+
+    @Override
+    public AccountBatchOnlineVO offlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts) {
+        List<AccountLifecycleCommandItem> items = normalizeLifecycleCommandItems(accounts);
+        List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
+        log.info("账号批量下线开始 requested={} protocolBackendFromRequest=true", ids.size());
+        return offlineBatch(ids, protocolBackendByAccountId(items));
+    }
+
+    private AccountBatchOnlineVO offlineBatch(List<Long> ids,
+                                              Map<Long, ProtocolBackend> protocolBackendByAccountId) {
         Map<Long, Account> accountsById = loadAccounts(ids);
         List<PreparedOfflineCommand> prepared = new ArrayList<>(ids.size());
         for (Long accountId : ids) {
             Account account = accountsById.get(accountId);
             String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
+            ProtocolBackend protocolBackend = resolveProtocolBackend(account, protocolBackendByAccountId);
             prepared.add(new PreparedOfflineCommand(
                     accountId,
                     protocolAccountId,
-                    new ProtocolOfflineCommandRequest(accountId, protocolAccountId, SOURCE_BATCH_OFFLINE)));
-            log.info("账号批量下线写入 outbox 前准备 command accountId={} protocolAccountId={}",
-                    accountId, protocolAccountId);
+                    new ProtocolOfflineCommandRequest(accountId, protocolAccountId, SOURCE_BATCH_OFFLINE,
+                            protocolBackend)));
+            log.info("账号批量下线写入 outbox 前准备 command accountId={} protocolAccountId={} protocolBackend={}",
+                    accountId, protocolAccountId, protocolBackend);
         }
 
         ProtocolCommandOutboxEnqueueResult enqueueResult = protocolCommandOutboxService.enqueueOfflineCommands(
@@ -563,6 +598,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private AccountBatchOnlineVO enqueueOnlineBatch(List<Long> ids,
                                                     String source,
                                                     OnlineAllocationSupplier allocationSupplier) {
+        return enqueueOnlineBatch(ids, source, allocationSupplier, Map.of());
+    }
+
+    private AccountBatchOnlineVO enqueueOnlineBatch(List<Long> ids,
+                                                    String source,
+                                                    OnlineAllocationSupplier allocationSupplier,
+                                                    Map<Long, ProtocolBackend> protocolBackendByAccountId) {
         // 先批量加载账号和凭据,在分配代理前完成本地前置校验。
         // 这里不做登录态过滤:调用方传入哪些账号,只要未软删、有凭据且不是被禁止的业务状态,就会尝试写上线命令。
         Map<Long, Account> accountsById = loadAccounts(ids);
@@ -583,6 +625,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 CredentialFormat credentialFormat = toCredentialFormat(credential.getCredFormat());
                 String protocolAccountId = requireText(account.getProtocolAccountId(), "协议账号 ID 为空");
                 String onlineAttemptId = onlineAttemptIdGenerator.nextId();
+                ProtocolBackend protocolBackend = resolveProtocolBackend(account, protocolBackendByAccountId);
                 // outbox payload 只保存协议执行上线所需的字段:账号、凭据格式、代理 ID、来源和 attemptId。
                 // 凭据正文由 dispatcher 发送时再读取,日志也只记录长度,避免敏感信息落日志。
                 ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
@@ -593,13 +636,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         source,
                         onlineAttemptId,
                         previousAttemptId(accountId, source, null),
-                        ProtocolBackend.fromProtocolId(account.getProtocolId()));
+                        protocolBackend);
                 updateProxySnapshot(accountId, allocation.endpoint(), allocation.proxySource());
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
                 log.info("账号批量上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} source={} "
-                                + "credentialFormat={} credentialLength={}",
+                                + "credentialFormat={} credentialLength={} protocolBackend={}",
                         accountId, onlineAttemptId, allocation.proxyId(), source, credentialFormat,
-                        credentialLength(credential.getCredsJson()));
+                        credentialLength(credential.getCredsJson()), protocolBackend);
             }
 
             // 批量写入协议命令 outbox。accepted/inserted 只代表本地命令已可靠入队,
@@ -720,6 +763,53 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             }
         }
         return List.copyOf(seen);
+    }
+
+    private static List<AccountLifecycleCommandItem> normalizeLifecycleCommandItems(
+            List<AccountLifecycleCommandItem> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号列表不能为空");
+        }
+        if (accounts.size() > BATCH_COMMAND_MAX_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "批量账号命令一次最多 " + BATCH_COMMAND_MAX_SIZE + " 个账号");
+        }
+        Set<Long> seen = new LinkedHashSet<>();
+        List<AccountLifecycleCommandItem> normalized = new ArrayList<>(accounts.size());
+        for (AccountLifecycleCommandItem account : accounts) {
+            if (account == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "账号项不能为空");
+            }
+            Long accountId = account.accountId();
+            if (accountId == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
+            }
+            if (account.protocolBackend() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议后端不能为空: " + accountId);
+            }
+            if (!seen.add(accountId)) {
+                throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能重复: " + accountId);
+            }
+            normalized.add(account);
+        }
+        return List.copyOf(normalized);
+    }
+
+    private static Map<Long, ProtocolBackend> protocolBackendByAccountId(List<AccountLifecycleCommandItem> accounts) {
+        Map<Long, ProtocolBackend> protocolBackendByAccountId = new HashMap<>();
+        for (AccountLifecycleCommandItem account : accounts) {
+            protocolBackendByAccountId.put(account.accountId(), account.protocolBackend());
+        }
+        return protocolBackendByAccountId;
+    }
+
+    private static ProtocolBackend resolveProtocolBackend(Account account,
+                                                          Map<Long, ProtocolBackend> protocolBackendByAccountId) {
+        ProtocolBackend requestBackend = protocolBackendByAccountId.get(account.getId());
+        if (requestBackend != null) {
+            return requestBackend;
+        }
+        return ProtocolBackend.fromProtocolId(account.getProtocolId());
     }
 
     private static List<Long> normalizeProxyIds(List<Long> proxyIds) {

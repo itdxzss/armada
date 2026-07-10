@@ -30,6 +30,9 @@ public class AccountListVoRow {
     /** 接入协议标识。 */
     private String protocolId;
 
+    /** 协议后端:WEB/ANDROID。 */
+    private String protocolBackend;
+
     /** 归属分组 ID(→account_group.id)。 */
     private Long accountGroupId;
 
@@ -154,6 +157,14 @@ public class AccountListVoRow {
 
     public void setProtocolId(String protocolId) {
         this.protocolId = protocolId;
+    }
+
+    public String getProtocolBackend() {
+        return protocolBackend;
+    }
+
+    public void setProtocolBackend(String protocolBackend) {
+        this.protocolBackend = protocolBackend;
     }
 
     public Long getAccountGroupId() {

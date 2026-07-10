@@ -7,7 +7,9 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -73,7 +75,7 @@ public class AccountImportRowWriter {
         long now = System.currentTimeMillis();
 
         // 步骤 ①:插入 account 主行
-        Account account = buildAccount(wid, accountGroupId, meta.deviceOs(), meta.accountType(), now);
+        Account account = buildAccount(wid, accountGroupId, meta.deviceOs(), meta.accountType(), meta.importFormat(), now);
         accountMapper.insert(account);
         Long accountId = account.getId();
 
@@ -96,7 +98,8 @@ public class AccountImportRowWriter {
 
     // ---- 私有构建方法 ----
 
-    private Account buildAccount(String wid, Long accountGroupId, Integer deviceOs, int accountType, long now) {
+    private Account buildAccount(String wid, Long accountGroupId, Integer deviceOs, int accountType,
+                                 int importFormat, long now) {
         Account a = new Account();
         a.setWsPhone(wid);
         // 铁律:account_type 导入即冻结
@@ -106,6 +109,9 @@ public class AccountImportRowWriter {
         a.setOwnership(OWNERSHIP_SELF);
         a.setPriority(DEFAULT_PRIORITY);
         a.setAccountGroupId(accountGroupId);
+        if (importFormat == ImportFormat.SIX.getCode()) {
+            a.setProtocolId(ProtocolBackend.ANDROID.name());
+        }
         a.setProtocolAccountId("acc_" + wid);
         a.setCreatedAt(now);
         a.setUpdatedAt(now);

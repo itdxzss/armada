@@ -17,7 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 单租户账号导入自动上线派发 worker。
  *
- * <p>在一个事务中锁定最多 500 条 QUEUED 明细,复用现有批量上线服务写协议 outbox,
+ * <p>在一个事务中锁定最多 500 条 QUEUED 明细,复用现有批量上线服务写协议 outbox。
+ * 该 worker 的每轮派发量低于账号批量命令 1000 上限,用于控制导入自动上线节奏。
  * 成功后把这些明细推进到 DISPATCHED。若批量上线链路抛异常,事务整体回滚,明细保持 QUEUED 等待重试。</p>
  */
 @Service
@@ -25,7 +26,7 @@ public class AccountImportOnlineDispatchWorker {
 
     private static final Logger log = LoggerFactory.getLogger(AccountImportOnlineDispatchWorker.class);
 
-    /** 与账号批量上线和协议 outbox 单批上限保持一致。 */
+    /** 导入自动上线每轮派发量。 */
     private static final int BATCH_SIZE = 500;
 
     /** 待派发阶段码。 */

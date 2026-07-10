@@ -12,8 +12,8 @@ import com.armada.shared.exception.ErrorCode;
 public enum ImportFormat {
 
     /**
-     * 六段式 CSV 格式(phone,password,email,token,session,device)。
-     * 当前协议层尚未接通六段解析,导入直接整体拒绝。
+     * Android 六段 CSV 格式:
+     * phone,id_pri_key,id_pub_key,static_pri_key,static_pub_key,device_identity_key。
      */
     SIX(1),
 

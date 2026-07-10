@@ -6,6 +6,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -27,8 +28,7 @@ import org.springframework.stereotype.Component;
  * 对每条输入产出 {@link ParsedEntry},单条失败写 {@code parseError} 不抛,
  * 整个批次仍返回解析结果供导入循环(1.2.3)逐条处理。</p>
  *
- * <p>SIX 格式是唯一整体拒绝路径:直接抛 {@link BusinessException},
- * 与单条 parseError 语义不同。</p>
+ * <p>SIX 格式按 CSV 行解析为 Android 直登凭据 JSON,单条失败写 {@code parseError}。</p>
  */
 @Component
 public class AccountImportParser {
@@ -64,17 +64,17 @@ public class AccountImportParser {
      * <p>text 与 fileBytes 二选一:text 非空则优先用 text;否则解 fileBytes。
      * JSON 格式支持:.zip 压缩包(一号一文件)、单对象、数组。
      * PARAMS 格式支持:单对象、数组。
-     * SIX 格式:整体拒绝,抛 {@link BusinessException}。</p>
+     * SIX 格式支持:每行 {@code phone,idPri,idPub,staticPri,staticPub,deviceIdentity}。</p>
      *
      * @param format    导入格式枚举
      * @param fileBytes 文件字节(可为 null)
      * @param text      文本内容(可为 null;非空时优先于 fileBytes)
      * @return 逐条解析结果,每条可能含 parseError
-     * @throws BusinessException SIX 格式时整体拒绝
+     * @throws BusinessException 未知格式时抛业务异常
      */
     public List<ParsedEntry> parse(ImportFormat format, byte[] fileBytes, String text) {
         if (format == ImportFormat.SIX) {
-            throw new BusinessException(ErrorCode.VALIDATION, "六段暂不支持(协议层未接)");
+            return parseSix(fileBytes, text);
         }
         if (format == ImportFormat.JSON) {
             return parseJson(fileBytes, text);
@@ -83,6 +83,73 @@ public class AccountImportParser {
             return parseParams(fileBytes, text);
         }
         throw new BusinessException(ErrorCode.VALIDATION, "未知导入格式: " + format);
+    }
+
+    // ---- SIX 格式 ----
+
+    /**
+     * 解析 Android 六段 CSV:phone + 五个 key。
+     *
+     * <p>注意:当前供号文件没有 ws_device_id,这里不伪造该字段;Android consumer 在上线时做兼容默认。</p>
+     */
+    private List<ParsedEntry> parseSix(byte[] fileBytes, String text) {
+        String src = (text != null && !text.isEmpty()) ? text
+                : (fileBytes != null ? new String(fileBytes, StandardCharsets.UTF_8) : "");
+        if (src.isBlank()) {
+            return makeErrorEntry("", "输入内容为空");
+        }
+        String[] lines = src.split("\\R");
+        List<ParsedEntry> result = new ArrayList<>(lines.length);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            result.add(parseSixLine(line, i + 1));
+        }
+        if (result.isEmpty()) {
+            return makeErrorEntry("", "输入内容为空");
+        }
+        return result;
+    }
+
+    private ParsedEntry parseSixLine(String line, int lineNo) {
+        String source = "six-input[" + lineNo + "]";
+        ParsedEntry entry = new ParsedEntry();
+        entry.setRaw(source);
+        entry.setRawPayload(line);
+        entry.setSourceEntryName(source);
+
+        String[] parts = line.split(",", -1);
+        if (parts.length != 6) {
+            entry.setParseError("六段格式错误:应为6列(phone,id_pri_key,id_pub_key,static_pri_key,static_pub_key,device_identity_key)");
+            return entry;
+        }
+        for (int i = 0; i < parts.length; i++) {
+            parts[i] = parts[i].trim();
+        }
+        String phone = parts[0];
+        entry.setWid(phone);
+        if (!WID_PATTERN.matcher(phone).matches()) {
+            entry.setParseError("wid 不合法: " + phone);
+            return entry;
+        }
+        for (int i = 1; i < parts.length; i++) {
+            if (parts[i].isEmpty()) {
+                entry.setParseError("六段格式错误:第" + (i + 1) + "列为空");
+                return entry;
+            }
+        }
+
+        ObjectNode data = mapper.createObjectNode();
+        data.put("phone", phone);
+        data.put("id_pri_key", parts[1]);
+        data.put("id_pub_key", parts[2]);
+        data.put("static_pri_key", parts[3]);
+        data.put("static_pub_key", parts[4]);
+        data.put("device_identity_key", parts[5]);
+        entry.setData(data);
+        return entry;
     }
 
     // ---- JSON 格式 ----

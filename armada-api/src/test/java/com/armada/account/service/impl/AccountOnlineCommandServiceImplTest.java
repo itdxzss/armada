@@ -16,6 +16,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.command.AccountLifecycleCommandItem;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
@@ -413,6 +414,40 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void onlineBatchWithProtocolBackends_usesRequestBackendInsteadOfAccountProtocolId() {
+        Account accountA = account(100L, "acc_100");
+        accountA.setProtocolId("WEB");
+        Account accountB = account(101L, "acc_101");
+        accountB.setProtocolId("WEB");
+        AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        AccountCredential credentialB = credential(101L, 2, "{\"creds\":{},\"keys\":{}}");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(credentialMapper.selectByAccountIds(List.of(100L, 101L))).thenReturn(List.of(credentialA, credentialB));
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L, 101L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度"), ipRegionRow(101L, "马来西亚")));
+        when(ipProxyService.allocateOnlineEndpoints(List.of(
+                new IpProxyAllocationRequest(100L, "印度", true),
+                new IpProxyAllocationRequest(101L, "马来西亚", true))))
+                .thenReturn(List.of(
+                        new IpProxyAccountAllocation(100L, 7L, onlineEndpoint(), "iproyal"),
+                        new IpProxyAccountAllocation(101L, 8L, onlineEndpoint(), "iproyal")));
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
+        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+
+        service.onlineBatchWithProtocolBackends(List.of(
+                new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
+                new AccountLifecycleCommandItem(101L, ProtocolBackend.ANDROID)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).extracting(ProtocolOnlineCommandRequest::protocolBackend)
+                .containsExactly(ProtocolBackend.WEB, ProtocolBackend.ANDROID);
+    }
+
+    @Test
     void onlineBatch_containsTakingOverAccountThrowsValidationBeforeCredentialOrProxyWork() {
         Account accountA = account(100L, "acc_100");
         Account accountB = account(101L, "acc_101");
@@ -683,6 +718,53 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(result.results()).extracting(AccountBatchOnlineItemVO::result)
                 .containsExactly("ACCEPTED", "ACCEPTED");
         assertThat(result.remoteRoutes()).isEmpty();
+    }
+
+    @Test
+    void offlineBatchWithProtocolBackends_usesRequestBackendForOutboxCommands() {
+        Account accountA = account(100L, "acc_100");
+        Account accountB = account(101L, "acc_101");
+        when(accountMapper.selectActiveByIds(List.of(100L, 101L))).thenReturn(List.of(accountA, accountB));
+        when(protocolCommandOutboxService.enqueueOfflineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "batch_offline_1",
+                        List.of("cmd_offline_100", "cmd_offline_101"),
+                        2));
+
+        service.offlineBatchWithProtocolBackends(List.of(
+                new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
+                new AccountLifecycleCommandItem(101L, ProtocolBackend.ANDROID)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolOfflineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(protocolCommandOutboxService).enqueueOfflineCommands(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).extracting(ProtocolOfflineCommandRequest::protocolBackend)
+                .containsExactly(ProtocolBackend.WEB, ProtocolBackend.ANDROID);
+    }
+
+    @Test
+    void offlineBatchWithProtocolBackends_accepts1000Accounts() {
+        List<Long> ids = java.util.stream.LongStream.rangeClosed(1L, 1000L)
+                .boxed()
+                .toList();
+        List<Account> accounts = ids.stream()
+                .map(id -> account(id, "acc_" + id))
+                .toList();
+        List<AccountLifecycleCommandItem> commandItems = ids.stream()
+                .map(id -> new AccountLifecycleCommandItem(id, ProtocolBackend.WEB))
+                .toList();
+        List<String> commandIds = ids.stream()
+                .map(id -> "cmd_" + id)
+                .toList();
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(accounts);
+        when(protocolCommandOutboxService.enqueueOfflineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_offline_1000", commandIds, 1000));
+
+        AccountBatchOnlineVO result = service.offlineBatchWithProtocolBackends(commandItems);
+
+        assertThat(result.requested()).isEqualTo(1000);
+        assertThat(result.submitted()).isEqualTo(1000);
+        assertThat(result.accepted()).isEqualTo(1000);
     }
 
     @Test

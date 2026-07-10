@@ -39,29 +39,89 @@ class AccountImportParserTest {
     }
 
     @Test
-    void six_csvParsesPhoneAndFiveKeys() {
-        String line = "27612057408,"
-                + "c9clgpLWoCRbZ0Pc/rJ+14uq/9wSYkgHx868Jp16/gI=,"
-                + "sJwfYX1+66e2w4qxPQSXmH0b7BcA4WVl8oqKY7Zy7Xc=,"
-                + "yvpYZKxcsS6Qkndvz6xaf260xiHF73O8ygsRHg0HIyg=,"
-                + "+Lkuzy4DQosuALQFD7rTmGu0oAimFgD2TVOO84rfd2s=,"
-                + "keNhVSvZYT6+j1e38BCCJ1rjj5U=";
+    void six_zhuanOrder_normalizesSemanticCredentialFields() {
+        String line = "919000000001,static-pub,static-pri,identity-pub,identity-pri,phone-id";
 
         List<ParsedEntry> entries = parser.parse(ImportFormat.SIX, null, line);
 
         assertThat(entries).hasSize(1);
         ParsedEntry entry = entries.get(0);
         assertThat(entry.getParseError()).isNull();
-        assertThat(entry.getWid()).isEqualTo("27612057408");
+        assertThat(entry.getWid()).isEqualTo("919000000001");
         assertThat(entry.getRawPayload()).isEqualTo(line);
         assertThat(entry.getSourceEntryName()).isEqualTo("six-input[1]");
-        assertThat(entry.getData().get("phone").asText()).isEqualTo("27612057408");
-        assertThat(entry.getData().get("id_pri_key").asText()).startsWith("c9cl");
-        assertThat(entry.getData().get("id_pub_key").asText()).startsWith("sJwf");
-        assertThat(entry.getData().get("static_pri_key").asText()).startsWith("yvpY");
-        assertThat(entry.getData().get("static_pub_key").asText()).startsWith("+Lku");
-        assertThat(entry.getData().get("device_identity_key").asText()).startsWith("keNh");
-        assertThat(entry.getData().has("ws_device_id")).isFalse();
+        assertThat(entry.getData().get("phone").asText()).isEqualTo("919000000001");
+        assertThat(entry.getData().get("static_pub_key").asText()).isEqualTo("static-pub");
+        assertThat(entry.getData().get("static_pri_key").asText()).isEqualTo("static-pri");
+        assertThat(entry.getData().get("id_pub_key").asText()).isEqualTo("identity-pub");
+        assertThat(entry.getData().get("id_pri_key").asText()).isEqualTo("identity-pri");
+        assertThat(entry.getData().get("phone_id").asText()).isEqualTo("phone-id");
+        assertThat(entry.getData().has("device_identity_key")).isFalse();
+    }
+
+    @Test
+    void six_trimsSemanticValuesAndPreservesOriginalRawPayload() {
+        String line = " 919000000001 , static-pub , static-pri , identity-pub , identity-pri , phone-id ";
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.SIX, null, line);
+
+        assertThat(entries).hasSize(1);
+        ParsedEntry entry = entries.get(0);
+        assertThat(entry.getParseError()).isNull();
+        assertThat(entry.getRawPayload()).isEqualTo(line);
+        assertThat(entry.getWid()).isEqualTo("919000000001");
+        assertThat(entry.getData().get("static_pub_key").asText()).isEqualTo("static-pub");
+        assertThat(entry.getData().get("static_pri_key").asText()).isEqualTo("static-pri");
+        assertThat(entry.getData().get("id_pub_key").asText()).isEqualTo("identity-pub");
+        assertThat(entry.getData().get("id_pri_key").asText()).isEqualTo("identity-pri");
+        assertThat(entry.getData().get("phone_id").asText()).isEqualTo("phone-id");
+    }
+
+    @Test
+    void six_wrongColumnCount_marksRowFailed() {
+        List<ParsedEntry> entries = parser.parse(
+                ImportFormat.SIX,
+                null,
+                "919000000001,static-pub,static-pri,identity-pub,identity-pri");
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getParseError()).contains("应为6列");
+    }
+
+    @Test
+    void six_emptyPhoneId_marksRowFailed() {
+        List<ParsedEntry> entries = parser.parse(
+                ImportFormat.SIX,
+                null,
+                "919000000001,static-pub,static-pri,identity-pub,identity-pri,");
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getParseError()).contains("第6列为空");
+    }
+
+    @Test
+    void six_invalidPhone_marksRowFailed() {
+        List<ParsedEntry> entries = parser.parse(
+                ImportFormat.SIX,
+                null,
+                "not-a-phone,static-pub,static-pri,identity-pub,identity-pri,phone-id");
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getParseError()).contains("wid 不合法");
+    }
+
+    @Test
+    void six_emptyPhoneId_errorDoesNotEchoCredentialValues() {
+        String fakePrivateValue = "fake-private-value-that-must-not-leak";
+        List<ParsedEntry> entries = parser.parse(
+                ImportFormat.SIX,
+                null,
+                "919000000001,static-pub," + fakePrivateValue + ",identity-pub,identity-pri,");
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getParseError())
+                .contains("第6列为空")
+                .doesNotContain(fakePrivateValue);
     }
 
     // ---- JSON 格式:其他完整性键 ----

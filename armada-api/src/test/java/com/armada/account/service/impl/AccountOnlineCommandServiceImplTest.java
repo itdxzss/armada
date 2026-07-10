@@ -160,6 +160,7 @@ class AccountOnlineCommandServiceImplTest {
         account.setWsPhone("8613800138000");
         account.setProtocolAccountId("acc_8613800138000");
         account.setProtocolId("ANDROID");
+        account.setAccountType(2);
         AccountCredential credential = new AccountCredential();
         credential.setAccountId(100L);
         credential.setCredFormat(2);
@@ -190,6 +191,7 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.protocolBackend()).isEqualTo(ProtocolBackend.ANDROID);
         assertThat(command.protocolAccountId()).isEqualTo("acc_8613800138000");
         assertThat(command.onlineAttemptId()).isEqualTo("oa_android_single");
+        assertThat(command.isBusiness()).isTrue();
     }
 
     @Test
@@ -347,6 +349,8 @@ class AccountOnlineCommandServiceImplTest {
     void onlineBatch_validAccountsCredentialsAndAllocatedProxies_enqueuesOneOutboxBatch() {
         Account accountA = account(100L, "acc_100");
         Account accountB = account(101L, "acc_101");
+        accountA.setAccountType(1);
+        accountB.setAccountType(2);
         AccountCredential credentialA = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
         AccountCredential credentialB = credential(101L, 3, "{\"login\":\"raw\"}");
         ProxyEndpoint endpointA = onlineEndpoint();
@@ -390,6 +394,8 @@ class AccountOnlineCommandServiceImplTest {
                 .containsExactly("oa_batch_100", "oa_batch_101");
         assertThat(commands).extracting(ProtocolOnlineCommandRequest::previousOnlineAttemptId)
                 .containsExactly(null, null);
+        assertThat(commands).extracting(ProtocolOnlineCommandRequest::isBusiness)
+                .containsExactly(false, true);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> pendingIdsCaptor = ArgumentCaptor.forClass(List.class);
         verify(stateMapper).markPendingOnline(pendingIdsCaptor.capture(), anyLong());

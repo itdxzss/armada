@@ -18,10 +18,14 @@ public interface AccountGroupMembershipSnapshotService {
      * @param accountId 账号 ID
      * @param groups    已经过 baseline 过滤的可见群
      * @param syncAt    协议查询时间(epoch 毫秒)
+     * @param eventId   协议层事件 ID,用于跨层日志关联
+     * @param source    群列表同步来源
      * @return 仍保持可见且活跃的群关系快照
      */
     List<AccountGroupMembershipSnapshot> replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
-            long syncAt);
+            long syncAt,
+            String eventId,
+            String source);
 }

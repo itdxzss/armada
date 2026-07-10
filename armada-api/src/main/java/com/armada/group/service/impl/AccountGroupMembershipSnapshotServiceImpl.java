@@ -63,7 +63,9 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     public List<AccountGroupMembershipSnapshot> replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
-            long syncAt) {
+            long syncAt,
+            String eventId,
+            String source) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号群关系写入缺少 accountId");
         }
@@ -79,9 +81,26 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             snapshots.add(toSnapshot(groupLinkId, groupJid, group));
         }
         int deleted = membershipMapper.markMissingMembershipsDeleted(accountId, List.copyOf(visibleGroups.keySet()), now);
-        log.info("账号可见群关系快照已刷新 accountId={} 可见群数={} 软删缺失关系数={} syncAt={}",
-                accountId, visibleGroups.size(), deleted, syncAt);
+        log.info("账号可见群关系快照已刷新 eventId={} source={} accountId={} visibleGroups={} "
+                        + "visibleGroupJidSample={} deleted={} syncAt={}",
+                eventId, source, accountId, visibleGroups.size(), jidSample(visibleGroups.keySet()), deleted, syncAt);
         return snapshots;
+    }
+
+    /**
+     * 返回最多 5 个非空群 JID,用于有界排障日志。
+     */
+    private static List<String> jidSample(Iterable<String> groupJids) {
+        List<String> sample = new ArrayList<>(5);
+        for (String groupJid : groupJids) {
+            if (groupJid != null && !groupJid.isBlank()) {
+                sample.add(groupJid);
+                if (sample.size() == 5) {
+                    break;
+                }
+            }
+        }
+        return sample;
     }
 
     private static Map<String, AccountGroupsReportedEvent.Group> normalizeVisibleGroups(

@@ -60,6 +60,40 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq(10L), eq("[\"120363old@g.us\"]"), eq(1), eq(1782626401000L), anyLong());
         verify(membershipMapper).markAccountBaselineCaptured(eq(10L), anyLong());
         verify(snapshotService).replaceVisibleGroups(
-                eq(10L), argThat(groups -> groups != null && groups.isEmpty()), eq(1782626401000L));
+                eq(10L),
+                argThat(groups -> groups != null && groups.isEmpty()),
+                eq(1782626401000L),
+                eq("evt-pending-baseline"),
+                eq(null));
+    }
+
+    @Test
+    void applyGroupsReported_propagatesCorrelationWhenReplacingVisibleGroups() {
+        AccountGroupBaselineRow row = new AccountGroupBaselineRow();
+        row.setAccountId(10L);
+        row.setGroupBaselineState(AccountGroupBaselineStateCode.CAPTURED);
+        row.setBaselineGroupJidsJson("[\"120363old@g.us\"]");
+        when(membershipMapper.selectAccountBaselineRow(10L)).thenReturn(row);
+
+        service.applyGroupsReported(new AccountGroupsReportedEvent(
+                1L,
+                10L,
+                "acc_10",
+                1782626401000L,
+                List.of(
+                        new AccountGroupsReportedEvent.Group(
+                                "120363old@g.us", "导入时旧群", 10, null, null, false, false, null),
+                        new AccountGroupsReportedEvent.Group(
+                                "120363new@g.us", "新群", 11, null, null, true, false, null)),
+                "evt-visible",
+                "wa_groups_dirty"));
+
+        verify(snapshotService).replaceVisibleGroups(
+                eq(10L),
+                argThat(groups -> groups.size() == 1
+                        && "120363new@g.us".equals(groups.get(0).groupJid())),
+                eq(1782626401000L),
+                eq("evt-visible"),
+                eq("wa_groups_dirty"));
     }
 }

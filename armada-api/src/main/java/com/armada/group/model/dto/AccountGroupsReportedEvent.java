@@ -11,6 +11,7 @@ import java.util.List;
  * @param reportedAt        协议层同步时间(epoch 毫秒),可空
  * @param groups            协议层返回的账号当前参与群列表
  * @param eventId           协议层事件 ID,仅用于日志
+ * @param source            群列表同步来源,仅用于日志
  */
 public record AccountGroupsReportedEvent(
         Long tenantId,
@@ -18,8 +19,22 @@ public record AccountGroupsReportedEvent(
         String protocolAccountId,
         Long reportedAt,
         List<Group> groups,
-        String eventId
+        String eventId,
+        String source
 ) {
+
+    /**
+     * 兼容不带同步来源的内部调用。
+     */
+    public AccountGroupsReportedEvent(
+            Long tenantId,
+            Long accountId,
+            String protocolAccountId,
+            Long reportedAt,
+            List<Group> groups,
+            String eventId) {
+        this(tenantId, accountId, protocolAccountId, reportedAt, groups, eventId, null);
+    }
 
     /**
      * 账号当前参与的单个群。

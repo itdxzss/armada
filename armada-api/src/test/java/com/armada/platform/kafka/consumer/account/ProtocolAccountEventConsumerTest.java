@@ -102,6 +102,7 @@ class ProtocolAccountEventConsumerTest {
                   "data": {
                     "tenantId": 1,
                     "accountId": 100,
+                    "source": "wa_groups_dirty",
                     "groups": [
                       {
                         "groupJid": "120363000000001@g.us",
@@ -129,6 +130,7 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.protocolAccountId()).isEqualTo("acc_861800000001");
         assertThat(event.reportedAt()).isEqualTo(1782626401000L);
         assertThat(event.workerId()).isEqualTo("worker-a");
+        assertThat(event.source()).isEqualTo("wa_groups_dirty");
         assertThat(event.groups()).singleElement().satisfies(group -> {
             assertThat(group.groupJid()).isEqualTo("120363000000001@g.us");
             assertThat(group.subject()).isEqualTo("运营群");

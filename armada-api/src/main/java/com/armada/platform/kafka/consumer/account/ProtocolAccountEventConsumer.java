@@ -88,9 +88,9 @@ public class ProtocolAccountEventConsumer {
         if (EVENT_ACCOUNT_GROUPS_REPORTED.equals(eventType)) {
             ProtocolAccountGroupsReportedEvent event = toGroupsReportedEvent(envelope);
             log.info("协议账号群列表事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
-                            + "groupCount={} workerId={}",
+                            + "source={} reportedAt={} groupCount={} workerId={}",
                     event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
-                    event.groups().size(), event.workerId());
+                    event.source(), event.reportedAt(), event.groups().size(), event.workerId());
             groupsReportedSink.handleGroupsReported(event);
             return;
         }
@@ -146,6 +146,7 @@ public class ProtocolAccountEventConsumer {
                 accountId,
                 requiredText(envelope, "accountId", "协议账号群列表事件缺少 accountId"),
                 occurredAt(envelope),
+                text(data, "source"),
                 text(envelope, "workerId"),
                 groups);
     }

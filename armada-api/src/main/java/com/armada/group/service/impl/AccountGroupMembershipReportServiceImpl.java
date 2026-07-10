@@ -83,11 +83,18 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
             }
             Set<String> baseline = loadBaselineGroupJids(baselineRow);
             Map<String, AccountGroupsReportedEvent.Group> visibleGroups = visibleGroups(event.groups(), baseline);
-            snapshotService.replaceVisibleGroups(event.accountId(), List.copyOf(visibleGroups.values()), syncAt);
-            log.info("账号群列表事件已回写 tenantId={} accountId={} protocolAccountId={} rawGroups={} "
-                            + "baselineGroups={} visibleGroups={} eventId={}",
-                    event.tenantId(), event.accountId(), event.protocolAccountId(), event.groups().size(),
-                    baseline.size(), visibleGroups.size(), event.eventId());
+            snapshotService.replaceVisibleGroups(
+                    event.accountId(),
+                    List.copyOf(visibleGroups.values()),
+                    syncAt,
+                    event.eventId(),
+                    event.source());
+            log.info("账号群列表事件已回写 eventId={} source={} reportedAt={} tenantId={} accountId={} "
+                            + "protocolAccountId={} rawGroups={} baselineGroups={} visibleGroups={} "
+                            + "visibleGroupJidSample={}",
+                    event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
+                    event.protocolAccountId(), event.groups().size(), baseline.size(), visibleGroups.size(),
+                    jidSample(visibleGroups.keySet()));
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -127,11 +134,13 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
         if (updated <= 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "账号群基线状态更新失败");
         }
-        snapshotService.replaceVisibleGroups(event.accountId(), List.of(), syncAt);
-        log.info("待拍账号群基线已由异步回报捕获 tenantId={} accountId={} protocolAccountId={} rawGroups={} "
-                        + "baselineGroups={} stateUpdated={} eventId={}",
-                event.tenantId(), event.accountId(), event.protocolAccountId(), event.groups().size(),
-                baselineGroupJids.size(), updated, event.eventId());
+        snapshotService.replaceVisibleGroups(
+                event.accountId(), List.of(), syncAt, event.eventId(), event.source());
+        log.info("待拍账号群基线已由异步回报捕获 eventId={} source={} reportedAt={} tenantId={} "
+                        + "accountId={} protocolAccountId={} rawGroups={} baselineGroups={} visibleGroups={} "
+                        + "visibleGroupJidSample={} stateUpdated={}",
+                event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
+                event.protocolAccountId(), event.groups().size(), baselineGroupJids.size(), 0, List.of(), updated);
     }
 
     /**
@@ -222,6 +231,22 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
             visible.putIfAbsent(groupJid, group);
         }
         return visible;
+    }
+
+    /**
+     * 返回最多 5 个非空群 JID,用于有界排障日志。
+     */
+    private static List<String> jidSample(Iterable<String> groupJids) {
+        List<String> sample = new ArrayList<>(5);
+        for (String groupJid : groupJids) {
+            if (groupJid != null && !groupJid.isBlank()) {
+                sample.add(groupJid);
+                if (sample.size() == 5) {
+                    break;
+                }
+            }
+        }
+        return sample;
     }
 
     /**

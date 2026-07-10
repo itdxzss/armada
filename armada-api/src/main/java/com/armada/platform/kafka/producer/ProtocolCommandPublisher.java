@@ -223,6 +223,7 @@ public class ProtocolCommandPublisher {
                                 toWireFormat(ref.format()),
                                 credentialPayload,
                                 proxyPayload,
+                                ref.isBusiness(),
                                 ref.source(),
                                 ref.onlineAttemptId(),
                                 ref.previousOnlineAttemptId(),
@@ -241,12 +242,13 @@ public class ProtocolCommandPublisher {
         Long accountId = requiredLong(payload, "accountId", row.getCommandId());
         Long proxyId = requiredLong(payload, "proxyId", row.getCommandId());
         String protocolAccountId = textOrDefault(payload, "protocolAccountId", row.getProtocolAccountId());
+        boolean isBusiness = booleanValue(payload, "isBusiness", false);
         String source = textOrDefault(payload, "source", "unknown");
         String onlineAttemptId = requiredText(payload, "onlineAttemptId", row.getCommandId());
         String previousOnlineAttemptId = textOrDefault(payload, "previousOnlineAttemptId", null);
         String protocolBackend = protocolBackend(payload, row);
         CredentialFormat format = credentialFormat(requiredText(payload, "credentialFormat", row.getCommandId()));
-        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, source,
+        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, isBusiness, source,
                 onlineAttemptId, previousOnlineAttemptId, protocolBackend);
     }
 
@@ -356,6 +358,17 @@ public class ProtocolCommandPublisher {
         return value.asText();
     }
 
+    private static boolean booleanValue(JsonNode payload, String fieldName, boolean defaultValue) {
+        JsonNode value = payload.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return defaultValue;
+        }
+        if (!value.isBoolean()) {
+            throw validation("协议上线命令字段不是布尔值: " + fieldName);
+        }
+        return value.asBoolean();
+    }
+
     private static String protocolBackend(JsonNode payload, ProtocolCommandOutbox row) {
         String payloadBackend = textOrDefault(payload, "protocolBackend", null);
         if (!isBlank(payloadBackend)) {
@@ -414,6 +427,7 @@ public class ProtocolCommandPublisher {
             String protocolAccountId,
             CredentialFormat format,
             Long proxyId,
+            boolean isBusiness,
             String source,
             String onlineAttemptId,
             String previousOnlineAttemptId,
@@ -428,6 +442,7 @@ public class ProtocolCommandPublisher {
             String format,
             Map<String, Object> credential,
             ProxyDescriptor proxy,
+            boolean isBusiness,
             String source,
             String onlineAttemptId,
             @JsonInclude(JsonInclude.Include.ALWAYS)

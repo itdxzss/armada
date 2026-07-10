@@ -5,6 +5,7 @@ import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.service.MarketingMessageComposer;
+import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -35,6 +36,9 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
 
     @Autowired
     private MarketingTemplateFileMapper fileMapper;
+
+    @Autowired
+    private MarketingAccountOccupancyService occupancyService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -99,7 +103,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
         return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outboxService, properties, Clock.systemUTC());
+                occupancyService, new MarketingMessageComposer(), outboxService, properties, Clock.systemUTC());
     }
 
     private ProtocolCommandOutboxService recordingOutbox(

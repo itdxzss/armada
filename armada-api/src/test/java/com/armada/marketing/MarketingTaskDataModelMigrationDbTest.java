@@ -21,6 +21,7 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(tableExists("marketing_task")).isTrue();
         assertThat(tableExists("marketing_task_target")).isTrue();
         assertThat(tableExists("marketing_task_send_attempt")).isTrue();
+        assertThat(tableExists("marketing_account_occupancy")).isTrue();
         assertThat(tableExists("account_group_baseline")).isTrue();
     }
 
@@ -100,6 +101,15 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(columnType("marketing_task_send_attempt", "attempted_at")).isEqualTo("bigint");
         assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_round")).isFalse();
         assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_group_round")).isTrue();
+    }
+
+    @Test
+    void marketingAccountOccupancy_hasOneCurrentOwnerPerTenantAccount() {
+        assertThat(columnType("marketing_account_occupancy", "account_id")).isEqualTo("bigint");
+        assertThat(columnType("marketing_account_occupancy", "marketing_task_id")).isEqualTo("bigint");
+        assertThat(columnType("marketing_account_occupancy", "occupied_at")).isEqualTo("bigint");
+        assertThat(indexExists("marketing_account_occupancy", "uq_marketing_account_occupancy_account")).isTrue();
+        assertThat(indexExists("marketing_account_occupancy", "idx_marketing_account_occupancy_task")).isTrue();
     }
 
     private boolean tableExists(String tableName) {

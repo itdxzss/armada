@@ -137,6 +137,36 @@ class MarketingTaskMapperSqlShapeTest {
         assertThat(updateSql).contains("status IN (1, 2, 5)");
     }
 
+    @Test
+    void detailRollupShowsOccupiedSkipsWithoutCountingThemAsFailures() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("a.status IN (1, 2, 3)")
+                .contains("SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount")
+                .contains("WHEN a.status IN (2, 3) THEN COALESCE")
+                .doesNotContain("SUM(CASE WHEN a.status IN (2, 3)");
+    }
+
+    @Test
+    void detailRollupClearsOldReasonWhenLatestCompletedAttemptSucceeded() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("ELSE ''")
+                .contains("a.id DESC")
+                .contains("NULLIF(\n                   SUBSTRING_INDEX(")
+                .contains("),\n                   ''\n               ) AS lastReason");
+    }
+
     private static String selectBlock(String xml, String id) {
         String startTag = "<select id=\"" + id + "\"";
         int start = xml.indexOf(startTag);

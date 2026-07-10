@@ -19,6 +19,7 @@ import com.armada.marketing.model.MessageButton;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.service.impl.MarketingTemplateServiceImpl;
+import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.shared.exception.BusinessException;
 import java.util.Arrays;
 import java.util.List;
@@ -42,6 +43,9 @@ class MarketingTemplateServiceImplTest {
 
     @Mock
     private MarketingTemplateConverter converter;
+
+    @Mock
+    private MarketingAccountOccupancyService occupancyService;
 
     @InjectMocks
     private MarketingTemplateServiceImpl service;
@@ -248,6 +252,7 @@ class MarketingTemplateServiceImplTest {
     void batchDelete_empty_noop() {
         service.batchDelete(List.of());
         verify(taskMapper, never()).stopRunnableTasksByTemplateIds(any(), anyLong());
+        verify(occupancyService, never()).releaseAccountsByTemplateIds(any());
         verify(mapper, never()).softDeleteByIds(any(), anyLong());
     }
 
@@ -256,6 +261,7 @@ class MarketingTemplateServiceImplTest {
         service.batchDelete(Arrays.asList(1L, null, 1L, 2L));
 
         verify(taskMapper).stopRunnableTasksByTemplateIds(eq(List.of(1L, 2L)), anyLong());
+        verify(occupancyService).releaseAccountsByTemplateIds(List.of(1L, 2L));
         verify(mapper).softDeleteByIds(eq(List.of(1L, 2L)), anyLong());
     }
 

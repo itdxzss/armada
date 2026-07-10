@@ -178,17 +178,25 @@
                SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
                MAX(COALESCE(a.result_at, a.attempted_at, a.created_at)) AS lastAttemptAt,
                MAX(CASE WHEN a.status = 1 THEN COALESCE(a.result_at, a.attempted_at, a.created_at) ELSE NULL END) AS lastSentAt,
-               SUBSTRING_INDEX(
-                   GROUP_CONCAT(
-                       CASE
-                           WHEN a.status = 2 THEN COALESCE(NULLIF(TRIM(a.reason_message), ''), a.reason_code, '发送失败')
-                           ELSE NULL
-                       END
-                       ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC
-                       SEPARATOR '\n'
+               <!-- 成功记录必须用空字符串参与排序，避免旧失败/跳过原因穿透到最新成功结果。 -->
+               NULLIF(
+                   SUBSTRING_INDEX(
+                       GROUP_CONCAT(
+                           CASE
+                               WHEN a.status IN (2, 3) THEN COALESCE(
+                                   NULLIF(TRIM(a.reason_message), ''),
+                                   a.reason_code,
+                                   CASE WHEN a.status = 3 THEN '本轮已跳过' ELSE '发送失败' END
+                               )
+                               ELSE ''
+                           END
+                           ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC, a.id DESC
+                           SEPARATOR '\n'
+                       ),
+                       '\n',
+                       1
                    ),
-                   '\n',
-                   1
+                   ''
                ) AS lastReason
         FROM marketing_task_target t
         JOIN marketing_task_send_attempt a ON a.target_id = t.id
@@ -197,7 +205,7 @@
         LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
         WHERE t.marketing_task_id = #{taskId}
           AND a.marketing_task_id = #{taskId}
-          AND a.status IN (1, 2)
+          AND a.status IN (1, 2, 3)
         GROUP BY t.account_id,
                  t.account_phone,
                  COALESCE(a.group_link_id, p.group_link_id, t.group_link_id),

@@ -59,6 +59,7 @@ class MarketingTaskMutationDbTest extends DbTestBase {
         assertThat(activated.status()).isEqualTo(STATUS_PENDING);
         assertThat(activated.startedAt()).isNull();
         assertThat(nextRoundAt(created.id())).isNull();
+        assertThat(occupancyCount(created.id())).isZero();
     }
 
     @Test
@@ -108,11 +109,25 @@ class MarketingTaskMutationDbTest extends DbTestBase {
     void stopTask_sendingTask_setsStopped() {
         Fixture fixture = seedFixture("stop-sending");
         MarketingTaskVO created = createTask("发送中任务", fixture, "IMMEDIATE");
+        assertThat(occupancyCount(created.id())).isEqualTo(1);
 
         MarketingTaskVO stopped = service.stopTask(created.id());
 
         assertThat(stopped.status()).isEqualTo(STATUS_STOPPED);
         assertThat(stopped.startedAt()).isEqualTo(created.startedAt());
+        assertThat(occupancyCount(created.id())).isZero();
+    }
+
+    @Test
+    void createTask_accountGroupContainsOccupiedAccount_isRejected() {
+        Fixture fixture = seedFixture("create-occupied-group");
+        MarketingTaskVO running = createTask("占用分组任务", fixture, "IMMEDIATE");
+
+        assertThatThrownBy(() -> createTask("同分组新任务", fixture, "PENDING"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("该分组已被营销任务【占用分组任务】占用")
+                .hasMessageContaining("释放，请稍后重试");
+        assertThat(occupancyCount(running.id())).isEqualTo(1);
     }
 
     @Test
@@ -279,6 +294,14 @@ class MarketingTaskMutationDbTest extends DbTestBase {
 
     private Long deletedAt(Long taskId) {
         return jdbc.queryForObject("SELECT deleted_at FROM marketing_task WHERE id = ?", Long.class, taskId);
+    }
+
+    private int occupancyCount(Long taskId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM marketing_account_occupancy WHERE marketing_task_id = ?",
+                Integer.class,
+                taskId);
+        return count == null ? 0 : count;
     }
 
     private Fixture seedFixture(String suffix) {

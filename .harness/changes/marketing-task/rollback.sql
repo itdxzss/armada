@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS marketing_account_occupancy;
 DROP TABLE IF EXISTS marketing_task_send_attempt;
 DROP TABLE IF EXISTS marketing_task_target;
 DROP TABLE IF EXISTS marketing_task;

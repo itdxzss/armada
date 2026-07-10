@@ -35,14 +35,18 @@ public class MarketingAccountTreeRealtimeService {
     private static final String STATUS_MUTED = "MUTED";
 
     private final MarketingTaskMapper taskMapper;
+    private final MarketingAccountOccupancyService occupancyService;
 
     /**
      * 创建营销账号树查库服务。
      *
-     * @param taskMapper 营销任务 mapper,用于查询账号和账号当前群候选
+     * @param taskMapper       营销任务 mapper,用于查询账号和账号当前群候选
+     * @param occupancyService 普通营销账号占用服务
      */
-    public MarketingAccountTreeRealtimeService(MarketingTaskMapper taskMapper) {
+    public MarketingAccountTreeRealtimeService(MarketingTaskMapper taskMapper,
+                                               MarketingAccountOccupancyService occupancyService) {
         this.taskMapper = taskMapper;
+        this.occupancyService = occupancyService;
     }
 
     /**
@@ -58,6 +62,7 @@ public class MarketingAccountTreeRealtimeService {
         if (groupId == null) {
             return new MarketingAccountTreeVO(List.of());
         }
+        occupancyService.assertAccountGroupAvailable(groupId, System.currentTimeMillis());
         List<MarketingAccountTreeAccountRow> accounts = taskMapper.selectAccountTreeAccounts(groupId);
         if (accounts.isEmpty()) {
             log.info("营销账号树首屏查询 groupId={} accounts=0", groupId);

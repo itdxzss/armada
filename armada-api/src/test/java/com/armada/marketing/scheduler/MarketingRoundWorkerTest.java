@@ -16,20 +16,25 @@ import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
+import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.service.MarketingMessageComposer;
+import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -47,14 +52,18 @@ class MarketingRoundWorkerTest {
     void futureSendingTaskReturnsToWaitingWithoutGeneratingMessages() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
         ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingTask task = task();
         task.setTaskStartAt(System.currentTimeMillis() + 60_000L);
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.deferEarlySendingTask(eq(42L), anyLong())).thenReturn(1);
 
-        MarketingRoundWorker worker = worker(taskMapper, outbox, new MarketingRoundSchedulerProperties());
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, new MarketingRoundSchedulerProperties(), Clock.systemUTC(), occupancyService);
         worker.runRound(1L, 42L);
 
         verify(taskMapper).deferEarlySendingTask(eq(42L), anyLong());
+        verify(occupancyService).releaseTaskAccounts(42L);
         verify(taskMapper, never()).selectTargetsByTaskId(anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
         verify(outbox, never()).enqueueMarketingMessageCommands(any());
@@ -70,12 +79,15 @@ class MarketingRoundWorkerTest {
         task.setTaskEndAt(1_500L);
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(1));
+        when(taskMapper.endExpiredTask(42L, 2_000L)).thenReturn(1);
+        MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
 
         MarketingRoundWorker worker = worker(
-                taskMapper, outbox, new MarketingRoundSchedulerProperties(), clock);
+                taskMapper, outbox, new MarketingRoundSchedulerProperties(), clock, occupancyService);
         worker.runRound(1L, 42L);
 
         verify(taskMapper).endExpiredTask(42L, 2_000L);
+        verify(occupancyService).releaseTaskAccounts(42L);
         verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
         verify(outbox, never()).enqueueMarketingMessageCommands(any());
@@ -150,6 +162,87 @@ class MarketingRoundWorkerTest {
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::commandId)
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType).containsOnly("TEXT");
+    }
+
+    @Test
+    void dueRound_sendsOwnedAccountAndRecordsOccupiedAccountAsSkipped() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        List<MarketingTaskTarget> targets = targets(2);
+        MarketingAccountOccupancyOwnerRow currentOwner = owner(5001L, 42L, "当前任务", 5_000L);
+        MarketingAccountOccupancyOwnerRow otherOwner = owner(5002L, 99L, "其它任务", 6_000L);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task());
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        when(occupancyService.acquireAndLoadTaskAccounts(any(), anyLong()))
+                .thenReturn(Map.of(5001L, currentOwner, 5002L, otherOwner));
+        when(occupancyService.occupiedAttemptMessage(otherOwner))
+                .thenReturn("账号已被其它任务占用，本轮未发送。");
+        assignAttemptIds(taskMapper, 9_500L);
+
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, properties, Clock.systemUTC(), occupancyService);
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketingTaskSendAttempt>> attemptsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(taskMapper).insertSendAttempts(attemptsCaptor.capture());
+        assertThat(attemptsCaptor.getValue()).hasSize(2);
+        assertThat(attemptsCaptor.getValue()).filteredOn(
+                        attempt -> attempt.getStatus() == MarketingSendAttemptStatus.SKIPPED.code())
+                .singleElement()
+                .satisfies(attempt -> {
+                    assertThat(attempt.getReasonCode()).isEqualTo("ACCOUNT_OCCUPIED");
+                    assertThat(attempt.getReasonMessage()).contains("本轮未发送");
+                    assertThat(attempt.getGroupJid()).isEqualTo(targets.get(1).getGroupJid());
+                });
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).singleElement().satisfies(command ->
+                assertThat(command.protocolAccountId()).isEqualTo(targets.get(0).getProtocolAccountId()));
+        verify(taskMapper, never()).incrementTaskSendCounters(eq(42L), eq(0), anyInt(), anyLong());
+    }
+
+    @Test
+    void occupiedAccount_releasedBeforeLaterRound_isAcquiredAndSent() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        MarketingTask firstRoundTask = task();
+        MarketingTask secondRoundTask = task();
+        secondRoundTask.setCurrentRoundNo(1L);
+        MarketingTaskTarget target = targets(1).get(0);
+        MarketingAccountOccupancyOwnerRow otherOwner = owner(5001L, 99L, "其它任务", 6_000L);
+        MarketingAccountOccupancyOwnerRow currentOwner = owner(5001L, 42L, "当前任务", 7_000L);
+        when(taskMapper.selectTaskById(42L)).thenReturn(firstRoundTask, secondRoundTask);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
+        when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        when(occupancyService.acquireAndLoadTaskAccounts(any(), anyLong()))
+                .thenReturn(Map.of(5001L, otherOwner), Map.of(5001L, currentOwner));
+        when(occupancyService.occupiedAttemptMessage(otherOwner))
+                .thenReturn("账号已被其它任务占用，本轮未发送。");
+        assignAttemptIds(taskMapper, 9_600L);
+
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, properties, Clock.systemUTC(), occupancyService);
+        worker.runRound(1L, 42L);
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketingTaskSendAttempt>> attemptsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(taskMapper, times(2)).insertSendAttempts(attemptsCaptor.capture());
+        assertThat(attemptsCaptor.getAllValues().get(0)).singleElement().satisfies(attempt ->
+                assertThat(attempt.getStatus()).isEqualTo(MarketingSendAttemptStatus.SKIPPED.code()));
+        assertThat(attemptsCaptor.getAllValues().get(1)).singleElement().satisfies(attempt ->
+                assertThat(attempt.getStatus()).isEqualTo(MarketingSendAttemptStatus.SUBMITTED.code()));
+        verify(outbox, times(1)).enqueueMarketingMessageCommands(any());
     }
 
     @Test
@@ -348,7 +441,7 @@ class MarketingRoundWorkerTest {
         when(templateMapper.selectById(77L)).thenReturn(imageTemplate());
         when(fileMapper.selectById(88L)).thenReturn(imageFile());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -388,7 +481,7 @@ class MarketingRoundWorkerTest {
         when(templateMapper.selectById(77L)).thenReturn(normalLinkCardTemplate());
         when(fileMapper.selectById(88L)).thenReturn(imageFile());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -427,7 +520,7 @@ class MarketingRoundWorkerTest {
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithButtons());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -468,7 +561,7 @@ class MarketingRoundWorkerTest {
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(invalidButtonTemplate());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -497,11 +590,57 @@ class MarketingRoundWorkerTest {
                                         ProtocolCommandOutboxService outbox,
                                         MarketingRoundSchedulerProperties properties,
                                         Clock clock) {
+        return worker(taskMapper, outbox, properties, clock, defaultOccupancyService());
+    }
+
+    private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
+                                        ProtocolCommandOutboxService outbox,
+                                        MarketingRoundSchedulerProperties properties,
+                                        Clock clock,
+                                        MarketingAccountOccupancyService occupancyService) {
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(template());
         return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties, clock);
+                occupancyService, new MarketingMessageComposer(), outbox, properties, clock);
+    }
+
+    private static MarketingAccountOccupancyService defaultOccupancyService() {
+        MarketingAccountOccupancyService service = mock(MarketingAccountOccupancyService.class);
+        when(service.acquireAndLoadTaskAccounts(any(), anyLong())).thenReturn(currentTaskOwners());
+        return service;
+    }
+
+    private static Map<Long, MarketingAccountOccupancyOwnerRow> currentTaskOwners() {
+        Map<Long, MarketingAccountOccupancyOwnerRow> owners = new LinkedHashMap<>();
+        for (long accountId = 5_001L; accountId <= 6_000L; accountId++) {
+            owners.put(accountId, owner(accountId, 42L, "当前任务", 9_000L));
+        }
+        return owners;
+    }
+
+    private static MarketingAccountOccupancyOwnerRow owner(Long accountId,
+                                                            Long taskId,
+                                                            String taskName,
+                                                            Long taskEndAt) {
+        MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
+        owner.setAccountId(accountId);
+        owner.setMarketingTaskId(taskId);
+        owner.setTaskName(taskName);
+        owner.setTaskEndAt(taskEndAt);
+        return owner;
+    }
+
+    private static void assignAttemptIds(MarketingTaskMapper taskMapper, long startingId) {
+        long[] nextId = {startingId};
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
+            for (MarketingTaskSendAttempt attempt : attempts) {
+                attempt.setId(++nextId[0]);
+            }
+            return attempts.size();
+        }).when(taskMapper).insertSendAttempts(any());
     }
 
     private static MarketingTask task() {

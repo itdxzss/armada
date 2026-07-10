@@ -1,6 +1,7 @@
 package com.armada.marketing.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.marketing.mapper.MarketingTaskMapper;
@@ -13,7 +14,10 @@ import org.mockito.Mockito;
 class MarketingAccountTreeRealtimeServiceTest {
 
     private final MarketingTaskMapper taskMapper = Mockito.mock(MarketingTaskMapper.class);
-    private final MarketingAccountTreeRealtimeService service = new MarketingAccountTreeRealtimeService(taskMapper);
+    private final MarketingAccountOccupancyService occupancyService =
+            Mockito.mock(MarketingAccountOccupancyService.class);
+    private final MarketingAccountTreeRealtimeService service =
+            new MarketingAccountTreeRealtimeService(taskMapper, occupancyService);
 
     @Test
     void accountTreeReturnsChineseStatusAndGroupCount() {
@@ -23,6 +27,8 @@ class MarketingAccountTreeRealtimeServiceTest {
 
         var tree = service.accountTree(8L);
 
+        verify(occupancyService).assertAccountGroupAvailable(org.mockito.ArgumentMatchers.eq(8L),
+                org.mockito.ArgumentMatchers.anyLong());
         assertThat(tree.accounts()).singleElement().satisfies(account -> {
             assertThat(account.accountId()).isEqualTo(3L);
             assertThat(account.wsPhone()).isEqualTo("923300000003");

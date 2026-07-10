@@ -64,6 +64,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private final MarketingTemplateMapper templateMapper;
     private final MarketingTemplateService templateService;
     private final MarketingAccountTreeRealtimeService accountTreeRealtimeService;
+    private final MarketingAccountOccupancyService occupancyService;
 
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
@@ -75,15 +76,18 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
      * @param templateMapper  营销模板数据访问
      * @param templateService 营销模板业务服务
      * @param accountTreeRealtimeService 营销账号树实时查询服务
+     * @param occupancyService 普通营销账号占用服务
      */
     public MarketingTaskServiceImpl(MarketingTaskMapper taskMapper,
                                     MarketingTemplateMapper templateMapper,
                                     MarketingTemplateService templateService,
-                                    MarketingAccountTreeRealtimeService accountTreeRealtimeService) {
+                                    MarketingAccountTreeRealtimeService accountTreeRealtimeService,
+                                    MarketingAccountOccupancyService occupancyService) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
         this.templateService = templateService;
         this.accountTreeRealtimeService = accountTreeRealtimeService;
+        this.occupancyService = occupancyService;
     }
 
     /**
@@ -124,6 +128,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         // 任何一个目标不可用都整单失败,避免页面看到"半个任务"。
         long now = System.currentTimeMillis();
         validateRequest(request, now);
+        occupancyService.assertAccountGroupAvailable(request.accountGroupId(), now);
         MarketingTemplate template = requireTemplate(request.marketingTemplateId());
         List<MarketingTaskTarget> targets = buildTargets(request, now);
         MarketingTask task = buildTask(request, template, targets, now);
@@ -133,6 +138,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             target.setMarketingTaskId(task.getId());
         }
         taskMapper.insertTargets(targets);
+        if (Integer.valueOf(STATUS_SENDING).equals(task.getStatus())) {
+            occupancyService.acquireAndLoadTaskAccounts(task, now);
+        }
         log.info("营销任务已创建 id={} targets={} status={}", task.getId(), targets.size(), task.getStatus());
         return toVO(taskMapper.selectTaskById(task.getId()));
     }
@@ -188,6 +196,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (updated == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
         }
+        if (nextStatus == STATUS_SENDING) {
+            occupancyService.acquireAndLoadTaskAccounts(task, now);
+        }
         log.info(
                 "营销任务激活 id={} tenantId={} originalStatus={} nextStatus={} taskStartAt={} taskEndAt={}",
                 id,
@@ -226,6 +237,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (updated == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
         }
+        if (nextStatus == STATUS_SENDING) {
+            occupancyService.acquireAndLoadTaskAccounts(task, now);
+        }
         log.info(
                 "营销任务重新启动 id={} tenantId={} originalStartAt={} originalEndAt={} "
                         + "newStartAt={} newEndAt={} nextStatus={}",
@@ -259,7 +273,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (updated == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
         }
-        log.info("营销任务停止 id={}", id);
+        int released = occupancyService.releaseTaskAccounts(id);
+        log.info("营销任务停止 id={} tenantId={} releasedAccounts={}", id, task.getTenantId(), released);
         return toVO(requireTask(id));
     }
 

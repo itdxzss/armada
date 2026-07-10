@@ -42,13 +42,16 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     private final MarketingTemplateMapper mapper;
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateConverter converter;
+    private final MarketingAccountOccupancyService occupancyService;
 
     public MarketingTemplateServiceImpl(MarketingTemplateMapper mapper,
                                         MarketingTaskMapper taskMapper,
-                                        MarketingTemplateConverter converter) {
+                                        MarketingTemplateConverter converter,
+                                        MarketingAccountOccupancyService occupancyService) {
         this.mapper = mapper;
         this.taskMapper = taskMapper;
         this.converter = converter;
+        this.occupancyService = occupancyService;
     }
 
     /**
@@ -162,9 +165,10 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         }
         long now = System.currentTimeMillis();
         int stoppedTasks = taskMapper.stopRunnableTasksByTemplateIds(normalizedIds, now);
+        int releasedAccounts = occupancyService.releaseAccountsByTemplateIds(normalizedIds);
         mapper.softDeleteByIds(normalizedIds, now);
-        log.info("营销模板批量软删除 count={} stoppedTasks={} ids={}",
-                normalizedIds.size(), stoppedTasks, normalizedIds);
+        log.info("营销模板批量软删除 count={} stoppedTasks={} releasedAccounts={} ids={}",
+                normalizedIds.size(), stoppedTasks, releasedAccounts, normalizedIds);
     }
 
     /** 按 ID 取未删模板,不存在即抛 404;update/clone 等写操作都先过这道存在性校验。 */

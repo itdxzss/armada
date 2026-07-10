@@ -121,3 +121,19 @@ CREATE TABLE IF NOT EXISTS marketing_task_send_attempt (
     KEY idx_marketing_task_attempt_target (tenant_id, target_id, attempt_no),
     KEY idx_marketing_task_attempt_status_time (tenant_id, status, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='群组营销任务发送尝试记录';
+
+-- 2026-07-10 普通群组营销账号当前占用:
+-- 只保存当前 owner，不保存分组锁；任务名称和结束时间继续以 marketing_task 为事实来源。
+-- 同租户同账号唯一键是并发闸门，任务停止/结束后物理删除当前占用行。
+CREATE TABLE IF NOT EXISTS marketing_account_occupancy (
+    id                 BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    tenant_id          BIGINT NOT NULL                COMMENT '租户ID',
+    account_id         BIGINT NOT NULL                COMMENT '当前被占用账号ID(→account.id)',
+    marketing_task_id  BIGINT NOT NULL                COMMENT '当前占用账号的普通营销任务ID(→marketing_task.id)',
+    occupied_at        BIGINT NOT NULL                COMMENT '账号被当前任务占用时间(epoch毫秒)',
+    created_at         BIGINT NOT NULL                COMMENT '创建时间(epoch毫秒)',
+    updated_at         BIGINT NOT NULL                COMMENT '更新时间(epoch毫秒)',
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_marketing_account_occupancy_account (tenant_id, account_id),
+    KEY idx_marketing_account_occupancy_task (tenant_id, marketing_task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='普通群组营销账号当前占用关系';

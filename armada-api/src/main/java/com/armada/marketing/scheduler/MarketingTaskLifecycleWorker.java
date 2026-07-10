@@ -1,6 +1,10 @@
 package com.armada.marketing.scheduler;
 
 import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +23,12 @@ public class MarketingTaskLifecycleWorker {
     private static final Logger log = LoggerFactory.getLogger(MarketingTaskLifecycleWorker.class);
 
     private final MarketingTaskMapper taskMapper;
+    private final MarketingAccountOccupancyService occupancyService;
 
-    public MarketingTaskLifecycleWorker(MarketingTaskMapper taskMapper) {
+    public MarketingTaskLifecycleWorker(MarketingTaskMapper taskMapper,
+                                        MarketingAccountOccupancyService occupancyService) {
         this.taskMapper = taskMapper;
+        this.occupancyService = occupancyService;
     }
 
     /** 到达任务开始时间后,等待任务进入发送中。 */
@@ -33,8 +40,13 @@ public class MarketingTaskLifecycleWorker {
             long now = System.currentTimeMillis();
             int updated = taskMapper.startDueWaitingTask(taskId, now);
             if (updated > 0) {
-                log.info("营销任务到达开始时间并启动 tenantId={} taskId={} startedAt={}",
-                        tenantId, taskId, now);
+                MarketingTask task = taskMapper.selectTaskById(taskId);
+                if (task == null) {
+                    throw new BusinessException(ErrorCode.NOT_FOUND, "营销任务不存在: " + taskId);
+                }
+                int ownerCount = occupancyService.acquireAndLoadTaskAccounts(task, now).size();
+                log.info("营销任务到达开始时间并启动 tenantId={} taskId={} startedAt={} accountOwners={}",
+                        tenantId, taskId, now, ownerCount);
             }
         } finally {
             restoreTenant(previousTenant);
@@ -50,8 +62,9 @@ public class MarketingTaskLifecycleWorker {
             long now = System.currentTimeMillis();
             int updated = taskMapper.endExpiredTask(taskId, now);
             if (updated > 0) {
-                log.info("营销任务到达结束时间并结束 tenantId={} taskId={} finishedAt={}",
-                        tenantId, taskId, now);
+                int released = occupancyService.releaseTaskAccounts(taskId);
+                log.info("营销任务到达结束时间并结束 tenantId={} taskId={} finishedAt={} releasedAccounts={}",
+                        tenantId, taskId, now, released);
             }
         } finally {
             restoreTenant(previousTenant);

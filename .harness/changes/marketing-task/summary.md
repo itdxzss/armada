@@ -137,3 +137,18 @@ mvn -q -Dtest=MarketingTaskDataModelMigrationDbTest,MarketingTaskCreateReadDbTes
   - RED：实现前 2 个门禁用例均收到旧文案 `任务状态已变化,请刷新后重试`。
   - GREEN：`MarketingTaskServiceImplLifecycleTest` 2 个测试通过。
   - 联动回归：`MarketingTaskServiceImplLifecycleTest,MarketingTemplateServiceImplTest,MarketingRoundWorkerTest,MarketingRoundSchedulerTest,MarketingTaskMapperSqlShapeTest` 共 40 个测试通过。
+
+## 2026-07-10 普通营销账号占用
+
+- 占用粒度为账号，不新增分组锁。创建任务和加载创建页账号树时，只要所选分组内存在被发送中普通营销任务占用的账号，就拒绝并展示占用任务名称与预计结束时间；信息不完整时使用通用提示。
+- 新增 `marketing_account_occupancy` 当前占用表，`(tenant_id, account_id)` 唯一键作为并发闸门；任务名称、结束时间仍从 `marketing_task` 联查，不重复保存。
+- 任务正式进入发送中时抢占当前空闲目标账号。未到开始时间的任务只保持等待，不提前占用。
+- 每轮发送前重新尝试抢占目标账号。仍被其它任务占用的账号按实际群目标写入 `SKIPPED / ACCOUNT_OCCUPIED` 明细，不创建协议 outbox、不累计失败；后续轮次会再次抢占，原任务释放后即可参与发送。
+- 详情的“最近原因”只反映最新一条已完成 attempt：最新失败/跳过时展示原因，账号后续释放并发送成功后清空旧占用原因。
+- 手动停止、自动到期、轮次检测到结束时间、提前误置发送中后退回等待、删除模板联动停止任务时，都会释放该任务持有的账号。已写入 outbox 的历史消息不撤回。
+- 建群营销未接入此占用模型。
+- TDD 证据：持久化、创建门禁、生命周期、每轮动态重抢、占用跳过和详情统计均先见到预期失败，再实现回绿。
+- 租户 SQL 解析复核先发现 `INSERT ... SELECT` 由拦截器补出的未限定 `tenant_id` 在双表连接下存在歧义，随后改为显式写入 `mt.tenant_id`，并用项目实际 `TenantLineInnerInterceptor` 锁定解析结果。
+- 聚焦回归：`MarketingAccountOccupancyMapperSqlShapeTest,MarketingAccountOccupancyServiceTest,MarketingTaskServiceImplLifecycleTest,MarketingAccountTreeRealtimeServiceTest,MarketingTaskLifecycleWorkerTest,MarketingRoundWorkerTest,MarketingRoundSchedulerTest,MarketingTaskMapperSqlShapeTest,MarketingTemplateServiceImplTest` 共 67 个测试通过，0 失败/错误。
+- 真库测试已补充到 `MarketingAccountOccupancyMapperDbTest`、`MarketingTaskMutationDbTest`、`MarketingRoundWorkerDbTest` 和迁移模型测试；本机库验证仍需先处理既有 Flyway V037、V041 校验和不一致，本次不执行 `flyway repair`。
+- 未提交、未部署。

@@ -138,7 +138,7 @@ class MarketingTaskControllerDbTest {
     }
 
     @Test
-    void postStartAndStop_updatesTaskStatus() throws Exception {
+    void postStartPauseResumeAndClose_updatesTaskStatus() throws Exception {
         Fixture fixture = seedFixture("controller-start-stop");
         long id = createTask("Controller启动停止任务", fixture);
 
@@ -150,42 +150,36 @@ class MarketingTaskControllerDbTest {
                 .andExpect(jsonPath("$.data.status").value(2))
                 .andExpect(jsonPath("$.data.startedAt").isNumber());
 
-        mockMvc.perform(post("/api/marketing-tasks/{id}/stop", id)
+        mockMvc.perform(post("/api/marketing-tasks/{id}/pause", id)
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.id").value(id))
                 .andExpect(jsonPath("$.data.status").value(5));
-    }
 
-    @Test
-    void postRestart_updatesEndedTaskWindowAndClearsFinishedAt() throws Exception {
-        Fixture fixture = seedFixture("controller-restart");
-        long id = createTask("Controller重新启动任务", fixture);
-        long now = System.currentTimeMillis();
-        jdbc.update("UPDATE marketing_task SET status = 7, finished_at = ? WHERE id = ?", now - 1_000L, id);
-        long newStartAt = now + 60_000L;
-        long newEndAt = now + 600_000L;
-
-        mockMvc.perform(post("/api/marketing-tasks/{id}/restart", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "taskStartAt", newStartAt,
-                                "taskEndAt", newEndAt)))
+        mockMvc.perform(post("/api/marketing-tasks/{id}/resume", id)
                         .header(TENANT_HEADER, TENANT_CODE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.id").value(id))
-                .andExpect(jsonPath("$.data.status").value(1))
-                .andExpect(jsonPath("$.data.taskStartAt").value(newStartAt))
-                .andExpect(jsonPath("$.data.taskEndAt").value(newEndAt))
-                .andExpect(jsonPath("$.data.finishedAt").isEmpty());
+                .andExpect(jsonPath("$.data.status").value(2));
+
+        mockMvc.perform(post("/api/marketing-tasks/{id}/close", id)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.status").value(8))
+                .andExpect(jsonPath("$.data.finishedAt").isNumber());
     }
 
     @Test
     void postBatchDelete_softDeletesTask() throws Exception {
         Fixture fixture = seedFixture("controller-batch-delete");
         long id = createTask("Controller批量删除任务", fixture);
+        mockMvc.perform(post("/api/marketing-tasks/{id}/close", id)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/marketing-tasks/batch-delete")
                         .contentType(MediaType.APPLICATION_JSON)

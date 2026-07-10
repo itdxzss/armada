@@ -151,24 +151,27 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:同一事务内先停止仍可执行的关联营销任务(待启动/发送中),再软删除模板;
-     * 已成功/失败等终态任务保留历史状态。空列表直接返回、不触库。</p>
+     * <p>实现要点：同一事务内先按固定顺序锁定未删除模板，再把仍占用账号的关联任务按异常终止
+     * 置为已完成并释放账号，最后软删除模板；已有终态任务保留历史状态。空列表直接返回、不触库。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void batchDelete(List<Long> ids) {
         List<Long> normalizedIds = ids == null
                 ? List.of()
-                : ids.stream().filter(Objects::nonNull).distinct().toList();
+                : ids.stream().filter(Objects::nonNull).distinct().sorted().toList();
         if (normalizedIds.isEmpty()) {
             return;
         }
+        // 必须先锁模板再扫描关联任务：如果创建任务先拿到锁，本事务等待后可以看到并结束新任务；
+        // 如果删除先拿到锁，创建事务会在软删除提交后查不到模板，从而整体回滚。
+        List<Long> lockedTemplateIds = mapper.selectExistingIdsForUpdate(normalizedIds);
         long now = System.currentTimeMillis();
-        int stoppedTasks = taskMapper.stopRunnableTasksByTemplateIds(normalizedIds, now);
+        int completedTasks = taskMapper.completeActiveTasksByTemplateIds(normalizedIds, now);
         int releasedAccounts = occupancyService.releaseAccountsByTemplateIds(normalizedIds);
         mapper.softDeleteByIds(normalizedIds, now);
-        log.info("营销模板批量软删除 count={} stoppedTasks={} releasedAccounts={} ids={}",
-                normalizedIds.size(), stoppedTasks, releasedAccounts, normalizedIds);
+        log.info("营销模板批量软删除 requested={} locked={} abnormalCompletedTasks={} releasedAccounts={} ids={}",
+                normalizedIds.size(), lockedTemplateIds.size(), completedTasks, releasedAccounts, normalizedIds);
     }
 
     /** 按 ID 取未删模板,不存在即抛 404;update/clone 等写操作都先过这道存在性校验。 */

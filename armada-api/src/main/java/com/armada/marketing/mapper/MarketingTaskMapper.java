@@ -44,14 +44,14 @@ public interface MarketingTaskMapper {
     @InterceptorIgnore(tenantLine = "true")
     List<MarketingTask> selectDueWaitingTasks(@Param("now") long now, @Param("limit") int limit);
 
-    /** 查询已到计划结束时间的等待/发送中/已停止任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
+    /** 查询已到计划结束时间的未启动/执行中/已暂停任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
     @InterceptorIgnore(tenantLine = "true")
     List<MarketingTask> selectExpiredRunnableTasks(@Param("now") long now, @Param("limit") int limit);
 
     /** 到达计划开始时间后,等待任务进入发送中。 */
     int startDueWaitingTask(@Param("id") Long id, @Param("now") long now);
 
-    /** 到达计划结束时间后,等待/发送中/已停止任务进入已结束。 */
+    /** 到达计划结束时间后，未启动/执行中/已暂停任务进入已完成。 */
     int endExpiredTask(@Param("id") Long id, @Param("now") long now);
 
     /** 修正开始时间尚未到达却处于发送中的任务,退回等待并取消轮次调度。 */
@@ -103,33 +103,28 @@ public interface MarketingTaskMapper {
                                     @Param("reasonMessage") String reasonMessage,
                                     @Param("resultAt") long resultAt);
 
-    /**
-     * 激活等待中或已停止任务,由服务层根据计划开始时间决定继续等待还是进入发送中。
-     */
-    int activateTask(@Param("id") Long id,
-                     @Param("expectedStatus") int expectedStatus,
-                     @Param("nextStatus") int nextStatus,
-                     @Param("now") long now);
+    /** 在计划执行窗口内将未启动任务切换为执行中。 */
+    int startPendingTask(@Param("id") Long id, @Param("now") long now);
 
-    /**
-     * 使用新的计划窗口重新启动已结束任务;发送筛选时间、累计计数和轮次历史保持不变。
-     */
-    int restartEndedTask(@Param("id") Long id,
-                         @Param("nextStatus") int nextStatus,
-                         @Param("taskStartAt") long taskStartAt,
-                         @Param("taskEndAt") long taskEndAt,
-                         @Param("now") long now);
+    /** 将执行中任务切换为已暂停，并停止生成后续轮次。 */
+    int pauseSendingTask(@Param("id") Long id, @Param("now") long now);
 
-    /** 发送中任务置为已停止。 */
+    /** 在计划执行窗口内恢复已暂停任务。 */
+    int resumePausedTask(@Param("id") Long id, @Param("now") long now);
+
+    /** 将未启动、执行中或已暂停任务手动关闭。 */
+    int closeActiveTask(@Param("id") Long id, @Param("now") long now);
+
+    /** 建群营销兼容入口：发送中普通营销任务置为暂停；普通营销接口不再暴露本方法。 */
     int stopTask(@Param("id") Long id, @Param("now") long now);
 
-    /** 删除模板时,将关联的待启动/发送中任务置为已停止。 */
-    int stopRunnableTasksByTemplateIds(@Param("templateIds") List<Long> templateIds, @Param("now") long now);
+    /** 删除模板时，将关联的未启动、执行中或已暂停任务按异常终止置为已完成。 */
+    int completeActiveTasksByTemplateIds(@Param("templateIds") List<Long> templateIds, @Param("now") long now);
 
-    /** 统计指定任务里仍处于发送中的未删任务数量。 */
-    int countSendingByIds(@Param("ids") List<Long> ids);
+    /** 统计指定任务里仍处于未启动、执行中或已暂停的任务数量。 */
+    int countActiveByIds(@Param("ids") List<Long> ids);
 
-    /** 批量软删非发送中的任务。 */
+    /** 批量软删已完成或已关闭任务。 */
     int batchSoftDelete(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 
     /** 分页总数。 */

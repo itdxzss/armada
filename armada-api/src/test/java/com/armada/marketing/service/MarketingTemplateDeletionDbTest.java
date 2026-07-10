@@ -1,6 +1,5 @@
 package com.armada.marketing.service;
 
-import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.testsupport.DbTestBase;
@@ -31,51 +30,49 @@ class MarketingTemplateDeletionDbTest extends DbTestBase {
     private JdbcTemplate jdbc;
 
     @Test
-    void batchDelete_stopsRunnableTasksReferencingDeletedTemplateOnly() {
+    void batchDelete_completesRunnableTasksReferencingDeletedTemplateOnly() {
         String suffix = String.valueOf(System.nanoTime());
         long deletedTemplateId = insertTemplate("删除联动模板-" + suffix);
         long otherTemplateId = insertTemplate("保留模板-" + suffix);
         long pendingTaskId = insertTask("待启动任务-" + suffix, deletedTemplateId, MarketingTaskStatus.PENDING);
         long sendingTaskId = insertTask("发送中任务-" + suffix, deletedTemplateId, MarketingTaskStatus.SENDING);
-        long successTaskId = insertTask("已成功任务-" + suffix, deletedTemplateId, MarketingTaskStatus.SUCCESS);
+        long successTaskId = insertTask("已完成任务-" + suffix, deletedTemplateId, MarketingTaskStatus.COMPLETED);
         long otherSendingTaskId = insertTask("其它模板任务-" + suffix, otherTemplateId, MarketingTaskStatus.SENDING);
 
         service.batchDelete(List.of(deletedTemplateId));
 
         assertThat(templateDeletedAt(deletedTemplateId)).isNotNull();
         assertThat(templateDeletedAt(otherTemplateId)).isNull();
-        assertTaskStatus(pendingTaskId, MarketingTaskStatus.STOPPED);
-        assertTaskStatus(sendingTaskId, MarketingTaskStatus.STOPPED);
-        assertTaskStatus(successTaskId, MarketingTaskStatus.SUCCESS);
+        assertTaskStatus(pendingTaskId, MarketingTaskStatus.COMPLETED);
+        assertTaskStatus(sendingTaskId, MarketingTaskStatus.COMPLETED);
+        assertTaskStatus(successTaskId, MarketingTaskStatus.COMPLETED);
         assertTaskStatus(otherSendingTaskId, MarketingTaskStatus.SENDING);
     }
 
     @Test
-    void startTask_deletedTemplate_isRejectedAndKeepsTaskStopped() {
+    void startTask_taskCompletedByTemplateDeletion_isRejectedAsTerminal() {
         String suffix = String.valueOf(System.nanoTime());
         long templateId = insertTemplate("已删除启动模板-" + suffix);
-        long taskId = insertTask("模板删除后启动-" + suffix, templateId, MarketingTaskStatus.STOPPED);
+        long taskId = insertTask("模板删除后启动-" + suffix, templateId, MarketingTaskStatus.PENDING);
         service.batchDelete(List.of(templateId));
 
         assertThatThrownBy(() -> taskService.startTask(taskId))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("营销模板已删除，任务不可启动");
-        assertTaskStatus(taskId, MarketingTaskStatus.STOPPED);
+                .hasMessage("只有未启动的任务可以启动");
+        assertTaskStatus(taskId, MarketingTaskStatus.COMPLETED);
     }
 
     @Test
-    void restartTask_deletedTemplate_isRejectedAndKeepsTaskEnded() {
+    void closeTask_taskCompletedByTemplateDeletion_isRejectedAsTerminal() {
         String suffix = String.valueOf(System.nanoTime());
         long templateId = insertTemplate("已删除重启模板-" + suffix);
-        long taskId = insertTask("模板删除后重启-" + suffix, templateId, MarketingTaskStatus.ENDED);
+        long taskId = insertTask("模板删除后关闭-" + suffix, templateId, MarketingTaskStatus.SENDING);
         service.batchDelete(List.of(templateId));
-        long now = System.currentTimeMillis();
 
-        assertThatThrownBy(() -> taskService.restartTask(
-                taskId, new RestartMarketingTaskDTO(now, now + 600_000L)))
+        assertThatThrownBy(() -> taskService.closeTask(taskId))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("营销模板已删除，任务不可启动");
-        assertTaskStatus(taskId, MarketingTaskStatus.ENDED);
+                .hasMessage("已完成或已关闭的任务不可手动关闭");
+        assertTaskStatus(taskId, MarketingTaskStatus.COMPLETED);
     }
 
     private long insertTemplate(String name) {

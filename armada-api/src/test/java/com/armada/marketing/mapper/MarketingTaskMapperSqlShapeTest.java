@@ -1,7 +1,13 @@
 package com.armada.marketing.mapper;
 
+import com.armada.marketing.model.enums.MarketingTaskStatus;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,6 +15,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MarketingTaskMapperSqlShapeTest {
 
     private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskMapper.xml";
+    private static final Path FIVE_STATE_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V050__marketing_task_five_state_lifecycle.sql");
+
+    @Test
+    void taskLifecycleUsesFiveStatesAndForwardMigration() throws IOException {
+        assertThat(Arrays.stream(MarketingTaskStatus.values()).map(Enum::name))
+                .containsExactly("PENDING", "SENDING", "PAUSED", "COMPLETED", "CLOSED");
+        Map<String, Integer> statusCodes = Arrays.stream(MarketingTaskStatus.values())
+                .collect(Collectors.toMap(Enum::name, MarketingTaskStatus::code));
+        assertThat(statusCodes)
+                .containsEntry("PENDING", 1)
+                .containsEntry("SENDING", 2)
+                .containsEntry("PAUSED", 5)
+                .containsEntry("COMPLETED", 7)
+                .containsEntry("CLOSED", 8);
+
+        assertThat(FIVE_STATE_MIGRATION).as("five-state migration exists").exists();
+        String migrationSql = Files.readString(FIVE_STATE_MIGRATION, StandardCharsets.UTF_8);
+        assertThat(migrationSql)
+                .contains("status IN (3, 4, 6)")
+                .contains("SET status = 7")
+                .contains("8=已关闭")
+                .contains("DELETE FROM marketing_account_occupancy")
+                .contains("INSERT IGNORE INTO marketing_account_occupancy")
+                .contains("ROW_NUMBER() OVER")
+                .contains("task.status IN (1, 2, 5)")
+                .contains("WHERE ranked.owner_rank = 1");
+    }
 
     @Test
     void marketingAccountSelectionUsesSnapshotForFixedTargetsAndMembershipForDynamicTargets() throws IOException {
@@ -71,21 +105,49 @@ class MarketingTaskMapperSqlShapeTest {
     }
 
     @Test
-    void taskActivationUsesExpectedStatusAndDoesNotRewriteSchedule() throws IOException {
+    void lifecycleMutationsUseFiveStateGuardsAndDoNotRewriteSchedule() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
                 StandardCharsets.UTF_8);
 
-        String sql = updateBlock(xml, "activateTask");
+        String startSql = updateBlock(xml, "startPendingTask");
+        String pauseSql = updateBlock(xml, "pauseSendingTask");
+        String resumeSql = updateBlock(xml, "resumePausedTask");
+        String closeSql = updateBlock(xml, "closeActiveTask");
+        String templateTerminationSql = updateBlock(xml, "completeActiveTasksByTemplateIds");
+        String deleteSql = updateBlock(xml, "batchSoftDelete");
 
-        assertThat(sql)
-                .contains("status = #{nextStatus}")
-                .contains("status = #{expectedStatus}")
+        assertThat(startSql)
+                .contains("SET status = 2")
+                .contains("status = 1")
+                .contains("task_start_at &lt;= #{now}")
                 .contains("task_end_at &gt; #{now}")
-                .contains("CASE WHEN #{nextStatus} = 2")
                 .doesNotContain("task_start_at =")
                 .doesNotContain("task_end_at =")
                 .doesNotContain("account_group_send_at =");
+        assertThat(pauseSql)
+                .contains("SET status = 5")
+                .contains("next_round_at = NULL")
+                .contains("status = 2")
+                .doesNotContain("finished_at =");
+        assertThat(resumeSql)
+                .contains("SET status = 2")
+                .contains("next_round_at = #{now}")
+                .contains("status = 5")
+                .contains("task_start_at &lt;= #{now}")
+                .contains("task_end_at &gt; #{now}");
+        assertThat(closeSql)
+                .contains("SET status = 8")
+                .contains("status IN (1, 2, 5)")
+                .contains("next_round_at = NULL")
+                .contains("finished_at = #{now}");
+        assertThat(templateTerminationSql)
+                .contains("SET status = 7")
+                .contains("status IN (1, 2, 5)")
+                .contains("finished_at = COALESCE(finished_at, #{now})");
+        assertThat(deleteSql)
+                .contains("status IN (7, 8)")
+                .doesNotContain("status &lt;&gt; 2");
     }
 
     @Test
@@ -104,28 +166,7 @@ class MarketingTaskMapperSqlShapeTest {
     }
 
     @Test
-    void endedTaskRestartRewritesOnlyLifecycleWindow() throws IOException {
-        String xml = new String(
-                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
-
-        String sql = updateBlock(xml, "restartEndedTask");
-
-        assertThat(sql)
-                .contains("status = #{nextStatus}")
-                .contains("task_start_at = #{taskStartAt}")
-                .contains("task_end_at = #{taskEndAt}")
-                .contains("finished_at = NULL")
-                .contains("status = 7")
-                .contains("#{taskEndAt} &gt; #{now}")
-                .doesNotContain("account_group_send_at =")
-                .doesNotContain("sent_message_count =")
-                .doesNotContain("failed_message_count =")
-                .doesNotContain("current_round_no =");
-    }
-
-    @Test
-    void stoppedTaskIsArchivedWhenItsPlanExpires() throws IOException {
+    void pausedTaskIsCompletedWhenItsPlanExpires() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
                 StandardCharsets.UTF_8);

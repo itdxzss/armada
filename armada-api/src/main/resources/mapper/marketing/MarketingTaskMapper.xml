@@ -416,57 +416,80 @@
         WHERE t.id = #{targetId}
     </update>
 
-    <update id="activateTask">
+    <update id="startPendingTask">
         UPDATE marketing_task
-        SET status = #{nextStatus},
-            started_at = CASE WHEN #{nextStatus} = 2 THEN COALESCE(started_at, #{now}) ELSE started_at END,
-            next_round_at = CASE WHEN #{nextStatus} = 2 THEN #{now} ELSE NULL END,
+        SET status = 2,
+            started_at = COALESCE(started_at, #{now}),
+            next_round_at = #{now},
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
-          AND status = #{expectedStatus}
+          AND status = 1
+          AND (task_start_at IS NULL OR task_start_at &lt;= #{now})
           AND (task_end_at IS NULL OR task_end_at &gt; #{now})
     </update>
 
-    <update id="restartEndedTask">
-        UPDATE marketing_task
-        SET status = #{nextStatus},
-            task_start_at = #{taskStartAt},
-            task_end_at = #{taskEndAt},
-            started_at = CASE WHEN #{nextStatus} = 2 THEN COALESCE(started_at, #{now}) ELSE started_at END,
-            next_round_at = CASE WHEN #{nextStatus} = 2 THEN #{now} ELSE NULL END,
-            finished_at = NULL,
-            updated_at = #{now}
-        WHERE id = #{id}
-          AND deleted_at IS NULL
-          AND status = 7
-          AND #{taskEndAt} &gt; #{now}
-    </update>
-
-    <update id="stopTask">
+    <update id="pauseSendingTask">
         UPDATE marketing_task
         SET status = 5,
+            next_round_at = NULL,
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
           AND status = 2
     </update>
 
-    <update id="stopRunnableTasksByTemplateIds">
+    <update id="resumePausedTask">
+        UPDATE marketing_task
+        SET status = 2,
+            next_round_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 5
+          AND (task_start_at IS NULL OR task_start_at &lt;= #{now})
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
+    </update>
+
+    <update id="closeActiveTask">
+        UPDATE marketing_task
+        SET status = 8,
+            next_round_at = NULL,
+            finished_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status IN (1, 2, 5)
+    </update>
+
+    <!-- 建群营销兼容路径，普通营销接口已经使用 pauseSendingTask。 -->
+    <update id="stopTask">
         UPDATE marketing_task
         SET status = 5,
+            next_round_at = NULL,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 2
+    </update>
+
+    <update id="completeActiveTasksByTemplateIds">
+        UPDATE marketing_task
+        SET status = 7,
+            next_round_at = NULL,
+            finished_at = COALESCE(finished_at, #{now}),
             updated_at = #{now}
         WHERE deleted_at IS NULL
-          AND status IN (1, 2)
+          AND status IN (1, 2, 5)
           AND marketing_template_id IN
         <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>
 
-    <select id="countSendingByIds" resultType="int">
+    <select id="countActiveByIds" resultType="int">
         SELECT COUNT(*)
         FROM marketing_task
         WHERE deleted_at IS NULL
-          AND status = 2
+          AND status IN (1, 2, 5)
           AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </select>
@@ -476,7 +499,7 @@
         SET deleted_at = #{deletedAt},
             updated_at = #{deletedAt}
         WHERE deleted_at IS NULL
-          AND status &lt;&gt; 2
+          AND status IN (7, 8)
           AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>

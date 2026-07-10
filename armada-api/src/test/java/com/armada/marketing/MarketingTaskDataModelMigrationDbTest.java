@@ -69,7 +69,7 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(indexExists("marketing_task", "idx_marketing_task_start_due")).isTrue();
         assertThat(indexExists("marketing_task", "idx_marketing_task_end_due")).isTrue();
         assertThat(columnComment("marketing_task", "status"))
-                .isEqualTo("任务状态:1=等待开始/未发送 2=发送中 3=发送成功 4=发送失败 5=已停止 6=部分失败 7=已结束");
+                .isEqualTo("任务状态:1=未启动 2=执行中 5=已暂停 7=已完成 8=已关闭");
     }
 
     @Test

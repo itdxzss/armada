@@ -50,7 +50,7 @@ class MarketingAccountOccupancyMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void staleCleanupReleasesAccountWhenOwnerTaskIsNoLongerSending() {
+    void staleCleanupRetainsPausedTaskAccount() {
         long now = System.currentTimeMillis();
         long accountGroupId = insertAccountGroup("occupancy-stale-" + now);
         long accountId = insertAccount(accountGroupId, "923801" + String.valueOf(now).substring(6));
@@ -58,6 +58,22 @@ class MarketingAccountOccupancyMapperDbTest extends DbTestBase {
         insertDynamicTarget(taskId, accountId);
         mapper.insertAvailableTaskAccounts(taskId, now);
         jdbc.update("UPDATE marketing_task SET status = 5 WHERE id = ?", taskId);
+
+        int deleted = mapper.deleteStale(now + 1L);
+
+        assertThat(deleted).isZero();
+        assertThat(occupancyCount(taskId)).isEqualTo(1);
+    }
+
+    @Test
+    void staleCleanupReleasesCompletedTaskAccount() {
+        long now = System.currentTimeMillis();
+        long accountGroupId = insertAccountGroup("occupancy-completed-" + now);
+        long accountId = insertAccount(accountGroupId, "923802" + String.valueOf(now).substring(6));
+        long taskId = insertTask("完成任务-" + now, accountGroupId, now + 600_000L);
+        insertDynamicTarget(taskId, accountId);
+        mapper.insertAvailableTaskAccounts(taskId, now);
+        jdbc.update("UPDATE marketing_task SET status = 7 WHERE id = ?", taskId);
 
         int deleted = mapper.deleteStale(now + 1L);
 

@@ -5,6 +5,7 @@ import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
+import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.model.vo.MarketingTreeAccountVO;
@@ -12,6 +13,7 @@ import com.armada.marketing.model.vo.MarketingTreeGroupVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -62,17 +64,19 @@ public class MarketingAccountTreeRealtimeService {
         if (groupId == null) {
             return new MarketingAccountTreeVO(List.of());
         }
-        occupancyService.assertAccountGroupAvailable(groupId, System.currentTimeMillis());
         List<MarketingAccountTreeAccountRow> accounts = taskMapper.selectAccountTreeAccounts(groupId);
         if (accounts.isEmpty()) {
             log.info("营销账号树首屏查询 groupId={} accounts=0", groupId);
             return new MarketingAccountTreeVO(List.of());
         }
 
+        Map<Long, MarketingAccountOccupancyOwnerRow> owners = occupancyService.loadActiveOwners(
+                accounts.stream().map(MarketingAccountTreeAccountRow::getAccountId).toList());
         List<MarketingTreeAccountVO> nodes = accounts.stream()
-                .map(account -> toAccountVO(account, false, List.of()))
+                .map(account -> toAccountVO(account, owners.get(account.getAccountId()), false, List.of()))
                 .toList();
-        log.info("营销账号树首屏查询完成 groupId={} accounts={}", groupId, nodes.size());
+        log.info("营销账号树首屏查询完成 groupId={} accounts={} occupiedAccounts={}",
+                groupId, nodes.size(), owners.size());
         return new MarketingAccountTreeVO(nodes);
     }
 
@@ -93,10 +97,13 @@ public class MarketingAccountTreeRealtimeService {
         if (account == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: " + accountId);
         }
+        MarketingAccountOccupancyOwnerRow owner = occupancyService
+                .loadActiveOwners(List.of(accountId))
+                .get(accountId);
 
         try {
-            if (!selectable(account, status(account))) {
-                return toAccountVO(account, false, List.of());
+            if (!selectable(account, status(account), owner)) {
+                return toAccountVO(account, owner, false, List.of());
             }
             List<MarketingTreeGroupVO> groups = taskMapper.selectDynamicTargetGroups(accountId, null)
                     .stream()
@@ -104,10 +111,10 @@ public class MarketingAccountTreeRealtimeService {
                     .toList();
             log.info("营销账号懒加载查库完成 accountId={} visibleGroups={}",
                     account.getAccountId(), groups.size());
-            return toAccountVO(account, false, groups);
+            return toAccountVO(account, owner, false, groups);
         } catch (RuntimeException ex) {
             log.warn("营销账号懒加载查库失败 accountId={}", account.getAccountId(), ex);
-            return toAccountVO(account, true, List.of());
+            return toAccountVO(account, owner, true, List.of());
         }
     }
 
@@ -120,11 +127,12 @@ public class MarketingAccountTreeRealtimeService {
                 null);
     }
 
-    private static MarketingTreeAccountVO toAccountVO(MarketingAccountTreeAccountRow account,
-                                                      boolean groupsError,
-                                                      List<MarketingTreeGroupVO> groups) {
+    private MarketingTreeAccountVO toAccountVO(MarketingAccountTreeAccountRow account,
+                                               MarketingAccountOccupancyOwnerRow owner,
+                                               boolean groupsError,
+                                               List<MarketingTreeGroupVO> groups) {
         String status = status(account);
-        boolean selectable = selectable(account, status);
+        boolean selectable = selectable(account, status, owner);
         int groupCount = groups == null || groups.isEmpty()
                 ? Math.max(0, account.getGroupCount() == null ? 0 : account.getGroupCount())
                 : groups.size();
@@ -138,7 +146,7 @@ public class MarketingAccountTreeRealtimeService {
                 statusText(status),
                 groupCount,
                 selectable,
-                disabledReason(account, status),
+                disabledReason(account, status, owner),
                 groupsError,
                 groups == null ? List.of() : groups);
     }
@@ -169,16 +177,24 @@ public class MarketingAccountTreeRealtimeService {
         };
     }
 
-    private static boolean selectable(MarketingAccountTreeAccountRow account, String status) {
-        return STATUS_ONLINE.equals(status)
+    private static boolean selectable(MarketingAccountTreeAccountRow account,
+                                      String status,
+                                      MarketingAccountOccupancyOwnerRow owner) {
+        return owner == null
+                && STATUS_ONLINE.equals(status)
                 && Integer.valueOf(AccountStateCode.NORMAL).equals(account.getAccountState())
                 && baselineState(account) != BASELINE_PENDING
                 && account.getProtocolAccountId() != null
                 && !account.getProtocolAccountId().isBlank();
     }
 
-    private static String disabledReason(MarketingAccountTreeAccountRow account, String status) {
-        if (selectable(account, status)) {
+    private String disabledReason(MarketingAccountTreeAccountRow account,
+                                  String status,
+                                  MarketingAccountOccupancyOwnerRow owner) {
+        if (owner != null) {
+            return MarketingAccountOccupancyService.selectionOccupiedMessage(owner);
+        }
+        if (selectable(account, status, null)) {
             return null;
         }
         if (baselineState(account) == BASELINE_PENDING) {

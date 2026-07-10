@@ -45,6 +45,7 @@ class MarketingAccountOccupancyMapperSqlShapeTest {
         String xml = Files.readString(MAPPER, StandardCharsets.UTF_8);
 
         String acquireSql = block(xml, "insert", "insertAvailableTaskAccounts");
+        String accountOwnersSql = block(xml, "select", "selectOwnersByAccountIds");
         String releaseSql = block(xml, "delete", "releaseByTaskId");
         String releaseByTemplateSql = block(xml, "delete", "releaseByTemplateIds");
         String staleSql = block(xml, "delete", "deleteStale");
@@ -54,8 +55,13 @@ class MarketingAccountOccupancyMapperSqlShapeTest {
                 .contains("SELECT DISTINCT")
                 .contains("updated_at, tenant_id")
                 .contains("mt.tenant_id")
-                .contains("mt.status = 2")
+                .contains("mt.status IN (1, 2, 5)")
                 .contains("t.marketing_task_id = #{taskId}");
+        assertThat(accountOwnersSql)
+                .contains("o.account_id IN")
+                .contains("collection=\"accountIds\"")
+                .contains("mt.status IN (1, 2, 5)")
+                .contains("mt.task_name AS taskName");
         assertThat(releaseSql).contains("marketing_task_id = #{taskId}");
         assertThat(releaseByTemplateSql)
                 .contains("marketing_task_id IN")
@@ -63,8 +69,8 @@ class MarketingAccountOccupancyMapperSqlShapeTest {
                 .contains("mt.marketing_template_id IN");
         assertThat(staleSql)
                 .contains("marketing_task_id NOT IN")
-                .contains("mt.status = 2")
-                .contains("mt.task_end_at &gt; #{now}");
+                .contains("mt.status IN (1, 2, 5)")
+                .doesNotContain("task_end_at");
     }
 
     @Test

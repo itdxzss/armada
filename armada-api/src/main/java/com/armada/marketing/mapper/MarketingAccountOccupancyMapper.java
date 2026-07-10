@@ -12,7 +12,7 @@ import org.apache.ibatis.annotations.Param;
 public interface MarketingAccountOccupancyMapper {
 
     /**
-     * 为发送中的普通营销任务抢占当前空闲账号。
+     * 为未启动、执行中或已暂停的普通营销任务补齐当前空闲账号。
      *
      * <p>数据库唯一键保证同租户同账号只有一个当前占用方；冲突账号由 INSERT IGNORE 跳过，
      * 后续通过 owner 查询识别并记录本轮占用明细。</p>
@@ -33,13 +33,13 @@ public interface MarketingAccountOccupancyMapper {
     List<MarketingAccountOccupancyOwnerRow> selectOwnersByTaskAccounts(@Param("taskId") Long taskId);
 
     /**
-     * 查询账号分组内任意一个当前占用方，用于创建任务时的分组级门禁提示。
+     * 批量查询账号的有效占用任务。
      *
-     * @param accountGroupId 账号分组 ID
-     * @return 第一个占用方；分组内没有被占用账号时返回 null
+     * @param accountIds 账号 ID 列表
+     * @return 当前非终态任务持有的账号 owner 列表
      */
-    MarketingAccountOccupancyOwnerRow selectFirstOwnerByAccountGroupId(
-            @Param("accountGroupId") Long accountGroupId);
+    List<MarketingAccountOccupancyOwnerRow> selectOwnersByAccountIds(
+            @Param("accountIds") List<Long> accountIds);
 
     /**
      * 释放指定普通营销任务当前持有的全部账号。
@@ -52,7 +52,7 @@ public interface MarketingAccountOccupancyMapper {
     /**
      * 释放引用指定模板的普通营销任务账号租约。
      *
-     * <p>模板删除服务会先停止待执行/发送中任务，再按同一批模板 ID 清理其占用。</p>
+     * <p>模板删除服务会先把非终态关联任务按异常终止置为已完成，再按同一批模板 ID 清理占用。</p>
      *
      * @param templateIds 营销模板 ID 列表
      * @return 实际释放账号数
@@ -60,7 +60,7 @@ public interface MarketingAccountOccupancyMapper {
     int releaseByTemplateIds(@Param("templateIds") List<Long> templateIds);
 
     /**
-     * 删除所属任务已不再发送、已删除、已过结束时间或不存在的残留占用。
+     * 删除所属任务已进入终态、已删除或不存在的残留占用。
      *
      * @param now 当前时间(epoch毫秒)
      * @return 清理行数

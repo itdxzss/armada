@@ -41,6 +41,24 @@
         WHERE id = #{id} AND deleted_at IS NULL
     </select>
 
+    <!-- 创建任务先锁定素材事实源，保证并发删除必须等任务创建事务结束后再处理关联任务 -->
+    <select id="selectByIdForUpdate" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
+        FROM marketing_template
+        WHERE id = #{id} AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <!-- 删除端先按固定顺序锁模板，再结束任务和释放账号，避免与创建任务产生检查-删除竞态 -->
+    <select id="selectExistingIdsForUpdate" resultType="long">
+        SELECT id
+        FROM marketing_template
+        WHERE deleted_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id ASC
+        FOR UPDATE
+    </select>
+
     <select id="existsByName" resultType="boolean">
         SELECT EXISTS(
             SELECT 1 FROM marketing_template

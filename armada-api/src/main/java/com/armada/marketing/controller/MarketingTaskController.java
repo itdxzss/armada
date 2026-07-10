@@ -4,7 +4,6 @@ import com.armada.marketing.model.dto.BatchIdsRequest;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
-import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
@@ -26,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 群组营销任务第一阶段接口。
  *
- * <p>当前已开放任务列表、创建、详情、账号群树、启动、重新启动、停止、批量删除和通过任务修改营销素材。</p>
+ * <p>开放任务列表、创建、详情、账号群树、启动、暂停、继续、手动关闭、批量删除和修改营销素材。</p>
  */
 @RestController
 @RequestMapping("/api/marketing-tasks")
@@ -60,8 +59,8 @@ public class MarketingTaskController {
     /**
      * 新建营销任务。
      *
-     * <p>请求体包含任务配置和账号维度目标选择。保存成功后返回任务主信息;若入参选择立即启动,
-     * 当前阶段只把任务状态置为发送中,不触发真实发送。</p>
+     * <p>请求体包含任务配置和账号维度目标选择。保存成功后立即锁定全部所选账号；是否执行仍以
+     * 任务开始、结束时间和调度器推进结果为准。</p>
      *
      * @param request 新建营销任务入参
      * @return 创建后的营销任务
@@ -115,7 +114,7 @@ public class MarketingTaskController {
     /**
      * 启动营销任务。
      *
-     * <p>仅允许待启动或已停止任务激活。未到计划开始时间时继续等待,进入执行窗口后才发送。</p>
+     * <p>仅允许未启动任务操作。未到计划开始时间时继续等待，由调度器到点自动执行。</p>
      *
      * @param id 营销任务 ID
      * @return 启动后的营销任务
@@ -126,31 +125,36 @@ public class MarketingTaskController {
     }
 
     /**
-     * 重新启动已结束的营销任务。
+     * 暂停执行中的营销任务。
      *
-     * <p>调用方必须提交新的开始、结束时间;原账号群组发送时间和执行历史不会重置。</p>
-     *
-     * @param id      营销任务 ID
-     * @param request 新的任务时间窗口
-     * @return 重新启动后的营销任务
+     * @param id 营销任务 ID
+     * @return 暂停后的营销任务
      */
-    @PostMapping("/{id}/restart")
-    public ApiResponse<MarketingTaskVO> restart(@PathVariable Long id,
-                                                @RequestBody RestartMarketingTaskDTO request) {
-        return ApiResponse.ok(service.restartTask(id, request));
+    @PostMapping("/{id}/pause")
+    public ApiResponse<MarketingTaskVO> pause(@PathVariable Long id) {
+        return ApiResponse.ok(service.pauseTask(id));
     }
 
     /**
-     * 停止营销任务。
-     *
-     * <p>仅允许发送中任务停止。停止后任务可重新启动,也可以被批量删除。</p>
+     * 继续已暂停的营销任务。
      *
      * @param id 营销任务 ID
-     * @return 停止后的营销任务
+     * @return 继续后的营销任务
      */
-    @PostMapping("/{id}/stop")
-    public ApiResponse<MarketingTaskVO> stop(@PathVariable Long id) {
-        return ApiResponse.ok(service.stopTask(id));
+    @PostMapping("/{id}/resume")
+    public ApiResponse<MarketingTaskVO> resume(@PathVariable Long id) {
+        return ApiResponse.ok(service.resumeTask(id));
+    }
+
+    /**
+     * 手动关闭非终态营销任务。
+     *
+     * @param id 营销任务 ID
+     * @return 已关闭的营销任务
+     */
+    @PostMapping("/{id}/close")
+    public ApiResponse<MarketingTaskVO> close(@PathVariable Long id) {
+        return ApiResponse.ok(service.closeTask(id));
     }
 
     /**
@@ -172,7 +176,7 @@ public class MarketingTaskController {
     /**
      * 批量软删营销任务。
      *
-     * <p>若请求中包含发送中任务,业务层会整批拒绝,要求先停止后删除。</p>
+     * <p>只允许删除已完成或已关闭任务；非终态任务必须先手动关闭。</p>
      *
      * @param request 任务 ID 列表
      * @return 实际软删行数

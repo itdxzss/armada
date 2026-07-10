@@ -8,9 +8,11 @@ import com.armada.shared.exception.ErrorCode;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,17 +22,17 @@ import org.springframework.util.StringUtils;
 /**
  * 普通群组营销账号当前占用领域服务。
  *
- * <p>占用粒度是账号，不存在分组锁。创建任务时的“分组占用”只是查询该分组内是否已有
- * 账号租约；执行期由数据库唯一键保证同租户同账号只有一个普通营销任务持有。</p>
+ * <p>占用粒度是账号，不存在分组锁。任务和目标保存后立即在同一事务内锁定全部账号，
+ * 数据库唯一键保证同租户同账号只有一个普通营销任务持有。</p>
  */
 @Service
 public class MarketingAccountOccupancyService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketingAccountOccupancyService.class);
-    private static final String GENERIC_GROUP_OCCUPIED_MESSAGE =
-            "该分组正在执行其它营销任务，请等待当前任务结束后再参与新的营销任务。";
     private static final String GENERIC_ATTEMPT_OCCUPIED_MESSAGE =
             "账号正在被其它营销任务占用，本轮未发送。";
+    private static final String GENERIC_LOCK_FAILED_MESSAGE = "营销账号锁定失败，请刷新后重试";
+    private static final String UNKNOWN_OWNER_TASK_NAME = "其它营销任务";
     private static final DateTimeFormatter RELEASE_TIME_FORMAT = DateTimeFormatter
             .ofPattern("yyyy-MM-dd HH:mm:ss")
             .withZone(ZoneId.of("Asia/Shanghai"));
@@ -47,30 +49,7 @@ public class MarketingAccountOccupancyService {
     }
 
     /**
-     * 校验账号分组当前没有被普通营销任务占用的账号。
-     *
-     * <p>这里不创建分组锁；只要分组内任意账号存在有效租约，就拒绝本次任务创建或账号树加载。</p>
-     *
-     * @param accountGroupId 账号分组 ID
-     * @param now            当前时间(epoch毫秒)
-     * @throws BusinessException 分组内存在被占用账号时抛出可直接展示的业务提示
-     */
-    @Transactional(rollbackFor = Exception.class)
-    public void assertAccountGroupAvailable(Long accountGroupId, long now) {
-        int staleDeleted = mapper.deleteStale(now);
-        MarketingAccountOccupancyOwnerRow owner = mapper.selectFirstOwnerByAccountGroupId(accountGroupId);
-        if (owner == null) {
-            log.debug("营销账号分组占用校验通过 accountGroupId={} staleDeleted={}", accountGroupId, staleDeleted);
-            return;
-        }
-        String message = groupOccupiedMessage(owner);
-        log.warn("营销账号分组占用校验拒绝 accountGroupId={} ownerTaskId={} accountId={} taskEndAt={} staleDeleted={}",
-                accountGroupId, owner.getMarketingTaskId(), owner.getAccountId(), owner.getTaskEndAt(), staleDeleted);
-        throw new BusinessException(ErrorCode.CONFLICT, message);
-    }
-
-    /**
-     * 抢占指定发送中任务当前空闲的目标账号，并返回所有目标账号的当前占用方。
+     * 为非终态任务补齐当前空闲的目标账号占用，并返回所有目标账号的当前占用方。
      *
      * <p>冲突账号不会导致整单失败；调用方按 ownerTaskId 决定本轮发送或记录占用跳过。</p>
      *
@@ -93,6 +72,72 @@ public class MarketingAccountOccupancyService {
         log.info("营销任务账号抢占完成 tenantId={} taskId={} acquired={} owners={} staleDeleted={}",
                 task.getTenantId(), task.getId(), acquired, owners.size(), staleDeleted);
         return Map.copyOf(owners);
+    }
+
+    /**
+     * 在任务创建事务内锁定全部所选账号，任一账号冲突都会让整个创建事务回滚。
+     *
+     * <p>前端禁选和创建前查询都可能遇到并发变化，只有占用表唯一键和 owner 复查是最终闸门。
+     * owner 数量少于任务去重账号数时同样拒绝，避免部分账号锁定后仍返回创建成功。</p>
+     *
+     * @param task 已保存主表和目标的普通营销任务
+     * @param now  锁定时间(epoch毫秒)
+     * @return accountId 到当前 owner 的完整映射
+     * @throws BusinessException 任一账号被其它任务持有或锁定结果不完整时抛出
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<Long, MarketingAccountOccupancyOwnerRow> lockTaskAccountsOrThrow(MarketingTask task, long now) {
+        Map<Long, MarketingAccountOccupancyOwnerRow> owners = acquireAndLoadTaskAccounts(task, now);
+        MarketingAccountOccupancyOwnerRow conflict = owners.values().stream()
+                .filter(owner -> !Objects.equals(task.getId(), owner.getMarketingTaskId()))
+                .min(Comparator.comparing(MarketingAccountOccupancyOwnerRow::getAccountId))
+                .orElse(null);
+        if (conflict != null) {
+            String ownerTaskName = ownerTaskName(conflict);
+            log.warn("营销任务创建锁定账号冲突 tenantId={} taskId={} accountId={} ownerTaskId={} ownerTaskName={}",
+                    task.getTenantId(), task.getId(), conflict.getAccountId(), conflict.getMarketingTaskId(),
+                    ownerTaskName);
+            throw new BusinessException(ErrorCode.CONFLICT, selectionOccupiedMessage(conflict));
+        }
+
+        int expectedAccountCount = task.getSelectedAccountCount() == null ? 0 : task.getSelectedAccountCount();
+        if (owners.size() != expectedAccountCount) {
+            log.error("营销任务创建锁定账号数量不完整 tenantId={} taskId={} expected={} actual={}",
+                    task.getTenantId(), task.getId(), expectedAccountCount, owners.size());
+            throw new BusinessException(ErrorCode.CONFLICT, GENERIC_LOCK_FAILED_MESSAGE);
+        }
+        log.info("营销任务创建账号锁定完成 tenantId={} taskId={} lockedAccounts={}",
+                task.getTenantId(), task.getId(), owners.size());
+        return owners;
+    }
+
+    /**
+     * 批量读取账号当前有效占用方，供账号树在展示阶段禁选已锁定账号。
+     *
+     * <p>该查询只是用户体验层的前置提示；任务保存仍以占用表唯一键作为最终并发闸门。</p>
+     *
+     * @param accountIds 账号 ID 列表
+     * @return accountId 到当前占用任务的映射
+     */
+    public Map<Long, MarketingAccountOccupancyOwnerRow> loadActiveOwners(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, MarketingAccountOccupancyOwnerRow> owners = new LinkedHashMap<>();
+        for (MarketingAccountOccupancyOwnerRow row : mapper.selectOwnersByAccountIds(accountIds)) {
+            owners.put(row.getAccountId(), row);
+        }
+        return Map.copyOf(owners);
+    }
+
+    /**
+     * 构造账号选择阶段的占用提示。
+     *
+     * @param owner 当前占用任务
+     * @return 可直接展示给运营的占用提示
+     */
+    public static String selectionOccupiedMessage(MarketingAccountOccupancyOwnerRow owner) {
+        return "该账号正在被任务【" + ownerTaskName(owner) + "】占用，请先关闭原任务后再使用。";
     }
 
     /**
@@ -139,17 +184,14 @@ public class MarketingAccountOccupancyService {
                 + "】释放，本轮未发送。";
     }
 
-    private static String groupOccupiedMessage(MarketingAccountOccupancyOwnerRow owner) {
-        if (!hasOwnerReleaseDetails(owner)) {
-            return GENERIC_GROUP_OCCUPIED_MESSAGE;
-        }
-        return "该分组已被营销任务【" + owner.getTaskName() + "】占用，预计于【"
-                + formatReleaseTime(owner.getTaskEndAt())
-                + "】释放，请稍后重试。";
-    }
-
     private static boolean hasOwnerReleaseDetails(MarketingAccountOccupancyOwnerRow owner) {
         return owner != null && StringUtils.hasText(owner.getTaskName()) && owner.getTaskEndAt() != null;
+    }
+
+    private static String ownerTaskName(MarketingAccountOccupancyOwnerRow owner) {
+        return owner != null && StringUtils.hasText(owner.getTaskName())
+                ? owner.getTaskName()
+                : UNKNOWN_OWNER_TASK_NAME;
     }
 
     private static String formatReleaseTime(Long taskEndAt) {

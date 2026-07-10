@@ -21,6 +21,20 @@ public interface MarketingTemplateMapper {
     /** 按 ID 查未删模板。 */
     MarketingTemplate selectById(@Param("id") Long id);
 
+    /**
+     * 按 ID 查询并锁定未删除模板。
+     *
+     * <p>创建营销任务时使用，和模板删除事务串行化，避免任务引用到并发软删除的模板。</p>
+     */
+    MarketingTemplate selectByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 按升序查询并锁定一组未删除模板 ID。
+     *
+     * <p>调用方必须传入去重、升序 ID；固定锁顺序可以降低并发批量删除时的死锁概率。</p>
+     */
+    List<Long> selectExistingIdsForUpdate(@Param("ids") List<Long> ids);
+
     /** 名称是否已存在(可排除指定 ID,用于修改场景)。 */
     boolean existsByName(@Param("name") String name, @Param("excludeId") Long excludeId);
 

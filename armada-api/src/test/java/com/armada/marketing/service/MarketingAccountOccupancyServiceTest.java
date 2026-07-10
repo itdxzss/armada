@@ -1,7 +1,6 @@
 package com.armada.marketing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,38 +31,6 @@ class MarketingAccountOccupancyServiceTest {
     private MarketingAccountOccupancyService service;
 
     @Test
-    void assertAccountGroupAvailable_noCurrentOwner_passesAfterStaleCleanup() {
-        long now = 1_789_059_600_000L;
-
-        assertThatCode(() -> service.assertAccountGroupAvailable(12L, now)).doesNotThrowAnyException();
-
-        verify(mapper).deleteStale(now);
-        verify(mapper).selectFirstOwnerByAccountGroupId(12L);
-    }
-
-    @Test
-    void assertAccountGroupAvailable_knownOwner_usesTaskAndReleaseTime() {
-        long now = 1_789_059_600_000L;
-        MarketingAccountOccupancyOwnerRow owner = owner(31L, 91L, "夏季营销", 1_783_684_800_000L);
-        when(mapper.selectFirstOwnerByAccountGroupId(12L)).thenReturn(owner);
-
-        assertThatThrownBy(() -> service.assertAccountGroupAvailable(12L, now))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("该分组已被营销任务【夏季营销】占用，预计于【2026-07-10 20:00:00】释放，请稍后重试。");
-    }
-
-    @Test
-    void assertAccountGroupAvailable_missingReleaseTime_usesGenericMessage() {
-        long now = 1_789_059_600_000L;
-        when(mapper.selectFirstOwnerByAccountGroupId(12L))
-                .thenReturn(owner(31L, 91L, "夏季营销", null));
-
-        assertThatThrownBy(() -> service.assertAccountGroupAvailable(12L, now))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("该分组正在执行其它营销任务，请等待当前任务结束后再参与新的营销任务。");
-    }
-
-    @Test
     void acquireAndLoadTaskAccounts_returnsCurrentOwnersByAccount() {
         MarketingTask task = new MarketingTask();
         task.setId(91L);
@@ -76,6 +43,41 @@ class MarketingAccountOccupancyServiceTest {
         verify(mapper).deleteStale(1_000L);
         verify(mapper).insertAvailableTaskAccounts(91L, 1_000L);
         assertThat(owners).containsEntry(31L, current).containsEntry(32L, other);
+    }
+
+    @Test
+    void lockTaskAccountsOrThrow_otherOwnerRejectsWithExactTaskName() {
+        MarketingTask task = task(91L, 2);
+        MarketingAccountOccupancyOwnerRow other = owner(31L, 92L, "夏季营销", 3_000L);
+        when(mapper.selectOwnersByTaskAccounts(91L)).thenReturn(List.of(other));
+
+        assertThatThrownBy(() -> service.lockTaskAccountsOrThrow(task, 1_000L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("该账号正在被任务【夏季营销】占用，请先关闭原任务后再使用。");
+    }
+
+    @Test
+    void lockTaskAccountsOrThrow_allAccountsOwnedByCurrentTaskSucceeds() {
+        MarketingTask task = task(91L, 1);
+        MarketingAccountOccupancyOwnerRow current = owner(31L, 91L, "当前任务", 2_000L);
+        when(mapper.selectOwnersByTaskAccounts(91L)).thenReturn(List.of(current));
+
+        Map<Long, MarketingAccountOccupancyOwnerRow> owners =
+                service.lockTaskAccountsOrThrow(task, 1_000L);
+
+        assertThat(owners).containsOnlyKeys(31L);
+        verify(mapper).insertAvailableTaskAccounts(91L, 1_000L);
+    }
+
+    @Test
+    void lockTaskAccountsOrThrow_missingOwnerRejectsWholeCreation() {
+        MarketingTask task = task(91L, 2);
+        MarketingAccountOccupancyOwnerRow current = owner(31L, 91L, "当前任务", 2_000L);
+        when(mapper.selectOwnersByTaskAccounts(91L)).thenReturn(List.of(current));
+
+        assertThatThrownBy(() -> service.lockTaskAccountsOrThrow(task, 1_000L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("营销账号锁定失败，请刷新后重试");
     }
 
     @Test
@@ -104,5 +106,13 @@ class MarketingAccountOccupancyServiceTest {
         row.setTaskEndAt(taskEndAt);
         row.setOccupiedAt(1_000L);
         return row;
+    }
+
+    private static MarketingTask task(Long taskId, int selectedAccountCount) {
+        MarketingTask task = new MarketingTask();
+        task.setId(taskId);
+        task.setTenantId(1L);
+        task.setSelectedAccountCount(selectedAccountCount);
+        return task;
     }
 }

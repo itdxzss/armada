@@ -1,10 +1,10 @@
 package com.armada.marketing.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import java.util.List;
@@ -27,8 +27,6 @@ class MarketingAccountTreeRealtimeServiceTest {
 
         var tree = service.accountTree(8L);
 
-        verify(occupancyService).assertAccountGroupAvailable(org.mockito.ArgumentMatchers.eq(8L),
-                org.mockito.ArgumentMatchers.anyLong());
         assertThat(tree.accounts()).singleElement().satisfies(account -> {
             assertThat(account.accountId()).isEqualTo(3L);
             assertThat(account.wsPhone()).isEqualTo("923300000003");
@@ -39,6 +37,23 @@ class MarketingAccountTreeRealtimeServiceTest {
             assertThat(account.disabledReason()).isNull();
             assertThat(account.groupsError()).isFalse();
             assertThat(account.groups()).isEmpty();
+        });
+    }
+
+    @Test
+    void accountTreeMarksOccupiedAccountNotSelectableWithOwnerTaskMessage() {
+        MarketingAccountTreeAccountRow row = accountRow(3L, "923300000003", 2);
+        when(taskMapper.selectAccountTreeAccounts(8L)).thenReturn(List.of(row));
+        when(occupancyService.loadActiveOwners(List.of(3L)))
+                .thenReturn(java.util.Map.of(3L, ownerRow(3L, 91L, "夏季营销")));
+
+        var tree = service.accountTree(8L);
+
+        assertThat(tree.accounts()).singleElement().satisfies(account -> {
+            assertThat(account.status()).isEqualTo("ONLINE");
+            assertThat(account.selectable()).isFalse();
+            assertThat(account.disabledReason())
+                    .isEqualTo("该账号正在被任务【夏季营销】占用，请先关闭原任务后再使用。");
         });
     }
 
@@ -109,6 +124,21 @@ class MarketingAccountTreeRealtimeServiceTest {
         assertThat(account.groups()).isEmpty();
     }
 
+    @Test
+    void accountGroupsDoesNotLoadGroupsForOccupiedAccount() {
+        MarketingAccountTreeAccountRow row = accountRow(3L, "923300000003", 2);
+        when(taskMapper.selectAccountTreeAccount(3L)).thenReturn(row);
+        when(occupancyService.loadActiveOwners(List.of(3L)))
+                .thenReturn(java.util.Map.of(3L, ownerRow(3L, 91L, "夏季营销")));
+
+        var account = service.accountGroups(3L);
+
+        assertThat(account.selectable()).isFalse();
+        assertThat(account.disabledReason())
+                .isEqualTo("该账号正在被任务【夏季营销】占用，请先关闭原任务后再使用。");
+        assertThat(account.groups()).isEmpty();
+    }
+
     private static MarketingAccountTreeAccountRow accountRow(Long accountId, String phone, Integer baselineState) {
         MarketingAccountTreeAccountRow row = new MarketingAccountTreeAccountRow();
         row.setAccountId(accountId);
@@ -132,6 +162,14 @@ class MarketingAccountTreeRealtimeServiceTest {
         row.setGroupJid(groupJid);
         row.setGroupLinkUrl("https://chat.whatsapp.com/" + groupLinkId);
         row.setGroupName(groupName);
+        return row;
+    }
+
+    private static MarketingAccountOccupancyOwnerRow ownerRow(Long accountId, Long taskId, String taskName) {
+        MarketingAccountOccupancyOwnerRow row = new MarketingAccountOccupancyOwnerRow();
+        row.setAccountId(accountId);
+        row.setMarketingTaskId(taskId);
+        row.setTaskName(taskName);
         return row;
     }
 }

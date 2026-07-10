@@ -1,10 +1,8 @@
 package com.armada.marketing.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -14,7 +12,6 @@ import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
-import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
@@ -60,28 +57,9 @@ class MarketingTaskServiceImplLifecycleTest {
     private MarketingTaskServiceImpl service;
 
     @Test
-    void createTask_occupiedAccountGroup_isRejectedBeforeTaskPersistence() {
-        doThrow(new BusinessException(
-                com.armada.shared.exception.ErrorCode.CONFLICT,
-                "该分组正在执行其它营销任务，请等待当前任务结束后再参与新的营销任务。"))
-                .when(occupancyService).assertAccountGroupAvailable(anyLong(), anyLong());
-        CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
-                "占用门禁任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
-                1, 30, true, true, false, null,
-                java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
-
-        assertThatThrownBy(() -> service.createTask(request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("该分组正在执行其它营销任务，请等待当前任务结束后再参与新的营销任务。");
-
-        verify(templateMapper, never()).selectById(anyLong());
-        verify(taskMapper, never()).insertTask(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void createTask_immediateTask_acquiresAvailableAccountsAfterTargetsPersisted() {
+    void createTask_futureTaskLocksAccountsAfterTargetsPersisted() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
-        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
+        when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
         when(taskMapper.selectAccountTargetCandidate(12L, 31L)).thenReturn(accountCandidate());
         doAnswer(invocation -> {
             MarketingTask task = invocation.getArgument(0);
@@ -90,14 +68,17 @@ class MarketingTaskServiceImplLifecycleTest {
             return 1;
         }).when(taskMapper).insertTask(org.mockito.ArgumentMatchers.any());
         when(taskMapper.selectTaskById(TASK_ID)).thenAnswer(invocation -> insertedTask.get());
+        long now = System.currentTimeMillis();
         CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
-                "立即执行任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "IMMEDIATE",
+                "未来执行任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
+                null, now + 60_000L, now + 600_000L,
                 1, 30, true, true, false, null,
                 java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
 
         service.createTask(request);
 
-        verify(occupancyService).acquireAndLoadTaskAccounts(
+        verify(templateMapper).selectByIdForUpdate(TEMPLATE_ID);
+        verify(occupancyService).lockTaskAccountsOrThrow(
                 eq(insertedTask.get()), anyLong());
     }
 
@@ -112,77 +93,91 @@ class MarketingTaskServiceImplLifecycleTest {
                 .hasMessage("营销模板已删除，任务不可启动");
 
         verify(templateMapper).selectById(TEMPLATE_ID);
-        verify(taskMapper, never()).activateTask(anyLong(), anyInt(), anyInt(), anyLong());
+        verify(taskMapper, never()).startPendingTask(anyLong(), anyLong());
     }
 
     @Test
-    void restartTask_deletedTemplate_isRejectedWithoutChangingTaskState() {
-        long now = System.currentTimeMillis();
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task(
-                MarketingTaskStatus.ENDED.code(), now - 600_000L, now - 60_000L));
-
-        assertThatThrownBy(() -> service.restartTask(
-                TASK_ID, new RestartMarketingTaskDTO(now + 60_000L, now + 600_000L)))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("营销模板已删除，任务不可启动");
-
-        verify(templateMapper).selectById(TEMPLATE_ID);
-        verify(taskMapper, never()).restartEndedTask(anyLong(), anyInt(), anyLong(), anyLong(), anyLong());
-    }
-
-    @Test
-    void startTask_insideExecutionWindow_acquiresAvailableAccounts() {
-        long now = System.currentTimeMillis();
-        MarketingTask task = task(MarketingTaskStatus.PENDING.code(), now - 60_000L, now + 600_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
-        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
-        when(taskMapper.activateTask(eq(TASK_ID), eq(MarketingTaskStatus.PENDING.code()),
-                eq(MarketingTaskStatus.SENDING.code()), anyLong())).thenReturn(1);
-
-        service.startTask(TASK_ID);
-
-        verify(occupancyService).acquireAndLoadTaskAccounts(eq(task), anyLong());
-    }
-
-    @Test
-    void startTask_beforeExecutionWindow_doesNotAcquireAccounts() {
+    void startTask_beforeExecutionWindowKeepsPendingWithoutDatabaseMutation() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.PENDING.code(), now + 60_000L, now + 600_000L);
         when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
         when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
-        when(taskMapper.activateTask(eq(TASK_ID), eq(MarketingTaskStatus.PENDING.code()),
-                eq(MarketingTaskStatus.PENDING.code()), anyLong())).thenReturn(1);
 
         service.startTask(TASK_ID);
 
+        verify(taskMapper, never()).startPendingTask(anyLong(), anyLong());
+        verify(occupancyService, never()).releaseTaskAccounts(anyLong());
+    }
+
+    @Test
+    void startTask_insideExecutionWindowStartsPendingTaskWithoutReacquiringAccounts() {
+        long now = System.currentTimeMillis();
+        MarketingTask task = task(MarketingTaskStatus.PENDING.code(), now - 60_000L, now + 600_000L);
+        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.startPendingTask(eq(TASK_ID), anyLong())).thenReturn(1);
+
+        service.startTask(TASK_ID);
+
+        verify(taskMapper).startPendingTask(eq(TASK_ID), anyLong());
         verify(occupancyService, never()).acquireAndLoadTaskAccounts(
                 org.mockito.ArgumentMatchers.any(), anyLong());
     }
 
     @Test
-    void restartTask_insideNewWindow_acquiresAvailableAccounts() {
-        long now = System.currentTimeMillis();
-        MarketingTask task = task(MarketingTaskStatus.ENDED.code(), now - 600_000L, now - 60_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
-        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
-        when(taskMapper.restartEndedTask(eq(TASK_ID), eq(MarketingTaskStatus.SENDING.code()),
-                anyLong(), anyLong(), anyLong())).thenReturn(1);
-
-        service.restartTask(TASK_ID, new RestartMarketingTaskDTO(now - 1_000L, now + 600_000L));
-
-        verify(occupancyService).acquireAndLoadTaskAccounts(eq(task), anyLong());
-    }
-
-    @Test
-    void stopTask_sendingTask_releasesOwnedAccounts() {
+    void pauseTask_sendingTaskKeepsOwnedAccounts() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.SENDING.code(), now - 60_000L, now + 600_000L);
         when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
-        when(taskMapper.stopTask(eq(TASK_ID), anyLong())).thenReturn(1);
+        when(taskMapper.pauseSendingTask(eq(TASK_ID), anyLong())).thenReturn(1);
 
-        service.stopTask(TASK_ID);
+        service.pauseTask(TASK_ID);
+
+        verify(occupancyService, never()).releaseTaskAccounts(anyLong());
+    }
+
+    @Test
+    void resumeTask_pausedTaskInsideWindowResumesWithoutReacquiringAccounts() {
+        long now = System.currentTimeMillis();
+        MarketingTask task = task(MarketingTaskStatus.PAUSED.code(), now - 60_000L, now + 600_000L);
+        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.resumePausedTask(eq(TASK_ID), anyLong())).thenReturn(1);
+
+        service.resumeTask(TASK_ID);
+
+        verify(occupancyService, never()).acquireAndLoadTaskAccounts(
+                org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(occupancyService, never()).releaseTaskAccounts(anyLong());
+    }
+
+    @Test
+    void closeTask_activeTaskReleasesOwnedAccounts() {
+        long now = System.currentTimeMillis();
+        MarketingTask task = task(MarketingTaskStatus.SENDING.code(), now - 60_000L, now + 600_000L);
+        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.closeActiveTask(eq(TASK_ID), anyLong())).thenReturn(1);
+
+        service.closeTask(TASK_ID);
 
         verify(occupancyService).releaseTaskAccounts(TASK_ID);
+    }
+
+    @Test
+    void completedTaskCannotBeStartedOrClosed() {
+        long now = System.currentTimeMillis();
+        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task(
+                MarketingTaskStatus.COMPLETED.code(), now - 600_000L, now - 60_000L));
+
+        assertThatThrownBy(() -> service.startTask(TASK_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("只有未启动的任务可以启动");
+        assertThatThrownBy(() -> service.closeTask(TASK_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("已完成或已关闭的任务不可手动关闭");
+
+        verify(taskMapper, never()).startPendingTask(anyLong(), anyLong());
+        verify(taskMapper, never()).closeActiveTask(anyLong(), anyLong());
     }
 
     private static MarketingTask task(int status, long taskStartAt, long taskEndAt) {

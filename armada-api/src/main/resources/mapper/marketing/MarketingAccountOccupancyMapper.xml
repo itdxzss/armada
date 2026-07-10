@@ -12,7 +12,7 @@
         JOIN marketing_task_target t ON t.marketing_task_id = mt.id
         WHERE mt.id = #{taskId}
           AND mt.deleted_at IS NULL
-          AND mt.status = 2
+          AND mt.status IN (1, 2, 5)
           AND t.marketing_task_id = #{taskId}
         ORDER BY t.account_id ASC
     </insert>
@@ -28,12 +28,12 @@
         JOIN marketing_account_occupancy o ON o.account_id = target.account_id
         JOIN marketing_task mt ON mt.id = o.marketing_task_id
                               AND mt.deleted_at IS NULL
-                              AND mt.status = 2
+                              AND mt.status IN (1, 2, 5)
         WHERE target.marketing_task_id = #{taskId}
         ORDER BY o.account_id ASC
     </select>
 
-    <select id="selectFirstOwnerByAccountGroupId"
+    <select id="selectOwnersByAccountIds"
             resultType="com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow">
         SELECT o.account_id AS accountId,
                o.marketing_task_id AS marketingTaskId,
@@ -41,14 +41,14 @@
                mt.task_end_at AS taskEndAt,
                o.occupied_at AS occupiedAt
         FROM marketing_account_occupancy o
-        JOIN account a ON a.id = o.account_id
-                      AND a.deleted_at IS NULL
         JOIN marketing_task mt ON mt.id = o.marketing_task_id
                               AND mt.deleted_at IS NULL
-                              AND mt.status = 2
-        WHERE a.account_group_id = #{accountGroupId}
-        ORDER BY o.occupied_at ASC, o.account_id ASC
-        LIMIT 1
+                              AND mt.status IN (1, 2, 5)
+        WHERE o.account_id IN
+        <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+            #{accountId}
+        </foreach>
+        ORDER BY o.account_id ASC
     </select>
 
     <delete id="releaseByTaskId">
@@ -72,8 +72,7 @@
             SELECT mt.id
             FROM marketing_task mt
             WHERE mt.deleted_at IS NULL
-              AND mt.status = 2
-              AND (mt.task_end_at IS NULL OR mt.task_end_at &gt; #{now})
+              AND mt.status IN (1, 2, 5)
         )
     </delete>
 

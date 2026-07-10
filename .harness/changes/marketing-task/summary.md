@@ -152,3 +152,30 @@ mvn -q -Dtest=MarketingTaskDataModelMigrationDbTest,MarketingTaskCreateReadDbTes
 - 聚焦回归：`MarketingAccountOccupancyMapperSqlShapeTest,MarketingAccountOccupancyServiceTest,MarketingTaskServiceImplLifecycleTest,MarketingAccountTreeRealtimeServiceTest,MarketingTaskLifecycleWorkerTest,MarketingRoundWorkerTest,MarketingRoundSchedulerTest,MarketingTaskMapperSqlShapeTest,MarketingTemplateServiceImplTest` 共 67 个测试通过，0 失败/错误。
 - 真库测试已补充到 `MarketingAccountOccupancyMapperDbTest`、`MarketingTaskMutationDbTest`、`MarketingRoundWorkerDbTest` 和迁移模型测试；本机库验证仍需先处理既有 Flyway V037、V041 校验和不一致，本次不执行 `flyway repair`。
 - 未提交、未部署。
+
+## 2026-07-10 普通营销五态与创建即锁定（覆盖同日旧规则）
+
+- 本节覆盖上方“重新启动”“仅发送中占用”“暂停/提前退回释放账号”等旧规则；建群营销、速拉群不在本次范围。
+- 普通营销任务收敛为五态：`1=未启动`、`2=执行中`、`5=已暂停`、`7=已完成`、`8=已关闭`。
+- 创建任务保存主表和目标后，在同一事务内立即锁定全部去重账号；唯一键冲突会回查占用任务并整单回滚，提示：
+  `该账号正在被任务【任务名称】占用，请先关闭原任务后再使用。`
+- 未到开始时间点击启动仍保持未启动；调度器到达 `task_start_at` 自动进入执行中。暂停只停止后续轮次，账号不释放；继续仅允许已暂停且仍在计划窗口内的任务。
+- 新增 `POST /api/marketing-tasks/{id}/pause`、`/{id}/resume`、`/{id}/close`；删除普通营销 `restart` API 和 DTO，原 `stop` 不再对普通营销开放。
+- 手动关闭写入 `8=已关闭` 和 `finished_at`，清空 `next_round_at` 并释放全部账号；已完成、已关闭不可再次操作。
+- 正常到期写入 `7=已完成` 并释放账号；模板删除导致的异常终止同样写入已完成并释放。提前误置执行中时退回未启动但保留账号锁。
+- 批量删除只接受已完成或已关闭任务，避免通过软删除绕过关闭与账号释放规则。
+- 新增 `V050__marketing_task_five_state_lifecycle.sql`：旧 `3/4/6` 前滚为已完成、清理终态占用、按最早非终态任务回填历史账号锁并更新状态列注释。
+- 账号树批量返回当前有效占用方，锁定账号首屏即禁选；保存事务的唯一键复查仍是最终并发闸门。
+- 离线验证：普通营销相关非 DbTest 共 91 个通过；全部测试源码 `test-compile` 通过；Mapper XML 校验和 `git diff --check` 通过。
+- 真库 DbTest 未执行：本机测试库存在既有 Flyway V037/V041 校验和不一致，本次未运行 `flyway repair`、未修改数据库。
+- 未提交、未部署。
+
+## 2026-07-10 创建任务与删除模板并发门禁
+
+- 普通营销创建任务在校验模板时使用 `SELECT ... FOR UPDATE`，模板行锁持有到创建事务提交。
+- 批量删除模板先对 ID 去空、去重并升序，再按相同模板行执行 `SELECT ... ORDER BY id ASC FOR UPDATE`；拿到锁后才结束关联非终态任务、释放账号并软删除模板。
+- 该顺序覆盖两种竞态：创建先拿锁时，删除等待后能看到并结束新任务；删除先拿锁时，创建等待后会因模板已软删除而整单回滚。
+- 按已确认范围仅实现模板行锁第一层，不处理历史重叠任务，也不扩展建群营销/速拉群。
+- TDD 证据：实现前测试编译因缺少两类锁查询失败；实现后定向 26 个测试通过。普通营销相关非 DbTest 回归共 92 个通过，Mapper XML 校验和 `git diff --check` 通过。
+- 真库 DbTest 未执行：继续受本机既有 Flyway V037/V041 校验和不一致限制，本次未修改数据库。
+- 未提交、未部署。

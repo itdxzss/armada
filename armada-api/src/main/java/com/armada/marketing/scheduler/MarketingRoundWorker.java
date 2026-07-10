@@ -123,10 +123,9 @@ public class MarketingRoundWorker {
         // 即使历史数据或并发操作错误地提前置为发送中,worker 也不能越过计划开始时间生成消息。
         if (task.getTaskStartAt() != null && task.getTaskStartAt() > now) {
             int deferred = taskMapper.deferEarlySendingTask(taskId, now);
-            int released = deferred > 0 ? occupancyService.releaseTaskAccounts(taskId) : 0;
             log.warn("营销任务轮次跳过并退回等待:尚未到计划开始时间 tenantId={} taskId={} taskStartAt={} "
-                            + "updated={} releasedAccounts={}",
-                    task.getTenantId(), task.getId(), task.getTaskStartAt(), deferred, released);
+                            + "updated={} accountsRetained=true",
+                    task.getTenantId(), task.getId(), task.getTaskStartAt(), deferred);
             return;
         }
         List<MarketingTaskTarget> targets = taskMapper.selectTargetsByTaskId(taskId);

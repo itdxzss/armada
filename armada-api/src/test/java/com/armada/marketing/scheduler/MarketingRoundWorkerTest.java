@@ -63,7 +63,7 @@ class MarketingRoundWorkerTest {
         worker.runRound(1L, 42L);
 
         verify(taskMapper).deferEarlySendingTask(eq(42L), anyLong());
-        verify(occupancyService).releaseTaskAccounts(42L);
+        verify(occupancyService, never()).releaseTaskAccounts(42L);
         verify(taskMapper, never()).selectTargetsByTaskId(anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
         verify(outbox, never()).enqueueMarketingMessageCommands(any());

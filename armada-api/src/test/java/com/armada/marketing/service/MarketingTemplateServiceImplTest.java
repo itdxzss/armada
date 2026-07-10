@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -26,6 +27,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -251,18 +253,21 @@ class MarketingTemplateServiceImplTest {
     @Test
     void batchDelete_empty_noop() {
         service.batchDelete(List.of());
-        verify(taskMapper, never()).stopRunnableTasksByTemplateIds(any(), anyLong());
+        verify(mapper, never()).selectExistingIdsForUpdate(any());
+        verify(taskMapper, never()).completeActiveTasksByTemplateIds(any(), anyLong());
         verify(occupancyService, never()).releaseAccountsByTemplateIds(any());
         verify(mapper, never()).softDeleteByIds(any(), anyLong());
     }
 
     @Test
-    void batchDelete_stopsRunnableTasksBeforeSoftDelete() {
-        service.batchDelete(Arrays.asList(1L, null, 1L, 2L));
+    void batchDelete_locksTemplatesInStableOrderBeforeCompletingTasksAndSoftDelete() {
+        service.batchDelete(Arrays.asList(2L, null, 1L, 2L));
 
-        verify(taskMapper).stopRunnableTasksByTemplateIds(eq(List.of(1L, 2L)), anyLong());
-        verify(occupancyService).releaseAccountsByTemplateIds(List.of(1L, 2L));
-        verify(mapper).softDeleteByIds(eq(List.of(1L, 2L)), anyLong());
+        InOrder ordered = inOrder(mapper, taskMapper, occupancyService);
+        ordered.verify(mapper).selectExistingIdsForUpdate(List.of(1L, 2L));
+        ordered.verify(taskMapper).completeActiveTasksByTemplateIds(eq(List.of(1L, 2L)), anyLong());
+        ordered.verify(occupancyService).releaseAccountsByTemplateIds(List.of(1L, 2L));
+        ordered.verify(mapper).softDeleteByIds(eq(List.of(1L, 2L)), anyLong());
     }
 
     @Test

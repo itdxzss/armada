@@ -14,7 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
  * @param aggregateType     聚合类型,如 ACCOUNT
  * @param aggregateId       聚合 ID;账号命令对应 account.id
  * @param protocolAccountId 协议层账号句柄
- * @param payload           轻量业务 payload,不包含凭据和代理密码
+ * @param payload           业务 payload;上线命令包含执行所需凭据和代理连接串,严禁原样记录日志
  */
 public record ProtocolCommandEnvelope(
         String commandId,

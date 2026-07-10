@@ -237,6 +237,53 @@ class ProtocolCommandPublisherTest {
     }
 
     @Test
+    void publishBatch_onlineAndroidRowBuildsZhuanLifecyclePayload() {
+        ProtocolCommandOutbox row = outboxRow(
+                "cmd_android",
+                1L,
+                100L,
+                "acc_919000000001",
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_919000000001\","
+                        + "\"credentialFormat\":\"SIX_SEGMENT\",\"proxyId\":7,\"isBusiness\":true,"
+                        + "\"source\":\"batch_online\",\"onlineAttemptId\":\"oa_android\","
+                        + "\"previousOnlineAttemptId\":\"oa_previous\",\"protocolBackend\":\"ANDROID\"}");
+        row.setKafkaTopic("protocol.android.commands.v1");
+        row.setProtocolBackend("ANDROID");
+        when(credentialMapper.selectByTenantAndAccountIds(1L, List.of(100L)))
+                .thenReturn(List.of(credential(100L, 1, "{\"phone\":\"919000000001\","
+                        + "\"static_pub_key\":\"static-pub\",\"static_pri_key\":\"static-pri\","
+                        + "\"id_pub_key\":\"identity-pub\",\"id_pri_key\":\"identity-pri\","
+                        + "\"phone_id\":\"phone-id\"}")));
+        when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
+                .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
+                        "user-a", "pass_session-Aaa111", "印度")));
+        when(kafkaTemplate.send(eq("protocol.android.commands.v1"), eq("acc_919000000001"), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
+
+        assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
+        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
+        verify(kafkaTemplate).send(
+                eq("protocol.android.commands.v1"), eq("acc_919000000001"), captor.capture());
+        ProtocolCommandEnvelope envelope = captor.getValue();
+        assertThat(envelope.payload().get("tenantId").asLong()).isEqualTo(1L);
+        assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
+        assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_919000000001");
+        assertThat(envelope.payload().get("format").asText()).isEqualTo("six");
+        assertThat(envelope.payload().path("isBusiness").asBoolean()).isTrue();
+        assertThat(envelope.payload().get("credential").get("static_pub_key").asText()).isEqualTo("static-pub");
+        assertThat(envelope.payload().get("credential").get("phone_id").asText()).isEqualTo("phone-id");
+        assertThat(envelope.payload().get("proxy").get("protocol").asText()).isEqualTo("socks5");
+        assertThat(envelope.payload().get("proxy").get("url").asText())
+                .isEqualTo("socks5://user-a:pass_session-Aaa111@proxy-a.internal:1080");
+        assertThat(envelope.payload().get("source").asText()).isEqualTo("batch_online");
+        assertThat(envelope.payload().get("onlineAttemptId").asText()).isEqualTo("oa_android");
+        assertThat(envelope.payload().get("previousOnlineAttemptId").asText()).isEqualTo("oa_previous");
+        assertThat(envelope.payload().get("protocolBackend").asText()).isEqualTo("ANDROID");
+    }
+
+    @Test
     void publishBatch_onlineRowWithNullOnlineAttemptReturnsValidationFailureWithoutSendingKafka() {
         ProtocolCommandOutbox row = outboxRow(
                 "cmd_100",

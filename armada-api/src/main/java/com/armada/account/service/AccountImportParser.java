@@ -64,7 +64,7 @@ public class AccountImportParser {
      * <p>text 与 fileBytes 二选一:text 非空则优先用 text;否则解 fileBytes。
      * JSON 格式支持:.zip 压缩包(一号一文件)、单对象、数组。
      * PARAMS 格式支持:单对象、数组。
-     * SIX 格式支持:每行 {@code phone,idPri,idPub,staticPri,staticPub,deviceIdentity}。</p>
+     * SIX 格式支持:每行 {@code phone,staticPub,staticPri,identityPub,identityPri,phoneId}。</p>
      *
      * @param format    导入格式枚举
      * @param fileBytes 文件字节(可为 null)
@@ -87,11 +87,7 @@ public class AccountImportParser {
 
     // ---- SIX 格式 ----
 
-    /**
-     * 解析 Android 六段 CSV:phone + 五个 key。
-     *
-     * <p>注意:当前供号文件没有 ws_device_id,这里不伪造该字段;Android consumer 在上线时做兼容默认。</p>
-     */
+    /** 解析经 Zhuan 上线流程验证的六段 CSV 字段顺序。 */
     private List<ParsedEntry> parseSix(byte[] fileBytes, String text) {
         String src = (text != null && !text.isEmpty()) ? text
                 : (fileBytes != null ? new String(fileBytes, StandardCharsets.UTF_8) : "");
@@ -101,8 +97,8 @@ public class AccountImportParser {
         String[] lines = src.split("\\R");
         List<ParsedEntry> result = new ArrayList<>(lines.length);
         for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
-            if (line.isEmpty()) {
+            String line = lines[i];
+            if (line.trim().isEmpty()) {
                 continue;
             }
             result.add(parseSixLine(line, i + 1));
@@ -122,7 +118,7 @@ public class AccountImportParser {
 
         String[] parts = line.split(",", -1);
         if (parts.length != 6) {
-            entry.setParseError("六段格式错误:应为6列(phone,id_pri_key,id_pub_key,static_pri_key,static_pub_key,device_identity_key)");
+            entry.setParseError("六段格式错误:应为6列(phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key,phone_id)");
             return entry;
         }
         for (int i = 0; i < parts.length; i++) {
@@ -143,11 +139,11 @@ public class AccountImportParser {
 
         ObjectNode data = mapper.createObjectNode();
         data.put("phone", phone);
-        data.put("id_pri_key", parts[1]);
-        data.put("id_pub_key", parts[2]);
-        data.put("static_pri_key", parts[3]);
-        data.put("static_pub_key", parts[4]);
-        data.put("device_identity_key", parts[5]);
+        data.put("static_pub_key", parts[1]);
+        data.put("static_pri_key", parts[2]);
+        data.put("id_pub_key", parts[3]);
+        data.put("id_pri_key", parts[4]);
+        data.put("phone_id", parts[5]);
         entry.setData(data);
         return entry;
     }

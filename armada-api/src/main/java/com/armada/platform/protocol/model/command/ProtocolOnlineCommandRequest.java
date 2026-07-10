@@ -16,6 +16,7 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
  * @param onlineAttemptId   Armada 生成的本次上线尝试 ID
  * @param previousOnlineAttemptId 代理失败重上线时关联的上一尝试 ID
  * @param protocolBackend   协议后端,默认 WEB
+ * @param isBusiness       是否为 WhatsApp Business 账号
  */
 public record ProtocolOnlineCommandRequest(
         Long accountId,
@@ -25,8 +26,28 @@ public record ProtocolOnlineCommandRequest(
         String source,
         String onlineAttemptId,
         String previousOnlineAttemptId,
-        ProtocolBackend protocolBackend
+        ProtocolBackend protocolBackend,
+        boolean isBusiness
 ) {
+
+    public ProtocolOnlineCommandRequest(Long accountId,
+                                        String protocolAccountId,
+                                        CredentialFormat credentialFormat,
+                                        Long proxyId,
+                                        String source,
+                                        String onlineAttemptId,
+                                        String previousOnlineAttemptId,
+                                        ProtocolBackend protocolBackend) {
+        this(accountId,
+                protocolAccountId,
+                credentialFormat,
+                proxyId,
+                source,
+                onlineAttemptId,
+                previousOnlineAttemptId,
+                protocolBackend,
+                false);
+    }
 
     public ProtocolOnlineCommandRequest(Long accountId,
                                         String protocolAccountId,
@@ -42,7 +63,8 @@ public record ProtocolOnlineCommandRequest(
                 source,
                 onlineAttemptId,
                 previousOnlineAttemptId,
-                ProtocolBackend.WEB);
+                ProtocolBackend.WEB,
+                false);
     }
 
     public ProtocolOnlineCommandRequest {

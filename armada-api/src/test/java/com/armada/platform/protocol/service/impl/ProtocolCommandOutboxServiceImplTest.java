@@ -126,7 +126,8 @@ class ProtocolCommandOutboxServiceImplTest {
                 "manual_online",
                 "oa_100",
                 "oa_99",
-                ProtocolBackend.ANDROID);
+                ProtocolBackend.ANDROID,
+                true);
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
 
         service.enqueueOnlineCommands(List.of(command));
@@ -139,7 +140,9 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(payload)
                 .containsEntry("protocolBackend", "ANDROID")
                 .containsEntry("protocolAccountId", "acc_100")
-                .containsEntry("onlineAttemptId", "oa_100");
+                .containsEntry("onlineAttemptId", "oa_100")
+                .containsEntry("isBusiness", true)
+                .doesNotContainKeys("credential", "sixdata", "proxy", "proxyAddress", "proxyDetails");
     }
 
     @Test

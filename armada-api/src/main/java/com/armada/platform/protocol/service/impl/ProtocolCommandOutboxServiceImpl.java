@@ -465,7 +465,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 command.source(),
                 command.onlineAttemptId(),
                 command.previousOnlineAttemptId(),
-                command.protocolBackend());
+                command.protocolBackend(),
+                command.isBusiness());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -863,7 +864,8 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             String onlineAttemptId,
             @JsonInclude(JsonInclude.Include.ALWAYS)
             String previousOnlineAttemptId,
-            ProtocolBackend protocolBackend
+            ProtocolBackend protocolBackend,
+            boolean isBusiness
     ) {
     }
 

@@ -215,7 +215,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     source,
                     onlineAttemptId,
                     previousAttemptId(account.getId(), source, failedOnlineAttemptId),
-                    ProtocolBackend.fromProtocolId(account.getProtocolId()));
+                    ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                    isBusinessAccount(account));
             updateProxySnapshot(account.getId(), allocation.endpoint(), allocation.proxySource());
 
             // 4. accepted 表示命令已进入本地 outbox,不等价于 WhatsApp 已经在线;最终状态等 Kafka 异步回填。
@@ -636,7 +637,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         source,
                         onlineAttemptId,
                         previousAttemptId(accountId, source, null),
-                        protocolBackend);
+                        protocolBackend,
+                        isBusinessAccount(account));
                 updateProxySnapshot(accountId, allocation.endpoint(), allocation.proxySource());
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
                 log.info("账号批量上线写入 outbox 前准备 command accountId={} attemptId={} allocatedProxyId={} source={} "
@@ -810,6 +812,10 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             return requestBackend;
         }
         return ProtocolBackend.fromProtocolId(account.getProtocolId());
+    }
+
+    private static boolean isBusinessAccount(Account account) {
+        return account != null && Integer.valueOf(2).equals(account.getAccountType());
     }
 
     private static List<Long> normalizeProxyIds(List<Long> proxyIds) {

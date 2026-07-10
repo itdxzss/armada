@@ -13,7 +13,7 @@ public enum ImportFormat {
 
     /**
      * Android 六段 CSV 格式:
-     * phone,id_pri_key,id_pub_key,static_pri_key,static_pub_key,device_identity_key。
+     * phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key,phone_id。
      */
     SIX(1),
 

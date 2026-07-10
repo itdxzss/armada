@@ -52,7 +52,9 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(2000L);
-        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(1000));
+        List<MarketingTaskTarget> targets = targets(1000);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        stubCurrentTargets(taskMapper, targets);
 
         MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
         worker.runRound(1L, 42L);
@@ -73,7 +75,9 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
-        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(2));
+        List<MarketingTaskTarget> targets = targets(2);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -110,6 +114,62 @@ class MarketingRoundWorkerTest {
     }
 
     @Test
+    void fixedGroupTargetMissingCurrentMembershipStillUsesSavedSnapshot() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        properties.setBacklogMultiplier(2);
+
+        MarketingTask task = task();
+        MarketingTaskTarget target = targets(1).get(0);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
+        when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
+            attempts.get(0).setId(9051L);
+            return attempts.size();
+        }).when(taskMapper).insertSendAttempts(any());
+
+        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketingTaskSendAttempt>> attemptsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(taskMapper).insertSendAttempts(attemptsCaptor.capture());
+        assertThat(attemptsCaptor.getValue()).singleElement().satisfies(attempt -> {
+            assertThat(attempt.getGroupLinkId()).isEqualTo(target.getGroupLinkId());
+            assertThat(attempt.getGroupJid()).isEqualTo(target.getGroupJid());
+            assertThat(attempt.getGroupName()).isEqualTo(target.getGroupName());
+        });
+        verify(taskMapper, never()).selectCurrentTargetGroup(anyLong(), anyLong());
+    }
+
+    @Test
+    void fixedGroupTargetMissingSavedGroupJidPostponesWithoutAttempt() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        properties.setBacklogMultiplier(2);
+
+        MarketingTask task = task();
+        MarketingTaskTarget target = targets(1).get(0);
+        target.setGroupJid(null);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
+
+        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        worker.runRound(1L, 42L);
+
+        verify(taskMapper).postponeDueRound(eq(42L), anyLong(), anyLong());
+        verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
+        verify(taskMapper, never()).insertSendAttempts(any());
+        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+    }
+
+    @Test
     void accountDynamicTargetExpandsCurrentGroupsBeforeSending() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
         ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
@@ -120,7 +180,7 @@ class MarketingRoundWorkerTest {
         MarketingTaskTarget target = dynamicTarget();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
-        when(taskMapper.selectDynamicTargetGroups(5001L)).thenReturn(List.of(
+        when(taskMapper.selectDynamicTargetGroups(5001L, 1_000L)).thenReturn(List.of(
                 dynamicGroup(8101L, "12036308101@g.us", "新增群A"),
                 dynamicGroup(8102L, "12036308102@g.us", "新增群B")));
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
@@ -164,7 +224,7 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(dynamicTarget()));
-        when(taskMapper.selectDynamicTargetGroups(5001L)).thenReturn(List.of());
+        when(taskMapper.selectDynamicTargetGroups(5001L, 1_000L)).thenReturn(List.of());
 
         MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
         worker.runRound(1L, 42L);
@@ -190,7 +250,9 @@ class MarketingRoundWorkerTest {
             MarketingTask task = task();
             when(taskMapper.selectTaskById(42L)).thenReturn(task);
             when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
-            when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(2));
+            List<MarketingTaskTarget> targets = targets(2);
+            when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+            stubCurrentTargets(taskMapper, targets);
             when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
             doAnswer(invocation -> {
                 @SuppressWarnings("unchecked")
@@ -228,7 +290,9 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
-        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(450));
+        List<MarketingTaskTarget> targets = targets(450);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -270,7 +334,9 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
-        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(1));
+        List<MarketingTaskTarget> targets = targets(1);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -308,7 +374,9 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
-        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(1));
+        List<MarketingTaskTarget> targets = targets(1);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -344,7 +412,9 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
-        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(2));
+        List<MarketingTaskTarget> targets = targets(2);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -396,6 +466,7 @@ class MarketingRoundWorkerTest {
         task.setSendIntervalSeconds(30);
         task.setCurrentRoundNo(0L);
         task.setMarketingTemplateId(77L);
+        task.setAccountGroupSendAt(1_000L);
         return task;
     }
 
@@ -434,6 +505,24 @@ class MarketingRoundWorkerTest {
         row.setGroupLinkId(groupLinkId);
         row.setGroupJid(groupJid);
         row.setGroupName(groupName);
+        return row;
+    }
+
+    private static void stubCurrentTargets(MarketingTaskMapper taskMapper, List<MarketingTaskTarget> targets) {
+        for (MarketingTaskTarget target : targets) {
+            when(taskMapper.selectCurrentTargetGroup(target.getAccountId(), target.getGroupLinkId()))
+                    .thenReturn(currentGroup(target));
+        }
+    }
+
+    private static MarketingTargetCandidateRow currentGroup(MarketingTaskTarget target) {
+        MarketingTargetCandidateRow row = new MarketingTargetCandidateRow();
+        row.setAccountId(target.getAccountId());
+        row.setAccountPhone(target.getAccountPhone());
+        row.setGroupLinkId(target.getGroupLinkId());
+        row.setGroupJid(target.getGroupJid());
+        row.setGroupLinkUrl(target.getGroupLinkUrl());
+        row.setGroupName(target.getGroupName());
         return row;
     }
 

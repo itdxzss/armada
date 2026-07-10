@@ -11,22 +11,34 @@ class MarketingTaskMapperSqlShapeTest {
     private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskMapper.xml";
 
     @Test
-    void marketingAccountSelectionUsesRealtimeProtocolAndFixedSaveDoesNotRequireMembership() throws IOException {
+    void marketingAccountSelectionUsesSnapshotForFixedTargetsAndMembershipForDynamicTargets() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
                 StandardCharsets.UTF_8);
 
         String candidateSql = selectBlock(xml, "selectTargetCandidate");
+        String dynamicTargetSql = selectBlock(xml, "selectDynamicTargetGroups");
+        String currentTargetSql = selectBlock(xml, "selectCurrentTargetGroup");
         String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
 
-        assertThat(candidateSql).contains("p.group_jid AS groupJid");
         assertThat(candidateSql)
-                .doesNotContain("JOIN account_group_membership")
-                .doesNotContain("m.group_jid");
+                .contains("JOIN group_link_preview p ON p.group_link_id = g.id")
+                .contains("p.group_jid AS groupJid")
+                .contains("a.account_group_id = #{accountGroupId}");
+        assertThat(candidateSql).doesNotContain("account_group_membership m");
+        assertThat(dynamicTargetSql)
+                .contains("JOIN account_group_membership m")
+                .contains("m.group_jid AS groupJid")
+                .contains("(#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})");
+        assertThat(currentTargetSql)
+                .contains("JOIN account_group_membership m")
+                .contains("m.group_link_id = #{groupLinkId}")
+                .contains("WHERE a.id = #{accountId}");
         assertThat(treeAccountSql).contains("a.protocol_account_id AS protocolAccountId");
         assertThat(treeAccountSql)
-                .doesNotContain("account_group_membership")
-                .doesNotContain("group_link_preview p");
+                .contains("account_group_membership")
+                .contains("COALESCE(gm.groupCount, 0) AS groupCount")
+                .contains("s.login_state AS loginState");
     }
 
     @Test

@@ -30,6 +30,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     private static final int STATUS_PENDING = 1;
     private static final int STATUS_SENDING = 2;
     private static final int TARGET_STATUS_PARTIAL_FAILED = 5;
+    private static final long THREE_DAYS_MS = 72L * 60L * 60L * 1000L;
 
     @Autowired
     private MarketingTaskService service;
@@ -76,6 +77,47 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         assertThat(created.status()).isEqualTo(STATUS_SENDING);
         assertThat(created.sentMessageCount()).isZero();
         assertThat(created.lastSentAt()).isNull();
+    }
+
+    @Test
+    void createTask_defaultsAccountGroupSendAtFromTaskStartMinusSeventyTwoHours() {
+        Fixture fixture = seedFixture("default-group-send-time");
+        long taskStartAt = System.currentTimeMillis() + 120_000L;
+        long taskEndAt = taskStartAt + 600_000L;
+
+        MarketingTaskVO created = service.createTask(requestWithTimes(
+                "默认群组发送时间任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                null,
+                taskStartAt,
+                taskEndAt,
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+
+        assertThat(created.accountGroupSendAt()).isEqualTo(taskStartAt - THREE_DAYS_MS);
+        assertThat(created.taskStartAt()).isEqualTo(taskStartAt);
+        assertThat(created.taskEndAt()).isEqualTo(taskEndAt);
+    }
+
+    @Test
+    void createTask_rejectsManualAccountGroupSendAtOlderThanSeventyTwoHours() {
+        Fixture fixture = seedFixture("old-group-send-time");
+        long now = System.currentTimeMillis();
+
+        CreateMarketingTaskDTO req = requestWithTimes(
+                "过早群组发送时间任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                now - THREE_DAYS_MS - 1_000L,
+                now + 120_000L,
+                now + 600_000L,
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
+
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号群组发送时间最多支持追溯72小时");
     }
 
     @Test
@@ -264,6 +306,18 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                                            long templateId,
                                            String startMode,
                                            List<MarketingSelectionDTO> selections) {
+        return requestWithTimes(taskName, accountGroupId, templateId, startMode,
+                null, null, null, selections);
+    }
+
+    private CreateMarketingTaskDTO requestWithTimes(String taskName,
+                                                    long accountGroupId,
+                                                    long templateId,
+                                                    String startMode,
+                                                    Long accountGroupSendAt,
+                                                    Long taskStartAt,
+                                                    Long taskEndAt,
+                                                    List<MarketingSelectionDTO> selections) {
         return new CreateMarketingTaskDTO(
                 taskName,
                 accountGroupId,
@@ -271,6 +325,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 templateId,
                 "营销模板",
                 startMode,
+                accountGroupSendAt,
+                taskStartAt,
+                taskEndAt,
                 1,
                 30,
                 true,

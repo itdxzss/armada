@@ -1,36 +1,26 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
-import com.armada.group.model.dto.AccountGroupsReportedEvent;
-import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
-import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.model.vo.MarketingTreeAccountVO;
 import com.armada.marketing.model.vo.MarketingTreeGroupVO;
-import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
-import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 营销任务账号树懒加载查群服务。
+ * 营销任务账号树查库服务。
  *
- * <p>账号候选由本地库按在线、风控、禁言等条件筛选;群列表只在用户展开某个账号时调用协议层实时查询,
- * 再用 {@code account_group_baseline.baseline_group_jids} 做差集,避免导入前旧群进入营销候选。</p>
+ * <p>账号和群列表都读取 Armada 本地库。协议层通过 account.groups_reported 异步刷新
+ * account_group_membership,本服务不再在用户点击账号时调用协议实时查群。</p>
  */
 @Service
 public class MarketingAccountTreeRealtimeService {
@@ -38,36 +28,21 @@ public class MarketingAccountTreeRealtimeService {
     private static final Logger log = LoggerFactory.getLogger(MarketingAccountTreeRealtimeService.class);
 
     private static final int BASELINE_PENDING = AccountGroupBaselineStateCode.PENDING;
-    private static final int BASELINE_CAPTURED = AccountGroupBaselineStateCode.CAPTURED;
-    private static final int BASELINE_DISABLED = AccountGroupBaselineStateCode.DISABLED;
-    private static final int PROTOCOL_GROUP_QUERY_CONCURRENCY = 5;
-    private static final String ACCOUNT_STATUS_ONLINE = "ONLINE";
+    private static final String STATUS_ONLINE = "ONLINE";
+    private static final String STATUS_OFFLINE = "OFFLINE";
+    private static final String STATUS_RISK = "RISK";
+    private static final String STATUS_BANNED = "BANNED";
+    private static final String STATUS_MUTED = "MUTED";
 
     private final MarketingTaskMapper taskMapper;
-    private final AccountParticipatingGroupPort groupPort;
-    private final AccountGroupMembershipSnapshotService snapshotService;
-    private final ObjectMapper objectMapper;
-    private final TransactionTemplate transactionTemplate;
 
     /**
-     * 创建营销账号树实时查群服务。
+     * 创建营销账号树查库服务。
      *
-     * @param taskMapper          营销任务 mapper,用于查询账号候选
-     * @param groupPort           协议层实时查群端口
-     * @param snapshotService     账号可见群关系快照写入服务
-     * @param objectMapper        JSON 序列化器
-     * @param transactionTemplate 单账号快照写入事务模板
+     * @param taskMapper 营销任务 mapper,用于查询账号和账号当前群候选
      */
-    public MarketingAccountTreeRealtimeService(MarketingTaskMapper taskMapper,
-                                               AccountParticipatingGroupPort groupPort,
-                                               AccountGroupMembershipSnapshotService snapshotService,
-                                               ObjectMapper objectMapper,
-                                               TransactionTemplate transactionTemplate) {
+    public MarketingAccountTreeRealtimeService(MarketingTaskMapper taskMapper) {
         this.taskMapper = taskMapper;
-        this.groupPort = groupPort;
-        this.snapshotService = snapshotService;
-        this.objectMapper = objectMapper;
-        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -97,7 +72,7 @@ public class MarketingAccountTreeRealtimeService {
     }
 
     /**
-     * 懒加载单个账号的实时可营销群。
+     * 懒加载单个账号当前库内可营销群。
      *
      * <p>本接口不校验账号分组归属。前端只会对首屏账号树里的账号触发懒加载,
      * 后端保留租户隔离、在线、风控、禁言等账号候选条件,并复用 baseline 排除逻辑。</p>
@@ -114,151 +89,107 @@ public class MarketingAccountTreeRealtimeService {
             throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: " + accountId);
         }
 
-        AccountParticipatingGroupResult result;
         try {
-            result = resultsByProtocolAccountId(groupPort.listBatch(
-                    List.of(account.getProtocolAccountId()), PROTOCOL_GROUP_QUERY_CONCURRENCY))
-                    .get(account.getProtocolAccountId());
+            if (!selectable(account, status(account))) {
+                return toAccountVO(account, false, List.of());
+            }
+            List<MarketingTreeGroupVO> groups = taskMapper.selectDynamicTargetGroups(accountId, null)
+                    .stream()
+                    .map(MarketingAccountTreeRealtimeService::toGroupVO)
+                    .toList();
+            log.info("营销账号懒加载查库完成 accountId={} visibleGroups={}",
+                    account.getAccountId(), groups.size());
+            return toAccountVO(account, false, groups);
         } catch (RuntimeException ex) {
-            log.warn("营销账号懒加载协议查群失败 accountId={} protocolAccountId={}",
-                    account.getAccountId(), account.getProtocolAccountId(), ex);
-            return toAccountVO(account, true, List.of());
-        }
-        if (result == null || !result.success()) {
-            log.warn("营销账号懒加载单账号查群失败 accountId={} protocolAccountId={} error={}",
-                    account.getAccountId(), account.getProtocolAccountId(), result == null ? "missing_result" : result.error());
-            return toAccountVO(account, true, List.of());
-        }
-
-        MarketingTreeAccountVO node = refreshAccount(account, result);
-        log.info("营销账号懒加载查群完成 accountId={} protocolAccountId={} groupsError={} visibleGroups={}",
-                account.getAccountId(), account.getProtocolAccountId(), node.groupsError(), node.groups().size());
-        return node;
-    }
-
-    private MarketingTreeAccountVO refreshAccount(MarketingAccountTreeAccountRow account,
-                                                  AccountParticipatingGroupResult result) {
-        try {
-            List<MarketingTreeGroupVO> groups = transactionTemplate.execute(status -> {
-                long now = System.currentTimeMillis();
-                Map<String, AccountParticipatingGroupResult.Group> currentGroups = normalizeProtocolGroups(result.groups());
-                int baselineState = baselineState(account);
-                if (baselineState == BASELINE_PENDING) {
-                    log.info("营销账号群树跳过待拍账号 baseline 捕获 accountId={} protocolAccountId={} rawGroups={}",
-                            account.getAccountId(), account.getProtocolAccountId(), currentGroups.size());
-                    return List.<MarketingTreeGroupVO>of();
-                }
-
-                Set<String> baseline = baselineState == BASELINE_CAPTURED
-                        ? baselineGroupJids(account.getBaselineGroupJidsJson())
-                        : Set.of();
-                List<AccountGroupsReportedEvent.Group> visibleGroups = currentGroups.entrySet().stream()
-                        .filter(entry -> baselineState == BASELINE_DISABLED || !baseline.contains(entry.getKey()))
-                        .map(entry -> toReportedGroup(entry.getKey(), entry.getValue()))
-                        .toList();
-                List<AccountGroupMembershipSnapshot> snapshots = snapshotService.replaceVisibleGroups(
-                        account.getAccountId(), visibleGroups, now);
-                log.info("营销账号群树账号刷新 accountId={} protocolAccountId={} baselineState={} rawGroups={} "
-                                + "baselineGroups={} visibleGroups={}",
-                        account.getAccountId(), account.getProtocolAccountId(), baselineState, currentGroups.size(),
-                        baseline.size(), snapshots.size());
-                return snapshots.stream().map(MarketingAccountTreeRealtimeService::toGroupVO).toList();
-            });
-            return toAccountVO(account, false, groups == null ? List.of() : groups);
-        } catch (RuntimeException ex) {
-            log.warn("营销账号群树账号处理失败 accountId={} protocolAccountId={}",
-                    account.getAccountId(), account.getProtocolAccountId(), ex);
+            log.warn("营销账号懒加载查库失败 accountId={}", account.getAccountId(), ex);
             return toAccountVO(account, true, List.of());
         }
     }
 
-    private Set<String> baselineGroupJids(String json) {
-        if (json == null || json.isBlank()) {
-            return Set.of();
-        }
-        try {
-            List<String> values = objectMapper.readValue(json, new TypeReference<>() {
-            });
-            Set<String> normalized = new LinkedHashSet<>();
-            for (String value : values) {
-                String groupJid = blankToNull(value);
-                if (groupJid != null) {
-                    normalized.add(groupJid);
-                }
-            }
-            return normalized;
-        } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("账号群基线 JSON 解析失败", ex);
-        }
-    }
-
-    private static Map<String, AccountParticipatingGroupResult> resultsByProtocolAccountId(
-            List<AccountParticipatingGroupResult> results) {
-        Map<String, AccountParticipatingGroupResult> mapped = new LinkedHashMap<>();
-        if (results == null) {
-            return mapped;
-        }
-        for (AccountParticipatingGroupResult result : results) {
-            String accountId = blankToNull(result.protocolAccountId());
-            if (accountId != null) {
-                mapped.putIfAbsent(accountId, result);
-            }
-        }
-        return mapped;
-    }
-
-    private static Map<String, AccountParticipatingGroupResult.Group> normalizeProtocolGroups(
-            List<AccountParticipatingGroupResult.Group> groups) {
-        Map<String, AccountParticipatingGroupResult.Group> mapped = new LinkedHashMap<>();
-        if (groups == null) {
-            return mapped;
-        }
-        for (AccountParticipatingGroupResult.Group group : groups) {
-            String groupJid = blankToNull(group.groupJid());
-            if (groupJid != null) {
-                mapped.putIfAbsent(groupJid, group);
-            }
-        }
-        return mapped;
-    }
-
-    private static AccountGroupsReportedEvent.Group toReportedGroup(String groupJid,
-                                                                    AccountParticipatingGroupResult.Group group) {
-        return new AccountGroupsReportedEvent.Group(
-                groupJid,
-                group.subject(),
-                group.memberCount(),
-                group.ownerJid(),
-                null,
-                group.admin(),
-                group.announceOnly(),
-                null);
-    }
-
-    private static MarketingTreeGroupVO toGroupVO(AccountGroupMembershipSnapshot snapshot) {
+    private static MarketingTreeGroupVO toGroupVO(MarketingTargetCandidateRow row) {
         return new MarketingTreeGroupVO(
-                snapshot.groupLinkId(),
-                snapshot.groupJid(),
-                snapshot.groupName(),
-                snapshot.linkUrl(),
-                Boolean.TRUE.equals(snapshot.admin()));
+                row.getGroupLinkId(),
+                row.getGroupJid(),
+                row.getGroupName(),
+                row.getGroupLinkUrl(),
+                null);
     }
 
     private static MarketingTreeAccountVO toAccountVO(MarketingAccountTreeAccountRow account,
                                                       boolean groupsError,
                                                       List<MarketingTreeGroupVO> groups) {
+        String status = status(account);
+        boolean selectable = selectable(account, status);
+        int groupCount = groups == null || groups.isEmpty()
+                ? Math.max(0, account.getGroupCount() == null ? 0 : account.getGroupCount())
+                : groups.size();
+        if (baselineState(account) == BASELINE_PENDING) {
+            groupCount = 0;
+        }
         return new MarketingTreeAccountVO(
-                account.getAccountId(), account.getWsPhone(), ACCOUNT_STATUS_ONLINE, groupsError, groups);
+                account.getAccountId(),
+                account.getWsPhone(),
+                status,
+                statusText(status),
+                groupCount,
+                selectable,
+                disabledReason(account, status),
+                groupsError,
+                groups == null ? List.of() : groups);
+    }
+
+    private static String status(MarketingAccountTreeAccountRow account) {
+        if (account.getMuteStatus() != null) {
+            return STATUS_MUTED;
+        }
+        if (account.getRiskStatus() != null && account.getRiskStatus() > 1) {
+            return STATUS_RISK;
+        }
+        if (account.getAccountState() != null && account.getAccountState() == AccountStateCode.BANNED) {
+            return STATUS_BANNED;
+        }
+        if (!Integer.valueOf(AccountLoginStateCode.ONLINE).equals(account.getLoginState())) {
+            return STATUS_OFFLINE;
+        }
+        return STATUS_ONLINE;
+    }
+
+    private static String statusText(String status) {
+        return switch (status) {
+            case STATUS_ONLINE -> "在线";
+            case STATUS_RISK -> "风控";
+            case STATUS_BANNED -> "封禁";
+            case STATUS_MUTED -> "禁言";
+            default -> "离线";
+        };
+    }
+
+    private static boolean selectable(MarketingAccountTreeAccountRow account, String status) {
+        return STATUS_ONLINE.equals(status)
+                && Integer.valueOf(AccountStateCode.NORMAL).equals(account.getAccountState())
+                && baselineState(account) != BASELINE_PENDING
+                && account.getProtocolAccountId() != null
+                && !account.getProtocolAccountId().isBlank();
+    }
+
+    private static String disabledReason(MarketingAccountTreeAccountRow account, String status) {
+        if (selectable(account, status)) {
+            return null;
+        }
+        if (baselineState(account) == BASELINE_PENDING) {
+            return "群同步中";
+        }
+        if (account.getProtocolAccountId() == null || account.getProtocolAccountId().isBlank()) {
+            return "协议账号缺失";
+        }
+        if (STATUS_ONLINE.equals(status)
+                && !Integer.valueOf(AccountStateCode.NORMAL).equals(account.getAccountState())) {
+            return "账号不可用";
+        }
+        return statusText(status);
     }
 
     private static int baselineState(MarketingAccountTreeAccountRow account) {
         return account.getGroupBaselineState() == null ? BASELINE_PENDING : account.getGroupBaselineState();
-    }
-
-    private static String blankToNull(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
     }
 }

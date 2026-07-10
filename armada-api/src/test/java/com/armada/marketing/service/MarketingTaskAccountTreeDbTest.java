@@ -2,30 +2,23 @@ package com.armada.marketing.service;
 
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTreeGroupVO;
-import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
-import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 
 /**
  * 营销任务建任务抽屉的账号→可营销群树。
  *
- * <p>账号树首屏只展示本地账号候选;点击某个账号后才实时调用协议层查询当前参与群,
- * 再按账号登录前 baseline JSON 做差集。</p>
+ * <p>账号树首屏展示账号和库内当前可营销群数量;点击账号后只查本地账号当前在群关系,
+ * 不再调用协议层实时查询。</p>
  */
 class MarketingTaskAccountTreeDbTest extends DbTestBase {
 
@@ -39,13 +32,13 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     @Autowired
     private JdbcTemplate jdbc;
 
-    @MockBean
-    private AccountParticipatingGroupPort groupPort;
-
     @Test
-    void accountTree_returnsAccountsWithoutQueryingProtocolGroups() {
+    void accountTree_returnsChineseStatusAndDbGroupCount() {
         long accountGroupId = seedAccountGroup("tree-accounts-only");
         long accountId = seedAccount("923300000100", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
+        String newJid = "120363count-new@g.us";
+        seedBaseline(accountId, "[]");
+        seedMembership(accountId, seedGroup("count-new", newJid, 1, 0), newJid);
 
         MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
 
@@ -53,19 +46,36 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
             assertThat(account.accountId()).isEqualTo(accountId);
             assertThat(account.wsPhone()).isEqualTo("923300000100");
             assertThat(account.status()).isEqualTo("ONLINE");
+            assertThat(account.statusText()).isEqualTo("在线");
+            assertThat(account.groupCount()).isEqualTo(1);
+            assertThat(account.selectable()).isTrue();
             assertThat(account.groupsError()).isFalse();
             assertThat(account.groups()).isEmpty();
         });
-        verifyNoInteractions(groupPort);
     }
 
     @Test
-    void accountGroups_pendingBaselineDoesNotCaptureFromMarketingLazyLoad() {
+    void accountTree_includesOfflineAccountAsNotSelectable() {
+        long accountGroupId = seedAccountGroup("tree-offline");
+        long accountId = seedAccount("923300000105", accountGroupId, BASELINE_CAPTURED, 2, 2, 1, null);
+
+        MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
+
+        assertThat(tree.accounts()).singleElement().satisfies(account -> {
+            assertThat(account.accountId()).isEqualTo(accountId);
+            assertThat(account.status()).isEqualTo("OFFLINE");
+            assertThat(account.statusText()).isEqualTo("离线");
+            assertThat(account.selectable()).isFalse();
+            assertThat(account.disabledReason()).isEqualTo("离线");
+        });
+    }
+
+    @Test
+    void accountGroups_pendingBaselineDoesNotReadCurrentMembership() {
         long accountGroupId = seedAccountGroup("tree-pending");
         long accountId = seedAccount("923300000101", accountGroupId, BASELINE_PENDING, 2, 1, 1, null);
         String oldJid = "120363pending-old@g.us";
-        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
-                success("acc_923300000101", protocolGroup(oldJid, "导入前旧群", 22, false))));
+        seedMembership(accountId, seedGroup("pending-old", oldJid, 1, 0), oldJid);
 
         var account = service.accountGroups(accountId);
 
@@ -73,6 +83,9 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
             assertThat(node.accountId()).isEqualTo(accountId);
             assertThat(node.wsPhone()).isEqualTo("923300000101");
             assertThat(node.status()).isEqualTo("ONLINE");
+            assertThat(node.statusText()).isEqualTo("在线");
+            assertThat(node.selectable()).isFalse();
+            assertThat(node.disabledReason()).isEqualTo("群同步中");
             assertThat(node.groupsError()).isFalse();
             assertThat(node.groups()).isEmpty();
         });
@@ -81,7 +94,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
                 FROM account_group_baseline
                 WHERE account_id = ?
                 """, Integer.class, accountId)).isZero();
-        assertThat(activeMembershipJids(accountId)).isEmpty();
+        assertThat(activeMembershipJids(accountId)).containsExactly(oldJid);
         Integer state = jdbc.queryForObject(
                 "SELECT group_baseline_state FROM account WHERE id = ?",
                 Integer.class,
@@ -90,17 +103,14 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountGroups_capturedBaselineShowsAndWritesOnlyNewGroups() {
+    void accountGroups_capturedBaselineReadsOnlyDbVisibleGroups() {
         long accountGroupId = seedAccountGroup("tree-captured");
         long accountId = seedAccount("923300000102", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         String oldJid = "120363captured-old@g.us";
         String newJid = "120363captured-new@g.us";
         seedBaseline(accountId, "[\"" + oldJid + "\"]");
-        seedMembership(accountId, seedGroup("polluted-old", oldJid, 1, 0), oldJid);
-        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
-                success("acc_923300000102",
-                        protocolGroup(oldJid, "旧群", 10, false),
-                        protocolGroup(newJid, "新群", 11, true))));
+        seedMembership(accountId, seedGroup("captured-old", oldJid, 1, 0), oldJid);
+        seedMembership(accountId, seedGroup("captured-new", newJid, 1, 0), newJid);
 
         var account = service.accountGroups(accountId);
 
@@ -109,23 +119,21 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
             assertThat(node.groups()).extracting(MarketingTreeGroupVO::groupJid)
                     .containsExactly(newJid);
             assertThat(node.groups()).singleElement().satisfies(group -> {
-                assertThat(group.groupName()).isEqualTo("新群");
-                assertThat(group.linkUrl()).isEqualTo("wa://group/" + newJid);
-                assertThat(group.isAdmin()).isTrue();
+                assertThat(group.groupName()).isEqualTo("营销群-captured-new");
+                assertThat(group.linkUrl()).isEqualTo("https://chat.whatsapp.com/captured-new");
             });
         });
-        assertThat(activeMembershipJids(accountId)).containsExactly(newJid);
+        assertThat(activeMembershipJids(accountId)).containsExactly(oldJid, newJid);
         assertThat(baselineJson(accountId)).contains(oldJid);
     }
 
     @Test
-    void accountGroups_baselineDisabledShowsAllProtocolGroups() {
+    void accountGroups_baselineDisabledShowsAllDbGroups() {
         long accountGroupId = seedAccountGroup("tree-disabled");
         long accountId = seedAccount("923300000103", accountGroupId, BASELINE_DISABLED, 2, 1, 1, null);
         String oldJid = "120363disabled-old@g.us";
         seedBaseline(accountId, "[\"" + oldJid + "\"]");
-        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
-                success("acc_923300000103", protocolGroup(oldJid, "不过滤旧群", 12, false))));
+        seedMembership(accountId, seedGroup("disabled-old", oldJid, 1, 0), oldJid);
 
         var account = service.accountGroups(accountId);
 
@@ -136,19 +144,17 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountGroups_protocolAccountFailureDoesNotClearExistingMembership() {
+    void accountGroups_dbFailureDoesNotClearExistingMembership() {
         long accountGroupId = seedAccountGroup("tree-failed");
         long accountId = seedAccount("923300000104", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         String existingJid = "120363failed-existing@g.us";
         seedBaseline(accountId, "[]");
-        seedMembership(accountId, seedGroup("failed-existing", existingJid, 1, 0), existingJid);
-        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
-                failed("acc_923300000104", "socket not found")));
+        seedMembership(accountId, seedGroup("failed-existing", existingJid, 2, 0), existingJid);
 
         var account = service.accountGroups(accountId);
 
         assertThat(account).satisfies(node -> {
-            assertThat(node.groupsError()).isTrue();
+            assertThat(node.groupsError()).isFalse();
             assertThat(node.groups()).isEmpty();
         });
         assertThat(activeMembershipJids(accountId)).containsExactly(existingJid);
@@ -157,28 +163,6 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     @Test
     void accountTree_emptyGroupIdReturnsEmptyTree() {
         assertThat(service.accountTree(null).accounts()).isEmpty();
-    }
-
-    private static AccountParticipatingGroupResult success(String protocolAccountId,
-                                                           AccountParticipatingGroupResult.Group... groups) {
-        return new AccountParticipatingGroupResult(protocolAccountId, true, List.of(groups), null);
-    }
-
-    private static AccountParticipatingGroupResult failed(String protocolAccountId, String error) {
-        return new AccountParticipatingGroupResult(protocolAccountId, false, List.of(), error);
-    }
-
-    private static AccountParticipatingGroupResult.Group protocolGroup(String groupJid,
-                                                                       String subject,
-                                                                       Integer memberCount,
-                                                                       Boolean admin) {
-        return new AccountParticipatingGroupResult.Group(
-                groupJid,
-                subject,
-                memberCount,
-                "8613000000000@s.whatsapp.net",
-                admin,
-                false);
     }
 
     private long seedAccountGroup(String suffix) {

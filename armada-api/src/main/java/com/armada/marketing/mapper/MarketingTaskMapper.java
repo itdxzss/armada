@@ -40,6 +40,20 @@ public interface MarketingTaskMapper {
     @InterceptorIgnore(tenantLine = "true")
     List<MarketingTask> selectDueSendingTasks(@Param("now") long now, @Param("limit") int limit);
 
+    /** 查询已到计划开始时间的等待任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<MarketingTask> selectDueWaitingTasks(@Param("now") long now, @Param("limit") int limit);
+
+    /** 查询已到计划结束时间的等待/发送中任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<MarketingTask> selectExpiredRunnableTasks(@Param("now") long now, @Param("limit") int limit);
+
+    /** 到达计划开始时间后,等待任务进入发送中。 */
+    int startDueWaitingTask(@Param("id") Long id, @Param("now") long now);
+
+    /** 到达计划结束时间后,等待/发送中任务进入已结束。 */
+    int endExpiredTask(@Param("id") Long id, @Param("now") long now);
+
     /** 抢占一个到期轮次,成功时递增 current_round_no 并推进 next_round_at。 */
     int claimDueRound(@Param("id") Long id, @Param("now") long now, @Param("nextRoundAt") long nextRoundAt);
 
@@ -116,12 +130,17 @@ public interface MarketingTaskMapper {
     MarketingTargetCandidateRow selectAccountTargetCandidate(@Param("accountGroupId") Long accountGroupId,
                                                              @Param("accountId") Long accountId);
 
-    /** 查询账号动态目标在本轮可发送的当前群,已排除账号导入云控前的 baseline 群。 */
-    List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId);
+    /** 查询账号动态目标在本轮可发送的当前群,已排除账号导入云控前 baseline 群和发送时间前已加入的群。 */
+    List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId,
+                                                                @Param("accountGroupSendAt") Long accountGroupSendAt);
 
-    /** 查询建营销任务用的在线账号候选;群列表由协议实时查询。 */
+    /** 查询固定群组目标在发送前是否仍是账号当前可发送群。 */
+    MarketingTargetCandidateRow selectCurrentTargetGroup(@Param("accountId") Long accountId,
+                                                         @Param("groupLinkId") Long groupLinkId);
+
+    /** 查询建营销任务用的账号树账号;包含分组下全部账号和库内可营销群数量。 */
     List<MarketingAccountTreeAccountRow> selectAccountTreeAccounts(@Param("groupId") Long groupId);
 
-    /** 查询单个账号的懒加载查群候选;不校验账号分组,但保留在线、风控、禁言等账号可用条件。 */
+    /** 查询单个账号树账号;不校验账号分组,由服务层根据状态判断是否可展开查群。 */
     MarketingAccountTreeAccountRow selectAccountTreeAccount(@Param("accountId") Long accountId);
 }

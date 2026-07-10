@@ -21,7 +21,10 @@ public enum MarketingTaskStatus {
     STOPPED(5),
 
     /** 部分失败。 */
-    PARTIAL_FAILED(6);
+    PARTIAL_FAILED(6),
+
+    /** 已结束。 */
+    ENDED(7);
 
     private final int code;
 

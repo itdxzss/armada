@@ -1,9 +1,9 @@
 package com.armada.marketing.model.vo;
 
 /**
- * 营销账号树实时查群前的在线账号候选行。
+ * 营销账号树账号行。
  *
- * <p>本行只承载本地账号筛选结果和 baseline 元数据,不再携带群列表。群列表统一由服务层实时调用协议层获取。</p>
+ * <p>本行承载账号当前状态、baseline 元数据和库内可营销群数量。账号树展示不调用协议层实时查群。</p>
  */
 public class MarketingAccountTreeAccountRow {
 
@@ -12,6 +12,11 @@ public class MarketingAccountTreeAccountRow {
     private String protocolAccountId;
     private Integer groupBaselineState;
     private String baselineGroupJidsJson;
+    private Integer accountState;
+    private Integer loginState;
+    private Integer riskStatus;
+    private Integer muteStatus;
+    private Integer groupCount;
 
     public Long getAccountId() {
         return accountId;
@@ -51,5 +56,45 @@ public class MarketingAccountTreeAccountRow {
 
     public void setBaselineGroupJidsJson(String baselineGroupJidsJson) {
         this.baselineGroupJidsJson = baselineGroupJidsJson;
+    }
+
+    public Integer getAccountState() {
+        return accountState;
+    }
+
+    public void setAccountState(Integer accountState) {
+        this.accountState = accountState;
+    }
+
+    public Integer getLoginState() {
+        return loginState;
+    }
+
+    public void setLoginState(Integer loginState) {
+        this.loginState = loginState;
+    }
+
+    public Integer getRiskStatus() {
+        return riskStatus;
+    }
+
+    public void setRiskStatus(Integer riskStatus) {
+        this.riskStatus = riskStatus;
+    }
+
+    public Integer getMuteStatus() {
+        return muteStatus;
+    }
+
+    public void setMuteStatus(Integer muteStatus) {
+        this.muteStatus = muteStatus;
+    }
+
+    public Integer getGroupCount() {
+        return groupCount;
+    }
+
+    public void setGroupCount(Integer groupCount) {
+        this.groupCount = groupCount;
     }
 }

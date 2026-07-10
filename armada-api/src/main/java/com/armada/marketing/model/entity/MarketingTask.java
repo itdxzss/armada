@@ -26,6 +26,9 @@ public class MarketingTask {
     private Integer retryLimit;
     private Long currentRoundNo;
     private String remark;
+    private Long accountGroupSendAt;
+    private Long taskStartAt;
+    private Long taskEndAt;
     private Long startedAt;
     private Long nextRoundAt;
     private Long lastRoundStartedAt;
@@ -202,6 +205,30 @@ public class MarketingTask {
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public Long getAccountGroupSendAt() {
+        return accountGroupSendAt;
+    }
+
+    public void setAccountGroupSendAt(Long accountGroupSendAt) {
+        this.accountGroupSendAt = accountGroupSendAt;
+    }
+
+    public Long getTaskStartAt() {
+        return taskStartAt;
+    }
+
+    public void setTaskStartAt(Long taskStartAt) {
+        this.taskStartAt = taskStartAt;
+    }
+
+    public Long getTaskEndAt() {
+        return taskEndAt;
+    }
+
+    public void setTaskEndAt(Long taskEndAt) {
+        this.taskEndAt = taskEndAt;
     }
 
     public Long getStartedAt() {

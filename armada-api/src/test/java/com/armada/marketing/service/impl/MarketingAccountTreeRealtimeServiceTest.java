@@ -1,99 +1,106 @@
 package com.armada.marketing.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
-import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
-import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.SimpleTransactionStatus;
-import org.springframework.transaction.support.TransactionCallback;
-import org.springframework.transaction.support.TransactionTemplate;
 
 class MarketingAccountTreeRealtimeServiceTest {
 
     private final MarketingTaskMapper taskMapper = Mockito.mock(MarketingTaskMapper.class);
-    private final AccountParticipatingGroupPort groupPort = Mockito.mock(AccountParticipatingGroupPort.class);
-    private final AccountGroupMembershipSnapshotService snapshotService =
-            Mockito.mock(AccountGroupMembershipSnapshotService.class);
-    private final TransactionTemplate transactionTemplate = Mockito.mock(TransactionTemplate.class);
-    private final MarketingAccountTreeRealtimeService service = new MarketingAccountTreeRealtimeService(
-            taskMapper,
-            groupPort,
-            snapshotService,
-            new ObjectMapper(),
-            transactionTemplate);
+    private final MarketingAccountTreeRealtimeService service = new MarketingAccountTreeRealtimeService(taskMapper);
 
     @Test
-    void accountTreeOnlyReturnsAccountCandidatesWithoutProtocolQuery() {
-        when(taskMapper.selectAccountTreeAccounts(8L)).thenReturn(List.of(accountRow(3L, "923300000003", 2)));
+    void accountTreeReturnsChineseStatusAndGroupCount() {
+        MarketingAccountTreeAccountRow row = accountRow(3L, "923300000003", 2);
+        row.setGroupCount(7);
+        when(taskMapper.selectAccountTreeAccounts(8L)).thenReturn(List.of(row));
 
         var tree = service.accountTree(8L);
 
         assertThat(tree.accounts()).singleElement().satisfies(account -> {
             assertThat(account.accountId()).isEqualTo(3L);
             assertThat(account.wsPhone()).isEqualTo("923300000003");
+            assertThat(account.status()).isEqualTo("ONLINE");
+            assertThat(account.statusText()).isEqualTo("在线");
+            assertThat(account.groupCount()).isEqualTo(7);
+            assertThat(account.selectable()).isTrue();
+            assertThat(account.disabledReason()).isNull();
             assertThat(account.groupsError()).isFalse();
             assertThat(account.groups()).isEmpty();
         });
-        verify(groupPort, never()).listBatch(anyList(), anyInt());
     }
 
     @Test
-    void accountGroupsQueriesProtocolForOnlyTheRequestedAccount() {
-        MarketingAccountTreeAccountRow row = accountRow(3L, "923300000003", 3);
-        when(taskMapper.selectAccountTreeAccount(3L)).thenReturn(row);
-        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
-                new AccountParticipatingGroupResult(row.getProtocolAccountId(), true, List.of(), null)));
-        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            TransactionCallback<?> callback = invocation.getArgument(0);
-            TransactionStatus status = new SimpleTransactionStatus();
-            return callback.doInTransaction(status);
+    void accountTreeMarksOfflineAccountsNotSelectableWithChineseReason() {
+        MarketingAccountTreeAccountRow row = accountRow(4L, "923300000004", 2);
+        row.setLoginState(2);
+        when(taskMapper.selectAccountTreeAccounts(8L)).thenReturn(List.of(row));
+
+        var tree = service.accountTree(8L);
+
+        assertThat(tree.accounts()).singleElement().satisfies(account -> {
+            assertThat(account.status()).isEqualTo("OFFLINE");
+            assertThat(account.statusText()).isEqualTo("离线");
+            assertThat(account.groupCount()).isZero();
+            assertThat(account.selectable()).isFalse();
+            assertThat(account.disabledReason()).isEqualTo("离线");
         });
-        when(snapshotService.replaceVisibleGroups(Mockito.eq(3L), anyList(), Mockito.anyLong()))
-                .thenReturn(List.of());
+    }
+
+    @Test
+    void accountTreeMarksOnlineButUnavailableAccountWithUsableDisabledReason() {
+        MarketingAccountTreeAccountRow row = accountRow(5L, "923300000005", 2);
+        row.setAccountState(8);
+        when(taskMapper.selectAccountTreeAccounts(8L)).thenReturn(List.of(row));
+
+        var tree = service.accountTree(8L);
+
+        assertThat(tree.accounts()).singleElement().satisfies(account -> {
+            assertThat(account.status()).isEqualTo("ONLINE");
+            assertThat(account.statusText()).isEqualTo("在线");
+            assertThat(account.selectable()).isFalse();
+            assertThat(account.disabledReason()).isEqualTo("账号不可用");
+        });
+    }
+
+    @Test
+    void accountGroupsQueriesCurrentDbMembershipForRequestedAccount() {
+        MarketingAccountTreeAccountRow row = accountRow(3L, "923300000003", 2);
+        row.setGroupCount(1);
+        when(taskMapper.selectAccountTreeAccount(3L)).thenReturn(row);
+        when(taskMapper.selectDynamicTargetGroups(3L, null))
+                .thenReturn(List.of(groupRow(31L, "120363031@g.us", "新群31")));
 
         var account = service.accountGroups(3L);
 
         assertThat(account.accountId()).isEqualTo(3L);
+        assertThat(account.statusText()).isEqualTo("在线");
+        assertThat(account.groupCount()).isEqualTo(1);
         assertThat(account.groupsError()).isFalse();
-        verify(groupPort).listBatch(List.of("acc_923300000003"), 5);
+        assertThat(account.groups()).singleElement().satisfies(group -> {
+            assertThat(group.groupLinkId()).isEqualTo(31L);
+            assertThat(group.groupJid()).isEqualTo("120363031@g.us");
+            assertThat(group.groupName()).isEqualTo("新群31");
+        });
     }
 
     @Test
-    void accountGroupsDoesNotCapturePendingBaselineFromLazyLoad() {
+    void accountGroupsDoesNotLoadGroupsForPendingBaseline() {
         MarketingAccountTreeAccountRow row = accountRow(4L, "923300000004", 1);
         when(taskMapper.selectAccountTreeAccount(4L)).thenReturn(row);
-        when(groupPort.listBatch(anyList(), anyInt())).thenReturn(List.of(
-                new AccountParticipatingGroupResult(
-                        row.getProtocolAccountId(),
-                        true,
-                        List.of(new AccountParticipatingGroupResult.Group(
-                                "120363pending@g.us", "旧群", 9, null, false, false)),
-                        null)));
-        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            TransactionCallback<?> callback = invocation.getArgument(0);
-            TransactionStatus status = new SimpleTransactionStatus();
-            return callback.doInTransaction(status);
-        });
 
         var account = service.accountGroups(4L);
 
+        assertThat(account.selectable()).isFalse();
+        assertThat(account.disabledReason()).isEqualTo("群同步中");
         assertThat(account.groupsError()).isFalse();
         assertThat(account.groups()).isEmpty();
-        verify(snapshotService, never()).replaceVisibleGroups(Mockito.anyLong(), anyList(), Mockito.anyLong());
     }
 
     private static MarketingAccountTreeAccountRow accountRow(Long accountId, String phone, Integer baselineState) {
@@ -103,6 +110,22 @@ class MarketingAccountTreeRealtimeServiceTest {
         row.setProtocolAccountId("acc_" + phone);
         row.setGroupBaselineState(baselineState);
         row.setBaselineGroupJidsJson("[]");
+        row.setAccountState(2);
+        row.setLoginState(1);
+        row.setRiskStatus(1);
+        row.setMuteStatus(null);
+        row.setGroupCount(0);
+        return row;
+    }
+
+    private static MarketingTargetCandidateRow groupRow(Long groupLinkId, String groupJid, String groupName) {
+        MarketingTargetCandidateRow row = new MarketingTargetCandidateRow();
+        row.setAccountId(3L);
+        row.setAccountPhone("923300000003");
+        row.setGroupLinkId(groupLinkId);
+        row.setGroupJid(groupJid);
+        row.setGroupLinkUrl("https://chat.whatsapp.com/" + groupLinkId);
+        row.setGroupName(groupName);
         return row;
     }
 }

@@ -25,6 +25,9 @@
         <result column="retry_limit" property="retryLimit"/>
         <result column="current_round_no" property="currentRoundNo"/>
         <result column="remark" property="remark"/>
+        <result column="account_group_send_at" property="accountGroupSendAt"/>
+        <result column="task_start_at" property="taskStartAt"/>
+        <result column="task_end_at" property="taskEndAt"/>
         <result column="started_at" property="startedAt"/>
         <result column="next_round_at" property="nextRoundAt"/>
         <result column="last_round_started_at" property="lastRoundStartedAt"/>
@@ -64,7 +67,8 @@
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
         sent_message_count, failed_message_count,
         send_per_round, send_interval_seconds, is_online_check_enabled, is_abnormal_group_skipped,
-        is_auto_retry_enabled, retry_limit, current_round_no, remark, started_at, next_round_at,
+        is_auto_retry_enabled, retry_limit, current_round_no, remark,
+        account_group_send_at, task_start_at, task_end_at, started_at, next_round_at,
         last_round_started_at, last_sent_at, finished_at,
         created_by, created_at, updated_at, deleted_at
     </sql>
@@ -94,15 +98,16 @@
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
              failed_message_count, send_per_round, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
-             current_round_no, remark, started_at, next_round_at, last_round_started_at, last_sent_at,
-             finished_at, created_by, created_at, updated_at)
+             current_round_no, remark, account_group_send_at, task_start_at, task_end_at, started_at,
+             next_round_at, last_round_started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
             (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
              #{failedMessageCount}, #{sendPerRound}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
-             #{currentRoundNo}, #{remark}, #{startedAt}, #{nextRoundAt}, #{lastRoundStartedAt},
-             #{lastSentAt}, #{finishedAt}, #{createdBy}, #{createdAt}, #{updatedAt})
+             #{currentRoundNo}, #{remark}, #{accountGroupSendAt}, #{taskStartAt}, #{taskEndAt},
+             #{startedAt}, #{nextRoundAt}, #{lastRoundStartedAt}, #{lastSentAt}, #{finishedAt},
+             #{createdBy}, #{createdAt}, #{updatedAt})
     </insert>
 
     <insert id="insertTargets">
@@ -209,9 +214,60 @@
           AND status = 2
           AND next_round_at IS NOT NULL
           AND next_round_at &lt;= #{now}
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
         ORDER BY next_round_at ASC, id ASC
         LIMIT #{limit}
     </select>
+
+    <select id="selectDueWaitingTasks" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE deleted_at IS NULL
+          AND status = 1
+          AND task_start_at IS NOT NULL
+          AND task_start_at &lt;= #{now}
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
+        ORDER BY task_start_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectExpiredRunnableTasks" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE deleted_at IS NULL
+          AND status IN (1, 2)
+          AND task_end_at IS NOT NULL
+          AND task_end_at &lt;= #{now}
+        ORDER BY task_end_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="startDueWaitingTask">
+        UPDATE marketing_task
+        SET status = 2,
+            started_at = COALESCE(started_at, #{now}),
+            next_round_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 1
+          AND task_start_at IS NOT NULL
+          AND task_start_at &lt;= #{now}
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
+    </update>
+
+    <update id="endExpiredTask">
+        UPDATE marketing_task
+        SET status = 7,
+            next_round_at = NULL,
+            finished_at = COALESCE(finished_at, #{now}),
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status IN (1, 2)
+          AND task_end_at IS NOT NULL
+          AND task_end_at &lt;= #{now}
+    </update>
 
     <update id="claimDueRound">
         UPDATE marketing_task
@@ -224,6 +280,7 @@
           AND status = 2
           AND next_round_at IS NOT NULL
           AND next_round_at &lt;= #{now}
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
     </update>
 
     <update id="postponeDueRound">
@@ -235,6 +292,7 @@
           AND status = 2
           AND next_round_at IS NOT NULL
           AND next_round_at &lt;= #{now}
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
     </update>
 
     <select id="countUnfinishedAttempts" resultType="long">
@@ -341,12 +399,15 @@
     <update id="startTask">
         UPDATE marketing_task
         SET status = 2,
+            task_start_at = CASE WHEN task_start_at IS NULL OR status = 7 THEN #{now} ELSE task_start_at END,
+            task_end_at = CASE WHEN status = 7 AND task_end_at IS NOT NULL AND task_end_at &lt;= #{now}
+                               THEN NULL ELSE task_end_at END,
             started_at = COALESCE(started_at, #{now}),
             next_round_at = #{now},
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
-          AND status IN (1, 5)
+          AND status IN (1, 5, 7)
     </update>
 
     <update id="stopTask">
@@ -410,18 +471,26 @@
                COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
         FROM account a
         JOIN account_state s ON s.account_id = a.id
-        JOIN group_link g ON g.id = #{groupLinkId} AND g.deleted_at IS NULL
+        JOIN group_link g ON g.id = #{groupLinkId}
+                         AND g.deleted_at IS NULL
+                         AND g.membership_state IN (2, 3)
         JOIN group_link_preview p ON p.group_link_id = g.id
+        LEFT JOIN group_link_health h ON h.group_link_id = g.id
         LEFT JOIN account_group_baseline b ON b.account_id = a.id
                                            AND a.group_baseline_state = 2
         WHERE a.id = #{accountId}
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
+          AND s.account_state = 2
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND a.group_baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
           AND p.group_jid IS NOT NULL
           AND TRIM(p.group_jid) &lt;&gt; ''
+          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
           AND (
               a.group_baseline_state &lt;&gt; 2
               OR b.id IS NULL
@@ -439,6 +508,10 @@
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
+          AND s.account_state = 2
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND a.group_baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
         LIMIT 1
@@ -465,6 +538,51 @@
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
+          AND s.account_state = 2
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND a.group_baseline_state IN (2, 3)
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          AND m.deleted_at IS NULL
+          AND (#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})
+          AND p.group_jid IS NOT NULL
+          AND TRIM(p.group_jid) &lt;&gt; ''
+          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
+          AND (
+              a.group_baseline_state &lt;&gt; 2
+              OR b.id IS NULL
+              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
+          )
+        ORDER BY m.group_link_id ASC
+    </select>
+
+    <select id="selectCurrentTargetGroup" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               m.group_link_id AS groupLinkId,
+               m.group_jid AS groupJid,
+               g.link_url AS groupLinkUrl,
+               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id
+        JOIN account_group_membership m ON m.account_id = a.id
+                                       AND m.group_link_id = #{groupLinkId}
+        JOIN group_link g ON g.id = m.group_link_id
+                         AND g.deleted_at IS NULL
+                         AND g.membership_state IN (2, 3)
+        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
+                                      AND p.group_jid = m.group_jid
+        LEFT JOIN group_link_health h ON h.group_link_id = g.id
+        LEFT JOIN account_group_baseline b ON b.account_id = a.id
+                                           AND a.group_baseline_state = 2
+        WHERE a.id = #{accountId}
+          AND a.deleted_at IS NULL
+          AND s.login_state = 1
+          AND s.account_state = 2
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND a.group_baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
           AND m.deleted_at IS NULL
@@ -476,7 +594,7 @@
               OR b.id IS NULL
               OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
           )
-        ORDER BY m.group_link_id ASC
+        LIMIT 1
     </select>
 
     <select id="selectAccountTreeAccounts" resultType="com.armada.marketing.model.vo.MarketingAccountTreeAccountRow">
@@ -484,18 +602,42 @@
                a.ws_phone AS wsPhone,
                a.protocol_account_id AS protocolAccountId,
                a.group_baseline_state AS groupBaselineState,
-               b.baseline_group_jids AS baselineGroupJidsJson
+               b.baseline_group_jids AS baselineGroupJidsJson,
+               s.account_state AS accountState,
+               s.login_state AS loginState,
+               s.risk_status AS riskStatus,
+               s.mute_status AS muteStatus,
+               COALESCE(gm.groupCount, 0) AS groupCount
         FROM account a
-        JOIN account_state s ON s.account_id = a.id
+        LEFT JOIN account_state s ON s.account_id = a.id
         LEFT JOIN account_group_baseline b ON b.account_id = a.id
+        LEFT JOIN (
+            SELECT m.account_id,
+                   COUNT(*) AS groupCount
+            FROM account_group_membership m
+            JOIN account aa ON aa.id = m.account_id
+                            AND aa.deleted_at IS NULL
+            JOIN group_link g ON g.id = m.group_link_id
+                             AND g.deleted_at IS NULL
+                             AND g.membership_state IN (2, 3)
+            LEFT JOIN group_link_health h ON h.group_link_id = g.id
+            LEFT JOIN account_group_baseline b ON b.account_id = aa.id
+                                               AND aa.group_baseline_state = 2
+            WHERE m.deleted_at IS NULL
+              AND m.group_jid IS NOT NULL
+              AND TRIM(m.group_jid) &lt;&gt; ''
+              AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
+              AND (
+                  aa.group_baseline_state &lt;&gt; 2
+                  OR b.id IS NULL
+                  OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
+              )
+            GROUP BY m.account_id
+        ) gm ON gm.account_id = a.id
         WHERE a.account_group_id = #{groupId}
           AND a.deleted_at IS NULL
-          AND a.protocol_account_id IS NOT NULL
-          AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND s.login_state = 1
-          AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
-        ORDER BY a.id ASC
+        ORDER BY CASE WHEN s.login_state = 1 THEN 0 ELSE 1 END,
+                 a.id ASC
     </select>
 
     <select id="selectAccountTreeAccount" resultType="com.armada.marketing.model.vo.MarketingAccountTreeAccountRow">
@@ -503,17 +645,40 @@
                a.ws_phone AS wsPhone,
                a.protocol_account_id AS protocolAccountId,
                a.group_baseline_state AS groupBaselineState,
-               b.baseline_group_jids AS baselineGroupJidsJson
+               b.baseline_group_jids AS baselineGroupJidsJson,
+               s.account_state AS accountState,
+               s.login_state AS loginState,
+               s.risk_status AS riskStatus,
+               s.mute_status AS muteStatus,
+               COALESCE(gm.groupCount, 0) AS groupCount
         FROM account a
-        JOIN account_state s ON s.account_id = a.id
+        LEFT JOIN account_state s ON s.account_id = a.id
         LEFT JOIN account_group_baseline b ON b.account_id = a.id
+        LEFT JOIN (
+            SELECT m.account_id,
+                   COUNT(*) AS groupCount
+            FROM account_group_membership m
+            JOIN account aa ON aa.id = m.account_id
+                            AND aa.deleted_at IS NULL
+            JOIN group_link g ON g.id = m.group_link_id
+                             AND g.deleted_at IS NULL
+                             AND g.membership_state IN (2, 3)
+            LEFT JOIN group_link_health h ON h.group_link_id = g.id
+            LEFT JOIN account_group_baseline b ON b.account_id = aa.id
+                                               AND aa.group_baseline_state = 2
+            WHERE m.deleted_at IS NULL
+              AND m.group_jid IS NOT NULL
+              AND TRIM(m.group_jid) &lt;&gt; ''
+              AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
+              AND (
+                  aa.group_baseline_state &lt;&gt; 2
+                  OR b.id IS NULL
+                  OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
+              )
+            GROUP BY m.account_id
+        ) gm ON gm.account_id = a.id
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL
-          AND a.protocol_account_id IS NOT NULL
-          AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND s.login_state = 1
-          AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
         LIMIT 1
     </select>
 

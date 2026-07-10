@@ -102,14 +102,20 @@ public class MarketingRoundWorker {
                     task.getTenantId(), task.getId(), task.getStatus());
             return;
         }
+        long now = System.currentTimeMillis();
+        if (task.getTaskEndAt() != null && task.getTaskEndAt() <= now) {
+            taskMapper.endExpiredTask(taskId, now);
+            log.info("营销任务轮次跳过并结束:已到任务结束时间 tenantId={} taskId={} taskEndAt={}",
+                    task.getTenantId(), task.getId(), task.getTaskEndAt());
+            return;
+        }
         List<MarketingTaskTarget> targets = taskMapper.selectTargetsByTaskId(taskId);
         if (targets.isEmpty()) {
             log.warn("营销任务轮次跳过:没有目标 tenantId={} taskId={}", task.getTenantId(), task.getId());
             return;
         }
-        long now = System.currentTimeMillis();
         long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
-        List<ResolvedMarketingTarget> sendTargets = resolveSendTargets(targets);
+        List<ResolvedMarketingTarget> sendTargets = resolveSendTargets(task, targets);
         if (sendTargets.isEmpty()) {
             taskMapper.postponeDueRound(taskId, now, nextRoundAt);
             log.info("营销任务轮次推迟:没有解析到本轮可发送群 tenantId={} taskId={} sourceTargetCount={} nextRoundAt={}",
@@ -171,14 +177,14 @@ public class MarketingRoundWorker {
     /**
      * 把任务 target 解析成本轮真实要发送的群列表。
      *
-     * <p>固定群组 target 直接使用保存时的群快照;账号动态 target 会展开成当前账号下的 0 到多条群。
+     * <p>固定群组 target 使用任务创建时保存的群快照;账号动态 target 会展开成当前账号下的 0 到多条群。
      * 后续 attempt 和 outbox 只消费 {@link ResolvedMarketingTarget},避免再关心目标来源维度。</p>
      */
-    private List<ResolvedMarketingTarget> resolveSendTargets(List<MarketingTaskTarget> targets) {
+    private List<ResolvedMarketingTarget> resolveSendTargets(MarketingTask task, List<MarketingTaskTarget> targets) {
         List<ResolvedMarketingTarget> sendTargets = new ArrayList<>();
         for (MarketingTaskTarget target : targets) {
             if (isAccountDynamicTarget(target)) {
-                appendAccountDynamicSendTargets(target, sendTargets);
+                appendAccountDynamicSendTargets(task, target, sendTargets);
             } else {
                 appendFixedGroupSendTarget(target, sendTargets);
             }
@@ -189,14 +195,13 @@ public class MarketingRoundWorker {
     /**
      * 追加固定群组维度的本轮发送目标。
      *
-     * <p>固定群组语义是“用户明确选择哪些群就发哪些群”,所以这里不再查询账号当前所有群,
-     * 只做 groupJid 的防御性校验。</p>
+     * <p>固定群组语义是“用户明确选择哪些群就发哪些群”,所以发送时直接使用任务创建时保存的群快照,
+     * 不再查询账号当前 membership。</p>
      */
     private void appendFixedGroupSendTarget(MarketingTaskTarget target, List<ResolvedMarketingTarget> sendTargets) {
-        // 固定群组维度直接使用 target 创建时保存的群快照,不再查账号当前所有群。
         if (!StringUtils.hasText(target.getGroupJid())) {
-            log.warn("营销固定群目标缺少groupJid,本轮跳过 tenantId={} taskId={} targetId={}",
-                    target.getTenantId(), target.getMarketingTaskId(), target.getId());
+            log.warn("营销固定群目标缺少groupJid,本轮跳过 tenantId={} taskId={} targetId={} accountId={}",
+                    target.getTenantId(), target.getMarketingTaskId(), target.getId(), target.getAccountId());
             return;
         }
         sendTargets.add(new ResolvedMarketingTarget(target, target.getGroupLinkId(),
@@ -209,9 +214,12 @@ public class MarketingRoundWorker {
      * <p>动态维度每轮都从账号当前在群关系里取群,并由 SQL 层排除账号导入云控前记录的 baseline 群。
      * 这样任务创建后账号新进群,下一轮就能自然覆盖到。</p>
      */
-    private void appendAccountDynamicSendTargets(MarketingTaskTarget target, List<ResolvedMarketingTarget> sendTargets) {
-        // 账号动态维度每轮实时查询当前在群关系,SQL 层会排除账号导入云控前记录的 baseline 群。
-        List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(target.getAccountId());
+    private void appendAccountDynamicSendTargets(MarketingTask task,
+                                                 MarketingTaskTarget target,
+                                                 List<ResolvedMarketingTarget> sendTargets) {
+        // 账号动态维度每轮实时查询当前在群关系,SQL 层会排除 baseline 群和本任务发送时间前加入的群。
+        List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(
+                target.getAccountId(), task.getAccountGroupSendAt());
         if (groups.isEmpty()) {
             log.debug("营销账号动态目标本轮无可发送群 tenantId={} taskId={} targetId={} accountId={}",
                     target.getTenantId(), target.getMarketingTaskId(), target.getId(), target.getAccountId());

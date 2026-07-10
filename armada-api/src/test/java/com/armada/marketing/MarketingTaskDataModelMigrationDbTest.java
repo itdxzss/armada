@@ -59,11 +59,16 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
     @Test
     void marketingTask_statusAndTimeColumnsMatchArmadaConventions() {
         assertThat(columnType("marketing_task", "status")).isEqualTo("tinyint");
+        assertThat(columnType("marketing_task", "account_group_send_at")).isEqualTo("bigint");
+        assertThat(columnType("marketing_task", "task_start_at")).isEqualTo("bigint");
+        assertThat(columnType("marketing_task", "task_end_at")).isEqualTo("bigint");
         assertThat(columnType("marketing_task", "created_at")).isEqualTo("bigint");
         assertThat(columnType("marketing_task", "updated_at")).isEqualTo("bigint");
         assertThat(columnType("marketing_task", "deleted_at")).isEqualTo("bigint");
+        assertThat(indexExists("marketing_task", "idx_marketing_task_start_due")).isTrue();
+        assertThat(indexExists("marketing_task", "idx_marketing_task_end_due")).isTrue();
         assertThat(columnComment("marketing_task", "status"))
-                .isEqualTo("任务状态:1=待启动/未发送 2=发送中 3=发送成功 4=发送失败 5=已停止 6=部分失败");
+                .isEqualTo("任务状态:1=等待开始/未发送 2=发送中 3=发送成功 4=发送失败 5=已停止 6=部分失败 7=已结束");
     }
 
     @Test

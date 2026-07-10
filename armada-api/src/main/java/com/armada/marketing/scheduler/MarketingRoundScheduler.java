@@ -29,14 +29,17 @@ public class MarketingRoundScheduler {
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingRoundWorker worker;
+    private final MarketingTaskLifecycleWorker lifecycleWorker;
     private final MarketingRoundSchedulerProperties properties;
     private final ExecutorService executor;
 
     public MarketingRoundScheduler(MarketingTaskMapper taskMapper,
                                    MarketingRoundWorker worker,
+                                   MarketingTaskLifecycleWorker lifecycleWorker,
                                    MarketingRoundSchedulerProperties properties) {
         this.taskMapper = taskMapper;
         this.worker = worker;
+        this.lifecycleWorker = lifecycleWorker;
         this.properties = properties;
         this.executor = Executors.newFixedThreadPool(Math.max(1, properties.getExecutorPoolSize()), runnable -> {
             Thread thread = new Thread(runnable,
@@ -52,10 +55,35 @@ public class MarketingRoundScheduler {
         if (!properties.isEnabled()) {
             return;
         }
-        List<MarketingTask> tasks = taskMapper.selectDueSendingTasks(System.currentTimeMillis(),
-                Math.max(1, properties.getScanLimit()));
+        long now = System.currentTimeMillis();
+        int limit = Math.max(1, properties.getScanLimit());
+        List<MarketingTask> expiredTasks = taskMapper.selectExpiredRunnableTasks(now, limit);
+        for (MarketingTask task : expiredTasks) {
+            endSafely(task);
+        }
+        List<MarketingTask> waitingTasks = taskMapper.selectDueWaitingTasks(now, limit);
+        for (MarketingTask task : waitingTasks) {
+            startSafely(task);
+        }
+        List<MarketingTask> tasks = taskMapper.selectDueSendingTasks(now, limit);
         for (MarketingTask task : tasks) {
             executor.execute(() -> runSafely(task));
+        }
+    }
+
+    private void endSafely(MarketingTask task) {
+        try {
+            lifecycleWorker.endExpiredTask(task.getTenantId(), task.getId());
+        } catch (RuntimeException ex) {
+            log.warn("营销任务自动结束失败 tenantId={} taskId={}", task.getTenantId(), task.getId(), ex);
+        }
+    }
+
+    private void startSafely(MarketingTask task) {
+        try {
+            lifecycleWorker.startDueWaitingTask(task.getTenantId(), task.getId());
+        } catch (RuntimeException ex) {
+            log.warn("营销任务自动启动失败 tenantId={} taskId={}", task.getTenantId(), task.getId(), ex);
         }
     }
 

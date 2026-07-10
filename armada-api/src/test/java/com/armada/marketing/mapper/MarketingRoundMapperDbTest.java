@@ -97,7 +97,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         insertMembership(accountId, baselineGroupId, baselineJid);
         insertMembership(accountId, joinedAfterImportGroupId, joinedAfterImportJid);
 
-        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(accountId);
+        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(accountId, null);
 
         assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly(joinedAfterImportJid);
@@ -105,6 +105,51 @@ class MarketingRoundMapperDbTest extends DbTestBase {
             assertThat(row.getAccountId()).isEqualTo(accountId);
             assertThat(row.getGroupLinkId()).isEqualTo(joinedAfterImportGroupId);
         });
+    }
+
+    @Test
+    void selectDynamicTargetGroupsFiltersByAccountGroupSendAt() {
+        long accountGroupId = insertAccountGroup("dynamic-send-at");
+        long accountId = insertAccount(accountGroupId, "923900000004", 2);
+        long cutoff = System.currentTimeMillis() - 60_000L;
+        String oldJid = "120363old-send-at@g.us";
+        String newJid = "120363new-send-at@g.us";
+        long oldGroupId = insertGroup("old-send-at", oldJid);
+        long newGroupId = insertGroup("new-send-at", newJid);
+        insertMembership(accountId, oldGroupId, oldJid, cutoff - 1_000L);
+        insertMembership(accountId, newGroupId, newJid, cutoff + 1_000L);
+
+        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(accountId, cutoff);
+
+        assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly(newJid);
+    }
+
+    @Test
+    void selectCurrentTargetGroupReturnsOnlyCurrentMembership() {
+        long accountGroupId = insertAccountGroup("fixed-current");
+        long accountId = insertAccount(accountGroupId, "923900000002", 2);
+        String groupJid = "120363fixed-current@g.us";
+        long groupId = insertGroup("fixed-current", groupJid);
+        insertMembership(accountId, groupId, groupJid);
+
+        MarketingTargetCandidateRow row = mapper.selectCurrentTargetGroup(accountId, groupId);
+
+        assertThat(row).isNotNull();
+        assertThat(row.getAccountId()).isEqualTo(accountId);
+        assertThat(row.getGroupLinkId()).isEqualTo(groupId);
+        assertThat(row.getGroupJid()).isEqualTo(groupJid);
+    }
+
+    @Test
+    void selectCurrentTargetGroupReturnsNullWhenAccountNoLongerInGroup() {
+        long accountGroupId = insertAccountGroup("fixed-missing");
+        long accountId = insertAccount(accountGroupId, "923900000003", 2);
+        long groupId = insertGroup("fixed-missing", "120363fixed-missing@g.us");
+
+        MarketingTargetCandidateRow row = mapper.selectCurrentTargetGroup(accountId, groupId);
+
+        assertThat(row).isNull();
     }
 
     private Long insertTask(String suffix, int status, long nextRoundAt) {
@@ -173,15 +218,16 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         Long accountId = insertAndReturnId("""
                 INSERT INTO account
                     (tenant_id, ws_phone, account_type, ownership, account_group_id,
-                     group_baseline_state, priority, created_at, updated_at)
-                VALUES (?, ?, 1, 1, ?, ?, 0, ?, ?)
+                     protocol_account_id, group_baseline_state, priority, created_at, updated_at)
+                VALUES (?, ?, 1, 1, ?, ?, ?, 0, ?, ?)
                 """, ps -> {
             ps.setLong(1, TEST_TENANT_ID);
             ps.setString(2, phone);
             ps.setLong(3, accountGroupId);
-            ps.setInt(4, baselineState);
-            ps.setLong(5, now);
+            ps.setString(4, "acc_" + phone);
+            ps.setInt(5, baselineState);
             ps.setLong(6, now);
+            ps.setLong(7, now);
         });
         jdbc.update("""
                 INSERT INTO account_state
@@ -228,11 +274,16 @@ class MarketingRoundMapperDbTest extends DbTestBase {
 
     private void insertMembership(Long accountId, Long groupLinkId, String groupJid) {
         long now = System.currentTimeMillis();
+        insertMembership(accountId, groupLinkId, groupJid, now);
+    }
+
+    private void insertMembership(Long accountId, Long groupLinkId, String groupJid, long joinedAt) {
+        long now = System.currentTimeMillis();
         jdbc.update("""
                 INSERT INTO account_group_membership
-                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+                    (tenant_id, account_id, group_link_id, group_jid, joined_at, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, joinedAt, now, now, now);
     }
 
     private Long insertAndReturnId(String sql, SqlBinder binder) {

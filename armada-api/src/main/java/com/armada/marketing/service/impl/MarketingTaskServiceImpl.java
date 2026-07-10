@@ -56,6 +56,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private static final int STATUS_PENDING = MarketingTaskStatus.PENDING.code();
     private static final int STATUS_SENDING = MarketingTaskStatus.SENDING.code();
     private static final int STATUS_STOPPED = MarketingTaskStatus.STOPPED.code();
+    private static final int STATUS_ENDED = MarketingTaskStatus.ENDED.code();
+    private static final long ACCOUNT_GROUP_SEND_LOOKBACK_MS = 72L * 60L * 60L * 1000L;
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
@@ -119,9 +121,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     public MarketingTaskVO createTask(CreateMarketingTaskDTO request) {
         // 事务顺序固定:先校验共享事实,再生成目标快照,最后插主表和明细。
         // 任何一个目标不可用都整单失败,避免页面看到"半个任务"。
-        validateRequest(request);
-        MarketingTemplate template = requireTemplate(request.marketingTemplateId());
         long now = System.currentTimeMillis();
+        validateRequest(request, now);
+        MarketingTemplate template = requireTemplate(request.marketingTemplateId());
         List<MarketingTaskTarget> targets = buildTargets(request, now);
         MarketingTask task = buildTask(request, template, targets, now);
         taskMapper.insertTask(task);
@@ -168,8 +170,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTaskVO startTask(Long id) {
         MarketingTask task = requireTask(id);
-        if (!List.of(STATUS_PENDING, STATUS_STOPPED).contains(task.getStatus())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "只有待启动或已停止的任务可以启动");
+        if (!List.of(STATUS_PENDING, STATUS_STOPPED, STATUS_ENDED).contains(task.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "只有等待中、已停止或已结束的任务可以启动");
         }
         long now = System.currentTimeMillis();
         int updated = taskMapper.startTask(id, now);
@@ -267,7 +269,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return updated;
     }
 
-    private void validateRequest(CreateMarketingTaskDTO request) {
+    private void validateRequest(CreateMarketingTaskDTO request, long now) {
         // 只校验页面表单本身能确定的必填和数值约束;账号/群/模板是否真的可用在后续查库校验。
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销任务不能为空");
@@ -289,6 +291,22 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         }
         if (request.selections() == null || request.selections().isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个发送账号");
+        }
+        validateLifecycleTimes(request, now);
+    }
+
+    private void validateLifecycleTimes(CreateMarketingTaskDTO request, long now) {
+        Long accountGroupSendAt = request.accountGroupSendAt();
+        if (accountGroupSendAt != null && accountGroupSendAt < now - ACCOUNT_GROUP_SEND_LOOKBACK_MS) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号群组发送时间最多支持追溯72小时");
+        }
+        Long taskEndAt = request.taskEndAt();
+        if (taskEndAt != null && taskEndAt <= now) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务结束时间必须晚于当前时间");
+        }
+        Long taskStartAt = request.taskStartAt();
+        if (taskStartAt != null && taskEndAt != null && taskEndAt <= taskStartAt) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务结束时间必须晚于任务开始时间");
         }
     }
 
@@ -432,8 +450,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private MarketingTask buildTask(CreateMarketingTaskDTO request, MarketingTemplate template,
                                     List<MarketingTaskTarget> targets, long now) {
-        // 立即启动在当前 checkpoint 只改变主表状态和 started_at;发送计数仍保持 0。
-        MarketingTaskStatus status = MarketingTaskStatus.fromStartMode(request.startMode());
+        Long taskStartAt = normalizeTaskStartAt(request, now);
+        Long taskEndAt = request.taskEndAt();
+        Long accountGroupSendAt = normalizeAccountGroupSendAt(request, taskStartAt, now);
+        MarketingTaskStatus status = initialStatus(request, taskStartAt, taskEndAt, now);
         MarketingTask task = new MarketingTask();
         task.setTaskName(request.taskName().trim());
         task.setAccountGroupId(request.accountGroupId());
@@ -457,11 +477,42 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setRetryLimit(Boolean.TRUE.equals(request.autoRetryEnabled()) ? 1 : 0);
         task.setCurrentRoundNo(0L);
         task.setRemark(request.remark());
+        task.setAccountGroupSendAt(accountGroupSendAt);
+        task.setTaskStartAt(taskStartAt);
+        task.setTaskEndAt(taskEndAt);
         task.setStartedAt(status == MarketingTaskStatus.SENDING ? now : null);
         task.setNextRoundAt(status == MarketingTaskStatus.SENDING ? now : null);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;
+    }
+
+    private static Long normalizeTaskStartAt(CreateMarketingTaskDTO request, long now) {
+        if (request.taskStartAt() != null) {
+            return request.taskStartAt();
+        }
+        return MarketingTaskStatus.fromStartMode(request.startMode()) == MarketingTaskStatus.SENDING ? now : null;
+    }
+
+    private static Long normalizeAccountGroupSendAt(CreateMarketingTaskDTO request, Long taskStartAt, long now) {
+        if (request.accountGroupSendAt() != null) {
+            return request.accountGroupSendAt();
+        }
+        long base = taskStartAt == null ? now : taskStartAt;
+        return base - ACCOUNT_GROUP_SEND_LOOKBACK_MS;
+    }
+
+    private static MarketingTaskStatus initialStatus(CreateMarketingTaskDTO request,
+                                                     Long taskStartAt,
+                                                     Long taskEndAt,
+                                                     long now) {
+        if (taskStartAt != null && taskStartAt <= now && (taskEndAt == null || taskEndAt > now)) {
+            return MarketingTaskStatus.SENDING;
+        }
+        if (taskStartAt != null) {
+            return MarketingTaskStatus.PENDING;
+        }
+        return MarketingTaskStatus.fromStartMode(request.startMode());
     }
 
     private static List<Long> normalizeIds(List<Long> ids) {
@@ -494,7 +545,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
-                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(), task.getStartedAt(),
+                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
+                task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt());
     }
 
@@ -575,7 +627,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
-                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(), task.getStartedAt(),
+                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
+                task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
                 targets, accountTargets);
     }

@@ -20,6 +20,10 @@ Execution must begin with `superpowers:using-git-worktrees` for the `armada` rep
 
 `whatsapp-server-feature-android-zhuan` is currently a source snapshot without Git metadata. Task 1 establishes a safe baseline repository before behavior changes. Its private TOML files, `.env`, logs, caches, archives, binaries, and PEM files must remain untracked.
 
+For brand-new Go APIs, a compile-only scaffold is explicitly separated from behavior: add final types/signatures with sentinel-returning bodies, confirm the existing suite remains green, then add the first behavioral test and require an assertion/sentinel RED. Do not commit a scaffold separately. This satisfies the approved rule that RED must not be a compiler failure.
+
+Repository routing is fixed: execute Tasks 2–4 and 12 in the isolated Armada worktree; execute Tasks 1 and 5–11 in `whatsapp-server-feature-android-zhuan`. Task 13 deliberately switches between both repositories as stated.
+
 ### Armada files
 
 - Modify `armada-api/src/main/java/com/armada/account/service/AccountImportParser.java`: normalize the verified Zhuan six-segment order.
@@ -55,6 +59,8 @@ Execution must begin with `superpowers:using-git-worktrees` for the `armada` rep
 **Files:**
 - Modify: `whatsapp-server-feature-android-zhuan/.gitignore`
 - Modify: `whatsapp-server-feature-android-zhuan/configs/prod_configs_example.toml`
+- Modify: `whatsapp-server-feature-android-zhuan/api/service/login.go`
+- Modify: `whatsapp-server-feature-android-zhuan/internal/service/app/waapp.go`
 
 - [ ] **Step 1: Extend ignore rules before Git initialization**
 
@@ -67,6 +73,14 @@ Add these exact entries if absent:
 *.log
 *.pem
 *.key
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+.env
+.env.*
+!.env.example
+coverage.out
 deploy/.env
 deploy/configs/prod_configs.toml
 configs/dev_configs.toml
@@ -101,7 +115,9 @@ maxopenconn = 50
 host = "http://localhost:8080/api/protocol/callback"
 ```
 
-- [ ] **Step 3: Run the unchanged baseline tests**
+Delete the commented hard-coded SOCKS5 endpoint in `api/service/login.go`. In `waapp.go`, delete the entire `if env.Active().IsDev()` block that constructs and logs `define.SixForLogin`, including its hard-coded proxy, and remove the now-unused `ws-go/pkg/env` import. Keep the normal `whatsAppEventData.AccountInfo = six` callback behavior unchanged.
+
+- [ ] **Step 3: Run the sanitized baseline tests**
 
 Run from `whatsapp-server-feature-android-zhuan`:
 
@@ -124,12 +140,21 @@ Expected: safe source is staged; private configs, logs, caches, binaries, archiv
 - [ ] **Step 5: Run the staged-file gate**
 
 ```bash
-git diff --cached --name-only | rg '(^|/)(dev_configs\.toml|prod_configs\.toml|\.env|[^/]+\.(pem|key|log|zip))$'
+git diff --cached --name-only | rg '(^|/)(dev_configs\.toml|prod_configs\.toml|\.env|[^/]+\.(pem|key|log|zip|tar|tgz|gz))$'
 ```
 
 Expected: no output. If any file is listed, unstage it and strengthen `.gitignore`.
 
-- [ ] **Step 6: Commit the baseline**
+- [ ] **Step 6: Run the staged config-value gate**
+
+```bash
+git grep --cached -n -I -E '(pass|password|secret|token)[[:space:]]*=[[:space:]]*"[^"]+"' -- '*.toml' '*.env*'
+git grep --cached -n -I -E '(socks5|Socks5)://[^[:space:]"]+:[^[:space:]"]+@' -- 'api/service/login.go' 'internal/service/app/waapp.go'
+```
+
+Expected: no output from either command. Inspect and remove any non-empty credential value before committing; do not paste the value into logs or review comments.
+
+- [ ] **Step 7: Commit the baseline**
 
 ```bash
 git commit -m "chore: baseline android zhuan source"
@@ -189,6 +214,15 @@ void six_invalidPhone_marksOnlyThatRowFailed() {
             "phone,static-pub,static-pri,identity-pub,identity-pri,phone-id");
     assertThat(entries).singleElement().extracting(ParsedEntry::getParseError)
             .asString().contains("wid 不合法");
+}
+
+@Test
+void six_parseError_doesNotEchoCredentialValues() {
+    String secret = "SECRET_STATIC_PRIVATE";
+    List<ParsedEntry> entries = parser.parse(ImportFormat.SIX, null,
+            "919000000001,static-pub," + secret + ",identity-pub,identity-pri,");
+    assertThat(entries).singleElement().extracting(ParsedEntry::getParseError)
+            .asString().doesNotContain(secret).contains("第6列为空");
 }
 ```
 
@@ -350,6 +384,8 @@ git commit -m "feat(protocol): carry android business account type"
 
 - [ ] **Step 1: Write the failing Android payload test**
 
+Name the test `publishBatch_onlineAndroidRowBuildsZhuanLifecyclePayload`.
+
 Use an outbox safe payload containing `isBusiness=true`; make the credential mapper return:
 
 ```json
@@ -359,6 +395,7 @@ Use an outbox safe payload containing `isBusiness=true`; make the credential map
 Capture the envelope and assert:
 
 ```java
+verify(kafkaTemplate).send(eq("protocol.android.commands.v1"), eq("acc_919000000001"), captor.capture());
 JsonNode payload = captor.getValue().payload();
 assertThat(payload.get("format").asText()).isEqualTo("six");
 assertThat(payload.get("isBusiness").asBoolean()).isTrue();
@@ -367,6 +404,8 @@ assertThat(payload.path("credential").path("phone_id").asText()).isEqualTo("phon
 assertThat(payload.path("proxy").path("url").asText()).startsWith("socks5://");
 assertThat(payload.get("protocolBackend").asText()).isEqualTo("ANDROID");
 ```
+
+The topic/key assertion is the same-account ordering contract: every online and offline row for `acc_919000000001` must keep that exact Kafka key.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -422,6 +461,11 @@ Create `command.go` with the JSON-tagged `ProtocolCommand`, `CommandPayload`, `S
 
 ```go
 var errCommandBehaviorNotImplemented = errors.New("armada command behavior not implemented")
+var ErrInvalidCommand = errors.New("invalid armada command")
+
+type CommandValidationError struct { Field string; Err error }
+func (e *CommandValidationError) Error() string { return e.Field + ": " + e.Err.Error() }
+func (e *CommandValidationError) Unwrap() error { return ErrInvalidCommand }
 
 func ParseCommand([]byte) (ProtocolCommand, error) {
     return ProtocolCommand{}, errCommandBehaviorNotImplemented
@@ -431,8 +475,8 @@ func (ProtocolCommand) ToSixLoginDTO() (*dto.SixLoginDto, CommandContext, error)
     return nil, CommandContext{}, errCommandBehaviorNotImplemented
 }
 
-func (ProtocolCommand) ToLogout(*CommandContext) (string, string, error) {
-    return "", "", errCommandBehaviorNotImplemented
+func (ProtocolCommand) ToLogout(*CommandContext) (string, CommandContext, error) {
+    return "", CommandContext{}, errCommandBehaviorNotImplemented
 }
 ```
 
@@ -470,16 +514,71 @@ func TestOnlineCommandRejectsNonSixFormat(t *testing.T) {
 func TestOnlineCommandRejectsMissingPhoneID(t *testing.T) {
     command := validOnlineCommand()
     command.Payload.Credential.PhoneID = ""
-    if _, _, err := command.ToSixLoginDTO(); err == nil || !strings.Contains(err.Error(), "phone_id") {
+    _, gotContext, err := command.ToSixLoginDTO()
+    if err == nil || !errors.Is(err, ErrInvalidCommand) || !strings.Contains(err.Error(), "phone_id") {
         t.Fatalf("err = %v", err)
+    }
+    if gotContext.CommandID != command.CommandID || gotContext.AccountID != command.Payload.AccountID {
+        t.Fatalf("context = %#v", gotContext)
+    }
+}
+
+func TestOnlineCommandRejectsEveryMissingCredentialField(t *testing.T) {
+    tests := []struct {
+        name  string
+        clear func(*ProtocolCommand)
+    }{
+        {"phone", func(c *ProtocolCommand) { c.Payload.Credential.Phone = "" }},
+        {"static_pub_key", func(c *ProtocolCommand) { c.Payload.Credential.StaticPubKey = "" }},
+        {"static_pri_key", func(c *ProtocolCommand) { c.Payload.Credential.StaticPriKey = "" }},
+        {"id_pub_key", func(c *ProtocolCommand) { c.Payload.Credential.IdentityPub = "" }},
+        {"id_pri_key", func(c *ProtocolCommand) { c.Payload.Credential.IdentityPri = "" }},
+        {"phone_id", func(c *ProtocolCommand) { c.Payload.Credential.PhoneID = "" }},
+    }
+    for _, test := range tests {
+        t.Run(test.name, func(t *testing.T) {
+            command := validOnlineCommand()
+            test.clear(&command)
+            if _, _, err := command.ToSixLoginDTO(); err == nil || !strings.Contains(err.Error(), test.name) {
+                t.Fatalf("err = %v", err)
+            }
+        })
+    }
+}
+
+func TestOnlineCommandRejectsMissingProxyURL(t *testing.T) {
+    command := validOnlineCommand()
+    command.Payload.Proxy.URL = ""
+    if _, _, err := command.ToSixLoginDTO(); err == nil || !strings.Contains(err.Error(), "proxy.url") {
+        t.Fatalf("err = %v", err)
+    }
+}
+
+func TestParseCommandRejectsUnsupportedCommandType(t *testing.T) {
+    raw := []byte(`{"commandId":"cmd_1","commandType":"message.send.requested"}`)
+    if _, err := ParseCommand(raw); err == nil || !strings.Contains(err.Error(), "unsupported commandType") {
+        t.Fatalf("err = %v", err)
+    }
+}
+
+func TestParseCommandRejectsMissingEnvelopeContext(t *testing.T) {
+    for _, field := range []string{"commandId", "tenantId", "accountId", "protocolAccountId"} {
+        t.Run(field, func(t *testing.T) {
+            raw := validOnlineCommandJSONWithFieldCleared(field)
+            if _, err := ParseCommand(raw); err == nil || !errors.Is(err, ErrInvalidCommand) || !strings.Contains(err.Error(), field) {
+                t.Fatalf("field = %s, err = %v", field, err)
+            }
+        })
     }
 }
 
 func TestOfflineCommandUsesStoredPhone(t *testing.T) {
     command := ProtocolCommand{CommandID: "cmd_off", CommandType: CommandTypeAccountOfflineRequested,
-        ProtocolAccountID: "acc_919000000001", Payload: CommandPayload{TenantID: 7, AccountID: 100}}
-    phone, _, err := command.ToLogout(&CommandContext{Phone: "919000000009", ProtocolAccountID: "acc_919000000001"})
+        BatchID: "batch_off", ProtocolAccountID: "acc_919000000001",
+        Payload: CommandPayload{TenantID: 7, AccountID: 100}}
+    phone, gotContext, err := command.ToLogout(&CommandContext{Phone: "919000000009", ProtocolAccountID: "acc_919000000001"})
     if err != nil || phone != "919000000009" { t.Fatalf("phone = %q, err = %v", phone, err) }
+    if gotContext.CommandID != "cmd_off" || gotContext.BatchID != "batch_off" { t.Fatalf("context = %#v", gotContext) }
 }
 
 func TestOfflineCommandDerivesPhoneFromProtocolAccountID(t *testing.T) {
@@ -490,12 +589,12 @@ func TestOfflineCommandDerivesPhoneFromProtocolAccountID(t *testing.T) {
 }
 ```
 
-Define `validOnlineCommand()` in the test file with the same semantic fields as the JSON-envelope test; it is test setup, not production behavior.
+Define `validOnlineCommand()` and `validOnlineCommandJSONWithFieldCleared()` in the test file with the same semantic fields as the JSON-envelope test; they are test setup, not production behavior.
 
 - [ ] **Step 3: Run and verify RED**
 
 ```bash
-go test ./internal/armada -run 'TestOnlineCommand|TestOfflineCommand'
+go test ./internal/armada -run 'TestOnlineCommand|TestOfflineCommand|TestParseCommand'
 ```
 
 Expected: tests compile, then FAIL with `armada command behavior not implemented`.
@@ -528,7 +627,7 @@ type CommandPayload struct {
 }
 ```
 
-`ToSixLoginDTO` joins exactly:
+`ParseCommand` returns `*CommandValidationError` for malformed JSON, unsupported command type, or missing `commandId/tenantId/accountId/protocolAccountId`; these poison-envelope failures can be committed without exposing raw payloads. Build `CommandContext` before validating credentials so a deterministic credential/proxy failure can still publish an account-scoped failure event. `ToSixLoginDTO` returns `*CommandValidationError` for unsupported format or missing credential/proxy fields and joins exactly:
 
 ```go
 SixData: strings.Join([]string{
@@ -546,7 +645,7 @@ Define `CommandContext` with tenant/account/protocol account/phone/command/batch
 - [ ] **Step 5: Run and verify GREEN**
 
 ```bash
-go test ./internal/armada -run 'TestOnlineCommand|TestOfflineCommand'
+go test ./internal/armada -run 'TestOnlineCommand|TestOfflineCommand|TestParseCommand'
 ```
 
 Expected: PASS.
@@ -576,19 +675,40 @@ go get -t github.com/alicebob/miniredis/v2@v2.35.0
 
 - [ ] **Step 2: Add compile-only Redis API scaffolding**
 
-Define the compile-only APIs exactly as follows; each method returns `errRedisBehaviorNotImplemented` without reading or writing Redis:
+Define the compile-only APIs exactly as follows; methods return `errRedisBehaviorNotImplemented` without reading or writing Redis:
 
 ```go
-func NewRedisContextStore(client *redis.Client, ttl time.Duration) *RedisContextStore
-func (s *RedisContextStore) Save(ctx context.Context, command CommandContext) error
-func (s *RedisContextStore) FindByProtocolAccountID(ctx context.Context, id string) (*CommandContext, error)
-func (s *RedisContextStore) FindByPhone(ctx context.Context, phone string) (*CommandContext, error)
+var errRedisBehaviorNotImplemented = errors.New("armada redis behavior not implemented")
+var ErrCommandContextNotFound = errors.New("armada command context not found")
 
-func NewRedisPublishOnceGuard(client *redis.Client, ttl time.Duration) *RedisPublishOnceGuard
-func (g *RedisPublishOnceGuard) Claim(ctx context.Context, commandID, target string) (bool, error)
-func (g *RedisPublishOnceGuard) Release(ctx context.Context, commandID, target string) error
-func (g *RedisPublishOnceGuard) MarkCommandPublished(ctx context.Context, commandID string) error
-func (g *RedisPublishOnceGuard) CommandPublished(ctx context.Context, commandID string) (bool, error)
+type RedisContextStore struct { client *redis.Client; ttl time.Duration }
+func NewRedisContextStore(client *redis.Client, ttl time.Duration) *RedisContextStore {
+    return &RedisContextStore{client: client, ttl: ttl}
+}
+func (s *RedisContextStore) Save(context.Context, CommandContext) error { return errRedisBehaviorNotImplemented }
+func (s *RedisContextStore) FindByProtocolAccountID(context.Context, string) (*CommandContext, error) {
+    return nil, errRedisBehaviorNotImplemented
+}
+func (s *RedisContextStore) FindByPhone(context.Context, string) (*CommandContext, error) {
+    return nil, errRedisBehaviorNotImplemented
+}
+
+type RedisPublishOnceGuard struct { client *redis.Client; ttl time.Duration }
+func NewRedisPublishOnceGuard(client *redis.Client, ttl time.Duration) *RedisPublishOnceGuard {
+    return &RedisPublishOnceGuard{client: client, ttl: ttl}
+}
+func (g *RedisPublishOnceGuard) Claim(context.Context, string, string) (bool, error) {
+    return false, errRedisBehaviorNotImplemented
+}
+func (g *RedisPublishOnceGuard) Release(context.Context, string, string) error { return errRedisBehaviorNotImplemented }
+func (g *RedisPublishOnceGuard) MarkStatePublished(context.Context, string, string) error { return errRedisBehaviorNotImplemented }
+func (g *RedisPublishOnceGuard) StatePublished(context.Context, string, string) (bool, error) {
+    return false, errRedisBehaviorNotImplemented
+}
+func (g *RedisPublishOnceGuard) MarkCommandPublished(context.Context, string) error { return errRedisBehaviorNotImplemented }
+func (g *RedisPublishOnceGuard) CommandPublished(context.Context, string) (bool, error) {
+    return false, errRedisBehaviorNotImplemented
+}
 ```
 
 ```bash
@@ -599,7 +719,7 @@ Expected: PASS before the new tests are added.
 
 - [ ] **Step 3: Write failing Redis tests**
 
-Use `miniredis.RunT(t)` with a real `redis.Client`. Verify `Save` followed by `FindByProtocolAccountID` and `FindByPhone` returns the exact context. Verify first state claim succeeds, a duplicate fails, command publication is observable, and `Release` permits a new claim.
+Use `miniredis.RunT(t)` with a real `redis.Client`. Verify `Save` followed by `FindByProtocolAccountID` and `FindByPhone` returns the exact context, and a missing index returns `ErrCommandContextNotFound` rather than nil. Verify first state claim succeeds, a duplicate fails, `StatePublished` is false before `MarkStatePublished` and true after it, command publication is observable, and `Release` permits a new claim.
 
 ```go
 claimed, err := guard.Claim(ctx, "cmd_1", "ONLINE")
@@ -627,7 +747,7 @@ func publishStateKey(commandID, target string) string { return "armada:zhuan:pub
 func publishCommandKey(commandID string) string { return "armada:zhuan:published:command:" + commandID }
 ```
 
-`Claim` uses `SET NX`; `Release` deletes the state key; `MarkCommandPublished` sets the command marker only after Kafka publication succeeds.
+`Claim` uses `SET NX` with value `publishing`; `MarkStatePublished` changes that value to `published` only after Kafka succeeds; `StatePublished` distinguishes a completed duplicate from an in-flight duplicate; `Release` uses compare-and-delete so it removes only value `publishing`, never a completed marker; `MarkCommandPublished` sets the command marker only after Kafka publication succeeds.
 
 - [ ] **Step 6: Run and verify GREEN**
 
@@ -700,7 +820,14 @@ func NewLoginFailedEvent(user, qrID, reason string) *WhatsAppEventPayload {
 }
 ```
 
-Replace the inline login-failure payload in `waapp.go` with `external.NewLoginFailedEvent(...)`.
+Replace the inline login-failure payload in `waapp.go` with:
+
+```go
+external.AsyncCallBackEvent(
+    w.UserName(),
+    external.NewLoginFailedEvent(w.DeviceName(), w.QrId, reason),
+)
+```
 
 - [ ] **Step 5: Run and verify GREEN**
 
@@ -712,9 +839,35 @@ Expected: PASS.
 
 - [ ] **Step 6: Add compile-only event-mapping scaffolding**
 
-Create `EventEnvelope` and `StateChangedData` with their final JSON fields, then add:
+Create the event data shapes exactly, then add the compile-only builder:
 
 ```go
+type StateChangedData struct {
+    TenantID                int64  `json:"tenantId"`
+    AccountID               int64  `json:"accountId"`
+    ProtocolAccountID       string `json:"protocolAccountId,omitempty"`
+    From                    string `json:"from,omitempty"`
+    To                      string `json:"to"`
+    Semantic                string `json:"semantic,omitempty"`
+    RawCode                 int    `json:"rawCode,omitempty"`
+    RawReason               string `json:"rawReason,omitempty"`
+    Source                  string `json:"source,omitempty"`
+    OnlineAttemptID         string `json:"onlineAttemptId,omitempty"`
+    PreviousOnlineAttemptID string `json:"previousOnlineAttemptId,omitempty"`
+    CommandID               string `json:"commandId,omitempty"`
+    BatchID                 string `json:"batchId,omitempty"`
+}
+
+type EventEnvelope struct {
+    EventID    string           `json:"eventId"`
+    Event      string           `json:"event"`
+    Version    string           `json:"version"`
+    AccountID  string           `json:"accountId"`
+    OccurredAt string           `json:"occurredAt"`
+    WorkerID   string           `json:"workerId"`
+    Data       StateChangedData `json:"data"`
+}
+
 var errEventMappingNotImplemented = errors.New("armada event mapping not implemented")
 
 func BuildStateChangedEvent(
@@ -821,27 +974,30 @@ func (e *LifecycleExecutor) Execute(context.Context, ProtocolCommand) error {
 
 Run `go test ./internal/armada`; expected PASS before adding `executor_test.go`.
 
-- [ ] **Step 2: Write four failing executor tests with fakes**
+- [ ] **Step 2: Write seven failing executor tests with fakes**
 
 Create these exact tests:
 
 ```go
 func TestLifecycleExecutorOnlineSavesContextBeforeLogin(t *testing.T)
+func TestLifecycleExecutorOnlineSuccessPublishesOnline(t *testing.T)
+func TestLifecycleExecutorOnlineValidationFailurePublishesNeedReauthWithoutLogin(t *testing.T)
 func TestLifecycleExecutorOnlineParameterFailurePublishesNeedReauth(t *testing.T)
 func TestLifecycleExecutorOnlineCallbackAlreadyPublishedDoesNotDuplicate(t *testing.T)
+func TestLifecycleExecutorOfflineSuccessPublishesOffline(t *testing.T)
 func TestLifecycleExecutorOfflineAlreadyStoppedPublishesOffline(t *testing.T)
 ```
 
 In the first test, append `"save"` in the fake context store and `"login"` in the fake login function, then assert:
 
 ```go
-if diff := cmp.Diff([]string{"save", "login"}, calls); diff != "" { t.Fatal(diff) }
+if !slices.Equal(calls, []string{"save", "login"}) { t.Fatalf("calls = %#v", calls) }
 if got.SixData != "919000000001,static-pub,static-pri,identity-pub,identity-pri,phone-id" { t.Fatalf("sixdata = %q", got.SixData) }
 if got.Socks5 != "socks5://proxy.example:1080" { t.Fatalf("socks5 = %q", got.Socks5) }
 if !got.IsBusiness { t.Fatal("is_business = false") }
 ```
 
-The other tests assert, respectively: one synthetic event whose target is `NEED_REAUTH` and a nil handler error; zero new events when `CommandPublished` returns true; and one `OFFLINE` event plus a nil error when logout returns `账号919000000001不存在或已下线`.
+The success tests assert `vo.SuccessCode` results in exactly one synthetic `ONLINE`/`OFFLINE` event and a nil handler error. The validation test clears `phone_id`, asserts login is never called, and asserts one `NEED_REAUTH` event plus a nil handler error. The remaining tests assert, respectively: one synthetic event whose target is `NEED_REAUTH` for a service parameter failure; zero new events when `CommandPublished` returns true; and one `OFFLINE` event plus a nil error when logout returns `账号919000000001不存在或已下线`.
 
 The target injectable APIs are:
 
@@ -880,9 +1036,27 @@ type StateEventService interface {
 Online response handling is:
 
 ```go
+loginDTO, commandContext, err := command.ToSixLoginDTO()
+if err != nil {
+    if errors.Is(err, ErrInvalidCommand) && commandContext.AccountID != 0 {
+        return executor.Events.Publish(ctx, commandContext, external.WhatsAppEventPayload{
+            Code: vo.ParameterErrorCode,
+            ReasonCode: vo.ParameterErrorCode,
+            EventType: external.EventLoginFailed,
+            Message: "invalid zhuan lifecycle command",
+        })
+    }
+    return err
+}
+if err := executor.Contexts.Save(ctx, commandContext); err != nil { return err }
+
 response := executor.SixLogin(loginDTO)
 if response.Code == vo.SuccessCode {
-    return nil
+    return executor.Events.Publish(ctx, commandContext, external.WhatsAppEventPayload{
+        Code: 200,
+        EventType: external.EventLoginSuccess,
+        Message: fmt.Sprint(response.Msg),
+    })
 }
 published, err := executor.Events.CommandPublished(ctx, command.CommandID)
 if err != nil {
@@ -902,7 +1076,9 @@ if response.Code == vo.ParameterErrorCode {
 return fmt.Errorf("zhuan online transient failure commandId=%s code=%d", command.CommandID, response.Code)
 ```
 
-Offline treats success or a message containing `不存在或已下线` as `OFFLINE`; other failures remain retryable.
+`SixLoginService` can resolve success before its goroutine invokes `AsyncCallBackEvent`; therefore the synchronous success publication is required. A later real callback reaches the same `commandId+ONLINE` key and is suppressed.
+
+Offline treats success or a message containing `不存在或已下线` by publishing synthetic `OFFLINE`; a real callback is suppressed by the same state key. Any event-publication failure is returned so Kafka does not commit. Other logout failures remain retryable unless a callback marker already proves a terminal state was published.
 
 - [ ] **Step 5: Run and verify GREEN**
 
@@ -951,15 +1127,51 @@ func TestEventObserverReceivesEventAndCanUnregister(t *testing.T) {
     notifyEventObservers("919000000001", &WhatsAppEventPayload{Code: 101})
     if calls != 1 { t.Fatalf("calls = %d", calls) }
 }
+
+func TestAsyncCallbackEventLogsDoNotExposePhoneOrEventData(t *testing.T) {
+    done := make(chan struct{})
+    server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+        close(done)
+        _, _ = io.WriteString(w, `{}`)
+    }))
+    defer server.Close()
+    previousHost := callbackHost
+    callbackHost = server.URL
+    defer func() { callbackHost = previousHost }()
+
+    core, logs := observer.New(zap.DebugLevel)
+    previousLogger := zap.L()
+    zap.ReplaceGlobals(zap.New(core))
+    defer zap.ReplaceGlobals(previousLogger)
+
+    AsyncCallBackEvent("919000000001", &WhatsAppEventPayload{
+        Code: 200,
+        EventType: EventLoginSuccess,
+        EventData: WhatsAppEventData{AccountInfo: WhatsAppDeviceInfo{
+            StaticPrivateKey: "SECRET_STATIC_PRIVATE",
+        }},
+    })
+    select {
+    case <-done:
+    case <-time.After(time.Second):
+        t.Fatal("callback timeout")
+    }
+    got := fmt.Sprint(logs.All())
+    if strings.Contains(got, "SECRET_STATIC_PRIVATE") || strings.Contains(got, "919000000001") {
+        t.Fatalf("unsafe logs = %s", got)
+    }
+}
 ```
+
+For the log test, point package variable `callbackHost` at an `httptest.Server`, install a Zap observer, and send an event whose account info contains `StaticPrivateKey: "SECRET_STATIC_PRIVATE"` for username `919000000001`. Wait for the HTTP handler, then assert joined log messages/fields contain neither the secret nor the full phone.
 
 - [ ] **Step 3: Run and verify RED**
 
 ```bash
-go test ./internal/external -run TestEventObserverReceivesEventAndCanUnregister
+go test ./internal/external -run 'TestEventObserverReceivesEventAndCanUnregister|TestAsyncCallbackEventLogs'
 ```
 
-Expected: test compiles, then FAIL with `calls = 0`.
+Expected: tests compile, then FAIL because the observer call count is zero and existing callback logs expose the full event/username.
 
 - [ ] **Step 4: Implement synchronous internal observation**
 
@@ -971,10 +1183,12 @@ notifyEventObservers(username, event)
 
 before launching the existing HTTP callback goroutine. Notify a copied observer slice and recover each observer panic independently.
 
+Replace the event callback logger name with a masked account label (for example `***0001`) and replace every `zap.Any("event", event)` with safe scalar fields only: `code`, `eventType`, and `offlineType`. HTTP behavior and payload remain unchanged.
+
 - [ ] **Step 5: Run and verify GREEN**
 
 ```bash
-go test ./internal/external -run TestEventObserverReceivesEventAndCanUnregister
+go test ./internal/external -run 'TestEventObserverReceivesEventAndCanUnregister|TestAsyncCallbackEventLogs'
 ```
 
 Expected: PASS.
@@ -985,9 +1199,10 @@ Create `callback.go` with:
 
 ```go
 var errCallbackPublishingNotImplemented = errors.New("armada callback publishing not implemented")
+var ErrPublicationInProgress = errors.New("armada state publication in progress")
 
 type AccountEventWriter interface {
-    Publish(context.Context, string, EventEnvelope) error
+    Publish(context.Context, EventEnvelope) error
 }
 
 type StateEventPublisher struct {
@@ -1024,16 +1239,18 @@ Create these exact tests:
 ```go
 func TestCallbackObserverPublishesOnlineWithArmadaContext(t *testing.T)
 func TestCallbackObserverIgnoresEventWithoutArmadaContext(t *testing.T)
+func TestCallbackObserverPropagatesContextStoreFailure(t *testing.T)
 func TestStateEventPublisherSuppressesDuplicateTarget(t *testing.T)
+func TestStateEventPublisherInFlightDuplicateReturnsRetryableError(t *testing.T)
 func TestStateEventPublisherReleasesClaimAfterPublishFailure(t *testing.T)
 ```
 
-For the first test, save a context indexed by phone, call `HandleAndroidEvent` with `200/loginSuccess`, and assert exactly one `ONLINE` event contains the original tenant, account, and protocol-account IDs. Invoke the same callback again in the duplicate test and assert the writer count stays at one. In the failure test, make the first writer call fail, assert the claim is released, then make the second call succeed and assert one event is published.
+For the first test, save a context indexed by phone, call `HandleAndroidEvent` with `200/loginSuccess`, and assert exactly one `ONLINE` event contains the original tenant, account, and protocol-account IDs. Assert `ErrCommandContextNotFound` is ignored but an injected Redis error is returned. Invoke the same callback again after `MarkStatePublished` and assert the writer count stays at one. For the in-flight case, pre-claim the state without marking it published and assert `Publish` returns `ErrPublicationInProgress`, never nil. In the failure test, make the first writer call fail, assert the claim is released, then make the second call succeed and assert one event is published.
 
 - [ ] **Step 8: Run and verify RED**
 
 ```bash
-go test ./internal/armada -run TestCallbackObserver
+go test ./internal/armada -run 'TestCallbackObserver|TestStateEventPublisher'
 ```
 
 Expected: tests compile, then FAIL with `armada callback publishing not implemented`; writer count remains zero.
@@ -1054,14 +1271,14 @@ func (s *StateEventPublisher) Publish(ctx context.Context, command CommandContex
 func (s *StateEventPublisher) CommandPublished(ctx context.Context, commandID string) (bool, error)
 ```
 
-`Publish` builds the Java-compatible envelope, claims `commandId+targetState`, suppresses an existing claim, publishes the event, releases the claim on writer failure, and calls `MarkCommandPublished` after success. `CommandPublished` delegates to the Redis guard. This type must satisfy the `StateEventService` interface defined in Task 8.
+`Publish` builds the Java-compatible envelope and claims `commandId+targetState`. If the claim already exists, return nil only when `StatePublished` is true; otherwise return exported sentinel `ErrPublicationInProgress` so Kafka cannot commit while another writer can still fail. For a fresh claim, publish the event, release the claim on writer failure, then call `MarkStatePublished` and `MarkCommandPublished`. `CommandPublished` delegates to the Redis guard. This type must satisfy the `StateEventService` interface defined in Task 8.
 
-`CallbackObserver.HandleAndroidEvent` finds context by `event.QrID`, falls back to username/phone, ignores missing Armada context, and delegates to `StateEventPublisher.Publish`.
+`CallbackObserver.HandleAndroidEvent` finds context by `event.QrID`, falls back to username/phone, ignores only `ErrCommandContextNotFound`, propagates Redis/infrastructure errors, and delegates to `StateEventPublisher.Publish`.
 
 - [ ] **Step 10: Run and verify GREEN**
 
 ```bash
-go test ./internal/armada -run TestCallbackObserver
+go test ./internal/armada -run 'TestCallbackObserver|TestStateEventPublisher'
 go test ./internal/external
 ```
 
@@ -1100,6 +1317,9 @@ type KafkaMessage struct { Topic string; Key, Value []byte }
 type CommandMessage struct { ID string; Key, Value []byte }
 type CommandHandler func(context.Context, []byte) error
 
+var ErrPermanentCommand = errors.New("permanent armada command failure")
+func PermanentCommand(err error) error { return fmt.Errorf("%w: %v", ErrPermanentCommand, err) }
+
 type MessageWriter interface {
     Write(context.Context, KafkaMessage) error
     Close() error
@@ -1121,9 +1341,22 @@ type CommandConsumer struct {
     Handler    CommandHandler
     RetryDelay time.Duration
 }
+
+var errKafkaBehaviorNotImplemented = errors.New("armada kafka behavior not implemented")
+
+func (p *AccountEventPublisher) Publish(context.Context, EventEnvelope) error {
+    return errKafkaBehaviorNotImplemented
+}
+func (p *AccountEventPublisher) Close() error { return nil }
+func (c *CommandConsumer) HandleNext(context.Context) error {
+    return errKafkaBehaviorNotImplemented
+}
+func (c *CommandConsumer) Run(context.Context) error { return errKafkaBehaviorNotImplemented }
+func (c *CommandConsumer) Close() error { return nil }
+func newKafkaTransport(string) *kafka.Transport { return &kafka.Transport{} }
 ```
 
-Add `AccountEventPublisher.Publish` and `CommandConsumer.HandleNext` with their final signatures, returning `errKafkaBehaviorNotImplemented`. Confirm `var _ AccountEventWriter = (*AccountEventPublisher)(nil)`, then run `go test ./internal/armada`; expected PASS before transport tests are added.
+Confirm `var _ AccountEventWriter = (*AccountEventPublisher)(nil)`, then run `go test ./internal/armada`; expected PASS before transport tests are added.
 
 - [ ] **Step 3: Write failing transport tests**
 
@@ -1132,18 +1365,25 @@ Create these exact tests:
 ```go
 func TestEventPublisherWritesExpectedTopicKeyAndEnvelope(t *testing.T)
 func TestCommandConsumerCommitsAfterHandlerSuccess(t *testing.T)
+func TestCommandConsumerCommitsPermanentHandlerFailureWithoutRetry(t *testing.T)
 func TestCommandConsumerRetriesSameMessageBeforeNextFetch(t *testing.T)
 func TestCommandConsumerRetriesCommitWithoutRehandling(t *testing.T)
+func TestCommandConsumerRunStopsOnContextCancellation(t *testing.T)
+func TestKafkaTLSMinimumVersionIsTLS12(t *testing.T)
 ```
 
-The publisher test injects a recording writer and asserts topic `protocol.account.events.v1`, key `acc_919000000001`, and JSON event `account.state_changed`.
+The publisher test injects a recording writer and asserts topic `protocol.account.events.v1`, key `acc_919000000001`, and JSON event `account.state_changed`. The permanent-failure test makes the handler return `PermanentCommand(ErrInvalidCommand)` and asserts one handler call and one commit; it must not retry a poison envelope forever.
 
 For `TestCommandConsumerRetriesSameMessageBeforeNextFetch`, configure the handler to return `errors.New("temporary")` once and nil on its second call; set retry delay to zero; then assert `Fetch` was called once, the same message ID reached the handler twice, and `Commit` was called once. For `TestCommandConsumerRetriesCommitWithoutRehandling`, make `Commit` fail once and then succeed; assert one fetch, one handler call, and two commit calls.
+
+In the TLS test, construct the Kafka dialer/transport for `TLS`, extract its `tls.Config`, and assert `MinVersion == tls.VersionTLS12`.
+
+In the cancellation test, cancel the context while `Fetch` is blocked, assert `Run` returns nil within one second, and assert `Close` delegates to the reader once.
 
 - [ ] **Step 4: Run and verify RED**
 
 ```bash
-go test ./internal/armada -run 'TestEventPublisher|TestCommandConsumer'
+go test ./internal/armada -run 'TestEventPublisher|TestCommandConsumer|TestKafkaTLS'
 ```
 
 Expected: tests compile, then FAIL with `armada kafka behavior not implemented`; writer/fetch/commit counters remain zero.
@@ -1163,7 +1403,7 @@ type CommandReader interface {
 }
 ```
 
-`HandleNext` fetches one message, retries that message until handler success, then retries its commit until success. It must not fetch another message first. TLS helpers require TLS 1.2 or newer.
+`HandleNext` fetches one message. It retries the same message until handler success; if the handler error matches `ErrPermanentCommand`, it skips further handler attempts and proceeds to commit. It then retries commit until success and must not fetch another message first. Retry waits must select on `ctx.Done()` rather than call uninterruptible `time.Sleep`. `Run` loops `HandleNext`, treats fetch/transport errors as retryable, exits nil on context cancellation, and `Close` delegates to the reader. TLS helpers require TLS 1.2 or newer.
 
 - [ ] **Step 6: Run and verify GREEN**
 
@@ -1195,16 +1435,35 @@ git commit -m "feat(armada): add reliable kafka lifecycle transport"
 
 - [ ] **Step 1: Add compile-only option/start scaffolding**
 
-Create `Options` with the final fields (`Enabled`, `Brokers`, both topics, group, worker ID, context TTL, security protocol, and concurrency), plus the `ConsumerRunner`/`ConsumerFactory` types shown in Step 6. Add these signatures with bodies that return `errStartupNotImplemented`:
+Create the exact compile-only shape below, plus the `ConsumerRunner`/`ConsumerFactory` types shown in Step 6. Give each function a body that returns `errStartupNotImplemented`:
 
 ```go
+type Options struct {
+    Enabled           bool
+    Brokers           []string
+    CommandTopic      string
+    ConsumerGroup     string
+    AccountEventTopic string
+    WorkerID          string
+    ContextTTL        time.Duration
+    SecurityProtocol  string
+    Concurrency       int
+}
+
 type StopFunc func(context.Context) error
 
-func NormalizeOptions(Options) (Options, error)
-func OptionsFromConfig(*configs.Config) (Options, error)
-func buildConsumerRunners(int, ConsumerFactory) ([]ConsumerRunner, error)
-func startWithFactory(context.Context, Options, ConsumerFactory) (StopFunc, error)
-func Start(context.Context, Options) (StopFunc, error)
+var errStartupNotImplemented = errors.New("armada startup not implemented")
+
+func NormalizeOptions(options Options) (Options, error) { return options, errStartupNotImplemented }
+func OptionsFromConfig(configs.Config) (Options, error) { return Options{}, errStartupNotImplemented }
+func buildKafkaReaderConfig(Options) kafka.ReaderConfig { return kafka.ReaderConfig{} }
+func buildConsumerRunners(int, ConsumerFactory) ([]ConsumerRunner, error) {
+    return nil, errStartupNotImplemented
+}
+func startWithFactory(context.Context, Options, ConsumerFactory) (StopFunc, error) {
+    return nil, errStartupNotImplemented
+}
+func Start(context.Context, Options) (StopFunc, error) { return nil, errStartupNotImplemented }
 ```
 
 Run `go test ./internal/armada`; expected PASS before adding option/start tests. Do not add defaults, validation, readers, or goroutines in this step.
@@ -1225,15 +1484,17 @@ Add these exact tests:
 func TestNormalizeOptionsRejectsEnabledWithoutBrokers(t *testing.T)
 func TestNormalizeOptionsRejectsConcurrencyBelowOne(t *testing.T)
 func TestStartDisabledCreatesNoConsumers(t *testing.T)
+func TestStartWithFactoryRunsConfiguredConsumersConcurrently(t *testing.T)
+func TestBuildKafkaReaderConfigUsesOrderedConsumerGroup(t *testing.T)
 func TestBuildConsumerRunnersCreatesConfiguredConcurrency(t *testing.T)
 ```
 
-In the last test, use a recording factory and assert `buildConsumerRunners(4, factory)` creates indexes `0,1,2,3`; production supplies the same group ID to all four readers. In the disabled test, call `startWithFactory`, assert the factory call count remains zero, and assert the returned stop function succeeds.
+In `TestBuildKafkaReaderConfigUsesOrderedConsumerGroup`, assert topic `protocol.android.commands.v1` and group `whatsapp-server-feature-android-armada`; every runner must be built from that same config so Kafka preserves partition order. In the factory-count test, use a recording factory and assert `buildConsumerRunners(4, factory)` creates indexes `0,1,2,3`. In the concurrency test, let each fake runner signal when `Run` starts and block on `ctx.Done()`; assert all four start before any runner is released, then call the stop function and assert all four close exactly once. In the disabled test, call `startWithFactory`, assert the factory call count remains zero, and assert the returned stop function succeeds.
 
 - [ ] **Step 3: Run and verify RED**
 
 ```bash
-go test ./internal/armada -run 'TestNormalizeOptions|TestStartDisabled|TestBuildConsumerRunners'
+go test ./internal/armada -run 'TestNormalizeOptions|TestStartDisabled|TestBuildKafkaReaderConfig|TestBuildConsumerRunners'
 ```
 
 Expected: tests compile, then FAIL with `armada startup not implemented`; no consumer is created.
@@ -1285,6 +1546,20 @@ concurrency = 4
 4. start exactly `Concurrency` readers with the same consumer group;
 5. stop by unregistering, cancelling, closing readers, and closing the publisher.
 
+Wire raw command handling exactly at the composition boundary:
+
+```go
+handler := CommandHandler(func(ctx context.Context, raw []byte) error {
+    command, err := ParseCommand(raw)
+    if err != nil {
+        return PermanentCommand(err)
+    }
+    return executor.Execute(ctx, command)
+})
+```
+
+Do not log `raw`; permanent parse errors may log only the Kafka message metadata and sanitized error classification.
+
 Keep fan-out testable through:
 
 ```go
@@ -1335,6 +1610,8 @@ git commit -m "feat(armada): start zhuan lifecycle adapter"
 
 ## Task 12: Add the guarded cutover runbook
 
+Run this task from the isolated Armada worktree.
+
 **Files:**
 - Create: `docs/operations/android-zhuan-lifecycle-cutover.md`
 
@@ -1346,15 +1623,16 @@ git commit -m "feat(armada): start zhuan lifecycle adapter"
 1. Confirm target environment, tenant scope, and operator.
 2. Stop `whatsapp-server-feature-android`; do not start Zhuan consumption yet.
 3. Verify no old Android consumer process remains.
-4. Inventory active rows where `protocol_id = 'ANDROID'`; save returned account IDs as the immutable deletion list.
-5. Inventory pending/retry outbox rows for only those account IDs and Android backend.
-6. Report both counts and wait for explicit deletion approval.
-7. Delete or soft-delete only the immutable account-ID list through the approved environment-specific operation; release proxy bindings and terminate matching pending outbox rows.
-8. Verify old IDs are no longer active and no pending Android commands remain for them.
-9. Deploy Zhuan with Kafka disabled; verify MySQL, Redis, HTTP health, and configuration redaction.
-10. Enable Zhuan Kafka with the existing consumer group only after the old consumer is stopped.
-11. Re-import a small batch using `phone,staticPub,staticPri,identityPub,identityPri,phoneId`.
-12. Verify batch online, ONLINE callbacks, batch offline, and OFFLINE callbacks before increasing batch size.
+4. Inspect `protocol.android.commands.v1`; require at least four partitions for the default concurrency of four, or deliberately lower `concurrency` to the observed partition count.
+5. Inventory active rows where `protocol_id = 'ANDROID'`; save returned account IDs as the immutable deletion list.
+6. Inventory pending/retry outbox rows for only those account IDs and Android backend.
+7. Report both counts and wait for explicit deletion approval.
+8. Delete or soft-delete only the immutable account-ID list through the approved environment-specific operation; release proxy bindings and terminate matching pending outbox rows.
+9. Verify old IDs are no longer active and no pending Android commands remain for them.
+10. Deploy Zhuan with Kafka disabled; verify MySQL, Redis, HTTP health, and configuration redaction.
+11. Enable Zhuan Kafka with the existing consumer group only after the old consumer is stopped.
+12. Re-import a small batch using `phone,staticPub,staticPri,identityPub,identityPri,phoneId`.
+13. Verify batch online, ONLINE callbacks, batch offline, and OFFLINE callbacks before increasing batch size; compare by account ID without assuming completion order.
 ```
 
 State explicitly that the runbook does not authorize SSH, deployment, or deletion; each requires separate target-environment confirmation.
@@ -1384,7 +1662,7 @@ git commit -m "docs: add android zhuan cutover gates"
 Run from `armada/armada-api`:
 
 ```bash
-mvn -Dtest=AccountImportParserTest,AccountOnlineCommandServiceImplTest,ProtocolCommandOutboxServiceImplTest,ProtocolCommandPublisherTest test
+mvn -Dtest=AccountImportParserTest,AccountOnlineCommandServiceImplTest,AccountControllerTest,ProtocolCommandOutboxServiceImplTest,ProtocolCommandPublisherTest,ProtocolAccountEventConsumerTest test
 ```
 
 Expected: PASS.
@@ -1425,10 +1703,12 @@ From Zhuan:
 ```bash
 git diff --check
 git status --short
-git ls-files | rg '(^|/)(dev_configs\.toml|prod_configs\.toml|\.env|[^/]+\.(pem|key|log|zip))$'
+git ls-files | rg '(^|/)(dev_configs\.toml|prod_configs\.toml|\.env|[^/]+\.(pem|key|log|zip|tar|tgz|gz))$'
+git grep -n -I -E '(pass|password|secret|token)[[:space:]]*=[[:space:]]*"[^"]+"' -- '*.toml' '*.env*'
+rg -n '六段登录数据|zap\.Any\("event"|(socks5|Socks5)://[^[:space:]"]+:[^[:space:]"]+@' api/service/login.go internal/service/app/waapp.go internal/external/art.go
 ```
 
-Expected: no diff errors, clean status after commits, and no private/generated file paths.
+Expected: no diff errors, clean status after commits, no private/generated file paths, no non-empty config credentials, and no credential-bearing debug log/proxy literal.
 
 - [ ] **Step 5: Review commit boundaries**
 

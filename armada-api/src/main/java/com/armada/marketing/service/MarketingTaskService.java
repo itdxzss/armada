@@ -3,6 +3,7 @@ package com.armada.marketing.service;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
+import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
@@ -25,8 +26,11 @@ public interface MarketingTaskService {
     /** 查询任务详情和目标明细。 */
     MarketingTaskDetailVO getDetail(Long id);
 
-    /** 启动待启动或已停止的营销任务。 */
+    /** 激活待启动或已停止的营销任务;未到计划开始时间时继续等待。 */
     MarketingTaskVO startTask(Long id);
+
+    /** 使用新的开始、结束时间重新启动已结束任务。 */
+    MarketingTaskVO restartTask(Long id, RestartMarketingTaskDTO request);
 
     /** 停止发送中的营销任务。 */
     MarketingTaskVO stopTask(Long id);

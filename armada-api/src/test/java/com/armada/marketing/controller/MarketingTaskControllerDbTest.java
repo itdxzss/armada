@@ -159,6 +159,30 @@ class MarketingTaskControllerDbTest {
     }
 
     @Test
+    void postRestart_updatesEndedTaskWindowAndClearsFinishedAt() throws Exception {
+        Fixture fixture = seedFixture("controller-restart");
+        long id = createTask("Controller重新启动任务", fixture);
+        long now = System.currentTimeMillis();
+        jdbc.update("UPDATE marketing_task SET status = 7, finished_at = ? WHERE id = ?", now - 1_000L, id);
+        long newStartAt = now + 60_000L;
+        long newEndAt = now + 600_000L;
+
+        mockMvc.perform(post("/api/marketing-tasks/{id}/restart", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "taskStartAt", newStartAt,
+                                "taskEndAt", newEndAt)))
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.status").value(1))
+                .andExpect(jsonPath("$.data.taskStartAt").value(newStartAt))
+                .andExpect(jsonPath("$.data.taskEndAt").value(newEndAt))
+                .andExpect(jsonPath("$.data.finishedAt").isEmpty());
+    }
+
+    @Test
     void postBatchDelete_softDeletesTask() throws Exception {
         Fixture fixture = seedFixture("controller-batch-delete");
         long id = createTask("Controller批量删除任务", fixture);

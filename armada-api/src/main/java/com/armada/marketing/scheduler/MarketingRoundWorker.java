@@ -18,6 +18,7 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -49,19 +50,25 @@ public class MarketingRoundWorker {
     private final MarketingMessageComposer messageComposer;
     private final ProtocolCommandOutboxService outboxService;
     private final MarketingRoundSchedulerProperties properties;
+    private final Clock clock;
 
+    /**
+     * 注入营销任务轮次所需的数据访问、消息组装、outbox、调度配置和系统时钟。
+     */
     public MarketingRoundWorker(MarketingTaskMapper taskMapper,
                                 MarketingTemplateMapper templateMapper,
                                 MarketingTemplateFileMapper fileMapper,
                                 MarketingMessageComposer messageComposer,
                                 ProtocolCommandOutboxService outboxService,
-                                MarketingRoundSchedulerProperties properties) {
+                                MarketingRoundSchedulerProperties properties,
+                                Clock clock) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
         this.fileMapper = fileMapper;
         this.messageComposer = messageComposer;
         this.outboxService = outboxService;
         this.properties = properties;
+        this.clock = clock;
     }
 
     /**
@@ -102,11 +109,15 @@ public class MarketingRoundWorker {
                     task.getTenantId(), task.getId(), task.getStatus());
             return;
         }
-        long now = System.currentTimeMillis();
-        if (task.getTaskEndAt() != null && task.getTaskEndAt() <= now) {
-            taskMapper.endExpiredTask(taskId, now);
-            log.info("营销任务轮次跳过并结束:已到任务结束时间 tenantId={} taskId={} taskEndAt={}",
-                    task.getTenantId(), task.getId(), task.getTaskEndAt());
+        long now = clock.millis();
+        if (endExpiredTaskIfNeeded(task, now)) {
+            return;
+        }
+        // 即使历史数据或并发操作错误地提前置为发送中,worker 也不能越过计划开始时间生成消息。
+        if (task.getTaskStartAt() != null && task.getTaskStartAt() > now) {
+            int deferred = taskMapper.deferEarlySendingTask(taskId, now);
+            log.warn("营销任务轮次跳过并退回等待:尚未到计划开始时间 tenantId={} taskId={} taskStartAt={} updated={}",
+                    task.getTenantId(), task.getId(), task.getTaskStartAt(), deferred);
             return;
         }
         List<MarketingTaskTarget> targets = taskMapper.selectTargetsByTaskId(taskId);
@@ -114,15 +125,25 @@ public class MarketingRoundWorker {
             log.warn("营销任务轮次跳过:没有目标 tenantId={} taskId={}", task.getTenantId(), task.getId());
             return;
         }
-        long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
         List<ResolvedMarketingTarget> sendTargets = resolveSendTargets(task, targets);
         if (sendTargets.isEmpty()) {
+            now = clock.millis();
+            if (endExpiredTaskIfNeeded(task, now)) {
+                return;
+            }
+            long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
             taskMapper.postponeDueRound(taskId, now, nextRoundAt);
             log.info("营销任务轮次推迟:没有解析到本轮可发送群 tenantId={} taskId={} sourceTargetCount={} nextRoundAt={}",
                     task.getTenantId(), task.getId(), targets.size(), nextRoundAt);
             return;
         }
         long unfinished = taskMapper.countUnfinishedAttempts(taskId);
+        // 目标解析和积压查询可能跨过结束时间;抢占轮次前必须使用新时间再次关闸。
+        now = clock.millis();
+        if (endExpiredTaskIfNeeded(task, now)) {
+            return;
+        }
+        long nextRoundAt = now + sendIntervalSeconds(task) * 1000L;
         long backlogThreshold = (long) Math.max(1, properties.getBacklogMultiplier()) * sendTargets.size();
         // 下游协议层积压过高时只推迟下一轮,避免持续生成新 attempt 把 outbox 堆穿。
         if (unfinished >= backlogThreshold) {
@@ -172,6 +193,17 @@ public class MarketingRoundWorker {
                 task.getTenantId(), task.getId(), roundNo, sendTargets.size(), targets.size(),
                 attempts.size(), summary.commandCount(), summary.batchCount(), summary.batchSize(),
                 message.messageType(), imageBytesLength(message), nextRoundAt);
+    }
+
+    /** 到达任务结束时间后幂等归档,调用方必须立即停止本轮后续处理。 */
+    private boolean endExpiredTaskIfNeeded(MarketingTask task, long now) {
+        if (task.getTaskEndAt() == null || task.getTaskEndAt() > now) {
+            return false;
+        }
+        int ended = taskMapper.endExpiredTask(task.getId(), now);
+        log.info("营销任务轮次跳过并结束:已到任务结束时间 tenantId={} taskId={} taskEndAt={} updated={}",
+                task.getTenantId(), task.getId(), task.getTaskEndAt(), ended);
+        return true;
     }
 
     /**

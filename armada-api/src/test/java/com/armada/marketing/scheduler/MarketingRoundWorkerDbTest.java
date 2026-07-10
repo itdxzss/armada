@@ -11,6 +11,7 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -98,7 +99,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
         return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outboxService, properties);
+                new MarketingMessageComposer(), outboxService, properties, Clock.systemUTC());
     }
 
     private ProtocolCommandOutboxService recordingOutbox(

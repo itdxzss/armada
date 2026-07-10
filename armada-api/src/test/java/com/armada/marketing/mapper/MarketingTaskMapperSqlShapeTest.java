@@ -70,6 +70,73 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name)");
     }
 
+    @Test
+    void taskActivationUsesExpectedStatusAndDoesNotRewriteSchedule() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = updateBlock(xml, "activateTask");
+
+        assertThat(sql)
+                .contains("status = #{nextStatus}")
+                .contains("status = #{expectedStatus}")
+                .contains("task_end_at &gt; #{now}")
+                .contains("CASE WHEN #{nextStatus} = 2")
+                .doesNotContain("task_start_at =")
+                .doesNotContain("task_end_at =")
+                .doesNotContain("account_group_send_at =");
+    }
+
+    @Test
+    void earlySendingTaskReturnsToWaitingWithSqlGuard() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = updateBlock(xml, "deferEarlySendingTask");
+
+        assertThat(sql)
+                .contains("SET status = 1")
+                .contains("next_round_at = NULL")
+                .contains("status = 2")
+                .contains("task_start_at &gt; #{now}");
+    }
+
+    @Test
+    void endedTaskRestartRewritesOnlyLifecycleWindow() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = updateBlock(xml, "restartEndedTask");
+
+        assertThat(sql)
+                .contains("status = #{nextStatus}")
+                .contains("task_start_at = #{taskStartAt}")
+                .contains("task_end_at = #{taskEndAt}")
+                .contains("finished_at = NULL")
+                .contains("status = 7")
+                .contains("#{taskEndAt} &gt; #{now}")
+                .doesNotContain("account_group_send_at =")
+                .doesNotContain("sent_message_count =")
+                .doesNotContain("failed_message_count =")
+                .doesNotContain("current_round_no =");
+    }
+
+    @Test
+    void stoppedTaskIsArchivedWhenItsPlanExpires() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String selectSql = selectBlock(xml, "selectExpiredRunnableTasks");
+        String updateSql = updateBlock(xml, "endExpiredTask");
+
+        assertThat(selectSql).contains("status IN (1, 2, 5)");
+        assertThat(updateSql).contains("status IN (1, 2, 5)");
+    }
+
     private static String selectBlock(String xml, String id) {
         String startTag = "<select id=\"" + id + "\"";
         int start = xml.indexOf(startTag);

@@ -235,7 +235,7 @@
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task
         WHERE deleted_at IS NULL
-          AND status IN (1, 2)
+          AND status IN (1, 2, 5)
           AND task_end_at IS NOT NULL
           AND task_end_at &lt;= #{now}
         ORDER BY task_end_at ASC, id ASC
@@ -264,9 +264,21 @@
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
-          AND status IN (1, 2)
+          AND status IN (1, 2, 5)
           AND task_end_at IS NOT NULL
           AND task_end_at &lt;= #{now}
+    </update>
+
+    <update id="deferEarlySendingTask">
+        UPDATE marketing_task
+        SET status = 1,
+            next_round_at = NULL,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 2
+          AND task_start_at IS NOT NULL
+          AND task_start_at &gt; #{now}
     </update>
 
     <update id="claimDueRound">
@@ -396,18 +408,31 @@
         WHERE t.id = #{targetId}
     </update>
 
-    <update id="startTask">
+    <update id="activateTask">
         UPDATE marketing_task
-        SET status = 2,
-            task_start_at = CASE WHEN task_start_at IS NULL OR status = 7 THEN #{now} ELSE task_start_at END,
-            task_end_at = CASE WHEN status = 7 AND task_end_at IS NOT NULL AND task_end_at &lt;= #{now}
-                               THEN NULL ELSE task_end_at END,
-            started_at = COALESCE(started_at, #{now}),
-            next_round_at = #{now},
+        SET status = #{nextStatus},
+            started_at = CASE WHEN #{nextStatus} = 2 THEN COALESCE(started_at, #{now}) ELSE started_at END,
+            next_round_at = CASE WHEN #{nextStatus} = 2 THEN #{now} ELSE NULL END,
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
-          AND status IN (1, 5, 7)
+          AND status = #{expectedStatus}
+          AND (task_end_at IS NULL OR task_end_at &gt; #{now})
+    </update>
+
+    <update id="restartEndedTask">
+        UPDATE marketing_task
+        SET status = #{nextStatus},
+            task_start_at = #{taskStartAt},
+            task_end_at = #{taskEndAt},
+            started_at = CASE WHEN #{nextStatus} = 2 THEN COALESCE(started_at, #{now}) ELSE started_at END,
+            next_round_at = CASE WHEN #{nextStatus} = 2 THEN #{now} ELSE NULL END,
+            finished_at = NULL,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+          AND status = 7
+          AND #{taskEndAt} &gt; #{now}
     </update>
 
     <update id="stopTask">

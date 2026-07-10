@@ -22,6 +22,7 @@ import com.armada.platform.protocol.model.command.ProtocolMarketingMessageComman
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +42,44 @@ import static org.mockito.Mockito.when;
 
 class MarketingRoundWorkerTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    @Test
+    void futureSendingTaskReturnsToWaitingWithoutGeneratingMessages() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MarketingTask task = task();
+        task.setTaskStartAt(System.currentTimeMillis() + 60_000L);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+
+        MarketingRoundWorker worker = worker(taskMapper, outbox, new MarketingRoundSchedulerProperties());
+        worker.runRound(1L, 42L);
+
+        verify(taskMapper).deferEarlySendingTask(eq(42L), anyLong());
+        verify(taskMapper, never()).selectTargetsByTaskId(anyLong());
+        verify(taskMapper, never()).insertSendAttempts(any());
+        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+    }
+
+    @Test
+    void taskCrossingEndTimeDuringTargetResolutionDoesNotClaimOrGenerateMessages() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        Clock clock = mock(Clock.class);
+        when(clock.millis()).thenReturn(1_000L, 2_000L);
+        MarketingTask task = task();
+        task.setTaskEndAt(1_500L);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(1));
+
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, new MarketingRoundSchedulerProperties(), clock);
+        worker.runRound(1L, 42L);
+
+        verify(taskMapper).endExpiredTask(42L, 2_000L);
+        verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
+        verify(taskMapper, never()).insertSendAttempts(any());
+        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+    }
 
     @Test
     void backlogAtThresholdPostponesRoundWithoutOutbox() {
@@ -309,7 +348,7 @@ class MarketingRoundWorkerTest {
         when(templateMapper.selectById(77L)).thenReturn(imageTemplate());
         when(fileMapper.selectById(88L)).thenReturn(imageFile());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties);
+                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -349,7 +388,7 @@ class MarketingRoundWorkerTest {
         when(templateMapper.selectById(77L)).thenReturn(normalLinkCardTemplate());
         when(fileMapper.selectById(88L)).thenReturn(imageFile());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties);
+                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -388,7 +427,7 @@ class MarketingRoundWorkerTest {
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithButtons());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties);
+                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -429,7 +468,7 @@ class MarketingRoundWorkerTest {
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(invalidButtonTemplate());
         MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties);
+                new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -451,11 +490,18 @@ class MarketingRoundWorkerTest {
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
                                         ProtocolCommandOutboxService outbox,
                                         MarketingRoundSchedulerProperties properties) {
+        return worker(taskMapper, outbox, properties, Clock.systemUTC());
+    }
+
+    private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
+                                        ProtocolCommandOutboxService outbox,
+                                        MarketingRoundSchedulerProperties properties,
+                                        Clock clock) {
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(template());
         return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                new MarketingMessageComposer(), outbox, properties);
+                new MarketingMessageComposer(), outbox, properties, clock);
     }
 
     private static MarketingTask task() {

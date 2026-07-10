@@ -4,6 +4,7 @@ import com.armada.marketing.model.dto.BatchIdsRequest;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
+import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
@@ -25,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 群组营销任务第一阶段接口。
  *
- * <p>当前已开放任务列表、创建、详情、账号群树、启动、停止、批量删除和通过任务修改营销素材。</p>
+ * <p>当前已开放任务列表、创建、详情、账号群树、启动、重新启动、停止、批量删除和通过任务修改营销素材。</p>
  */
 @RestController
 @RequestMapping("/api/marketing-tasks")
@@ -114,7 +115,7 @@ public class MarketingTaskController {
     /**
      * 启动营销任务。
      *
-     * <p>仅允许待启动或已停止任务进入发送中状态。当前阶段只改变任务状态,不触发协议层发送。</p>
+     * <p>仅允许待启动或已停止任务激活。未到计划开始时间时继续等待,进入执行窗口后才发送。</p>
      *
      * @param id 营销任务 ID
      * @return 启动后的营销任务
@@ -122,6 +123,21 @@ public class MarketingTaskController {
     @PostMapping("/{id}/start")
     public ApiResponse<MarketingTaskVO> start(@PathVariable Long id) {
         return ApiResponse.ok(service.startTask(id));
+    }
+
+    /**
+     * 重新启动已结束的营销任务。
+     *
+     * <p>调用方必须提交新的开始、结束时间;原账号群组发送时间和执行历史不会重置。</p>
+     *
+     * @param id      营销任务 ID
+     * @param request 新的任务时间窗口
+     * @return 重新启动后的营销任务
+     */
+    @PostMapping("/{id}/restart")
+    public ApiResponse<MarketingTaskVO> restart(@PathVariable Long id,
+                                                @RequestBody RestartMarketingTaskDTO request) {
+        return ApiResponse.ok(service.restartTask(id, request));
     }
 
     /**

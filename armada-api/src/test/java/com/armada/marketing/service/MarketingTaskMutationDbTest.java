@@ -2,6 +2,7 @@ package com.armada.marketing.service;
 
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
+import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.testsupport.DbTestBase;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class MarketingTaskMutationDbTest extends DbTestBase {
 
+    private static final int STATUS_PENDING = 1;
     private static final int STATUS_SENDING = 2;
     private static final int STATUS_STOPPED = 5;
 
@@ -43,6 +45,63 @@ class MarketingTaskMutationDbTest extends DbTestBase {
         assertThat(started.status()).isEqualTo(STATUS_SENDING);
         assertThat(started.startedAt()).isNotNull();
         assertThat(started.updatedAt()).isNotNull();
+    }
+
+    @Test
+    void startTask_futurePendingTask_staysWaitingWithoutStartedAt() {
+        Fixture fixture = seedFixture("start-future-pending");
+        long now = System.currentTimeMillis();
+        MarketingTaskVO created = createTaskWithTimes(
+                "未来等待任务", fixture, "PENDING", now + 60_000L, now + 600_000L);
+
+        MarketingTaskVO activated = service.startTask(created.id());
+
+        assertThat(activated.status()).isEqualTo(STATUS_PENDING);
+        assertThat(activated.startedAt()).isNull();
+        assertThat(nextRoundAt(created.id())).isNull();
+    }
+
+    @Test
+    void startTask_stoppedTaskBeforeOriginalStart_returnsToWaiting() {
+        Fixture fixture = seedFixture("resume-future-stopped");
+        long now = System.currentTimeMillis();
+        MarketingTaskVO created = createTaskWithTimes(
+                "未来已停止任务", fixture, "PENDING", now + 60_000L, now + 600_000L);
+        jdbc.update("UPDATE marketing_task SET status = 5 WHERE id = ?", created.id());
+
+        MarketingTaskVO activated = service.startTask(created.id());
+
+        assertThat(activated.status()).isEqualTo(STATUS_PENDING);
+        assertThat(nextRoundAt(created.id())).isNull();
+    }
+
+    @Test
+    void startTask_stoppedTaskInsideWindow_resumesSending() {
+        Fixture fixture = seedFixture("resume-active-stopped");
+        long now = System.currentTimeMillis();
+        MarketingTaskVO created = createTaskWithTimes(
+                "窗口内已停止任务", fixture, "IMMEDIATE", now - 60_000L, now + 600_000L);
+        MarketingTaskVO stopped = service.stopTask(created.id());
+
+        MarketingTaskVO activated = service.startTask(stopped.id());
+
+        assertThat(activated.status()).isEqualTo(STATUS_SENDING);
+        assertThat(nextRoundAt(created.id())).isNotNull();
+    }
+
+    @Test
+    void startTask_stoppedTaskAfterEnd_requiresRestart() {
+        Fixture fixture = seedFixture("resume-expired-stopped");
+        long now = System.currentTimeMillis();
+        MarketingTaskVO created = createTaskWithTimes(
+                "已过期停止任务", fixture, "IMMEDIATE", now - 120_000L, now + 60_000L);
+        service.stopTask(created.id());
+        jdbc.update("UPDATE marketing_task SET task_end_at = ? WHERE id = ?", now - 1L, created.id());
+
+        assertThatThrownBy(() -> service.startTask(created.id()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("计划已结束")
+                .hasMessageContaining("重新启动");
     }
 
     @Test
@@ -66,6 +125,71 @@ class MarketingTaskMutationDbTest extends DbTestBase {
 
         assertThat(restarted.status()).isEqualTo(STATUS_SENDING);
         assertThat(restarted.startedAt()).isEqualTo(created.startedAt());
+    }
+
+    @Test
+    void restartTask_endedTaskWithFutureWindow_waitsAndPreservesExecutionHistory() {
+        Fixture fixture = seedFixture("restart-ended-future");
+        long now = System.currentTimeMillis();
+        MarketingTaskVO created = createTaskWithTimes(
+                "重新启动等待任务", fixture, "PENDING", now + 60_000L, now + 600_000L);
+        long originalStartedAt = now - 120_000L;
+        jdbc.update("""
+                UPDATE marketing_task
+                SET status = 7,
+                    sent_message_count = 4,
+                    failed_message_count = 2,
+                    current_round_no = 6,
+                    started_at = ?,
+                    finished_at = ?
+                WHERE id = ?
+                """, originalStartedAt, now - 1_000L, created.id());
+        long newStartAt = now + 120_000L;
+        long newEndAt = now + 720_000L;
+
+        MarketingTaskVO restarted = service.restartTask(
+                created.id(), new RestartMarketingTaskDTO(newStartAt, newEndAt));
+
+        assertThat(restarted.status()).isEqualTo(STATUS_PENDING);
+        assertThat(restarted.taskStartAt()).isEqualTo(newStartAt);
+        assertThat(restarted.taskEndAt()).isEqualTo(newEndAt);
+        assertThat(restarted.accountGroupSendAt()).isEqualTo(created.accountGroupSendAt());
+        assertThat(restarted.sentMessageCount()).isEqualTo(4);
+        assertThat(restarted.failedMessageCount()).isEqualTo(2);
+        assertThat(restarted.startedAt()).isEqualTo(originalStartedAt);
+        assertThat(restarted.finishedAt()).isNull();
+        assertThat(nextRoundAt(created.id())).isNull();
+        assertThat(currentRoundNo(created.id())).isEqualTo(6L);
+    }
+
+    @Test
+    void restartTask_endedTaskInsideNewWindow_resumesSending() {
+        Fixture fixture = seedFixture("restart-ended-now");
+        long now = System.currentTimeMillis();
+        MarketingTaskVO created = createTaskWithTimes(
+                "重新启动发送任务", fixture, "PENDING", now + 60_000L, now + 600_000L);
+        jdbc.update("UPDATE marketing_task SET status = 7, finished_at = ? WHERE id = ?", now - 1_000L, created.id());
+
+        MarketingTaskVO restarted = service.restartTask(
+                created.id(), new RestartMarketingTaskDTO(now - 1_000L, now + 600_000L));
+
+        assertThat(restarted.status()).isEqualTo(STATUS_SENDING);
+        assertThat(restarted.startedAt()).isNotNull();
+        assertThat(restarted.finishedAt()).isNull();
+        assertThat(nextRoundAt(created.id())).isNotNull();
+    }
+
+    @Test
+    void restartTask_nonEndedTask_isRejected() {
+        MarketingTaskVO created = createTask(
+                "非结束任务", seedFixture("restart-non-ended"), "PENDING");
+        long now = System.currentTimeMillis();
+
+        assertThatThrownBy(() -> service.restartTask(
+                created.id(), new RestartMarketingTaskDTO(now, now + 600_000L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("状态已变化")
+                .hasMessageContaining("刷新后重试");
     }
 
     @Test
@@ -117,6 +241,40 @@ class MarketingTaskMutationDbTest extends DbTestBase {
                 false,
                 "状态变更测试",
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+    }
+
+    private MarketingTaskVO createTaskWithTimes(String taskName,
+                                                Fixture fixture,
+                                                String startMode,
+                                                Long taskStartAt,
+                                                Long taskEndAt) {
+        return service.createTask(new CreateMarketingTaskDTO(
+                taskName,
+                fixture.accountGroupId(),
+                "营销账号组",
+                fixture.templateId(),
+                "营销模板",
+                startMode,
+                null,
+                taskStartAt,
+                taskEndAt,
+                1,
+                30,
+                true,
+                true,
+                false,
+                "状态变更测试",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+    }
+
+    private Long nextRoundAt(Long taskId) {
+        return jdbc.queryForObject(
+                "SELECT next_round_at FROM marketing_task WHERE id = ?", Long.class, taskId);
+    }
+
+    private Long currentRoundNo(Long taskId) {
+        return jdbc.queryForObject(
+                "SELECT current_round_no FROM marketing_task WHERE id = ?", Long.class, taskId);
     }
 
     private Long deletedAt(Long taskId) {

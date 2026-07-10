@@ -109,3 +109,31 @@ mvn -q -Dtest=MarketingTaskDataModelMigrationDbTest,MarketingTaskCreateReadDbTes
 - `POST /api/marketing-tasks` 恢复为必须选择营销模板,不再支持任务内填写文本内容。
 - `marketing_template.link_mode` 消息类型新增 `3=图文内容`;仅 `2=按钮超链` 允许配置消息按钮。
 - 新增/更新测试:`MarketingTaskDataModelMigrationDbTest`、`MarketingTaskCreateReadDbTest`、`MarketingTaskControllerDbTest`、`MarketingTaskMaterialUpdateDbTest`、`MarketingTemplateDeletionDbTest`、`MarketingTemplateServiceImplTest`。
+
+## 2026-07-10 任务时间窗口与重新启动
+
+- 普通 `POST /api/marketing-tasks/{id}/start` 不再改写任务开始、结束时间或账号群组发送时间。
+- 等待中/已停止任务在计划开始时间前激活后继续保持等待;只有进入计划窗口才置为发送中。已过结束时间时要求使用重新启动接口。
+- 已停止任务到达原计划结束时间后也会由生命周期调度归档为已结束,避免永久停在已停止而无法进入重新启动流程。
+- 轮次 worker 增加开始时间防线:若历史脏数据提前处于发送中,退回等待并取消轮次调度,不生成 attempt/outbox。
+- 轮次 worker 在目标解析和积压查询后使用新时间再次校验结束边界,避免耗时查询跨过结束时间后仍抢占轮次并生成新消息。
+- 新增 `POST /api/marketing-tasks/{id}/restart`:仅已结束任务可提交新的开始、结束时间。接口清空 `finished_at`,但保留 `account_group_send_at`、累计计数、轮次、`started_at` 和发送明细历史。
+- 关键状态流转新增任务 ID、租户 ID、原/新状态和原/新时间窗口日志,便于排查提前启动或重新启动问题。
+- 定向单元/SQL 形状测试:
+  - `mvn -Dtest=MarketingRoundWorkerTest,MarketingRoundSchedulerTest,MarketingTaskMapperSqlShapeTest test`
+  - 结果:21 个测试通过,0 失败/错误。
+- 真库测试已补到 `MarketingTaskMutationDbTest` 和 `MarketingTaskControllerDbTest`,但本机 `localhost:3306/armada` 的 Flyway V037、V041 校验和与代码不一致,应用上下文在测试执行前被校验拦截。本次未执行 `flyway repair`,未修改本机库历史。
+- 未提交,未部署。
+
+## 2026-07-10 模板删除后的启动门禁
+
+- 普通启动和已结束任务重新启动在更新任务状态前统一查询任务引用的营销模板。
+- `MarketingTemplateMapper.selectById` 会过滤软删除数据；查不到模板时返回明确提示
+  `营销模板已删除，任务不可启动`，并保持任务原状态不变。
+- 拒绝启动时记录 tenantId、taskId、templateId，方便定位模板删除后的误启动操作。
+- 新增 `MarketingTaskServiceImplLifecycleTest`，覆盖普通启动与重新启动两个入口，并验证不调用状态更新 Mapper。
+- `MarketingTemplateDeletionDbTest` 补充真实软删除联动场景；本机真库测试仍受前述 Flyway V037、V041 校验和不一致阻塞。
+- 定向测试：
+  - RED：实现前 2 个门禁用例均收到旧文案 `任务状态已变化,请刷新后重试`。
+  - GREEN：`MarketingTaskServiceImplLifecycleTest` 2 个测试通过。
+  - 联动回归：`MarketingTaskServiceImplLifecycleTest,MarketingTemplateServiceImplTest,MarketingRoundWorkerTest,MarketingRoundSchedulerTest,MarketingTaskMapperSqlShapeTest` 共 40 个测试通过。

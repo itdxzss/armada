@@ -6,6 +6,7 @@ import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
+import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
@@ -158,10 +159,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     /**
-     * 启动待启动或已停止的营销任务。
+     * 激活等待中或已停止的营销任务。
      *
-     * <p>当前阶段的“启动”只负责主表状态流转:待启动/已停止 → 发送中。首次启动会补
-     * `started_at`,停止后再次启动保留第一次启动时间。真实发送调度仍由后续发送引擎接管。</p>
+     * <p>未到计划开始时间时任务继续等待,进入执行窗口后才切换为发送中。普通启动不改写
+     * 原计划窗口;已经结束的任务必须通过重新启动接口提交新的开始、结束时间。任务引用的
+     * 营销模板已删除时拒绝启动,避免任务进入调度后反复失败。</p>
      *
      * @param id 营销任务 ID
      * @return 启动后的任务主信息
@@ -170,15 +172,70 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTaskVO startTask(Long id) {
         MarketingTask task = requireTask(id);
-        if (!List.of(STATUS_PENDING, STATUS_STOPPED, STATUS_ENDED).contains(task.getStatus())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "只有等待中、已停止或已结束的任务可以启动");
+        if (!List.of(STATUS_PENDING, STATUS_STOPPED).contains(task.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "只有等待中或已停止的任务可以启动");
         }
+        validateTaskTemplateAvailable(task);
         long now = System.currentTimeMillis();
-        int updated = taskMapper.startTask(id, now);
+        if (task.getTaskEndAt() != null && task.getTaskEndAt() <= now) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务计划已结束,请重新设置开始和结束时间后重新启动");
+        }
+
+        int nextStatus = task.getTaskStartAt() != null && task.getTaskStartAt() > now
+                ? STATUS_PENDING
+                : STATUS_SENDING;
+        int updated = taskMapper.activateTask(id, task.getStatus(), nextStatus, now);
         if (updated == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
         }
-        log.info("营销任务启动 id={} tenantId={} nextRoundAt={}", id, task.getTenantId(), now);
+        log.info(
+                "营销任务激活 id={} tenantId={} originalStatus={} nextStatus={} taskStartAt={} taskEndAt={}",
+                id,
+                task.getTenantId(),
+                task.getStatus(),
+                nextStatus,
+                task.getTaskStartAt(),
+                task.getTaskEndAt());
+        return toVO(requireTask(id));
+    }
+
+    /**
+     * 使用新的计划窗口重新启动已结束任务。
+     *
+     * <p>重新启动只重置生命周期窗口和调度状态。账号群组发送时间、累计成功/失败数、
+     * 当前轮次及发送明细继续保留,便于运营查看同一任务的完整历史。任务引用的营销模板
+     * 已删除时不修改任何生命周期状态。</p>
+     *
+     * @param id      营销任务 ID
+     * @param request 新的任务开始、结束时间
+     * @return 重新启动后的任务主信息
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public MarketingTaskVO restartTask(Long id, RestartMarketingTaskDTO request) {
+        MarketingTask task = requireTask(id);
+        if (!Integer.valueOf(STATUS_ENDED).equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
+        }
+        validateTaskTemplateAvailable(task);
+        long now = System.currentTimeMillis();
+        validateRestartTimes(request, now);
+        int nextStatus = request.taskStartAt() > now ? STATUS_PENDING : STATUS_SENDING;
+        int updated = taskMapper.restartEndedTask(
+                id, nextStatus, request.taskStartAt(), request.taskEndAt(), now);
+        if (updated == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
+        }
+        log.info(
+                "营销任务重新启动 id={} tenantId={} originalStartAt={} originalEndAt={} "
+                        + "newStartAt={} newEndAt={} nextStatus={}",
+                id,
+                task.getTenantId(),
+                task.getTaskStartAt(),
+                task.getTaskEndAt(),
+                request.taskStartAt(),
+                request.taskEndAt(),
+                nextStatus);
         return toVO(requireTask(id));
     }
 
@@ -310,6 +367,18 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         }
     }
 
+    private static void validateRestartTimes(RestartMarketingTaskDTO request, long now) {
+        if (request == null || request.taskStartAt() == null || request.taskEndAt() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请设置任务开始时间和结束时间");
+        }
+        if (request.taskEndAt() <= now) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务结束时间必须晚于当前时间");
+        }
+        if (request.taskEndAt() <= request.taskStartAt()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "任务结束时间必须晚于任务开始时间");
+        }
+    }
+
     private MarketingTemplate requireTemplate(Long id) {
         // 模板是素材唯一事实源。创建任务只保存模板 id/name 快照,不复制正文和按钮。
         MarketingTemplate template = templateMapper.selectById(id);
@@ -317,6 +386,19 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + id);
         }
         return template;
+    }
+
+    private void validateTaskTemplateAvailable(MarketingTask task) {
+        // selectById 只返回未软删除模板；必须在状态更新 SQL 前校验，保证拒绝启动时任务不变。
+        if (templateMapper.selectById(task.getMarketingTemplateId()) != null) {
+            return;
+        }
+        log.warn(
+                "营销任务启动被拒绝:引用模板已删除 tenantId={} taskId={} templateId={}",
+                task.getTenantId(),
+                task.getId(),
+                task.getMarketingTemplateId());
+        throw new BusinessException(ErrorCode.VALIDATION, "营销模板已删除，任务不可启动");
     }
 
     private MarketingTask requireTask(Long id) {

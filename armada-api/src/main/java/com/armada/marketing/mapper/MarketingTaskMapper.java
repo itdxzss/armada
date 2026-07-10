@@ -44,15 +44,18 @@ public interface MarketingTaskMapper {
     @InterceptorIgnore(tenantLine = "true")
     List<MarketingTask> selectDueWaitingTasks(@Param("now") long now, @Param("limit") int limit);
 
-    /** 查询已到计划结束时间的等待/发送中任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
+    /** 查询已到计划结束时间的等待/发送中/已停止任务。后台调度无租户上下文,需跨租户扫描后由 worker 恢复租户。 */
     @InterceptorIgnore(tenantLine = "true")
     List<MarketingTask> selectExpiredRunnableTasks(@Param("now") long now, @Param("limit") int limit);
 
     /** 到达计划开始时间后,等待任务进入发送中。 */
     int startDueWaitingTask(@Param("id") Long id, @Param("now") long now);
 
-    /** 到达计划结束时间后,等待/发送中任务进入已结束。 */
+    /** 到达计划结束时间后,等待/发送中/已停止任务进入已结束。 */
     int endExpiredTask(@Param("id") Long id, @Param("now") long now);
+
+    /** 修正开始时间尚未到达却处于发送中的任务,退回等待并取消轮次调度。 */
+    int deferEarlySendingTask(@Param("id") Long id, @Param("now") long now);
 
     /** 抢占一个到期轮次,成功时递增 current_round_no 并推进 next_round_at。 */
     int claimDueRound(@Param("id") Long id, @Param("now") long now, @Param("nextRoundAt") long nextRoundAt);
@@ -100,8 +103,22 @@ public interface MarketingTaskMapper {
                                     @Param("reasonMessage") String reasonMessage,
                                     @Param("resultAt") long resultAt);
 
-    /** 待启动/已停止任务置为发送中,并首次补 started_at。 */
-    int startTask(@Param("id") Long id, @Param("now") long now);
+    /**
+     * 激活等待中或已停止任务,由服务层根据计划开始时间决定继续等待还是进入发送中。
+     */
+    int activateTask(@Param("id") Long id,
+                     @Param("expectedStatus") int expectedStatus,
+                     @Param("nextStatus") int nextStatus,
+                     @Param("now") long now);
+
+    /**
+     * 使用新的计划窗口重新启动已结束任务;发送筛选时间、累计计数和轮次历史保持不变。
+     */
+    int restartEndedTask(@Param("id") Long id,
+                         @Param("nextStatus") int nextStatus,
+                         @Param("taskStartAt") long taskStartAt,
+                         @Param("taskEndAt") long taskEndAt,
+                         @Param("now") long now);
 
     /** 发送中任务置为已停止。 */
     int stopTask(@Param("id") Long id, @Param("now") long now);

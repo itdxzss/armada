@@ -41,7 +41,7 @@ public class MarketingTaskLifecycleWorker {
         }
     }
 
-    /** 到达任务结束时间后,等待/发送中任务进入已结束。 */
+    /** 到达任务结束时间后,等待/发送中/已停止任务进入已结束。 */
     @Transactional(rollbackFor = Exception.class)
     public void endExpiredTask(Long tenantId, Long taskId) {
         Long previousTenant = TenantContext.get();

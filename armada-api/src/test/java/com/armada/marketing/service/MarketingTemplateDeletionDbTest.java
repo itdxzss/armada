@@ -1,6 +1,8 @@
 package com.armada.marketing.service;
 
+import com.armada.marketing.model.dto.RestartMarketingTaskDTO;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
+import com.armada.shared.exception.BusinessException;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -12,6 +14,7 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 营销模板删除对关联营销任务的联动规则。
@@ -20,6 +23,9 @@ class MarketingTemplateDeletionDbTest extends DbTestBase {
 
     @Autowired
     private MarketingTemplateService service;
+
+    @Autowired
+    private MarketingTaskService taskService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -42,6 +48,34 @@ class MarketingTemplateDeletionDbTest extends DbTestBase {
         assertTaskStatus(sendingTaskId, MarketingTaskStatus.STOPPED);
         assertTaskStatus(successTaskId, MarketingTaskStatus.SUCCESS);
         assertTaskStatus(otherSendingTaskId, MarketingTaskStatus.SENDING);
+    }
+
+    @Test
+    void startTask_deletedTemplate_isRejectedAndKeepsTaskStopped() {
+        String suffix = String.valueOf(System.nanoTime());
+        long templateId = insertTemplate("已删除启动模板-" + suffix);
+        long taskId = insertTask("模板删除后启动-" + suffix, templateId, MarketingTaskStatus.STOPPED);
+        service.batchDelete(List.of(templateId));
+
+        assertThatThrownBy(() -> taskService.startTask(taskId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("营销模板已删除，任务不可启动");
+        assertTaskStatus(taskId, MarketingTaskStatus.STOPPED);
+    }
+
+    @Test
+    void restartTask_deletedTemplate_isRejectedAndKeepsTaskEnded() {
+        String suffix = String.valueOf(System.nanoTime());
+        long templateId = insertTemplate("已删除重启模板-" + suffix);
+        long taskId = insertTask("模板删除后重启-" + suffix, templateId, MarketingTaskStatus.ENDED);
+        service.batchDelete(List.of(templateId));
+        long now = System.currentTimeMillis();
+
+        assertThatThrownBy(() -> taskService.restartTask(
+                taskId, new RestartMarketingTaskDTO(now, now + 600_000L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("营销模板已删除，任务不可启动");
+        assertTaskStatus(taskId, MarketingTaskStatus.ENDED);
     }
 
     private long insertTemplate(String name) {

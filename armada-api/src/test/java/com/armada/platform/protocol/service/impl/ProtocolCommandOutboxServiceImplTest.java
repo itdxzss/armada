@@ -346,6 +346,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_100");
         assertThat(row.getProtocolAccountId()).isEqualTo("acc_100");
+        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
         assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
         assertThat(row.getRetryCount()).isZero();
         assertThat(row.getNextRetryAt()).isZero();
@@ -406,6 +407,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_100");
         assertThat(row.getProtocolAccountId()).isEqualTo("acc_100");
+        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
         assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
         assertThat(row.getRetryCount()).isZero();
         assertThat(row.getNextRetryAt()).isZero();
@@ -462,6 +464,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_8613800138000");
         assertThat(row.getProtocolAccountId()).isEqualTo("acc_8613800138000");
+        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
         assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
         assertThat(row.getRetryCount()).isZero();
         assertThat(row.getNextRetryAt()).isZero();
@@ -520,6 +523,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getAggregateId()).isEqualTo(11L);
         assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_8613800138000");
+        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
 
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });

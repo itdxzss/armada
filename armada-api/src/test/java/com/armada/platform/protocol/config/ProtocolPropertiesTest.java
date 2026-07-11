@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -9,6 +10,7 @@ import org.springframework.core.io.FileSystemResource;
 import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ProtocolPropertiesTest {
 
@@ -44,6 +46,47 @@ class ProtocolPropertiesTest {
                     assertThat(properties.getApiKey()).isEqualTo("secret-api-key");
                     assertThat(properties.getConnectTimeoutMs()).isEqualTo(1234);
                     assertThat(properties.getReadTimeoutMs()).isEqualTo(5678);
+                });
+    }
+
+    @Test
+    void bindsBackendSpecificHttpProperties() {
+        contextRunner
+                .withPropertyValues(
+                        "armada.protocol.backends.WEB.base-url=https://web-protocol.internal",
+                        "armada.protocol.backends.WEB.api-key=web-key",
+                        "armada.protocol.backends.ANDROID.base-url=https://android-protocol.internal",
+                        "armada.protocol.backends.ANDROID.api-key=android-key",
+                        "armada.protocol.backends.ANDROID.connect-timeout-ms=2345",
+                        "armada.protocol.backends.ANDROID.read-timeout-ms=6789")
+                .run(context -> {
+                    ProtocolProperties properties = context.getBean(ProtocolProperties.class);
+
+                    ProtocolBackendHttpProperties web = properties.requireBackend(ProtocolBackend.WEB);
+                    ProtocolBackendHttpProperties android = properties.requireBackend(ProtocolBackend.ANDROID);
+                    assertThat(web.getBaseUrl()).isEqualTo("https://web-protocol.internal");
+                    assertThat(web.getApiKey()).isEqualTo("web-key");
+                    assertThat(android.getBaseUrl()).isEqualTo("https://android-protocol.internal");
+                    assertThat(android.getApiKey()).isEqualTo("android-key");
+                    assertThat(android.getConnectTimeoutMs()).isEqualTo(2345);
+                    assertThat(android.getReadTimeoutMs()).isEqualTo(6789);
+                });
+    }
+
+    @Test
+    void legacyConnectionPropertiesRemainWebFallbackOnly() {
+        contextRunner
+                .withPropertyValues(
+                        "armada.protocol.base-url=https://legacy-web.internal",
+                        "armada.protocol.api-key=legacy-key")
+                .run(context -> {
+                    ProtocolProperties properties = context.getBean(ProtocolProperties.class);
+
+                    assertThat(properties.requireBackend(ProtocolBackend.WEB).getBaseUrl())
+                            .isEqualTo("https://legacy-web.internal");
+                    assertThatThrownBy(() -> properties.requireBackend(ProtocolBackend.ANDROID))
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("ANDROID");
                 });
     }
 

@@ -1,6 +1,8 @@
 package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
@@ -40,6 +42,7 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(ProtocolProperties.class);
             assertThat(context).hasSingleBean(RestClient.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutor.class);
+            assertThat(context).hasSingleBean(ProtocolHttpExecutorRegistry.class);
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
             assertThat(context).hasSingleBean(ContactPort.class);
             assertThat(context).hasSingleBean(GroupCreatePort.class);
@@ -53,6 +56,12 @@ class ProtocolConfigurationTest {
             assertThat(properties.getApiKey()).isEmpty();
             assertThat(properties.getConnectTimeoutMs()).isEqualTo(ProtocolProperties.DEFAULT_CONNECT_TIMEOUT_MS);
             assertThat(properties.getReadTimeoutMs()).isEqualTo(ProtocolProperties.DEFAULT_READ_TIMEOUT_MS);
+
+            ProtocolHttpExecutorRegistry registry = context.getBean(ProtocolHttpExecutorRegistry.class);
+            assertThat(registry.required(ProtocolBackend.WEB))
+                    .isSameAs(context.getBean(ProtocolHttpExecutor.class));
+            assertThat(registry.required(ProtocolBackend.ANDROID))
+                    .isNotSameAs(context.getBean(ProtocolHttpExecutor.class));
         });
     }
 }

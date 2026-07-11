@@ -1,6 +1,10 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
  * 协议层连接配置。
@@ -40,6 +44,12 @@ public class ProtocolProperties {
      * HTTP 读取超时时间,单位毫秒。
      */
     private int readTimeoutMs = DEFAULT_READ_TIMEOUT_MS;
+
+    /**
+     * 按协议后端划分的 HTTP 连接配置。
+     */
+    private Map<ProtocolBackend, ProtocolBackendHttpProperties> backends =
+            new EnumMap<>(ProtocolBackend.class);
 
     /**
      * 获取协议层 HTTP base URL。
@@ -111,6 +121,58 @@ public class ProtocolProperties {
      */
     public void setReadTimeoutMs(int readTimeoutMs) {
         this.readTimeoutMs = readTimeoutMs;
+    }
+
+    /**
+     * 获取按协议后端划分的 HTTP 连接配置。
+     *
+     * @return 后端与 HTTP 连接配置的映射
+     */
+    public Map<ProtocolBackend, ProtocolBackendHttpProperties> getBackends() {
+        return backends;
+    }
+
+    /**
+     * 设置按协议后端划分的 HTTP 连接配置。
+     *
+     * @param backends 后端与 HTTP 连接配置的映射
+     */
+    public void setBackends(Map<ProtocolBackend, ProtocolBackendHttpProperties> backends) {
+        EnumMap<ProtocolBackend, ProtocolBackendHttpProperties> copy =
+                new EnumMap<>(ProtocolBackend.class);
+        if (backends != null) {
+            copy.putAll(backends);
+        }
+        this.backends = copy;
+    }
+
+    /**
+     * 获取指定协议后端的 HTTP 连接配置。
+     *
+     * <p>空后端按 Web 处理；当 Web 没有独立配置时兼容现有连接字段。Android 等其他后端
+     * 不允许回退到旧 Web 配置，防止请求误发。</p>
+     *
+     * @param backend 协议后端
+     * @return 对应后端的 HTTP 连接配置
+     * @throws IllegalStateException 对应后端未配置有效 base URL 时抛出
+     */
+    public ProtocolBackendHttpProperties requireBackend(ProtocolBackend backend) {
+        ProtocolBackend safeBackend = backend == null ? ProtocolBackend.WEB : backend;
+        ProtocolBackendHttpProperties configured = backends.get(safeBackend);
+        if (configured != null
+                && configured.getBaseUrl() != null
+                && !configured.getBaseUrl().isBlank()) {
+            return configured;
+        }
+        if (safeBackend == ProtocolBackend.WEB && baseUrl != null && !baseUrl.isBlank()) {
+            ProtocolBackendHttpProperties legacy = new ProtocolBackendHttpProperties();
+            legacy.setBaseUrl(baseUrl);
+            legacy.setApiKey(apiKey);
+            legacy.setConnectTimeoutMs(connectTimeoutMs);
+            legacy.setReadTimeoutMs(readTimeoutMs);
+            return legacy;
+        }
+        throw new IllegalStateException("协议后端 HTTP 地址未配置 backend=" + safeBackend);
     }
 
     /**

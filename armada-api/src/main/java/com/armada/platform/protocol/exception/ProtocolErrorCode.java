@@ -63,6 +63,30 @@ public enum ProtocolErrorCode {
      */
     ACCOUNT_REACHOUT_RESTRICTED,
 
+    /** 协议后端找不到目标账号。 */
+    ACCOUNT_NOT_FOUND,
+
+    /** 目标账号当前不在线。 */
+    ACCOUNT_NOT_ONLINE,
+
+    /** 协议请求参数不合法。 */
+    BAD_REQUEST,
+
+    /** 群邀请链接或邀请码无效。 */
+    INVALID_GROUP_LINK,
+
+    /** 协议端明确拒绝本次进群。 */
+    GROUP_JOIN_REJECTED,
+
+    /** 协议请求完成，但无法确认账号是否真实入群。 */
+    JOIN_RESULT_UNCONFIRMED,
+
+    /** Android 原生接口返回了无法识别的响应。 */
+    ANDROID_RESPONSE_UNRECOGNIZED,
+
+    /** Armada 没有注册账号所需的协议后端。 */
+    UNSUPPORTED_BACKEND,
+
     /**
      * 未识别或尚未映射的协议层失败。
      */

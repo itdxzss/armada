@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.exception;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+
 import java.util.Optional;
 
 /**
@@ -18,6 +20,9 @@ public class ProtocolException extends RuntimeException {
     private final String protocolCode;
     private final Long retryAfterMs;
     private final String ownerEndpoint;
+    private final ProtocolBackend backend;
+    private final String operation;
+    private final String operationId;
 
     /**
      * 创建不带协议层元数据的协议异常。
@@ -53,6 +58,20 @@ public class ProtocolException extends RuntimeException {
             Metadata metadata,
             String message,
             Throwable cause) {
+        this(errorCode, metadata, message, cause, null, null, null);
+    }
+
+    /**
+     * 创建带协议元数据和 Armada 调用上下文的异常。
+     */
+    private ProtocolException(
+            ProtocolErrorCode errorCode,
+            Metadata metadata,
+            String message,
+            Throwable cause,
+            ProtocolBackend backend,
+            String operation,
+            String operationId) {
         super(normalizeMessage(message), cause);
         Metadata safeMetadata = metadata == null ? Metadata.empty() : metadata;
         this.errorCode = errorCode == null ? ProtocolErrorCode.UNKNOWN : errorCode;
@@ -60,6 +79,9 @@ public class ProtocolException extends RuntimeException {
         this.protocolCode = safeMetadata.protocolCode;
         this.retryAfterMs = safeMetadata.retryAfterMs;
         this.ownerEndpoint = safeMetadata.ownerEndpoint;
+        this.backend = backend;
+        this.operation = operation;
+        this.operationId = operationId;
     }
 
     /**
@@ -116,6 +138,67 @@ public class ProtocolException extends RuntimeException {
      */
     public Optional<String> ownerEndpoint() {
         return Optional.ofNullable(ownerEndpoint);
+    }
+
+    /**
+     * 获取发生失败的协议后端。
+     *
+     * @return 协议后端；未附加调用上下文时为空
+     */
+    public Optional<ProtocolBackend> backend() {
+        return Optional.ofNullable(backend);
+    }
+
+    /**
+     * 获取统一操作名称。
+     *
+     * @return 如 group.join；未附加调用上下文时为空
+     */
+    public Optional<String> operation() {
+        return Optional.ofNullable(operation);
+    }
+
+    /**
+     * 获取业务操作标识。
+     *
+     * @return 业务操作标识；未附加调用上下文时为空
+     */
+    public Optional<String> operationId() {
+        return Optional.ofNullable(operationId);
+    }
+
+    /**
+     * 判断当前错误是否适合由业务编排层重试。
+     *
+     * @return 网络、超时、繁忙或结果未确认时返回 true
+     */
+    public boolean retryable() {
+        return switch (errorCode) {
+            case TIMEOUT, NETWORK, ACCOUNT_BUSY, WORKER_BUSY, JOIN_RESULT_UNCONFIRMED -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * 在保留错误码、协议元数据、消息和 cause 的同时附加统一调用上下文。
+     *
+     * @param backend 协议后端
+     * @param operation 统一操作名称
+     * @param operationId 业务操作标识
+     * @return 带调用上下文的新异常
+     */
+    public ProtocolException withContext(
+            ProtocolBackend backend,
+            String operation,
+            String operationId) {
+        return new ProtocolException(
+                errorCode,
+                Metadata.of(httpStatus, protocolCode, retryAfterMs, ownerEndpoint),
+                getMessage(),
+                getCause(),
+                backend,
+                normalizeText(operation),
+                normalizeText(operationId));
     }
 
     private static String normalizeMessage(String message) {

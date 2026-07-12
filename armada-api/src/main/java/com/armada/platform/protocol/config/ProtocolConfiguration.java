@@ -1,6 +1,7 @@
 package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
 import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
 import com.armada.platform.protocol.http.account.HttpAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.http.contact.HttpContactAdapter;
@@ -9,6 +10,7 @@ import com.armada.platform.protocol.http.group.HttpGroupJoinAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.platform.protocol.port.ContactPort;
@@ -24,6 +26,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.util.EnumMap;
 
 /**
  * 协议层防腐层 Spring 配置。
@@ -43,6 +47,16 @@ public class ProtocolConfiguration {
      */
     @Bean
     public RestClient protocolRestClient(ProtocolProperties properties) {
+        return buildRestClient(properties.requireBackend(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 根据单个协议后端配置创建 RestClient。
+     *
+     * @param properties 协议后端 HTTP 配置
+     * @return 配好 baseUrl、超时、JSON 头和可选 API key 的 RestClient
+     */
+    private static RestClient buildRestClient(ProtocolBackendHttpProperties properties) {
         // 使用 Spring 自带的简单请求工厂,便于在这里直接设置连接和读取超时。
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         // 设置 TCP 连接建立超时,避免协议层不可达时长时间卡住业务线程。
@@ -78,6 +92,35 @@ public class ProtocolConfiguration {
     @Bean
     public ProtocolHttpExecutor protocolHttpExecutor(RestClient protocolRestClient) {
         return new ProtocolHttpExecutor(protocolRestClient);
+    }
+
+    /**
+     * 注册各协议后端的 HTTP 执行器。
+     *
+     * <p>Web 复用现有执行器 Bean，保持存量 adapter 的注入方式不变；Android 使用独立的
+     * RestClient 和连接配置。</p>
+     *
+     * @param properties 协议层连接配置
+     * @param protocolHttpExecutor 现有 Web HTTP 执行器
+     * @return 协议后端 HTTP 执行器注册表
+     */
+    @Bean
+    public ProtocolHttpExecutorRegistry protocolHttpExecutorRegistry(
+            ProtocolProperties properties,
+            ProtocolHttpExecutor protocolHttpExecutor) {
+        // 使用 EnumMap 明确限定 key 为 ProtocolBackend，避免用字符串维护后端名称。
+        EnumMap<ProtocolBackend, ProtocolHttpExecutor> executors =
+                new EnumMap<>(ProtocolBackend.class);
+
+        // Web 继续复用现有 ProtocolHttpExecutor Bean，使存量 Web adapter 的连接配置和注入关系保持不变。
+        executors.put(ProtocolBackend.WEB, protocolHttpExecutor);
+
+        // Android 从自己的 backend 配置创建独立 RestClient，确保请求地址、API key 和超时不与 Web 串用。
+        executors.put(ProtocolBackend.ANDROID, new ProtocolHttpExecutor(
+                buildRestClient(properties.requireBackend(ProtocolBackend.ANDROID))));
+
+        // 注册表只负责按后端提供对应 executor；具体账号走哪个后端由上层业务路由决定。
+        return new ProtocolHttpExecutorRegistry(executors);
     }
 
     /**

@@ -84,7 +84,7 @@
     )
     ON DUPLICATE KEY UPDATE
       group_link_id = VALUES(group_link_id),
-      is_admin = VALUES(is_admin),
+      is_admin = COALESCE(VALUES(is_admin), account_group_membership.is_admin),
       joined_at = COALESCE(account_group_membership.joined_at, VALUES(joined_at)),
       last_seen_at = VALUES(last_seen_at),
       deleted_at = NULL,

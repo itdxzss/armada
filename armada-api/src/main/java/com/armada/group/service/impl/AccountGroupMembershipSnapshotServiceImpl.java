@@ -125,7 +125,8 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             if (existing == null) {
                 GroupLink row = new GroupLink();
                 row.setLinkUrl(accountSyncLinkUrl(groupJid));
-                row.setGroupName(clamp(blankToNull(group.subject()), GROUP_NAME_MAX_LENGTH));
+                String groupName = blankToNull(group.subject());
+                row.setGroupName(clamp(groupName == null ? groupJid : groupName, GROUP_NAME_MAX_LENGTH));
                 row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
                 row.setMembershipState(GroupMembershipState.JOINED.code());
                 row.setCreatedAt(now);

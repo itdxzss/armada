@@ -420,6 +420,34 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void onlineBatch_outboxAcceptedButPendingStateUpdateFails_stillReturnsAccepted() {
+        Account account = account(100L, "acc_100");
+        AccountCredential credential = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
+        List<Long> ids = List.of(100L);
+        List<IpProxyAccountAllocation> allocations = List.of(
+                new IpProxyAccountAllocation(100L, 7L, onlineEndpoint(), "iproyal"));
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(List.of(account));
+        when(credentialMapper.selectByAccountIds(ids)).thenReturn(List.of(credential));
+        when(accountMapper.selectIpRegionsByAccountIds(ids, ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(ipProxyService.allocateOnlineEndpoints(List.of(
+                new IpProxyAllocationRequest(100L, "印度", true)))).thenReturn(allocations);
+        when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100");
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
+        when(stateMapper.markPendingOnline(any(), anyLong()))
+                .thenThrow(new RuntimeException("account_state unavailable"));
+
+        AccountBatchOnlineVO result = service.onlineBatch(ids);
+
+        assertThat(result.accepted()).isEqualTo(1);
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId)
+                .containsExactly(100L);
+        verify(ipProxyService, never()).releaseOnlineAllocations(any());
+        verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
+    }
+
+    @Test
     void onlineBatchWithProtocolBackends_usesRequestBackendInsteadOfAccountProtocolId() {
         Account accountA = account(100L, "acc_100");
         accountA.setProtocolId("WEB");

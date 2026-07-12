@@ -656,7 +656,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             releaseAllocationsAfterFailure(allocations, ex);
             throw ex;
         }
-        // 命令入队后本地先标记为待上线,用于列表即时反馈;ONLINE/OFFLINE 终态由状态事件再覆盖。
+        // outbox 入队是受理成功边界；待上线只用于列表即时反馈，更新失败不能把已入队命令改判为失败。
         markPendingOnline(prepared.stream().map(PreparedOnlineCommand::accountId).toList());
         log.info("账号上线 outbox 已受理 source={} requested={} inserted={} batchId={} commandIds={}",
                 source, ids.size(), enqueueResult.inserted(), enqueueResult.batchId(),
@@ -717,12 +717,25 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return List.copyOf(result);
     }
 
+    /**
+     * 尽力把已进入 outbox 的账号标记为待上线，供账号列表即时反馈。
+     *
+     * <p>outbox 成功写入后命令已经被可靠受理；本地状态更新失败不能向调用方返回失败，
+     * 否则用户重试会重复写入上线命令。最终登录状态仍由协议层 Kafka 事件回填。</p>
+     *
+     * @param accountIds 已成功写入上线 outbox 的账号 ID
+     */
     private void markPendingOnline(List<Long> accountIds) {
-        long now = System.currentTimeMillis();
-        int updated = stateMapper.markPendingOnline(accountIds, now);
-        if (updated != accountIds.size()) {
-            log.warn("账号上线待回传状态更新数量不一致 expected={} updated={} accountIds={}",
-                    accountIds.size(), updated, accountIds);
+        try {
+            long now = System.currentTimeMillis();
+            int updated = stateMapper.markPendingOnline(accountIds, now);
+            if (updated != accountIds.size()) {
+                log.warn("账号上线待回传状态更新数量不一致 expected={} updated={} accountIds={}",
+                        accountIds.size(), updated, accountIds);
+            }
+        } catch (RuntimeException exception) {
+            log.error("账号上线待回传状态更新失败 accountCount={} errorType={}",
+                    accountIds.size(), exception.getClass().getSimpleName(), exception);
         }
     }
 

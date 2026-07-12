@@ -1,6 +1,7 @@
 package com.armada.account.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,11 +12,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
+import com.armada.account.model.vo.AccountBatchCommandResultVO;
+import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
@@ -24,6 +28,7 @@ import com.armada.account.model.command.AccountLifecycleCommandItem;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +53,9 @@ class AccountControllerTest {
     private AccountOnlineCommandService accountOnlineCommandService;
 
     @Mock
+    private AccountBatchLifecycleService accountBatchLifecycleService;
+
+    @Mock
     private AccountLifecycleCommandService accountLifecycleCommandService;
 
     @Mock
@@ -62,6 +70,7 @@ class AccountControllerTest {
                         accountService,
                         accountGroupService,
                         accountOnlineCommandService,
+                        accountBatchLifecycleService,
                         accountLifecycleCommandService,
                         accountOnlineAttemptLogService))
                 .build();
@@ -94,20 +103,8 @@ class AccountControllerTest {
 
     @Test
     void postBatchOnline_delegatesToCommandServiceAndReturnsApiResponse() throws Exception {
-        AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
-                2,
-                2,
-                1,
-                1,
-                0,
-                0,
-                0,
-                80L,
-                List.of(
-                        new AccountBatchOnlineItemVO(100L, "acc_100", "ACCEPTED", null, null),
-                        new AccountBatchOnlineItemVO(101L, "acc_101", "TIMEOUT", 5000, null)),
-                List.of());
-        when(accountOnlineCommandService.onlineBatch(List.of(100L, 101L))).thenReturn(vo);
+        AccountBatchCommandResultVO vo = commandResult(2, 1, 0, 1);
+        when(accountBatchLifecycleService.onlineByIds(List.of(100L, 101L))).thenReturn(vo);
 
         mockMvc.perform(post("/api/accounts/batch-online")
                         .contentType("application/json")
@@ -117,11 +114,10 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.requested").value(2))
                 .andExpect(jsonPath("$.data.submitted").value(2))
                 .andExpect(jsonPath("$.data.accepted").value(1))
-                .andExpect(jsonPath("$.data.timeout").value(1))
-                .andExpect(jsonPath("$.data.results[0].accountId").value(100))
-                .andExpect(jsonPath("$.data.results[1].result").value("TIMEOUT"));
+                .andExpect(jsonPath("$.data.failed").value(1))
+                .andExpect(jsonPath("$.data.skipped").value(0));
 
-        verify(accountOnlineCommandService).onlineBatch(List.of(100L, 101L));
+        verify(accountBatchLifecycleService).onlineByIds(List.of(100L, 101L));
     }
 
     @Test
@@ -257,20 +253,8 @@ class AccountControllerTest {
 
     @Test
     void postBatchOffline_delegatesToCommandServiceAndReturnsApiResponse() throws Exception {
-        AccountBatchOnlineVO vo = new AccountBatchOnlineVO(
-                2,
-                2,
-                2,
-                0,
-                0,
-                0,
-                0,
-                0L,
-                List.of(
-                        new AccountBatchOnlineItemVO(100L, "acc_100", "ACCEPTED", null, null),
-                        new AccountBatchOnlineItemVO(101L, "acc_101", "ACCEPTED", null, null)),
-                List.of());
-        when(accountOnlineCommandService.offlineBatch(List.of(100L, 101L))).thenReturn(vo);
+        AccountBatchCommandResultVO vo = commandResult(2, 2, 0, 0);
+        when(accountBatchLifecycleService.offlineByIds(List.of(100L, 101L))).thenReturn(vo);
 
         mockMvc.perform(post("/api/accounts/batch-offline")
                         .contentType("application/json")
@@ -280,10 +264,52 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.data.requested").value(2))
                 .andExpect(jsonPath("$.data.submitted").value(2))
                 .andExpect(jsonPath("$.data.accepted").value(2))
-                .andExpect(jsonPath("$.data.results[0].accountId").value(100))
-                .andExpect(jsonPath("$.data.results[1].protocolAccountId").value("acc_101"));
+                .andExpect(jsonPath("$.data.failed").value(0));
 
-        verify(accountOnlineCommandService).offlineBatch(List.of(100L, 101L));
+        verify(accountBatchLifecycleService).offlineByIds(List.of(100L, 101L));
+    }
+
+    @Test
+    void postBatchOnlineByQuery_delegatesAppliedFiltersToBatchService() throws Exception {
+        when(accountBatchLifecycleService.onlineByQuery(any())).thenReturn(commandResult(1_256, 1_200, 56, 0));
+
+        mockMvc.perform(post("/api/accounts/batch-online-by-query")
+                        .contentType("application/json")
+                        .content("{\"loginState\":2,\"country\":\"美国\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.requested").value(1_256))
+                .andExpect(jsonPath("$.data.skipped").value(56));
+
+        verify(accountBatchLifecycleService).onlineByQuery(any());
+    }
+
+    @Test
+    void postBatchOfflineByQuery_delegatesAppliedFiltersToBatchService() throws Exception {
+        when(accountBatchLifecycleService.offlineByQuery(any())).thenReturn(commandResult(1_256, 1_256, 0, 0));
+
+        mockMvc.perform(post("/api/accounts/batch-offline-by-query")
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requested").value(1_256))
+                .andExpect(jsonPath("$.data.accepted").value(1_256));
+
+        verify(accountBatchLifecycleService).offlineByQuery(any());
+    }
+
+    @Test
+    void postBatchOperationPreview_returnsBackendScopeCounts() throws Exception {
+        when(accountBatchLifecycleService.preview(any())).thenReturn(
+                new AccountBatchPreviewVO(1_256, 1_200, 56, Map.of("BANNED", 56L)));
+
+        mockMvc.perform(post("/api/accounts/batch-operation-preview")
+                        .contentType("application/json")
+                        .content("{\"operation\":\"ONLINE\",\"scope\":\"QUERY\",\"query\":{}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.matched").value(1_256))
+                .andExpect(jsonPath("$.data.executable").value(1_200))
+                .andExpect(jsonPath("$.data.skipped").value(56));
     }
 
     @Test
@@ -350,5 +376,27 @@ class AccountControllerTest {
                 "{\"wsOpen\":false}",
                 1_782_987_480_123L,
                 1_782_987_481_123L);
+    }
+
+    private static AccountBatchCommandResultVO commandResult(
+            int requested,
+            int accepted,
+            int skipped,
+            int failed) {
+        return new AccountBatchCommandResultVO(
+                requested,
+                requested - skipped,
+                accepted,
+                0,
+                0,
+                failed,
+                0,
+                0L,
+                skipped,
+                failed,
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of());
     }
 }

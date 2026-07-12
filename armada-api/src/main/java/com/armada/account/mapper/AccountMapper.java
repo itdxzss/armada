@@ -1,8 +1,11 @@
 package com.armada.account.mapper;
 
+import com.armada.account.model.dto.AccountBatchTargetQuery;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.vo.AccountBatchPreviewRow;
+import com.armada.account.model.vo.AccountBatchTargetRow;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountListVoRow;
@@ -131,6 +134,38 @@ public interface AccountMapper {
      * @return 当前页账号 VoRow 列表
      */
     List<AccountListVoRow> selectPage(AccountQuery query);
+
+    /**
+     * 预估指定 ID 范围内的活跃账号和批量登录跳过数量。
+     *
+     * @param ids 当前租户账号 ID，调用方保证非空
+     * @return 匹配数和互斥跳过原因聚合
+     */
+    AccountBatchPreviewRow previewBatchTargetsByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 按账号列表筛选条件预估全部匹配账号和批量登录跳过数量。
+     *
+     * @param query 已规范化且不使用分页语义的查询条件
+     * @return 匹配数和互斥跳过原因聚合
+     */
+    AccountBatchPreviewRow previewBatchTargetsByQuery(AccountQuery query);
+
+    /**
+     * 查询指定 ID 范围内的最小批量编排字段。
+     *
+     * @param ids 当前租户账号 ID，调用方保证非空
+     * @return 活跃账号目标行，按 ID 升序
+     */
+    List<AccountBatchTargetRow> selectBatchTargetsByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 按列表筛选条件和稳定 ID 游标扫描批量目标。
+     *
+     * @param query 筛选条件、上一轮 ID 和本轮扫描上限
+     * @return 当前游标批次目标行，按 ID 升序
+     */
+    List<AccountBatchTargetRow> selectBatchTargetsAfterId(AccountBatchTargetQuery query);
 
     /**
      * 平台级账号统计卡:本租户全量单条聚合 SQL。

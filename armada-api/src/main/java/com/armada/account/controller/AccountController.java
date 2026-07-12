@@ -1,17 +1,22 @@
 package com.armada.account.controller;
 
+import com.armada.account.model.dto.AccountBatchPreviewDTO;
+import com.armada.account.model.dto.AccountBatchQueryDTO;
 import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountIdsDTO;
 import com.armada.account.model.dto.AccountLifecycleBatchDTO;
 import com.armada.account.model.dto.AccountMigrateGroupDTO;
 import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.vo.AccountBatchCommandResultVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
+import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatsVO;
 import com.armada.account.model.vo.AccountStatusVO;
+import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
@@ -41,17 +46,20 @@ public class AccountController {
     private final AccountService accountService;
     private final AccountGroupService accountGroupService;
     private final AccountOnlineCommandService accountOnlineCommandService;
+    private final AccountBatchLifecycleService accountBatchLifecycleService;
     private final AccountLifecycleCommandService accountLifecycleCommandService;
     private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
 
     public AccountController(AccountService accountService,
                              AccountGroupService accountGroupService,
                              AccountOnlineCommandService accountOnlineCommandService,
+                             AccountBatchLifecycleService accountBatchLifecycleService,
                              AccountLifecycleCommandService accountLifecycleCommandService,
                              AccountOnlineAttemptLogService accountOnlineAttemptLogService) {
         this.accountService = accountService;
         this.accountGroupService = accountGroupService;
         this.accountOnlineCommandService = accountOnlineCommandService;
+        this.accountBatchLifecycleService = accountBatchLifecycleService;
         this.accountLifecycleCommandService = accountLifecycleCommandService;
         this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
     }
@@ -94,18 +102,20 @@ public class AccountController {
     /**
      * A4 批量发起账号上线(后端逐账号分配空闲代理,批量写入 outbox)。
      *
-     * <p>一次最多 1000 个账号。返回的 accepted 表示已写入 outbox 的命令数,
-     * 不代表账号最终在线状态;最终登录状态由后续 Kafka 回写切片更新。</p>
+     * <p>ids 请求一次最多 2000 个账号，由后端按 500 个拆分并跳过不可登录账号。返回的 accepted
+     * 表示已写入 outbox 的命令数，不代表账号最终在线状态；最终登录状态由后续 Kafka 回写更新。
+     * 携带 accounts/protocolBackend 的既有调用继续走原命令服务。</p>
      *
      * @param request 账号列表;新请求体可为每个账号携带协议后端
      * @return outbox 批量上线命令受理汇总
      */
     @PostMapping("/batch-online")
-    public ApiResponse<AccountBatchOnlineVO> batchOnline(@RequestBody AccountLifecycleBatchDTO request) {
+    public ApiResponse<AccountBatchCommandResultVO> batchOnline(@RequestBody AccountLifecycleBatchDTO request) {
         if (request.hasAccounts()) {
-            return ApiResponse.ok(accountOnlineCommandService.onlineBatchWithProtocolBackends(request.commandItems()));
+            return ApiResponse.ok(AccountBatchCommandResultVO.from(
+                    accountOnlineCommandService.onlineBatchWithProtocolBackends(request.commandItems())));
         }
-        return ApiResponse.ok(accountOnlineCommandService.onlineBatch(request.ids()));
+        return ApiResponse.ok(accountBatchLifecycleService.onlineByIds(request.ids()));
     }
 
     /**
@@ -178,18 +188,62 @@ public class AccountController {
     /**
      * A5 批量发起账号下线(批量写入 outbox)。
      *
-     * <p>一次最多 1000 个账号。返回的 accepted 表示已写入 outbox 的命令数,
-     * 不代表账号最终离线状态;最终登录状态由后续 Kafka 回写切片更新。</p>
+     * <p>ids 请求一次最多 2000 个账号，由后端按 1000 个拆分。返回的 accepted 表示已写入
+     * outbox 的命令数，不代表账号最终离线状态；最终登录状态由后续 Kafka 回写更新。
+     * 携带 accounts/protocolBackend 的既有调用继续走原命令服务。</p>
      *
      * @param request 账号列表;新请求体可为每个账号携带协议后端
      * @return outbox 批量下线命令受理汇总
      */
     @PostMapping("/batch-offline")
-    public ApiResponse<AccountBatchOnlineVO> batchOffline(@RequestBody AccountLifecycleBatchDTO request) {
+    public ApiResponse<AccountBatchCommandResultVO> batchOffline(@RequestBody AccountLifecycleBatchDTO request) {
         if (request.hasAccounts()) {
-            return ApiResponse.ok(accountOnlineCommandService.offlineBatchWithProtocolBackends(request.commandItems()));
+            return ApiResponse.ok(AccountBatchCommandResultVO.from(
+                    accountOnlineCommandService.offlineBatchWithProtocolBackends(request.commandItems())));
         }
-        return ApiResponse.ok(accountOnlineCommandService.offlineBatch(request.ids()));
+        return ApiResponse.ok(accountBatchLifecycleService.offlineByIds(request.ids()));
+    }
+
+    /**
+     * 按账号列表已生效筛选条件发起批量登录。
+     *
+     * <p>请求体不包含分页；空对象表示当前租户全部未软删账号。目标查询、跳过和分片均在后端完成。</p>
+     *
+     * @param query 已生效筛选条件
+     * @return 全部内部批次的聚合结果
+     */
+    @PostMapping("/batch-online-by-query")
+    public ApiResponse<AccountBatchCommandResultVO> batchOnlineByQuery(
+            @RequestBody AccountBatchQueryDTO query) {
+        return ApiResponse.ok(accountBatchLifecycleService.onlineByQuery(query));
+    }
+
+    /**
+     * 按账号列表已生效筛选条件发起批量离线。
+     *
+     * <p>请求体不包含分页；空对象表示当前租户全部未软删账号。目标查询和分片均在后端完成。</p>
+     *
+     * @param query 已生效筛选条件
+     * @return 全部内部批次的聚合结果
+     */
+    @PostMapping("/batch-offline-by-query")
+    public ApiResponse<AccountBatchCommandResultVO> batchOfflineByQuery(
+            @RequestBody AccountBatchQueryDTO query) {
+        return ApiResponse.ok(accountBatchLifecycleService.offlineByQuery(query));
+    }
+
+    /**
+     * 预估批量登录或离线的操作范围。
+     *
+     * <p>范围必须显式指定 IDS 或 QUERY。返回值是确认前快照，最终数量以执行接口汇总为准。</p>
+     *
+     * @param request 操作类型和显式范围
+     * @return 匹配、预计执行及跳过数量
+     */
+    @PostMapping("/batch-operation-preview")
+    public ApiResponse<AccountBatchPreviewVO> previewBatchOperation(
+            @RequestBody AccountBatchPreviewDTO request) {
+        return ApiResponse.ok(accountBatchLifecycleService.preview(request));
     }
 
     /**

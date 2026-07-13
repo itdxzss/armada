@@ -665,8 +665,13 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskGroupStatVO toGroupStatVO(MarketingTaskAccountGroupStatRow row) {
         return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
-                row.getGroupName(), zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
+                row.getGroupName(), groupStatus(row.getGroupStatus()), zero(row.getSentMessageCount()),
+                zero(row.getFailedMessageCount()),
                 row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());
+    }
+
+    private static String groupStatus(String value) {
+        return StringUtils.hasText(value) ? value : "UNCONFIRMED";
     }
 
     private static Long latestAttemptAt(List<MarketingTaskAccountGroupStatRow> rows) {

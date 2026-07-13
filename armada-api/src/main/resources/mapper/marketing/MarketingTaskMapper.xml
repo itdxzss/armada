@@ -174,6 +174,22 @@
                    '\n',
                    1
                ) AS groupName,
+               COALESCE(
+                   SUBSTRING_INDEX(
+                       GROUP_CONCAT(
+                           CASE
+                               WHEN a.status IN (1, 2) THEN
+                                   COALESCE(NULLIF(TRIM(a.group_status), ''), 'UNCONFIRMED')
+                               ELSE NULL
+                           END
+                           ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC, a.id DESC
+                           SEPARATOR '\n'
+                       ),
+                       '\n',
+                       1
+                   ),
+                   'UNCONFIRMED'
+               ) AS groupStatus,
                SUM(CASE WHEN a.status = 1 THEN 1 ELSE 0 END) AS sentMessageCount,
                SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
                MAX(COALESCE(a.result_at, a.attempted_at, a.created_at)) AS lastAttemptAt,
@@ -353,6 +369,9 @@
         SET status = 1,
             message_id = #{messageId},
             group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), '')),
+            group_status = #{groupStatus},
+            group_status_reason = #{groupStatusReason},
+            group_status_checked_at = #{groupStatusCheckedAt},
             result_at = #{resultAt}
         WHERE id = #{attemptId}
           AND status = 0
@@ -364,6 +383,9 @@
             reason_code = #{reasonCode},
             reason_message = #{reasonMessage},
             group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), '')),
+            group_status = #{groupStatus},
+            group_status_reason = #{groupStatusReason},
+            group_status_checked_at = #{groupStatusCheckedAt},
             result_at = #{resultAt}
         WHERE id = #{attemptId}
           AND status = 0

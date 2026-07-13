@@ -103,7 +103,10 @@ public class ProtocolMessageEventConsumer {
                 groupCreationMarketing
                         ? requiredLong(data, "groupCreationItemId", "协议消息发送结果事件缺少 data.groupCreationItemId")
                         : longValue(data, "groupCreationItemId"),
-                source);
+                source,
+                text(data, "groupStatus"),
+                text(data, "groupStatusReason"),
+                longValue(data, "groupStatusCheckedAt"));
     }
 
     /** 兼容协议层 envelope.data 包裹格式;测试或临时工具也可直接传扁平字段。 */

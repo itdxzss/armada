@@ -53,9 +53,11 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
                 return;
             }
             int updated = event.success()
-                    ? taskMapper.markAttemptSuccess(event.attemptId(), event.messageId(), event.groupJid(), resultAt)
+                    ? taskMapper.markAttemptSuccess(event.attemptId(), event.messageId(), event.groupJid(),
+                            event.groupStatus(), event.groupStatusReason(), event.groupStatusCheckedAt(), resultAt)
                     : taskMapper.markAttemptFailed(event.attemptId(), event.reasonCode(),
-                            event.reasonMessage(), event.groupJid(), resultAt);
+                            event.reasonMessage(), event.groupJid(), event.groupStatus(),
+                            event.groupStatusReason(), event.groupStatusCheckedAt(), resultAt);
             // markAttempt* 只更新 SUBMITTED 状态;重复事件 updated=0,避免任务计数重复累加。
             if (updated > 0) {
                 boolean newSuccessfulGroup = false;

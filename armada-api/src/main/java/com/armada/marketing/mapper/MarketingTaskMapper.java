@@ -76,6 +76,9 @@ public interface MarketingTaskMapper {
     int markAttemptSuccess(@Param("attemptId") Long attemptId,
                            @Param("messageId") String messageId,
                            @Param("groupJid") String groupJid,
+                           @Param("groupStatus") String groupStatus,
+                           @Param("groupStatusReason") String groupStatusReason,
+                           @Param("groupStatusCheckedAt") Long groupStatusCheckedAt,
                            @Param("resultAt") long resultAt);
 
     /** 协议层失败结果幂等回写。 */
@@ -83,6 +86,9 @@ public interface MarketingTaskMapper {
                           @Param("reasonCode") String reasonCode,
                           @Param("reasonMessage") String reasonMessage,
                           @Param("groupJid") String groupJid,
+                          @Param("groupStatus") String groupStatus,
+                          @Param("groupStatusReason") String groupStatusReason,
+                          @Param("groupStatusCheckedAt") Long groupStatusCheckedAt,
                           @Param("resultAt") long resultAt);
 
     /**

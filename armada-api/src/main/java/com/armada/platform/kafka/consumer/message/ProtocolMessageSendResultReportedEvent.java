@@ -25,6 +25,9 @@ package com.armada.platform.kafka.consumer.message;
  * @param groupCreationTaskId 建群营销任务 ID;source=group_creation_marketing 时使用
  * @param groupCreationItemId 建群营销执行项 ID;source=group_creation_marketing 时使用
  * @param source          命令来源
+ * @param groupStatus     发送时群状态快照
+ * @param groupStatusReason 群状态判定原因
+ * @param groupStatusCheckedAt 群状态判定时间(epoch毫秒)
  */
 public record ProtocolMessageSendResultReportedEvent(
         String eventId,
@@ -44,6 +47,9 @@ public record ProtocolMessageSendResultReportedEvent(
         String workerId,
         Long groupCreationTaskId,
         Long groupCreationItemId,
-        String source
+        String source,
+        String groupStatus,
+        String groupStatusReason,
+        Long groupStatusCheckedAt
 ) {
 }

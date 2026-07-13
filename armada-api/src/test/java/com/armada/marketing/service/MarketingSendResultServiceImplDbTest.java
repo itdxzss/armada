@@ -500,7 +500,10 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                 "worker-a",
                 null,
                 null,
-                "marketing_task");
+                "marketing_task",
+                "NORMAL",
+                "GROUP_SEND_ALLOWED",
+                timestamp - 1);
     }
 
     private Long insertAndReturnId(String sql, SqlBinder binder) {

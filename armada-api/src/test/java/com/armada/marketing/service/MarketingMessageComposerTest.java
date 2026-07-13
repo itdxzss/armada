@@ -110,7 +110,7 @@ class MarketingMessageComposerTest {
         assertThat(message.text()).contains("按钮标题", "按钮正文");
         assertThat(message.text()).doesNotContain("https://example.com/legacy-promo");
         assertThat(message.buttonCard()).isNotNull();
-        assertThat(message.buttonCard().title()).isEqualTo("按钮标题");
+        assertThat(message.buttonCard().title()).isNull();
         assertThat(message.buttonCard().buttons())
                 .extracting(MarketingMessageComposer.ButtonPayload::type)
                 .containsExactly("link", "copy", "quick");

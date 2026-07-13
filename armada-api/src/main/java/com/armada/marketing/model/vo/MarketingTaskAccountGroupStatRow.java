@@ -11,6 +11,7 @@ public class MarketingTaskAccountGroupStatRow {
     private String groupJid;
     private String groupLinkUrl;
     private String groupName;
+    private String groupStatus;
     private Integer sentMessageCount;
     private Integer failedMessageCount;
     private Long lastAttemptAt;
@@ -63,6 +64,14 @@ public class MarketingTaskAccountGroupStatRow {
 
     public void setGroupName(String groupName) {
         this.groupName = groupName;
+    }
+
+    public String getGroupStatus() {
+        return groupStatus;
+    }
+
+    public void setGroupStatus(String groupStatus) {
+        this.groupStatus = groupStatus;
     }
 
     public Integer getSentMessageCount() {

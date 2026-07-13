@@ -83,7 +83,7 @@ public class MarketingMessageComposer {
                 null,
                 null,
                 null,
-                new ButtonCardPayload(linkCardTitle(template), null, buttons, thumbnail));
+                new ButtonCardPayload(null, null, buttons, thumbnail));
     }
 
     /**

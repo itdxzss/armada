@@ -206,11 +206,11 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 Long.class,
                 created.id());
         insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 1, 1, null, null, 1000L);
+                "群A", 1, 1, null, null, "NORMAL", 1000L);
         insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 2, 2, "MUTED", "群禁言", 2000L);
+                "群A", 2, 2, "MUTED", "群禁言", "BANNED", 2000L);
         insertAttempt(created.id(), targetIds.get(1), secondGroup.groupLinkId(), secondGroup.groupJid(),
-                "群B", 1, 1, null, null, 3000L);
+                "群B", 1, 1, null, null, "NO_PERMISSION", 3000L);
 
         MarketingTaskDetailVO detail = service.getDetail(created.id());
 
@@ -225,9 +225,11 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             assertThat(account.lastReason()).isEqualTo("群禁言");
             assertThat(account.groups()).hasSize(2);
             assertThat(account.groups().get(0).groupJid()).isEqualTo(secondGroup.groupJid());
+            assertThat(account.groups().get(0).groupStatus()).isEqualTo("NO_PERMISSION");
             assertThat(account.groups().get(0).sentMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(0).failedMessageCount()).isZero();
             assertThat(account.groups().get(1).groupJid()).isEqualTo(fixture.groupJid());
+            assertThat(account.groups().get(1).groupStatus()).isEqualTo("BANNED");
             assertThat(account.groups().get(1).sentMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(1).failedMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(1).lastReason()).isEqualTo("群禁言");
@@ -473,15 +475,18 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                                int status,
                                String reasonCode,
                                String reasonMessage,
+                               String groupStatus,
                                long resultAt) {
         jdbc.update("""
                 INSERT INTO marketing_task_send_attempt
                     (tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
                      round_no, attempt_no, is_retry, command_id, status, reason_code, reason_message,
+                     group_status, group_status_reason, group_status_checked_at,
                      submitted_at, result_at, attempted_at, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, TEST_TENANT_ID, taskId, targetId, groupLinkId, groupJid, groupName, roundNo,
                 "cmd-" + targetId + "-" + resultAt, status, reasonCode, reasonMessage,
+                groupStatus, "TEST_STATUS", resultAt - 15,
                 resultAt - 10, resultAt, resultAt - 20, resultAt - 30);
     }
 

@@ -8,6 +8,7 @@ public record MarketingTaskGroupStatVO(
         String groupJid,
         String groupLinkUrl,
         String groupName,
+        String groupStatus,
         Integer sentMessageCount,
         Integer failedMessageCount,
         Long lastAttemptAt,

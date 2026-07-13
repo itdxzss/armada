@@ -46,6 +46,9 @@ class ProtocolMessageEventConsumerTest {
                     "commandId":"cmd_1",
                     "success":true,
                     "messageId":"wamid.1",
+                    "groupStatus":"NO_PERMISSION",
+                    "groupStatusReason":"ANNOUNCE_ONLY_NON_ADMIN",
+                    "groupStatusCheckedAt":1783159199000,
                     "timestamp":1783159200000
                   }
                 }
@@ -68,6 +71,9 @@ class ProtocolMessageEventConsumerTest {
         assertThat(event.commandId()).isEqualTo("cmd_1");
         assertThat(event.success()).isTrue();
         assertThat(event.messageId()).isEqualTo("wamid.1");
+        assertThat(event.groupStatus()).isEqualTo("NO_PERMISSION");
+        assertThat(event.groupStatusReason()).isEqualTo("ANNOUNCE_ONLY_NON_ADMIN");
+        assertThat(event.groupStatusCheckedAt()).isEqualTo(1783159199000L);
         assertThat(event.timestamp()).isEqualTo(1783159200000L);
         assertThat(event.workerId()).isEqualTo("worker-a");
     }

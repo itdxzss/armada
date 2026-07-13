@@ -19,6 +19,8 @@ class MarketingTaskMapperSqlShapeTest {
     private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskMapper.xml";
     private static final Path FIVE_STATE_MIGRATION = Path.of(
             "src/main/resources/db/migration/V050__marketing_task_five_state_lifecycle.sql");
+    private static final Path GROUP_STATUS_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V052__marketing_attempt_group_status.sql");
 
     @Test
     void taskLifecycleUsesFiveStatesAndForwardMigration() throws IOException {
@@ -89,9 +91,15 @@ class MarketingTaskMapperSqlShapeTest {
         String markTargetFailedSql = updateBlock(xml, "markTargetFailedFromAttempt");
 
         assertThat(markAttemptSuccessSql)
-                .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))");
+                .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))")
+                .contains("group_status = #{groupStatus}")
+                .contains("group_status_reason = #{groupStatusReason}")
+                .contains("group_status_checked_at = #{groupStatusCheckedAt}");
         assertThat(markAttemptFailedSql)
-                .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))");
+                .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))")
+                .contains("group_status = #{groupStatus}")
+                .contains("group_status_reason = #{groupStatusReason}")
+                .contains("group_status_checked_at = #{groupStatusCheckedAt}");
         assertThat(markTargetSuccessSql)
                 .contains("LEFT JOIN group_link_preview p")
                 .contains("LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")
@@ -260,6 +268,26 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("a.id DESC")
                 .contains("NULLIF(\n                   SUBSTRING_INDEX(")
                 .contains("),\n                   ''\n               ) AS lastReason");
+    }
+
+    @Test
+    void detailRollupUsesLatestAttemptGroupStatusAndHasMigration() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(GROUP_STATUS_MIGRATION).exists();
+        assertThat(Files.readString(GROUP_STATUS_MIGRATION, StandardCharsets.UTF_8))
+                .contains("ADD COLUMN group_status VARCHAR(32)")
+                .contains("ADD COLUMN group_status_reason VARCHAR(64)")
+                .contains("ADD COLUMN group_status_checked_at BIGINT");
+        assertThat(sql)
+                .contains("WHEN a.status IN (1, 2) THEN")
+                .contains("COALESCE(NULLIF(TRIM(a.group_status), ''), 'UNCONFIRMED')")
+                .contains("AS groupStatus")
+                .contains("a.id DESC");
     }
 
     private static String selectBlock(String xml, String id) {

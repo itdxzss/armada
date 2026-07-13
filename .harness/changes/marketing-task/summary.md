@@ -179,3 +179,17 @@ mvn -q -Dtest=MarketingTaskDataModelMigrationDbTest,MarketingTaskCreateReadDbTes
 - TDD 证据：实现前测试编译因缺少两类锁查询失败；实现后定向 26 个测试通过。普通营销相关非 DbTest 回归共 92 个通过，Mapper XML 校验和 `git diff --check` 通过。
 - 真库 DbTest 未执行：继续受本机既有 Flyway V037/V041 校验和不一致限制，本次未修改数据库。
 - 未提交、未部署。
+
+## 2026-07-13 累计有效群组数量
+
+- `marketing_task.target_group_count` 口径改为任务累计真实发送成功的去重群数；新任务不再按创建时所选固定群预填，固定群和账号动态群任务都从 0 开始。
+- 新增 `marketing_task_success_group` 不可变事实表，以 `(tenant_id, marketing_task_id, group_jid)` 唯一键承担跨轮次、跨账号并发去重；群后续失效、解散或账号退出均不删除事实、不递减计数。
+- 只有普通营销发送 attempt 首次从待结果变为成功后，才从 attempt 最终持久化的非空群 JID 写事实；排队、发送中、重试中、失败、重复回调和建群营销事件均不计入。
+- 新事实插入成功后才执行 `target_group_count = target_group_count + 1`；事实写入、主表递增、attempt/target/发送条数回写共用成功结果事务，主表递增失败时整体回滚。
+- `V051__marketing_task_success_group.sql` 从历史成功 attempt 按去空格后的群 JID 去重回填，并统一重置历史任务计数；无有效群 JID 的历史成功记录无法纳入。
+- 新版和复用普通 attempt 的旧版建群营销链路均不进入累计；运行时事实插入和 V051 历史回填都按 `group_creation_marketing_item.marketing_attempt_id` 排除。
+- 软删任务仍可接收已投递消息的迟到成功结果，避免 attempt 因累计主表更新不到而持续重试；主表物理缺失仍抛错并回滚结果事务。
+- V051 使用独立 `rollback-v051.sql`，只恢复固定目标创建时计数并删除本次事实表；不串联原有全营销模块回滚脚本。
+- 新增迁移形状测试、Service 单测、Mapper SQL 形状测试和真库去重/并发/兼容链/迟到结果/回滚用例；JDK 17 下定向非 DbTest 共 22 个通过，测试源码编译和后端打包通过，Mapper XML 校验通过。
+- 本机 `localhost:3306/armada` 当前无可用数据库连接，DbTest 尚未跑到断言，自动数据模型文档也未从真库重新生成；不将两项记录为通过、不手改生成文档。
+- 当前可用群组数量不在本次范围；未提交、未部署。

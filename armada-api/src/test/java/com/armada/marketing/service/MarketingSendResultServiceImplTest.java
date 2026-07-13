@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -39,11 +40,17 @@ class MarketingSendResultServiceImplTest {
     void successEventUpdatesAttemptAndIncrementsSuccessCountOnce() {
         ProtocolMessageSendResultReportedEvent event = event(true);
         when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
+        when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
+        when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
+        when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(1);
 
         service.handleSendResultReported(event);
 
         verify(mapper).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L);
         verify(mapper).markTargetSuccessFromAttempt(501L, 9001L, 1783159200000L);
+        verify(mapper).selectSuccessfulAttemptGroupJid(42L, 9001L);
+        verify(mapper).insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L);
+        verify(mapper).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
         verify(mapper).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
         verify(groupCreationMapper).markItemSuccessByMarketingAttemptId(9001L, 1783159200000L);
     }
@@ -59,6 +66,9 @@ class MarketingSendResultServiceImplTest {
         verify(mapper).markAttemptFailed(9001L, "SEND_FAILED", "rate limited",
                 "120363001@g.us", 1783159200000L);
         verify(mapper).markTargetFailedFromAttempt(501L, 9001L, "SEND_FAILED", "rate limited", 1783159200000L);
+        verify(mapper, never()).selectSuccessfulAttemptGroupJid(42L, 9001L);
+        verify(mapper, never()).insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L);
+        verify(mapper, never()).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
         verify(mapper).incrementTaskSendCounters(42L, 0, 1, 1783159200000L);
         verify(groupCreationMapper).markItemFailedByMarketingAttemptId(9001L, "SEND_FAILED", "rate limited", 1783159200000L);
     }
@@ -72,6 +82,9 @@ class MarketingSendResultServiceImplTest {
         try {
             ProtocolMessageSendResultReportedEvent event = event(true);
             when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
+            when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
+            when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
+            when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(1);
 
             service.handleSendResultReported(event);
 
@@ -81,7 +94,8 @@ class MarketingSendResultServiceImplTest {
                             && log.getFormattedMessage().contains("taskId=42")
                             && log.getFormattedMessage().contains("attemptId=9001")
                             && log.getFormattedMessage().contains("commandId=cmd_1")
-                            && log.getFormattedMessage().contains("success=true"));
+                            && log.getFormattedMessage().contains("success=true")
+                            && log.getFormattedMessage().contains("newSuccessfulGroup=true"));
         } finally {
             logger.detachAppender(appender);
         }
@@ -97,8 +111,61 @@ class MarketingSendResultServiceImplTest {
         verify(mapper).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L);
         verify(mapper, never()).markTargetSuccessFromAttempt(501L, 9001L, 1783159200000L);
         verify(mapper, never()).markTargetFailedFromAttempt(501L, 9001L, null, null, 1783159200000L);
+        verify(mapper, never()).selectSuccessfulAttemptGroupJid(42L, 9001L);
+        verify(mapper, never()).insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L);
+        verify(mapper, never()).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
         verify(mapper, never()).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
         verify(groupCreationMapper, never()).markItemSuccessByMarketingAttemptId(9001L, 1783159200000L);
+    }
+
+    @Test
+    void laterSuccessfulAttemptForCountedGroupDoesNotIncrementGroupCount() {
+        ProtocolMessageSendResultReportedEvent event = event(true);
+        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
+        when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
+        when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(0);
+
+        service.handleSendResultReported(event);
+
+        verify(mapper).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
+        verify(mapper, never()).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
+    }
+
+    @Test
+    void successfulAttemptWithoutPersistedGroupJidDoesNotIncrementGroupCount() {
+        Logger logger = (Logger) LoggerFactory.getLogger(MarketingSendResultServiceImpl.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            ProtocolMessageSendResultReportedEvent event = event(true);
+            when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
+            when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn(null);
+
+            service.handleSendResultReported(event);
+
+            verify(mapper, never()).insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L);
+            verify(mapper, never()).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
+            verify(mapper).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
+            assertThat(appender.list)
+                    .anyMatch(log -> log.getFormattedMessage().contains("营销成功结果缺少有效群JID")
+                            && log.getFormattedMessage().contains("attemptId=9001"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void successfulGroupFactRollsBackWhenTaskCounterCannotBeUpdated() {
+        ProtocolMessageSendResultReportedEvent event = event(true);
+        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us", 1783159200000L)).thenReturn(1);
+        when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
+        when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
+        when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(0);
+
+        assertThatThrownBy(() -> service.handleSendResultReported(event))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("累计成功群组数量更新失败");
     }
 
     @Test

@@ -54,7 +54,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         assertThat(created.taskName()).isEqualTo("巴铁烟草群发");
         assertThat(created.status()).isEqualTo(STATUS_PENDING);
         assertThat(created.selectedAccountCount()).isEqualTo(1);
-        assertThat(created.targetGroupCount()).isEqualTo(1);
+        assertThat(created.targetGroupCount())
+                .as("累计成功群数在首次成功回调前必须为0")
+                .isZero();
         assertThat(created.targetPairCount()).isEqualTo(1);
 
         Integer targetRows = jdbc.queryForObject(

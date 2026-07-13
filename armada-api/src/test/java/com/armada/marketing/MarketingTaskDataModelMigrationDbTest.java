@@ -21,6 +21,7 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(tableExists("marketing_task")).isTrue();
         assertThat(tableExists("marketing_task_target")).isTrue();
         assertThat(tableExists("marketing_task_send_attempt")).isTrue();
+        assertThat(tableExists("marketing_task_success_group")).isTrue();
         assertThat(tableExists("marketing_account_occupancy")).isTrue();
         assertThat(tableExists("account_group_baseline")).isTrue();
     }
@@ -110,6 +111,17 @@ class MarketingTaskDataModelMigrationDbTest extends DbTestBase {
         assertThat(columnType("marketing_account_occupancy", "occupied_at")).isEqualTo("bigint");
         assertThat(indexExists("marketing_account_occupancy", "uq_marketing_account_occupancy_account")).isTrue();
         assertThat(indexExists("marketing_account_occupancy", "idx_marketing_account_occupancy_task")).isTrue();
+    }
+
+    @Test
+    void marketingTaskSuccessGroup_hasTaskGroupUniqueFactAndCumulativeCountComment() {
+        assertThat(columnType("marketing_task_success_group", "marketing_task_id")).isEqualTo("bigint");
+        assertThat(columnType("marketing_task_success_group", "group_jid")).isEqualTo("varchar");
+        assertThat(columnType("marketing_task_success_group", "first_success_attempt_id")).isEqualTo("bigint");
+        assertThat(columnType("marketing_task_success_group", "first_success_at")).isEqualTo("bigint");
+        assertThat(indexExists("marketing_task_success_group", "uq_marketing_task_success_group")).isTrue();
+        assertThat(columnComment("marketing_task", "target_group_count"))
+                .isEqualTo("任务累计成功触达去重群数");
     }
 
     private boolean tableExists(String tableName) {

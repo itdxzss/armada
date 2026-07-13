@@ -548,10 +548,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setMarketingTemplateId(template.getId());
         task.setMarketingTemplateName(template.getTemplateName());
         task.setStatus(status.code());
-        // 三个计数含义不同:
-        // selectedAccountCount=去重账号数,targetGroupCount=去重群数,targetPairCount=真实执行目标行数。
+        // 账号数和执行目标行数在创建时确定；累计成功群数只能由成功结果回调递增。
         task.setSelectedAccountCount(distinctAccountCount(targets));
-        task.setTargetGroupCount(distinctGroupCount(targets));
+        task.setTargetGroupCount(0);
         task.setTargetPairCount(targets.size());
         task.setSentMessageCount(0);
         task.setFailedMessageCount(0);
@@ -616,14 +615,6 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static int distinctAccountCount(List<MarketingTaskTarget> targets) {
         return (int) targets.stream().map(MarketingTaskTarget::getAccountId).distinct().count();
-    }
-
-    private static int distinctGroupCount(List<MarketingTaskTarget> targets) {
-        return (int) targets.stream()
-                .map(MarketingTaskTarget::getGroupLinkId)
-                .filter(groupLinkId -> groupLinkId != null)
-                .distinct()
-                .count();
     }
 
     private static MarketingTaskVO toVO(MarketingTask task) {

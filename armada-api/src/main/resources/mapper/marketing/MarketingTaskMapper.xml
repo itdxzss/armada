@@ -369,6 +369,49 @@
           AND status = 0
     </update>
 
+    <select id="selectSuccessfulAttemptGroupJid" resultType="java.lang.String">
+        SELECT TRIM(group_jid)
+        FROM marketing_task_send_attempt
+        WHERE id = #{attemptId}
+          AND marketing_task_id = #{taskId}
+          AND status = 1
+          AND group_jid IS NOT NULL
+          AND TRIM(group_jid) &lt;&gt; ''
+        LIMIT 1
+    </select>
+
+    <insert id="insertSuccessfulGroupFromAttempt">
+        <!-- INSERT SELECT 显式携带 a.tenant_id，并排除复用普通 attempt 的建群营销兼容链。 -->
+        INSERT IGNORE INTO marketing_task_success_group
+            (marketing_task_id, group_jid, first_success_attempt_id, first_success_at, created_at, tenant_id)
+        SELECT a.marketing_task_id,
+               TRIM(a.group_jid),
+               a.id,
+               COALESCE(a.result_at, #{now}),
+               #{now},
+               a.tenant_id
+        FROM marketing_task_send_attempt a
+        WHERE a.id = #{attemptId}
+          AND a.tenant_id = #{tenantId}
+          AND a.marketing_task_id = #{taskId}
+          AND a.status = 1
+          AND a.group_jid IS NOT NULL
+          AND TRIM(a.group_jid) &lt;&gt; ''
+          AND NOT EXISTS (
+              SELECT 1
+              FROM group_creation_marketing_item item
+              WHERE item.tenant_id = a.tenant_id
+                AND item.marketing_attempt_id = a.id
+          )
+    </insert>
+
+    <update id="incrementTaskSuccessfulGroupCount">
+        UPDATE marketing_task
+        SET target_group_count = target_group_count + 1,
+            updated_at = #{now}
+        WHERE id = #{taskId}
+    </update>
+
     <update id="incrementTaskSendCounters">
         UPDATE marketing_task
         SET sent_message_count = sent_message_count + #{successDelta},

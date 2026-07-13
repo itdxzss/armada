@@ -333,7 +333,7 @@ TENANT_GROUPS = [
     ("群组 / 群链接池", ["group_link_label","group_link","group_link_preview","group_link_health","account_group_membership","group_link_history","group_link_import_batch","group_link_import_detail"]),
     ("拉群任务族", ["task_template","task_batch","task_row","task_log","task_water_plan","material_phone"]),
     ("进群任务", ["join_task","join_task_result"]),
-    ("群组营销 / 素材", ["marketing_task","marketing_task_target","marketing_task_send_attempt","group_marketing_task","group_marketing_task_detail","group_material_template","marketing_template","material_template","material_audit"]),
+    ("群组营销 / 素材", ["marketing_task","marketing_task_target","marketing_task_send_attempt","marketing_task_success_group","group_marketing_task","group_marketing_task_detail","group_material_template","marketing_template","material_template","material_audit"]),
     ("买量 / 推广 / 落地页", ["buyer_channel","buyer_daily_stat","promotion_channel","promotion_template","landing_page","visit_log"]),
     ("统计", ["channel_stat_daily","channel_ad_data","marketing_stat_daily"]),
     ("告警", ["alarm_rule","alarm_event"]),

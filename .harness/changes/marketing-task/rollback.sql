@@ -1,3 +1,5 @@
+-- 警告:普通群组营销模块全量破坏性回滚；V051 单功能回滚请执行 rollback-v051.sql。
+DROP TABLE IF EXISTS marketing_task_success_group;
 DROP TABLE IF EXISTS marketing_account_occupancy;
 DROP TABLE IF EXISTS marketing_task_send_attempt;
 DROP TABLE IF EXISTS marketing_task_target;

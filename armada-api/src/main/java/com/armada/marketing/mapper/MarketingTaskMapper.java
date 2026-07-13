@@ -85,6 +85,40 @@ public interface MarketingTaskMapper {
                           @Param("groupJid") String groupJid,
                           @Param("resultAt") long resultAt);
 
+    /**
+     * 读取成功发送尝试最终持久化的非空群 JID。
+     *
+     * @param taskId    普通营销任务 ID
+     * @param attemptId 发送尝试 ID
+     * @return 去除首尾空格后的群 JID；无有效值时返回 null
+     */
+    String selectSuccessfulAttemptGroupJid(@Param("taskId") Long taskId,
+                                           @Param("attemptId") Long attemptId);
+
+    /**
+     * 从成功发送尝试原子写入任务与群的去重事实，唯一键冲突时不重复写入。
+     *
+     * @param tenantId  当前租户 ID
+     * @param taskId    普通营销任务 ID
+     * @param attemptId 首次成功发送尝试 ID
+     * @param now       当前时间(epoch毫秒)
+     * @return 本次实际插入行数，首次成功为 1，已统计过为 0
+     */
+    int insertSuccessfulGroupFromAttempt(@Param("tenantId") Long tenantId,
+                                         @Param("taskId") Long taskId,
+                                         @Param("attemptId") Long attemptId,
+                                         @Param("now") long now);
+
+    /**
+     * 在新成功群事实落库后，将任务累计成功群数原子加一；软删任务仍接收已投递消息的迟到结果。
+     *
+     * @param taskId 普通营销任务 ID
+     * @param now    当前时间(epoch毫秒)
+     * @return 实际更新任务行数
+     */
+    int incrementTaskSuccessfulGroupCount(@Param("taskId") Long taskId,
+                                          @Param("now") long now);
+
     /** 按协议结果增量更新任务累计计数。 */
     int incrementTaskSendCounters(@Param("taskId") Long taskId,
                                   @Param("successDelta") int successDelta,

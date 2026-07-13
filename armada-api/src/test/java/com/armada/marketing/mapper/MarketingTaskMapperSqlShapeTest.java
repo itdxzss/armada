@@ -1,6 +1,7 @@
 package com.armada.marketing.mapper;
 
 import com.armada.marketing.model.enums.MarketingTaskStatus;
+import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -8,6 +9,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Collectors;
+import net.sf.jsqlparser.expression.LongValue;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -102,6 +104,58 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")
                 .contains("t.group_link_url = COALESCE(g.link_url, t.group_link_url)")
                 .contains("COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name)");
+    }
+
+    @Test
+    void successfulGroupCountUsesPersistedSuccessfulAttemptAndAtomicFactInsert() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String groupJidSql = selectBlock(xml, "selectSuccessfulAttemptGroupJid");
+        String insertFactSql = insertBlock(xml, "insertSuccessfulGroupFromAttempt");
+        String incrementSql = updateBlock(xml, "incrementTaskSuccessfulGroupCount");
+
+        assertThat(groupJidSql)
+                .contains("TRIM(group_jid)")
+                .contains("marketing_task_id = #{taskId}")
+                .contains("status = 1");
+        assertThat(insertFactSql)
+                .contains("INSERT IGNORE INTO marketing_task_success_group")
+                .contains("FROM marketing_task_send_attempt a")
+                .contains("a.id = #{attemptId}")
+                .contains("a.tenant_id = #{tenantId}")
+                .contains("a.marketing_task_id = #{taskId}")
+                .contains("a.status = 1")
+                .contains("TRIM(a.group_jid)")
+                .contains("NOT EXISTS")
+                .contains("FROM group_creation_marketing_item item")
+                .contains("item.marketing_attempt_id = a.id");
+        assertThat(incrementSql)
+                .contains("target_group_count = target_group_count + 1")
+                .doesNotContain("deleted_at IS NULL");
+    }
+
+    @Test
+    void tenantInterceptorKeepsSuccessfulGroupInsertSelectTenantQualified() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String insertSql = sqlBody(insertBlock(xml, "insertSuccessfulGroupFromAttempt"))
+                .replace("#{tenantId}", "7")
+                .replace("#{taskId}", "42")
+                .replace("#{attemptId}", "9001")
+                .replace("#{now}", "1783159200000")
+                .replace("&lt;&gt;", "<>");
+        TenantLineInnerInterceptor interceptor = new TenantLineInnerInterceptor(() -> new LongValue(7L));
+
+        String parsedSql = interceptor.parserSingle(insertSql, null);
+
+        assertThat(parsedSql)
+                .contains("created_at, tenant_id)")
+                .contains("1783159200000, a.tenant_id")
+                .contains("a.tenant_id = 7")
+                .doesNotContain("1783159200000, tenant_id");
     }
 
     @Test
@@ -224,5 +278,22 @@ class MarketingTaskMapperSqlShapeTest {
         int end = xml.indexOf("</update>", start);
         assertThat(end).as("mapper update " + id + " closes").isGreaterThan(start);
         return xml.substring(start, end);
+    }
+
+    private static String insertBlock(String xml, String id) {
+        String startTag = "<insert id=\"" + id + "\"";
+        int start = xml.indexOf(startTag);
+        assertThat(start).as("mapper insert " + id + " exists").isGreaterThanOrEqualTo(0);
+        int end = xml.indexOf("</insert>", start);
+        assertThat(end).as("mapper insert " + id + " closes").isGreaterThan(start);
+        return xml.substring(start, end);
+    }
+
+    private static String sqlBody(String mapperBlock) {
+        int start = mapperBlock.indexOf('>');
+        assertThat(start).isGreaterThanOrEqualTo(0);
+        return mapperBlock.substring(start + 1)
+                .replaceAll("(?s)<!--.*?-->", "")
+                .trim();
     }
 }

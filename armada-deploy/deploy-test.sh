@@ -409,6 +409,30 @@ preferred_pm2_config="$2"
 cd "${remote_dir}/protocol-layer"
 command -v npm >/dev/null 2>&1 || { echo "远端缺少 npm" >&2; exit 30; }
 command -v pm2 >/dev/null 2>&1 || { echo "远端缺少 pm2" >&2; exit 31; }
+node_version="$(node --version)"
+case "${node_version}" in
+  v24.*) ;;
+  *)
+    echo "远端 Node.js 必须为 24.x,当前为 ${node_version}" >&2
+    exit 33
+    ;;
+esac
+daemon_pid_file="${PM2_HOME:-${HOME}/.pm2}/pm2.pid"
+if [ -s "${daemon_pid_file}" ]; then
+  daemon_pid="$(cat "${daemon_pid_file}")"
+  if kill -0 "${daemon_pid}" 2>/dev/null; then
+    daemon_exe="$(readlink -f "/proc/${daemon_pid}/exe")"
+    daemon_version="$("${daemon_exe}" --version 2>/dev/null || true)"
+    case "${daemon_version}" in
+      v24.*) ;;
+      *)
+        echo "PM2 daemon 必须运行在 Node.js 24.x,当前为 ${daemon_version:-unknown} (${daemon_exe:-unknown})" >&2
+        echo "请先使用 Node.js 24 执行: pm2 save --force && pm2 kill && pm2 resurrect" >&2
+        exit 34
+        ;;
+    esac
+  fi
+fi
 npm ci --no-audit --no-fund
 npm run build
 if [ -f "${preferred_pm2_config}" ]; then
@@ -420,6 +444,23 @@ else
   exit 32
 fi
 pm2 startOrReload "${pm2_config}" --update-env
+pm2 jlist | node -e "
+let input = \"\"
+process.stdin.on(\"data\", chunk => { input += chunk })
+process.stdin.on(\"end\", () => {
+  const expectedProtocolApps = 5
+  const apps = JSON.parse(input).filter(app =>
+    /^(?:armada-)?protocol-(?:master|worker-[1-4])$/.test(app.name ?? \"\")
+  )
+  const invalid = apps.filter(app => !String(app.pm2_env?.node_version ?? \"\").startsWith(\"24.\"))
+  if (apps.length !== expectedProtocolApps || invalid.length > 0) {
+    const versions = apps.map(app => (app.name ?? \"unknown\") + \":\" + (app.pm2_env?.node_version ?? \"unknown\")).join(\",\")
+    console.error(\"协议 PM2 应用必须全部运行在 Node.js 24.x; found=\" + apps.length + \"/\" + expectedProtocolApps + \"; versions=\" + versions)
+    process.exit(35)
+  }
+  console.log(\"协议 PM2 Node.js 版本校验通过: \" + apps.map(app => app.name + \":\" + app.pm2_env.node_version).join(\",\"))
+})
+"
 pm2 save >/dev/null 2>&1 || true
 '
 

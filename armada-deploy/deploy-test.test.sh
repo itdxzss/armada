@@ -87,10 +87,29 @@ test_sh_invocation_reexecs_bash_for_help() {
   assert_contains "${out}" "--protocol"
 }
 
+test_protocol_remote_deploy_requires_node_24_toolchain() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" 'node_version="$(node --version)"'
+  assert_contains "${script_content}" '远端 Node.js 必须为 24.x'
+  assert_contains "${script_content}" 'PM2 daemon 必须运行在 Node.js 24.x'
+}
+
+test_protocol_remote_deploy_verifies_node_24_apps_after_reload() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" '协议 PM2 应用必须全部运行在 Node.js 24.x'
+  assert_contains "${script_content}" 'expectedProtocolApps = 5'
+}
+
 test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
 test_protocol_default_key_uses_testpem_directory
 test_armada_default_key_uses_testpem_directory
 test_frontend_dry_run_infers_second_environment_title
 test_sh_invocation_reexecs_bash_for_help
+test_protocol_remote_deploy_requires_node_24_toolchain
+test_protocol_remote_deploy_verifies_node_24_apps_after_reload
 printf 'OK deploy-test.sh protocol tests passed\n'

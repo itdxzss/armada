@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.account.model.command.AccountLifecycleCommandItem;
+import com.armada.account.model.dto.AccountWsPhoneExportDTO;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountBatchCommandResultVO;
@@ -104,7 +105,9 @@ class AccountControllerTest {
                 .andExpect(header().string("X-Export-Count", "2"))
                 .andExpect(header().string("Content-Length", String.valueOf(bytes.length)))
                 .andExpect(header().string("Access-Control-Expose-Headers",
-                        org.hamcrest.Matchers.containsString("X-Export-Count")))
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("Content-Disposition"),
+                                org.hamcrest.Matchers.containsString("X-Export-Count"))))
                 .andExpect(header().string("Content-Disposition",
                         org.hamcrest.Matchers.containsString("attachment")))
                 .andExpect(result -> assertThat(
@@ -113,7 +116,9 @@ class AccountControllerTest {
                                 .getFilename())
                         .isEqualTo("马来西亚客户组_2026-07-14.txt"));
 
-        verify(accountWsPhoneExportService).export(any());
+        verify(accountWsPhoneExportService).export(org.mockito.ArgumentMatchers.argThat(
+                (AccountWsPhoneExportDTO request) -> request.ids().equals(List.of(101L, 102L))
+                        && request.groupName().equals("马来西亚客户组")));
     }
 
     @Test
@@ -143,9 +148,11 @@ class AccountControllerTest {
                         .contentType("application/json")
                         .content("{\"ids\":[101]}"))
                 .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.code").value(50001))
                 .andExpect(jsonPath("$.message").value("导出失败，请重新操作。"))
-                .andExpect(header().doesNotExist("Content-Disposition"));
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(header().doesNotExist("X-Export-Count"));
     }
 
     @Test

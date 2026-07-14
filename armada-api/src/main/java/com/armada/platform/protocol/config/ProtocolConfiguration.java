@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.android.AndroidAccountRuntimeStatusAdapter;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidNativeClient;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
@@ -186,6 +187,22 @@ public class ProtocolConfiguration {
     public AccountRuntimeStatusBackend webAccountRuntimeStatusBackend(
             ProtocolHttpExecutorRegistry registry) {
         return new WebAccountRuntimeStatusAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册 Android Zhuan 账号运行态 backend。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @param errorMapper Android 原生业务错误 mapper
+     * @return Android 账号运行态 backend
+     */
+    @Bean
+    public AccountRuntimeStatusBackend androidAccountRuntimeStatusBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupJoinErrorMapper errorMapper) {
+        return new AndroidAccountRuntimeStatusAdapter(client, decoder, errorMapper);
     }
 
     /**

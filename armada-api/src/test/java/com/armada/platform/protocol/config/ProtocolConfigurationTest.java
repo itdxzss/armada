@@ -14,6 +14,7 @@ import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -52,6 +53,10 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(AndroidGroupJoinErrorMapper.class);
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
             assertThat(context).hasSingleBean(AccountRuntimeStatusPort.class);
+            assertThat(context.getBeansOfType(AccountRuntimeStatusBackend.class))
+                    .containsKeys(
+                            "webAccountRuntimeStatusBackend",
+                            "androidAccountRuntimeStatusBackend");
             assertThat(context).hasSingleBean(ContactPort.class);
             assertThat(context).hasSingleBean(GroupCreatePort.class);
             assertThat(context).hasSingleBean(GroupJoinPort.class);

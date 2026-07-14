@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.port;
 
+import com.armada.platform.protocol.model.command.GroupJoinCommand;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 
 /**
@@ -10,11 +11,10 @@ import com.armada.platform.protocol.model.result.GroupJoinResult;
 public interface GroupJoinPort {
 
     /**
-     * 指定账号通过邀请链接或 invite code 入群。
+     * 执行统一进群命令。
      *
-     * @param protocolAccountId 协议层账号句柄,如 acc_8613800138000
-     * @param inviteCodeOrLink  完整邀请链接或纯 invite code
-     * @return 协议层 join 结果;{@code joined=false} 代表待审批,不是成功入群
+     * @param command 包含账号、邀请信息和业务操作标识的统一命令
+     * @return 统一进群结果
      */
-    GroupJoinResult join(String protocolAccountId, String inviteCodeOrLink);
+    GroupJoinResult join(GroupJoinCommand command);
 }

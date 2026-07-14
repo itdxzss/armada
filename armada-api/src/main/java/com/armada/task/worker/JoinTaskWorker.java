@@ -7,9 +7,12 @@ import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.GroupJoinCommand;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
-import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.model.result.ProtocolAccountRuntimeStatus;
+import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
@@ -50,8 +53,6 @@ public class JoinTaskWorker implements DisposableBean {
     public static final String REASON_ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND";
     public static final String REASON_ACCOUNT_NOT_ONLINE = "ACCOUNT_NOT_ONLINE";
 
-    private static final String PROTOCOL_STATE_ONLINE = "ONLINE";
-    private static final String PROTOCOL_CODE_ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND";
     private static final String STATE_SOURCE_JOIN_TASK_STATUS = "JOIN_TASK_STATUS";
     private static final String STATE_SOURCE_JOIN_TASK_STATUS_NOT_FOUND = "JOIN_TASK_STATUS_NOT_FOUND";
 
@@ -62,17 +63,30 @@ public class JoinTaskWorker implements DisposableBean {
     private final AccountMapper accountMapper;
     private final AccountStateMapper accountStateMapper;
     private final GroupJoinPort groupJoinPort;
-    private final AccountLifecyclePort accountLifecyclePort;
+    private final AccountRuntimeStatusPort accountRuntimeStatusPort;
     private final Executor executor;
     private final Executor laneExecutor;
     private final Sleeper sleeper;
     private final Set<String> activeTasks = ConcurrentHashMap.newKeySet();
 
+    /**
+     * 可替换的休眠动作，生产环境使用 {@link Thread#sleep(long)}，测试中注入空实现以避免等待。
+     */
     @FunctionalInterface
     public interface Sleeper {
+
+        /**
+         * 休眠指定时间。
+         *
+         * @param millis 休眠毫秒数
+         * @throws InterruptedException 当前线程被中断时抛出
+         */
         void sleep(long millis) throws InterruptedException;
     }
 
+    /**
+     * Spring 生产构造器，根据配置创建进群任务专用线程池。
+     */
     @Autowired
     public JoinTaskWorker(
             JoinTaskMapper joinTaskMapper,
@@ -80,23 +94,26 @@ public class JoinTaskWorker implements DisposableBean {
             AccountMapper accountMapper,
             AccountStateMapper accountStateMapper,
             GroupJoinPort groupJoinPort,
-            AccountLifecyclePort accountLifecyclePort,
+            AccountRuntimeStatusPort accountRuntimeStatusPort,
             @Value("${armada.join-task.worker.pool-size:4}") int poolSize,
             @Value("${armada.join-task.worker.account-lane-pool-size:16}") int lanePoolSize) {
         this(joinTaskMapper, resultMapper, accountMapper, accountStateMapper, groupJoinPort,
-                accountLifecyclePort,
+                accountRuntimeStatusPort,
                 newPool(poolSize, "join-task-worker-"),
                 newPool(lanePoolSize, "join-task-account-"),
                 Thread::sleep);
     }
 
+    /**
+     * 完整依赖构造器，允许测试替换执行器和休眠动作。
+     */
     public JoinTaskWorker(
             JoinTaskMapper joinTaskMapper,
             JoinTaskResultMapper resultMapper,
             AccountMapper accountMapper,
             AccountStateMapper accountStateMapper,
             GroupJoinPort groupJoinPort,
-            AccountLifecyclePort accountLifecyclePort,
+            AccountRuntimeStatusPort accountRuntimeStatusPort,
             Executor executor,
             Executor laneExecutor,
             Sleeper sleeper) {
@@ -105,7 +122,7 @@ public class JoinTaskWorker implements DisposableBean {
         this.accountMapper = accountMapper;
         this.accountStateMapper = accountStateMapper;
         this.groupJoinPort = groupJoinPort;
-        this.accountLifecyclePort = accountLifecyclePort;
+        this.accountRuntimeStatusPort = accountRuntimeStatusPort;
         this.executor = executor;
         this.laneExecutor = laneExecutor;
         this.sleeper = sleeper;
@@ -121,6 +138,15 @@ public class JoinTaskWorker implements DisposableBean {
         });
     }
 
+    /**
+     * 异步提交一个租户下的进群任务。
+     *
+     * <p>同一 {@code tenantId + taskId} 同时只允许执行一次；线程池拒绝任务时尽力把任务标记为
+     * FAILED，并释放运行中标记。</p>
+     *
+     * @param tenantId 租户 ID
+     * @param taskId 进群任务 ID
+     */
     public void startAsync(Long tenantId, Long taskId) {
         if (tenantId == null || taskId == null) {
             return;
@@ -144,6 +170,15 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 在指定租户上下文中同步执行一轮任务。
+     *
+     * <p>该方法负责保存并恢复调用线程原有租户上下文；未捕获异常会转成任务 FAILED，避免异常
+     * 泄漏到线程池。</p>
+     *
+     * @param tenantId 租户 ID
+     * @param taskId 进群任务 ID
+     */
     public void runTask(Long tenantId, Long taskId) {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
@@ -160,6 +195,9 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 切换到目标租户后，尽力把提交阶段失败的任务标记为 FAILED。
+     */
     private void markTaskFailedQuietly(Long tenantId, Long taskId, String stage, RuntimeException cause) {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
@@ -174,6 +212,9 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 尽力把当前租户下的任务标记为 FAILED；状态更新失败只记日志，不覆盖原始异常。
+     */
     private void markTaskFailedQuietly(Long taskId, String stage, RuntimeException cause) {
         try {
             joinTaskMapper.updateTaskStatus(taskId, JoinTaskStatus.FAILED, System.currentTimeMillis());
@@ -184,6 +225,11 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 执行任务主流程：校验任务状态、读取待处理行、逐行进群，并在无待处理数据时收敛为 DONE。
+     *
+     * @param taskId 进群任务 ID
+     */
     private void doRunTask(Long taskId) {
         JoinTask task = joinTaskMapper.selectByTenantAndId(taskId);
         if (task == null) {
@@ -252,11 +298,12 @@ public class JoinTaskWorker implements DisposableBean {
                 fail(row, REASON_ACCOUNT_NOT_FOUND);
                 return;
             }
-            if (!isProtocolOnline(account)) {
+            ProtocolAccountRef ref = protocolAccount(account);
+            if (!isProtocolOnline(account, ref)) {
                 fail(row, REASON_ACCOUNT_NOT_ONLINE);
                 return;
             }
-            joinWithRetries(task, row, account);
+            joinWithRetries(task, row, ref);
         } catch (RuntimeException ex) {
             fail(row, reason(ex));
         } finally {
@@ -264,11 +311,15 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
-    private void joinWithRetries(JoinTask task, JoinTaskResult row, Account account) {
+    private void joinWithRetries(JoinTask task, JoinTaskResult row, ProtocolAccountRef ref) {
         int retryLimit = task.isRetryEnabled() ? Math.max(0, task.getRetryLimit()) : 0;
+        GroupJoinCommand command = new GroupJoinCommand(
+                ref,
+                row.getLink(),
+                "join-task-result:" + row.getId());
         for (int retryIndex = 0; ; retryIndex++) {
             try {
-                GroupJoinResult result = groupJoinPort.join(account.getProtocolAccountId(), row.getLink());
+                GroupJoinResult result = groupJoinPort.join(command);
                 if (result != null && result.joined()) {
                     resultMapper.updateResultSuccess(row.getId(), nullToEmpty(result.groupJid()),
                             System.currentTimeMillis());
@@ -293,46 +344,95 @@ public class JoinTaskWorker implements DisposableBean {
         if (protocolException.retryable().isPresent()) {
             return protocolException.retryable().orElse(false);
         }
-        ProtocolErrorCode code = protocolException.errorCode();
-        return !ProtocolErrorCode.INVITE_INVALID.equals(code)
-                && !ProtocolErrorCode.INVITE_REVOKED.equals(code)
-                && !ProtocolErrorCode.GROUP_UNAVAILABLE.equals(code)
-                && !ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED.equals(code);
+        return switch (protocolException.errorCode()) {
+            case INVITE_INVALID,
+                    INVITE_REVOKED,
+                    GROUP_UNAVAILABLE,
+                    ACCOUNT_REACHOUT_RESTRICTED,
+                    ACCOUNT_NOT_FOUND,
+                    ACCOUNT_NOT_ONLINE,
+                    BAD_REQUEST,
+                    INVALID_GROUP_LINK,
+                    GROUP_JOIN_REJECTED,
+                    ANDROID_RESPONSE_UNRECOGNIZED,
+                    UNSUPPORTED_BACKEND,
+                    NEED_REAUTH,
+                    PROXY_REQUIRED -> false;
+            default -> true;
+        };
     }
 
+    /**
+     * 查询本行绑定的有效账号，并校验统一协议引用需要的账号标识存在。
+     *
+     * @param row 待处理任务结果
+     * @return 可用账号；账号不存在、协议账号标识或手机号为空时返回 null
+     */
     private Account resolveAccount(JoinTaskResult row) {
         if (row.getAccountId() == null) {
             return null;
         }
         Account account = accountMapper.selectActiveById(row.getAccountId());
-        if (account == null || account.getProtocolAccountId() == null || account.getProtocolAccountId().isBlank()) {
+        if (account == null
+                || account.getProtocolAccountId() == null
+                || account.getProtocolAccountId().isBlank()
+                || account.getWsPhone() == null
+                || account.getWsPhone().isBlank()) {
             return null;
         }
         return account;
     }
 
-    private boolean isProtocolOnline(Account account) {
+    /**
+     * 把账号实体转换为协议层统一账号引用。
+     *
+     * <p>未知或空 protocolId 按存量规则回退为 Web；Web 和 Android 所需的两种账号标识
+     * 都保留在引用中，由被选中的 backend 使用自己的字段。</p>
+     */
+    private static ProtocolAccountRef protocolAccount(Account account) {
+        return new ProtocolAccountRef(
+                account.getId(),
+                ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                account.getProtocolAccountId(),
+                account.getWsPhone());
+    }
+
+    /**
+     * 查询账号当前协议状态。
+     *
+     * <p>明确离线或协议侧找不到账号时同步本地 OFFLINE；网络等非账号不存在异常继续向上抛出，
+     * 避免把临时调用失败误写成账号离线。</p>
+     *
+     * @param account Armada 账号
+     * @param ref 统一协议账号引用
+     * @return 协议状态为 ONLINE 时返回 true
+     */
+    private boolean isProtocolOnline(Account account, ProtocolAccountRef ref) {
         try {
-            ProtocolAccountStatus status = accountLifecyclePort.status(account.getProtocolAccountId());
-            if (status != null && PROTOCOL_STATE_ONLINE.equalsIgnoreCase(status.state())) {
+            ProtocolAccountRuntimeStatus status = accountRuntimeStatusPort.status(ref);
+            if (status != null && status.online()) {
                 return true;
             }
             markAccountOffline(account, STATE_SOURCE_JOIN_TASK_STATUS);
-            log.warn("进群任务账号协议状态非 ONLINE accountId={} protocolAccountId={} protocolState={}",
-                    account.getId(), account.getProtocolAccountId(), status == null ? null : status.state());
+            log.warn("进群任务账号协议状态非 ONLINE accountId={} backend={} protocolAccountId={} protocolState={}",
+                    account.getId(), ref.backend(), ref.protocolAccountId(),
+                    status == null ? null : status.state());
             return false;
         } catch (ProtocolException ex) {
-            if (!isProtocolAccountNotFound(ex)) {
+            if (ex.errorCode() != ProtocolErrorCode.ACCOUNT_NOT_FOUND
+                    && ex.errorCode() != ProtocolErrorCode.ACCOUNT_NOT_ONLINE) {
                 throw ex;
             }
             markAccountOffline(account, STATE_SOURCE_JOIN_TASK_STATUS_NOT_FOUND);
-            log.warn("进群任务账号协议状态不存在 accountId={} protocolAccountId={} httpStatus={} protocolCode={}",
-                    account.getId(), account.getProtocolAccountId(), ex.httpStatus(),
-                    ex.protocolCode().orElse(null));
+            log.warn("进群任务账号协议状态不可用 accountId={} backend={} protocolAccountId={} code={}",
+                    account.getId(), ref.backend(), ref.protocolAccountId(), ex.errorCode());
             return false;
         }
     }
 
+    /**
+     * 把账号登录状态更新为 OFFLINE，并记录本次状态收敛来源。
+     */
     private void markAccountOffline(Account account, String stateSource) {
         AccountState row = new AccountState();
         row.setAccountId(account.getId());
@@ -344,25 +444,28 @@ public class JoinTaskWorker implements DisposableBean {
         accountStateMapper.updateLoginState(row);
     }
 
-    private static boolean isProtocolAccountNotFound(ProtocolException ex) {
-        return ex.httpStatus() == 404
-                || ex.protocolCode()
-                .map(PROTOCOL_CODE_ACCOUNT_NOT_FOUND::equalsIgnoreCase)
-                .orElse(false);
-    }
-
+    /**
+     * 持久化单行失败结果，并统一限制原因文本。
+     */
     private void fail(JoinTaskResult row, String reason) {
         resultMapper.updateResultFailed(row.getId(), safeReason(reason), System.currentTimeMillis());
     }
 
+    /**
+     * 从运行时异常中提取可持久化原因；协议异常统一保存防腐层错误码。
+     */
     private static String reason(RuntimeException ex) {
         if (ex instanceof ProtocolException protocolException) {
-            return protocolException.protocolCode()
-                    .orElse(protocolException.errorCode().name());
+            return protocolException.errorCode().name();
         }
         return ex.getMessage();
     }
 
+    /**
+     * 根据任务分配模式计算下一行执行前的随机间隔。
+     *
+     * @return 闭区间内随机毫秒数；最大间隔为 0 时返回 0
+     */
     private long nextIntervalMs(JoinTask task) {
         int minSec;
         int maxSec;
@@ -381,6 +484,9 @@ public class JoinTaskWorker implements DisposableBean {
         return ThreadLocalRandom.current().nextLong((long) lo * 1000L, (long) hi * 1000L + 1L);
     }
 
+    /**
+     * 执行可中断休眠；收到中断时恢复线程中断标记，不继续抛出。
+     */
     private void sleepQuietly(long millis) {
         if (millis <= 0) {
             return;
@@ -392,10 +498,16 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 把可空字符串转换为空字符串，避免成功结果写入 null 群 JID。
+     */
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
 
+    /**
+     * 标准化失败原因，空值兜底 UNKNOWN，超长文本截断为数据库字段允许的 255 个字符。
+     */
     private static String safeReason(String reason) {
         if (reason == null || reason.isBlank()) {
             return "UNKNOWN";
@@ -403,6 +515,9 @@ public class JoinTaskWorker implements DisposableBean {
         return reason.length() <= 255 ? reason : reason.substring(0, 255);
     }
 
+    /**
+     * Spring 销毁 Bean 时停止本类自行创建的线程池；测试注入的普通 Executor 无需处理。
+     */
     @Override
     public void destroy() {
         shutdown(executor);

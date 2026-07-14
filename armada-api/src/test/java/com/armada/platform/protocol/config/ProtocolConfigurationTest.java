@@ -1,15 +1,23 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
+import com.armada.platform.protocol.backend.android.AndroidGroupJoinResponseMapper;
+import com.armada.platform.protocol.backend.android.AndroidGroupMembershipVerifier;
+import com.armada.platform.protocol.backend.android.AndroidNativeClient;
+import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
+import com.armada.platform.protocol.routing.GroupJoinBackend;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -43,10 +51,22 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(RestClient.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutor.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutorRegistry.class);
+            assertThat(context).hasSingleBean(AndroidNativeClient.class);
+            assertThat(context).hasSingleBean(AndroidResponseDecoder.class);
+            assertThat(context).hasSingleBean(AndroidGroupJoinErrorMapper.class);
+            assertThat(context).hasSingleBean(AndroidGroupJoinResponseMapper.class);
+            assertThat(context).hasSingleBean(AndroidGroupMembershipVerifier.class);
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
+            assertThat(context).hasSingleBean(AccountRuntimeStatusPort.class);
+            assertThat(context.getBeansOfType(AccountRuntimeStatusBackend.class))
+                    .containsKeys(
+                            "webAccountRuntimeStatusBackend",
+                            "androidAccountRuntimeStatusBackend");
             assertThat(context).hasSingleBean(ContactPort.class);
             assertThat(context).hasSingleBean(GroupCreatePort.class);
             assertThat(context).hasSingleBean(GroupJoinPort.class);
+            assertThat(context.getBeansOfType(GroupJoinBackend.class))
+                    .containsKeys("webGroupJoinBackend", "androidGroupJoinBackend");
             assertThat(context).hasSingleBean(GroupParticipantPort.class);
             assertThat(context).hasSingleBean(GroupProfilePort.class);
             assertThat(context).hasSingleBean(GroupPreviewPort.class);

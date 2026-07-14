@@ -167,6 +167,35 @@ class ProtocolHttpExecutorTest {
     }
 
     @Test
+    void normalizesHyphenatedLowercaseProtocolCodeAndPreservesRawCode() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ProtocolHttpExecutor executor = new ProtocolHttpExecutor(builder.build());
+
+        server.expect(requestTo("http://protocol.internal/v1/groups/join"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "code": "bad-request",
+                                  "message": "bad"
+                                }
+                                """));
+
+        assertThatThrownBy(() -> executor.postTyped(
+                "/v1/groups/join",
+                Map.of("accountId", "acc_001", "inviteCode", "INVALID"),
+                PingResponse.class))
+                .isInstanceOfSatisfying(ProtocolException.class, ex -> {
+                    assertThat(ex.errorCode()).isEqualTo(ProtocolErrorCode.BAD_REQUEST);
+                    assertThat(ex.httpStatus()).isEqualTo(400);
+                    assertThat(ex.protocolCode()).contains("bad-request");
+                });
+        server.verify();
+    }
+
+    @Test
     void closesResponseAfterExchangeCallbackReadsBody() {
         AtomicBoolean closed = new AtomicBoolean(false);
         MockClientHttpResponse response = new MockClientHttpResponse(

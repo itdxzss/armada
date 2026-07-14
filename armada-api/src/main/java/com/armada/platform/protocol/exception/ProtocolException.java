@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.exception;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+
 import java.util.Optional;
 
 /**
@@ -19,12 +21,12 @@ public class ProtocolException extends RuntimeException {
     private final Long retryAfterMs;
     private final String ownerEndpoint;
     private final Boolean retryable;
+    private final ProtocolBackend backend;
+    private final String operation;
+    private final String operationId;
 
     /**
      * 创建不带协议层元数据的协议异常。
-     *
-     * @param errorCode 防腐层错误码;为空时兜底为 {@link ProtocolErrorCode#UNKNOWN}
-     * @param message   异常消息;为空白时使用默认消息
      */
     public ProtocolException(ProtocolErrorCode errorCode, String message) {
         this(errorCode, Metadata.empty(), message, null);
@@ -32,10 +34,6 @@ public class ProtocolException extends RuntimeException {
 
     /**
      * 创建不带协议层元数据但保留原始 cause 的协议异常。
-     *
-     * @param errorCode 防腐层错误码;为空时兜底为 {@link ProtocolErrorCode#UNKNOWN}
-     * @param message   异常消息;为空白时使用默认消息
-     * @param cause     原始异常,通常来自 HTTP 客户端或 JSON 解析
      */
     public ProtocolException(ProtocolErrorCode errorCode, String message, Throwable cause) {
         this(errorCode, Metadata.empty(), message, cause);
@@ -43,17 +41,26 @@ public class ProtocolException extends RuntimeException {
 
     /**
      * 创建带协议层元数据的协议异常。
-     *
-     * @param errorCode 防腐层错误码;为空时兜底为 {@link ProtocolErrorCode#UNKNOWN}
-     * @param metadata  协议层元数据;为空时按无元数据处理
-     * @param message   异常消息;为空白时使用默认消息
-     * @param cause     原始异常,通常来自 HTTP 客户端或 JSON 解析
      */
     public ProtocolException(
             ProtocolErrorCode errorCode,
             Metadata metadata,
             String message,
             Throwable cause) {
+        this(errorCode, metadata, message, cause, null, null, null);
+    }
+
+    /**
+     * 创建带协议元数据和 Armada 调用上下文的异常。
+     */
+    private ProtocolException(
+            ProtocolErrorCode errorCode,
+            Metadata metadata,
+            String message,
+            Throwable cause,
+            ProtocolBackend backend,
+            String operation,
+            String operationId) {
         super(normalizeMessage(message), cause);
         Metadata safeMetadata = metadata == null ? Metadata.empty() : metadata;
         this.errorCode = errorCode == null ? ProtocolErrorCode.UNKNOWN : errorCode;
@@ -62,60 +69,34 @@ public class ProtocolException extends RuntimeException {
         this.retryAfterMs = safeMetadata.retryAfterMs;
         this.ownerEndpoint = safeMetadata.ownerEndpoint;
         this.retryable = safeMetadata.retryable;
+        this.backend = backend;
+        this.operation = operation;
+        this.operationId = operationId;
     }
 
     /**
      * 创建未识别协议失败异常。
-     *
-     * @param message 异常消息;为空白时使用默认消息
-     * @param cause   原始异常
-     * @return UNKNOWN 类型协议异常
      */
     public static ProtocolException unknown(String message, Throwable cause) {
         return new ProtocolException(ProtocolErrorCode.UNKNOWN, message, cause);
     }
 
-    /**
-     * 获取防腐层错误码。
-     *
-     * @return 非空错误码
-     */
     public ProtocolErrorCode errorCode() {
         return errorCode;
     }
 
-    /**
-     * 获取协议层 HTTP 状态码。
-     *
-     * @return HTTP 状态码;无 HTTP 响应时为 0
-     */
     public int httpStatus() {
         return httpStatus;
     }
 
-    /**
-     * 获取协议层原始错误码。
-     *
-     * @return 原始错误码;协议层未返回时为空
-     */
     public Optional<String> protocolCode() {
         return Optional.ofNullable(protocolCode);
     }
 
-    /**
-     * 获取协议层建议的重试等待时间。
-     *
-     * @return retryAfterMs;协议层未返回时为空
-     */
     public Optional<Long> retryAfterMs() {
         return Optional.ofNullable(retryAfterMs);
     }
 
-    /**
-     * 获取 owner worker endpoint。
-     *
-     * @return ownerEndpoint;仅 NOT_OWNER 等场景可能存在
-     */
     public Optional<String> ownerEndpoint() {
         return Optional.ofNullable(ownerEndpoint);
     }
@@ -127,6 +108,35 @@ public class ProtocolException extends RuntimeException {
      */
     public Optional<Boolean> retryable() {
         return Optional.ofNullable(retryable);
+    }
+
+    public Optional<ProtocolBackend> backend() {
+        return Optional.ofNullable(backend);
+    }
+
+    public Optional<String> operation() {
+        return Optional.ofNullable(operation);
+    }
+
+    public Optional<String> operationId() {
+        return Optional.ofNullable(operationId);
+    }
+
+    /**
+     * 在保留错误码、协议元数据、重试标记、消息和 cause 的同时附加统一调用上下文。
+     */
+    public ProtocolException withContext(
+            ProtocolBackend backend,
+            String operation,
+            String operationId) {
+        return new ProtocolException(
+                errorCode,
+                Metadata.of(httpStatus, protocolCode, retryAfterMs, ownerEndpoint, retryable),
+                getMessage(),
+                getCause(),
+                backend,
+                normalizeText(operation),
+                normalizeText(operationId));
     }
 
     private static String normalizeMessage(String message) {
@@ -163,8 +173,12 @@ public class ProtocolException extends RuntimeException {
         private final String ownerEndpoint;
         private final Boolean retryable;
 
-        private Metadata(int httpStatus, String protocolCode, Long retryAfterMs, String ownerEndpoint,
-                         Boolean retryable) {
+        private Metadata(
+                int httpStatus,
+                String protocolCode,
+                Long retryAfterMs,
+                String ownerEndpoint,
+                Boolean retryable) {
             this.httpStatus = Math.max(httpStatus, NO_HTTP_STATUS);
             this.protocolCode = normalizeText(protocolCode);
             this.retryAfterMs = normalizeRetryAfterMs(retryAfterMs);
@@ -172,24 +186,10 @@ public class ProtocolException extends RuntimeException {
             this.retryable = retryable;
         }
 
-        /**
-         * 创建空协议元数据。
-         *
-         * @return 空元数据对象
-         */
         public static Metadata empty() {
             return EMPTY;
         }
 
-        /**
-         * 创建协议层错误响应元数据。
-         *
-         * @param httpStatus    HTTP 状态码;无响应时传 0
-         * @param protocolCode  协议层原始错误码
-         * @param retryAfterMs  协议层建议重试等待时间
-         * @param ownerEndpoint NOT_OWNER 场景下的 owner worker endpoint
-         * @return 协议元数据对象
-         */
         public static Metadata of(
                 int httpStatus,
                 String protocolCode,

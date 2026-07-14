@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -240,9 +241,11 @@ public class ProtocolHttpExecutor {
     private static ProtocolErrorCode mapErrorCode(String protocolCode, int httpStatus) {
         // 优先信任协议层 code,因为 NOT_OWNER/ONLINE_LIMITED 等语义无法只靠 HTTP 状态区分。
         if (protocolCode != null && !protocolCode.isBlank()) {
+            // Web 服务历史错误码可能使用小写和连字符，例如 bad-request；先转成 Java 枚举命名格式。
+            String normalized = protocolCode.trim().replace('-', '_').toUpperCase(Locale.ROOT);
             try {
-                // 两边同名时直接映射,避免维护一张重复映射表。
-                return ProtocolErrorCode.valueOf(protocolCode);
+                // 只规范化内部错误码，异常 Metadata 仍保留协议层返回的原始 protocolCode。
+                return ProtocolErrorCode.valueOf(normalized);
             } catch (IllegalArgumentException ignored) {
                 // 新协议码先兜底 UNKNOWN,后续按业务需要再加入 ProtocolErrorCode。
                 return ProtocolErrorCode.UNKNOWN;

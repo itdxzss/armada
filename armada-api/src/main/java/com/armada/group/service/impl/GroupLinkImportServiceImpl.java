@@ -43,8 +43,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 群链接导入业务实现。
  *
- * <p>流程:校验 labelId → 建 batch → LineImporter(归一化+批内去重+upsert) → batchInsert detail
- * → updateCounts batch → 返回汇总 VO。</p>
+ * <p>流程:校验 labelId → 建 batch → LineImporter(归一化+批内去重) → 公开页校验 → upsert
+ * → batchInsert detail → updateCounts batch → 返回汇总 VO。</p>
  */
 @Service
 public class GroupLinkImportServiceImpl implements GroupLinkImportService {
@@ -60,6 +60,10 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     /** group_link_import_detail.group_name 列长度。 */
     private static final int IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH = 128;
+
+    /** 公开邀请页请求失败或没有可识别资料时的空结果。 */
+    private static final GroupInvitePageMetadata EMPTY_INVITE_PAGE_METADATA =
+            new GroupInvitePageMetadata(null, null, null);
 
     private final GroupLinkLabelMapper labelMapper;
     private final GroupLinkMapper groupLinkMapper;
@@ -95,6 +99,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
      *   <li><b>成功/收编</b> 同 url 已由拉群/进群/自建入口进入群组池,且尚未归入导入分组</li>
      *   <li><b>失败/重复</b> 本批内同一归一化 url 重复出现;或已在导入链接中重复导入</li>
      *   <li><b>失败/格式错误</b> 不是合法 WhatsApp 邀请链接</li>
+     *   <li><b>失败/链接失效</b> WhatsApp 公开邀请页未返回真实群名,不改变 group_link</li>
      * </ul>
      * 空行不计入任何统计(被 {@link LineImporter} 跳过)。</p>
      *
@@ -123,7 +128,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         // 4) 逐行处理 = 通用骨架 LineImporter.run(文本, 解析器, 去重键, 落库器):
         //    - 解析器 GroupLinkUrls::normalizeImportLine: 行内提取并归一化 url;非法链接抛异常 → 该行 FAILED
         //    - 去重键 url -> url:        归一化后的 url 本身就是批内去重键 → 重复行 DUPLICATE
-        //    - 落库器 persist(...):       未失败/未重复的行才执行,做 insert/复活 或判「已存在」 → PERSISTED
+        //    - 落库器 persist(...):       未失败/未重复的行才执行,做公开页校验及 insert/复活/收编 → PERSISTED
         //    泛型 LineOutcome<String, Persisted>:String = 解析记录(归一化 url),Persisted = persist 返回值。
         List<LineOutcome<String, Persisted>> outcomes = LineImporter.run(
                 joined,
@@ -131,12 +136,13 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 url -> url,
                 url -> persist(dto.labelId(), batch.getId(), url));
 
-        // 5) 遍历每行产出:① 组装一条明细行 ② 按类别累加四个计数器
+        // 5) 遍历每行产出:① 组装一条明细行 ② 按类别累加计数器
         List<GroupLinkImportDetail> details = new ArrayList<>(outcomes.size());
         int inserted = 0;
         int adopted = 0;
         int duplicate = 0;
         int formatError = 0;
+        int invalid = 0;
         List<String> errors = new ArrayList<>();  // 失败行的人读提示,回给前端展示
 
         for (LineOutcome<String, Persisted> o : outcomes) {
@@ -166,13 +172,16 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 d.setFailReason(p.failReason());
                 d.setExistingOrigin(p.existingOrigin());
                 if (p.result() == GroupLinkImportResult.SUCCESS) {
-                    GroupInvitePageMetadata metadata = refreshInvitePageMetadata(p.linkId(), o.record());
-                    d.setGroupName(importDetailGroupName(metadata));
+                    saveInvitePageMetadata(p.linkId(), p.metadata());
+                    d.setGroupName(importDetailGroupName(p.metadata()));
                     if (GroupLinkImportSuccessType.ADOPTED.code() == p.successType()) {
                         adopted++;
                     } else {
                         inserted++;
                     }
+                } else if (GroupLinkImportFailReason.LINK_INVALID.equals(p.failReason())) {
+                    invalid++;
+                    errors.add("第 " + o.lineNo() + " 行：链接失效");
                 } else {
                     duplicate++;
                 }
@@ -190,19 +199,20 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         batch.setInsertedRows(inserted);
         batch.setAdoptedRows(adopted);
         batch.setDuplicateRows(duplicate);
-        batch.setFailedRows(duplicate + formatError);
+        batch.setFailedRows(duplicate + formatError + invalid);
         importBatchMapper.updateCounts(batch);
 
-        log.info("群链接导入 labelId={} batchId={} total={} inserted={} adopted={} duplicate={} formatError={} failed={}",
-                dto.labelId(), batch.getId(), outcomes.size(), inserted, adopted, duplicate, formatError,
-                duplicate + formatError);
+        log.info("群链接导入 labelId={} batchId={} total={} inserted={} adopted={} duplicate={} formatError={} "
+                        + "invalid={} failed={}",
+                dto.labelId(), batch.getId(), outcomes.size(), inserted, adopted, duplicate, formatError, invalid,
+                duplicate + formatError + invalid);
 
         // 8) 返回汇总 VO
         return new GroupLinkImportResultVO(
                 batch.getId(),
                 outcomes.size(),
                 inserted + adopted,
-                duplicate + formatError,
+                duplicate + formatError + invalid,
                 duplicate,
                 formatError,
                 errors);
@@ -211,6 +221,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
     @Override
     public PageResult<GroupLinkImportDetailVO> listDetails(GroupLinkImportDetailQuery query) {
         long total = detailMapper.countByQuery(query);
+        // 无数据时跳过分页 SQL，避免明知为空仍访问明细表。
         List<GroupLinkImportDetailVO> list = total == 0
                 ? List.of()
                 : converter.toImportDetailVOList(detailMapper.selectPage(query));
@@ -219,6 +230,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     @Override
     public List<String[]> exportFailed(Long labelId, Long batchId) {
+        // 导出必须限定分组或批次，防止一次误导出当前租户的全部失败明细。
         if (labelId == null && batchId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "labelId 与 batchId 至少提供一个");
         }
@@ -250,19 +262,38 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
     }
 
     /**
-     * upsert 单条归一化 url,按 url 在库内的存在状态四分:
+     * 校验并 upsert 单条归一化 url。
+     *
+     * <p>已进入导入分组的活跃链接优先判重复;其余链接必须先从公开邀请页取得真实群名,
+     * 未取得群名时不新增、不复活、不收编。</p>
+     *
+     * <p>公开页校验通过后,按 url 在库内的存在状态处理:
      * <ul>
      *   <li>库里没有 → insert group_link → 成功/新增</li>
      *   <li>已存在但软删({@code deletedAt!=null}) → 复活并归到本分组 → 成功/新增</li>
      *   <li>已存在且活跃但 {@code labelId==null} → 收编到本分组 → 成功/收编</li>
-     *   <li>已存在且活跃并已有 {@code labelId} → 不动库 → 失败/重复</li>
-     * </ul>
+     * </ul></p>
      * 软删行必须复活、不能再插新行:plain 唯一键 {@code (tenant_id, link_url)} 连软删行也占键,
      * 不复活则这条 url 永远导不回来。
      */
     private Persisted persist(Long labelId, Long batchId, String url) {
+        // 唯一键包含软删行，必须连软删记录一起查，后续才能选择插入、复活或收编。
         GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
         long now = System.currentTimeMillis();
+
+        // 已归入导入分组的活跃链接按业务口径直接判重复，也避免一次无意义的外网请求。
+        if (existing != null && existing.getDeletedAt() == null && existing.getLabelId() != null) {
+            return new Persisted(GroupLinkImportResult.FAILED, null,
+                    GroupLinkImportFailReason.DUPLICATE, null, null, null);
+        }
+
+        // 公开页校验必须先于主表变更：拿不到真实群名时只写失败明细，主表保持原状。
+        GroupInvitePageMetadata metadata = fetchInvitePageMetadata(url);
+        if (metadata.waSubject() == null) {
+            return new Persisted(GroupLinkImportResult.FAILED, null,
+                    GroupLinkImportFailReason.LINK_INVALID, null, null, null);
+        }
+
         if (existing == null) {
             GroupLink row = new GroupLink();
             row.setLinkUrl(url);
@@ -274,40 +305,41 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             row.setUpdatedAt(now);
             groupLinkMapper.insert(row);
             return new Persisted(GroupLinkImportResult.SUCCESS,
-                    GroupLinkImportSuccessType.INSERTED.code(), null, row.getId(), null);
+                    GroupLinkImportSuccessType.INSERTED.code(), null, row.getId(), null, metadata);
         }
         if (existing.getDeletedAt() != null) {
+            // 软删行仍占唯一键，不能重新 insert，只能复活原记录并更新导入归属。
             groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null, now);
             return new Persisted(GroupLinkImportResult.SUCCESS,
-                    GroupLinkImportSuccessType.INSERTED.code(), null, existing.getId(), null);
+                    GroupLinkImportSuccessType.INSERTED.code(), null, existing.getId(), null, metadata);
         }
-        if (existing.getLabelId() == null) {
-            int updated = groupLinkMapper.adoptActiveIntoImport(existing.getId(), labelId, batchId, now);
-            if (updated == 0) {
-                return new Persisted(GroupLinkImportResult.FAILED, null,
-                        GroupLinkImportFailReason.DUPLICATE, null, null);
-            }
-            return new Persisted(GroupLinkImportResult.SUCCESS,
-                    GroupLinkImportSuccessType.ADOPTED.code(), null, existing.getId(), existing.getOrigin());
+
+        // SQL 带 label_id IS NULL 条件，避免并发导入把已被其他请求收编的链接再次改归属。
+        int updated = groupLinkMapper.adoptActiveIntoImport(existing.getId(), labelId, batchId, now);
+        if (updated == 0) {
+            return new Persisted(GroupLinkImportResult.FAILED, null,
+                    GroupLinkImportFailReason.DUPLICATE, null, null, null);
         }
-        return new Persisted(GroupLinkImportResult.FAILED, null,
-                GroupLinkImportFailReason.DUPLICATE, null, null);
+        return new Persisted(GroupLinkImportResult.SUCCESS,
+                GroupLinkImportSuccessType.ADOPTED.code(), null,
+                existing.getId(), existing.getOrigin(), metadata);
     }
 
-    private GroupInvitePageMetadata refreshInvitePageMetadata(Long groupLinkId, String normalizedUrl) {
-        if (groupLinkId == null || normalizedUrl == null || normalizedUrl.isBlank()) {
-            return null;
-        }
-        GroupInvitePageMetadata metadata;
+    private GroupInvitePageMetadata fetchInvitePageMetadata(String normalizedUrl) {
         try {
-            metadata = invitePageFetcher.fetch(normalizedUrl);
+            GroupInvitePageMetadata metadata = invitePageFetcher.fetch(normalizedUrl);
+            // 在 Service 边界统一成空对象，后续失效判断无需传播 null。
+            return metadata == null ? EMPTY_INVITE_PAGE_METADATA : metadata;
         } catch (RuntimeException e) {
-            log.warn("WhatsApp 公开邀请页元数据抓取失败 groupLinkId={} url={} error={}",
-                    groupLinkId, normalizedUrl, e.getMessage());
-            return null;
+            // 公开页不可用属于单行导入失败，不中断同批其他链接的处理。
+            log.warn("WhatsApp 公开邀请页元数据抓取失败 url={} error={}", normalizedUrl, e.getMessage());
+            return EMPTY_INVITE_PAGE_METADATA;
         }
-        if (metadata == null || !metadata.hasProfile()) {
-            return metadata;
+    }
+
+    private void saveInvitePageMetadata(Long groupLinkId, GroupInvitePageMetadata metadata) {
+        if (groupLinkId == null) {
+            return;
         }
 
         long now = System.currentTimeMillis();
@@ -319,8 +351,8 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         preview.setLastPreviewAt(now);
         preview.setCreatedAt(now);
         preview.setUpdatedAt(now);
+        // 预览资料独立于 group_link 主表，使用 upsert 同时覆盖新建、复活和收编场景。
         previewMapper.upsertInvitePageMetadata(preview);
-        return metadata;
     }
 
     private static String importDetailGroupName(GroupInvitePageMetadata metadata) {
@@ -328,12 +360,14 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             return null;
         }
         String subject = metadata.waSubject();
+        // 公开页群名可能超过明细列长度，入库前截断以避免整批事务回滚。
         return subject.length() <= IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH
                 ? subject
                 : subject.substring(0, IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH);
     }
 
     private void validateRequest(GroupLinkImportDTO dto) {
+        // 批次头依赖有效分组，先校验可避免生成无归属的导入批次。
         if (dto.labelId() == null || labelMapper.selectById(dto.labelId()) == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "目标分组不存在");
         }
@@ -344,11 +378,12 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         }
     }
 
-    /** persist 内部返回值:主结果 + 成功类型/失败原因 + 群链接 ID + 收编前来源。 */
+    /** persist 内部返回值:主结果 + 成功类型/失败原因 + 群链接 ID + 收编前来源 + 公开页资料。 */
     private record Persisted(GroupLinkImportResult result,
                              Integer successType,
                              String failReason,
                              Long linkId,
-                             Integer existingOrigin) {
+                             Integer existingOrigin,
+                             GroupInvitePageMetadata metadata) {
     }
 }

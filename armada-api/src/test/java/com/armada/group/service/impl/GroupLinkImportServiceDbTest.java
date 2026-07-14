@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkImportBatchMapper;
@@ -26,6 +27,7 @@ import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -60,6 +62,15 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
     @MockBean
     private GroupInvitePageFetcher invitePageFetcher;
+
+    @BeforeEach
+    void stubValidInvitePage() {
+        when(invitePageFetcher.fetch(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            String inviteCode = url.substring(url.lastIndexOf('/') + 1);
+            return new GroupInvitePageMetadata(inviteCode, "有效群名", null);
+        });
+    }
 
     /** 辅助:建一个 WS 链接分组并返回。 */
     private GroupLinkLabel insertLabel(String name) {
@@ -138,6 +149,79 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(preview.getWaSubject()).isEqualTo("公开页群名");
         assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/page-meta.jpg");
         assertThat(detailGroupName(result.batchId(), 1)).isEqualTo("公开页群名");
+    }
+
+    @Test
+    void importLinks_missingSubject_writesInvalidDetailWithoutMainRow() {
+        GroupLinkLabel label = insertLabel("集成测试分组-失效链接");
+        String url = "chat.whatsapp.com/Invalid123456789012345";
+        when(invitePageFetcher.fetch(url))
+                .thenReturn(new GroupInvitePageMetadata("Invalid123456789012345", null, null));
+
+        GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
+                label.getId(), "失效批次", null, List.of("https://" + url), null));
+
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        assertThat(groupLinkMapper.selectAnyByUrl(url)).isNull();
+        assertThat(detailFailReason(result.batchId(), 1)).isEqualTo(GroupLinkImportFailReason.LINK_INVALID);
+        assertThat(detailGroupLinkId(result.batchId(), 1)).isNull();
+    }
+
+    @Test
+    void importLinks_invalidSoftDeletedUrl_keepsDeletedState() {
+        GroupLinkLabel sourceLabel = insertLabel("集成测试分组-失效软删源");
+        GroupLinkLabel targetLabel = insertLabel("集成测试分组-失效软删目标");
+        String url = "chat.whatsapp.com/Deleted123456789012345";
+        GroupLink existing = new GroupLink();
+        existing.setLinkUrl(url);
+        existing.setLabelId(sourceLabel.getId());
+        existing.setOrigin(GroupLinkOrigin.IMPORT.code());
+        existing.setMembershipState(GroupMembershipState.TARGET.code());
+        long now = System.currentTimeMillis();
+        existing.setCreatedAt(now);
+        existing.setUpdatedAt(now);
+        groupLinkMapper.insert(existing);
+        groupLinkMapper.softDeleteByIds(List.of(existing.getId()), now + 1);
+        when(invitePageFetcher.fetch(url))
+                .thenReturn(new GroupInvitePageMetadata("Deleted123456789012345", null, null));
+
+        GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
+                targetLabel.getId(), "失效软删批次", null, List.of("https://" + url), null));
+
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        GroupLink unchanged = groupLinkMapper.selectAnyByUrl(url);
+        assertThat(unchanged.getDeletedAt()).isNotNull();
+        assertThat(unchanged.getLabelId()).isEqualTo(sourceLabel.getId());
+    }
+
+    @Test
+    void importLinks_invalidUngroupedUrl_keepsImportFieldsEmpty() {
+        GroupLinkLabel targetLabel = insertLabel("集成测试分组-失效收编目标");
+        String url = "chat.whatsapp.com/Ungroup123456789012345";
+        GroupLink existing = new GroupLink();
+        existing.setLinkUrl(url);
+        existing.setLabelId(null);
+        existing.setImportBatchId(null);
+        existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
+        existing.setMembershipState(GroupMembershipState.TARGET.code());
+        long now = System.currentTimeMillis();
+        existing.setCreatedAt(now);
+        existing.setUpdatedAt(now);
+        groupLinkMapper.insert(existing);
+        when(invitePageFetcher.fetch(url))
+                .thenReturn(new GroupInvitePageMetadata("Ungroup123456789012345", null, null));
+
+        GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
+                targetLabel.getId(), "失效收编批次", null, List.of("https://" + url), null));
+
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        GroupLink unchanged = groupLinkMapper.selectAnyByUrl(url);
+        assertThat(unchanged.getLabelId()).isNull();
+        assertThat(unchanged.getImportBatchId()).isNull();
+        assertThat(unchanged.getOrigin()).isEqualTo(GroupLinkOrigin.PULL_TASK.code());
     }
 
     @Test
@@ -330,6 +414,14 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     private String detailGroupName(Long batchId, int lineNo) {
         return jdbc.queryForObject(
                 "SELECT group_name FROM group_link_import_detail WHERE batch_id = ? AND line_no = ?",
+                String.class,
+                batchId,
+                lineNo);
+    }
+
+    private String detailFailReason(Long batchId, int lineNo) {
+        return jdbc.queryForObject(
+                "SELECT fail_reason FROM group_link_import_detail WHERE batch_id = ? AND line_no = ?",
                 String.class,
                 batchId,
                 lineNo);

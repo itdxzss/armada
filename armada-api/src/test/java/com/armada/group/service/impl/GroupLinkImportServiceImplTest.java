@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -36,6 +37,7 @@ import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -72,6 +74,15 @@ class GroupLinkImportServiceImplTest {
 
     @InjectMocks
     private GroupLinkImportServiceImpl service;
+
+    @BeforeEach
+    void stubValidInvitePage() {
+        lenient().when(invitePageFetcher.fetch(anyString())).thenAnswer(invocation -> {
+            String url = invocation.getArgument(0);
+            String inviteCode = url.substring(url.lastIndexOf('/') + 1);
+            return new GroupInvitePageMetadata(inviteCode, "有效群名", null);
+        });
+    }
 
     /** 辅助:构造一个有效的 label stub */
     private void stubValidLabel(Long labelId) {
@@ -152,10 +163,9 @@ class GroupLinkImportServiceImplTest {
     }
 
     @Test
-    void invitePageFetchFailure_doesNotFailImport() {
+    void invitePageFetchFailure_marksInvalid_andDoesNotInsertLink() {
         stubValidLabel(1L);
         stubBatchInsert(10L);
-        stubLinkInsert(100L);
         when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
         when(invitePageFetcher.fetch(anyString())).thenThrow(new IllegalStateException("page unavailable"));
 
@@ -163,9 +173,85 @@ class GroupLinkImportServiceImplTest {
                 new GroupLinkImportDTO(1L, "batch1", null,
                         List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
 
-        assertThat(result.successRows()).isEqualTo(1);
-        assertThat(result.failedRows()).isZero();
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        assertThat(result.errors()).containsExactly("第 1 行：链接失效");
+        verify(groupLinkMapper, never()).insert(any());
         verify(previewMapper, never()).upsertInvitePageMetadata(any());
+
+        ArgumentCaptor<List<GroupLinkImportDetail>> detailCaptor = ArgumentCaptor.forClass(List.class);
+        verify(detailMapper).batchInsert(detailCaptor.capture());
+        GroupLinkImportDetail detail = detailCaptor.getValue().get(0);
+        assertThat(detail.getResult()).isEqualTo(GroupLinkImportResult.FAILED.code());
+        assertThat(detail.getFailReason()).isEqualTo(GroupLinkImportFailReason.LINK_INVALID);
+        assertThat(detail.getGroupLinkId()).isNull();
+
+        ArgumentCaptor<GroupLinkImportBatch> batchCaptor = ArgumentCaptor.forClass(GroupLinkImportBatch.class);
+        verify(importBatchMapper).updateCounts(batchCaptor.capture());
+        assertThat(batchCaptor.getValue().getInsertedRows()).isZero();
+        assertThat(batchCaptor.getValue().getFailedRows()).isEqualTo(1);
+    }
+
+    @Test
+    void invitePageWithAvatarButNoSubject_marksInvalid_andDoesNotInsertLink() {
+        stubValidLabel(1L);
+        stubBatchInsert(10L);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(invitePageFetcher.fetch(anyString())).thenReturn(new GroupInvitePageMetadata(
+                "AbcDef1234567890123456",
+                null,
+                "https://pps.whatsapp.net/v/t61.24694-24/avatar.jpg"));
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(1L, "batch1", null,
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
+
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        verify(groupLinkMapper, never()).insert(any());
+        verify(previewMapper, never()).upsertInvitePageMetadata(any());
+    }
+
+    @Test
+    void invalidSoftDeletedUrl_doesNotReviveLink() {
+        stubValidLabel(2L);
+        stubBatchInsert(20L);
+        GroupLink existing = new GroupLink();
+        existing.setId(200L);
+        existing.setDeletedAt(System.currentTimeMillis());
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(invitePageFetcher.fetch(anyString())).thenReturn(new GroupInvitePageMetadata(
+                "AbcDef1234567890123456", null, null));
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(2L, "batch2", null,
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
+
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void invalidActiveUrlWithoutLabel_doesNotAdoptLink() {
+        stubValidLabel(2L);
+        stubBatchInsert(20L);
+        GroupLink existing = new GroupLink();
+        existing.setId(200L);
+        existing.setLabelId(null);
+        existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
+        existing.setDeletedAt(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(invitePageFetcher.fetch(anyString())).thenReturn(new GroupInvitePageMetadata(
+                "AbcDef1234567890123456", null, null));
+
+        GroupLinkImportResultVO result = service.importLinks(
+                new GroupLinkImportDTO(2L, "batch2", null,
+                        List.of("https://chat.whatsapp.com/AbcDef1234567890123456"), null));
+
+        assertThat(result.successRows()).isZero();
+        assertThat(result.failedRows()).isEqualTo(1);
+        verify(groupLinkMapper, never()).adoptActiveIntoImport(anyLong(), anyLong(), anyLong(), anyLong());
     }
 
     @Test
@@ -189,6 +275,7 @@ class GroupLinkImportServiceImplTest {
         verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any(), anyLong());
         verify(groupLinkMapper, never()).adoptActiveIntoImport(anyLong(), anyLong(), anyLong(), anyLong());
         verify(groupLinkMapper, never()).insert(any());
+        verify(invitePageFetcher, never()).fetch(anyString());
     }
 
     @Test

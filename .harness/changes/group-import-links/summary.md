@@ -22,6 +22,13 @@
 - **头像口径**:仅保存 `pps.whatsapp.net` 真实头像;`static.whatsapp.net` 默认 WhatsApp logo 不落库。
 - **验证**:`mvn -q -Dtest=GroupLinkImportServiceImplTest,HttpGroupInvitePageFetcherTest,GroupLinkServiceImplTest test`;`xmllint --noout armada-api/src/main/resources/mapper/group/GroupLinkPreviewMapper.xml`;`./armada-api/dbtest.sh GroupLinkImportServiceDbTest,GroupLinkPreviewMapperDbTest`。
 
+## 2026-07-14 增量:无群名链接拒绝入池
+
+- WhatsApp 公开邀请页获取不到真实群名时,明细记 `失败/链接失效`。
+- 失效链接不新增、不复活、不收编 `group_link`;只有头像没有群名也视为失效。
+- 已在导入分组中的活跃链接仍优先判重复,不访问公开页。
+- Flyway V054 扩充 `failed_rows` / `fail_reason` 字段注释,不回溯修改历史数据。
+
 ## 关键决策(全部已落实)
 1. `group_link` 是跨业务共享群组表 → 按数模规范一.3 **目标拆 3 表**(group_link import 身份 + 延后的 group_link_preview/group_link_health);本期只建 import 身份段。后续块照此加表(全局评审已在设计 §5.1 定形态)。
 2. `link_url` **租户内唯一**(plain `UNIQUE(tenant_id,link_url)`,无虚拟列);再导入 = **upsert 收编**(命中含软删行→复活+改 label_id);三入口收敛到一行,群组列表不重复。

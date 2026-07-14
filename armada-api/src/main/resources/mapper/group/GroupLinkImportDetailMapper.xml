@@ -17,7 +17,7 @@
   <!--
     detail JOIN batch:拦截器会给两表分别注入 tenant_id 条件;
     d.tenant_id = b.tenant_id 显式写防止跨租户 JOIN。
-    result 只保留两态:1=成功,2=失败;重复/格式错误由 fail_reason 区分。
+    result 只保留两态:1=成功,2=失败;重复/格式错误/链接失效由 fail_reason 区分。
   -->
   <sql id="detailFilter">
     d.tenant_id = b.tenant_id AND b.deleted_at IS NULL
@@ -61,7 +61,7 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
-  <!-- result = 2 表示失败,失败原因由 fail_reason 区分重复/格式错误 -->
+  <!-- result = 2 表示失败,失败原因由 fail_reason 区分重复/格式错误/链接失效 -->
   <select id="selectFailed" resultType="com.armada.group.model.vo.GroupLinkImportDetailVoRow">
     SELECT d.line_no AS lineNo, d.group_name AS groupName, d.raw_url AS rawUrl,
            b.source_file_name AS sourceFileName,

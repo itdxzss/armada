@@ -8,6 +8,8 @@
 
 **Tech Stack:** Java 17, Spring Boot, MyBatis, JUnit 5, Mockito, AssertJ, Testcontainers/MySQL, Flyway.
 
+**Execution override:** The user explicitly requires implementation in the current `1.0.1-snapshot` checkout with all code changes left uncommitted for IDEA review. Ignore the commit steps below during this execution.
+
 ---
 
 ## File map

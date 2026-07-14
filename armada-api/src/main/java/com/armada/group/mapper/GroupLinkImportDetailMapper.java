@@ -38,7 +38,7 @@ public interface GroupLinkImportDetailMapper {
     List<GroupLinkImportDetailVoRow> selectPage(GroupLinkImportDetailQuery query);
 
     /**
-     * 查询失败明细(result=2),用于导出失败数据,重复/格式错误由 failReason 区分。
+     * 查询失败明细(result=2),用于导出失败数据,重复/格式错误/链接失效由 failReason 区分。
      *
      * @param labelId 分组 ID(可选)
      * @param batchId 批次 ID(可选)

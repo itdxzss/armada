@@ -48,10 +48,12 @@ class GroupListDataModelMigrationDbTest extends DbTestBase {
     void importColumns_haveCurrentResultSemanticsComments() {
         assertThat(columnComment("group_link_import_batch", "inserted_rows")).isEqualTo("新增成功数量");
         assertThat(columnComment("group_link_import_batch", "adopted_rows")).isEqualTo("收编已有群入口的成功数量");
-        assertThat(columnComment("group_link_import_batch", "failed_rows")).isEqualTo("失败总数(重复 + 格式错误)");
+        assertThat(columnComment("group_link_import_batch", "failed_rows"))
+                .isEqualTo("失败总数(重复 + 格式错误 + 链接失效)");
         assertThat(columnComment("group_link_import_detail", "group_name")).isEqualTo("群名称(保留旧列,导入链接不再写)");
         assertThat(columnComment("group_link_import_detail", "result")).isEqualTo("导入结果:1=成功 2=失败");
-        assertThat(columnComment("group_link_import_detail", "fail_reason")).isEqualTo("失败原因:重复/格式错误;成功时为空");
+        assertThat(columnComment("group_link_import_detail", "fail_reason"))
+                .isEqualTo("失败原因:重复/格式错误/链接失效;成功时为空");
         assertThat(columnComment("group_link_import_detail", "group_link_id")).isEqualTo("成功时关联group_link.id;失败时为空");
     }
 

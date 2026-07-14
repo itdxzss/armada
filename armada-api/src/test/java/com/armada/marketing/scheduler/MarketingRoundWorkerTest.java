@@ -162,6 +162,7 @@ class MarketingRoundWorkerTest {
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::commandId)
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
         assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType).containsOnly("TEXT");
+        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::mentionAll).containsOnly(true);
     }
 
     @Test
@@ -717,6 +718,7 @@ class MarketingRoundWorkerTest {
         template.setTemplateName("template");
         template.setLinkMode(LinkMode.NORMAL.code());
         template.setContent("hello");
+        template.setMentionAll(true);
         return template;
     }
 

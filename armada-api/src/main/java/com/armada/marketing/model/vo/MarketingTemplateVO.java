@@ -42,5 +42,8 @@ public record MarketingTemplateVO(
         Long createdAt,
 
         /** 更新时间,epoch 毫秒(UTC 时刻);前端按 Asia/Shanghai 格式化展示。 */
-        Long updatedAt) {
+        Long updatedAt,
+
+        /** 是否在群消息中提醒所有成员。 */
+        boolean mentionAll) {
 }

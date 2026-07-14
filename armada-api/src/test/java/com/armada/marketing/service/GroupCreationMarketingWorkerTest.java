@@ -119,6 +119,7 @@ class GroupCreationMarketingWorkerTest {
             assertThat(command.groupCreationItemId()).isEqualTo(11L);
             assertThat(command.groupJid()).isEqualTo("120363created@g.us");
             assertThat(command.text()).isEqualTo("hello");
+            assertThat(command.mentionAll()).isTrue();
             assertThat(command.source()).isEqualTo("group_creation_marketing");
         });
         verify(groupCreationMapper).markItemMarketingSending(argThat(dispatch ->
@@ -496,7 +497,7 @@ class GroupCreationMarketingWorkerTest {
                 .thenReturn(new GroupCreateResult("120363created@g.us", false, List.of()));
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
-                "TEXT", "hello", null, null));
+                "TEXT", "hello", null, null, true));
         when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
     }
 

@@ -138,6 +138,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setBodyText(origin.getBodyText());
         copy.setButtons(origin.getButtons());
         copy.setPromotionLink(origin.getPromotionLink());
+        copy.setMentionAll(origin.getMentionAll());
         normalizeByMode(copy, LinkMode.fromCode(copy.getLinkMode()));
         copy.setRemark(origin.getRemark());
         long now = System.currentTimeMillis();

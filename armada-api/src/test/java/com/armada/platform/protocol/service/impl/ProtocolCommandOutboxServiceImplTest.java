@@ -562,6 +562,7 @@ class ProtocolCommandOutboxServiceImplTest {
                         "正文",
                         new ProtocolMarketingMessageCommandRequest.MarketingMediaPayload("AQID", "image/png")),
                 null,
+                true,
                 "marketing_task");
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
 
@@ -571,6 +572,7 @@ class ProtocolCommandOutboxServiceImplTest {
         });
         assertThat(payload).containsEntry("messageType", "LINK_CARD");
         assertThat(payload).containsEntry("text", "标题");
+        assertThat(payload).containsEntry("mentionAll", true);
         @SuppressWarnings("unchecked")
         Map<String, Object> linkCard = (Map<String, Object>) payload.get("linkCard");
         assertThat(linkCard)

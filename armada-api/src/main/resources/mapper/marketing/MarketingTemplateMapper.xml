@@ -6,7 +6,7 @@
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
         id, tenant_id, template_name, link_mode, text_type, image_file_id,
-        content, body_text, buttons, promotion_link, remark,
+        content, body_text, buttons, promotion_link, mention_all, remark,
         created_at, updated_at, created_by, deleted_at
     </sql>
 
@@ -71,10 +71,10 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_template
             (template_name, link_mode, text_type, image_file_id, content, body_text,
-             buttons, promotion_link, remark, created_at, updated_at, created_by)
+             buttons, promotion_link, mention_all, remark, created_at, updated_at, created_by)
         VALUES
             (#{templateName}, #{linkMode}, #{textType}, #{imageFileId}, #{content}, #{bodyText},
-             #{buttons}, #{promotionLink}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
+             #{buttons}, #{promotionLink}, #{mentionAll}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 
     <update id="updateById" parameterType="com.armada.marketing.model.entity.MarketingTemplate">
@@ -87,6 +87,7 @@
             body_text     = #{bodyText},
             buttons       = #{buttons},
             promotion_link = #{promotionLink},
+            mention_all   = #{mentionAll},
             remark        = #{remark},
             updated_at    = #{updatedAt}
         WHERE id = #{id} AND deleted_at IS NULL

@@ -572,6 +572,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                         : new MarketingImagePayload(command.imageBase64(), command.imageMimetype()),
                 command.linkCard(),
                 command.buttonCard(),
+                command.mentionAll(),
                 sourceOrDefault(command.source(), "marketing_task"),
                 command.groupCreationTaskId(),
                 command.groupCreationItemId());
@@ -913,6 +914,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             MarketingImagePayload image,
             ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard,
             ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard,
+            boolean mentionAll,
             String source,
             Long groupCreationTaskId,
             Long groupCreationItemId

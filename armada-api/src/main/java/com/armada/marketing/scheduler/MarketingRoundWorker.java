@@ -454,6 +454,7 @@ public class MarketingRoundWorker {
                     message.imageMimetype(),
                     linkCard,
                     buttonCard,
+                    message.mentionAll(),
                     SOURCE_MARKETING_TASK,
                     attempt.getCommandId()));
             if (batch.size() == batchSize) {

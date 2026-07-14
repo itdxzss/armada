@@ -23,6 +23,7 @@ class MarketingMessageComposerTest {
     @Test
     void normalLinkComposesLinkText() {
         MarketingTemplate template = template(LinkMode.NORMAL.code(), null);
+        template.setMentionAll(true);
         template.setContent("标题");
         template.setBodyText("正文");
         template.setPromotionLink("https://example.com");
@@ -32,6 +33,7 @@ class MarketingMessageComposerTest {
         assertThat(message.messageType()).isEqualTo("LINK");
         assertThat(message.text()).contains("标题", "正文", "https://example.com");
         assertThat(message.imageBytes()).isNull();
+        assertThat(message.mentionAll()).isTrue();
     }
 
     @Test

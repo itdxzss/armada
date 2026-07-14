@@ -33,5 +33,22 @@ public record MarketingTemplateDTO(
         String promotionLink,
 
         /** 备注。 */
-        String remark) {
+        String remark,
+
+        /** 是否在群消息中提醒所有成员。 */
+        boolean mentionAll) {
+
+    public MarketingTemplateDTO(
+            String templateName,
+            Integer linkMode,
+            String textType,
+            Long imageFileId,
+            String content,
+            String bodyText,
+            List<MessageButton> buttons,
+            String promotionLink,
+            String remark) {
+        this(templateName, linkMode, textType, imageFileId, content, bodyText,
+                buttons, promotionLink, remark, false);
+    }
 }

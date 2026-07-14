@@ -38,6 +38,9 @@ public class MarketingTemplate {
     /** 推广链接(二期)。 */
     private String promotionLink;
 
+    /** 发送时是否提醒群内所有成员。 */
+    private boolean mentionAll;
+
     /** 备注。 */
     private String remark;
 
@@ -131,6 +134,14 @@ public class MarketingTemplate {
 
     public void setPromotionLink(String promotionLink) {
         this.promotionLink = promotionLink;
+    }
+
+    public boolean getMentionAll() {
+        return mentionAll;
+    }
+
+    public void setMentionAll(boolean mentionAll) {
+        this.mentionAll = mentionAll;
     }
 
     public String getRemark() {

@@ -440,6 +440,7 @@ public class GroupCreationMarketingWorker {
                 message.imageMimetype(),
                 linkCardPayload(message.linkCard()),
                 buttonCardPayload(message.buttonCard()),
+                message.mentionAll(),
                 SOURCE_GROUP_CREATION_MARKETING,
                 commandId,
                 taskId,

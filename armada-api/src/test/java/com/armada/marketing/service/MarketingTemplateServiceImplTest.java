@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.InOrder;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -276,5 +277,20 @@ class MarketingTemplateServiceImplTest {
         assertThatThrownBy(() -> service.clone(99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
+    }
+
+    @Test
+    void clone_copiesMentionAllSetting() {
+        MarketingTemplate origin = new MarketingTemplate();
+        origin.setTemplateName("全员模板");
+        origin.setLinkMode(LinkMode.NORMAL.code());
+        origin.setMentionAll(true);
+        when(mapper.selectById(7L)).thenReturn(origin);
+
+        service.clone(7L);
+
+        ArgumentCaptor<MarketingTemplate> inserted = ArgumentCaptor.forClass(MarketingTemplate.class);
+        verify(mapper).insert(inserted.capture());
+        assertThat(inserted.getValue().getMentionAll()).isTrue();
     }
 }

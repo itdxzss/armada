@@ -38,13 +38,14 @@ public class MarketingMessageComposer {
             throw new BusinessException(ErrorCode.VALIDATION, "营销模板不能为空");
         }
         LinkMode mode = LinkMode.fromCode(template.getLinkMode());
+        boolean mentionAll = template.getMentionAll();
         String text = composeText(template, mode);
         MediaPayload thumbnail = mediaPayload(imageFile);
         if (mode == LinkMode.IMAGE_TEXT && thumbnail != null) {
-            return new ComposedMessage("IMAGE", text, thumbnail.bytes(), thumbnail.mimetype());
+            return new ComposedMessage("IMAGE", text, thumbnail.bytes(), thumbnail.mimetype(), mentionAll);
         }
         if (mode == LinkMode.BUTTON) {
-            return composeButtonCard(template, text, thumbnail);
+            return composeButtonCard(template, text, thumbnail, mentionAll);
         }
         if (mode == LinkMode.NORMAL
                 && thumbnail != null
@@ -59,18 +60,22 @@ public class MarketingMessageComposer {
                             linkCardTitle(template),
                             trimToNull(template.getBodyText()),
                             thumbnail),
-                    null);
+                    null,
+                    mentionAll);
         }
         if (mode == LinkMode.NORMAL && StringUtils.hasText(template.getPromotionLink())) {
-            return new ComposedMessage("LINK", text, null, null);
+            return new ComposedMessage("LINK", text, null, null, mentionAll);
         }
-        return new ComposedMessage("TEXT", text, null, null);
+        return new ComposedMessage("TEXT", text, null, null, mentionAll);
     }
 
     /**
      * BUTTON 模式必须真实携带按钮。这里不做文本降级,避免用户以为发了按钮但协议层收到纯文本。
      */
-    private static ComposedMessage composeButtonCard(MarketingTemplate template, String text, MediaPayload thumbnail) {
+    private static ComposedMessage composeButtonCard(MarketingTemplate template,
+                                                     String text,
+                                                     MediaPayload thumbnail,
+                                                     boolean mentionAll) {
         List<ButtonPayload> buttons = buttonsFromJson(template.getButtons()).stream()
                 .map(MarketingMessageComposer::buttonPayload)
                 .toList();
@@ -83,7 +88,8 @@ public class MarketingMessageComposer {
                 null,
                 null,
                 null,
-                new ButtonCardPayload(null, null, buttons, thumbnail));
+                new ButtonCardPayload(null, null, buttons, thumbnail),
+                mentionAll);
     }
 
     /**
@@ -210,10 +216,22 @@ public class MarketingMessageComposer {
             byte[] imageBytes,
             String imageMimetype,
             LinkCardPayload linkCard,
-            ButtonCardPayload buttonCard
+            ButtonCardPayload buttonCard,
+            boolean mentionAll
     ) {
         public ComposedMessage(String messageType, String text, byte[] imageBytes, String imageMimetype) {
-            this(messageType, text, imageBytes, imageMimetype, null, null);
+            this(messageType, text, imageBytes, imageMimetype, null, null, false);
+        }
+
+        public ComposedMessage(String messageType, String text, byte[] imageBytes,
+                               String imageMimetype, boolean mentionAll) {
+            this(messageType, text, imageBytes, imageMimetype, null, null, mentionAll);
+        }
+
+        public ComposedMessage(String messageType, String text, byte[] imageBytes,
+                               String imageMimetype, LinkCardPayload linkCard,
+                               ButtonCardPayload buttonCard) {
+            this(messageType, text, imageBytes, imageMimetype, linkCard, buttonCard, false);
         }
     }
 

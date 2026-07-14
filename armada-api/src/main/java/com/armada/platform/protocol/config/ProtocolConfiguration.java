@@ -1,5 +1,9 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
+import com.armada.platform.protocol.backend.android.AndroidNativeClient;
+import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
+import com.armada.platform.protocol.backend.android.HttpAndroidNativeClient;
 import com.armada.platform.protocol.backend.web.WebAccountRuntimeStatusAdapter;
 import com.armada.platform.protocol.backend.web.WebNativeGroupJoinAdapter;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
@@ -128,6 +132,37 @@ public class ProtocolConfiguration {
 
         // 注册表只负责按后端提供对应 executor；具体账号走哪个后端由上层业务路由决定。
         return new ProtocolHttpExecutorRegistry(executors);
+    }
+
+    /**
+     * 注册复用 Android 专属 HTTP executor 的原生 client。
+     *
+     * @param registry 按协议后端保存的 HTTP 执行器注册表
+     * @return Android Zhuan 原生 client
+     */
+    @Bean
+    public AndroidNativeClient androidNativeClient(ProtocolHttpExecutorRegistry registry) {
+        return new HttpAndroidNativeClient(registry.required(ProtocolBackend.ANDROID));
+    }
+
+    /**
+     * 注册 Android 原生响应 decoder。
+     *
+     * @return Android 原生响应 decoder
+     */
+    @Bean
+    public AndroidResponseDecoder androidResponseDecoder() {
+        return new AndroidResponseDecoder();
+    }
+
+    /**
+     * 注册 Android 原生业务错误 mapper。
+     *
+     * @return Android 原生业务错误 mapper
+     */
+    @Bean
+    public AndroidGroupJoinErrorMapper androidGroupJoinErrorMapper() {
+        return new AndroidGroupJoinErrorMapper();
     }
 
     /**

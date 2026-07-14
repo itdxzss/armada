@@ -1,5 +1,8 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
+import com.armada.platform.protocol.backend.android.AndroidNativeClient;
+import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -44,6 +47,9 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(RestClient.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutor.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutorRegistry.class);
+            assertThat(context).hasSingleBean(AndroidNativeClient.class);
+            assertThat(context).hasSingleBean(AndroidResponseDecoder.class);
+            assertThat(context).hasSingleBean(AndroidGroupJoinErrorMapper.class);
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
             assertThat(context).hasSingleBean(AccountRuntimeStatusPort.class);
             assertThat(context).hasSingleBean(ContactPort.class);

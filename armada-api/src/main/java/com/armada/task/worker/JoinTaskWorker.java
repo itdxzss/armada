@@ -128,6 +128,13 @@ public class JoinTaskWorker implements DisposableBean {
         this.sleeper = sleeper;
     }
 
+    /**
+     * 创建固定大小的守护线程池，并为线程设置便于排障的递增名称。
+     *
+     * @param poolSize         线程数；非正数按 1 处理
+     * @param threadNamePrefix 线程名前缀
+     * @return 新建的固定线程池
+     */
     private static ExecutorService newPool(int poolSize, String threadNamePrefix) {
         int size = poolSize > 0 ? poolSize : 1;
         AtomicInteger seq = new AtomicInteger();
@@ -196,7 +203,12 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 切换到目标租户后，尽力把提交阶段失败的任务标记为 FAILED。
+     * 在指定租户上下文中尝试把任务标记为失败，并在结束后恢复调用线程原有上下文。
+     *
+     * @param tenantId 租户 ID
+     * @param taskId   任务 ID
+     * @param stage    失败发生阶段，用于日志定位
+     * @param cause    原始异常
      */
     private void markTaskFailedQuietly(Long tenantId, Long taskId, String stage, RuntimeException cause) {
         Long previousTenant = TenantContext.get();
@@ -213,7 +225,11 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 尽力把当前租户下的任务标记为 FAILED；状态更新失败只记日志，不覆盖原始异常。
+     * 尽力把任务标记为 FAILED；状态更新本身失败时仅记录日志，避免覆盖原始异常。
+     *
+     * @param taskId 任务 ID
+     * @param stage  失败发生阶段
+     * @param cause  原始异常
      */
     private void markTaskFailedQuietly(Long taskId, String stage, RuntimeException cause) {
         try {
@@ -226,9 +242,9 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 执行任务主流程：校验任务状态、读取待处理行、逐行进群，并在无待处理数据时收敛为 DONE。
+     * 执行一轮任务：校验任务状态、读取待执行明细、运行账号通道，并在无待执行项时收敛为 DONE。
      *
-     * @param taskId 进群任务 ID
+     * @param taskId 任务 ID
      */
     private void doRunTask(Long taskId) {
         JoinTask task = joinTaskMapper.selectByTenantAndId(taskId);
@@ -253,6 +269,13 @@ public class JoinTaskWorker implements DisposableBean {
         log.info("进群任务 worker 完成一轮 taskId={} processed={}", taskId, rows.size());
     }
 
+    /**
+     * 按账号 ID 对待执行明细分组；不同账号通道并发执行，同一账号的明细由单个通道串行执行。
+     * 当前轮次会等待所有账号通道结束后再返回。
+     *
+     * @param task 任务配置
+     * @param rows 本轮待执行明细
+     */
     private void runAccountLanes(JoinTask task, List<JoinTaskResult> rows) {
         Map<Long, List<JoinTaskResult>> lanes = new LinkedHashMap<>();
         for (JoinTaskResult row : rows) {
@@ -268,6 +291,14 @@ public class JoinTaskWorker implements DisposableBean {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
     }
 
+    /**
+     * 在租户上下文中串行执行一个账号通道，并仅在该账号相邻明细之间等待任务配置的间隔。
+     * 方法结束后恢复账号通道线程原有租户上下文。
+     *
+     * @param tenantId 当前任务租户 ID
+     * @param task     任务配置
+     * @param lane     同一账号的有序待执行明细
+     */
     private void runLaneWithTenant(Long tenantId, JoinTask task, List<JoinTaskResult> lane) {
         Long previousTenant = TenantContext.get();
         if (tenantId == null) {
@@ -291,6 +322,12 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 处理单条进群明细：解析账号、校验协议在线状态、执行进群及重试，并在结束时刷新任务计数。
+     *
+     * @param task 任务配置
+     * @param row  待执行明细
+     */
     private void processRow(JoinTask task, JoinTaskResult row) {
         try {
             Account account = resolveAccount(row);
@@ -311,6 +348,14 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 使用同一账号对同一群链接执行进群；{@code retryLimit} 表示首次调用之外允许的额外重试次数。
+     * 永久失败立即结束，可重试失败按当前账号间隔等待后继续，其他账号通道不受影响。
+     *
+     * @param task 任务配置
+     * @param row 待执行明细
+     * @param ref 统一协议账号引用
+     */
     private void joinWithRetries(JoinTask task, JoinTaskResult row, ProtocolAccountRef ref) {
         int retryLimit = task.isRetryEnabled() ? Math.max(0, task.getRetryLimit()) : 0;
         GroupJoinCommand command = new GroupJoinCommand(
@@ -337,6 +382,13 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 判断进群异常是否允许重试：优先采用协议层显式标记，旧协议响应再按永久错误码兜底。
+     * 非协议异常按临时异常处理。
+     *
+     * @param ex 进群调用异常
+     * @return {@code true} 表示可重试
+     */
     private static boolean isRetryable(RuntimeException ex) {
         if (!(ex instanceof ProtocolException protocolException)) {
             return true;
@@ -365,8 +417,8 @@ public class JoinTaskWorker implements DisposableBean {
     /**
      * 查询本行绑定的有效账号，并校验统一协议引用需要的账号标识存在。
      *
-     * @param row 待处理任务结果
-     * @return 可用账号；账号不存在、协议账号标识或手机号为空时返回 null
+     * @param row 任务明细
+     * @return 可用账号；账号不存在、协议账号标识或手机号为空时返回 {@code null}
      */
     private Account resolveAccount(JoinTaskResult row) {
         if (row.getAccountId() == null) {
@@ -431,7 +483,10 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 把账号登录状态更新为 OFFLINE，并记录本次状态收敛来源。
+     * 把账号本地登录态同步为离线，并记录此次状态同步来源。
+     *
+     * @param account     待更新账号
+     * @param stateSource 状态来源标识
      */
     private void markAccountOffline(Account account, String stateSource) {
         AccountState row = new AccountState();
@@ -445,14 +500,20 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 持久化单行失败结果，并统一限制原因文本。
+     * 将任务明细标记为失败，并对入库失败原因做空值和长度保护。
+     *
+     * @param row    任务明细
+     * @param reason 失败原因或协议错误码
      */
     private void fail(JoinTaskResult row, String reason) {
         resultMapper.updateResultFailed(row.getId(), safeReason(reason), System.currentTimeMillis());
     }
 
     /**
-     * 从运行时异常中提取可持久化原因；协议异常统一保存防腐层错误码。
+     * 提取适合写入任务明细的失败原因；协议异常优先保留稳定的协议错误码。
+     *
+     * @param ex 执行异常
+     * @return 失败原因
      */
     private static String reason(RuntimeException ex) {
         if (ex instanceof ProtocolException protocolException) {
@@ -462,9 +523,10 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 根据任务分配模式计算下一行执行前的随机间隔。
+     * 根据任务分配方式选择对应的间隔配置，并在闭区间内随机生成下一次等待毫秒数。
      *
-     * @return 闭区间内随机毫秒数；最大间隔为 0 时返回 0
+     * @param task 任务配置
+     * @return 等待毫秒数；配置为 0 时返回 0
      */
     private long nextIntervalMs(JoinTask task) {
         int minSec;
@@ -485,7 +547,9 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 执行可中断休眠；收到中断时恢复线程中断标记，不继续抛出。
+     * 执行可替换的等待逻辑；线程被中断时恢复中断标记，不向外抛出中断异常。
+     *
+     * @param millis 等待毫秒数；非正数直接返回
      */
     private void sleepQuietly(long millis) {
         if (millis <= 0) {
@@ -499,14 +563,20 @@ public class JoinTaskWorker implements DisposableBean {
     }
 
     /**
-     * 把可空字符串转换为空字符串，避免成功结果写入 null 群 JID。
+     * 将可空字符串转换为空字符串，避免成功结果写入 {@code null}。
+     *
+     * @param value 原始字符串
+     * @return 原值或空字符串
      */
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
 
     /**
-     * 标准化失败原因，空值兜底 UNKNOWN，超长文本截断为数据库字段允许的 255 个字符。
+     * 将失败原因规范为可入库值：空原因使用 UNKNOWN，超长原因截断为 255 个字符。
+     *
+     * @param reason 原始失败原因
+     * @return 安全的入库失败原因
      */
     private static String safeReason(String reason) {
         if (reason == null || reason.isBlank()) {
@@ -526,6 +596,11 @@ public class JoinTaskWorker implements DisposableBean {
         }
     }
 
+    /**
+     * 当执行器支持生命周期管理时立即发起关闭；外部传入的普通 {@link Executor} 不做处理。
+     *
+     * @param target 待关闭执行器
+     */
     private static void shutdown(Executor target) {
         if (target instanceof ExecutorService executorService) {
             executorService.shutdownNow();

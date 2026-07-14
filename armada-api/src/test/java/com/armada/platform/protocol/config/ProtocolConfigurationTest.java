@@ -4,6 +4,7 @@ import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
@@ -44,6 +45,7 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(ProtocolHttpExecutor.class);
             assertThat(context).hasSingleBean(ProtocolHttpExecutorRegistry.class);
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
+            assertThat(context).hasSingleBean(AccountRuntimeStatusPort.class);
             assertThat(context).hasSingleBean(ContactPort.class);
             assertThat(context).hasSingleBean(GroupCreatePort.class);
             assertThat(context).hasSingleBean(GroupJoinPort.class);

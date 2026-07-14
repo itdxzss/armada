@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.web.WebAccountRuntimeStatusAdapter;
 import com.armada.platform.protocol.backend.web.WebNativeGroupJoinAdapter;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
@@ -13,13 +14,16 @@ import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
+import com.armada.platform.protocol.routing.RoutingAccountRuntimeStatusPort;
 import com.armada.platform.protocol.routing.RoutingGroupJoinPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -36,7 +40,7 @@ import java.util.List;
  * 协议层防腐层 Spring 配置。
  *
  * <p>当前注册协议层基础配置、共享 {@link RestClient}、{@link ProtocolHttpExecutor}
- * 与首期账号生命周期 adapter。群组、消息等 adapter 在后续小口中单独接入。</p>
+ * 与账号、群组、联系人等现有协议能力 adapter；各能力按独立端口增量装配。</p>
  */
 @Configuration
 @EnableConfigurationProperties(ProtocolProperties.class)
@@ -135,6 +139,30 @@ public class ProtocolConfiguration {
     @Bean
     public AccountLifecyclePort accountLifecyclePort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpAccountLifecycleAdapter(protocolHttpExecutor);
+    }
+
+    /**
+     * 注册 Web/Baileys 账号运行态 backend。
+     *
+     * @param registry 按协议后端保存的 HTTP 执行器注册表
+     * @return Web 账号运行态 backend
+     */
+    @Bean
+    public AccountRuntimeStatusBackend webAccountRuntimeStatusBackend(
+            ProtocolHttpExecutorRegistry registry) {
+        return new WebAccountRuntimeStatusAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册统一账号运行态查询端口，由路由实现按账号协议后端选择具体 backend。
+     *
+     * @param backends Spring 收集的所有账号运行态 backend
+     * @return 后端感知的统一账号运行态查询端口
+     */
+    @Bean
+    public AccountRuntimeStatusPort accountRuntimeStatusPort(
+            List<AccountRuntimeStatusBackend> backends) {
+        return new RoutingAccountRuntimeStatusPort(backends);
     }
 
     /**

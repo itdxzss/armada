@@ -71,9 +71,9 @@
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY a.id ASC
     </if>
-    <!-- 空 ID 防护：保持结果类型一致，并避免生成非法 IN ()。 -->
+    <!-- 空 ID 防护：仍基于 account 表供租户拦截器改写，并避免生成非法 IN ()。 -->
     <if test="ids == null or ids.size() == 0">
-    SELECT NULL AS id, NULL AS wsPhone FROM DUAL WHERE 1=0
+    SELECT a.id, a.ws_phone AS wsPhone FROM account a WHERE 1=0
     </if>
   </select>
 

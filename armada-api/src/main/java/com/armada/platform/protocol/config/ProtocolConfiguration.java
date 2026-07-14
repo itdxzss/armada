@@ -1,12 +1,12 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.web.WebNativeGroupJoinAdapter;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
 import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
 import com.armada.platform.protocol.http.account.HttpAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.http.contact.HttpContactAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupCreateAdapter;
-import com.armada.platform.protocol.http.group.HttpGroupJoinAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
@@ -19,6 +19,8 @@ import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.routing.GroupJoinBackend;
+import com.armada.platform.protocol.routing.RoutingGroupJoinPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -28,6 +30,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.util.EnumMap;
+import java.util.List;
 
 /**
  * 协议层防腐层 Spring 配置。
@@ -145,15 +148,21 @@ public class ProtocolConfiguration {
         return new HttpAccountParticipatingGroupAdapter(protocolHttpExecutor);
     }
 
+    /** 注册 Web/Baileys 原生进群 backend。 */
+    @Bean
+    public GroupJoinBackend webGroupJoinBackend(ProtocolHttpExecutorRegistry registry) {
+        return new WebNativeGroupJoinAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
     /**
-     * 注册群入群协议端口。
+     * 注册统一进群端口，由路由实现根据账号协议后端选择具体 backend。
      *
-     * @param protocolHttpExecutor 协议层 HTTP 执行器
-     * @return 群入群端口 HTTP 实现
+     * @param backends Spring 收集的所有进群 backend
+     * @return 后端感知的统一进群端口
      */
     @Bean
-    public GroupJoinPort groupJoinPort(ProtocolHttpExecutor protocolHttpExecutor) {
-        return new HttpGroupJoinAdapter(protocolHttpExecutor);
+    public GroupJoinPort groupJoinPort(List<GroupJoinBackend> backends) {
+        return new RoutingGroupJoinPort(backends);
     }
 
     /**

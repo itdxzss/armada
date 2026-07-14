@@ -1,8 +1,11 @@
-package com.armada.platform.protocol.http.group;
+package com.armada.platform.protocol.backend.web;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.GroupJoinCommand;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.port.GroupJoinPort;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -15,13 +18,14 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-class HttpGroupJoinAdapterTest {
+class WebNativeGroupJoinAdapterTest {
 
     @Test
     void joinWithInviteLinkPostsInviteLinkAndMapsJoinedResponse() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GroupJoinPort port = new HttpGroupJoinAdapter(new ProtocolHttpExecutor(builder.build()));
+        WebNativeGroupJoinAdapter adapter = new WebNativeGroupJoinAdapter(
+                new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol.internal/v1/groups/join"))
                 .andExpect(method(HttpMethod.POST))
@@ -38,10 +42,13 @@ class HttpGroupJoinAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        GroupJoinResult result = port.join("acc_861111", "https://chat.whatsapp.com/ABC123");
+        GroupJoinResult result = adapter.join(new GroupJoinCommand(
+                new ProtocolAccountRef(1L, ProtocolBackend.WEB, "acc_861111", "861111"),
+                "https://chat.whatsapp.com/ABC123",
+                "join-task-result:1"));
 
         assertThat(result.groupJid()).isEqualTo("120363join@g.us");
-        assertThat(result.joined()).isTrue();
+        assertThat(result.outcome()).isEqualTo(GroupJoinOutcome.JOINED);
         server.verify();
     }
 
@@ -49,7 +56,8 @@ class HttpGroupJoinAdapterTest {
     void joinWithInviteCodePostsInviteCodeAndPreservesPendingApproval() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GroupJoinPort port = new HttpGroupJoinAdapter(new ProtocolHttpExecutor(builder.build()));
+        WebNativeGroupJoinAdapter adapter = new WebNativeGroupJoinAdapter(
+                new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol.internal/v1/groups/join"))
                 .andExpect(method(HttpMethod.POST))
@@ -66,10 +74,13 @@ class HttpGroupJoinAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        GroupJoinResult result = port.join("acc_862222", "CODE456");
+        GroupJoinResult result = adapter.join(new GroupJoinCommand(
+                new ProtocolAccountRef(2L, ProtocolBackend.WEB, "acc_862222", "862222"),
+                "CODE456",
+                "join-task-result:2"));
 
         assertThat(result.groupJid()).isEqualTo("120363pending@g.us");
-        assertThat(result.joined()).isFalse();
+        assertThat(result.outcome()).isEqualTo(GroupJoinOutcome.PENDING_APPROVAL);
         server.verify();
     }
 }

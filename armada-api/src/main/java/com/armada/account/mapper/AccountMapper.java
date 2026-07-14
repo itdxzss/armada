@@ -10,6 +10,7 @@ import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVoRow;
+import com.armada.account.model.vo.AccountWsPhoneExportRow;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -62,6 +63,10 @@ public interface AccountMapper {
      * @return 活跃账号列表;不存在或已软删账号不会返回
      */
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    List<AccountWsPhoneExportRow> selectNormalWsPhonesByIds(
+            @Param("ids") List<Long> ids,
+            @Param("normalAccountState") int normalAccountState);
 
     /**
      * 在指定账号中筛选当前在线账号 ID。

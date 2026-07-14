@@ -2,7 +2,10 @@ package com.armada.platform.protocol.config;
 
 import com.armada.platform.protocol.backend.android.AndroidAccountRuntimeStatusAdapter;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
+import com.armada.platform.protocol.backend.android.AndroidGroupJoinResponseMapper;
+import com.armada.platform.protocol.backend.android.AndroidGroupMembershipVerifier;
 import com.armada.platform.protocol.backend.android.AndroidNativeClient;
+import com.armada.platform.protocol.backend.android.AndroidNativeGroupJoinAdapter;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.backend.android.HttpAndroidNativeClient;
 import com.armada.platform.protocol.backend.web.WebAccountRuntimeStatusAdapter;
@@ -167,6 +170,30 @@ public class ProtocolConfiguration {
     }
 
     /**
+     * 注册 Android 邀请码与进群成功响应 mapper。
+     *
+     * @return Android 进群响应 mapper
+     */
+    @Bean
+    public AndroidGroupJoinResponseMapper androidGroupJoinResponseMapper() {
+        return new AndroidGroupJoinResponseMapper();
+    }
+
+    /**
+     * 注册 Android 群成员二次确认器。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @return Android 群成员确认器
+     */
+    @Bean
+    public AndroidGroupMembershipVerifier androidGroupMembershipVerifier(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder) {
+        return new AndroidGroupMembershipVerifier(client, decoder);
+    }
+
+    /**
      * 注册账号生命周期协议端口。
      *
      * @param protocolHttpExecutor 协议层 HTTP 执行器
@@ -232,6 +259,31 @@ public class ProtocolConfiguration {
     @Bean
     public GroupJoinBackend webGroupJoinBackend(ProtocolHttpExecutorRegistry registry) {
         return new WebNativeGroupJoinAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册 Android Zhuan 原生进群 backend。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @param errorMapper Android 原生业务错误 mapper
+     * @param responseMapper Android 邀请与成功响应 mapper
+     * @param verifier Android 群成员确认器
+     * @return Android 原生进群 backend
+     */
+    @Bean
+    public GroupJoinBackend androidGroupJoinBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupJoinErrorMapper errorMapper,
+            AndroidGroupJoinResponseMapper responseMapper,
+            AndroidGroupMembershipVerifier verifier) {
+        return new AndroidNativeGroupJoinAdapter(
+                client,
+                decoder,
+                errorMapper,
+                responseMapper,
+                verifier);
     }
 
     /**

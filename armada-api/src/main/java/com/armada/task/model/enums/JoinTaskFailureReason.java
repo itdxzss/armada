@@ -27,6 +27,24 @@ public enum JoinTaskFailureReason {
     /** 协议层返回请求参数无效,常见于群链接/邀请码格式不正确。 */
     BAD_REQUEST("bad-request", "进群失败，请检查群链接或稍后重试"),
 
+    /** 协议防腐层返回请求参数无效。 */
+    BAD_REQUEST_UNDERSCORE("BAD_REQUEST", "进群失败，请检查群链接或稍后重试"),
+
+    /** 群邀请链接或邀请码无效。 */
+    PROTOCOL_INVALID_GROUP_LINK("INVALID_GROUP_LINK", "群邀请链接无效"),
+
+    /** 协议后端明确拒绝本次进群。 */
+    GROUP_JOIN_REJECTED("GROUP_JOIN_REJECTED", "协议拒绝进群"),
+
+    /** 协议请求完成，但无法确认账号是否真实入群。 */
+    JOIN_RESULT_UNCONFIRMED("JOIN_RESULT_UNCONFIRMED", "进群结果未确认"),
+
+    /** Android 原生接口响应无法归一化。 */
+    ANDROID_RESPONSE_UNRECOGNIZED("ANDROID_RESPONSE_UNRECOGNIZED", "Android 协议响应无法识别"),
+
+    /** 账号所属协议后端尚未注册。 */
+    UNSUPPORTED_BACKEND("UNSUPPORTED_BACKEND", "账号协议类型暂不支持"),
+
     /** 协议层请求超时。 */
     TIMEOUT("TIMEOUT", "协议层请求超时"),
 

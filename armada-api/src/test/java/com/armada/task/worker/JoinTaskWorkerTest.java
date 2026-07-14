@@ -12,8 +12,8 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
-import com.armada.platform.protocol.port.AccountLifecyclePort;
+import com.armada.platform.protocol.model.result.ProtocolAccountRuntimeStatus;
+import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -35,6 +35,7 @@ import java.util.concurrent.RejectedExecutionException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentCaptor.forClass;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -61,7 +62,7 @@ class JoinTaskWorkerTest {
     private GroupJoinPort groupJoinPort;
 
     @Mock
-    private AccountLifecyclePort accountLifecyclePort;
+    private AccountRuntimeStatusPort accountRuntimeStatusPort;
 
     private JoinTaskWorker worker;
 
@@ -73,7 +74,7 @@ class JoinTaskWorkerTest {
                 accountMapper,
                 accountStateMapper,
                 groupJoinPort,
-                accountLifecyclePort,
+                accountRuntimeStatusPort,
                 Runnable::run,
                 millis -> {
                 });
@@ -91,7 +92,8 @@ class JoinTaskWorkerTest {
         when(joinTaskMapper.selectByTenantAndId(7L)).thenReturn(task);
         when(resultMapper.selectPendingResultsByTask(7L)).thenReturn(List.of(row), List.of());
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(accountLifecyclePort.status("acc_861001")).thenReturn(onlineStatus("acc_861001"));
+        when(accountRuntimeStatusPort.status(command.account()))
+                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
         when(groupJoinPort.join(command))
                 .thenReturn(new GroupJoinResult("120363joined@g.us", GroupJoinOutcome.JOINED));
 
@@ -115,7 +117,8 @@ class JoinTaskWorkerTest {
         when(joinTaskMapper.selectByTenantAndId(8L)).thenReturn(task);
         when(resultMapper.selectPendingResultsByTask(8L)).thenReturn(List.of(row), List.of());
         when(accountMapper.selectActiveById(200L)).thenReturn(account);
-        when(accountLifecyclePort.status("acc_862002")).thenReturn(onlineStatus("acc_862002"));
+        when(accountRuntimeStatusPort.status(command.account()))
+                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
         when(groupJoinPort.join(command))
                 .thenReturn(new GroupJoinResult("120363pending@g.us", GroupJoinOutcome.PENDING_APPROVAL));
 
@@ -137,7 +140,7 @@ class JoinTaskWorkerTest {
 
         worker.runTask(1L, 9L);
 
-        verifyNoInteractions(accountLifecyclePort);
+        verifyNoInteractions(accountRuntimeStatusPort);
         verifyNoInteractions(groupJoinPort);
         verify(resultMapper).updateResultFailed(eq(90L), eq(JoinTaskWorker.REASON_ACCOUNT_NOT_FOUND), anyLong());
         verify(joinTaskMapper).refreshCounters(eq(9L));
@@ -149,14 +152,15 @@ class JoinTaskWorkerTest {
         JoinTaskResult row = pendingRow(120L, 400L, "https://chat.whatsapp.com/STALE");
         Account account = account(400L, "WEB", "acc_864004", "864004");
         ProtocolException notFound = new ProtocolException(
-                ProtocolErrorCode.HTTP_ERROR,
+                ProtocolErrorCode.ACCOUNT_NOT_FOUND,
                 ProtocolException.Metadata.of(404, "ACCOUNT_NOT_FOUND", null, null),
                 "protocol account not found",
                 null);
         when(joinTaskMapper.selectByTenantAndId(12L)).thenReturn(task);
         when(resultMapper.selectPendingResultsByTask(12L)).thenReturn(List.of(row), List.of());
         when(accountMapper.selectActiveById(400L)).thenReturn(account);
-        when(accountLifecyclePort.status("acc_864004")).thenThrow(notFound);
+        when(accountRuntimeStatusPort.status(new ProtocolAccountRef(
+                400L, ProtocolBackend.WEB, "acc_864004", "864004"))).thenThrow(notFound);
 
         worker.runTask(1L, 12L);
 
@@ -178,7 +182,9 @@ class JoinTaskWorkerTest {
         when(joinTaskMapper.selectByTenantAndId(13L)).thenReturn(task);
         when(resultMapper.selectPendingResultsByTask(13L)).thenReturn(List.of(row), List.of());
         when(accountMapper.selectActiveById(500L)).thenReturn(account);
-        when(accountLifecyclePort.status("acc_865005")).thenReturn(status("acc_865005", "RECONNECTING"));
+        when(accountRuntimeStatusPort.status(new ProtocolAccountRef(
+                500L, ProtocolBackend.WEB, "acc_865005", "865005")))
+                .thenReturn(new ProtocolAccountRuntimeStatus("RECONNECTING"));
 
         worker.runTask(1L, 13L);
 
@@ -200,7 +206,7 @@ class JoinTaskWorkerTest {
                 accountMapper,
                 accountStateMapper,
                 groupJoinPort,
-                accountLifecyclePort,
+                accountRuntimeStatusPort,
                 command -> {
                     throw new RejectedExecutionException("queue full");
                 },
@@ -219,6 +225,109 @@ class JoinTaskWorkerTest {
         assertThatCode(() -> worker.runTask(1L, 11L)).doesNotThrowAnyException();
 
         verify(joinTaskMapper).updateTaskStatus(eq(11L), eq(JoinTaskStatus.FAILED), anyLong());
+    }
+
+    @Test
+    void runTask_routesWebAndAndroidRowsThroughCanonicalCommands() {
+        JoinTask task = runningTask(20L);
+        JoinTaskResult webRow = pendingRow(201L, 1001L, "https://chat.whatsapp.com/WEB001");
+        JoinTaskResult androidRow = pendingRow(202L, 1002L, "https://chat.whatsapp.com/ANDROID002");
+        Account webAccount = account(1001L, "WEB", "acc_861001", "861001");
+        Account androidAccount = account(1002L, "ANDROID", "acc_919002", "919002");
+        ProtocolAccountRef webRef = new ProtocolAccountRef(
+                1001L, ProtocolBackend.WEB, "acc_861001", "861001");
+        ProtocolAccountRef androidRef = new ProtocolAccountRef(
+                1002L, ProtocolBackend.ANDROID, "acc_919002", "919002");
+        GroupJoinCommand webCommand = new GroupJoinCommand(
+                webRef, webRow.getLink(), "join-task-result:201");
+        GroupJoinCommand androidCommand = new GroupJoinCommand(
+                androidRef, androidRow.getLink(), "join-task-result:202");
+
+        when(joinTaskMapper.selectByTenantAndId(20L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(20L))
+                .thenReturn(List.of(webRow, androidRow), List.of());
+        when(accountMapper.selectActiveById(1001L)).thenReturn(webAccount);
+        when(accountMapper.selectActiveById(1002L)).thenReturn(androidAccount);
+        when(accountRuntimeStatusPort.status(webRef))
+                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
+        when(accountRuntimeStatusPort.status(androidRef))
+                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
+        when(groupJoinPort.join(webCommand))
+                .thenReturn(new GroupJoinResult("120363web@g.us", GroupJoinOutcome.JOINED));
+        when(groupJoinPort.join(androidCommand))
+                .thenReturn(new GroupJoinResult("120363android@g.us", GroupJoinOutcome.JOINED));
+
+        worker.runTask(1L, 20L);
+
+        verify(groupJoinPort).join(webCommand);
+        verify(groupJoinPort).join(androidCommand);
+        verify(resultMapper).updateResultSuccess(eq(201L), eq("120363web@g.us"), anyLong());
+        verify(resultMapper).updateResultSuccess(eq(202L), eq("120363android@g.us"), anyLong());
+    }
+
+    @Test
+    void runTask_doesNotMarkAccountOfflineWhenRuntimeStatusCallHasNetworkFailure() {
+        JoinTask task = runningTask(21L);
+        JoinTaskResult row = pendingRow(211L, 1101L, "https://chat.whatsapp.com/NETWORK");
+        Account account = account(1101L, "ANDROID", "acc_919101", "919101");
+        ProtocolAccountRef ref = new ProtocolAccountRef(
+                1101L, ProtocolBackend.ANDROID, "acc_919101", "919101");
+        when(joinTaskMapper.selectByTenantAndId(21L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(21L)).thenReturn(List.of(row), List.of());
+        when(accountMapper.selectActiveById(1101L)).thenReturn(account);
+        when(accountRuntimeStatusPort.status(ref)).thenThrow(new ProtocolException(
+                ProtocolErrorCode.NETWORK,
+                ProtocolException.Metadata.of(0, "ECONNRESET", null, null),
+                "network",
+                null));
+
+        worker.runTask(1L, 21L);
+
+        verifyNoInteractions(accountStateMapper);
+        verifyNoInteractions(groupJoinPort);
+        verify(resultMapper).updateResultFailed(eq(211L), eq("NETWORK"), anyLong());
+    }
+
+    @Test
+    void runTask_neverMarksUnconfirmedAndroidJoinAsSuccess() {
+        JoinTask task = runningTask(22L);
+        JoinTaskResult row = pendingRow(221L, 1201L, "https://chat.whatsapp.com/UNCONFIRMED");
+        Account account = account(1201L, "ANDROID", "acc_919201", "919201");
+        ProtocolAccountRef ref = new ProtocolAccountRef(
+                1201L, ProtocolBackend.ANDROID, "acc_919201", "919201");
+        GroupJoinCommand command = new GroupJoinCommand(
+                ref, row.getLink(), "join-task-result:221");
+        when(joinTaskMapper.selectByTenantAndId(22L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(22L)).thenReturn(List.of(row), List.of());
+        when(accountMapper.selectActiveById(1201L)).thenReturn(account);
+        when(accountRuntimeStatusPort.status(ref))
+                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
+        when(groupJoinPort.join(command)).thenThrow(new ProtocolException(
+                ProtocolErrorCode.JOIN_RESULT_UNCONFIRMED,
+                "unconfirmed"));
+
+        worker.runTask(1L, 22L);
+
+        verify(resultMapper, never()).updateResultSuccess(eq(221L), any(), anyLong());
+        verify(resultMapper).updateResultFailed(
+                eq(221L), eq("JOIN_RESULT_UNCONFIRMED"), anyLong());
+    }
+
+    @Test
+    void runTask_rejectsAccountWithBlankWsPhoneBeforeProtocolCalls() {
+        JoinTask task = runningTask(23L);
+        JoinTaskResult row = pendingRow(231L, 1301L, "https://chat.whatsapp.com/NO_PHONE");
+        Account account = account(1301L, "ANDROID", "acc_919301", " ");
+        when(joinTaskMapper.selectByTenantAndId(23L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(23L)).thenReturn(List.of(row), List.of());
+        when(accountMapper.selectActiveById(1301L)).thenReturn(account);
+
+        worker.runTask(1L, 23L);
+
+        verifyNoInteractions(accountRuntimeStatusPort);
+        verifyNoInteractions(groupJoinPort);
+        verify(resultMapper).updateResultFailed(
+                eq(231L), eq(JoinTaskWorker.REASON_ACCOUNT_NOT_FOUND), anyLong());
     }
 
     private static JoinTask runningTask(Long id) {
@@ -249,12 +358,4 @@ class JoinTaskWorkerTest {
         return account;
     }
 
-    private static ProtocolAccountStatus onlineStatus(String protocolAccountId) {
-        return status(protocolAccountId, "ONLINE");
-    }
-
-    private static ProtocolAccountStatus status(String protocolAccountId, String state) {
-        return new ProtocolAccountStatus(protocolAccountId, state, "MANUAL_REFRESH",
-                null, null, null, null, false, null, "worker-1");
-    }
 }

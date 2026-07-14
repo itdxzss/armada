@@ -84,6 +84,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         JoinTask task = new JoinTask();
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
         validateLinksForSave(links);
+        validateDistributionForSave(req, links.valid().size());
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         task.setExecuted(0);
         task.setSuccess(0);
@@ -126,6 +127,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         task.setId(id);
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
         validateLinksForSave(links);
+        validateDistributionForSave(req, links.valid().size());
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         joinTaskMapper.update(task);
         resultMapper.deleteResultsByTask(id);
@@ -197,6 +199,40 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         if (links == null || links.valid().isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "当前没有有效群链接，请添加有效链接后再创建任务。");
+        }
+    }
+
+    /** 方式二保存硬校验:账号数必须精确匹配,有效链接允许少于容量但不能超过容量。 */
+    private static void validateDistributionForSave(CreateJoinTaskDTO req, int validLinkCount) {
+        if (req == null || !DistributionMode.FIXED_ACCOUNT_MULTI_LINK.equals(req.distributionMode())) {
+            return;
+        }
+        int executorAccountCount = n(req.executorAccountCount());
+        int linksPerAccount = n(req.linksPerAccount());
+        if (executorAccountCount <= 0 || linksPerAccount <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "执行账号数量和每账号链接数必须为正整数");
+        }
+        int selectedAccountCount = req.selectedAccounts() == null ? 0 : req.selectedAccounts().size();
+        if (selectedAccountCount != executorAccountCount) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "勾选账号数量与填写的执行账号数量不一致，请重新填写");
+        }
+        boolean hasInvalidAccount = req.selectedAccounts().stream()
+                .anyMatch(account -> account == null || account.accountId() == null);
+        long distinctAccountCount = req.selectedAccounts().stream()
+                .filter(account -> account != null && account.accountId() != null)
+                .map(SelectedAccount::accountId)
+                .distinct()
+                .count();
+        if (hasInvalidAccount || distinctAccountCount != executorAccountCount) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "执行账号无效或重复，请重新选择");
+        }
+        long capacity = (long) executorAccountCount * linksPerAccount;
+        if (validLinkCount > capacity) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "有效群链接数量超过任务容量，请补充账号或提高每账号链接上限");
         }
     }
 

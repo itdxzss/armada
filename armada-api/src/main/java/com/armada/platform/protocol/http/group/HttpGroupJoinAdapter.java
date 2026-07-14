@@ -34,10 +34,15 @@ public class HttpGroupJoinAdapter implements GroupJoinPort {
     }
 
     private static JoinRequest buildRequest(String accountId, String inviteCodeOrLink) {
-        if (inviteCodeOrLink.startsWith("http://") || inviteCodeOrLink.startsWith("https://")) {
+        if (startsWithIgnoreCase(inviteCodeOrLink, "http://")
+                || startsWithIgnoreCase(inviteCodeOrLink, "https://")) {
             return new JoinRequest(accountId, null, inviteCodeOrLink);
         }
         return new JoinRequest(accountId, inviteCodeOrLink, null);
+    }
+
+    private static boolean startsWithIgnoreCase(String value, String prefix) {
+        return value.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 
     private static String requireText(String value, String fieldName) {

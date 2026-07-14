@@ -194,7 +194,8 @@ public class ProtocolHttpExecutor {
                 httpStatus,
                 protocolCode,
                 error.retryAfterMs(),
-                error.ownerEndpoint());
+                error.ownerEndpoint(),
+                error.retryable());
 
         // 抛出统一异常:message 面向日志排障,结构化字段面向业务编排。
         throw new ProtocolException(
@@ -328,7 +329,7 @@ public class ProtocolHttpExecutor {
         return false;
     }
 
-    private record ErrorResponseBody(String code, String message, Map<String, Object> details) {
+    private record ErrorResponseBody(String code, String message, Boolean retryable, Map<String, Object> details) {
 
         /**
          * 构造空错误体。
@@ -336,7 +337,7 @@ public class ProtocolHttpExecutor {
          * @return 不含协议 code/message/details 的错误体
          */
         private static ErrorResponseBody empty() {
-            return new ErrorResponseBody(null, null, Map.of());
+            return new ErrorResponseBody(null, null, null, Map.of());
         }
 
         /**

@@ -18,6 +18,7 @@ public class ProtocolException extends RuntimeException {
     private final String protocolCode;
     private final Long retryAfterMs;
     private final String ownerEndpoint;
+    private final Boolean retryable;
 
     /**
      * 创建不带协议层元数据的协议异常。
@@ -60,6 +61,7 @@ public class ProtocolException extends RuntimeException {
         this.protocolCode = safeMetadata.protocolCode;
         this.retryAfterMs = safeMetadata.retryAfterMs;
         this.ownerEndpoint = safeMetadata.ownerEndpoint;
+        this.retryable = safeMetadata.retryable;
     }
 
     /**
@@ -118,6 +120,15 @@ public class ProtocolException extends RuntimeException {
         return Optional.ofNullable(ownerEndpoint);
     }
 
+    /**
+     * 获取协议层对本次失败是否可重试的明确判断。
+     *
+     * @return 协议层未提供时为空
+     */
+    public Optional<Boolean> retryable() {
+        return Optional.ofNullable(retryable);
+    }
+
     private static String normalizeMessage(String message) {
         if (message == null || message.isBlank()) {
             return DEFAULT_MESSAGE;
@@ -144,18 +155,21 @@ public class ProtocolException extends RuntimeException {
      */
     public static final class Metadata {
 
-        private static final Metadata EMPTY = new Metadata(NO_HTTP_STATUS, null, null, null);
+        private static final Metadata EMPTY = new Metadata(NO_HTTP_STATUS, null, null, null, null);
 
         private final int httpStatus;
         private final String protocolCode;
         private final Long retryAfterMs;
         private final String ownerEndpoint;
+        private final Boolean retryable;
 
-        private Metadata(int httpStatus, String protocolCode, Long retryAfterMs, String ownerEndpoint) {
+        private Metadata(int httpStatus, String protocolCode, Long retryAfterMs, String ownerEndpoint,
+                         Boolean retryable) {
             this.httpStatus = Math.max(httpStatus, NO_HTTP_STATUS);
             this.protocolCode = normalizeText(protocolCode);
             this.retryAfterMs = normalizeRetryAfterMs(retryAfterMs);
             this.ownerEndpoint = normalizeText(ownerEndpoint);
+            this.retryable = retryable;
         }
 
         /**
@@ -181,7 +195,19 @@ public class ProtocolException extends RuntimeException {
                 String protocolCode,
                 Long retryAfterMs,
                 String ownerEndpoint) {
-            return new Metadata(httpStatus, protocolCode, retryAfterMs, ownerEndpoint);
+            return new Metadata(httpStatus, protocolCode, retryAfterMs, ownerEndpoint, null);
+        }
+
+        /**
+         * 创建包含协议层重试判断的错误元数据。
+         */
+        public static Metadata of(
+                int httpStatus,
+                String protocolCode,
+                Long retryAfterMs,
+                String ownerEndpoint,
+                Boolean retryable) {
+            return new Metadata(httpStatus, protocolCode, retryAfterMs, ownerEndpoint, retryable);
         }
     }
 }

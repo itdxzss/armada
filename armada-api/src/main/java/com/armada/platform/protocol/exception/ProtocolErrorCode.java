@@ -63,6 +63,24 @@ public enum ProtocolErrorCode {
      */
     ACCOUNT_REACHOUT_RESTRICTED,
 
+    /** 群邀请码无效,属于永久失败。 */
+    INVITE_INVALID,
+
+    /** 群邀请链接已撤销或过期,属于永久失败。 */
+    INVITE_REVOKED,
+
+    /** 群已封禁、满员、不存在或不可访问,属于永久失败。 */
+    GROUP_UNAVAILABLE,
+
+    /** WhatsApp 进群接口限流,可按策略重试。 */
+    RATE_LIMITED,
+
+    /** 网络、超时或 WhatsApp 服务临时不可用,可按策略重试。 */
+    TEMPORARY_FAILURE,
+
+    /** 尚未识别的进群错误,默认保留重试机会。 */
+    GROUP_JOIN_UNKNOWN,
+
     /**
      * 未识别或尚未映射的协议层失败。
      */

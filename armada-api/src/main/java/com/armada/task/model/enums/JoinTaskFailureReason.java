@@ -60,6 +60,15 @@ public enum JoinTaskFailureReason {
     /** WhatsApp 限制账号主动触达或加群。 */
     ACCOUNT_REACHOUT_RESTRICTED("ACCOUNT_REACHOUT_RESTRICTED", "账号触达受限，无法进群"),
 
+    /** WhatsApp 群邀请码无效。 */
+    INVITE_INVALID("INVITE_INVALID", "群邀请码无效"),
+
+    /** 群邀请链接已撤销或过期。 */
+    INVITE_REVOKED("INVITE_REVOKED", "群邀请链接已失效"),
+
+    /** 群已封禁、满员、不存在或当前不可访问。 */
+    GROUP_UNAVAILABLE("GROUP_UNAVAILABLE", "群不可用或已封禁"),
+
     /** 未识别的协议层失败。 */
     UNKNOWN("UNKNOWN", "进群失败");
 

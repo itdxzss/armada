@@ -4,6 +4,7 @@ import com.armada.group.service.GroupLinkUrls;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /** 进群链接输入框文本分类:按行拆分、去空、去重保序,严格 https 群链接为有效,否则无效。 */
@@ -38,9 +39,14 @@ public final class LinkClassifier {
                 seen.add(line);
             }
         }
+        Set<String> seenValid = new LinkedHashSet<>();
         for (String line : seen) {
-            if (isStrictHttpsInviteLink(line)) {
-                valid.add(line);
+            Optional<String> normalized = strictHttpsInviteLink(line);
+            if (normalized.isPresent()) {
+                String canonical = REQUIRED_PREFIX + normalized.orElseThrow();
+                if (seenValid.add(canonical)) {
+                    valid.add(canonical);
+                }
             } else {
                 invalid.add(line);
             }
@@ -48,8 +54,10 @@ public final class LinkClassifier {
         return new Classified(valid, invalid);
     }
 
-    private static boolean isStrictHttpsInviteLink(String line) {
-        return line.regionMatches(true, 0, REQUIRED_PREFIX, 0, REQUIRED_PREFIX.length())
-                && GroupLinkUrls.tryNormalize(line).isPresent();
+    private static Optional<String> strictHttpsInviteLink(String line) {
+        if (!line.regionMatches(true, 0, REQUIRED_PREFIX, 0, REQUIRED_PREFIX.length())) {
+            return Optional.empty();
+        }
+        return GroupLinkUrls.tryNormalize(line);
     }
 }

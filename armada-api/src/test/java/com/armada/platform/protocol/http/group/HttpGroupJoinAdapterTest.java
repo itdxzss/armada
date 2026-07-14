@@ -72,4 +72,31 @@ class HttpGroupJoinAdapterTest {
         assertThat(result.joined()).isFalse();
         server.verify();
     }
+
+    @Test
+    void joinRecognizesUppercaseHttpSchemeAsInviteLink() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupJoinPort port = new HttpGroupJoinAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol.internal/v1/groups/join"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "accountId": "acc_863333",
+                          "inviteLink": "HTTPS://CHAT.WHATSAPP.COM/AbC789/"
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "groupJid": "120363uppercase@g.us",
+                          "joined": true
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        GroupJoinResult result = port.join("acc_863333", "HTTPS://CHAT.WHATSAPP.COM/AbC789/");
+
+        assertThat(result.joined()).isTrue();
+        server.verify();
+    }
 }

@@ -127,7 +127,41 @@ class ProtocolHttpExecutorTest {
                     assertThat(ex.errorCode()).isEqualTo(ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED);
                     assertThat(ex.httpStatus()).isEqualTo(422);
                     assertThat(ex.protocolCode()).contains("ACCOUNT_REACHOUT_RESTRICTED");
+                    assertThat(ex.retryable()).isEmpty();
                     assertThat(ex.getMessage()).contains("account reachout restricted while joining group");
+                });
+        server.verify();
+    }
+
+    @Test
+    void mapsPermanentGroupJoinErrorAndRetryability() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ProtocolHttpExecutor executor = new ProtocolHttpExecutor(builder.build());
+
+        server.expect(requestTo("http://protocol.internal/v1/groups/join"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.GONE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "code": "INVITE_REVOKED",
+                                  "message": "invite was revoked",
+                                  "retryable": false,
+                                  "details": {
+                                    "rawCode": 410
+                                  }
+                                }
+                                """));
+
+        assertThatThrownBy(() -> executor.postTyped(
+                "/v1/groups/join",
+                Map.of("accountId", "acc_1", "inviteCode", "REVOKED"),
+                PingResponse.class))
+                .isInstanceOfSatisfying(ProtocolException.class, ex -> {
+                    assertThat(ex.errorCode()).isEqualTo(ProtocolErrorCode.INVITE_REVOKED);
+                    assertThat(ex.protocolCode()).contains("INVITE_REVOKED");
+                    assertThat(ex.retryable()).contains(false);
                 });
         server.verify();
     }

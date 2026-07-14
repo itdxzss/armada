@@ -117,8 +117,8 @@ class JoinTaskMutationDbTest extends DbTestBase {
      *
      * <p>创建:方式一 FIXED_ACCOUNTS_PER_LINK,2 链接 accountsPerLink=2,3 账号 → total=4。
      * 编辑:改为方式二 FIXED_ACCOUNT_MULTI_LINK,2 账号 executorAccountCount=2 linksPerAccount=3,
-     * 只 1 条有效链接 → total=2(每账号进1条)。
-     * 断言:名称变、distributionMode 变、getDetail.total()=2、results 行数从 4 变 2,且链接为新链接。</p>
+     * 只 1 条有效链接 → total=1(链接只分配给轮询到的第一个账号)。
+     * 断言:名称变、distributionMode 变、getDetail.total()=1、results 行数从 4 变 1,且链接为新链接。</p>
      */
     @Test
     void case1_updateTask_configAndPlanRebuilt() {
@@ -139,7 +139,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
         assertThat(created.total()).isEqualTo(4);
 
         // 编辑:改名 + 换方式二 + 只 1 条有效链接
-        // executorAccountCount=2,linksPerAccount=3,但只有 1 条链接 → 每账号只进 1 条 → total=2
+        // executorAccountCount=2,linksPerAccount=3,但只有 1 条链接 → 单链接只分配 1 个账号 → total=1
         CreateJoinTaskDTO updateReq = new CreateJoinTaskDTO(
                 "新任务名称",
                 List.of(10L),
@@ -156,15 +156,15 @@ class JoinTaskMutationDbTest extends DbTestBase {
         // 配置字段已更新
         assertThat(detail.name()).isEqualTo("新任务名称");
         assertThat(detail.distributionMode()).isEqualTo("FIXED_ACCOUNT_MULTI_LINK");
-        assertThat(detail.total()).isEqualTo(2);
+        assertThat(detail.total()).isEqualTo(1);
 
-        // 计划行重建:行数从 4 变 2,链接为新链接 LINK3
+        // 计划行重建:行数从 4 变 1,链接为新链接 LINK3
         List<JoinResultRowVO> rows = service.results(created.id());
-        assertThat(rows).hasSize(2);
+        assertThat(rows).hasSize(1);
         assertThat(rows).extracting(JoinResultRowVO::link).containsOnly(LINK3);
 
         // getDetail 总数与明细一致
-        assertThat(service.getDetail(created.id()).total()).isEqualTo(2);
+        assertThat(service.getDetail(created.id()).total()).isEqualTo(1);
     }
 
     // =========================================================================

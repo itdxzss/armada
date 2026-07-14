@@ -11,6 +11,7 @@ import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
 import com.armada.task.model.entity.JoinTask;
@@ -22,11 +23,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -34,6 +43,8 @@ import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -70,6 +81,7 @@ class JoinTaskWorkerTest {
                 accountStateMapper,
                 groupJoinPort,
                 accountLifecyclePort,
+                Runnable::run,
                 Runnable::run,
                 millis -> {
                 });
@@ -181,6 +193,165 @@ class JoinTaskWorkerTest {
     }
 
     @Test
+    void runTask_retryLimitTwoAllowsInitialAttemptPlusTwoRetriesAndCanSucceed() {
+        JoinTask task = runningTask(14L);
+        task.setRetryEnabled(true);
+        task.setRetryLimit(2);
+        JoinTaskResult row = pendingRow(140L, 600L, "https://chat.whatsapp.com/RETRY_OK");
+        Account account = account(600L, "acc_866006");
+        when(joinTaskMapper.selectByTenantAndId(14L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(14L)).thenReturn(List.of(row), List.of());
+        when(accountMapper.selectActiveById(600L)).thenReturn(account);
+        when(accountLifecyclePort.status("acc_866006")).thenReturn(onlineStatus("acc_866006"));
+        when(groupJoinPort.join("acc_866006", row.getLink()))
+                .thenThrow(new IllegalStateException("temporary-1"))
+                .thenThrow(new IllegalStateException("temporary-2"))
+                .thenReturn(new GroupJoinResult("120363retry@g.us", true));
+
+        worker.runTask(1L, 14L);
+
+        verify(groupJoinPort, times(3)).join("acc_866006", row.getLink());
+        verify(resultMapper).updateResultSuccess(eq(140L), eq("120363retry@g.us"), anyLong());
+        verify(resultMapper, never()).updateResultFailed(eq(140L), eq("temporary-1"), anyLong());
+    }
+
+    @Test
+    void runTask_exhaustedRetriesFailOnlyAfterThreeProtocolCalls() {
+        JoinTask task = runningTask(15L);
+        task.setRetryEnabled(true);
+        task.setRetryLimit(2);
+        JoinTaskResult row = pendingRow(150L, 700L, "https://chat.whatsapp.com/RETRY_FAIL");
+        Account account = account(700L, "acc_867007");
+        when(joinTaskMapper.selectByTenantAndId(15L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(15L)).thenReturn(List.of(row), List.of());
+        when(accountMapper.selectActiveById(700L)).thenReturn(account);
+        when(accountLifecyclePort.status("acc_867007")).thenReturn(onlineStatus("acc_867007"));
+        when(groupJoinPort.join("acc_867007", row.getLink()))
+                .thenThrow(new IllegalStateException("temporary"));
+
+        worker.runTask(1L, 15L);
+
+        verify(groupJoinPort, times(3)).join("acc_867007", row.getLink());
+        verify(resultMapper).updateResultFailed(eq(150L), eq("temporary"), anyLong());
+    }
+
+    @Test
+    void runTask_doesNotRetryExplicitPermanentInviteFailure() {
+        JoinTask task = runningTask(16L);
+        task.setRetryEnabled(true);
+        task.setRetryLimit(2);
+        JoinTaskResult row = pendingRow(160L, 800L, "https://chat.whatsapp.com/REVOKED");
+        Account account = account(800L, "acc_868008");
+        ProtocolException revoked = new ProtocolException(
+                ProtocolErrorCode.INVITE_REVOKED,
+                ProtocolException.Metadata.of(410, "INVITE_REVOKED", null, null, false),
+                "invite revoked",
+                null);
+        when(joinTaskMapper.selectByTenantAndId(16L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(16L)).thenReturn(List.of(row), List.of());
+        when(accountMapper.selectActiveById(800L)).thenReturn(account);
+        when(accountLifecyclePort.status("acc_868008")).thenReturn(onlineStatus("acc_868008"));
+        when(groupJoinPort.join("acc_868008", row.getLink())).thenThrow(revoked);
+
+        worker.runTask(1L, 16L);
+
+        verify(groupJoinPort).join("acc_868008", row.getLink());
+        verify(resultMapper).updateResultFailed(eq(160L), eq("INVITE_REVOKED"), anyLong());
+    }
+
+    @Test
+    void runTask_executesDifferentAccountLanesConcurrentlyWithTenantContext() throws Exception {
+        ExecutorService lanePool = Executors.newFixedThreadPool(2);
+        JoinTaskWorker concurrentWorker = new JoinTaskWorker(
+                joinTaskMapper,
+                resultMapper,
+                accountMapper,
+                accountStateMapper,
+                groupJoinPort,
+                accountLifecyclePort,
+                Runnable::run,
+                lanePool,
+                millis -> {
+                });
+        JoinTask task = runningTask(17L);
+        task.setDistributionMode(DistributionMode.FIXED_ACCOUNT_MULTI_LINK);
+        JoinTaskResult rowA = pendingRow(170L, 900L, "https://chat.whatsapp.com/A1");
+        JoinTaskResult rowB = pendingRow(171L, 901L, "https://chat.whatsapp.com/B1");
+        when(joinTaskMapper.selectByTenantAndId(17L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(17L)).thenReturn(List.of(rowA, rowB), List.of());
+        when(accountMapper.selectActiveById(900L)).thenReturn(account(900L, "acc_A"));
+        when(accountMapper.selectActiveById(901L)).thenReturn(account(901L, "acc_B"));
+        when(accountLifecyclePort.status("acc_A")).thenReturn(onlineStatus("acc_A"));
+        when(accountLifecyclePort.status("acc_B")).thenReturn(onlineStatus("acc_B"));
+        CountDownLatch bothEntered = new CountDownLatch(2);
+        AtomicBoolean overlapped = new AtomicBoolean(true);
+        ConcurrentLinkedQueue<Long> observedTenants = new ConcurrentLinkedQueue<>();
+        when(groupJoinPort.join(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenAnswer(invocation -> {
+                    observedTenants.add(TenantContext.get());
+                    bothEntered.countDown();
+                    if (!bothEntered.await(2, TimeUnit.SECONDS)) {
+                        overlapped.set(false);
+                    }
+                    String protocolAccountId = invocation.getArgument(0);
+                    return new GroupJoinResult(protocolAccountId + "@g.us", true);
+                });
+
+        try {
+            concurrentWorker.runTask(1L, 17L);
+        } finally {
+            lanePool.shutdownNow();
+        }
+
+        assertThat(lanePool.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(overlapped).isTrue();
+        assertThat(observedTenants).containsExactlyInAnyOrder(1L, 1L);
+        verify(groupJoinPort).join("acc_A", rowA.getLink());
+        verify(groupJoinPort).join("acc_B", rowB.getLink());
+        verify(joinTaskMapper).updateTaskStatus(eq(17L), eq(JoinTaskStatus.DONE), anyLong());
+        verify(joinTaskMapper, never()).updateTaskStatus(eq(17L), eq(JoinTaskStatus.FAILED), anyLong());
+    }
+
+    @Test
+    void runTask_waitsOnlyBetweenRowsInTheSameAccountLane() {
+        List<Long> sleeps = new CopyOnWriteArrayList<>();
+        JoinTaskWorker intervalWorker = new JoinTaskWorker(
+                joinTaskMapper,
+                resultMapper,
+                accountMapper,
+                accountStateMapper,
+                groupJoinPort,
+                accountLifecyclePort,
+                Runnable::run,
+                Runnable::run,
+                sleeps::add);
+        JoinTask task = runningTask(18L);
+        task.setDistributionMode(DistributionMode.FIXED_ACCOUNT_MULTI_LINK);
+        task.setMultiIntervalMinSec(1);
+        task.setMultiIntervalMaxSec(1);
+        JoinTaskResult rowA1 = pendingRow(180L, 910L, "https://chat.whatsapp.com/A1");
+        JoinTaskResult rowB1 = pendingRow(181L, 911L, "https://chat.whatsapp.com/B1");
+        JoinTaskResult rowA2 = pendingRow(182L, 910L, "https://chat.whatsapp.com/A2");
+        when(joinTaskMapper.selectByTenantAndId(18L)).thenReturn(task);
+        when(resultMapper.selectPendingResultsByTask(18L)).thenReturn(List.of(rowA1, rowB1, rowA2), List.of());
+        when(accountMapper.selectActiveById(910L)).thenReturn(account(910L, "acc_A"));
+        when(accountMapper.selectActiveById(911L)).thenReturn(account(911L, "acc_B"));
+        when(accountLifecyclePort.status("acc_A")).thenReturn(onlineStatus("acc_A"));
+        when(accountLifecyclePort.status("acc_B")).thenReturn(onlineStatus("acc_B"));
+        when(groupJoinPort.join(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(new GroupJoinResult("120363joined@g.us", true));
+
+        intervalWorker.runTask(1L, 18L);
+
+        assertThat(sleeps).containsExactly(1_000L);
+        InOrder order = inOrder(groupJoinPort);
+        order.verify(groupJoinPort).join("acc_A", rowA1.getLink());
+        order.verify(groupJoinPort).join("acc_A", rowA2.getLink());
+        order.verify(groupJoinPort).join("acc_B", rowB1.getLink());
+    }
+
+    @Test
     void startAsync_marksTaskFailedWhenExecutorRejectsSubmission() {
         JoinTaskWorker rejectingWorker = new JoinTaskWorker(
                 joinTaskMapper,
@@ -192,6 +363,7 @@ class JoinTaskWorkerTest {
                 command -> {
                     throw new RejectedExecutionException("queue full");
                 },
+                Runnable::run,
                 millis -> {
                 });
 

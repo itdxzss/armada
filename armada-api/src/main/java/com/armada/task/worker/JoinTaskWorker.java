@@ -5,6 +5,7 @@ import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.ProtocolAccountStatus;
@@ -25,7 +26,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -60,6 +64,7 @@ public class JoinTaskWorker implements DisposableBean {
     private final GroupJoinPort groupJoinPort;
     private final AccountLifecyclePort accountLifecyclePort;
     private final Executor executor;
+    private final Executor laneExecutor;
     private final Sleeper sleeper;
     private final Set<String> activeTasks = ConcurrentHashMap.newKeySet();
 
@@ -76,9 +81,13 @@ public class JoinTaskWorker implements DisposableBean {
             AccountStateMapper accountStateMapper,
             GroupJoinPort groupJoinPort,
             AccountLifecyclePort accountLifecyclePort,
-            @Value("${armada.join-task.worker.pool-size:4}") int poolSize) {
+            @Value("${armada.join-task.worker.pool-size:4}") int poolSize,
+            @Value("${armada.join-task.worker.account-lane-pool-size:16}") int lanePoolSize) {
         this(joinTaskMapper, resultMapper, accountMapper, accountStateMapper, groupJoinPort,
-                accountLifecyclePort, newPool(poolSize), Thread::sleep);
+                accountLifecyclePort,
+                newPool(poolSize, "join-task-worker-"),
+                newPool(lanePoolSize, "join-task-account-"),
+                Thread::sleep);
     }
 
     public JoinTaskWorker(
@@ -89,6 +98,7 @@ public class JoinTaskWorker implements DisposableBean {
             GroupJoinPort groupJoinPort,
             AccountLifecyclePort accountLifecyclePort,
             Executor executor,
+            Executor laneExecutor,
             Sleeper sleeper) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
@@ -97,14 +107,15 @@ public class JoinTaskWorker implements DisposableBean {
         this.groupJoinPort = groupJoinPort;
         this.accountLifecyclePort = accountLifecyclePort;
         this.executor = executor;
+        this.laneExecutor = laneExecutor;
         this.sleeper = sleeper;
     }
 
-    private static ExecutorService newPool(int poolSize) {
+    private static ExecutorService newPool(int poolSize, String threadNamePrefix) {
         int size = poolSize > 0 ? poolSize : 1;
         AtomicInteger seq = new AtomicInteger();
         return Executors.newFixedThreadPool(size, task -> {
-            Thread thread = new Thread(task, "join-task-worker-" + seq.incrementAndGet());
+            Thread thread = new Thread(task, threadNamePrefix + seq.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         });
@@ -189,16 +200,49 @@ public class JoinTaskWorker implements DisposableBean {
             return;
         }
         log.info("进群任务 worker 开始 taskId={} pending={}", taskId, rows.size());
-        for (int i = 0; i < rows.size(); i++) {
-            processRow(task, rows.get(i));
-            if (i < rows.size() - 1) {
-                sleepQuietly(nextIntervalMs(task));
-            }
-        }
+        runAccountLanes(task, rows);
         if (resultMapper.selectPendingResultsByTask(taskId).isEmpty()) {
             joinTaskMapper.updateTaskStatus(taskId, JoinTaskStatus.DONE, System.currentTimeMillis());
         }
         log.info("进群任务 worker 完成一轮 taskId={} processed={}", taskId, rows.size());
+    }
+
+    private void runAccountLanes(JoinTask task, List<JoinTaskResult> rows) {
+        Map<Long, List<JoinTaskResult>> lanes = new LinkedHashMap<>();
+        for (JoinTaskResult row : rows) {
+            lanes.computeIfAbsent(row.getAccountId(), ignored -> new java.util.ArrayList<>()).add(row);
+        }
+        Long tenantId = TenantContext.get();
+        List<CompletableFuture<Void>> futures = new java.util.ArrayList<>(lanes.size());
+        for (List<JoinTaskResult> lane : lanes.values()) {
+            futures.add(CompletableFuture.runAsync(
+                    () -> runLaneWithTenant(tenantId, task, lane),
+                    laneExecutor));
+        }
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+    }
+
+    private void runLaneWithTenant(Long tenantId, JoinTask task, List<JoinTaskResult> lane) {
+        Long previousTenant = TenantContext.get();
+        if (tenantId == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.set(tenantId);
+        }
+        try {
+            for (int i = 0; i < lane.size(); i++) {
+                processRow(task, lane.get(i));
+                if (i < lane.size() - 1) {
+                    sleepQuietly(nextIntervalMs(task));
+                }
+            }
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
     }
 
     private void processRow(JoinTask task, JoinTaskResult row) {
@@ -212,17 +256,48 @@ public class JoinTaskWorker implements DisposableBean {
                 fail(row, REASON_ACCOUNT_NOT_ONLINE);
                 return;
             }
-            GroupJoinResult result = groupJoinPort.join(account.getProtocolAccountId(), row.getLink());
-            if (result != null && result.joined()) {
-                resultMapper.updateResultSuccess(row.getId(), nullToEmpty(result.groupJid()), System.currentTimeMillis());
-                return;
-            }
-            fail(row, REASON_JOIN_PENDING_APPROVAL);
+            joinWithRetries(task, row, account);
         } catch (RuntimeException ex) {
             fail(row, reason(ex));
         } finally {
             joinTaskMapper.refreshCounters(task.getId());
         }
+    }
+
+    private void joinWithRetries(JoinTask task, JoinTaskResult row, Account account) {
+        int retryLimit = task.isRetryEnabled() ? Math.max(0, task.getRetryLimit()) : 0;
+        for (int retryIndex = 0; ; retryIndex++) {
+            try {
+                GroupJoinResult result = groupJoinPort.join(account.getProtocolAccountId(), row.getLink());
+                if (result != null && result.joined()) {
+                    resultMapper.updateResultSuccess(row.getId(), nullToEmpty(result.groupJid()),
+                            System.currentTimeMillis());
+                    return;
+                }
+                fail(row, REASON_JOIN_PENDING_APPROVAL);
+                return;
+            } catch (RuntimeException ex) {
+                if (retryIndex >= retryLimit || !isRetryable(ex)) {
+                    fail(row, reason(ex));
+                    return;
+                }
+                sleepQuietly(nextIntervalMs(task));
+            }
+        }
+    }
+
+    private static boolean isRetryable(RuntimeException ex) {
+        if (!(ex instanceof ProtocolException protocolException)) {
+            return true;
+        }
+        if (protocolException.retryable().isPresent()) {
+            return protocolException.retryable().orElse(false);
+        }
+        ProtocolErrorCode code = protocolException.errorCode();
+        return !ProtocolErrorCode.INVITE_INVALID.equals(code)
+                && !ProtocolErrorCode.INVITE_REVOKED.equals(code)
+                && !ProtocolErrorCode.GROUP_UNAVAILABLE.equals(code)
+                && !ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED.equals(code);
     }
 
     private Account resolveAccount(JoinTaskResult row) {
@@ -330,7 +405,14 @@ public class JoinTaskWorker implements DisposableBean {
 
     @Override
     public void destroy() {
-        if (executor instanceof ExecutorService executorService) {
+        shutdown(executor);
+        if (laneExecutor != executor) {
+            shutdown(laneExecutor);
+        }
+    }
+
+    private static void shutdown(Executor target) {
+        if (target instanceof ExecutorService executorService) {
             executorService.shutdownNow();
         }
     }

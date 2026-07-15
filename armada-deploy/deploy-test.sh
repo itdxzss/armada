@@ -133,6 +133,9 @@ validate_zhuan_remote_dir() {
   case "${ZHUAN_REMOTE_DIR}" in
     *[!A-Za-z0-9_./-]*) die "Zhuan 远端目录仅允许字母、数字、点、下划线、斜杠和连字符: ${ZHUAN_REMOTE_DIR}" ;;
   esac
+  case "${ZHUAN_REMOTE_DIR}" in
+    *//*|*/./*|*/.) die "Zhuan 远端目录不能包含重复斜杠或 . 路径段: ${ZHUAN_REMOTE_DIR}" ;;
+  esac
   case "/${ZHUAN_REMOTE_DIR#/}/" in
     */../*) die "Zhuan 远端目录不能包含 .. 路径段: ${ZHUAN_REMOTE_DIR}" ;;
   esac
@@ -781,6 +784,12 @@ if [ "${BUILD_ZHUAN}" = 1 ]; then
     --exclude='*.tar' \
     --exclude='*.tar.gz' \
     --exclude='*.tgz' \
+    --exclude='*.gz' \
+    --exclude='*.bz2' \
+    --exclude='*.xz' \
+    --exclude='*.zst' \
+    --exclude='*.7z' \
+    --exclude='*.rar' \
     "${ZHUAN_DIR}/" \
     "${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}/"
 

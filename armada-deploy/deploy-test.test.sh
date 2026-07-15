@@ -167,6 +167,12 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   printf 'prod-config\n' >"${destination}/deploy/configs/prod_configs.toml"
   printf 'private-key\n' >"${destination}/private.key"
   printf 'archive\n' >"${destination}/release.tar.gz"
+  printf 'compressed-dump\n' >"${destination}/backup.sql.gz"
+  printf 'compressed-dump\n' >"${destination}/backup.bz2"
+  printf 'compressed-dump\n' >"${destination}/backup.xz"
+  printf 'compressed-dump\n' >"${destination}/backup.zst"
+  printf 'compressed-dump\n' >"${destination}/backup.7z"
+  printf 'compressed-dump\n' >"${destination}/backup.rar"
   printf 'runtime-log\n' >"${destination}/logs/runtime.log"
   chmod 755 "${source}/deploy/configs"
   chmod 700 "${destination}/deploy/configs"
@@ -188,6 +194,12 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
     --exclude='*.tar' \
     --exclude='*.tar.gz' \
     --exclude='*.tgz' \
+    --exclude='*.gz' \
+    --exclude='*.bz2' \
+    --exclude='*.xz' \
+    --exclude='*.zst' \
+    --exclude='*.7z' \
+    --exclude='*.rar' \
     "${source}/" "${destination}/"
 
   [ -f "${destination}/main.go" ] || fail "expected source file to be synchronized"
@@ -198,6 +210,9 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   [ -f "${destination}/deploy/configs/prod_configs.toml" ] || fail "expected production config to be preserved"
   [ -f "${destination}/private.key" ] || fail "expected private key to be preserved"
   [ -f "${destination}/release.tar.gz" ] || fail "expected archive to be preserved"
+  for archive in backup.sql.gz backup.bz2 backup.xz backup.zst backup.7z backup.rar; do
+    [ -f "${destination}/${archive}" ] || fail "expected compressed archive to be preserved: ${archive}"
+  done
   [ -f "${destination}/logs/runtime.log" ] || fail "expected runtime log to be preserved"
   mode="$(stat -f '%Lp' "${destination}/deploy/configs" 2>/dev/null || stat -c '%a' "${destination}/deploy/configs")"
   [ "${mode}" = 700 ] || fail "expected protected config directory mode 700, got ${mode}"
@@ -300,6 +315,22 @@ test_zhuan_rejects_unsafe_remote_dir() {
   assert_contains "${out}" "Zhuan 远端目录仅允许"
 }
 
+test_zhuan_rejects_root_equivalent_remote_dirs() {
+  local bad_dir key
+  key="$(mktemp)"
+  chmod 600 "${key}"
+  for bad_dir in / /. /./ // /home//app /home/./app /home/../app; do
+    if ARMADA_DEPLOY_KEY="${key}" \
+      ARMADA_ZHUAN_DEPLOY_KEY="${key}" \
+      ARMADA_ZHUAN_DEPLOY_REMOTE_DIR="${bad_dir}" \
+      "${SCRIPT}" --zhuan --dry-run >/dev/null 2>&1; then
+      rm -f "${key}"
+      fail "expected root-equivalent Zhuan remote directory to be rejected: ${bad_dir}"
+    fi
+  done
+  rm -f "${key}"
+}
+
 test_armada_default_key_uses_testpem_directory() {
   local script_content
   script_content="$(sed -n '1,40p' "${SCRIPT}")"
@@ -368,6 +399,12 @@ test_zhuan_sync_preserves_remote_runtime_files() {
   assert_contains "${script_content}" "--exclude='*.tar'"
   assert_contains "${script_content}" "--exclude='*.tar.gz'"
   assert_contains "${script_content}" "--exclude='*.tgz'"
+  assert_contains "${script_content}" "--exclude='*.gz'"
+  assert_contains "${script_content}" "--exclude='*.bz2'"
+  assert_contains "${script_content}" "--exclude='*.xz'"
+  assert_contains "${script_content}" "--exclude='*.zst'"
+  assert_contains "${script_content}" "--exclude='*.7z'"
+  assert_contains "${script_content}" "--exclude='*.rar'"
   assert_not_contains "${script_content}" "--delete-excluded"
 }
 
@@ -414,6 +451,7 @@ test_zhuan_dry_run_is_zhuan_only
 test_full_includes_zhuan_but_all_does_not
 test_zhuan_defaults_to_armada_test_host
 test_zhuan_rejects_unsafe_remote_dir
+test_zhuan_rejects_root_equivalent_remote_dirs
 test_armada_default_key_uses_testpem_directory
 test_frontend_dry_run_infers_second_environment_title
 test_sh_invocation_reexecs_bash_for_help

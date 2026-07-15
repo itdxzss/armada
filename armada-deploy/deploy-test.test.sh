@@ -148,6 +148,31 @@ test_protocol_remote_deploy_verifies_node_24_apps_after_reload() {
   assert_contains "${script_content}" 'expectedProtocolApps = 5'
 }
 
+test_zhuan_sync_preserves_remote_runtime_files() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" '--exclude-from="${ZHUAN_DIR}/.dockerignore"'
+  assert_contains "${script_content}" "--exclude=deploy/.env"
+  assert_contains "${script_content}" "--exclude=deploy/configs/prod_configs.toml"
+  assert_contains "${script_content}" "--exclude=deploy/logs/"
+  assert_contains "${script_content}" "--exclude=deploy/callback-logs/"
+  assert_not_contains "${script_content}" "--delete-excluded"
+}
+
+test_zhuan_remote_deploy_checks_config_and_runs_lifecycle() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" 'test -f "${remote_dir}/deploy/.env"'
+  assert_contains "${script_content}" 'test -f "${remote_dir}/deploy/configs/prod_configs.toml"'
+  assert_contains "${script_content}" "sudo docker compose config --quiet"
+  assert_contains "${script_content}" "sudo docker compose build whatsapp-android-zhuan"
+  assert_contains "${script_content}" "sudo docker compose up -d redis-zhuan callback-zhuan"
+  assert_contains "${script_content}" "sudo docker compose run --rm whatsapp-android-zhuan /app/whatsapp-migrate -env prod"
+  assert_contains "${script_content}" "sudo docker compose up -d whatsapp-android-zhuan"
+}
+
 test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
 test_protocol_default_key_uses_testpem_directory
@@ -159,4 +184,6 @@ test_frontend_dry_run_infers_second_environment_title
 test_sh_invocation_reexecs_bash_for_help
 test_protocol_remote_deploy_requires_node_24_toolchain
 test_protocol_remote_deploy_verifies_node_24_apps_after_reload
+test_zhuan_sync_preserves_remote_runtime_files
+test_zhuan_remote_deploy_checks_config_and_runs_lifecycle
 printf 'OK deploy-test.sh protocol tests passed\n'

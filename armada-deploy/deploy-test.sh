@@ -418,6 +418,13 @@ PROTOCOL_SSH_OPTS=(
   -o StrictHostKeyChecking=accept-new
 )
 PROTOCOL_RSYNC_SSH="ssh -i ${PROTOCOL_SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+ZHUAN_SSH_OPTS=(
+  -i "${ZHUAN_SSH_KEY}"
+  -o BatchMode=yes
+  -o ConnectTimeout=15
+  -o StrictHostKeyChecking=accept-new
+)
+ZHUAN_RSYNC_SSH="ssh -i ${ZHUAN_SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
 
 ssh_run() {
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" "$@"
@@ -425,6 +432,10 @@ ssh_run() {
 
 protocol_ssh_run() {
   ssh "${PROTOCOL_SSH_OPTS[@]}" "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}" "$@"
+}
+
+zhuan_ssh_run() {
+  ssh "${ZHUAN_SSH_OPTS[@]}" "${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}" "$@"
 }
 
 remote_required_env_check='
@@ -496,6 +507,24 @@ process.stdin.on(\"end\", () => {
 })
 "
 pm2 save >/dev/null 2>&1 || true
+'
+
+zhuan_remote_required_files_check='
+set -eu
+remote_dir="$1"
+test -f "${remote_dir}/deploy/.env" || { echo "远端缺少 Zhuan 配置: ${remote_dir}/deploy/.env" >&2; exit 40; }
+test -f "${remote_dir}/deploy/configs/prod_configs.toml" || { echo "远端缺少 Zhuan 配置: ${remote_dir}/deploy/configs/prod_configs.toml" >&2; exit 41; }
+'
+
+zhuan_remote_deploy='
+set -eu
+remote_dir="$1"
+cd "${remote_dir}/deploy"
+sudo docker compose config --quiet
+sudo docker compose build whatsapp-android-zhuan
+sudo docker compose up -d redis-zhuan callback-zhuan
+sudo docker compose run --rm whatsapp-android-zhuan /app/whatsapp-migrate -env prod
+sudo docker compose up -d whatsapp-android-zhuan
 '
 
 print_plan() {
@@ -584,6 +613,11 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   info "检查协议 SSH 连通性..."
   protocol_ssh_run true || die "协议 SSH 连接失败"
   ok "协议服务器可达"
+fi
+if [ "${BUILD_ZHUAN}" = 1 ]; then
+  info "检查 Zhuan SSH 连通性..."
+  zhuan_ssh_run true || die "Zhuan SSH 连接失败"
+  ok "Zhuan 服务器可达"
 fi
 
 if [ "${ASSUME_YES}" != 1 ]; then
@@ -681,6 +715,28 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
 
   info "构建并重载协议层..."
   protocol_ssh_run "bash -s -- '${PROTOCOL_REMOTE_DIR}' '${PROTOCOL_PM2_CONFIG}'" <<<"${protocol_remote_deploy}"
+fi
+
+if [ "${BUILD_ZHUAN}" = 1 ]; then
+  info "准备 Zhuan 远端目录..."
+  zhuan_ssh_run "mkdir -p '${ZHUAN_REMOTE_DIR}'"
+
+  info "检查 Zhuan 远端配置..."
+  zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_required_files_check}"
+  ok "Zhuan 远端运行配置已就绪"
+
+  info "同步 Zhuan 源码..."
+  rsync -az --delete -e "${ZHUAN_RSYNC_SSH}" \
+    --exclude-from="${ZHUAN_DIR}/.dockerignore" \
+    --exclude=deploy/.env \
+    --exclude=deploy/configs/prod_configs.toml \
+    --exclude=deploy/logs/ \
+    --exclude=deploy/callback-logs/ \
+    "${ZHUAN_DIR}/" \
+    "${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}/"
+
+  info "构建并启动 Zhuan 协议..."
+  zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_deploy}"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then

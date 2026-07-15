@@ -527,6 +527,28 @@ sudo docker compose run --rm whatsapp-android-zhuan /app/whatsapp-migrate -env p
 sudo docker compose up -d whatsapp-android-zhuan
 '
 
+zhuan_remote_health_check='
+set -eu
+remote_dir="$1"
+cd "${remote_dir}/deploy"
+for container in redis-zhuan callback-zhuan whatsapp-android-zhuan; do
+  attempt=1
+  while :; do
+    state="$(sudo docker inspect -f "{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" "${container}" 2>/dev/null || true)"
+    if [ "${state}" = "running/healthy" ]; then
+      break
+    fi
+    if [ "${attempt}" -ge 24 ]; then
+      echo "Zhuan 容器未在时限内就绪: ${container}, state=${state:-missing}" >&2
+      exit 42
+    fi
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+done
+curl -fsS -m 8 http://127.0.0.1:8001/swagger/index.html >/dev/null
+'
+
 print_plan() {
   echo
   info "部署计划"
@@ -737,6 +759,10 @@ if [ "${BUILD_ZHUAN}" = 1 ]; then
 
   info "构建并启动 Zhuan 协议..."
   zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_deploy}"
+
+  info "检查 Zhuan 容器和 API..."
+  zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_health_check}"
+  ok "Zhuan 协议可访问"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
@@ -786,9 +812,14 @@ fi
 if [ "${BUILD_PROTOCOL}" = 1 ]; then
   ok "协议层部署完成: ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}"
 fi
+if [ "${BUILD_ZHUAN}" = 1 ]; then
+  ok "Zhuan 协议部署完成: ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}"
+fi
 
 if [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_BE}" = 1 ]; then
   ssh_run "docker logs -f --tail 120 armada-backend"
 elif [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_PROTOCOL}" = 1 ]; then
   protocol_ssh_run "pm2 logs --lines 120"
+elif [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_ZHUAN}" = 1 ]; then
+  zhuan_ssh_run "cd '${ZHUAN_REMOTE_DIR}/deploy' && sudo docker compose logs -f --tail 120 whatsapp-android-zhuan"
 fi

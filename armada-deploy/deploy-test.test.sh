@@ -12,15 +12,21 @@ fail() {
 assert_contains() {
   local haystack="$1"
   local needle="$2"
-  printf '%s' "${haystack}" | grep -Fq -- "${needle}" || fail "expected output to contain: ${needle}"
+  grep -Fq -- "${needle}" <<<"${haystack}" || fail "expected output to contain: ${needle}"
 }
 
 assert_not_contains() {
   local haystack="$1"
   local needle="$2"
-  if printf '%s' "${haystack}" | grep -Fq -- "${needle}"; then
+  if grep -Fq -- "${needle}" <<<"${haystack}"; then
     fail "expected output not to contain: ${needle}"
   fi
+}
+
+test_assert_contains_handles_large_haystack() {
+  local large_haystack
+  large_haystack="$(awk 'BEGIN { print "needle"; for (i = 0; i < 20000; i++) print "padding" }')"
+  assert_contains "${large_haystack}" "needle"
 }
 
 test_help_mentions_protocol_scope() {
@@ -173,6 +179,25 @@ test_zhuan_remote_deploy_checks_config_and_runs_lifecycle() {
   assert_contains "${script_content}" "sudo docker compose up -d whatsapp-android-zhuan"
 }
 
+test_zhuan_deploy_waits_for_health_and_checks_http() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" "redis-zhuan callback-zhuan whatsapp-android-zhuan"
+  assert_contains "${script_content}" "running/healthy"
+  assert_contains "${script_content}" "Zhuan 容器未在时限内就绪"
+  assert_contains "${script_content}" "http://127.0.0.1:8001/swagger/index.html"
+}
+
+test_zhuan_only_logs_follow_main_container() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" 'elif [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_ZHUAN}" = 1 ]; then'
+  assert_contains "${script_content}" "sudo docker compose logs -f --tail 120 whatsapp-android-zhuan"
+}
+
+test_assert_contains_handles_large_haystack
 test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
 test_protocol_default_key_uses_testpem_directory
@@ -186,4 +211,6 @@ test_protocol_remote_deploy_requires_node_24_toolchain
 test_protocol_remote_deploy_verifies_node_24_apps_after_reload
 test_zhuan_sync_preserves_remote_runtime_files
 test_zhuan_remote_deploy_checks_config_and_runs_lifecycle
-printf 'OK deploy-test.sh protocol tests passed\n'
+test_zhuan_deploy_waits_for_health_and_checks_http
+test_zhuan_only_logs_follow_main_container
+printf 'OK deploy-test.sh protocol and zhuan tests passed\n'

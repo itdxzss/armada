@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-15 / `1.0.1-snapshot` / 主 worktree
 - 需求来源: 用户本次确认；`docs/superpowers/specs/2026-07-15-web-android-marketing-message-kafka-design.md`
-- 状态: 本地实现、聚焦回归与独立代码复核完成，待用户审 diff 和确认测试环境后灰度
+- 状态: 实现、聚焦回归、独立代码复核及双仓提交推送完成，待确认测试环境后灰度
 
 ## 目标（一句话）
 
@@ -23,7 +23,7 @@
 - [x] 增加 Android 成功、mention-all 失败和不确定结果到 Armada 消费契约回归。
 - [x] 修复复核发现的迟到发送结果竞争和 mention-all 成员身份不完整问题，并完成二次复核。
 - [x] 补充 Android backend、Kafka commit 时序、HTTP 兼容组包、原生 payload、publisher、sender 和 Redis 状态机设计注释。
-- [ ] 用户审阅本地未提交 diff。
+- [x] 用户审阅本地 diff 并授权提交推送。
 - [ ] 确认测试环境后执行真实 Redis/Kafka/WhatsApp 灰度验收。
 
 ## 关键设计决策
@@ -42,6 +42,7 @@
   - 结果：95 tests，0 failure，0 error，0 skipped，BUILD SUCCESS。
 - Android Zhuan 聚焦测试：
   - `go test ./internal/configs ./internal/service/entity ./internal/service/node ./internal/service/app ./api/service`：通过。
+  - 允许 miniredis 绑定本机随机端口后执行 `go test ./internal/armada -count=1`：通过。
   - `go test ./internal/armada -run 'Test(ParseMessageCommand|ParseCommand|ParseRawProtocolCommand|BuildMessageResultEvent|MessageEventPublisher|NormalizeOptions|OptionsFromConfig|ConfigDecodesKafka|MessageCommandExecutor|UnifiedCommandHandler|ZhuanMessageSender|CommandConsumerMessage)'`：通过。
   - `go vet ./internal/armada ./internal/configs ./internal/service/entity ./internal/service/node ./internal/service/app ./api/service`：通过。
 - Web 协议契约：
@@ -63,7 +64,9 @@
 
 ## 部署
 
-- commit：按用户要求未 commit，保留两个仓库本地 diff 供比对。
+- commit / push：
+  - Armada `ea6dd6a 安卓协议接入营销功能`、`85d3458 补充安卓营销消息链路注释` 已推送到 `origin/1.0.1-snapshot`。
+  - Android Zhuan `66d1edf 接入营销消息 Kafka 原生发送` 已推送到 `origin/1.0.1-snapshot`。
 - 环境 / 部署后验证结果：尚未部署；未获目标环境确认，不执行 SSH、部署或共享中间件写入。
 
 ## 遗留 / 跟进

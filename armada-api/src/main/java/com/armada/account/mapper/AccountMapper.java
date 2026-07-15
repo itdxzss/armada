@@ -65,17 +65,14 @@ public interface AccountMapper {
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
 
     /**
-     * 查询指定账号中未软删且账号状态正常的 WS 号码。
+     * 查询指定账号中未软删除的 WS 号码，不限制账号状态。
      *
-     * <p>调用方保证 IDs 非空并分片；tenant_id 由租户拦截器注入，状态表按账号和租户双键关联。</p>
+     * <p>调用方保证 IDs 非空并分片；tenant_id 由租户拦截器注入。</p>
      *
      * @param ids 当前租户前端所选账号 ID
-     * @param normalAccountState 正常账号状态码
      * @return 按账号 ID 升序排列的最小导出字段
      */
-    List<AccountWsPhoneExportRow> selectNormalWsPhonesByIds(
-            @Param("ids") List<Long> ids,
-            @Param("normalAccountState") int normalAccountState);
+    List<AccountWsPhoneExportRow> selectWsPhonesByIds(@Param("ids") List<Long> ids);
 
     /**
      * 在指定账号中筛选当前在线账号 ID。

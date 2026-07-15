@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-15 / 1.0.1-snapshot / armada
 - 需求来源: 用户逐项确认；`docs/superpowers/specs/2026-07-15-group-detail-drawer-completion-design.md`
-- 状态: 进行中（设计已确认，待用户书面复核）
+- 状态: 进行中（设计已确认，实施计划已创建）
 
 ## 目标（一句话）
 
@@ -13,6 +13,7 @@
 - [x] 盘点前端、Armada 后端和 armada-protocol 当前实现。
 - [x] 逐项确认范围、执行账号、权限失败和部分成功语义。
 - [x] 完成并自检设计文档。
+- [ ] 按 `docs/superpowers/plans/2026-07-15-group-detail-drawer-completion.md` 执行实施计划。
 - [ ] Slice 1：详情读取、自动选号、真实权限/限时消息/成员回显。
 - [ ] Slice 2：真实群名称、头像和本地备注。
 - [ ] Slice 3：四档限时消息。
@@ -46,4 +47,4 @@
 
 ## 遗留 / 跟进
 
-- 等待用户复核书面设计；批准后再进入详细实施计划。
+- 按纵向 Slice 顺序实施；任何远程 WhatsApp 能力验证前先确认测试环境、测试账号和测试群。

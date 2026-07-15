@@ -7,6 +7,7 @@ import com.armada.account.model.dto.AccountIdsDTO;
 import com.armada.account.model.dto.AccountLifecycleBatchDTO;
 import com.armada.account.model.dto.AccountMigrateGroupDTO;
 import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.dto.AccountWsPhoneExportDTO;
 import com.armada.account.model.vo.AccountBatchCommandResultVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountBatchPreviewVO;
@@ -16,15 +17,21 @@ import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatsVO;
 import com.armada.account.model.vo.AccountStatusVO;
+import com.armada.account.model.vo.AccountWsPhoneExportFile;
 import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountWsPhoneExportService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -49,19 +56,22 @@ public class AccountController {
     private final AccountBatchLifecycleService accountBatchLifecycleService;
     private final AccountLifecycleCommandService accountLifecycleCommandService;
     private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
+    private final AccountWsPhoneExportService accountWsPhoneExportService;
 
     public AccountController(AccountService accountService,
                              AccountGroupService accountGroupService,
                              AccountOnlineCommandService accountOnlineCommandService,
                              AccountBatchLifecycleService accountBatchLifecycleService,
                              AccountLifecycleCommandService accountLifecycleCommandService,
-                             AccountOnlineAttemptLogService accountOnlineAttemptLogService) {
+                             AccountOnlineAttemptLogService accountOnlineAttemptLogService,
+                             AccountWsPhoneExportService accountWsPhoneExportService) {
         this.accountService = accountService;
         this.accountGroupService = accountGroupService;
         this.accountOnlineCommandService = accountOnlineCommandService;
         this.accountBatchLifecycleService = accountBatchLifecycleService;
         this.accountLifecycleCommandService = accountLifecycleCommandService;
         this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
+        this.accountWsPhoneExportService = accountWsPhoneExportService;
     }
 
     /**
@@ -73,6 +83,35 @@ public class AccountController {
     @GetMapping
     public ApiResponse<PageResult<AccountListVO>> list(@ModelAttribute AccountQuery query) {
         return ApiResponse.ok(accountService.listAccounts(query));
+    }
+
+    /**
+     * 导出前端勾选且账号状态正常的 WS 号码。
+     *
+     * <p>成功直接返回 UTF-8 TXT 文件；业务失败由全局异常处理器返回统一 JSON，避免生成空文件。</p>
+     *
+     * @param request 所选账号 ID 和可选分组名称
+     * @return TXT 附件响应，X-Export-Count 为实际写入号码数
+     */
+    @PostMapping("/export-ws-phones")
+    public ResponseEntity<byte[]> exportWsPhones(@RequestBody AccountWsPhoneExportDTO request) {
+        // 步骤一：交给领域服务完成筛选、清洗、去重和文件内容组装。
+        AccountWsPhoneExportFile file = accountWsPhoneExportService.export(request);
+
+        // 步骤二：按 UTF-8 TXT 附件协议写入文件名、长度和实际导出数量。
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("text/plain;charset=UTF-8"));
+        headers.setContentDisposition(org.springframework.http.ContentDisposition.attachment()
+                .filename(file.filename(), StandardCharsets.UTF_8)
+                .build());
+        headers.setContentLength(file.bytes().length);
+        headers.set("X-Export-Count", String.valueOf(file.exportedCount()));
+
+        // 步骤三：显式暴露附件名和统计头，便于跨域前端下载并展示成功数量。
+        headers.setAccessControlExposeHeaders(List.of(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "X-Export-Count"));
+        return ResponseEntity.ok().headers(headers).body(file.bytes());
     }
 
     /**

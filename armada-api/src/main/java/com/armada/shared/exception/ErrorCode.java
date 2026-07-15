@@ -21,7 +21,10 @@ public enum ErrorCode {
     TENANT_NOT_FOUND(40102, "租户不存在或已停用"),
 
     /** 登录校验失败(租户码或密码错误,统一提示不暴露细节)。 */
-    LOGIN_FAILED(40103, "租户码或密码错误");
+    LOGIN_FAILED(40103, "租户码或密码错误"),
+
+    /** 账号 WS 号码导出执行失败，调用方可提示重试。 */
+    ACCOUNT_WS_PHONE_EXPORT_FAILED(50001, "导出失败，请重新操作。");
 
     private final int code;
     private final String defaultMessage;

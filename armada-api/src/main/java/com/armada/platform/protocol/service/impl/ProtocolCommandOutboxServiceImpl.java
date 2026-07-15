@@ -8,7 +8,7 @@ import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
-import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -76,7 +76,6 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
     private static final String BATCH_ID_PREFIX = "batch_";
-    private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
 
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
@@ -224,31 +223,30 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     }
 
     /**
-     * 批量写入营销消息发送 outbox 命令。
+     * 批量写入协议 backend 已编码的营销消息 outbox 命令。
      *
-     * <p>营销消息由协议 master topic 路由到账号 owner worker,实际发送不在 Armada API 事务内执行。</p>
+     * <p>协议 topic、key、backend 和 payload 均由具体 backend 决定；本方法只维护统一
+     * outbox envelope、聚合关联和事务提交后 dispatch。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ProtocolCommandOutboxEnqueueResult enqueueMarketingMessageCommands(
-            List<ProtocolMarketingMessageCommandRequest> commands) {
-        validateMarketingMessageCommands(commands);
+    public ProtocolCommandOutboxEnqueueResult enqueueMessageCommands(
+            List<ProtocolMessageOutboxCommand> commands) {
+        validateMessageCommands(commands);
 
         String batchId = commands.size() == 1 ? null : newBatchId();
         long now = System.currentTimeMillis();
         List<String> commandIds = new ArrayList<>(commands.size());
         List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
         Set<String> uniqueCommandIds = new HashSet<>(commands.size());
-
-        for (ProtocolMarketingMessageCommandRequest command : commands) {
-            String commandId = isBlank(command.commandId()) ? newCommandId() : command.commandId();
+        for (ProtocolMessageOutboxCommand command : commands) {
+            String commandId = command.command().commandId();
             if (!uniqueCommandIds.add(commandId)) {
                 throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
             }
             commandIds.add(commandId);
-            rows.add(toMarketingMessageOutboxRow(command, commandId, batchId, now));
+            rows.add(toMessageOutboxRow(command, batchId, now));
         }
-
         return insertPendingRows(batchId, commandIds, rows);
     }
 
@@ -420,27 +418,28 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
-    private ProtocolCommandOutbox toMarketingMessageOutboxRow(ProtocolMarketingMessageCommandRequest command,
-                                                              String commandId,
-                                                              String batchId,
-                                                              long now) {
+    private ProtocolCommandOutbox toMessageOutboxRow(
+            ProtocolMessageOutboxCommand outboxCommand,
+            String batchId,
+            long now) {
+        com.armada.platform.protocol.model.command.MessageSendCommand command = outboxCommand.command();
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
         row.setTenantId(TenantContext.get());
-        row.setCommandId(commandId);
+        row.setCommandId(command.commandId());
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_MESSAGE_SEND_REQUESTED);
-        if (isGroupCreationMarketing(command)) {
+        if (command.correlation().groupCreation() != null) {
             row.setAggregateType(AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM);
-            row.setAggregateId(command.groupCreationItemId());
+            row.setAggregateId(command.correlation().groupCreation().itemId());
         } else {
             row.setAggregateType(AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT);
-            row.setAggregateId(command.attemptId());
+            row.setAggregateId(command.correlation().marketing().attemptId());
         }
-        row.setKafkaTopic(masterCommandProperties.getTopic());
-        row.setKafkaKey(command.protocolAccountId());
-        row.setProtocolAccountId(command.protocolAccountId());
-        row.setProtocolBackend(ProtocolBackend.WEB.name());
-        row.setPayloadJson(payloadJson(command));
+        row.setKafkaTopic(outboxCommand.kafkaTopic());
+        row.setKafkaKey(outboxCommand.kafkaKey());
+        row.setProtocolAccountId(command.account().protocolAccountId());
+        row.setProtocolBackend(outboxCommand.backend().name());
+        row.setPayloadJson(payloadJson(outboxCommand.payload()));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
         row.setNextRetryAt(IMMEDIATE_RETRY_AT);
@@ -546,36 +545,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
-    /**
-     * 生成协议层营销消息发送命令 payload JSON。
-     *
-     * <p>payload 携带本地 task/target/attempt 引用,协议层发送完成后按这些字段回写结果事件。</p>
-     *
-     * @param command 已完成业务校验的营销消息命令
-     * @return 营销消息发送命令 payload JSON
-     * @throws BusinessException 当 payload 无法序列化时抛出
-     */
-    private String payloadJson(ProtocolMarketingMessageCommandRequest command) {
-        MarketingMessagePayload payload = new MarketingMessagePayload(
-                command.tenantId(),
-                command.marketingTaskId(),
-                command.attemptId(),
-                command.targetId(),
-                command.roundNo(),
-                command.accountId(),
-                command.protocolAccountId(),
-                command.groupJid(),
-                command.messageType(),
-                command.text(),
-                isBlank(command.imageBase64())
-                        ? null
-                        : new MarketingImagePayload(command.imageBase64(), command.imageMimetype()),
-                command.linkCard(),
-                command.buttonCard(),
-                command.mentionAll(),
-                sourceOrDefault(command.source(), "marketing_task"),
-                command.groupCreationTaskId(),
-                command.groupCreationItemId());
+    private String payloadJson(Object payload) {
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -744,15 +714,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
-    /**
-     * 校验营销消息发送命令批次。
-     *
-     * <p>批次约束与其它协议命令保持一致,避免单轮营销发送写入过大的 outbox 批次。</p>
-     *
-     * @param commands 待入队的营销消息命令列表
-     * @throws BusinessException 当批次为空、超限或单条命令缺少必要字段时抛出
-     */
-    private void validateMarketingMessageCommands(List<ProtocolMarketingMessageCommandRequest> commands) {
+    private void validateMessageCommands(List<ProtocolMessageOutboxCommand> commands) {
         if (commands == null || commands.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令不能为空");
         }
@@ -760,72 +722,47 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             throw new BusinessException(ErrorCode.VALIDATION,
                     "营销消息发送命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
         }
-        for (ProtocolMarketingMessageCommandRequest command : commands) {
-            validateMarketingMessageCommand(command);
+        for (ProtocolMessageOutboxCommand outboxCommand : commands) {
+            validateMessageCommand(outboxCommand);
         }
     }
 
-    /**
-     * 校验单条营销消息命令的协议层必需字段。
-     *
-     * <p>TEXT/LINK 的文本内容由协议层进一步校验;这里保证路由和回写字段完整。</p>
-     *
-     * @param command 待校验的营销消息命令
-     * @throws BusinessException 当命令为空或缺少必要字段时抛出
-     */
-    private void validateMarketingMessageCommand(ProtocolMarketingMessageCommandRequest command) {
-        if (command == null
-                || command.tenantId() == null
-                || command.accountId() == null
-                || isBlank(command.protocolAccountId())
-                || isBlank(command.groupJid())
-                || isBlank(command.messageType())) {
+    private void validateMessageCommand(ProtocolMessageOutboxCommand outboxCommand) {
+        if (outboxCommand == null
+                || outboxCommand.command() == null
+                || outboxCommand.command().account() == null
+                || outboxCommand.command().target() == null
+                || outboxCommand.command().payload() == null
+                || outboxCommand.command().correlation() == null
+                || isBlank(outboxCommand.command().commandId())
+                || isBlank(outboxCommand.command().account().protocolAccountId())
+                || isBlank(outboxCommand.command().target().groupJid())
+                || outboxCommand.backend() == null
+                || outboxCommand.backend() != outboxCommand.command().account().backend()
+                || isBlank(outboxCommand.kafkaTopic())
+                || isBlank(outboxCommand.kafkaKey())
+                || outboxCommand.payload() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少必要字段");
         }
-        if (isGroupCreationMarketing(command)) {
-            if (command.groupCreationTaskId() == null
-                    || command.groupCreationItemId() == null
-                    || isBlank(command.commandId())) {
+        com.armada.platform.protocol.model.command.MessageSendCommand.MessageCorrelation correlation =
+                outboxCommand.command().correlation();
+        if (correlation.tenantId() == null || isBlank(correlation.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少关联字段");
+        }
+        if (correlation.groupCreation() != null) {
+            if (correlation.groupCreation().taskId() == null
+                    || correlation.groupCreation().itemId() == null
+                    || correlation.marketing() != null) {
                 throw new BusinessException(ErrorCode.VALIDATION, "建群营销消息发送命令缺少执行项字段");
             }
-        } else if (command.marketingTaskId() == null
-                || command.attemptId() == null
-                || command.targetId() == null
-                || command.roundNo() == null) {
+            return;
+        }
+        if (correlation.marketing() == null
+                || correlation.marketing().taskId() == null
+                || correlation.marketing().targetId() == null
+                || correlation.marketing().attemptId() == null
+                || correlation.marketing().roundNo() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少营销回写字段");
-        }
-        String type = command.messageType().trim().toUpperCase();
-        if ("LINK_CARD".equals(type)) {
-            validateMarketingLinkCardCommand(command.linkCard());
-        }
-        if ("BUTTON_CARD".equals(type)) {
-            validateMarketingButtonCardCommand(command.buttonCard());
-        }
-    }
-
-    private void validateMarketingLinkCardCommand(
-            ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard) {
-        if (linkCard == null
-                || isBlank(linkCard.url())
-                || isBlank(linkCard.title())
-                || linkCard.thumbnail() == null
-                || isBlank(linkCard.thumbnail().base64())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "LINK_CARD 营销消息缺少卡片字段");
-        }
-    }
-
-    private void validateMarketingButtonCardCommand(
-            ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard) {
-        if (buttonCard == null
-                || buttonCard.buttons() == null
-                || buttonCard.buttons().isEmpty()
-                || buttonCard.buttons().size() > 3) {
-            throw new BusinessException(ErrorCode.VALIDATION, "BUTTON_CARD 营销消息按钮数量必须为1-3个");
-        }
-        for (ProtocolMarketingMessageCommandRequest.MarketingButtonPayload button : buttonCard.buttons()) {
-            if (button == null || isBlank(button.type()) || isBlank(button.displayText())) {
-                throw new BusinessException(ErrorCode.VALIDATION, "BUTTON_CARD 营销消息按钮字段不完整");
-            }
         }
     }
 
@@ -837,14 +774,6 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      */
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    private static String sourceOrDefault(String value, String defaultValue) {
-        return isBlank(value) ? defaultValue : value;
-    }
-
-    private static boolean isGroupCreationMarketing(ProtocolMarketingMessageCommandRequest command) {
-        return command != null && SOURCE_GROUP_CREATION_MARKETING.equals(command.source());
     }
 
     private String onlineCommandTopic(ProtocolBackend protocolBackend) {
@@ -899,31 +828,4 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     ) {
     }
 
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private record MarketingMessagePayload(
-            Long tenantId,
-            Long marketingTaskId,
-            Long attemptId,
-            Long targetId,
-            Long roundNo,
-            Long accountId,
-            String protocolAccountId,
-            String groupJid,
-            String messageType,
-            String text,
-            MarketingImagePayload image,
-            ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCard,
-            ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCard,
-            boolean mentionAll,
-            String source,
-            Long groupCreationTaskId,
-            Long groupCreationItemId
-    ) {
-    }
-
-    private record MarketingImagePayload(
-            String base64,
-            String mimetype
-    ) {
-    }
 }

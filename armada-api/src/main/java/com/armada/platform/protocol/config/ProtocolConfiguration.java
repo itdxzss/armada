@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
+import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.protocol.backend.android.AndroidAccountRuntimeStatusAdapter;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinResponseMapper;
@@ -7,8 +9,10 @@ import com.armada.platform.protocol.backend.android.AndroidGroupMembershipVerifi
 import com.armada.platform.protocol.backend.android.AndroidNativeClient;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupJoinAdapter;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
+import com.armada.platform.protocol.backend.android.AndroidMessageSendBackend;
 import com.armada.platform.protocol.backend.android.HttpAndroidNativeClient;
 import com.armada.platform.protocol.backend.web.WebAccountRuntimeStatusAdapter;
+import com.armada.platform.protocol.backend.web.WebMessageSendBackend;
 import com.armada.platform.protocol.backend.web.WebNativeGroupJoinAdapter;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
@@ -29,10 +33,14 @@ import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
+import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.routing.RoutingAccountRuntimeStatusPort;
 import com.armada.platform.protocol.routing.RoutingGroupJoinPort;
+import com.armada.platform.protocol.routing.RoutingMessageSendPort;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -295,6 +303,45 @@ public class ProtocolConfiguration {
     @Bean
     public GroupJoinPort groupJoinPort(List<GroupJoinBackend> backends) {
         return new RoutingGroupJoinPort(backends);
+    }
+
+    /**
+     * 注册 Web/Baileys 营销消息 backend。
+     *
+     * @param outboxService 协议命令 outbox 服务
+     * @param properties Web master 命令 topic 配置
+     * @return Web 营销消息 backend
+     */
+    @Bean
+    public MessageSendBackend webMessageSendBackend(
+            ProtocolCommandOutboxService outboxService,
+            ProtocolMasterCommandProperties properties) {
+        return new WebMessageSendBackend(outboxService, properties);
+    }
+
+    /**
+     * 注册 Android Zhuan 营销消息 backend。
+     *
+     * @param outboxService 协议命令 outbox 服务
+     * @param properties Android 命令 topic 配置
+     * @return Android 营销消息 backend
+     */
+    @Bean
+    public MessageSendBackend androidMessageSendBackend(
+            ProtocolCommandOutboxService outboxService,
+            ProtocolAndroidCommandProperties properties) {
+        return new AndroidMessageSendBackend(outboxService, properties);
+    }
+
+    /**
+     * 注册统一消息发送端口，由路由实现根据账号协议后端选择具体 backend。
+     *
+     * @param backends Spring 收集的所有消息发送 backend
+     * @return 后端感知的统一消息发送端口
+     */
+    @Bean
+    public MessageSendPort messageSendPort(List<MessageSendBackend> backends) {
+        return new RoutingMessageSendPort(backends);
     }
 
     /**

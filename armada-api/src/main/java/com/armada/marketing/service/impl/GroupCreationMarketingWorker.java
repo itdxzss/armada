@@ -15,21 +15,25 @@ import com.armada.marketing.model.support.GroupCreateRestrictionClassifier;
 import com.armada.marketing.model.support.GroupCreationMarketingItemMarketingDispatch;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.MarketingMessageComposer;
-import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
+import com.armada.platform.protocol.model.command.MessageSendCommand;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.MessageType;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
+import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
-import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -105,8 +109,8 @@ public class GroupCreationMarketingWorker {
     /** 营销消息组装器,按模板配置生成协议层发送载荷。 */
     private final MarketingMessageComposer messageComposer;
 
-    /** 协议命令 outbox 服务,负责异步派发营销消息命令。 */
-    private final ProtocolCommandOutboxService outboxService;
+    /** 协议无关消息发送端口,负责按账号当前协议事实路由。 */
+    private final MessageSendPort messageSendPort;
 
     /** 联系人协议端口,用于建群前预保存目标号码。 */
     private final ContactPort contactPort;
@@ -136,7 +140,7 @@ public class GroupCreationMarketingWorker {
      * @param templateMapper            营销模板 Mapper
      * @param fileMapper                营销模板文件 Mapper
      * @param messageComposer           营销消息组装器
-     * @param outboxService             协议命令 outbox 服务
+     * @param messageSendPort           协议无关消息发送端口
      * @param contactPort               联系人协议端口
      * @param groupCreatePort           建群协议端口
      * @param groupParticipantPort      群成员协议端口
@@ -149,7 +153,7 @@ public class GroupCreationMarketingWorker {
                                         MarketingTemplateMapper templateMapper,
                                         MarketingTemplateFileMapper fileMapper,
                                         MarketingMessageComposer messageComposer,
-                                        ProtocolCommandOutboxService outboxService,
+                                        MessageSendPort messageSendPort,
                                         ContactPort contactPort,
                                         GroupCreatePort groupCreatePort,
                                         GroupParticipantPort groupParticipantPort,
@@ -161,7 +165,7 @@ public class GroupCreationMarketingWorker {
         this.templateMapper = templateMapper;
         this.fileMapper = fileMapper;
         this.messageComposer = messageComposer;
-        this.outboxService = outboxService;
+        this.messageSendPort = messageSendPort;
         this.contactPort = contactPort;
         this.groupCreatePort = groupCreatePort;
         this.groupParticipantPort = groupParticipantPort;
@@ -298,7 +302,10 @@ public class GroupCreationMarketingWorker {
         GroupMemberSnapshot memberSnapshot = groupMemberSnapshot(account.getProtocolAccountId(), groupResult.groupJid());
         String commandId = newCommandId();
         transactionOperations.executeWithoutResult(status -> {
-            enqueueMarketingCommand(task.getTenantId(), task.getId(), item, groupResult.groupJid(), commandId, message);
+            MessageSendEnqueueItem enqueueResult = enqueueMarketingCommand(
+                    task.getTenantId(), task.getId(), item, account,
+                    groupResult.groupJid(), commandId, message);
+            long dispatchedAt = System.currentTimeMillis();
             GroupCreationMarketingItemMarketingDispatch dispatch = new GroupCreationMarketingItemMarketingDispatch();
             dispatch.setId(item.getId());
             dispatch.setGroupJid(groupResult.groupJid());
@@ -306,10 +313,23 @@ public class GroupCreationMarketingWorker {
             dispatch.setParticipantResultJson(protocolResultJson);
             dispatch.setSendMemberCount(memberSnapshot.memberCount());
             dispatch.setSendMemberCountCheckedAt(memberSnapshot.checkedAt());
-            dispatch.setUpdatedAt(System.currentTimeMillis());
+            dispatch.setUpdatedAt(dispatchedAt);
             int marked = groupCreationMapper.markItemMarketingSending(dispatch);
             if (marked == 0) {
                 throw new BusinessException(ErrorCode.CONFLICT, "建群营销执行项状态已变化: " + item.getId());
+            }
+            if (!enqueueResult.accepted()) {
+                int failed = groupCreationMapper.markItemFailedByCommandId(
+                        item.getId(),
+                        commandId,
+                        enqueueResult.reasonCode(),
+                        enqueueResult.reasonMessage(),
+                        dispatchedAt);
+                if (failed == 0) {
+                    throw new BusinessException(
+                            ErrorCode.CONFLICT,
+                            "建群营销执行项本地发送失败状态写入冲突: " + item.getId());
+                }
             }
         });
     }
@@ -418,33 +438,54 @@ public class GroupCreationMarketingWorker {
         }
     }
 
-    private void enqueueMarketingCommand(Long tenantId,
-                                         Long taskId,
-                                         GroupCreationMarketingItem item,
-                                         String groupJid,
-                                         String commandId,
-                                         MarketingMessageComposer.ComposedMessage message) {
-        String imageBase64 = message.imageBytes() == null ? null : Base64.getEncoder().encodeToString(message.imageBytes());
-        outboxService.enqueueMarketingMessageCommands(List.of(new ProtocolMarketingMessageCommandRequest(
-                tenantId,
-                null,
-                null,
-                null,
-                null,
-                item.getAccountId(),
-                item.getProtocolAccountId(),
-                groupJid,
-                message.messageType(),
-                message.text(),
-                imageBase64,
-                message.imageMimetype(),
-                linkCardPayload(message.linkCard()),
-                buttonCardPayload(message.buttonCard()),
-                message.mentionAll(),
-                SOURCE_GROUP_CREATION_MARKETING,
-                commandId,
-                taskId,
-                item.getId())));
+    /**
+     * 组装建群营销的统一消息命令并交给消息发送端口入队。
+     *
+     * <p>账号的协议类型、协议账号 ID 和登录号码均取自当前候选账号事实；本方法不判断 Web/Android，
+     * 具体协议的能力校验、请求结构转换和 outbox 写入由 {@link MessageSendPort} 的路由实现负责。
+     * 返回 {@code accepted} 只表示命令已写入本地协议 outbox，不表示 WhatsApp 已发送成功。</p>
+     *
+     * <p>当前只提交一条命令，因此会严格校验返回项数量和 commandId，避免批次结果错位后更新错误的执行项。</p>
+     *
+     * @return 与 {@code commandId} 对应的本地入队结果
+     * @throws IllegalStateException 入队结果缺失、数量错误或 commandId 不匹配
+     */
+    private MessageSendEnqueueItem enqueueMarketingCommand(
+            Long tenantId,
+            Long taskId,
+            GroupCreationMarketingItem item,
+            GroupCreationMarketingAccountCandidate account,
+            String groupJid,
+            String commandId,
+            MarketingMessageComposer.ComposedMessage message) {
+        MessageSendCommand command = new MessageSendCommand(
+                new ProtocolAccountRef(
+                        account.getAccountId(),
+                        ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                        account.getProtocolAccountId(),
+                        account.getAccountPhone()),
+                new MessageSendCommand.MessageTarget(groupJid),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.valueOf(message.messageType()),
+                        new MessageSendCommand.MessageContent(
+                                message.text(),
+                                mediaPayload(message.imageBytes(), message.imageMimetype()),
+                                linkCardPayload(message.linkCard()),
+                                buttonCardPayload(message.buttonCard())),
+                        message.mentionAll()),
+                new MessageSendCommand.MessageCorrelation(
+                        tenantId,
+                        SOURCE_GROUP_CREATION_MARKETING,
+                        null,
+                        new MessageSendCommand.GroupCreationCorrelation(taskId, item.getId())),
+                commandId);
+        MessageSendEnqueueResult result = messageSendPort.enqueue(List.of(command));
+        if (result == null || result.items().size() != 1
+                || result.items().get(0) == null
+                || !commandId.equals(result.items().get(0).commandId())) {
+            throw new IllegalStateException("建群营销消息入队结果与命令不一致: " + item.getId());
+        }
+        return result.items().get(0);
     }
 
     private GroupCreationMarketingTask requireTask(Long taskId) {
@@ -466,6 +507,7 @@ public class GroupCreationMarketingWorker {
     private static boolean unusable(GroupCreationMarketingAccountCandidate account) {
         return account == null
                 || !StringUtils.hasText(account.getProtocolAccountId())
+                || !StringUtils.hasText(account.getAccountPhone())
                 || !Integer.valueOf(AccountStateCode.NORMAL).equals(account.getAccountState())
                 || (account.getRiskStatus() != null && account.getRiskStatus() > 1)
                 || account.getMuteStatus() != null;
@@ -493,41 +535,46 @@ public class GroupCreationMarketingWorker {
         return "cmd_" + UUID.randomUUID().toString().replace("-", "");
     }
 
-    private static ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload linkCardPayload(
+    private static MessageSendCommand.MessageLinkCard linkCardPayload(
             MarketingMessageComposer.LinkCardPayload linkCard) {
         if (linkCard == null) {
             return null;
         }
-        return new ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload(
+        return new MessageSendCommand.MessageLinkCard(
                 linkCard.url(),
                 linkCard.title(),
                 linkCard.description(),
                 mediaPayload(linkCard.thumbnail()));
     }
 
-    private static ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload buttonCardPayload(
+    private static MessageSendCommand.MessageButtonCard buttonCardPayload(
             MarketingMessageComposer.ButtonCardPayload buttonCard) {
         if (buttonCard == null) {
             return null;
         }
-        return new ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload(
+        return new MessageSendCommand.MessageButtonCard(
                 buttonCard.title(),
                 buttonCard.footer(),
                 buttonCard.buttons().stream()
-                        .map(button -> new ProtocolMarketingMessageCommandRequest.MarketingButtonPayload(
+                        .map(button -> new MessageSendCommand.MessageButton(
                                 button.type(), button.displayText(), button.value()))
                         .toList(),
                 mediaPayload(buttonCard.thumbnail()));
     }
 
-    private static ProtocolMarketingMessageCommandRequest.MarketingMediaPayload mediaPayload(
+    private static MessageSendCommand.MessageMedia mediaPayload(
             MarketingMessageComposer.MediaPayload media) {
         if (media == null || media.bytes() == null || media.bytes().length == 0) {
             return null;
         }
-        return new ProtocolMarketingMessageCommandRequest.MarketingMediaPayload(
-                Base64.getEncoder().encodeToString(media.bytes()),
-                media.mimetype());
+        return new MessageSendCommand.MessageMedia(media.bytes(), media.mimetype());
+    }
+
+    private static MessageSendCommand.MessageMedia mediaPayload(byte[] bytes, String mimetype) {
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        return new MessageSendCommand.MessageMedia(bytes, mimetype);
     }
 
     private record ContactSaveSummary(int total, int success, int failed, List<ContactSaveFailure> failures) {

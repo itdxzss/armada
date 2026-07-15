@@ -46,6 +46,8 @@
         <result column="account_id" property="accountId"/>
         <result column="account_phone" property="accountPhone"/>
         <result column="protocol_account_id" property="protocolAccountId"/>
+        <result column="protocol_id" property="protocolId"/>
+        <result column="protocol_ws_phone" property="protocolWsPhone"/>
         <result column="target_scope" property="targetScope"/>
         <result column="group_link_id" property="groupLinkId"/>
         <result column="group_jid" property="groupJid"/>
@@ -75,7 +77,8 @@
 
     <sql id="TargetColumns">
         t.id, t.tenant_id, t.marketing_task_id, t.account_id, t.account_phone,
-        a.protocol_account_id, t.target_scope, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
+        a.protocol_account_id, a.protocol_id AS protocol_id, a.ws_phone AS protocol_ws_phone,
+        t.target_scope, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
         t.status, t.sent_message_count, t.failed_message_count, t.retry_count,
         t.last_attempt_at, t.last_sent_at, t.last_reason, t.created_at, t.updated_at
     </sql>

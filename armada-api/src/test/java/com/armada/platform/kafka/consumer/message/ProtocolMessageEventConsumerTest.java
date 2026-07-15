@@ -122,6 +122,94 @@ class ProtocolMessageEventConsumerTest {
     }
 
     @Test
+    void onMessage_androidMentionAllResolutionFailure_preservesStableReason() {
+        String raw = """
+                {
+                  "eventId":"acc_android_1:message.send_result_reported:cmd_mention_failed",
+                  "event":"message.send_result_reported",
+                  "version":"v1",
+                  "accountId":"acc_android_1",
+                  "occurredAt":"2026-07-15T10:00:00Z",
+                  "workerId":"whatsapp-server-feature-android-zhuan",
+                  "data":{
+                    "tenantId":1,
+                    "accountId":2,
+                    "marketingTaskId":42,
+                    "targetId":501,
+                    "attemptId":9001,
+                    "roundNo":1,
+                    "protocolAccountId":"acc_android_1",
+                    "groupJid":"120363001@g.us",
+                    "commandId":"cmd_mention_failed",
+                    "success":false,
+                    "reasonCode":"MENTION_ALL_RESOLUTION_FAILED",
+                    "reasonMessage":"无法获取完整群成员，消息未发送",
+                    "timestamp":1784109600000,
+                    "source":"marketing_task",
+                    "groupStatus":"UNCONFIRMED",
+                    "groupStatusReason":"STATUS_RESOLUTION_UNAVAILABLE",
+                    "groupStatusCheckedAt":1784109600000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(sink).handleSendResultReported(captor.capture());
+        ProtocolMessageSendResultReportedEvent event = captor.getValue();
+        assertThat(event.success()).isFalse();
+        assertThat(event.reasonCode()).isEqualTo("MENTION_ALL_RESOLUTION_FAILED");
+        assertThat(event.reasonMessage()).isEqualTo("无法获取完整群成员，消息未发送");
+        assertThat(event.groupStatus()).isEqualTo("UNCONFIRMED");
+        assertThat(event.groupStatusReason()).isEqualTo("STATUS_RESOLUTION_UNAVAILABLE");
+    }
+
+    @Test
+    void onMessage_androidUnknownSendResult_preservesGroupCreationReference() {
+        String raw = """
+                {
+                  "eventId":"acc_android_1:message.send_result_reported:cmd_unknown",
+                  "event":"message.send_result_reported",
+                  "version":"v1",
+                  "accountId":"acc_android_1",
+                  "occurredAt":"2026-07-15T10:00:00Z",
+                  "workerId":"whatsapp-server-feature-android-zhuan",
+                  "data":{
+                    "tenantId":1,
+                    "accountId":2,
+                    "groupCreationTaskId":22,
+                    "groupCreationItemId":11,
+                    "protocolAccountId":"acc_android_1",
+                    "groupJid":"120363001@g.us",
+                    "commandId":"cmd_unknown",
+                    "success":false,
+                    "reasonCode":"SEND_RESULT_UNKNOWN",
+                    "reasonMessage":"发送进程中断，无法确认 WhatsApp 是否已接收；为避免重复触达不自动重发",
+                    "timestamp":1784109600000,
+                    "source":"group_creation_marketing",
+                    "groupStatus":"UNCONFIRMED",
+                    "groupStatusReason":"STATUS_RESOLUTION_UNAVAILABLE",
+                    "groupStatusCheckedAt":1784109600000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(sink).handleSendResultReported(captor.capture());
+        ProtocolMessageSendResultReportedEvent event = captor.getValue();
+        assertThat(event.success()).isFalse();
+        assertThat(event.reasonCode()).isEqualTo("SEND_RESULT_UNKNOWN");
+        assertThat(event.groupCreationTaskId()).isEqualTo(22L);
+        assertThat(event.groupCreationItemId()).isEqualTo(11L);
+        assertThat(event.source()).isEqualTo("group_creation_marketing");
+    }
+
+    @Test
     void onMessage_unregisteredMessageEvent_skipsSink() {
         String raw = """
                 {

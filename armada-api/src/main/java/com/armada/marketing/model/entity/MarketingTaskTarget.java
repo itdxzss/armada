@@ -11,6 +11,8 @@ public class MarketingTaskTarget {
     private Long accountId;
     private String accountPhone;
     private String protocolAccountId;
+    private String protocolId;
+    private String protocolWsPhone;
     private Integer targetScope;
     private Long groupLinkId;
     private String groupJid;
@@ -72,6 +74,22 @@ public class MarketingTaskTarget {
 
     public void setProtocolAccountId(String protocolAccountId) {
         this.protocolAccountId = protocolAccountId;
+    }
+
+    public String getProtocolId() {
+        return protocolId;
+    }
+
+    public void setProtocolId(String protocolId) {
+        this.protocolId = protocolId;
+    }
+
+    public String getProtocolWsPhone() {
+        return protocolWsPhone;
+    }
+
+    public void setProtocolWsPhone(String protocolWsPhone) {
+        this.protocolWsPhone = protocolWsPhone;
     }
 
     public Integer getTargetScope() {

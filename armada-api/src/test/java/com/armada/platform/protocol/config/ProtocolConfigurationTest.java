@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
+import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinResponseMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupMembershipVerifier;
@@ -16,8 +18,11 @@ import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
+import com.armada.platform.protocol.routing.MessageSendBackend;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -27,6 +32,7 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class ProtocolConfigurationTest {
 
@@ -42,6 +48,12 @@ class ProtocolConfigurationTest {
                     throw new IllegalStateException("读取 application.yml 失败", e);
                 }
             })
+            .withBean(ProtocolCommandOutboxService.class,
+                    () -> mock(ProtocolCommandOutboxService.class))
+            .withBean(ProtocolMasterCommandProperties.class,
+                    ProtocolMasterCommandProperties::new)
+            .withBean(ProtocolAndroidCommandProperties.class,
+                    ProtocolAndroidCommandProperties::new)
             .withUserConfiguration(ProtocolConfiguration.class);
 
     @Test
@@ -70,6 +82,9 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(GroupParticipantPort.class);
             assertThat(context).hasSingleBean(GroupProfilePort.class);
             assertThat(context).hasSingleBean(GroupPreviewPort.class);
+            assertThat(context).hasSingleBean(MessageSendPort.class);
+            assertThat(context.getBeansOfType(MessageSendBackend.class))
+                    .containsKeys("webMessageSendBackend", "androidMessageSendBackend");
 
             ProtocolProperties properties = context.getBean(ProtocolProperties.class);
             assertThat(properties.getBaseUrl()).isEqualTo("http://localhost:3000");

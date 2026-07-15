@@ -2,7 +2,7 @@ package com.armada.platform.protocol.service;
 
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
-import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
@@ -56,12 +56,12 @@ public interface ProtocolCommandOutboxService {
             List<ProtocolAccountGroupSyncCommandRequest> commands);
 
     /**
-     * 批量写入营销消息发送 outbox 命令。
+     * 批量写入已经由协议 backend 编码的营销消息 outbox 命令。
      *
-     * @param commands 待 enqueue 的营销消息命令,最多 500 条
+     * @param commands backend 已选择 topic、key 和 wire payload 的消息命令，最多 500 条
      * @return 本次生成的批次 ID、命令 ID 和插入行数
      * @throws BusinessException 入参非法或 command_id 冲突时抛出
      */
-    ProtocolCommandOutboxEnqueueResult enqueueMarketingMessageCommands(
-            List<ProtocolMarketingMessageCommandRequest> commands);
+    ProtocolCommandOutboxEnqueueResult enqueueMessageCommands(
+            List<ProtocolMessageOutboxCommand> commands);
 }

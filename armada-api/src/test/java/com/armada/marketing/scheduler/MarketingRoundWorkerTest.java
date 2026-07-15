@@ -20,8 +20,11 @@ import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
-import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
-import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.platform.protocol.model.command.MessageSendCommand;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
+import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
+import com.armada.platform.protocol.port.MessageSendPort;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -49,9 +52,81 @@ class MarketingRoundWorkerTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
+    void mixedProtocolTargetsKeepWebSubmittedAndFailAndroidInvalidButtonLocally()
+            throws JsonProcessingException {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        MessageSendPort messageSendPort = mock(MessageSendPort.class);
+        MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
+        List<MarketingTaskTarget> targets = targets(2);
+        targets.get(0).setProtocolId("WEB");
+        targets.get(0).setProtocolWsPhone("923000001");
+        targets.get(1).setProtocolId("ANDROID");
+        targets.get(1).setProtocolWsPhone("923000002");
+        when(taskMapper.selectTaskById(42L)).thenReturn(task());
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        assignAttemptIds(taskMapper, 9_800L);
+        when(taskMapper.markAttemptFailed(eq(9_802L), any(), any(), any(), any(), any(), any(), anyLong()))
+                .thenReturn(1);
+        when(messageSendPort.enqueue(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<MessageSendCommand> commands = invocation.getArgument(0, List.class);
+            return new MessageSendEnqueueResult(commands.stream()
+                    .map(command -> command.account().backend() == ProtocolBackend.WEB
+                            ? MessageSendEnqueueItem.accepted(command.commandId())
+                            : MessageSendEnqueueItem.rejected(
+                                    command.commandId(),
+                                    "INVALID_ANDROID_BUTTON_CONFIG",
+                                    "按钮数量只支持 1 个"))
+                    .toList());
+        });
+        MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
+        MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
+        when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithTwoLinks());
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                templateMapper,
+                fileMapper,
+                defaultOccupancyService(),
+                new MarketingMessageComposer(),
+                messageSendPort,
+                properties,
+                Clock.systemUTC());
+
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(messageSendPort).enqueue(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue())
+                .extracting(command -> command.account().backend())
+                .containsExactly(ProtocolBackend.WEB, ProtocolBackend.ANDROID);
+        assertThat(commandsCaptor.getValue())
+                .extracting(command -> command.account().wsPhone())
+                .containsExactly("923000001", "923000002");
+        verify(taskMapper).markAttemptFailed(
+                eq(9_802L),
+                eq("INVALID_ANDROID_BUTTON_CONFIG"),
+                contains("按钮数量"),
+                eq(targets.get(1).getGroupJid()),
+                eq(null),
+                eq(null),
+                eq(null),
+                anyLong());
+        verify(taskMapper).markTargetFailedFromAttempt(
+                eq(targets.get(1).getId()),
+                eq(9_802L),
+                eq("INVALID_ANDROID_BUTTON_CONFIG"),
+                contains("按钮数量"),
+                anyLong());
+        verify(taskMapper).incrementTaskSendCounters(eq(42L), eq(0), eq(1), anyLong());
+    }
+
+    @Test
     void futureSendingTaskReturnsToWaitingWithoutGeneratingMessages() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingTask task = task();
         task.setTaskStartAt(System.currentTimeMillis() + 60_000L);
@@ -66,13 +141,13 @@ class MarketingRoundWorkerTest {
         verify(occupancyService, never()).releaseTaskAccounts(42L);
         verify(taskMapper, never()).selectTargetsByTaskId(anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
-        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+        verify(outbox, never()).enqueue(any());
     }
 
     @Test
     void taskCrossingEndTimeDuringTargetResolutionDoesNotClaimOrGenerateMessages() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         Clock clock = mock(Clock.class);
         when(clock.millis()).thenReturn(1_000L, 2_000L);
         MarketingTask task = task();
@@ -90,13 +165,13 @@ class MarketingRoundWorkerTest {
         verify(occupancyService).releaseTaskAccounts(42L);
         verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
-        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+        verify(outbox, never()).enqueue(any());
     }
 
     @Test
     void backlogAtThresholdPostponesRoundWithoutOutbox() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -112,13 +187,13 @@ class MarketingRoundWorkerTest {
 
         verify(taskMapper).postponeDueRound(any(), anyLong(), anyLong());
         verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
-        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+        verify(outbox, never()).enqueue(any());
     }
 
     @Test
     void dueRoundCreatesSubmittedAttemptsAndOutboxCommands() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
@@ -153,22 +228,22 @@ class MarketingRoundWorkerTest {
                 .allSatisfy(commandId -> assertThat(commandId).asString().startsWith("cmd_"));
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
-        List<ProtocolMarketingMessageCommandRequest> commands = commandsCaptor.getValue();
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueue(commandsCaptor.capture());
+        List<MessageSendCommand> commands = commandsCaptor.getValue();
         assertThat(commands).hasSize(2);
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::attemptId)
+        assertThat(commands).extracting(command -> command.correlation().marketing().attemptId())
                 .containsExactly(9001L, 9002L);
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::commandId)
+        assertThat(commands).extracting(MessageSendCommand::commandId)
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType).containsOnly("TEXT");
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::mentionAll).containsOnly(true);
+        assertThat(commands).extracting(command -> command.payload().type().name()).containsOnly("TEXT");
+        assertThat(commands).extracting(command -> command.payload().mentionAll()).containsOnly(true);
     }
 
     @Test
     void dueRound_sendsOwnedAccountAndRecordsOccupiedAccountAsSkipped() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         List<MarketingTaskTarget> targets = targets(2);
@@ -201,18 +276,18 @@ class MarketingRoundWorkerTest {
                     assertThat(attempt.getGroupJid()).isEqualTo(targets.get(1).getGroupJid());
                 });
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor =
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
+        verify(outbox).enqueue(commandsCaptor.capture());
         assertThat(commandsCaptor.getValue()).singleElement().satisfies(command ->
-                assertThat(command.protocolAccountId()).isEqualTo(targets.get(0).getProtocolAccountId()));
+                assertThat(command.account().protocolAccountId()).isEqualTo(targets.get(0).getProtocolAccountId()));
         verify(taskMapper, never()).incrementTaskSendCounters(eq(42L), eq(0), anyInt(), anyLong());
     }
 
     @Test
     void occupiedAccount_releasedBeforeLaterRound_isAcquiredAndSent() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         MarketingTask firstRoundTask = task();
@@ -243,13 +318,13 @@ class MarketingRoundWorkerTest {
                 assertThat(attempt.getStatus()).isEqualTo(MarketingSendAttemptStatus.SKIPPED.code()));
         assertThat(attemptsCaptor.getAllValues().get(1)).singleElement().satisfies(attempt ->
                 assertThat(attempt.getStatus()).isEqualTo(MarketingSendAttemptStatus.SUBMITTED.code()));
-        verify(outbox, times(1)).enqueueMarketingMessageCommands(any());
+        verify(outbox, times(1)).enqueue(any());
     }
 
     @Test
     void fixedGroupTargetMissingCurrentMembershipStillUsesSavedSnapshot() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -283,7 +358,7 @@ class MarketingRoundWorkerTest {
     @Test
     void fixedGroupTargetMissingSavedGroupJidPostponesWithoutAttempt() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -299,13 +374,13 @@ class MarketingRoundWorkerTest {
         verify(taskMapper).postponeDueRound(eq(42L), anyLong(), anyLong());
         verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
-        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+        verify(outbox, never()).enqueue(any());
     }
 
     @Test
     void accountDynamicTargetExpandsCurrentGroupsBeforeSending() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -342,16 +417,16 @@ class MarketingRoundWorkerTest {
                 .containsExactly("12036308101@g.us", "12036308102@g.us");
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
-        assertThat(commandsCaptor.getValue()).extracting(ProtocolMarketingMessageCommandRequest::groupJid)
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueue(commandsCaptor.capture());
+        assertThat(commandsCaptor.getValue()).extracting(command -> command.target().groupJid())
                 .containsExactly("12036308101@g.us", "12036308102@g.us");
     }
 
     @Test
     void accountDynamicTargetWithoutResolvedGroupsPostponesRound() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
 
         MarketingTask task = task();
@@ -365,7 +440,7 @@ class MarketingRoundWorkerTest {
         verify(taskMapper).postponeDueRound(any(), anyLong(), anyLong());
         verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
         verify(taskMapper, never()).insertSendAttempts(any());
-        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+        verify(outbox, never()).enqueue(any());
     }
 
     @Test
@@ -376,7 +451,7 @@ class MarketingRoundWorkerTest {
         logger.addAppender(appender);
         try {
             MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-            ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+            MessageSendPort outbox = acceptingMessagePort();
             MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
             properties.setBacklogMultiplier(2);
 
@@ -415,7 +490,7 @@ class MarketingRoundWorkerTest {
     @Test
     void imageRoundUsesTwoHundredCommandBatchSize() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
@@ -447,19 +522,19 @@ class MarketingRoundWorkerTest {
         worker.runRound(1L, 42L);
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(outbox, times(3)).enqueueMarketingMessageCommands(commandsCaptor.capture());
-        List<List<ProtocolMarketingMessageCommandRequest>> batches = commandsCaptor.getAllValues();
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox, times(3)).enqueue(commandsCaptor.capture());
+        List<List<MessageSendCommand>> batches = commandsCaptor.getAllValues();
         assertThat(batches).extracting(List::size).containsExactly(200, 200, 50);
         assertThat(batches.stream().flatMap(List::stream).toList())
-                .extracting(ProtocolMarketingMessageCommandRequest::messageType)
+                .extracting(command -> command.payload().type().name())
                 .containsOnly("IMAGE");
     }
 
     @Test
     void normalLinkCardRoundEnqueuesLinkCardCommand() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setImageOutboxBatchSize(200);
@@ -487,20 +562,20 @@ class MarketingRoundWorkerTest {
         worker.runRound(1L, 42L);
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
-        ProtocolMarketingMessageCommandRequest command = commandsCaptor.getValue().get(0);
-        assertThat(command.messageType()).isEqualTo("LINK_CARD");
-        assertThat(command.text()).isEqualTo("https://example.com/promo");
-        assertThat(command.linkCard().url()).isEqualTo("https://example.com/promo");
-        assertThat(command.linkCard().thumbnail().base64()).isEqualTo("AQID");
-        assertThat(command.buttonCard()).isNull();
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueue(commandsCaptor.capture());
+        MessageSendCommand command = commandsCaptor.getValue().get(0);
+        assertThat(command.payload().type().name()).isEqualTo("LINK_CARD");
+        assertThat(command.payload().content().text()).isEqualTo("https://example.com/promo");
+        assertThat(command.payload().content().linkCard().url()).isEqualTo("https://example.com/promo");
+        assertThat(command.payload().content().linkCard().thumbnail().bytes()).containsExactly(1, 2, 3);
+        assertThat(command.payload().content().buttonCard()).isNull();
     }
 
     @Test
     void buttonCardRoundEnqueuesButtonCardCommand() throws JsonProcessingException {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -526,19 +601,19 @@ class MarketingRoundWorkerTest {
         worker.runRound(1L, 42L);
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolMarketingMessageCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(outbox).enqueueMarketingMessageCommands(commandsCaptor.capture());
-        ProtocolMarketingMessageCommandRequest command = commandsCaptor.getValue().get(0);
-        assertThat(command.messageType()).isEqualTo("BUTTON_CARD");
-        assertThat(command.buttonCard().buttons()).hasSize(1);
-        assertThat(command.buttonCard().buttons().get(0).type()).isEqualTo("quick");
-        assertThat(command.linkCard()).isNull();
+        ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueue(commandsCaptor.capture());
+        MessageSendCommand command = commandsCaptor.getValue().get(0);
+        assertThat(command.payload().type().name()).isEqualTo("BUTTON_CARD");
+        assertThat(command.payload().content().buttonCard().buttons()).hasSize(1);
+        assertThat(command.payload().content().buttonCard().buttons().get(0).type()).isEqualTo("quick");
+        assertThat(command.payload().content().linkCard()).isNull();
     }
 
     @Test
     void invalidButtonTemplateCreatesLocalFailuresWithoutOutbox() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        MessageSendPort outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -578,24 +653,24 @@ class MarketingRoundWorkerTest {
         verify(taskMapper).incrementTaskSendCounters(42L, 0, 2, attempts.get(0).getResultAt());
         verify(taskMapper, times(2)).markTargetFailedFromAttempt(anyLong(), anyLong(),
                 eq("INVALID_TEMPLATE_CONFIG"), contains("按钮超链消息类型"), anyLong());
-        verify(outbox, never()).enqueueMarketingMessageCommands(any());
+        verify(outbox, never()).enqueue(any());
     }
 
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
-                                        ProtocolCommandOutboxService outbox,
+                                        MessageSendPort outbox,
                                         MarketingRoundSchedulerProperties properties) {
         return worker(taskMapper, outbox, properties, Clock.systemUTC());
     }
 
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
-                                        ProtocolCommandOutboxService outbox,
+                                        MessageSendPort outbox,
                                         MarketingRoundSchedulerProperties properties,
                                         Clock clock) {
         return worker(taskMapper, outbox, properties, clock, defaultOccupancyService());
     }
 
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
-                                        ProtocolCommandOutboxService outbox,
+                                        MessageSendPort outbox,
                                         MarketingRoundSchedulerProperties properties,
                                         Clock clock,
                                         MarketingAccountOccupancyService occupancyService) {
@@ -610,6 +685,18 @@ class MarketingRoundWorkerTest {
         MarketingAccountOccupancyService service = mock(MarketingAccountOccupancyService.class);
         when(service.acquireAndLoadTaskAccounts(any(), anyLong())).thenReturn(currentTaskOwners());
         return service;
+    }
+
+    private static MessageSendPort acceptingMessagePort() {
+        MessageSendPort port = mock(MessageSendPort.class);
+        when(port.enqueue(any())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<MessageSendCommand> commands = invocation.getArgument(0, List.class);
+            return new MessageSendEnqueueResult(commands.stream()
+                    .map(command -> MessageSendEnqueueItem.accepted(command.commandId()))
+                    .toList());
+        });
+        return port;
     }
 
     private static Map<Long, MarketingAccountOccupancyOwnerRow> currentTaskOwners() {
@@ -665,6 +752,8 @@ class MarketingRoundWorkerTest {
                     target.setAccountId(5000L + i);
                     target.setAccountPhone("92300000" + i);
                     target.setProtocolAccountId("acc_92300000" + i);
+                    target.setProtocolId("WEB");
+                    target.setProtocolWsPhone("92300000" + i);
                     target.setTargetScope(MarketingTargetScope.GROUP_FIXED.code());
                     target.setGroupLinkId(8000L + i);
                     target.setGroupJid("12036300" + i + "@g.us");
@@ -680,6 +769,8 @@ class MarketingRoundWorkerTest {
         target.setAccountId(5001L);
         target.setAccountPhone("923000001");
         target.setProtocolAccountId("acc_923000001");
+        target.setProtocolId("WEB");
+        target.setProtocolWsPhone("923000001");
         target.setTargetScope(MarketingTargetScope.ACCOUNT_DYNAMIC.code());
         return target;
     }
@@ -739,6 +830,16 @@ class MarketingRoundWorkerTest {
         template.setBodyText("按钮正文");
         template.setButtons(OBJECT_MAPPER.writeValueAsString(List.of(
                 new MessageButton(ButtonType.QUICK_REPLY, "我要参加", null))));
+        return template;
+    }
+
+    private static MarketingTemplate buttonTemplateWithTwoLinks() throws JsonProcessingException {
+        MarketingTemplate template = template();
+        template.setLinkMode(LinkMode.BUTTON.code());
+        template.setContent("按钮标题");
+        template.setButtons(OBJECT_MAPPER.writeValueAsString(List.of(
+                new MessageButton(ButtonType.LINK_JUMP, "活动一", "https://example.com/one"),
+                new MessageButton(ButtonType.LINK_JUMP, "活动二", "https://example.com/two"))));
         return template;
     }
 

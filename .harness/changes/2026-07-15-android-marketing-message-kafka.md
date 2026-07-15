@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-15 / `1.0.1-snapshot` / 主 worktree
 - 需求来源: 用户本次确认；`docs/superpowers/specs/2026-07-15-web-android-marketing-message-kafka-design.md`
-- 状态: 进行中
+- 状态: 本地实现、聚焦回归与独立代码复核完成，待用户审 diff 和确认测试环境后灰度
 
 ## 目标（一句话）
 
@@ -17,10 +17,13 @@
 - [x] 编写双仓逐步实施计划：
   - `docs/superpowers/plans/2026-07-15-armada-marketing-message-routing-implementation.md`
   - `docs/superpowers/plans/2026-07-15-android-zhuan-marketing-message-implementation.md`
-- [ ] TDD 实现 Armada 统一消息 port、routing 和 Web/Android backend。
-- [ ] TDD 实现 Android 消息命令消费、原生消息增强、幂等和结果事件。
-- [ ] 运行 Java、Go、Web 协议回归和端到端验证。
-- [ ] 完成后端专家评审、部署确认与测试环境验收。
+- [x] TDD 实现 Armada 统一消息 port、routing 和 Web/Android backend。
+- [x] TDD 实现 Android 消息命令消费、原生消息增强、幂等和结果事件。
+- [x] 运行 Java、Go 聚焦回归、Go vet 和 Web 协议契约回归。
+- [x] 增加 Android 成功、mention-all 失败和不确定结果到 Armada 消费契约回归。
+- [x] 修复复核发现的迟到发送结果竞争和 mention-all 成员身份不完整问题，并完成二次复核。
+- [ ] 用户审阅本地未提交 diff。
+- [ ] 确认测试环境后执行真实 Redis/Kafka/WhatsApp 灰度验收。
 
 ## 关键设计决策
 
@@ -33,13 +36,31 @@
 
 ## 验证（evidence-before-done）
 
-当前完成设计与双仓实施计划，尚未执行业务代码和实现验证。后续按计划记录实际命令和完整结果。
+- Armada（`armada-api/`）聚焦测试：
+  - 命令：`mvn -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Dtest='RoutingMessageSendPortTest,WebMessageSendBackendTest,AndroidMessageSendBackendTest,ProtocolCommandOutboxServiceImplTest,ProtocolConfigurationTest,MarketingRoundWorkerTest,GroupCreationMarketingWorkerTest,ProtocolMessageEventConsumerTest,MarketingSendResultServiceImplTest,MarketingTaskMapperSqlShapeTest,GroupCreationMarketingTaskMapperSqlShapeTest#accountCandidatesReadCurrentProtocolRoutingFact' test`
+  - 结果：95 tests，0 failure，0 error，0 skipped，BUILD SUCCESS。
+- Android Zhuan 聚焦测试：
+  - `go test ./internal/configs ./internal/service/entity ./internal/service/node ./internal/service/app ./api/service`：通过。
+  - `go test ./internal/armada -run 'Test(ParseMessageCommand|ParseCommand|ParseRawProtocolCommand|BuildMessageResultEvent|MessageEventPublisher|NormalizeOptions|OptionsFromConfig|ConfigDecodesKafka|MessageCommandExecutor|UnifiedCommandHandler|ZhuanMessageSender|CommandConsumerMessage)'`：通过。
+  - `go vet ./internal/armada ./internal/configs ./internal/service/entity ./internal/service/node ./internal/service/app ./api/service`：通过。
+- Web 协议契约：
+  - `npm test -- src/commands/types.test.ts src/commands/worker-consumer.test.ts src/messages/card-content.test.ts --runInBand`
+  - 结果：3 suites / 33 tests 全部通过。
+- 完整 `go test ./...` 未通过，已核对失败均不在本次业务 diff：
+  - `internal/service/appstate/appstate_test.go` 既有参数类型编译错误；
+  - 沙箱禁止 `miniredis` / `httptest` 监听本地端口；
+  - `pkg/noise` 既有向量/工作目录依赖失败。
+- 代码复核结果：两轮只读复核后无剩余 Critical / Important / Minor correctness 问题；迟到 sender 只发布 Redis 权威结果，`workerId/resultAt` 固定；mention-all 对零成员、空身份、非法身份和无法映射 LID 均整体失败。
+- Redis 消息状态 key 固定为 `armada:zhuan:message:command:<commandId>`，TTL 复用 `contextttlseconds`；状态只保存 phase、时间、worker ID 和发送结果，不保存正文、base64、缩略图或按钮 URL。
+- `messagecommandsenabled` 在代码和两份示例 TOML 中均默认 `false`。
+- `git diff --check` 与相关 Go `gofmt` 已通过；未运行真库 DbTest、远程 Kafka/Redis 或真实 WhatsApp 发送。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 尚未部署。
+- commit：按用户要求未 commit，保留两个仓库本地 diff 供比对。
+- 环境 / 部署后验证结果：尚未部署；未获目标环境确认，不执行 SSH、部署或共享中间件写入。
 
 ## 遗留 / 跟进
 
-- Android Zhuan 当前 worktree 存在群快照相关在途修改；实现前需重新检查重叠文件并保留其它会话改动。
-- 编码阶段优先执行 Armada routing/outbox 计划，再执行 Android 原生发送与幂等计划，最后做双仓 fixture 对账。
+- Armada 工作区原有 `.claude/worktrees/*` 状态未触碰；Android Zhuan 开始实施时为干净工作区。
+- 测试环境灰度顺序：先部署 Android 且保持消息开关关闭，再部署 Armada routing，停止新 Android outbox 后才开启 Android 消息消费；回滚时反向操作且不删除 outbox/Redis 审计状态。

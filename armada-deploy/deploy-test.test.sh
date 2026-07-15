@@ -27,8 +27,11 @@ test_help_mentions_protocol_scope() {
   local out
   out="$("${SCRIPT}" --help)"
   assert_contains "${out}" "--protocol"
+  assert_contains "${out}" "--zhuan"
   assert_contains "${out}" "--full"
   assert_contains "${out}" "ARMADA_PROTOCOL_DEPLOY_HOST"
+  assert_contains "${out}" "ARMADA_ZHUAN_DEPLOY_HOST"
+  assert_contains "${out}" "ARMADA_ZHUAN_DEPLOY_REMOTE_DIR"
   assert_contains "${out}" "ARMADA_APP_TITLE"
 }
 
@@ -55,6 +58,47 @@ test_protocol_default_key_uses_testpem_directory() {
   local script_content
   script_content="$(sed -n '1,40p' "${SCRIPT}")"
   assert_contains "${script_content}" 'PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/protocol.pem}"'
+}
+
+test_zhuan_dry_run_is_zhuan_only() {
+  local key out
+  key="$(mktemp)"
+  chmod 600 "${key}"
+  out="$(
+    ARMADA_DEPLOY_KEY="${key}" \
+    ARMADA_ZHUAN_DEPLOY_KEY="${key}" \
+    "${SCRIPT}" --zhuan --dry-run
+  )"
+  rm -f "${key}"
+
+  assert_contains "${out}" "范围          : 只 Zhuan 协议"
+  assert_contains "${out}" "Zhuan 目录"
+  assert_contains "${out}" "Zhuan 目标"
+  assert_contains "${out}" "[dry-run] 将同步 Zhuan 源码"
+  assert_contains "${out}" "whatsapp-migrate -env prod"
+  assert_not_contains "${out}" "后端 JDK"
+  assert_not_contains "${out}" "前端构建"
+  assert_not_contains "${out}" "协议 PM2"
+}
+
+test_full_includes_zhuan_but_all_does_not() {
+  local all_scope full_scope
+  all_scope="$(sed -n '/^  all)/,/^    ;;/p' "${SCRIPT}")"
+  full_scope="$(sed -n '/^  full)/,/^    ;;/p' "${SCRIPT}")"
+
+  assert_not_contains "${all_scope}" "BUILD_ZHUAN=1"
+  assert_contains "${full_scope}" "BUILD_ZHUAN=1"
+}
+
+test_zhuan_defaults_to_armada_test_host() {
+  local script_content
+  script_content="$(sed -n '1,55p' "${SCRIPT}")"
+
+  assert_contains "${script_content}" 'ZHUAN_DIR="${ARMADA_ZHUAN_DIR:-${WORKSPACE_ROOT}/whatsapp-server-feature-android-zhuan}"'
+  assert_contains "${script_content}" 'ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${SSH_HOST}}"'
+  assert_contains "${script_content}" 'ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${SSH_USER}}"'
+  assert_contains "${script_content}" 'ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${SSH_KEY}}"'
+  assert_contains "${script_content}" 'ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-/home/app/whatsapp-android-zhuan-deploy/src}"'
 }
 
 test_armada_default_key_uses_testpem_directory() {
@@ -107,6 +151,9 @@ test_protocol_remote_deploy_verifies_node_24_apps_after_reload() {
 test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
 test_protocol_default_key_uses_testpem_directory
+test_zhuan_dry_run_is_zhuan_only
+test_full_includes_zhuan_but_all_does_not
+test_zhuan_defaults_to_armada_test_host
 test_armada_default_key_uses_testpem_directory
 test_frontend_dry_run_infers_second_environment_title
 test_sh_invocation_reexecs_bash_for_help

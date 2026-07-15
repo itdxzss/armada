@@ -25,6 +25,11 @@ PROTOCOL_SSH_USER="${ARMADA_PROTOCOL_DEPLOY_USER:-ec2-user}"
 PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/protocol.pem}"
 PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-/home/ec2-user/armada-protocol}"
 PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-armada.ecosystem.config.cjs}"
+ZHUAN_DIR="${ARMADA_ZHUAN_DIR:-${WORKSPACE_ROOT}/whatsapp-server-feature-android-zhuan}"
+ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${SSH_HOST}}"
+ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${SSH_USER}}"
+ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${SSH_KEY}}"
+ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-/home/app/whatsapp-android-zhuan-deploy/src}"
 JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
 
 SCOPE="all"
@@ -120,7 +125,7 @@ APP_TITLE_REMOTE="$(shell_single_quote "${APP_TITLE}")"
 
 usage() {
   cat <<EOF
-deploy-test.sh - 部署 armada API + wheel-saas-pure-web + 协议层到测试服。
+deploy-test.sh - 部署 armada API + wheel-saas-pure-web + Baileys/Zhuan 协议层到测试服。
 
 用法:
   ./armada-deploy/deploy-test.sh [options]
@@ -128,13 +133,14 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web + 协议层到测试服
 
 参数:
   --all            构建并部署后端 + 前端。保持旧语义,不部署协议层。
-  --full           构建并部署后端 + 前端 + 协议层。
+  --full           构建并部署后端 + 前端 + Baileys 协议层 + Zhuan 协议。
   --be             只构建并部署后端。
   --fe             只构建并部署前端/nginx。
-  --protocol       只部署协议层。
+  --protocol       只部署 Baileys 协议层。
+  --zhuan          只部署 Zhuan 协议。
   --branch <name>  从指定 armada 远端分支创建临时 worktree 构建并部署。
   -y, --yes        跳过确认提示。
-  --logs           部署后跟随后端日志。
+  --logs           部署后跟随对应服务日志;--full 保持跟随后端日志。
   -n, --dry-run    只打印计划,不构建、不同步、不重启。
   -h, --help       显示本帮助。
 
@@ -152,11 +158,18 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web + 协议层到测试服
   ARMADA_PROTOCOL_DEPLOY_KEY
   ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR
   ARMADA_PROTOCOL_PM2_CONFIG
+  ARMADA_ZHUAN_DIR
+  ARMADA_ZHUAN_DEPLOY_HOST
+  ARMADA_ZHUAN_DEPLOY_USER
+  ARMADA_ZHUAN_DEPLOY_KEY
+  ARMADA_ZHUAN_DEPLOY_REMOTE_DIR
 
 Armada 目标服务器:
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
 协议目标服务器:
   ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}
+Zhuan 目标服务器:
+  ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}
 
 访问入口:
   ${PUBLIC_URL}
@@ -171,7 +184,7 @@ Armada 测试环境部署指引
   后端 + 前端:
     ./armada-deploy/deploy-test.sh --all -y
 
-  后端 + 前端 + 协议层:
+  后端 + 前端 + Baileys 协议层 + Zhuan 协议:
     ./armada-deploy/deploy-test.sh --full -y
 
   只部署后端:
@@ -182,6 +195,9 @@ Armada 测试环境部署指引
 
   只部署协议层:
     ./armada-deploy/deploy-test.sh --protocol -y
+
+  只部署 Zhuan 协议:
+    ./armada-deploy/deploy-test.sh --zhuan -y
 
   只看部署计划,不真正执行:
     ./armada-deploy/deploy-test.sh --dry-run
@@ -195,25 +211,27 @@ Armada 测试环境部署指引
   1. 分支名写远端分支名,例如 main 或 feature/group-import,不要写 origin/main。
   2. 脚本会先 fetch origin/<branch>,再创建临时 worktree 构建 armada 后端和部署编排文件。
   3. 不会切换当前工作区分支,也不要求当前工作区干净。
-  4. 前端仍然从 ARMADA_FRONTEND_DIR 指向的目录构建,不受 --branch 影响。
+  4. 前端、Baileys 协议层和 Zhuan 协议仍从各自环境变量指向的本地目录部署,不受 --branch 影响。
   5. 如果只想确认会部署哪个分支,先加 --dry-run:
      ./armada-deploy/deploy-test.sh --be --branch main --dry-run
 
 常用参数:
   --all        本地构建后端 jar 和前端 dist,同步两者并重启两个容器。
-  --full       部署后端 + 前端 + 协议层。
+  --full       部署后端 + 前端 + Baileys 协议层 + Zhuan 协议。
   --be         本地构建后端 jar,同步 jar,只重建/重启 armada-backend。
   --fe         本地构建前端 dist,同步 dist,只重建/重启 armada-nginx。
   --protocol   同步协议源码到协议机,远端 npm ci + npm run build,PM2 滚动重载。
+  --zhuan      同步 Zhuan 源码到 Armada 测试机,远端 Compose 构建、迁移并重启。
   --branch     从 origin/<branch> 创建临时 worktree 构建 armada 与部署编排,不切换当前工作区。
   -y, --yes    跳过确认提示。
-  --logs       部署完成后跟随 armada-backend 日志。
+  --logs       部署完成后跟随对应服务日志;--full 保持跟随 armada-backend。
   --dry-run    只显示将要做什么,不构建、不 rsync、不 SSH 重启、不验活。
   -h, --help   显示完整参数说明。
 
 目标:
   Armada: ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
   协议层: ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}
+  Zhuan: ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}
   ${PUBLIC_URL}
 
 提示:
@@ -233,6 +251,7 @@ while [ $# -gt 0 ]; do
     --be) SCOPE="be" ;;
     --fe) SCOPE="fe" ;;
     --protocol) SCOPE="protocol" ;;
+    --zhuan) SCOPE="zhuan" ;;
     --branch)
       shift
       [ $# -gt 0 ] || die "--branch 需要分支名"
@@ -257,6 +276,7 @@ fi
 BUILD_BE=0
 BUILD_FE=0
 BUILD_PROTOCOL=0
+BUILD_ZHUAN=0
 SERVICES=""
 COMPOSE_UP_EXTRA=""
 COMPOSE_UP_ARGS=""
@@ -274,8 +294,9 @@ case "${SCOPE}" in
     BUILD_BE=1
     BUILD_FE=1
     BUILD_PROTOCOL=1
+    BUILD_ZHUAN=1
     SERVICES=""
-    SCOPE_DESC="后端 + 前端 + 协议层"
+    SCOPE_DESC="后端 + 前端 + Baileys 协议层 + Zhuan 协议"
     ;;
   be)
     BUILD_BE=1
@@ -290,6 +311,10 @@ case "${SCOPE}" in
   protocol)
     BUILD_PROTOCOL=1
     SCOPE_DESC="只协议层"
+    ;;
+  zhuan)
+    BUILD_ZHUAN=1
+    SCOPE_DESC="只 Zhuan 协议"
     ;;
   *)
     die "无效部署范围: ${SCOPE}"
@@ -352,6 +377,15 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   [ -d "${PROTOCOL_LAYER_DIR}/src" ] || die "找不到协议层 src 目录"
   [ -d "${PROTOCOL_LAYER_DIR}/deploy" ] || die "找不到协议层 deploy 目录"
   [ -d "${PROTOCOL_DIR}/openapi" ] || die "找不到协议 openapi 目录"
+fi
+if [ "${BUILD_ZHUAN}" = 1 ]; then
+  [ -f "${ZHUAN_SSH_KEY}" ] || die "找不到 Zhuan SSH 私钥: ${ZHUAN_SSH_KEY}"
+  [ -d "${ZHUAN_DIR}" ] || die "找不到 Zhuan 仓库目录: ${ZHUAN_DIR}"
+  [ -f "${ZHUAN_DIR}/go.mod" ] || die "找不到 Zhuan go.mod"
+  [ -f "${ZHUAN_DIR}/go.sum" ] || die "找不到 Zhuan go.sum"
+  [ -f "${ZHUAN_DIR}/.dockerignore" ] || die "找不到 Zhuan .dockerignore"
+  [ -f "${ZHUAN_DIR}/deploy/Dockerfile" ] || die "找不到 Zhuan deploy/Dockerfile"
+  [ -f "${ZHUAN_DIR}/deploy/docker-compose.yml" ] || die "找不到 Zhuan deploy/docker-compose.yml"
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then
@@ -488,6 +522,10 @@ print_plan() {
     printf '  协议目标      : %s@%s:%s\n' "${PROTOCOL_SSH_USER}" "${PROTOCOL_SSH_HOST}" "${PROTOCOL_REMOTE_DIR}"
     printf '  协议 PM2      : %s\n' "${PROTOCOL_PM2_CONFIG}"
   fi
+  if [ "${BUILD_ZHUAN}" = 1 ]; then
+    printf '  Zhuan 目录     : %s\n' "${ZHUAN_DIR}"
+    printf '  Zhuan 目标     : %s@%s:%s\n' "${ZHUAN_SSH_USER}" "${ZHUAN_SSH_HOST}" "${ZHUAN_REMOTE_DIR}"
+  fi
   if [ "${BUILD_BE}" = 1 ]; then
     printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
   fi
@@ -506,6 +544,9 @@ if [ "${DRY_RUN}" = 1 ]; then
   if [ "${BUILD_PROTOCOL}" = 1 ]; then
     info "[dry-run] 将检查协议 SSH 连通性"
   fi
+  if [ "${BUILD_ZHUAN}" = 1 ]; then
+    info "[dry-run] 将检查 Zhuan SSH 连通性"
+  fi
   [ -n "${DEPLOY_BRANCH}" ] && info "[dry-run] 实际部署时将 fetch origin/${DEPLOY_BRANCH} 并创建临时 worktree"
   [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
@@ -523,6 +564,12 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将同步协议层源码到 ${PROTOCOL_REMOTE_DIR}"
     info "[dry-run] 将构建协议层: cd ${PROTOCOL_REMOTE_DIR}/protocol-layer && npm ci --no-audit --no-fund && npm run build"
     info "[dry-run] 将重载协议 PM2: pm2 startOrReload ${PROTOCOL_PM2_CONFIG} --update-env"
+  fi
+  if [ "${BUILD_ZHUAN}" = 1 ]; then
+    info "[dry-run] 将同步 Zhuan 源码到 ${ZHUAN_REMOTE_DIR},保留远端配置和日志"
+    info "[dry-run] 将校验并构建 Zhuan Compose 服务"
+    info "[dry-run] 将运行迁移: whatsapp-migrate -env prod"
+    info "[dry-run] 将启动并验活 redis-zhuan、callback-zhuan、whatsapp-android-zhuan"
   fi
   ok "dry-run 完成"
   exit 0

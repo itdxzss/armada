@@ -7,9 +7,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.account.model.command.AccountLifecycleCommandItem;
+import com.armada.account.model.dto.AccountWsPhoneExportDTO;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
 import com.armada.account.model.vo.AccountBatchCommandResultVO;
@@ -18,15 +22,20 @@ import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatusVO;
+import com.armada.account.model.vo.AccountWsPhoneExportFile;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.AccountService;
-import com.armada.account.model.command.AccountLifecycleCommandItem;
+import com.armada.account.service.AccountWsPhoneExportService;
+import com.armada.boot.web.GlobalExceptionHandler;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +70,9 @@ class AccountControllerTest {
     @Mock
     private AccountOnlineAttemptLogService accountOnlineAttemptLogService;
 
+    @Mock
+    private AccountWsPhoneExportService accountWsPhoneExportService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -72,8 +84,75 @@ class AccountControllerTest {
                         accountOnlineCommandService,
                         accountBatchLifecycleService,
                         accountLifecycleCommandService,
-                        accountOnlineAttemptLogService))
+                        accountOnlineAttemptLogService,
+                        accountWsPhoneExportService))
+                .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void postExportWsPhonesReturnsTxtAndActualCountHeaders() throws Exception {
+        byte[] bytes = "60123456789\n8613800138000".getBytes(StandardCharsets.UTF_8);
+        when(accountWsPhoneExportService.export(any())).thenReturn(
+                new AccountWsPhoneExportFile("马来西亚客户组_2026-07-14.txt", bytes, 2));
+
+        mockMvc.perform(post("/api/accounts/export-ws-phones")
+                        .contentType("application/json")
+                        .content("{\"ids\":[101,102],\"groupName\":\"马来西亚客户组\"}"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("text/plain;charset=UTF-8"))
+                .andExpect(content().bytes(bytes))
+                .andExpect(header().string("X-Export-Count", "2"))
+                .andExpect(header().string("Content-Length", String.valueOf(bytes.length)))
+                .andExpect(header().string("Access-Control-Expose-Headers",
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("Content-Disposition"),
+                                org.hamcrest.Matchers.containsString("X-Export-Count"))))
+                .andExpect(header().string("Content-Disposition",
+                        org.hamcrest.Matchers.containsString("attachment")))
+                .andExpect(result -> assertThat(
+                        org.springframework.http.ContentDisposition.parse(
+                                        result.getResponse().getHeader("Content-Disposition"))
+                                .getFilename())
+                        .isEqualTo("马来西亚客户组_2026-07-14.txt"));
+
+        verify(accountWsPhoneExportService).export(org.mockito.ArgumentMatchers.argThat(
+                (AccountWsPhoneExportDTO request) -> request.ids().equals(List.of(101L, 102L))
+                        && request.groupName().equals("马来西亚客户组")));
+    }
+
+    @Test
+    void postExportWsPhonesReturnsJsonAndNoAttachmentWhenNoValidPhoneExists() throws Exception {
+        when(accountWsPhoneExportService.export(any())).thenThrow(
+                new BusinessException(
+                        ErrorCode.VALIDATION,
+                        "当前所选账号中没有可导出的有效WS号码。"));
+
+        mockMvc.perform(post("/api/accounts/export-ws-phones")
+                        .contentType("application/json")
+                        .content("{\"ids\":[101]}"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.message").value("当前所选账号中没有可导出的有效WS号码。"))
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(header().doesNotExist("X-Export-Count"));
+    }
+
+    @Test
+    void postExportWsPhonesReturnsStableJsonMessageForExportFailure() throws Exception {
+        when(accountWsPhoneExportService.export(any())).thenThrow(
+                new BusinessException(ErrorCode.ACCOUNT_WS_PHONE_EXPORT_FAILED));
+
+        mockMvc.perform(post("/api/accounts/export-ws-phones")
+                        .contentType("application/json")
+                        .content("{\"ids\":[101]}"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith("application/json"))
+                .andExpect(jsonPath("$.code").value(50001))
+                .andExpect(jsonPath("$.message").value("导出失败，请重新操作。"))
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(header().doesNotExist("X-Export-Count"));
     }
 
     @Test

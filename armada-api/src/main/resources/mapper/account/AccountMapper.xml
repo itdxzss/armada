@@ -53,6 +53,30 @@
     </if>
   </select>
 
+  <!--
+    导出所选正常账号的最小 WS 号码字段。
+    tenant_id 由租户拦截器注入；INNER JOIN 同时按 tenant_id 关联，避免状态行跨租户串联。
+  -->
+  <select id="selectNormalWsPhonesByIds"
+          resultType="com.armada.account.model.vo.AccountWsPhoneExportRow">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT a.id, a.ws_phone AS wsPhone
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND s.account_state = #{normalAccountState}
+      AND a.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY a.id ASC
+    </if>
+    <!-- 空 ID 防护：仍基于 account 表供租户拦截器改写，并避免生成非法 IN ()。 -->
+    <if test="ids == null or ids.size() == 0">
+    SELECT a.id, a.ws_phone AS wsPhone FROM account a WHERE 1=0
+    </if>
+  </select>
+
   <select id="selectOnlineAccountIdsByIds" resultType="long">
     <if test="ids != null and ids.size() &gt; 0">
     SELECT a.id

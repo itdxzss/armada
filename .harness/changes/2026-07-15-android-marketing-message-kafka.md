@@ -13,8 +13,10 @@
 - [x] 对账 Armada 现有营销 outbox、Web 消费者和 Android 原生消息能力。
 - [x] 确认 Android Kafka 通道、单跳转按钮、Armada 校验、图片说明文字与提醒所有人口径。
 - [x] 产出双协议营销消息设计文档。
-- [ ] 用户评审书面设计。
-- [ ] 编写逐步实现计划。
+- [x] 用户确认设计边界并要求开始实施计划。
+- [x] 编写双仓逐步实施计划：
+  - `docs/superpowers/plans/2026-07-15-armada-marketing-message-routing-implementation.md`
+  - `docs/superpowers/plans/2026-07-15-android-zhuan-marketing-message-implementation.md`
 - [ ] TDD 实现 Armada 统一消息 port、routing 和 Web/Android backend。
 - [ ] TDD 实现 Android 消息命令消费、原生消息增强、幂等和结果事件。
 - [ ] 运行 Java、Go、Web 协议回归和端到端验证。
@@ -31,7 +33,7 @@
 
 ## 验证（evidence-before-done）
 
-当前只完成设计，尚未执行实现验证。后续记录实际命令和完整结果。
+当前完成设计与双仓实施计划，尚未执行业务代码和实现验证。后续按计划记录实际命令和完整结果。
 
 ## 部署
 
@@ -40,4 +42,4 @@
 ## 遗留 / 跟进
 
 - Android Zhuan 当前 worktree 存在群快照相关在途修改；实现前需重新检查重叠文件并保留其它会话改动。
-- 用户书面评审设计后再进入实现计划与编码。
+- 编码阶段优先执行 Armada routing/outbox 计划，再执行 Android 原生发送与幂等计划，最后做双仓 fixture 对账。

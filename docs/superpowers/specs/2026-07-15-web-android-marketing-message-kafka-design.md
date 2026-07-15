@@ -1,6 +1,6 @@
 # Web / Android 营销消息 Kafka 适配设计
 
-> 状态：待用户书面评审
+> 状态：已确认，进入实施计划
 > 日期：2026-07-15
 > 范围：`armada/armada-api`、`whatsapp-server-feature-android-zhuan`
 

@@ -22,6 +22,7 @@
 - [x] 运行 Java、Go 聚焦回归、Go vet 和 Web 协议契约回归。
 - [x] 增加 Android 成功、mention-all 失败和不确定结果到 Armada 消费契约回归。
 - [x] 修复复核发现的迟到发送结果竞争和 mention-all 成员身份不完整问题，并完成二次复核。
+- [x] 补充 Android backend、Kafka commit 时序、HTTP 兼容组包、原生 payload、publisher、sender 和 Redis 状态机设计注释。
 - [ ] 用户审阅本地未提交 diff。
 - [ ] 确认测试环境后执行真实 Redis/Kafka/WhatsApp 灰度验收。
 
@@ -46,6 +47,11 @@
 - Web 协议契约：
   - `npm test -- src/commands/types.test.ts src/commands/worker-consumer.test.ts src/messages/card-content.test.ts --runInBand`
   - 结果：3 suites / 33 tests 全部通过。
+- 注释补充后的聚焦回归：
+  - `AndroidMessageSendBackendTest`：9 tests 全部通过，BUILD SUCCESS。
+  - `go test ./internal/service/node ./api/service`：通过。
+  - `go test ./internal/armada -run 'Test(CommandConsumer|Start|BuildKafkaReaderConfig|BuildConsumerRunners|GroupSnapshotRuntime|LifecycleCommandHandler|UnifiedCommandHandler|MessageEventPublisher|ZhuanMessageSender)'`：通过。
+  - `go vet ./internal/armada ./internal/service/node ./api/service`：通过。
 - 完整 `go test ./...` 未通过，已核对失败均不在本次业务 diff：
   - `internal/service/appstate/appstate_test.go` 既有参数类型编译错误；
   - 沙箱禁止 `miniredis` / `httptest` 监听本地端口；

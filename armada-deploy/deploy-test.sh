@@ -122,6 +122,21 @@ shell_single_quote() {
 }
 
 APP_TITLE_REMOTE="$(shell_single_quote "${APP_TITLE}")"
+ZHUAN_SSH_KEY_RSYNC="$(shell_single_quote "${ZHUAN_SSH_KEY}")"
+
+validate_zhuan_remote_dir() {
+  case "${ZHUAN_REMOTE_DIR}" in
+    /) die "Zhuan 远端目录不能是根目录" ;;
+    /*) ;;
+    *) die "Zhuan 远端目录必须是绝对路径: ${ZHUAN_REMOTE_DIR}" ;;
+  esac
+  case "${ZHUAN_REMOTE_DIR}" in
+    *[!A-Za-z0-9_./-]*) die "Zhuan 远端目录仅允许字母、数字、点、下划线、斜杠和连字符: ${ZHUAN_REMOTE_DIR}" ;;
+  esac
+  case "/${ZHUAN_REMOTE_DIR#/}/" in
+    */../*) die "Zhuan 远端目录不能包含 .. 路径段: ${ZHUAN_REMOTE_DIR}" ;;
+  esac
+}
 
 usage() {
   cat <<EOF
@@ -379,6 +394,7 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   [ -d "${PROTOCOL_DIR}/openapi" ] || die "找不到协议 openapi 目录"
 fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
+  validate_zhuan_remote_dir
   [ -f "${ZHUAN_SSH_KEY}" ] || die "找不到 Zhuan SSH 私钥: ${ZHUAN_SSH_KEY}"
   [ -d "${ZHUAN_DIR}" ] || die "找不到 Zhuan 仓库目录: ${ZHUAN_DIR}"
   [ -f "${ZHUAN_DIR}/go.mod" ] || die "找不到 Zhuan go.mod"
@@ -424,7 +440,7 @@ ZHUAN_SSH_OPTS=(
   -o ConnectTimeout=15
   -o StrictHostKeyChecking=accept-new
 )
-ZHUAN_RSYNC_SSH="ssh -i ${ZHUAN_SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+ZHUAN_RSYNC_SSH="ssh -i '${ZHUAN_SSH_KEY_RSYNC}' -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
 
 ssh_run() {
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" "$@"
@@ -748,12 +764,23 @@ if [ "${BUILD_ZHUAN}" = 1 ]; then
   ok "Zhuan 远端运行配置已就绪"
 
   info "同步 Zhuan 源码..."
-  rsync -az --delete -e "${ZHUAN_RSYNC_SSH}" \
+  rsync -rltz --delete -e "${ZHUAN_RSYNC_SSH}" \
     --exclude-from="${ZHUAN_DIR}/.dockerignore" \
     --exclude=deploy/.env \
     --exclude=deploy/configs/prod_configs.toml \
     --exclude=deploy/logs/ \
     --exclude=deploy/callback-logs/ \
+    --exclude=logs/ \
+    --exclude='/.env' \
+    --exclude='/.env.*' \
+    --exclude='configs/*.toml' \
+    --exclude='*.pem' \
+    --exclude='*.key' \
+    --exclude='*.log' \
+    --exclude='*.zip' \
+    --exclude='*.tar' \
+    --exclude='*.tar.gz' \
+    --exclude='*.tgz' \
     "${ZHUAN_DIR}/" \
     "${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}/"
 

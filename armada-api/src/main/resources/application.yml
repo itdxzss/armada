@@ -36,6 +36,15 @@ server:
   port: 8080
 
 armada:
+  # 进群专用调度线程只做到期扫描和 outbox 入队；batch-size 是单轮上限，不是账号并行上限。
+  task:
+    join-dispatcher:
+      # 紧急停派开关：关闭后不再产生新命令，已提交 outbox 仍由通用 dispatcher 处理。
+      enabled: ${JOIN_TASK_DISPATCHER_ENABLED:true}
+      # 固定延迟从上一轮结束后开始计算，避免慢轮次叠加。
+      fixed-delay-ms: ${JOIN_TASK_DISPATCHER_FIXED_DELAY_MS:1000}
+      # 单轮跨租户候选上限；上百账号会分轮处理，不会丢弃或限制为固定 lane 数。
+      batch-size: ${JOIN_TASK_DISPATCHER_BATCH_SIZE:500}
   ip-proxy-check:
     executor:
       core-size: ${IP_PROXY_CHECK_EXECUTOR_CORE_SIZE:4}

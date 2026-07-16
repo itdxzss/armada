@@ -101,4 +101,26 @@ public interface JoinTaskMapper {
      * @return 实际被置删的行数
      */
     int batchSoftDelete(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+
+    /**
+     * 以 CAS 方式把草稿任务切换为运行中。
+     *
+     * <p>SQL 条件包含 {@code status = DRAFT}，用于阻止重复启动和并发状态覆盖。</p>
+     *
+     * @param id 任务 ID
+     * @param now 状态更新时间（epoch 毫秒）
+     * @return 1 表示启动成功；0 表示任务不存在、已删除或状态已变化
+     */
+    int startDraftTask(@Param("id") Long id, @Param("now") long now);
+
+    /**
+     * 当任务已不存在任何 PENDING 明细时把 RUNNING 任务标记为 DONE。
+     *
+     * <p>NOT EXISTS 条件使该操作可在每次明细终结后安全重复调用，不会提前结束仍有重试或待派发行的任务。</p>
+     *
+     * @param id 任务 ID
+     * @param now 完成时间对应的更新时间（epoch 毫秒）
+     * @return 1 表示本次进入 DONE；0 表示仍有待处理明细或任务已不在 RUNNING
+     */
+    int markDoneWhenNoPending(@Param("id") Long id, @Param("now") long now);
 }

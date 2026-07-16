@@ -16,6 +16,7 @@ import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.task.model.enums.DistributionMode;
 import com.armada.task.model.enums.JoinResultStatus;
+import com.armada.task.model.enums.JoinTaskDispatchState;
 import com.armada.task.model.enums.JoinTaskFailureReason;
 import com.armada.task.model.enums.JoinTaskStatus;
 import com.armada.task.model.vo.JoinResultRowVO;
@@ -25,7 +26,6 @@ import com.armada.task.service.JoinTaskService;
 import com.armada.task.service.JsonIds;
 import com.armada.task.service.LinkClassifier;
 import com.armada.task.service.PlanRowGenerator;
-import com.armada.task.worker.JoinTaskWorker;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,33 +33,42 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 进群任务业务实现(建任务 + 列表/详情/明细读路径 + 编辑/批量软删)。
  *
  * <p>租户隔离由 MyBatis 租户拦截器透明完成,本类不手写 tenant_id。</p>
- * <p>时间字段为 BIGINT epoch 毫秒,insert 时显式传入。保存前会拒绝非法群链接,total 只计 PENDING 计划行。</p>
+ * <p>时间字段为 BIGINT epoch 毫秒,insert 时显式传入。保存前会拒绝非法群链接,total 只计 PENDING
+ * 计划行。启动任务只负责原子激活每个账号首行，实际命令由独立到期调度器写入 Kafka outbox。</p>
  */
 @Service
 public class JoinTaskServiceImpl implements JoinTaskService {
 
+    /** 记录不含账号明文和群链接的任务级操作摘要。 */
     private static final Logger log = LoggerFactory.getLogger(JoinTaskServiceImpl.class);
 
+    /** 进群任务主表持久化入口。 */
     private final JoinTaskMapper joinTaskMapper;
-    private final JoinTaskResultMapper resultMapper;
-    private final GroupLinkRegistryService groupLinkRegistryService;
-    private final JoinTaskWorker joinTaskWorker;
 
+    /** 进群任务账号×链接计划明细持久化入口。 */
+    private final JoinTaskResultMapper resultMapper;
+
+    /** 群链接池登记服务，保证任务链接与共享群入口口径一致。 */
+    private final GroupLinkRegistryService groupLinkRegistryService;
+
+    /**
+     * 创建进群任务应用服务。
+     *
+     * @param joinTaskMapper 进群任务 Mapper
+     * @param resultMapper 进群明细 Mapper
+     * @param groupLinkRegistryService 群链接池登记服务
+     */
     public JoinTaskServiceImpl(JoinTaskMapper joinTaskMapper,
                                JoinTaskResultMapper resultMapper,
-                               GroupLinkRegistryService groupLinkRegistryService,
-                               JoinTaskWorker joinTaskWorker) {
+                               GroupLinkRegistryService groupLinkRegistryService) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
-        this.joinTaskWorker = joinTaskWorker;
     }
 
     /**
@@ -155,14 +164,13 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:只允许 DRAFT -> RUNNING。worker 在事务提交后触发,避免后台线程使用独立连接时
-     * 读不到刚更新的 RUNNING 状态。</p>
+     * <p>实现要点:只允许 DRAFT -> RUNNING,并在同一事务内激活每个账号的首条待执行计划。
+     * 后续由独立到期调度器扫描,本入口不创建账号 lane 或后台执行线程。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void startTask(Long id) {
-        Long tenantId = TenantContext.get();
-        if (tenantId == null) {
+        if (TenantContext.get() == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
         JoinTask task = joinTaskMapper.selectByTenantAndId(id);
@@ -173,22 +181,13 @@ public class JoinTaskServiceImpl implements JoinTaskService {
             throw new BusinessException(ErrorCode.VALIDATION, "任务已启动或已结束,不能重复启动");
         }
         long now = System.currentTimeMillis();
-        joinTaskMapper.updateTaskStatus(id, JoinTaskStatus.RUNNING, now);
-        runAfterCommit(() -> joinTaskWorker.startAsync(tenantId, id));
-        log.info("进群任务启动 id={} tenantId={}", id, tenantId);
-    }
-
-    private static void runAfterCommit(Runnable action) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    action.run();
-                }
-            });
-            return;
+        if (joinTaskMapper.startDraftTask(id, now) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "进群任务状态已变化，请刷新后重试");
         }
-        action.run();
+        int activated = resultMapper.activateFirstPendingPerAccount(id, now);
+        joinTaskMapper.refreshCounters(id);
+        joinTaskMapper.markDoneWhenNoPending(id, now);
+        log.info("进群任务启动 id={} 激活账号数={}", id, activated);
     }
 
     private static void validateLinksForSave(LinkClassifier.Classified links) {
@@ -273,7 +272,12 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         return rows;
     }
 
-    /** 计划行落库:每行补 joinTaskId/createdAt/updatedAt 后批量插入;空则跳过。 */
+    /**
+     * 批量保存计划行并初始化异步派发状态。
+     *
+     * <p>有效执行行初始化为 PENDING+WAITING，但 next_execute_at 保持空值，必须等任务启动后按账号激活；
+     * 建任务阶段的非法占位行直接初始化为 FAILED+TERMINAL，永不进入调度。</p>
+     */
     private void persistRows(Long taskId, List<PlanRow> rows, long now) {
         if (rows == null || rows.isEmpty()) {
             return;
@@ -286,6 +290,9 @@ public class JoinTaskServiceImpl implements JoinTaskService {
             e.setAccountId(r.accountId());
             e.setLink(r.link());
             e.setStatus(r.status());
+            e.setDispatchState(JoinResultStatus.PENDING.equals(r.status())
+                    ? JoinTaskDispatchState.WAITING : JoinTaskDispatchState.TERMINAL);
+            e.setAttemptNo(0);
             e.setReason(r.reason());
             e.setCreatedAt(now);
             e.setUpdatedAt(now);

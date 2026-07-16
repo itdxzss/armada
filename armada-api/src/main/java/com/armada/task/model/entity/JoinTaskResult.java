@@ -1,10 +1,13 @@
 package com.armada.task.model.entity;
 
+import com.armada.task.model.enums.JoinTaskDispatchState;
+
 /**
- * 进群任务明细实体，映射 join_task_result 表一行。
- * 每账号每链接对应一行计划与执行结果。
- * 裸 POJO + 手写 getter/setter（无 Lombok），Mapper 直出。
- * 时间列为 BIGINT epoch 毫秒，引擎逐行回写。
+ * 进群任务明细实体，映射 {@code join_task_result} 表一行。
+ *
+ * <p>每账号每链接对应一行计划与执行结果。业务结果 {@code status} 与传输过程
+ * {@code dispatchState} 分开保存：WAITING/SUBMITTED 仍是 PENDING，只有协议结果或重试耗尽才进入
+ * SUCCESS/FAILED+TERMINAL。时间列均为 BIGINT epoch 毫秒。</p>
  */
 public class JoinTaskResult {
 
@@ -28,6 +31,18 @@ public class JoinTaskResult {
 
     /** 进群结果码：PENDING/SUCCESS/FAILED。中文展示由前端转换。 */
     private String status;
+
+    /** 异步派发状态：WAITING/SUBMITTED/TERMINAL。 */
+    private JoinTaskDispatchState dispatchState;
+
+    /** 下一次允许派发时间（epoch 毫秒）；未激活时为空。 */
+    private Long nextExecuteAt;
+
+    /** 当前业务尝试的稳定命令 ID。 */
+    private String commandId;
+
+    /** 已发起的业务尝试序号，从 1 开始；未派发为 0。 */
+    private int attemptNo;
 
     /** 失败原因（无效链接行建时即写）。 */
     private String reason;
@@ -101,6 +116,78 @@ public class JoinTaskResult {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    /**
+     * 返回明细当前异步派发阶段。
+     *
+     * @return WAITING、SUBMITTED 或 TERMINAL
+     */
+    public JoinTaskDispatchState getDispatchState() {
+        return dispatchState;
+    }
+
+    /**
+     * 设置明细异步派发阶段。
+     *
+     * @param dispatchState 派发阶段
+     */
+    public void setDispatchState(JoinTaskDispatchState dispatchState) {
+        this.dispatchState = dispatchState;
+    }
+
+    /**
+     * 返回当前行下一次允许写入 outbox 的时间。
+     *
+     * @return epoch 毫秒；未激活或已提交时为空
+     */
+    public Long getNextExecuteAt() {
+        return nextExecuteAt;
+    }
+
+    /**
+     * 设置当前行下一次允许写入 outbox 的时间。
+     *
+     * @param nextExecuteAt epoch 毫秒；空值表示该账号尚未轮到本行
+     */
+    public void setNextExecuteAt(Long nextExecuteAt) {
+        this.nextExecuteAt = nextExecuteAt;
+    }
+
+    /**
+     * 返回当前尝试关联的 outbox 命令 ID。
+     *
+     * @return commandId；WAITING 或尚未派发时为空
+     */
+    public String getCommandId() {
+        return commandId;
+    }
+
+    /**
+     * 关联当前业务尝试与 outbox 命令。
+     *
+     * @param commandId outbox 命令 ID
+     */
+    public void setCommandId(String commandId) {
+        this.commandId = commandId;
+    }
+
+    /**
+     * 返回已经发起的业务尝试序号。
+     *
+     * @return 0 表示尚未派发，首次派发为 1
+     */
+    public int getAttemptNo() {
+        return attemptNo;
+    }
+
+    /**
+     * 设置已经发起的业务尝试序号。
+     *
+     * @param attemptNo 非负尝试序号
+     */
+    public void setAttemptNo(int attemptNo) {
+        this.attemptNo = attemptNo;
     }
 
     public String getReason() {

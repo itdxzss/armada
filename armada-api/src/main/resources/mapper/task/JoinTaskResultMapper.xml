@@ -21,10 +21,13 @@
   -->
   <insert id="insertResults">
     INSERT INTO join_task_result
-      (join_task_id, account, account_id, link, status, reason, created_at, updated_at)
+      (join_task_id, account, account_id, link, status, dispatch_state, next_execute_at,
+       command_id, attempt_no, reason, created_at, updated_at)
     VALUES
     <foreach collection="rows" item="r" separator=",">
-      (#{r.joinTaskId}, #{r.account}, #{r.accountId}, #{r.link}, #{r.status}, #{r.reason}, #{r.createdAt}, #{r.updatedAt})
+      (#{r.joinTaskId}, #{r.account}, #{r.accountId}, #{r.link}, #{r.status},
+       COALESCE(#{r.dispatchState}, CASE WHEN #{r.status} = 'PENDING' THEN 'WAITING' ELSE 'TERMINAL' END),
+       #{r.nextExecuteAt}, #{r.commandId}, #{r.attemptNo}, #{r.reason}, #{r.createdAt}, #{r.updatedAt})
     </foreach>
   </insert>
 
@@ -66,5 +69,170 @@
   <delete id="deleteResultsByTask">
     DELETE FROM join_task_result WHERE join_task_id = #{joinTaskId}
   </delete>
+
+  <!--
+    第一阶段跨租户预扫描：只返回 tenantId/resultId，不加锁、不加载账号和链接等敏感字段。
+    Java Mapper 显式绕过租户插件；调用方必须按租户分组后再进入 selectDueForUpdate。
+  -->
+  <select id="selectDueCandidates" resultType="com.armada.task.model.dto.JoinTaskDispatchCandidate">
+    SELECT r.tenant_id AS tenantId, r.id AS resultId
+    FROM join_task_result r
+    JOIN join_task t ON t.id = r.join_task_id AND t.tenant_id = r.tenant_id AND t.deleted_at IS NULL
+    WHERE t.status = 'RUNNING'
+      AND r.status = 'PENDING'
+      AND r.dispatch_state = 'WAITING'
+      AND r.next_execute_at IS NOT NULL
+      AND r.next_execute_at &lt;= #{now}
+    ORDER BY r.next_execute_at, r.id
+    LIMIT #{limit}
+  </select>
+
+  <!--
+    第二阶段单租户抢占：复核任务/明细仍可派发，FOR UPDATE SKIP LOCKED 支持多实例并发扫描。
+    此方法在 Java Mapper 关闭租户拦截器，因为拦截器会把锁行尾句重写到 ORDER BY 之前；
+    tenant_id 必须在主表、任务表和账号 lane 子查询中显式约束。
+    NOT EXISTS SUBMITTED 是账号 lane 闸门，同任务同账号任何时刻最多一条命令等待协议结果。
+  -->
+  <select id="selectDueForUpdate" resultMap="resultRow">
+    SELECT r.*
+    FROM join_task_result r
+    JOIN join_task t ON t.id = r.join_task_id
+      AND t.tenant_id = #{tenantId}
+      AND t.deleted_at IS NULL
+    WHERE r.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+      AND r.tenant_id = #{tenantId}
+      AND t.status = 'RUNNING'
+      AND r.status = 'PENDING'
+      AND r.dispatch_state = 'WAITING'
+      AND r.next_execute_at IS NOT NULL
+      AND r.next_execute_at &lt;= #{now}
+      AND NOT EXISTS (
+        SELECT 1 FROM join_task_result active
+        WHERE active.tenant_id = #{tenantId}
+          AND active.join_task_id = r.join_task_id
+          AND active.account_id = r.account_id
+          AND active.status = 'PENDING'
+          AND active.dispatch_state = 'SUBMITTED'
+      )
+    ORDER BY r.id
+    FOR UPDATE SKIP LOCKED
+  </select>
+
+  <!--
+    启动任务时按 account_id 各激活 id 最小的一行；其余行 next_execute_at 保持 NULL。
+    账号数决定并行 lane 数，不受调度线程数量限制。
+  -->
+  <update id="activateFirstPendingPerAccount">
+    UPDATE join_task_result r
+    JOIN (
+      SELECT MIN(id) AS id
+      FROM join_task_result
+      WHERE join_task_id = #{joinTaskId}
+        AND account_id IS NOT NULL
+        AND status = 'PENDING'
+        AND dispatch_state = 'WAITING'
+      GROUP BY account_id
+    ) first_row ON first_row.id = r.id
+    SET r.next_execute_at = #{now}, r.updated_at = #{now}
+    WHERE r.join_task_id = #{joinTaskId}
+      AND r.status = 'PENDING'
+      AND r.dispatch_state = 'WAITING'
+      AND r.next_execute_at IS NULL
+  </update>
+
+  <!--
+    协议结果幂等闸门：明细、command_id、attempt_no 必须同时命中当前 SUBMITTED 尝试。
+    重复消费、旧尝试迟到结果和 outbox 历史 DEAD 命令均返回空。
+    id 是主键，不写冗余 LIMIT 1；否则租户拦截器会把 FOR UPDATE 重写到 LIMIT 之前，
+    生成 MySQL 非法语序。
+  -->
+  <select id="selectSubmittedForUpdate" resultMap="resultRow">
+    SELECT * FROM join_task_result
+    WHERE id = #{id}
+      AND status = 'PENDING'
+      AND dispatch_state = 'SUBMITTED'
+      AND command_id = #{commandId}
+      AND attempt_no = #{attemptNo}
+    FOR UPDATE
+  </select>
+
+  <!-- outbox 已在同一事务写入后切到 SUBMITTED，并清空到期时间，避免再次进入到期扫描。 -->
+  <update id="markSubmitted">
+    UPDATE join_task_result
+    SET dispatch_state = 'SUBMITTED', command_id = #{commandId}, attempt_no = #{attemptNo},
+        next_execute_at = NULL, updated_at = #{now}
+    WHERE id = #{id}
+      AND status = 'PENDING'
+      AND dispatch_state = 'WAITING'
+      AND next_execute_at IS NOT NULL
+      AND next_execute_at &lt;= #{now}
+  </update>
+
+  <!-- 业务重试复用当前明细：清空旧 command_id，保留 attempt_no，按随机间隔重新进入 WAITING。 -->
+  <update id="markRetry">
+    UPDATE join_task_result
+    SET dispatch_state = 'WAITING', command_id = NULL, next_execute_at = #{nextExecuteAt},
+        reason = #{reason}, updated_at = #{now}
+    WHERE id = #{id} AND status = 'PENDING' AND dispatch_state = 'SUBMITTED'
+  </update>
+
+  <!-- 只有当前 SUBMITTED 尝试可进入成功终态；group_jid 供后续管理员事件关联。 -->
+  <update id="markTerminalSuccess">
+    UPDATE join_task_result
+    SET status = 'SUCCESS', dispatch_state = 'TERMINAL', reason = '', group_jid = #{groupJid},
+        next_execute_at = NULL, updated_at = #{now}
+    WHERE id = #{id} AND status = 'PENDING' AND dispatch_state = 'SUBMITTED'
+  </update>
+
+  <!-- 前置校验失败可从 WAITING 终结，协议/传输重试耗尽可从 SUBMITTED 终结。 -->
+  <update id="markTerminalFailure">
+    UPDATE join_task_result
+    SET status = 'FAILED', dispatch_state = 'TERMINAL', reason = #{reason},
+        next_execute_at = NULL, updated_at = #{now}
+    WHERE id = #{id} AND status = 'PENDING' AND dispatch_state IN ('WAITING', 'SUBMITTED')
+  </update>
+
+  <!--
+    当前行终态后只激活同账号 afterId 之后的下一行。
+    MySQL 派生表 next_row 用于规避“更新目标表同时从目标表选择”的限制。
+  -->
+  <update id="activateNextPending">
+    UPDATE join_task_result
+    SET next_execute_at = #{nextExecuteAt}, updated_at = #{now}
+    WHERE id = (
+      SELECT id FROM (
+        SELECT MIN(id) AS id
+        FROM join_task_result
+        WHERE join_task_id = #{joinTaskId}
+          AND account_id = #{accountId}
+          AND id &gt; #{afterId}
+          AND status = 'PENDING'
+          AND dispatch_state = 'WAITING'
+          AND next_execute_at IS NULL
+      ) next_row
+    )
+  </update>
+
+  <!--
+    跨租户收敛 outbox DEAD：聚合类型、聚合 ID、tenant_id、command_id 四重匹配当前业务尝试，
+    防止同一明细历史传输失败覆盖后续业务重试。
+  -->
+  <select id="selectDeadSubmittedCandidates" resultType="com.armada.task.model.dto.JoinTaskDeadCommandCandidate">
+    SELECT r.tenant_id AS tenantId, r.id AS resultId,
+           r.command_id AS commandId, r.attempt_no AS attemptNo
+    FROM join_task_result r
+    JOIN protocol_command_outbox o
+      ON o.tenant_id = r.tenant_id
+     AND o.aggregate_type = 'JOIN_TASK_RESULT'
+     AND o.aggregate_id = r.id
+     AND o.command_id = r.command_id
+    WHERE r.status = 'PENDING'
+      AND r.dispatch_state = 'SUBMITTED'
+      AND o.deleted_at IS NULL
+      AND o.status = #{deadStatus}
+    ORDER BY o.updated_at, o.id
+    LIMIT #{limit}
+  </select>
 
 </mapper>

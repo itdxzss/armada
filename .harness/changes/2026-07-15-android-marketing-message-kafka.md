@@ -23,6 +23,8 @@
 - [x] 增加 Android 成功、mention-all 失败和不确定结果到 Armada 消费契约回归。
 - [x] 修复复核发现的迟到发送结果竞争和 mention-all 成员身份不完整问题，并完成二次复核。
 - [x] 补充 Android backend、Kafka commit 时序、HTTP 兼容组包、原生 payload、publisher、sender 和 Redis 状态机设计注释。
+- [x] 删除 Android 消息专用 `messagecommandsenabled` 开关，统一由 `[kafka].enabled` 控制生命周期和营销消息命令消费。
+- [x] 补充消息失败结果发布后再提交 Kafka offset 的回归测试，避免失败消息阻塞共享 command topic。
 - [x] 用户审阅本地 diff 并授权提交推送。
 - [ ] 确认测试环境后执行真实 Redis/Kafka/WhatsApp 灰度验收。
 
@@ -34,6 +36,7 @@
 - Android 需要开发图片 caption、单 CTA URL 按钮和真实 mention-all。
 - 统一结果继续使用 `message.send_result_reported`。
 - 崩溃后的不确定副作用选择不自动重发，避免营销消息重复触达。
+- Android Zhuan 不再设置消息专用消费开关；`[kafka].enabled=true` 时生命周期和营销消息命令始终一起可用，避免消息命令因专用开关关闭而持续重试并阻塞共享 topic 分区。
 
 ## 验证（evidence-before-done）
 
@@ -59,17 +62,19 @@
   - `pkg/noise` 既有向量/工作目录依赖失败。
 - 代码复核结果：两轮只读复核后无剩余 Critical / Important / Minor correctness 问题；迟到 sender 只发布 Redis 权威结果，`workerId/resultAt` 固定；mention-all 对零成员、空身份、非法身份和无法映射 LID 均整体失败。
 - Redis 消息状态 key 固定为 `armada:zhuan:message:command:<commandId>`，TTL 复用 `contextttlseconds`；状态只保存 phase、时间、worker ID 和发送结果，不保存正文、base64、缩略图或按钮 URL。
-- `messagecommandsenabled` 在代码和两份示例 TOML 中均默认 `false`。
+- Zhuan `13cffa8` 合并后的开关回归：`go test ./internal/armada ./internal/configs -count=1` 通过，`go vet ./internal/armada ./internal/configs` 通过；Go/TOML 运行代码中已不存在 `messagecommandsenabled`、`MessageCommandsEnabled` 或 `ErrMessageCommandsDisabled`。
+- `[kafka].enabled` 是 Armada Android 适配器总开关：关闭时生命周期和营销消息均不消费，开启时始终创建消息结果 publisher、Redis 幂等状态仓库和消息 executor。
 - `git diff --check` 与相关 Go `gofmt` 已通过；未运行真库 DbTest、远程 Kafka/Redis 或真实 WhatsApp 发送。
 
 ## 部署
 
 - commit / push：
   - Armada `ea6dd6a 安卓协议接入营销功能`、`85d3458 补充安卓营销消息链路注释` 已推送到 `origin/1.0.1-snapshot`。
-  - Android Zhuan `66d1edf 接入营销消息 Kafka 原生发送` 已推送到 `origin/1.0.1-snapshot`。
+  - Android Zhuan `66d1edf 接入营销消息 Kafka 原生发送`、`13cffa8 营销消息，限制图片大小等` 已推送到 `origin/1.0.1-snapshot`；后者删除消息专用开关并对齐失败终结语义。
 - 环境 / 部署后验证结果：尚未部署；未获目标环境确认，不执行 SSH、部署或共享中间件写入。
 
 ## 遗留 / 跟进
 
 - Armada 工作区原有 `.claude/worktrees/*` 状态未触碰；Android Zhuan 开始实施时为干净工作区。
-- 测试环境灰度顺序：先部署 Android 且保持消息开关关闭，再部署 Armada routing，停止新 Android outbox 后才开启 Android 消息消费；回滚时反向操作且不删除 outbox/Redis 审计状态。
+- 测试环境灰度顺序：先部署包含 `13cffa8` 的 Android Zhuan，并确认 `[kafka].enabled=true`、command topic、message event topic 和 Redis 正确，再部署 Armada routing，以单账号纯文本开始真实灰度。
+- 回滚营销消息时先停止 Armada 生成新的 Android outbox，再回滚 Zhuan/Armada 版本；不得把 `[kafka].enabled=false` 当作消息专用回滚开关，因为它同时停止账号生命周期命令。已有 Android outbox 和 Redis 审计状态不删除、不改写。

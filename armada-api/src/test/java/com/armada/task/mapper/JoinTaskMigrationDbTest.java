@@ -8,7 +8,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V007 建表验证:确认 join_task + join_task_result 表存在,且所有时间列为 BIGINT epoch 毫秒。
+ * 进群任务真实 MySQL 迁移验证。
+ *
+ * <p>覆盖 V007 建表和 V055 Kafka 派发状态扩展，验证字段类型、默认值和调度索引的真实库结构，
+ * 不用 H2 或字符串匹配替代 MySQL DDL 执行。</p>
  */
 class JoinTaskMigrationDbTest extends DbTestBase {
 
@@ -48,6 +51,39 @@ class JoinTaskMigrationDbTest extends DbTestBase {
         assertThat(queryDataType("join_task_result", "updated_at")).isEqualTo("bigint");
         // join_task_result.promoted_at
         assertThat(queryDataType("join_task_result", "promoted_at")).isEqualTo("bigint");
+    }
+
+    @Test
+    void joinTaskResult_hasKafkaDispatchColumnsAndIndexes() {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_schema=DATABASE() AND table_name='join_task_result'",
+                Integer.class);
+        assertThat(count).isEqualTo(17);
+        assertColumn("dispatch_state", "varchar", false, "WAITING");
+        assertColumn("next_execute_at", "bigint", true, null);
+        assertColumn("command_id", "varchar", true, null);
+        assertColumn("attempt_no", "int", false, "0");
+        assertIndex("idx_jtr_dispatch", "dispatch_state,next_execute_at,id");
+        assertIndex("idx_jtr_task_account", "tenant_id,join_task_id,account_id,status,id");
+    }
+
+    private void assertColumn(String column, String type, boolean nullable, String defaultValue) {
+        var row = jdbc.queryForMap(
+                "SELECT data_type, is_nullable, column_default FROM information_schema.columns "
+                        + "WHERE table_schema=DATABASE() AND table_name='join_task_result' AND column_name=?",
+                column);
+        assertThat(row.get("data_type")).isEqualTo(type);
+        assertThat(row.get("is_nullable")).isEqualTo(nullable ? "YES" : "NO");
+        assertThat(row.get("column_default")).isEqualTo(defaultValue);
+    }
+
+    private void assertIndex(String index, String expectedColumns) {
+        String columns = jdbc.queryForObject(
+                "SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.statistics "
+                        + "WHERE table_schema=DATABASE() AND table_name='join_task_result' AND index_name=?",
+                String.class, index);
+        assertThat(columns).isEqualTo(expectedColumns);
     }
 
     private String queryDataType(String tableName, String columnName) {

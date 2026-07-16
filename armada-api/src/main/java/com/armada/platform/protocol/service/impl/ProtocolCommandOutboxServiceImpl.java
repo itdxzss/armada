@@ -8,6 +8,7 @@ import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -56,6 +57,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 账号当前群同步命令类型。 */
     public static final String COMMAND_TYPE_ACCOUNT_GROUPS_SYNC_REQUESTED = "account.groups_sync.requested";
 
+    /** 批量进群命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_JOIN_REQUESTED = "group.join.requested";
+
     /** 营销消息发送命令类型。 */
     public static final String COMMAND_TYPE_MESSAGE_SEND_REQUESTED = "message.send.requested";
 
@@ -64,6 +68,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     /** 群链接聚合类型。 */
     public static final String AGGREGATE_TYPE_GROUP_LINK = "GROUP_LINK";
+
+    /** 进群任务明细聚合类型。 */
+    public static final String AGGREGATE_TYPE_JOIN_TASK_RESULT = "JOIN_TASK_RESULT";
 
     /** 营销发送尝试聚合类型。 */
     public static final String AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT = "MARKETING_SEND_ATTEMPT";
@@ -92,7 +99,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * @param dispatchTrigger outbox 提交后 dispatch 触发器
      * @param accountCommandProperties 账号上线命令 Kafka topic 配置
      * @param masterCommandProperties  master 路由命令 Kafka topic 配置
-     * @param androidCommandProperties Android 上线命令 Kafka topic 配置
+     * @param androidCommandProperties Android 协议命令 Kafka topic 配置
      */
     public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper,
                                             ObjectMapper objectMapper,
@@ -220,6 +227,36 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
 
         return insertPendingRows(batchId, commandIds, rows);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>每行 outbox 使用进群明细作为聚合 ID，并保存稳定的 {@code join-task:{taskId}} batchId。
+     * 命令列表可同时包含多个任务；只有全部命令属于同一任务时，返回值才携带公共 batchId。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueGroupJoinCommands(
+            List<ProtocolGroupJoinCommandRequest> commands) {
+        validateGroupJoinCommands(commands);
+
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolGroupJoinCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toGroupJoinOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).joinTaskId();
+        String commonBatchId = commands.stream().allMatch(command -> firstTaskId.equals(command.joinTaskId()))
+                ? joinTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
     }
 
     /**
@@ -418,6 +455,51 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    /**
+     * 把统一进群命令转换为待发送 outbox 行。
+     *
+     * <p>Web 命令进入 master topic，由 master 按协议账号路由 worker；Android 命令直接进入 Android
+     * topic。两端都使用 protocolAccountId 作为 Kafka key，使单账号命令在分区内有序。</p>
+     *
+     * @param command 已完成字段校验的进群命令
+     * @param commandId 本次生成的全局命令 ID
+     * @param now 创建和更新时间（epoch 毫秒）
+     * @return 状态为 PENDING 的进群 outbox 行
+     */
+    private ProtocolCommandOutbox toGroupJoinOutboxRow(ProtocolGroupJoinCommandRequest command,
+                                                        String commandId,
+                                                        long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(TenantContext.get());
+        row.setCommandId(commandId);
+        row.setBatchId(joinTaskBatchId(command.joinTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_JOIN_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_JOIN_TASK_RESULT);
+        row.setAggregateId(command.joinTaskResultId());
+        row.setKafkaTopic(command.protocolBackend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.protocolAccountId());
+        row.setProtocolAccountId(command.protocolAccountId());
+        row.setProtocolBackend(command.protocolBackend().name());
+        row.setPayloadJson(payloadJson(command));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /**
+     * 生成进群任务稳定批次 ID，便于跨多轮随机间隔派发时按任务排查。
+     *
+     * @param joinTaskId 进群任务 ID
+     * @return {@code join-task:{id}} 格式批次 ID
+     */
+    private static String joinTaskBatchId(Long joinTaskId) {
+        return "join-task:" + joinTaskId;
+    }
+
     private ProtocolCommandOutbox toMessageOutboxRow(
             ProtocolMessageOutboxCommand outboxCommand,
             String batchId,
@@ -545,6 +627,13 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
     }
 
+    /**
+     * 序列化已经定义好 wire 字段的进群或营销命令载荷。
+     *
+     * @param payload 协议层命令 payload
+     * @return JSON 文本
+     * @throws BusinessException JSON 序列化失败时抛出，阻止写入不可消费的 outbox 行
+     */
     private String payloadJson(Object payload) {
         try {
             return objectMapper.writeValueAsString(payload);
@@ -711,6 +800,40 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || isBlank(command.protocolAccountId())
                 || isBlank(command.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号群同步命令缺少必要字段");
+        }
+    }
+
+    /**
+     * 校验统一进群命令批次和协议执行所需字段。
+     *
+     * <p>source 固定为 join_task，防止其它业务借用该命令类型却无法复用任务结果回写语义。路由后端、
+     * 协议账号、手机号和邀请码均在写 outbox 前确认，避免无效命令进入异步链路。</p>
+     *
+     * @param commands 待写入 outbox 的进群命令，最多 500 条
+     * @throws BusinessException 批次为空、超限或任一命令缺少必要字段时抛出
+     */
+    private void validateGroupJoinCommands(List<ProtocolGroupJoinCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "进群协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "进群协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        for (ProtocolGroupJoinCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || command.joinTaskId() == null
+                    || command.joinTaskResultId() == null
+                    || command.accountId() == null
+                    || isBlank(command.protocolAccountId())
+                    || isBlank(command.wsPhone())
+                    || command.protocolBackend() == null
+                    || isBlank(command.inviteCode())
+                    || command.attemptNo() <= 0
+                    || !ProtocolGroupJoinCommandRequest.SOURCE_JOIN_TASK.equals(command.source())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "进群协议命令缺少必要字段");
+            }
         }
     }
 

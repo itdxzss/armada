@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.Locale;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -16,31 +18,48 @@ import org.springframework.stereotype.Component;
 /**
  * 协议群组事件 Kafka consumer。
  *
- * <p>当前只接入 {@code group.health_reported}。其它群组事件先记录并跳过,
- * 防止未定义回写口径的事件阻塞消费。</p>
+ * <p>接入群健康和 Web/Android 统一进群结果事件。消费层负责 JSON 类型、必填字段和信封账号一致性
+ * 校验，不负责业务重试。其它群组事件只记录并跳过，防止尚未定义回写口径的事件阻塞同 topic。</p>
  */
 @Component
 @Profile("kafka")
 public class ProtocolGroupEventConsumer {
 
+    /** 记录消费路由和脱敏后的业务关联字段。 */
     private static final Logger log = LoggerFactory.getLogger(ProtocolGroupEventConsumer.class);
 
     /** 协议层群链接健康检测回报事件类型。 */
     public static final String EVENT_GROUP_HEALTH_REPORTED = "group.health_reported";
 
+    /** Web/Android 统一进群结果事件类型。 */
+    public static final String EVENT_GROUP_JOIN_RESULT_REPORTED = "group.join_result_reported";
+
+    /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
+    private static final Set<String> SUPPORTED_JOIN_OUTCOMES = Set.of(
+            "JOINED", "ALREADY_JOINED", "PENDING_APPROVAL", "FAILED");
+
+    /** Kafka 事件 JSON 解析器。 */
     private final ObjectMapper objectMapper;
+
+    /** 群健康事件下游处理边界。 */
     private final ProtocolGroupHealthReportedSink healthReportedSink;
+
+    /** 统一进群结果下游处理边界。 */
+    private final ProtocolGroupJoinResultReportedSink joinResultReportedSink;
 
     /**
      * 创建协议群组事件 consumer。
      *
      * @param objectMapper       JSON 解析器
      * @param healthReportedSink 群组健康检测下游处理口
+     * @param joinResultReportedSink Web/Android 统一进群结果下游处理口
      */
     public ProtocolGroupEventConsumer(ObjectMapper objectMapper,
-                                      ProtocolGroupHealthReportedSink healthReportedSink) {
+                                      ProtocolGroupHealthReportedSink healthReportedSink,
+                                      ProtocolGroupJoinResultReportedSink joinResultReportedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
+        this.joinResultReportedSink = joinResultReportedSink;
     }
 
     /**
@@ -57,12 +76,16 @@ public class ProtocolGroupEventConsumer {
         JsonNode envelope = readEnvelope(rawMessage);
         String eventType = text(envelope, "event");
         String eventId = text(envelope, "eventId");
-        if (!EVENT_GROUP_HEALTH_REPORTED.equals(eventType)) {
-            log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
+        switch (eventType == null ? "" : eventType) {
+            case EVENT_GROUP_HEALTH_REPORTED -> handleHealthReported(envelope, eventId);
+            case EVENT_GROUP_JOIN_RESULT_REPORTED -> handleJoinResultReported(envelope, eventId);
+            default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
-            return;
         }
+    }
 
+    /** 群健康沿用允许缺少业务主键时记录并跳过的兼容策略。 */
+    private void handleHealthReported(JsonNode envelope, String eventId) {
         JsonNode data = dataNode(envelope);
         Long tenantId = longValue(data, "tenantId");
         Long groupLinkId = longValue(data, "groupLinkId");
@@ -78,6 +101,61 @@ public class ProtocolGroupEventConsumer {
                 event.eventId(), event.tenantId(), event.groupLinkId(), event.groupJid(), event.health(),
                 event.memberCount(), event.workerId());
         healthReportedSink.handleHealthReported(event);
+    }
+
+    /**
+     * 校验统一进群结果的业务关联字段并传给任务状态机。
+     *
+     * <p>进群结果会推进账号 lane，因此关联字段不完整时必须抛出消费异常，不能像观察型健康事件一样
+     * 静默跳过。真正的重复与迟到判断由任务域在行锁内完成。</p>
+     */
+    private void handleJoinResultReported(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        Long tenantId = requiredLong(data, "tenantId");
+        Long joinTaskId = requiredLong(data, "joinTaskId");
+        Long joinTaskResultId = requiredLong(data, "joinTaskResultId");
+        Long accountId = requiredLong(data, "accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议进群结果缺少 data.protocolAccountId");
+        String envelopeAccountId = text(envelope, "accountId");
+        if (envelopeAccountId != null && !envelopeAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果账号关联不一致");
+        }
+        String commandId = requiredText(data, "commandId", "协议进群结果缺少 data.commandId");
+        Integer attemptNo = integer(data, "attemptNo");
+        if (attemptNo == null || attemptNo <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果 attemptNo 非法");
+        }
+        String outcome = requiredText(data, "outcome", "协议进群结果缺少 data.outcome")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_JOIN_OUTCOMES.contains(outcome)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果 outcome 非法");
+        }
+        Boolean retryable = booleanValue(data, "retryable");
+        if (retryable == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果缺少 data.retryable");
+        }
+        Long timestamp = longValue(data, "timestamp");
+        ProtocolGroupJoinResultReportedEvent event = new ProtocolGroupJoinResultReportedEvent(
+                eventId,
+                tenantId,
+                joinTaskId,
+                joinTaskResultId,
+                accountId,
+                protocolAccountId,
+                commandId,
+                attemptNo,
+                outcome,
+                text(data, "groupJid"),
+                text(data, "reasonCode"),
+                text(data, "reasonMessage"),
+                retryable,
+                timestamp == null ? 0L : timestamp,
+                text(envelope, "workerId"));
+        log.info("协议进群结果收到 eventId={} tenantId={} taskId={} resultId={} commandId={} attemptNo={} outcome={}",
+                event.eventId(), event.tenantId(), event.joinTaskId(), event.joinTaskResultId(),
+                event.commandId(), event.attemptNo(), event.outcome());
+        joinResultReportedSink.handleJoinResultReported(event);
     }
 
     private JsonNode readEnvelope(String rawMessage) {
@@ -162,6 +240,29 @@ public class ProtocolGroupEventConsumer {
             }
         }
         throw new BusinessException(ErrorCode.VALIDATION, "协议群组事件字段不是长整数: " + fieldName);
+    }
+
+    private static Long requiredLong(JsonNode node, String fieldName) {
+        Long value = longValue(node, fieldName);
+        if (value == null || value <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群组事件缺少或非法字段: " + fieldName);
+        }
+        return value;
+    }
+
+    private static Boolean booleanValue(JsonNode node, String fieldName) {
+        JsonNode value = node.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return null;
+        }
+        if (value.isBoolean()) {
+            return value.booleanValue();
+        }
+        if (value.isTextual() && ("true".equalsIgnoreCase(value.asText())
+                || "false".equalsIgnoreCase(value.asText()))) {
+            return Boolean.valueOf(value.asText());
+        }
+        throw new BusinessException(ErrorCode.VALIDATION, "协议群组事件字段不是布尔值: " + fieldName);
     }
 
     private static String requiredText(JsonNode node, String fieldName, String errorMessage) {

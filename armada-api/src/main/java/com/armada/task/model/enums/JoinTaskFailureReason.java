@@ -48,6 +48,15 @@ public enum JoinTaskFailureReason {
     /** 协议层请求超时。 */
     TIMEOUT("TIMEOUT", "协议层请求超时"),
 
+    /** Armada outbox 达到传输重试上限。 */
+    KAFKA_PUBLISH_FAILED("KAFKA_PUBLISH_FAILED", "进群命令发送失败"),
+
+    /** 协议后端或 WhatsApp 暂时限流。 */
+    RATE_LIMITED("RATE_LIMITED", "进群请求被限流，请稍后重试"),
+
+    /** 可恢复的协议后端临时故障。 */
+    TEMPORARY_FAILURE("TEMPORARY_FAILURE", "协议层临时异常，请稍后重试"),
+
     /** 调用协议层时网络不可达或连接异常。 */
     NETWORK("NETWORK", "协议层网络异常"),
 

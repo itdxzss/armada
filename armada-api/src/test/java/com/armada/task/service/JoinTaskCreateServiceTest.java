@@ -10,8 +10,8 @@ import com.armada.task.model.dto.CreateJoinTaskDTO;
 import com.armada.task.model.dto.SelectedAccount;
 import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.entity.JoinTaskResult;
+import com.armada.task.model.enums.JoinTaskDispatchState;
 import com.armada.task.service.impl.JoinTaskServiceImpl;
-import com.armada.task.worker.JoinTaskWorker;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -42,15 +42,12 @@ class JoinTaskCreateServiceTest {
     @Mock
     private GroupLinkRegistryService groupLinkRegistryService;
 
-    @Mock
-    private JoinTaskWorker joinTaskWorker;
-
     private JoinTaskServiceImpl service;
 
     @BeforeEach
     void setUp() {
         TenantContext.set(1L);
-        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService, joinTaskWorker);
+        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService);
     }
 
     @AfterEach
@@ -174,6 +171,12 @@ class JoinTaskCreateServiceTest {
         verify(resultMapper).insertResults(rows.capture());
         assertThat(inserted.get().getTotal()).isEqualTo(3);
         assertThat(rows.getValue()).hasSize(3);
+        assertThat(rows.getValue()).allSatisfy(row -> {
+            assertThat(row.getDispatchState()).isEqualTo(JoinTaskDispatchState.WAITING);
+            assertThat(row.getNextExecuteAt()).isNull();
+            assertThat(row.getCommandId()).isNull();
+            assertThat(row.getAttemptNo()).isZero();
+        });
     }
 
     private static CreateJoinTaskDTO modeTwoRequest(

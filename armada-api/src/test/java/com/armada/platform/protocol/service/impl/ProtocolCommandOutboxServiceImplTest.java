@@ -17,6 +17,7 @@ import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -51,6 +52,51 @@ class ProtocolCommandOutboxServiceImplTest {
             org.mockito.Mockito.mock(ProtocolCommandDispatchTrigger.class);
     private final ObjectMapper objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+
+    @Test
+    void enqueueGroupJoinCommands_routesWebAndAndroidWithApprovedPayload() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-web", "cmd-android"), List.of(),
+                ProtocolAccountCommandProperties.DEFAULT_TOPIC,
+                "protocol.master.commands.test",
+                "protocol.android.commands.test");
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueGroupJoinCommands(List.of(
+                groupJoinCommand(ProtocolBackend.WEB, 26L, 382L, "acc-web", "911", "WEB-CODE"),
+                groupJoinCommand(ProtocolBackend.ANDROID, 27L, 383L, "acc-android", "922", "ANDROID-CODE")));
+
+        assertThat(result.batchId()).isEqualTo("join-task:9");
+        assertThat(result.commandIds()).containsExactly("cmd-web", "cmd-android");
+        assertThat(result.inserted()).isEqualTo(2);
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                .containsExactly("protocol.master.commands.test", "protocol.android.commands.test");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                .containsExactly("acc-web", "acc-android");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getBatchId)
+                .containsOnly("join-task:9");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                .containsOnly("JOIN_TASK_RESULT");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                .containsExactly(26L, 27L);
+        assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                .containsOnly("group.join.requested");
+
+        Map<String, Object> payload = objectMapper.readValue(rows.get(1).getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "tenantId", 1,
+                "joinTaskId", 9,
+                "joinTaskResultId", 27,
+                "accountId", 383,
+                "protocolAccountId", "acc-android",
+                "wsPhone", "922",
+                "protocolBackend", "ANDROID",
+                "inviteCode", "ANDROID-CODE",
+                "attemptNo", 1,
+                "source", "join_task"));
+    }
 
     @Test
     void enqueueOnlineCommands_singleCommand_insertsPendingRowWithStableEnvelopeAndSafePayload() throws Exception {
@@ -628,6 +674,18 @@ class ProtocolCommandOutboxServiceImplTest {
                 accountId,
                 protocolAccountId,
                 "scheduled_account_group_sync");
+    }
+
+    private static ProtocolGroupJoinCommandRequest groupJoinCommand(
+            ProtocolBackend backend,
+            Long resultId,
+            Long accountId,
+            String protocolAccountId,
+            String wsPhone,
+            String inviteCode) {
+        return new ProtocolGroupJoinCommandRequest(
+                1L, 9L, resultId, accountId, protocolAccountId, wsPhone,
+                backend, inviteCode, 1, "join_task");
     }
 
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {

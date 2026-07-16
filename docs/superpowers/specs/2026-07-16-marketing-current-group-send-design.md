@@ -1,8 +1,8 @@
-# 营销任务按账号当前全部群发送设计
+# 营销任务当前群同步与发送时间边界设计
 
 ## 目标
 
-账号动态营销任务在任务开始时间到结束时间之间，按发送间隔每轮向发送账号当前所在的全部群尝试发送消息。
+账号动态营销任务在任务开始时间到结束时间之间，按发送间隔每轮向账号当前所在、且符合“账号群组发送时间”边界的群尝试发送消息。
 
 任务时间只控制任务何时运行，不参与群目标筛选。群加入时间、账号导入前 baseline、群链接状态和群健康状态都不能阻止生成发送尝试。
 
@@ -13,7 +13,7 @@
 - 任务运行期间新加入的群，从同步后的下一轮开始发送。
 - 已退出的群在当前群全量回报将关系软删除后，从下一轮停止发送。
 - 只要当前群关系中存在非空 `group_jid`，就生成 attempt 和协议发送命令。
-- 不按 `account_group_membership.joined_at` 过滤。
+- 继续按 `account_group_membership.joined_at >= account_group_send_at` 过滤。
 - 不排除 `account_group_baseline.baseline_group_jids` 中的群。
 - 不因 `group_link.membership_state`、`group_link_health`、账号在线状态、账号风控状态或禁言状态提前跳过群。
 - 协议层不能实际发送时，按现有结果回写链路记录失败原因，不能在轮次目标解析阶段静默消失。
@@ -25,7 +25,7 @@
 1. `AccountGroupMembershipReportServiceImpl` 把协议回报的当前全部群减去 baseline，只把差集写入 `account_group_membership`；待拍账号首次回报甚至会清空 membership。
 2. `MarketingTaskMapper.selectDynamicTargetGroups` 再按群加入时间、baseline、群链接关系态、健康状态和账号状态过滤。
 
-因此，只删除 `joined_at >= account_group_send_at` 仍不能覆盖登录前已经加入但当前仍在的群。根因是当前群事实在落库阶段已经被 baseline 截断，轮次 SQL 又进行了第二次准入过滤。
+当前群事实在落库阶段被 baseline 截断，会使原有发送时间边界无法在完整的当前群集合上生效。本次修复全量当前群落库，但保留时间边界作为任务目标筛选条件。
 
 ## 方案比较
 
@@ -56,22 +56,23 @@
 
 ### 动态营销目标解析
 
-把 mapper 方法收敛为 `selectDynamicTargetGroups(accountId)`：
+保留 mapper 方法 `selectDynamicTargetGroups(accountId, accountGroupSendAt)`：
 
 - 必须满足账号未删除且存在非空协议账号 ID，这是形成可路由命令的最低条件。
 - 必须满足 `account_group_membership.deleted_at IS NULL`。
 - 必须满足 membership 自身的 `group_jid` 非空。
 - `group_link`、`group_link_preview` 只用于补充群名称和链接快照，不能作为准入内连接或状态过滤条件。
-- 删除账号在线、账号状态、风险、禁言、baseline、群加入时间、群链接关系态和群健康条件。
+- 删除账号在线、账号状态、风险、禁言、baseline、群链接关系态和群健康条件，保留群加入时间边界。
 
 `MarketingRoundWorker` 每轮调用该查询，对每条当前群生成 attempt 和 `message.send.requested`。账号占用、任务开始/结束时间、轮次去重和协议结果回写继续沿用现有机制。
 
 ### 账号群组发送时间
 
-- 新增营销任务页面移除“账号群组发送时间”输入和 72 小时校验，只保留任务开始、结束时间。
-- 前端创建请求不再发送 `accountGroupSendAt`，详情不再展示该字段。
-- 后端不再用 `account_group_send_at` 参与动态群查询；已有任务中该列的历史值保留但忽略，避免为本次行为修复执行破坏性删列。
-- 创建 DTO 暂时保留可选字段以兼容旧客户端，但服务端不校验、不用于目标选择，新任务写空值。后续确认没有旧客户端后再单独清理数据库列和读模型。
+- 保留新增营销任务页面的“账号群组发送时间”输入、此刻快捷按钮和详情展示。
+- 未填写时，后端继续按任务开始时间往前 72 小时计算默认值。
+- 前后端继续校验该时间最多追溯 72 小时，创建请求继续传递 `accountGroupSendAt`。
+- 动态群目标查询继续使用 `account_group_membership.joined_at >= account_group_send_at` 作为时间边界。
+- 本次只恢复该时间字段的原有链路，不回滚当前群同步全量落库等其他改动。
 
 ## 错误和审计
 
@@ -86,11 +87,11 @@
 
 - 待拍账号捕获 baseline 后，仍把回报中的全部当前群写入 membership 快照。
 - 已拍账号回报 baseline 群和新群时，两者都写入 membership 快照。
-- Worker 调用不带时间参数的动态群查询，并为返回的全部群生成 attempt 和发送命令。
+- Worker 传入任务的账号群组发送时间，并为查询返回的群生成 attempt 和发送命令。
 
 ### 后端 Mapper 真库测试
 
-- 加入时间早于原 `account_group_send_at` 的当前群仍被选中。
+- 加入时间早于 `account_group_send_at` 的当前群不被选中，边界内的当前群被选中。
 - baseline JSON 中的当前群仍被选中。
 - 群链接标记无效、群健康封禁或异常时，当前 membership 仍被选中。
 - 账号状态离线、风控或禁言时，只要账号和协议 ID 仍存在，当前 membership 仍形成发送目标。
@@ -98,10 +99,10 @@
 
 ### 前端测试
 
-- 创建抽屉不再出现“账号群组发送时间”。
-- 创建请求不再包含 `accountGroupSendAt`。
-- 只校验任务开始时间和结束时间。
-- 任务详情不再展示账号群组发送时间。
+- 创建抽屉展示“账号群组发送时间”并支持设为此刻。
+- 创建请求包含用户填写的 `accountGroupSendAt`。
+- 超过 72 小时追溯范围时拒绝创建并显示原有提示。
+- 任务详情展示账号群组发送时间。
 
 ## 非目标
 

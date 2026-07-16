@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.port;
 
+import com.armada.platform.protocol.model.result.GroupPictureResult;
+
 /**
  * WhatsApp 群资料协议端口。
  *
@@ -17,5 +19,8 @@ public interface GroupProfilePort {
     void updateAnnouncementText(String protocolAccountId, String groupJid, String text);
 
     /** 修改群头像;url/base64 二选一。 */
-    void updatePicture(String protocolAccountId, String groupJid, String url, String base64);
+    GroupPictureResult updatePicture(String protocolAccountId, String groupJid, String url, String base64);
+
+    /** 查询当前群头像 URL;无头像或协议无法回读时为 null。 */
+    String getPictureUrl(String protocolAccountId, String groupJid);
 }

@@ -10,11 +10,18 @@ import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.dto.GroupPictureCommandDTO;
 import com.armada.group.model.dto.GroupSubjectCommandDTO;
+import com.armada.group.model.dto.GroupTimedMessageCommandDTO;
+import com.armada.group.model.dto.GroupSettingCommandDTO;
+import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
+import com.armada.group.model.vo.GroupDetailVO;
+import com.armada.group.model.vo.GroupAvatarUpdateVO;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
+import com.armada.group.model.vo.GroupMemberBatchResultVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.FileLinesExtractor;
+import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.response.ApiResponse;
@@ -41,13 +48,16 @@ import org.springframework.web.multipart.MultipartFile;
 public class GroupLinkController {
 
     private final GroupLinkService groupLinkService;
+    private final GroupDetailService groupDetailService;
     private final GroupLinkImportService importService;
     private final FileLinesExtractor extractor;
 
     public GroupLinkController(GroupLinkService groupLinkService,
+                               GroupDetailService groupDetailService,
                                GroupLinkImportService importService,
                                FileLinesExtractor extractor) {
         this.groupLinkService = groupLinkService;
+        this.groupDetailService = groupDetailService;
         this.importService = importService;
         this.extractor = extractor;
     }
@@ -102,12 +112,42 @@ public class GroupLinkController {
      * 修改 WhatsApp 真实群名称。
      *
      * @param id  群链接 ID
-     * @param dto 操作账号与新群名称
+     * @param dto 新群名称
      * @return 空响应
      */
     @PostMapping("/{id}/subject")
     public ApiResponse<Void> updateSubject(@PathVariable Long id, @RequestBody GroupSubjectCommandDTO dto) {
-        groupLinkService.updateSubject(id, dto);
+        groupDetailService.updateSubject(id, dto);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 设置 WhatsApp 群限时消息,操作账号由后端自动选择。
+     *
+     * @param id  群链接 ID
+     * @param dto 限时消息档位
+     * @return 空响应
+     */
+    @PostMapping("/{id}/timed-message")
+    public ApiResponse<Void> updateTimedMessage(
+            @PathVariable Long id,
+            @RequestBody GroupTimedMessageCommandDTO dto) {
+        groupDetailService.updateTimedMessage(id, dto);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 修改单项 WhatsApp 群权限,操作账号由后端自动选择。
+     *
+     * @param id  群链接 ID
+     * @param dto 权限键与目标状态
+     * @return 空响应
+     */
+    @PostMapping("/{id}/settings")
+    public ApiResponse<Void> updateSetting(
+            @PathVariable Long id,
+            @RequestBody GroupSettingCommandDTO dto) {
+        groupDetailService.updateSetting(id, dto);
         return ApiResponse.ok();
     }
 
@@ -153,6 +193,20 @@ public class GroupLinkController {
     }
 
     /**
+     * 上传 WhatsApp 真实群头像,操作账号由后端自动选择。
+     *
+     * @param id   群链接 ID
+     * @param file 头像图片
+     * @return WhatsApp 应用与本地镜像同步状态
+     */
+    @PostMapping("/{id}/avatar")
+    public ApiResponse<GroupAvatarUpdateVO> updateAvatar(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
+        return ApiResponse.ok(groupDetailService.updateAvatar(id, file));
+    }
+
+    /**
      * B3 批量迁移群链接到目标分组。
      *
      * @param dto 迁移请求(linkIds + targetLabelId)
@@ -175,6 +229,17 @@ public class GroupLinkController {
     }
 
     /**
+     * 查询群详情抽屉所需的本地与实时聚合数据。
+     *
+     * @param id 群链接 ID
+     * @return 群详情;协议不可用时包含降级原因
+     */
+    @GetMapping("/{id}/detail")
+    public ApiResponse<GroupDetailVO> detail(@PathVariable Long id) {
+        return ApiResponse.ok(groupDetailService.detail(id));
+    }
+
+    /**
      * 群组明细实时成员列表。
      *
      * @param id 群链接 ID
@@ -182,7 +247,31 @@ public class GroupLinkController {
      */
     @GetMapping("/{id}/members")
     public ApiResponse<GroupLinkMemberListVO> members(@PathVariable Long id) {
-        return ApiResponse.ok(groupLinkService.members(id));
+        return ApiResponse.ok(groupDetailService.members(id));
+    }
+
+    /** 批量设置管理员,执行账号由后端自动选择。 */
+    @PostMapping("/{id}/members/promote-batch")
+    public ApiResponse<GroupMemberBatchResultVO> promoteMembers(
+            @PathVariable Long id,
+            @RequestBody GroupMemberBatchCommandDTO dto) {
+        return ApiResponse.ok(groupDetailService.promoteMembers(id, dto));
+    }
+
+    /** 批量取消管理员,执行账号由后端自动选择。 */
+    @PostMapping("/{id}/members/demote-batch")
+    public ApiResponse<GroupMemberBatchResultVO> demoteMembers(
+            @PathVariable Long id,
+            @RequestBody GroupMemberBatchCommandDTO dto) {
+        return ApiResponse.ok(groupDetailService.demoteMembers(id, dto));
+    }
+
+    /** 批量踢出群成员,执行账号由后端自动选择。 */
+    @PostMapping("/{id}/members/kick-batch")
+    public ApiResponse<GroupMemberBatchResultVO> kickMembers(
+            @PathVariable Long id,
+            @RequestBody GroupMemberBatchCommandDTO dto) {
+        return ApiResponse.ok(groupDetailService.kickMembers(id, dto));
     }
 
     /**

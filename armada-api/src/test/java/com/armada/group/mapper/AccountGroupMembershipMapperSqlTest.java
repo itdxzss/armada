@@ -11,14 +11,29 @@ class AccountGroupMembershipMapperSqlTest {
 
     @Test
     void upsertMembership_preservesKnownAdminWhenLightweightSyncOmitsIt() throws IOException {
+        String xml = mapperXml();
+        assertTrue(
+                xml.contains("is_admin = COALESCE(VALUES(is_admin), account_group_membership.is_admin)"),
+                "lightweight sync must not erase a previously known admin flag");
+    }
+
+    @Test
+    void selectGroupExecutionAccount_prefersOnlineAdminThenMostRecentlySeen() throws IOException {
+        String xml = mapperXml();
+        assertTrue(xml.contains("<select id=\"selectGroupExecutionAccount\""));
+        assertTrue(xml.contains("s.login_state = #{onlineLoginState}"));
+        assertTrue(xml.contains("m.deleted_at IS NULL"));
+        assertTrue(xml.contains("a.deleted_at IS NULL"));
+        assertTrue(xml.contains("ORDER BY COALESCE(m.is_admin, 0) DESC, COALESCE(m.last_seen_at, 0) DESC, m.id ASC"));
+        assertTrue(xml.contains("LIMIT 1"));
+    }
+
+    private String mapperXml() throws IOException {
         String resource = "/mapper/group/AccountGroupMembershipMapper.xml";
         try (InputStream input = getClass().getResourceAsStream(resource)) {
             assertTrue(input != null, "missing mapper resource " + resource);
-            String xml = new String(input.readAllBytes(), StandardCharsets.UTF_8)
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8)
                     .replaceAll("\\s+", " ");
-            assertTrue(
-                    xml.contains("is_admin = COALESCE(VALUES(is_admin), account_group_membership.is_admin)"),
-                    "lightweight sync must not erase a previously known admin flag");
         }
     }
 }

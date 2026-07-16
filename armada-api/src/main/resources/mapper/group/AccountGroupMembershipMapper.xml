@@ -91,7 +91,7 @@
       updated_at = VALUES(updated_at)
   </insert>
 
-  <select id="selectOnlineMemberQueryAccount" resultType="com.armada.group.model.vo.GroupMemberQueryAccount">
+  <select id="selectGroupExecutionAccount" resultType="com.armada.group.model.vo.GroupExecutionAccount">
     SELECT a.id AS accountId,
            a.protocol_account_id AS protocolAccountId
     FROM account_group_membership m

@@ -2,11 +2,14 @@ package com.armada.platform.protocol.http.group;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
+import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -42,6 +45,53 @@ class HttpGroupParticipantAdapterTest {
                 "8613900000000@s.whatsapp.net", "8613900000000", true, false, "admin"));
         assertThat(result.get(2)).isEqualTo(new GroupParticipantResult(
                 "8613700000000@s.whatsapp.net", "8613700000000", false, false, null));
+        server.verify();
+    }
+
+    @Test
+    void updateParticipantsPostsEachSupportedMutationAndMapsPerJidResults() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupParticipantPort port = new HttpGroupParticipantAdapter(
+                new ProtocolHttpExecutor(builder.build()));
+
+        for (GroupParticipantAction action : GroupParticipantAction.values()) {
+            server.expect(requestTo(
+                            "http://protocol-master.internal/v1/groups/120363members@g.us/participants/"
+                                    + action.wireValue()))
+                    .andExpect(method(HttpMethod.POST))
+                    .andExpect(content().json("""
+                            {
+                              "accountId": "acc_7",
+                              "participants": ["8613800000000@s.whatsapp.net"],
+                              "timeoutMs": 30000
+                            }
+                            """))
+                    .andRespond(withSuccess("""
+                            {
+                              "groupJid": "120363members@g.us",
+                              "partial": false,
+                              "results": [{
+                                "jid": "8613800000000@s.whatsapp.net",
+                                "status": "OK",
+                                "rawStatus": "200"
+                              }]
+                            }
+                            """, MediaType.APPLICATION_JSON));
+        }
+
+        for (GroupParticipantAction action : GroupParticipantAction.values()) {
+
+            GroupParticipantBatchResult result = port.updateParticipants(
+                    "acc_7",
+                    "120363members@g.us",
+                    List.of("8613800000000@s.whatsapp.net"),
+                    action);
+
+            assertThat(result.partial()).isFalse();
+            assertThat(result.results()).containsExactly(new GroupParticipantBatchResult.Item(
+                    "8613800000000@s.whatsapp.net", "OK", "200"));
+        }
         server.verify();
     }
 }

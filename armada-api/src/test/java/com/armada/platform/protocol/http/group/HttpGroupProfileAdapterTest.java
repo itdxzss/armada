@@ -1,11 +1,13 @@
 package com.armada.platform.protocol.http.group;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -97,10 +99,18 @@ class HttpGroupProfileAdapterTest {
                           }
                         }
                         """, true))
-                .andRespond(withSuccess("{\"success\":true}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("""
+                        {
+                          "success": true,
+                          "groupJid": "120363profile@g.us",
+                          "avatarUrl": "https://pps.whatsapp.net/new.jpg"
+                        }
+                        """, MediaType.APPLICATION_JSON));
 
-        port.updatePicture("acc_7", "120363profile@g.us", "https://cdn.example.test/group.jpg", null);
+        GroupPictureResult result = port.updatePicture(
+                "acc_7", "120363profile@g.us", "https://cdn.example.test/group.jpg", null);
 
+        assertThat(result).isEqualTo(new GroupPictureResult(true, "https://pps.whatsapp.net/new.jpg"));
         server.verify();
     }
 
@@ -124,6 +134,48 @@ class HttpGroupProfileAdapterTest {
 
         port.updatePicture("acc_7", "120363profile@g.us", null, "aW1hZ2U=");
 
+        server.verify();
+    }
+
+    @Test
+    void getPictureUrlReturnsCurrentAvatarUrl() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupProfilePort port = new HttpGroupProfileAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol-master.internal/v1/groups/120363profile@g.us/picture?accountId=acc_7"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "groupJid": "120363profile@g.us",
+                          "avatarUrl": "https://pps.whatsapp.net/current.jpg"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        String avatarUrl = port.getPictureUrl("acc_7", "120363profile@g.us");
+
+        assertThat(avatarUrl).isEqualTo("https://pps.whatsapp.net/current.jpg");
+        server.verify();
+    }
+
+    @Test
+    void getPictureUrlKeepsProtocolNull() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupProfilePort port = new HttpGroupProfileAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol-master.internal/v1/groups/120363profile@g.us/picture?accountId=acc_7"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "groupJid": "120363profile@g.us",
+                          "avatarUrl": null
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        String avatarUrl = port.getPictureUrl("acc_7", "120363profile@g.us");
+
+        assertThat(avatarUrl).isNull();
         server.verify();
     }
 }

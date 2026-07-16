@@ -68,6 +68,12 @@ public enum ProtocolErrorCode {
     /** 协议请求参数不合法。 */
     BAD_REQUEST,
 
+    /** 当前账号没有执行群管理操作所需的管理员权限。 */
+    GROUP_PERMISSION_DENIED,
+
+    /** 当前协议后端没有暴露目标群设置能力。 */
+    GROUP_CAPABILITY_UNSUPPORTED,
+
     /** 群邀请链接或邀请码无效。 */
     INVALID_GROUP_LINK,
 

@@ -15,8 +15,10 @@ import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
+import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
+import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
@@ -80,7 +82,9 @@ class ProtocolConfigurationTest {
             assertThat(context.getBeansOfType(GroupJoinBackend.class))
                     .containsKeys("webGroupJoinBackend", "androidGroupJoinBackend");
             assertThat(context).hasSingleBean(GroupParticipantPort.class);
+            assertThat(context).hasSingleBean(GroupMetadataPort.class);
             assertThat(context).hasSingleBean(GroupProfilePort.class);
+            assertThat(context).hasSingleBean(GroupSettingsPort.class);
             assertThat(context).hasSingleBean(GroupPreviewPort.class);
             assertThat(context).hasSingleBean(MessageSendPort.class);
             assertThat(context.getBeansOfType(MessageSendBackend.class))

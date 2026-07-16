@@ -20,8 +20,10 @@ import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
 import com.armada.platform.protocol.http.account.HttpAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.http.contact.HttpContactAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupCreateAdapter;
+import com.armada.platform.protocol.http.group.HttpGroupMetadataAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
+import com.armada.platform.protocol.http.group.HttpGroupSettingsAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
@@ -30,8 +32,10 @@ import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
+import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
+import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
@@ -378,6 +382,17 @@ public class ProtocolConfiguration {
     }
 
     /**
+     * 注册群详情实时查询协议端口。
+     *
+     * @param protocolHttpExecutor 协议层 HTTP 执行器
+     * @return 群详情 HTTP 实现
+     */
+    @Bean
+    public GroupMetadataPort groupMetadataPort(ProtocolHttpExecutor protocolHttpExecutor) {
+        return new HttpGroupMetadataAdapter(protocolHttpExecutor);
+    }
+
+    /**
      * 注册群资料修改协议端口。
      *
      * @param protocolHttpExecutor 协议层 HTTP 执行器
@@ -386,6 +401,17 @@ public class ProtocolConfiguration {
     @Bean
     public GroupProfilePort groupProfilePort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpGroupProfileAdapter(protocolHttpExecutor);
+    }
+
+    /**
+     * 注册群设置协议端口。
+     *
+     * @param protocolHttpExecutor 协议层 HTTP 执行器
+     * @return 群设置 HTTP 实现
+     */
+    @Bean
+    public GroupSettingsPort groupSettingsPort(ProtocolHttpExecutor protocolHttpExecutor) {
+        return new HttpGroupSettingsAdapter(protocolHttpExecutor);
     }
 
     /**

@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-15 / 1.0.1-snapshot / armada
 - 需求来源: 用户逐项确认；`docs/superpowers/specs/2026-07-15-group-detail-drawer-completion-design.md`
-- 状态: 进行中（设计已确认，实施计划已创建）
+- 状态: 本地实施完成，待确认环境后执行 DbTest 与 WhatsApp 真群验收
 
 ## 目标（一句话）
 
@@ -13,13 +13,14 @@
 - [x] 盘点前端、Armada 后端和 armada-protocol 当前实现。
 - [x] 逐项确认范围、执行账号、权限失败和部分成功语义。
 - [x] 完成并自检设计文档。
-- [ ] 按 `docs/superpowers/plans/2026-07-15-group-detail-drawer-completion.md` 执行实施计划。
-- [ ] Slice 1：详情读取、自动选号、真实权限/限时消息/成员回显。
-- [ ] Slice 2：真实群名称、头像和本地备注。
-- [ ] Slice 3：四档限时消息。
-- [ ] Slice 4：五项群权限及“通过链接邀请”能力验证。
-- [ ] Slice 5：批量升管理员、降管理员、踢出。
-- [ ] 三仓自动化测试和已确认测试环境验收。
+- [x] 按 `docs/superpowers/plans/2026-07-15-group-detail-drawer-completion.md` 完成本地代码实施。
+- [x] Slice 1：详情读取、自动选号、真实权限/限时消息/成员回显。
+- [x] Slice 2：真实群名称、头像和本地备注。
+- [x] Slice 3：四档限时消息。
+- [x] Slice 4：五项群权限及“通过链接邀请”本地能力门禁。
+- [x] Slice 5：批量升管理员、降管理员、踢出。
+- [x] 三仓不依赖远程环境的自动化测试与编译构建。
+- [ ] 确认测试环境后的 DbTest 与 WhatsApp 真群验收。
 
 ## 关键设计决策
 
@@ -39,12 +40,41 @@
 - 三仓当前代码和接口已完成只读对账。
 - 设计文档已执行占位符、内部一致性、范围和歧义自检。
 
-实施阶段待补：协议层测试、Armada 单测/DbTest、前端组件测试/typecheck/lint/build，以及确认测试环境后的 WhatsApp 真群验收输出。
+2026-07-16 本地实施验收：
+
+- armada-protocol：OpenAPI 生成一致；群详情、设置、成员操作和 master 转发共 5 个 Jest suite、69/69 通过；lint、TypeScript build 通过。
+- Armada：群详情/选号/Controller/四个协议适配器/配置/Mapper SQL/原服务共 10 个测试类、80/80 通过；`mvn -Dmaven.test.skip=true compile` 通过。
+- 前端：群 API 6/6、抽屉与三个 composable 8/8 通过；`tsc`、`vue-tsc`、目标 ESLint、Prettier 和 `vite build` 通过；抽屉 597 行。
+- 三仓 `git diff --check` 通过；未提交、未部署。
+- `GroupExecutionAccountSelectorDbTest` 未连接数据库执行，因为尚未确认目标数据库环境。
+
+2026-07-16 代码评审修正：
+
+- 重新按 `.harness/rules/编码规范.md` 审查群详情新增后端代码，补齐 `updateParticipants`、
+  `GroupDetailProtocolPorts`、`HttpGroupSettingsAdapter` 和 `GroupDetailServiceImpl` 的业务 Javadoc。
+- `GroupDetailServiceImpl` 的公开方法完整说明参数、返回和异常；关键私有方法说明自动选号、
+  群主保护、同账号超时回读、部分成功汇总和协议错误映射原因。
+- 群名称、头像、限时消息、权限和成员操作增加 INFO/WARN 业务日志；HTTP Adapter 只增加
+  DEBUG 协议摘要。日志不包含群名称正文、头像 base64、完整成员 JID或协议账号句柄。
+- 收敛本次涉及文件中的群设置 mode、成员动作超时、批量上限和成员状态魔法值；
+  `GroupDetailServiceImpl` 排除注释和空行后为 704 行，低于类 800 行限制。
+- 相关 10 个测试类 80/80 通过，Maven compile 和 `git diff --check` 通过。
+- 尝试执行全量 `mvn test` 时触发需要数据库的 `EpochMillisSchemaDbTest`；因目标数据库环境
+  未确认而立即终止，未将其计入通过证据。
+
+2026-07-16 本地能力门禁结果：
+
+- armada-protocol 7.0.0-rc11 metadata 固定返回 `inviteViaLink=null`、`supported=false` 和明确原因。
+- Armada 原样聚合能力状态；设置请求在协议能力不支持时返回 `GROUP_CAPABILITY_UNSUPPORTED`，不误用其它设置接口。
+- 前端开关在值未知或 capability unsupported 时禁用并展示原因。
+- 远程只读探测未执行：尚未取得明确目标环境、测试账号 Armada ID、协议账号 ID、测试群 JID、管理员身份和本次授权时间。取得这些信息前不得连接远程或操作真群。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 仅设计文档，未部署。
+- commit / 环境 / 部署后验证结果: 未 commit、未部署、未连接远程环境。
 
 ## 遗留 / 跟进
 
-- 按纵向 Slice 顺序实施；任何远程 WhatsApp 能力验证前先确认测试环境、测试账号和测试群。
+- 执行数据库 DbTest 前确认目标数据库环境。
+- 远程 WhatsApp 验收前确认目标环境、测试账号 Armada ID、协议账号 ID、测试群 JID、管理员身份和本次授权时间。
+- 真群验收重点覆盖：真实详情、四档限时消息、四项稳定权限、邀请链接能力探测，以及升/降管理员和踢人的成功/部分成功/权限不足语义。

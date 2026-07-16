@@ -280,6 +280,9 @@ Web master command parser 和 worker inbox 增加 `group.join.requested`：
 4. 已在群内的已知响应归一为 `ALREADY_JOINED`；成功返回群 JID 归一为 `JOINED`；需要审核归一为
    `PENDING_APPROVAL`。
 5. 发布结果成功后才 XACK worker Redis Stream 明细。发布失败时保留 pending，由 worker inbox 重投。
+6. worker 命令批次按 `accountId` 建立串行 lane，不同账号通过有界异步并发池执行；默认并发数为 16，
+   Redis 普通命令单批读取数不得低于该并发数。同一账号仍按 Stream 顺序执行，每条命令仍独立完成结果发布和
+   XACK。该数值只限制同时执行量，不限制 worker 可承载的账号总数。
 
 现有 `/v1/groups/join` HTTP 路由保留，但进群任务不再经过该路由。
 
@@ -291,6 +294,8 @@ Android command consumer 增加 `group.join.requested` decoder 和 executor：
 2. 调用现有原生邀请码进群能力。
 3. 保留现有“进群后查询成员关系”的确认语义，区分真实入群和待管理员审核。
 4. 发布结果成功后才提交 Kafka offset；发布失败时由 Kafka 重投原命令。
+5. 结果 writer 使用 `acks=1`（kafka-go `RequireOne`），至少等待 leader broker 确认写入后才允许把命令状态标为
+   `PUBLISHED` 并提交源命令 offset。
 
 现有 Android HTTP 进群接口保留。
 

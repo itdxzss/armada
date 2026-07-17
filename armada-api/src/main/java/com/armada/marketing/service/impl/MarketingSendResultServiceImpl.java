@@ -27,6 +27,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class MarketingSendResultServiceImpl implements ProtocolMessageSendResultReportedSink {
     private static final Logger log = LoggerFactory.getLogger(MarketingSendResultServiceImpl.class);
+    private static final String SOURCE_MARKETING_TASK = "marketing_task";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
 
     private final MarketingTaskMapper taskMapper;
@@ -39,6 +40,15 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
         this.taskMapper = taskMapper;
         this.groupCreationMapper = groupCreationMapper;
         this.retryService = retryService;
+    }
+
+    /** 普通营销与建群营销沿用本处理器；历史群结果必须交给独立执行域。 */
+    @Override
+    public boolean supports(ProtocolMessageSendResultReportedEvent event) {
+        return event != null
+                && (event.source() == null
+                || SOURCE_MARKETING_TASK.equals(event.source())
+                || SOURCE_GROUP_CREATION_MARKETING.equals(event.source()));
     }
 
     @Override

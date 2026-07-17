@@ -36,6 +36,15 @@ server:
   port: 8080
 
 armada:
+  # 进群专用调度线程只做到期扫描和 outbox 入队；batch-size 是单轮上限，不是账号并行上限。
+  task:
+    join-dispatcher:
+      # 紧急停派开关：关闭后不再产生新命令，已提交 outbox 仍由通用 dispatcher 处理。
+      enabled: ${JOIN_TASK_DISPATCHER_ENABLED:true}
+      # 固定延迟从上一轮结束后开始计算，避免慢轮次叠加。
+      fixed-delay-ms: ${JOIN_TASK_DISPATCHER_FIXED_DELAY_MS:1000}
+      # 单轮跨租户候选上限；上百账号会分轮处理，不会丢弃或限制为固定 lane 数。
+      batch-size: ${JOIN_TASK_DISPATCHER_BATCH_SIZE:500}
   ip-proxy-check:
     executor:
       core-size: ${IP_PROXY_CHECK_EXECUTOR_CORE_SIZE:4}
@@ -55,6 +64,19 @@ armada:
     api-key: ""
     connect-timeout-ms: 3000
     read-timeout-ms: 60000
+    # 新调用按协议后端读取独立连接配置；上面的旧字段继续兼容现有 Web adapter。
+    backends:
+      WEB:
+        # 新的分后端配置优先；未配置时继续继承部署脚本长期使用的 ARMADA_PROTOCOL_* 变量。
+        base-url: ${PROTOCOL_WEB_BASE_URL:${ARMADA_PROTOCOL_BASE_URL:${PROTOCOL_BASE_URL:http://localhost:3000}}}
+        api-key: ${PROTOCOL_WEB_API_KEY:${ARMADA_PROTOCOL_API_KEY:${PROTOCOL_API_KEY:}}}
+        connect-timeout-ms: ${PROTOCOL_WEB_CONNECT_TIMEOUT_MS:3000}
+        read-timeout-ms: ${PROTOCOL_WEB_READ_TIMEOUT_MS:60000}
+      ANDROID:
+        base-url: ${PROTOCOL_ANDROID_BASE_URL:http://localhost:8000}
+        api-key: ${PROTOCOL_ANDROID_API_KEY:}
+        connect-timeout-ms: ${PROTOCOL_ANDROID_CONNECT_TIMEOUT_MS:3000}
+        read-timeout-ms: ${PROTOCOL_ANDROID_READ_TIMEOUT_MS:60000}
     command-publisher:
       send-timeout-ms: ${PROTOCOL_COMMAND_SEND_TIMEOUT_MS:10000}
     command-dispatcher:

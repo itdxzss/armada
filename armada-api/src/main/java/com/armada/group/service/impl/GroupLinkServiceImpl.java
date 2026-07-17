@@ -4,7 +4,6 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.group.converter.GroupConverter;
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
@@ -15,22 +14,15 @@ import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.dto.GroupPictureCommandDTO;
-import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
-import com.armada.group.model.vo.GroupLinkMemberListVO;
-import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupLinkVO;
-import com.armada.group.model.vo.GroupMemberLookupTarget;
-import com.armada.group.model.vo.GroupMemberQueryAccount;
 import com.armada.group.service.GroupLinkService;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.exception.ProtocolException;
-import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.port.GroupPreviewPort;
@@ -65,9 +57,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /** group_link.group_name 列长度。 */
     private static final int GROUP_NAME_MAX_LENGTH = 128;
 
-    /** WhatsApp 群名称协议层最大长度。 */
-    private static final int GROUP_SUBJECT_MAX_LENGTH = 100;
-
     /** WhatsApp 群描述最大长度。 */
     private static final int GROUP_DESCRIPTION_MAX_LENGTH = 512;
 
@@ -88,32 +77,26 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkHealthMapper healthMapper;
     private final GroupLinkLabelMapper labelMapper;
-    private final AccountGroupMembershipMapper membershipMapper;
     private final GroupConverter converter;
     private final AccountMapper accountMapper;
     private final GroupPreviewPort groupPreviewPort;
-    private final GroupParticipantPort groupParticipantPort;
     private final GroupProfilePort groupProfilePort;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
                                 GroupLinkPreviewMapper previewMapper,
                                 GroupLinkHealthMapper healthMapper,
                                 GroupLinkLabelMapper labelMapper,
-                                AccountGroupMembershipMapper membershipMapper,
                                 GroupConverter converter,
                                 AccountMapper accountMapper,
                                 GroupPreviewPort groupPreviewPort,
-                                GroupParticipantPort groupParticipantPort,
                                 GroupProfilePort groupProfilePort) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.healthMapper = healthMapper;
         this.labelMapper = labelMapper;
-        this.membershipMapper = membershipMapper;
         this.converter = converter;
         this.accountMapper = accountMapper;
         this.groupPreviewPort = groupPreviewPort;
-        this.groupParticipantPort = groupParticipantPort;
         this.groupProfilePort = groupProfilePort;
     }
 
@@ -178,31 +161,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         }
         log.info("群链接本地资料更新 groupLinkId={} groupNameUpdated={} remarkUpdated={} avatarUpdated={}",
                 id, dto.groupName() != null, dto.remark() != null, dto.avatarUrl() != null);
-    }
-
-    /**
-     * 修改 WhatsApp 真实群名称。
-     *
-     * <p>该入口不同于 {@link #updateProfile(Long, GroupLinkProfileDTO)}:这里会真实调用协议层修改
-     * WhatsApp 群 subject。协议调用成功后,再把 {@code group_link.group_name} 更新为本地展示镜像;
-     * 本地只更新群名,不触碰备注,避免并发覆盖运营备注。</p>
-     */
-    @Override
-    public void updateSubject(Long id, GroupSubjectCommandDTO dto) {
-        if (dto == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群名称更新请求不能为空");
-        }
-        String subject = requireProfileField(dto.subject(), GROUP_SUBJECT_MAX_LENGTH, "群名称");
-        GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
-
-        // 不包 DB 事务跨外部 HTTP 调用:先确认 WhatsApp 侧成功,再写本地展示镜像。
-        groupProfilePort.updateSubject(target.protocolAccountId(), target.groupJid(), subject);
-        int updated = groupLinkMapper.updateGroupName(id, subject, System.currentTimeMillis());
-        if (updated == 0) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
-        }
-        log.info("WhatsApp 群名称已更新 groupLinkId={} groupJid={} accountId={}",
-                id, target.groupJid(), target.accountId());
     }
 
     /**
@@ -432,39 +390,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:成员列表只做实时查询,不落库。查询账号优先来自当前群关系表中仍在线且在群的账号,
-     * 这样前端不需要传协议账号句柄,也避免用不在群账号触发协议层失败。</p>
-     */
-    @Override
-    public GroupLinkMemberListVO members(Long id) {
-        if (id == null || id <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群链接 ID 不能为空");
-        }
-        GroupMemberLookupTarget target = groupLinkMapper.selectMemberLookupTarget(id);
-        if (target == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
-        }
-        if (target.groupJid() == null || target.groupJid().isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群链接尚未解析群 JID,请先预览或等待账号群同步");
-        }
-        GroupMemberQueryAccount account = membershipMapper.selectOnlineMemberQueryAccount(
-                target.groupLinkId(), AccountLoginStateCode.ONLINE);
-        if (account == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "暂无可用在线账号查询成员");
-        }
-        List<GroupLinkMemberVO> members = groupParticipantPort
-                .listParticipants(account.protocolAccountId(), target.groupJid())
-                .stream()
-                .map(GroupLinkServiceImpl::memberVO)
-                .toList();
-        log.info("群成员实时查询完成 groupLinkId={} groupJid={} accountId={} total={}",
-                target.groupLinkId(), target.groupJid(), account.accountId(), members.size());
-        return new GroupLinkMemberListVO(target.groupLinkId(), target.groupJid(), members.size(), members);
-    }
-
-    /**
-     * {@inheritDoc}
-     *
      * <p>实现要点:ids 数量须在 1..{@value #BATCH_MAX} 之间,超限拒绝防锁竞争;
      * 软删(置 deleted_at)选中的群链接,返回实际软删行数。</p>
      */
@@ -612,15 +537,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     }
 
     /** 把协议层成员结果映射成群组明细页 VO。 */
-    private static GroupLinkMemberVO memberVO(GroupParticipantResult participant) {
-        return new GroupLinkMemberVO(
-                participant.jid(),
-                participant.phone(),
-                participant.admin(),
-                participant.owner(),
-                participant.role());
-    }
-
     /** 协议层没带 previewAt 时用 Armada 当前时间兜底,保证落库时间轴非空。 */
     private static long previewAtMillis(Instant previewAt) {
         return previewAt == null ? System.currentTimeMillis() : previewAt.toEpochMilli();

@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.exception;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,5 +43,27 @@ class ProtocolExceptionTest {
         assertThat(exception.ownerEndpoint()).isEmpty();
         assertThat(exception.getMessage()).isEqualTo("协议层调用失败");
         assertThat(exception.getCause()).isSameAs(cause);
+    }
+
+    @Test
+    void withContextPreservesProtocolMetadataAndAddsCanonicalCallContext() {
+        ProtocolException original = new ProtocolException(
+                ProtocolErrorCode.ACCOUNT_BUSY,
+                ProtocolException.Metadata.of(429, "ACCOUNT_BUSY", 3000L, null, true),
+                "busy",
+                null);
+
+        ProtocolException contextual = original.withContext(
+                ProtocolBackend.ANDROID,
+                "group.join",
+                "join-task-result:77");
+
+        assertThat(contextual.errorCode()).isEqualTo(ProtocolErrorCode.ACCOUNT_BUSY);
+        assertThat(contextual.protocolCode()).contains("ACCOUNT_BUSY");
+        assertThat(contextual.retryAfterMs()).contains(3000L);
+        assertThat(contextual.backend()).contains(ProtocolBackend.ANDROID);
+        assertThat(contextual.operation()).contains("group.join");
+        assertThat(contextual.operationId()).contains("join-task-result:77");
+        assertThat(contextual.retryable()).contains(true);
     }
 }

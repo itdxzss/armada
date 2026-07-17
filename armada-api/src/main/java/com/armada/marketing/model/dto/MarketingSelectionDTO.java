@@ -6,7 +6,7 @@ import java.util.List;
  * 建营销任务时的一组账号目标选择。
  *
  * @param accountId    发言账号 ID
- * @param targetScope  目标维度:GROUP_FIXED=按已选群组发送,ACCOUNT_DYNAMIC=发送前动态读取该账号新增群
+ * @param targetScope  目标维度:GROUP_FIXED=按已选群组发送,ACCOUNT_DYNAMIC=每轮读取该账号当前全部群
  * @param groupLinkIds 固定群组维度下该账号要发送的群入口 ID 列表
  */
 public record MarketingSelectionDTO(Long accountId, String targetScope, List<Long> groupLinkIds) {

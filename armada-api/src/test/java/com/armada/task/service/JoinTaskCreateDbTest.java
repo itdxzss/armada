@@ -99,8 +99,8 @@ class JoinTaskCreateDbTest extends DbTestBase {
 
     /**
      * 用例 2:方式二固定账号多链接。
-     * FIXED_ACCOUNT_MULTI_LINK, executorAccountCount=2, linksPerAccount=3, 2条有效链接(linkCap=min(3,2)=2)
-     * → total=4, 4行 (911,L1)(911,L2)(922,L1)(922,L2)
+     * FIXED_ACCOUNT_MULTI_LINK, executorAccountCount=2, linksPerAccount=3, 2条有效链接
+     * → total=2,按账号轮询生成 (911,L1)(922,L2),同一链接只分配一个账号。
      */
     @Test
     void case2_fixedAccountMultiLink_rows() {
@@ -117,15 +117,15 @@ class JoinTaskCreateDbTest extends DbTestBase {
 
         JoinTaskVO vo = service.createTask(req);
 
-        assertThat(vo.total()).isEqualTo(4);
-        assertThat(vo.pending()).isEqualTo(4);
+        assertThat(vo.total()).isEqualTo(2);
+        assertThat(vo.pending()).isEqualTo(2);
 
         List<JoinTaskResult> rows = resultMapper.selectResultsByTask(vo.id());
-        assertThat(rows).hasSize(4);
+        assertThat(rows).hasSize(2);
         assertThat(rows).extracting(JoinTaskResult::getAccount)
-                .containsExactly("911", "911", "922", "922");
+                .containsExactly("911", "922");
         assertThat(rows).extracting(JoinTaskResult::getLink)
-                .containsExactly(LINK1, LINK2, LINK1, LINK2);
+                .containsExactly(LINK1, LINK2);
         assertThat(rows).extracting(JoinTaskResult::getStatus)
                 .containsOnly("PENDING");
     }

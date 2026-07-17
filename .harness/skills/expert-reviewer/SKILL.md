@@ -1,6 +1,17 @@
+---
+name: expert-reviewer
+description: Use when reviewing Armada backend changes before merge or deployment, especially changes involving SQL, tenant isolation, state transitions, Kafka, or cross-domain dependencies.
+---
+
 # 专家评审技能
 
 合并 / 部署前对改动做专家评审。
+
+## 评审输入
+
+1. 先读 `AGENTS.md` 与 `.harness/rules/{编码规范,工程结构}.md`。
+2. 涉及数据库时再读 `.harness/rules/数据模型规范.md` 与 `.harness/wiki/数据模型.md`。
+3. 检查用户本次要求、设计文档、完整 diff、相关调用方和测试证据；不要只看变更摘要。
 
 ## 评审维度
 1. **正确性**：边界、空值、并发、事务边界、幂等（尤其 Kafka 消费者必须幂等）。
@@ -10,7 +21,10 @@
 5. **数据模型红线**：加列/加表前看全局并说清聚合归属与必要性；禁分歧(三镜像类)、禁死列；宽表(>~30 列或混关注点)按聚合拆；schema 变更走 Flyway,新列带 COMMENT。
 6. **mapper XML**：无裸 `<>`，已过 xmllint / 真库 DbTest。
 7. **简化 / 复用**：有没有重复造轮子、能不能更小更直接。
-8. **证据**：是否贴了真实验证输出（evidence-before-done），而非"应该没问题"。
+8. **证据**：是否有与风险相称的真实命令输出；普通 `mvn test` 不得替代 Mapper/SQL/Flyway 所需的真库 DbTest。
 
 ## 输出
-按严重度（阻断 / 建议）列问题；阻断项不过不合并。
+
+- 先列发现，按“阻断 / 重要 / 建议”排序；每条给出文件与行号、触发场景、影响和最小修复方向。
+- 没有发现时明确说明剩余风险和未执行验证，不用总结冒充评审结果。
+- 阻断项未解决不得建议合并或部署；不要擅自修改代码，除非用户同时要求修复。

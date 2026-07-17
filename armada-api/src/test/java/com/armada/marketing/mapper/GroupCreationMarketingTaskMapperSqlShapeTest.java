@@ -2,6 +2,7 @@ package com.armada.marketing.mapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -9,6 +10,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GroupCreationMarketingTaskMapperSqlShapeTest {
 
     private static final String MAPPER_XML = "/mapper/marketing/GroupCreationMarketingTaskMapper.xml";
+
+    @Test
+    void accountCandidatesReadCurrentProtocolRoutingFact() throws IOException {
+        String xml = mapperXml();
+
+        for (String statementId : List.of(
+                "selectAccountCandidatesByGroupId",
+                "selectFirstAvailableAccountCandidateByGroupId",
+                "selectFirstAvailableAccountCandidateByGroupIdExcluding",
+                "selectAccountCandidateByAccountId")) {
+            assertThat(selectBlock(xml, statementId))
+                    .as(statementId)
+                    .contains("a.protocol_id AS protocolId");
+        }
+    }
 
     @Test
     void accountRetryMapperStatementsKeepItemRetryScopedToOneItem() throws IOException {

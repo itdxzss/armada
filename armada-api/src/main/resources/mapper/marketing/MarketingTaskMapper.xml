@@ -46,6 +46,8 @@
         <result column="account_id" property="accountId"/>
         <result column="account_phone" property="accountPhone"/>
         <result column="protocol_account_id" property="protocolAccountId"/>
+        <result column="protocol_id" property="protocolId"/>
+        <result column="protocol_ws_phone" property="protocolWsPhone"/>
         <result column="target_scope" property="targetScope"/>
         <result column="group_link_id" property="groupLinkId"/>
         <result column="group_jid" property="groupJid"/>
@@ -75,7 +77,8 @@
 
     <sql id="TargetColumns">
         t.id, t.tenant_id, t.marketing_task_id, t.account_id, t.account_phone,
-        a.protocol_account_id, t.target_scope, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
+        a.protocol_account_id, a.protocol_id AS protocol_id, a.ws_phone AS protocol_ws_phone,
+        t.target_scope, t.group_link_id, t.group_jid, t.group_link_url, t.group_name,
         t.status, t.sent_message_count, t.failed_message_count, t.retry_count,
         t.last_attempt_at, t.last_sent_at, t.last_reason, t.created_at, t.updated_at
     </sql>
@@ -646,35 +649,18 @@
                g.link_url AS groupLinkUrl,
                COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
         FROM account a
-        JOIN account_state s ON s.account_id = a.id
         JOIN account_group_membership m ON m.account_id = a.id
-        JOIN group_link g ON g.id = m.group_link_id
-                         AND g.deleted_at IS NULL
-                         AND g.membership_state IN (2, 3)
+        LEFT JOIN group_link g ON g.id = m.group_link_id
         LEFT JOIN group_link_preview p ON p.group_link_id = g.id
                                       AND p.group_jid = m.group_jid
-        LEFT JOIN group_link_health h ON h.group_link_id = g.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
-                                           AND a.group_baseline_state = 2
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL
-          AND s.login_state = 1
-          AND s.account_state = 2
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND a.group_baseline_state IN (2, 3)
-          AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
           AND m.deleted_at IS NULL
           AND (#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})
-          AND p.group_jid IS NOT NULL
-          AND TRIM(p.group_jid) &lt;&gt; ''
-          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
-          AND (
-              a.group_baseline_state &lt;&gt; 2
-              OR b.id IS NULL
-              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
-          )
+          AND m.group_jid IS NOT NULL
+          AND TRIM(m.group_jid) &lt;&gt; ''
         ORDER BY m.group_link_id ASC
     </select>
 

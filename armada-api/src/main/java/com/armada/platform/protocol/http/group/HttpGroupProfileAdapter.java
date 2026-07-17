@@ -3,6 +3,7 @@ package com.armada.platform.protocol.http.group;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import java.util.Map;
 
@@ -19,6 +20,7 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
     private static final String DESCRIPTION_URI_TEMPLATE = "/v1/groups/%s/description";
     private static final String ANNOUNCEMENT_TEXT_URI_TEMPLATE = "/v1/groups/%s/announcement-text";
     private static final String PICTURE_URI_TEMPLATE = "/v1/groups/%s/picture";
+    private static final String PICTURE_QUERY_URI_TEMPLATE = "/v1/groups/%s/picture?accountId=%s";
 
     private final ProtocolHttpExecutor httpExecutor;
 
@@ -75,12 +77,32 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
      * 因此图片 body 不能用固定 record 同时带 url/base64,必须按实际输入构造只含一个键的 map。</p>
      */
     @Override
-    public void updatePicture(String protocolAccountId, String groupJid, String url, String base64) {
+    public GroupPictureResult updatePicture(String protocolAccountId, String groupJid, String url, String base64) {
         String accountId = requireText(protocolAccountId, "protocolAccountId");
         String jid = requireText(groupJid, "groupJid");
         Map<String, String> image = imagePayload(url, base64);
-        httpExecutor.postVoid(PICTURE_URI_TEMPLATE.formatted(jid),
-                new PictureRequest(accountId, image));
+        PictureResponse response = httpExecutor.postTyped(
+                PICTURE_URI_TEMPLATE.formatted(jid),
+                new PictureRequest(accountId, image),
+                PictureResponse.class);
+        return new GroupPictureResult(
+                response != null && response.success(),
+                response == null ? null : blankToNull(response.avatarUrl()));
+    }
+
+    /**
+     * 调用协议层 {@code GET /v1/groups/:groupJid/picture}。
+     *
+     * @return 当前群头像 URL;协议返回 null 时保持 null
+     */
+    @Override
+    public String getPictureUrl(String protocolAccountId, String groupJid) {
+        String accountId = requireText(protocolAccountId, "protocolAccountId");
+        String jid = requireText(groupJid, "groupJid");
+        PictureQueryResponse response = httpExecutor.getTyped(
+                PICTURE_QUERY_URI_TEMPLATE.formatted(jid, accountId),
+                PictureQueryResponse.class);
+        return response == null ? null : blankToNull(response.avatarUrl());
     }
 
     /** 必填协议字段统一 trim;缺失时抛 ProtocolException,由上层按协议调用失败处理。 */
@@ -124,5 +146,11 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
     }
 
     private record PictureRequest(String accountId, Map<String, String> image) {
+    }
+
+    private record PictureResponse(boolean success, String avatarUrl) {
+    }
+
+    private record PictureQueryResponse(String avatarUrl) {
     }
 }

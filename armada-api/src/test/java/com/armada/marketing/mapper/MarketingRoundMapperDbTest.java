@@ -88,7 +88,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void selectDynamicTargetGroupsExcludesBaselineGroups() {
+    void selectDynamicTargetGroupsIncludesBaselineGroups() {
         long accountGroupId = insertAccountGroup("dynamic-baseline");
         long accountId = insertAccount(accountGroupId, "923900000001", 2);
         String baselineJid = "1203630baseline@g.us";
@@ -102,15 +102,12 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(accountId, null);
 
         assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
-                .containsExactly(joinedAfterImportJid);
-        assertThat(rows).singleElement().satisfies(row -> {
-            assertThat(row.getAccountId()).isEqualTo(accountId);
-            assertThat(row.getGroupLinkId()).isEqualTo(joinedAfterImportGroupId);
-        });
+                .containsExactly(baselineJid, joinedAfterImportJid);
+        assertThat(rows).allSatisfy(row -> assertThat(row.getAccountId()).isEqualTo(accountId));
     }
 
     @Test
-    void selectDynamicTargetGroupsFiltersByAccountGroupSendAt() {
+    void selectDynamicTargetGroupsAppliesAccountGroupSendAtBoundary() {
         long accountGroupId = insertAccountGroup("dynamic-send-at");
         long accountId = insertAccount(accountGroupId, "923900000004", 2);
         long cutoff = System.currentTimeMillis() - 60_000L;
@@ -125,6 +122,55 @@ class MarketingRoundMapperDbTest extends DbTestBase {
 
         assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly(newJid);
+    }
+
+    @Test
+    void selectDynamicTargetGroupsIgnoresAccountAndGroupStatusButExcludesDeletedMembership() {
+        long accountGroupId = insertAccountGroup("dynamic-status");
+        long accountId = insertAccount(accountGroupId, "923900000005", 2);
+        String groupJid = "120363status@g.us";
+        long groupId = insertGroup("status", groupJid);
+        insertMembership(accountId, groupId, groupJid);
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                UPDATE account_state
+                SET login_state = 0, account_state = 8, risk_status = 2, mute_status = 1, updated_at = ?
+                WHERE account_id = ?
+                """, now, accountId);
+        jdbc.update("""
+                UPDATE group_link
+                SET membership_state = 1, deleted_at = ?, updated_at = ?
+                WHERE id = ?
+                """, now, now, groupId);
+        jdbc.update("""
+                UPDATE group_link_health
+                SET health_status = 3, is_banned = 1, updated_at = ?
+                WHERE group_link_id = ?
+                """, now, groupId);
+
+        assertThat(mapper.selectDynamicTargetGroups(accountId, null))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly(groupJid);
+
+        jdbc.update("""
+                UPDATE account_group_membership
+                SET deleted_at = ?, updated_at = ?
+                WHERE account_id = ? AND group_jid = ? AND deleted_at IS NULL
+                """, now, now, accountId, groupJid);
+
+        assertThat(mapper.selectDynamicTargetGroups(accountId, null)).isEmpty();
+    }
+
+    @Test
+    void selectDynamicTargetGroupsRequiresProtocolAccountId() {
+        long accountGroupId = insertAccountGroup("dynamic-routing");
+        long accountId = insertAccount(accountGroupId, "923900000006", 2);
+        String groupJid = "120363routing@g.us";
+        long groupId = insertGroup("routing", groupJid);
+        insertMembership(accountId, groupId, groupJid);
+        jdbc.update("UPDATE account SET protocol_account_id = NULL WHERE id = ?", accountId);
+
+        assertThat(mapper.selectDynamicTargetGroups(accountId, null)).isEmpty();
     }
 
     @Test

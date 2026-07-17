@@ -27,8 +27,35 @@ public enum JoinTaskFailureReason {
     /** 协议层返回请求参数无效,常见于群链接/邀请码格式不正确。 */
     BAD_REQUEST("bad-request", "进群失败，请检查群链接或稍后重试"),
 
+    /** 协议防腐层返回请求参数无效。 */
+    BAD_REQUEST_UNDERSCORE("BAD_REQUEST", "进群失败，请检查群链接或稍后重试"),
+
+    /** 群邀请链接或邀请码无效。 */
+    PROTOCOL_INVALID_GROUP_LINK("INVALID_GROUP_LINK", "群邀请链接无效"),
+
+    /** 协议后端明确拒绝本次进群。 */
+    GROUP_JOIN_REJECTED("GROUP_JOIN_REJECTED", "协议拒绝进群"),
+
+    /** 协议请求完成，但无法确认账号是否真实入群。 */
+    JOIN_RESULT_UNCONFIRMED("JOIN_RESULT_UNCONFIRMED", "进群结果未确认"),
+
+    /** Android 原生接口响应无法归一化。 */
+    ANDROID_RESPONSE_UNRECOGNIZED("ANDROID_RESPONSE_UNRECOGNIZED", "Android 协议响应无法识别"),
+
+    /** 账号所属协议后端尚未注册。 */
+    UNSUPPORTED_BACKEND("UNSUPPORTED_BACKEND", "账号协议类型暂不支持"),
+
     /** 协议层请求超时。 */
     TIMEOUT("TIMEOUT", "协议层请求超时"),
+
+    /** Armada outbox 达到传输重试上限。 */
+    KAFKA_PUBLISH_FAILED("KAFKA_PUBLISH_FAILED", "进群命令发送失败"),
+
+    /** 协议后端或 WhatsApp 暂时限流。 */
+    RATE_LIMITED("RATE_LIMITED", "进群请求被限流，请稍后重试"),
+
+    /** 可恢复的协议后端临时故障。 */
+    TEMPORARY_FAILURE("TEMPORARY_FAILURE", "协议层临时异常，请稍后重试"),
 
     /** 调用协议层时网络不可达或连接异常。 */
     NETWORK("NETWORK", "协议层网络异常"),
@@ -59,6 +86,15 @@ public enum JoinTaskFailureReason {
 
     /** WhatsApp 限制账号主动触达或加群。 */
     ACCOUNT_REACHOUT_RESTRICTED("ACCOUNT_REACHOUT_RESTRICTED", "账号触达受限，无法进群"),
+
+    /** WhatsApp 群邀请码无效。 */
+    INVITE_INVALID("INVITE_INVALID", "群邀请码无效"),
+
+    /** 群邀请链接已撤销或过期。 */
+    INVITE_REVOKED("INVITE_REVOKED", "群邀请链接已失效"),
+
+    /** 群已封禁、满员、不存在或当前不可访问。 */
+    GROUP_UNAVAILABLE("GROUP_UNAVAILABLE", "群不可用或已封禁"),
 
     /** 未识别的协议层失败。 */
     UNKNOWN("UNKNOWN", "进群失败");

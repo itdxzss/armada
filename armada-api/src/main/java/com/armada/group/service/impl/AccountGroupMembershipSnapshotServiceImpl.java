@@ -26,8 +26,8 @@ import org.springframework.stereotype.Service;
  * 账号可见群关系快照写入服务。
  *
  * <p>本类统一维护 {@code group_link}、{@code group_link_preview}、{@code group_link_health}
- * 和 {@code account_group_membership} 这些本地冗余事实。调用方负责先过滤 baseline 旧群,
- * 本类只负责把“当前可见群集合”一致地写入本地库。</p>
+ * 和 {@code account_group_membership} 这些本地冗余事实。调用方传入协议回报的当前全部群,
+ * 本类负责去重、更新当前关系并软删除全量回报中已不存在的关系。</p>
  */
 @Service
 public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMembershipSnapshotService {

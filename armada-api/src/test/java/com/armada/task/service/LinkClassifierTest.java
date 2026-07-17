@@ -25,4 +25,18 @@ class LinkClassifierTest {
                 "chat.whatsapp.com/Valid123",
                 "https://example.com/Valid123");
     }
+
+    @Test
+    void equivalentInviteLinksAreCanonicalizedAndDeduplicatedByInviteIdentity() {
+        LinkClassifier.Classified classified = LinkClassifier.classify("""
+                https://chat.whatsapp.com/AbC123
+                HTTPS://CHAT.WHATSAPP.COM/AbC123/
+                https://chat.whatsapp.com/aBc123
+                """);
+
+        assertThat(classified.valid()).containsExactly(
+                "https://chat.whatsapp.com/AbC123",
+                "https://chat.whatsapp.com/aBc123");
+        assertThat(classified.invalid()).isEmpty();
+    }
 }

@@ -6,9 +6,10 @@ import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
-import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
-import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
-import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.platform.protocol.model.command.MessageSendCommand;
+import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
+import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
+import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -49,7 +50,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         Long templateId = insertTemplate("round-1000-" + now);
         Long taskId = insertTask("round-1000-" + now, templateId, 0L, now - 1_000, 30);
         insertTargets(taskId, 1_000);
-        List<List<ProtocolMarketingMessageCommandRequest>> batches = new ArrayList<>();
+        List<List<MessageSendCommand>> batches = new ArrayList<>();
 
         worker(recordingOutbox(batches)).runRound(TEST_TENANT_ID, taskId);
 
@@ -62,19 +63,19 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
 
         assertThat(batches).hasSize(2);
         assertThat(batches).extracting(List::size).containsExactly(500, 500);
-        List<ProtocolMarketingMessageCommandRequest> commands = batches.stream()
+        List<MessageSendCommand> commands = batches.stream()
                 .flatMap(List::stream)
                 .toList();
         assertThat(commands).hasSize(1_000);
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::attemptId)
+        assertThat(commands).extracting(command -> command.correlation().marketing().attemptId())
                 .doesNotContainNull()
                 .doesNotHaveDuplicates();
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::commandId)
+        assertThat(commands).extracting(MessageSendCommand::commandId)
                 .allSatisfy(commandId -> assertThat(commandId).startsWith("cmd_"))
                 .doesNotHaveDuplicates();
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::messageType)
+        assertThat(commands).extracting(command -> command.payload().type().name())
                 .containsOnly("TEXT");
-        assertThat(commands).extracting(ProtocolMarketingMessageCommandRequest::roundNo)
+        assertThat(commands).extracting(command -> command.correlation().marketing().roundNo())
                 .containsOnly(1L);
     }
 
@@ -87,7 +88,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         List<Long> targetIds = targetIds(taskId);
         insertSubmittedAttempts(taskId, targetIds, 1L, now);
         insertSubmittedAttempts(taskId, targetIds, 2L, now);
-        List<List<ProtocolMarketingMessageCommandRequest>> batches = new ArrayList<>();
+        List<List<MessageSendCommand>> batches = new ArrayList<>();
 
         worker(recordingOutbox(batches)).runRound(TEST_TENANT_ID, taskId);
 
@@ -98,26 +99,24 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         assertThat(batches).isEmpty();
     }
 
-    private MarketingRoundWorker worker(ProtocolCommandOutboxService outboxService) {
+    private MarketingRoundWorker worker(MessageSendPort messageSendPort) {
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
         return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                occupancyService, new MarketingMessageComposer(), outboxService, properties, Clock.systemUTC());
+                occupancyService, new MarketingMessageComposer(), messageSendPort, properties, Clock.systemUTC());
     }
 
-    private ProtocolCommandOutboxService recordingOutbox(
-            List<List<ProtocolMarketingMessageCommandRequest>> batches) {
-        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+    private MessageSendPort recordingOutbox(List<List<MessageSendCommand>> batches) {
+        MessageSendPort outbox = mock(MessageSendPort.class);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
-            List<ProtocolMarketingMessageCommandRequest> commands = invocation.getArgument(0, List.class);
+            List<MessageSendCommand> commands = invocation.getArgument(0, List.class);
             batches.add(List.copyOf(commands));
-            return new ProtocolCommandOutboxEnqueueResult(
-                    "batch-" + batches.size(),
-                    commands.stream().map(ProtocolMarketingMessageCommandRequest::commandId).toList(),
-                    commands.size());
-        }).when(outbox).enqueueMarketingMessageCommands(any());
+            return new MessageSendEnqueueResult(commands.stream()
+                    .map(command -> MessageSendEnqueueItem.accepted(command.commandId()))
+                    .toList());
+        }).when(outbox).enqueue(any());
         return outbox;
     }
 
@@ -171,6 +170,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
 
     private void insertTargets(Long taskId, int count) {
         long now = System.currentTimeMillis();
+        List<Long> accountIds = insertAccounts(count, now);
         jdbc.batchUpdate("""
                 INSERT INTO marketing_task_target
                     (tenant_id, marketing_task_id, account_id, account_phone,
@@ -179,16 +179,38 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
                      last_attempt_at, last_sent_at, last_reason, created_at, updated_at)
                 VALUES
                     (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, 0, NULL, NULL, NULL, ?, ?)
-                """, targetBatch(taskId, count, now));
+                """, targetBatch(taskId, accountIds, now));
     }
 
-    private List<Object[]> targetBatch(Long taskId, int count, long now) {
-        List<Object[]> batch = new ArrayList<>(count);
+    private List<Long> insertAccounts(int count, long now) {
+        List<Object[]> accountBatch = new ArrayList<>(count);
         for (int i = 1; i <= count; i++) {
+            String phone = "923000" + String.format("%06d", i);
+            accountBatch.add(new Object[] {
+                    TEST_TENANT_ID, phone, "WEB", "acc_" + phone, now, now
+            });
+        }
+        jdbc.batchUpdate("""
+                INSERT INTO account
+                    (tenant_id, ws_phone, account_type, ownership, protocol_id,
+                     protocol_account_id, priority, created_at, updated_at)
+                VALUES (?, ?, 1, 1, ?, ?, 0, ?, ?)
+                """, accountBatch);
+        return jdbc.queryForList("""
+                SELECT id
+                FROM account
+                WHERE tenant_id = ? AND ws_phone LIKE '923000%'
+                ORDER BY ws_phone ASC
+                """, Long.class, TEST_TENANT_ID);
+    }
+
+    private List<Object[]> targetBatch(Long taskId, List<Long> accountIds, long now) {
+        List<Object[]> batch = new ArrayList<>(accountIds.size());
+        for (int i = 1; i <= accountIds.size(); i++) {
             batch.add(new Object[] {
                     TEST_TENANT_ID,
                     taskId,
-                    10_000L + i,
+                    accountIds.get(i - 1),
                     "923000" + String.format("%06d", i),
                     20_000L + i,
                     "120363" + String.format("%06d", i) + "@g.us",

@@ -12,11 +12,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.group.model.vo.GroupLinkImportResultVO;
+import com.armada.group.model.vo.GroupMemberBatchResultVO;
+import com.armada.group.model.vo.GroupMemberOperationResultVO;
+import com.armada.group.model.enums.GroupTimedMessageMode;
+import com.armada.group.model.enums.GroupPermissionKey;
+import com.armada.group.model.vo.GroupDetailVO;
+import com.armada.group.model.vo.GroupAvatarUpdateVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.service.FileLinesExtractor;
+import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
 import java.nio.charset.StandardCharsets;
@@ -40,6 +47,9 @@ class GroupLinkControllerTest {
     private GroupLinkService groupLinkService;
 
     @Mock
+    private GroupDetailService groupDetailService;
+
+    @Mock
     private GroupLinkImportService importService;
 
     @Mock
@@ -50,7 +60,8 @@ class GroupLinkControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new GroupLinkController(groupLinkService, importService, extractor))
+                .standaloneSetup(new GroupLinkController(
+                        groupLinkService, groupDetailService, importService, extractor))
                 .build();
     }
 
@@ -65,7 +76,7 @@ class GroupLinkControllerTest {
                                 "8613800000000@s.whatsapp.net", "8613800000000", true, true, "superadmin"),
                         new GroupLinkMemberVO(
                                 "8613900000000@s.whatsapp.net", "8613900000000", false, false, null)));
-        when(groupLinkService.members(10L)).thenReturn(vo);
+        when(groupDetailService.members(10L)).thenReturn(vo);
 
         mockMvc.perform(get("/api/group-links/10/members"))
                 .andExpect(status().isOk())
@@ -79,7 +90,39 @@ class GroupLinkControllerTest {
                 .andExpect(jsonPath("$.data.members[0].owner").value(true))
                 .andExpect(jsonPath("$.data.members[0].role").value("superadmin"));
 
-        verify(groupLinkService).members(10L);
+        verify(groupDetailService).members(10L);
+    }
+
+    @Test
+    void getDetailDelegatesToDetailServiceAndReturnsRealtimeFields() throws Exception {
+        GroupDetailVO vo = new GroupDetailVO(
+                10L,
+                "120363detail@g.us",
+                "真实群名",
+                "本地备注",
+                "https://pps.whatsapp.net/current.jpg",
+                true,
+                null,
+                "7d",
+                new GroupDetailVO.Permissions(true, false, true, null, true),
+                new GroupDetailVO.Capabilities(new GroupDetailVO.Capability(false, "Baileys 当前不支持")),
+                true,
+                null,
+                List.of(new GroupLinkMemberVO(
+                        "8613800000000@s.whatsapp.net", "8613800000000", true, true, "superadmin")));
+        when(groupDetailService.detail(10L)).thenReturn(vo);
+
+        mockMvc.perform(get("/api/group-links/10/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.groupName").value("真实群名"))
+                .andExpect(jsonPath("$.data.timedMessageMode").value("7d"))
+                .andExpect(jsonPath("$.data.permissions.editGroupSettings").value(true))
+                .andExpect(jsonPath("$.data.permissions.sendMessages").value(false))
+                .andExpect(jsonPath("$.data.capabilities.inviteViaLink.supported").value(false))
+                .andExpect(jsonPath("$.data.members[0].owner").value(true));
+
+        verify(groupDetailService).detail(10L);
     }
 
     @Test
@@ -109,15 +152,75 @@ class GroupLinkControllerTest {
                         .contentType("application/json")
                         .content("""
                                 {
-                                  "accountId": 7,
                                   "subject": "新群名"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
 
-        verify(groupLinkService).updateSubject(eq(10L), argThat(dto ->
-                dto != null && dto.accountId().equals(7L) && "新群名".equals(dto.subject())));
+        verify(groupDetailService).updateSubject(eq(10L), argThat(dto ->
+                dto != null && "新群名".equals(dto.subject())));
+    }
+
+    @Test
+    void postTimedMessageDelegatesModeWithoutExecutionAccount() throws Exception {
+        mockMvc.perform(post("/api/group-links/10/timed-message")
+                        .contentType("application/json")
+                        .content("{\"mode\":\"7d\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupDetailService).updateTimedMessage(eq(10L), argThat(dto ->
+                dto != null && dto.mode() == GroupTimedMessageMode.DAYS_7));
+    }
+
+    @Test
+    void postSettingsDelegatesOneExplicitPermissionKey() throws Exception {
+        mockMvc.perform(post("/api/group-links/10/settings")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "key": "ADD_MEMBERS",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(groupDetailService).updateSetting(eq(10L), argThat(dto ->
+                dto != null
+                        && dto.key() == GroupPermissionKey.ADD_MEMBERS
+                        && dto.enabled()));
+    }
+
+    @Test
+    void postMemberBatchRoutesDelegateToMatchingServiceMethods() throws Exception {
+        GroupMemberBatchResultVO result = new GroupMemberBatchResultVO(
+                true,
+                false,
+                "成员操作成功",
+                List.of(new GroupMemberOperationResultVO(
+                        "member@s.whatsapp.net", "OK", null)));
+        when(groupDetailService.promoteMembers(eq(10L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(result);
+        when(groupDetailService.demoteMembers(eq(10L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(result);
+        when(groupDetailService.kickMembers(eq(10L), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(result);
+
+        for (String path : List.of("promote-batch", "demote-batch", "kick-batch")) {
+            mockMvc.perform(post("/api/group-links/10/members/" + path)
+                            .contentType("application/json")
+                            .content("{\"jids\":[\"member@s.whatsapp.net\"]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.ok").value(true))
+                    .andExpect(jsonPath("$.data.results[0].status").value("OK"));
+        }
+
+        verify(groupDetailService).promoteMembers(eq(10L), argThat(dto ->
+                dto.jids().equals(List.of("member@s.whatsapp.net"))));
+        verify(groupDetailService).demoteMembers(eq(10L), org.mockito.ArgumentMatchers.any());
+        verify(groupDetailService).kickMembers(eq(10L), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -172,6 +275,26 @@ class GroupLinkControllerTest {
                         && dto.accountId().equals(7L)
                         && "https://cdn.example.test/group.jpg".equals(dto.url())
                         && dto.base64() == null));
+    }
+
+    @Test
+    void postAvatarAcceptsMultipartAndReturnsMirrorState() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
+        when(groupDetailService.updateAvatar(eq(10L), argThat(upload ->
+                upload != null && "avatar.jpg".equals(upload.getOriginalFilename()))))
+                .thenReturn(new GroupAvatarUpdateVO(
+                        true, true, "https://pps.whatsapp.net/new.jpg"));
+
+        mockMvc.perform(multipart("/api/group-links/10/avatar").file(file))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.applied").value(true))
+                .andExpect(jsonPath("$.data.mirrorSynced").value(true))
+                .andExpect(jsonPath("$.data.avatarUrl").value("https://pps.whatsapp.net/new.jpg"));
+
+        verify(groupDetailService).updateAvatar(eq(10L), argThat(upload ->
+                upload != null && upload.getSize() == 3));
     }
 
     @Test

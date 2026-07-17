@@ -120,4 +120,23 @@
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>
 
+  <!-- CAS 启动：只有 DRAFT 有效任务可进入 RUNNING，防止并发重复启动再次激活账号首行。 -->
+  <update id="startDraftTask">
+    UPDATE join_task SET status = 'RUNNING', updated_at = #{now}
+    WHERE id = #{id} AND deleted_at IS NULL AND status = 'DRAFT'
+  </update>
+
+  <!--
+    任务完成条件只看是否仍有 PENDING 明细；WAITING 和 SUBMITTED 都属于 PENDING，
+    因此业务重试和等待协议结果期间不会提前结束任务。
+  -->
+  <update id="markDoneWhenNoPending">
+    UPDATE join_task t SET t.status = 'DONE', t.updated_at = #{now}
+    WHERE t.id = #{id} AND t.deleted_at IS NULL AND t.status = 'RUNNING'
+      AND NOT EXISTS (
+        SELECT 1 FROM join_task_result r
+        WHERE r.join_task_id = t.id AND r.status = 'PENDING'
+      )
+  </update>
+
 </mapper>

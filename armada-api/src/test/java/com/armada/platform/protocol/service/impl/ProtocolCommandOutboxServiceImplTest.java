@@ -13,12 +13,16 @@ import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
-import com.armada.platform.protocol.model.command.ProtocolMarketingMessageCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
+import com.armada.platform.protocol.model.enums.MessageType;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
@@ -48,6 +52,51 @@ class ProtocolCommandOutboxServiceImplTest {
             org.mockito.Mockito.mock(ProtocolCommandDispatchTrigger.class);
     private final ObjectMapper objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+
+    @Test
+    void enqueueGroupJoinCommands_routesWebAndAndroidWithApprovedPayload() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-web", "cmd-android"), List.of(),
+                ProtocolAccountCommandProperties.DEFAULT_TOPIC,
+                "protocol.master.commands.test",
+                "protocol.android.commands.test");
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueGroupJoinCommands(List.of(
+                groupJoinCommand(ProtocolBackend.WEB, 26L, 382L, "acc-web", "911", "WEB-CODE"),
+                groupJoinCommand(ProtocolBackend.ANDROID, 27L, 383L, "acc-android", "922", "ANDROID-CODE")));
+
+        assertThat(result.batchId()).isEqualTo("join-task:9");
+        assertThat(result.commandIds()).containsExactly("cmd-web", "cmd-android");
+        assertThat(result.inserted()).isEqualTo(2);
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                .containsExactly("protocol.master.commands.test", "protocol.android.commands.test");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                .containsExactly("acc-web", "acc-android");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getBatchId)
+                .containsOnly("join-task:9");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                .containsOnly("JOIN_TASK_RESULT");
+        assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                .containsExactly(26L, 27L);
+        assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                .containsOnly("group.join.requested");
+
+        Map<String, Object> payload = objectMapper.readValue(rows.get(1).getPayloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "tenantId", 1,
+                "joinTaskId", 9,
+                "joinTaskResultId", 27,
+                "accountId", 383,
+                "protocolAccountId", "acc-android",
+                "wsPhone", "922",
+                "protocolBackend", "ANDROID",
+                "inviteCode", "ANDROID-CODE",
+                "attemptNo", 1,
+                "source", "join_task"));
+    }
 
     @Test
     void enqueueOnlineCommands_singleCommand_insertsPendingRowWithStableEnvelopeAndSafePayload() throws Exception {
@@ -429,205 +478,93 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
-    void enqueueMarketingMessageCommands_singleCommand_insertsMasterRoutedAttemptCommand() throws Exception {
-        TestableProtocolCommandOutboxService service = newService(List.of("cmd-marketing-message"), List.of());
-        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
-                1L,
-                42L,
-                9001L,
-                7001L,
-                1L,
-                501L,
-                "acc_8613800138000",
-                "120363001@g.us",
-                "TEXT",
-                "hello",
-                null,
-                null,
-                "marketing_task");
+    void enqueueMessageCommands_persistsBackendEncodedEnvelope() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        MessageSendCommand command = new MessageSendCommand(
+                new ProtocolAccountRef(501L, ProtocolBackend.ANDROID, "acc_android", "919000000001"),
+                new MessageSendCommand.MessageTarget("120363001@g.us"),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("hello", null, null, null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(
+                        1L,
+                        "marketing_task",
+                        new MessageSendCommand.MarketingCorrelation(42L, 7001L, 9001L, 1L),
+                        null,
+                        null),
+                "cmd_android");
+        ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
+                command,
+                ProtocolBackend.ANDROID,
+                "protocol.android.commands.v1",
+                "acc_android",
+                Map.ofEntries(
+                        Map.entry("tenantId", 1L),
+                        Map.entry("accountId", 501L),
+                        Map.entry("protocolAccountId", "acc_android"),
+                        Map.entry("wsPhone", "919000000001"),
+                        Map.entry("groupJid", "120363001@g.us"),
+                        Map.entry("messageType", "TEXT"),
+                        Map.entry("text", "hello"),
+                        Map.entry("mentionAll", false),
+                        Map.entry("source", "marketing_task"),
+                        Map.entry("marketingTaskId", 42L),
+                        Map.entry("targetId", 7001L),
+                        Map.entry("attemptId", 9001L),
+                        Map.entry("roundNo", 1L)));
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
 
-        ProtocolCommandOutboxEnqueueResult result = service.enqueueMarketingMessageCommands(List.of(command));
+        ProtocolCommandOutboxEnqueueResult result = service.enqueueMessageCommands(List.of(outboxCommand));
 
-        assertThat(result.batchId()).isNull();
-        assertThat(result.commandIds()).containsExactly("cmd-marketing-message");
-        assertThat(result.inserted()).isEqualTo(1);
-
-        List<ProtocolCommandOutbox> rows = capturedRows();
-        assertThat(rows).hasSize(1);
-        ProtocolCommandOutbox row = rows.get(0);
-        assertThat(row.getTenantId()).isNull();
-        assertThat(row.getCommandId()).isEqualTo("cmd-marketing-message");
-        assertThat(row.getCommandType()).isEqualTo("message.send.requested");
+        assertThat(result.commandIds()).containsExactly("cmd_android");
+        ProtocolCommandOutbox row = capturedRows().get(0);
         assertThat(row.getAggregateType()).isEqualTo("MARKETING_SEND_ATTEMPT");
         assertThat(row.getAggregateId()).isEqualTo(9001L);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
-        assertThat(row.getKafkaKey()).isEqualTo("acc_8613800138000");
-        assertThat(row.getProtocolAccountId()).isEqualTo("acc_8613800138000");
-        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
-        assertThat(row.getStatus()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
-        assertThat(row.getRetryCount()).isZero();
-        assertThat(row.getNextRetryAt()).isZero();
-
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.commands.v1");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_android");
+        assertThat(row.getProtocolBackend()).isEqualTo("ANDROID");
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });
         assertThat(payload)
-                .containsEntry("tenantId", 1)
-                .containsEntry("marketingTaskId", 42)
-                .containsEntry("attemptId", 9001)
-                .containsEntry("targetId", 7001)
-                .containsEntry("roundNo", 1)
-                .containsEntry("accountId", 501)
-                .containsEntry("protocolAccountId", "acc_8613800138000")
-                .containsEntry("groupJid", "120363001@g.us")
-                .containsEntry("messageType", "TEXT")
-                .containsEntry("text", "hello")
-                .containsEntry("source", "marketing_task");
-        verify(dispatchTrigger).dispatchAfterCommit(rows);
+                .containsEntry("wsPhone", "919000000001")
+                .containsEntry("messageType", "TEXT");
     }
 
     @Test
-    void enqueueMarketingMessageCommands_groupCreationSourceDoesNotRequireMarketingAttempt() throws Exception {
-        TestableProtocolCommandOutboxService service = newService(List.of("cmd-unused"), List.of());
-        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
-                1L,
-                null,
-                null,
-                null,
-                null,
-                501L,
-                "acc_8613800138000",
-                "120363001@g.us",
-                "TEXT",
-                "hello",
-                null,
-                null,
-                null,
-                null,
-                "group_creation_marketing",
-                "cmd_gcm_item_11",
-                22L,
-                11L);
-        when(mapper.batchInsertPending(anyList())).thenReturn(1);
-
-        ProtocolCommandOutboxEnqueueResult result = service.enqueueMarketingMessageCommands(List.of(command));
-
-        assertThat(result.batchId()).isNull();
-        assertThat(result.commandIds()).containsExactly("cmd_gcm_item_11");
-
-        List<ProtocolCommandOutbox> rows = capturedRows();
-        ProtocolCommandOutbox row = rows.get(0);
-        assertThat(row.getCommandId()).isEqualTo("cmd_gcm_item_11");
-        assertThat(row.getCommandType()).isEqualTo("message.send.requested");
-        assertThat(row.getAggregateType()).isEqualTo("GROUP_CREATION_MARKETING_ITEM");
-        assertThat(row.getAggregateId()).isEqualTo(11L);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.v1");
-        assertThat(row.getKafkaKey()).isEqualTo("acc_8613800138000");
-        assertThat(row.getProtocolBackend()).isEqualTo("WEB");
-
-        Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
-        });
-        assertThat(payload)
-                .containsEntry("tenantId", 1)
-                .containsEntry("groupCreationTaskId", 22)
-                .containsEntry("groupCreationItemId", 11)
-                .containsEntry("accountId", 501)
-                .containsEntry("protocolAccountId", "acc_8613800138000")
-                .containsEntry("groupJid", "120363001@g.us")
-                .containsEntry("messageType", "TEXT")
-                .containsEntry("text", "hello")
-                .containsEntry("source", "group_creation_marketing");
-        assertThat(payload).doesNotContainKeys("marketingTaskId", "attemptId", "targetId", "roundNo");
-    }
-
-    @Test
-    void enqueueMarketingMessageCommands_linkCardPayload_serializesStructuredCard() throws Exception {
-        TestableProtocolCommandOutboxService service = newService(List.of("cmd-link-card"), List.of());
-        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
-                1L,
-                42L,
-                9001L,
-                7001L,
-                1L,
-                501L,
-                "acc_1",
-                "120363001@g.us",
-                "LINK_CARD",
-                "标题",
-                null,
-                null,
-                new ProtocolMarketingMessageCommandRequest.MarketingLinkCardPayload(
-                        "https://example.com/promo",
-                        "标题",
-                        "正文",
-                        new ProtocolMarketingMessageCommandRequest.MarketingMediaPayload("AQID", "image/png")),
-                null,
-                true,
-                "marketing_task");
-        when(mapper.batchInsertPending(anyList())).thenReturn(1);
-
-        service.enqueueMarketingMessageCommands(List.of(command));
-
-        Map<String, Object> payload = objectMapper.readValue(capturedRows().get(0).getPayloadJson(), new TypeReference<>() {
-        });
-        assertThat(payload).containsEntry("messageType", "LINK_CARD");
-        assertThat(payload).containsEntry("text", "标题");
-        assertThat(payload).containsEntry("mentionAll", true);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> linkCard = (Map<String, Object>) payload.get("linkCard");
-        assertThat(linkCard)
-                .containsEntry("url", "https://example.com/promo")
-                .containsEntry("title", "标题")
-                .containsEntry("description", "正文");
-        assertThat(linkCard).doesNotContainKey("suppressBody");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> thumbnail = (Map<String, Object>) linkCard.get("thumbnail");
-        assertThat(thumbnail)
-                .containsEntry("base64", "AQID")
-                .containsEntry("mimetype", "image/png");
-    }
-
-    @Test
-    void enqueueMarketingMessageCommands_buttonCardPayload_serializesButtons() throws Exception {
-        TestableProtocolCommandOutboxService service = newService(List.of("cmd-button-card"), List.of());
-        ProtocolMarketingMessageCommandRequest command = new ProtocolMarketingMessageCommandRequest(
-                1L,
-                42L,
-                9002L,
-                7002L,
-                1L,
-                502L,
-                "acc_2",
-                "120363002@g.us",
-                "BUTTON_CARD",
-                "按钮正文",
-                null,
-                null,
-                null,
-                new ProtocolMarketingMessageCommandRequest.MarketingButtonCardPayload(
-                        "按钮标题",
+    void enqueueMessageCommands_acceptsHistoricalCorrelationAndUsesMemberAggregate() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        MessageSendCommand command = new MessageSendCommand(
+                new ProtocolAccountRef(501L, ProtocolBackend.WEB, "acc_web", "919000000001"),
+                new MessageSendCommand.MessageTarget("120363history@g.us"),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("offer", null, null, null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(
+                        1L,
+                        "historical_group_pull",
                         null,
-                        List.of(new ProtocolMarketingMessageCommandRequest.MarketingButtonPayload(
-                                "link", "访问", "https://example.com")),
-                        null),
-                "marketing_task");
+                        null,
+                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
+                "cmd_historical");
+        ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
+                command,
+                ProtocolBackend.WEB,
+                "protocol.master.commands.v1",
+                "acc_web",
+                Map.of(
+                        "tenantId", 1L,
+                        "historicalExecutionId", 91L,
+                        "historicalMemberId", 301L,
+                        "source", "historical_group_pull"));
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
 
-        service.enqueueMarketingMessageCommands(List.of(command));
+        service.enqueueMessageCommands(List.of(outboxCommand));
 
-        Map<String, Object> payload = objectMapper.readValue(capturedRows().get(0).getPayloadJson(), new TypeReference<>() {
-        });
-        assertThat(payload).containsEntry("messageType", "BUTTON_CARD");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
-        assertThat(buttonCard).containsEntry("title", "按钮标题");
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> buttons = (List<Map<String, Object>>) buttonCard.get("buttons");
-        assertThat(buttons).hasSize(1);
-        assertThat(buttons.get(0))
-                .containsEntry("type", "link")
-                .containsEntry("displayText", "访问")
-                .containsEntry("value", "https://example.com");
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getAggregateType()).isEqualTo("HISTORICAL_GROUP_PULL_MEMBER");
+        assertThat(row.getAggregateId()).isEqualTo(301L);
     }
 
     @Test
@@ -774,6 +711,18 @@ class ProtocolCommandOutboxServiceImplTest {
                 accountId,
                 protocolAccountId,
                 "scheduled_account_group_sync");
+    }
+
+    private static ProtocolGroupJoinCommandRequest groupJoinCommand(
+            ProtocolBackend backend,
+            Long resultId,
+            Long accountId,
+            String protocolAccountId,
+            String wsPhone,
+            String inviteCode) {
+        return new ProtocolGroupJoinCommandRequest(
+                1L, 9L, resultId, accountId, protocolAccountId, wsPhone,
+                backend, inviteCode, 1, "join_task");
     }
 
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {

@@ -2,7 +2,7 @@ package com.armada.group.mapper;
 
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
-import com.armada.group.model.vo.GroupMemberQueryAccount;
+import com.armada.group.model.vo.GroupExecutionAccount;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -22,16 +22,15 @@ public interface AccountGroupMembershipMapper {
     /**
      * 捕获待拍账号的当前全部群作为 baseline JSON。
      *
-     * @param accountId              账号 ID
-     * @param baselineGroupJidsJson  去重后的群 JID JSON 数组
-     * @param groupCount             JSON 数组长度
-     * @param capturedAt             协议查询时间(epoch 毫秒)
-     * @param now                    写库时间(epoch 毫秒)
+     * <p>JID 数组和静态群名映射在同一条 INSERT 中首次写入;唯一键冲突时不覆盖历史快照。
+     * 租户 ID 只允许由租户拦截器从 {@code TenantContext} 注入,避免调用方跨租户覆盖。</p>
+     *
+     * @param baseline   首次快照行,包含账号 ID、JID JSON、群名 JSON 与群数量
+     * @param capturedAt 协议查询时间(epoch 毫秒)
+     * @param now        写库时间(epoch 毫秒)
      * @return 影响行数;账号已不是待拍状态时返回 0
      */
-    int capturePendingAccountGroupBaseline(@Param("accountId") Long accountId,
-                                           @Param("baselineGroupJidsJson") String baselineGroupJidsJson,
-                                           @Param("groupCount") int groupCount,
+    int capturePendingAccountGroupBaseline(@Param("baseline") AccountGroupBaselineRow baseline,
                                            @Param("capturedAt") long capturedAt,
                                            @Param("now") long now);
 
@@ -104,8 +103,8 @@ public interface AccountGroupMembershipMapper {
      * @param onlineLoginState 在线登录态码
      * @return 查询账号;没有可用账号时返回 null
      */
-    GroupMemberQueryAccount selectOnlineMemberQueryAccount(@Param("groupLinkId") Long groupLinkId,
-                                                           @Param("onlineLoginState") int onlineLoginState);
+    GroupExecutionAccount selectGroupExecutionAccount(@Param("groupLinkId") Long groupLinkId,
+                                                       @Param("onlineLoginState") int onlineLoginState);
 
     /**
      * 将本次回报中未出现的账号群关系标记为已不在群内。

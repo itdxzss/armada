@@ -10,7 +10,6 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -27,15 +26,14 @@ import org.springframework.transaction.annotation.Transactional;
  * 账号当前群列表回报落库服务实现。
  *
  * <p>Kafka listener 线程没有 HTTP 租户上下文,本服务按事件中的 {@code tenantId}
- * 临时重建 {@link TenantContext}。已拍账号只写“当前群 - 登录前 baseline”的差集;
- * 待拍账号只在这里兜底已在途的旧同步命令,捕获 baseline JSON 后清空可见 membership。</p>
+ * 临时重建 {@link TenantContext}。baseline 仅保留首次历史快照,每次回报都把协议返回的
+ * 当前全部群交给 membership 快照服务。</p>
  */
 @Service
 public class AccountGroupMembershipReportServiceImpl implements AccountGroupMembershipReportService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountGroupMembershipReportServiceImpl.class);
     private static final int BASELINE_PENDING = AccountGroupBaselineStateCode.PENDING;
-    private static final int BASELINE_CAPTURED = AccountGroupBaselineStateCode.CAPTURED;
 
     private final AccountGroupMembershipMapper membershipMapper;
     private final AccountGroupMembershipSnapshotService snapshotService;
@@ -59,8 +57,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     /**
      * 应用协议层 {@code account.groups_reported} 回报事件。
      *
-     * <p>协议层返回的是账号当前全部参与群。待拍账号只捕获本次全量群为 baseline,
-     * 已拍账号才过滤 baseline 旧群并写入当前可见群关系。</p>
+     * <p>协议层返回的是账号当前全部参与群。待拍账号先保存首次 baseline,随后与其他账号一样
+     * 把本次全量回报写入 membership 快照;baseline 不再参与当前群筛选。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -79,22 +77,18 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
             }
             if (baselineState(baselineRow) == BASELINE_PENDING) {
                 capturePendingBaseline(event, syncAt, now);
-                return;
             }
-            Set<String> baseline = loadBaselineGroupJids(baselineRow);
-            Map<String, AccountGroupsReportedEvent.Group> visibleGroups = visibleGroups(event.groups(), baseline);
             snapshotService.replaceVisibleGroups(
                     event.accountId(),
-                    List.copyOf(visibleGroups.values()),
+                    event.groups(),
                     syncAt,
                     event.eventId(),
                     event.source());
             log.info("账号群列表事件已回写 eventId={} source={} reportedAt={} tenantId={} accountId={} "
-                            + "protocolAccountId={} rawGroups={} baselineGroups={} visibleGroups={} "
-                            + "visibleGroupJidSample={}",
+                            + "protocolAccountId={} currentGroups={} currentGroupJidSample={}",
                     event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
-                    event.protocolAccountId(), event.groups().size(), baseline.size(), visibleGroups.size(),
-                    jidSample(visibleGroups.keySet()));
+                    event.protocolAccountId(), event.groups().size(),
+                    jidSample(event.groups().stream().map(AccountGroupsReportedEvent.Group::groupJid).toList()));
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -108,23 +102,22 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
      * 兜底处理待拍账号的异步群回报。
      *
      * <p>定时同步已不再扫描待拍账号,但历史 outbox 或并发中的旧命令仍可能回报群列表。
-     * 这里只允许账号仍处于待拍状态时捕获 baseline JSON,随后清空当前可见 membership,
-     * 防止导入前旧群进入营销候选。</p>
+     * 这里只允许账号仍处于待拍状态时捕获 baseline JID 与轻量载荷已有群名。当前群 membership
+     * 由调用方继续按本次全量回报刷新。</p>
      *
      * @param event  协议层账号群列表回报事件
      * @param syncAt 协议查询时间(epoch 毫秒)
      * @param now    本次落库时间(epoch 毫秒)
      */
     private void capturePendingBaseline(AccountGroupsReportedEvent event, long syncAt, long now) {
-        List<String> baselineGroupJids = normalizedGroupJids(event.groups());
-        String json;
-        try {
-            json = objectMapper.writeValueAsString(baselineGroupJids);
-        } catch (JsonProcessingException ex) {
-            throw new BusinessException(ErrorCode.VALIDATION, "账号群基线 JSON 序列化失败");
-        }
+        BaselineSnapshot snapshot = normalizedBaselineSnapshot(event.groups());
+        AccountGroupBaselineRow baseline = new AccountGroupBaselineRow();
+        baseline.setAccountId(event.accountId());
+        baseline.setBaselineGroupJidsJson(writeBaselineJson(snapshot.groupJids()));
+        baseline.setBaselineGroupSubjectsJson(writeBaselineJson(snapshot.groupSubjects()));
+        baseline.setGroupCount(snapshot.groupJids().size());
         int captured = membershipMapper.capturePendingAccountGroupBaseline(
-                event.accountId(), json, baselineGroupJids.size(), syncAt, now);
+                baseline, syncAt, now);
         if (captured <= 0) {
             log.warn("待拍账号群基线捕获被跳过 tenantId={} accountId={} protocolAccountId={} eventId={}",
                     event.tenantId(), event.accountId(), event.protocolAccountId(), event.eventId());
@@ -134,66 +127,54 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
         if (updated <= 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "账号群基线状态更新失败");
         }
-        snapshotService.replaceVisibleGroups(
-                event.accountId(), List.of(), syncAt, event.eventId(), event.source());
         log.info("待拍账号群基线已由异步回报捕获 eventId={} source={} reportedAt={} tenantId={} "
-                        + "accountId={} protocolAccountId={} rawGroups={} baselineGroups={} visibleGroups={} "
-                        + "visibleGroupJidSample={} stateUpdated={}",
+                        + "accountId={} protocolAccountId={} rawGroups={} baselineGroups={} baselineNamedGroups={} "
+                        + "stateUpdated={}",
                 event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
-                event.protocolAccountId(), event.groups().size(), baselineGroupJids.size(), 0, List.of(), updated);
+                event.protocolAccountId(), event.groups().size(), snapshot.groupJids().size(),
+                snapshot.groupSubjects().size(), updated);
     }
 
     /**
-     * 读取已拍账号的 baseline 群 JID 集合。
+     * 从协议回报中提取用于 baseline JSON 的群 JID 与静态群名。
      *
-     * <p>只有 {@code group_baseline_state=2} 才启用差集过滤;待拍账号已在上游分支处理,
-     * 不启用 baseline 的账号返回空集合,表示当前群全部可见。</p>
-     *
-     * @param baselineRow 账号 baseline 状态行
-     * @return 归一化并去重后的 baseline 群 JID 集合
-     */
-    private Set<String> loadBaselineGroupJids(AccountGroupBaselineRow baselineRow) {
-        if (baselineState(baselineRow) != BASELINE_CAPTURED) {
-            return Set.of();
-        }
-        String json = baselineRow.getBaselineGroupJidsJson();
-        if (json == null || json.isBlank()) {
-            return Set.of();
-        }
-        List<String> groupJids;
-        try {
-            groupJids = objectMapper.readValue(json, new TypeReference<>() {
-            });
-        } catch (JsonProcessingException ex) {
-            throw new BusinessException(ErrorCode.VALIDATION, "账号群基线 JSON 解析失败");
-        }
-        Set<String> baseline = new LinkedHashSet<>();
-        for (String groupJid : groupJids) {
-            String normalized = normalizeJid(groupJid);
-            if (normalized != null) {
-                baseline.add(normalized);
-            }
-        }
-        return baseline;
-    }
-
-    /**
-     * 从协议回报中提取用于 baseline JSON 的群 JID 列表。
-     *
-     * <p>使用 {@link LinkedHashSet} 保留协议返回顺序并去重,写入 JSON 后便于排查“导入时已有群”快照。</p>
+     * <p>JID 保留协议返回顺序并去重;空白 subject 不写入映射,重复 JID 保留首次非空群名。</p>
      *
      * @param groups 协议层回报的当前参与群
-     * @return 去空白、去重后的群 JID 列表
+     * @return 去空白、去重后的 JID 与静态群名快照
      */
-    private static List<String> normalizedGroupJids(List<AccountGroupsReportedEvent.Group> groups) {
+    private static BaselineSnapshot normalizedBaselineSnapshot(List<AccountGroupsReportedEvent.Group> groups) {
         Set<String> deduped = new LinkedHashSet<>();
+        Map<String, String> subjects = new LinkedHashMap<>();
         for (AccountGroupsReportedEvent.Group group : groups) {
             String groupJid = normalizeJid(group.groupJid());
             if (groupJid != null) {
                 deduped.add(groupJid);
+                String subject = blankToNull(group.subject());
+                if (subject != null) {
+                    subjects.putIfAbsent(groupJid, subject);
+                }
             }
         }
-        return new ArrayList<>(deduped);
+        return new BaselineSnapshot(new ArrayList<>(deduped), subjects);
+    }
+
+    /**
+     * 序列化首次 baseline 的轻量事实。
+     *
+     * @param value JID 数组或 JID 到群名映射
+     * @return JSON 字符串
+     */
+    private String writeBaselineJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号群基线 JSON 序列化失败");
+        }
+    }
+
+    /** 首次 baseline 的去重 JID 与静态群名轻量快照。 */
+    private record BaselineSnapshot(List<String> groupJids, Map<String, String> groupSubjects) {
     }
 
     /**
@@ -207,30 +188,6 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     private static int baselineState(AccountGroupBaselineRow baselineRow) {
         Integer state = baselineRow.getGroupBaselineState();
         return state == null ? BASELINE_PENDING : state;
-    }
-
-    /**
-     * 计算本次应写入当前 membership 的可见群。
-     *
-     * <p>协议层返回的是账号当前全部参与群;这里剔除无效 JID 和 baseline 旧群,
-     * 相同 JID 重复出现时保留协议返回的第一条。</p>
-     *
-     * @param groups   协议层回报的当前参与群
-     * @param baseline 导入前 baseline 群 JID 集合
-     * @return 按群 JID 去重后的当前可见群
-     */
-    private static Map<String, AccountGroupsReportedEvent.Group> visibleGroups(
-            List<AccountGroupsReportedEvent.Group> groups,
-            Set<String> baseline) {
-        Map<String, AccountGroupsReportedEvent.Group> visible = new LinkedHashMap<>();
-        for (AccountGroupsReportedEvent.Group group : groups) {
-            String groupJid = normalizeJid(group.groupJid());
-            if (groupJid == null || baseline.contains(groupJid)) {
-                continue;
-            }
-            visible.putIfAbsent(groupJid, group);
-        }
-        return visible;
     }
 
     /**

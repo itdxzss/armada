@@ -118,6 +118,21 @@ class ProtocolPropertiesTest {
         });
     }
 
+    @Test
+    void applicationYamlWebBackendInheritsArmadaDeploymentEnvironment() {
+        applicationYamlContextRunner
+                .withSystemProperties(
+                        "ARMADA_PROTOCOL_BASE_URL=https://deployed-protocol.internal",
+                        "ARMADA_PROTOCOL_API_KEY=deployed-api-key")
+                .run(context -> {
+                    ProtocolProperties properties = context.getBean(ProtocolProperties.class);
+                    ProtocolBackendHttpProperties web = properties.requireBackend(ProtocolBackend.WEB);
+
+                    assertThat(web.getBaseUrl()).isEqualTo("https://deployed-protocol.internal");
+                    assertThat(web.getApiKey()).isEqualTo("deployed-api-key");
+                });
+    }
+
     @EnableConfigurationProperties(ProtocolProperties.class)
     static class TestConfig {
     }

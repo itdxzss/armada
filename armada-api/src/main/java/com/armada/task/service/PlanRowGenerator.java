@@ -34,13 +34,10 @@ public final class PlanRowGenerator {
         }
         int n = accounts.size();
         if (DistributionMode.FIXED_ACCOUNT_MULTI_LINK.equals(params.mode())) {
-            int accountCount = Math.max(params.executorAccountCount(), 0);
-            int linkCap = Math.min(Math.max(params.linksPerAccount(), 0), validLinks.size());
-            for (int a = 0; a < accountCount; a++) {
-                SelectedAccount acc = n == 0 ? null : accounts.get(a % n);
-                for (int l = 0; l < linkCap; l++) {
-                    rows.add(pending(acc, validLinks.get(l)));
-                }
+            int accountCount = Math.min(Math.max(params.executorAccountCount(), 0), n);
+            for (int linkIndex = 0; linkIndex < validLinks.size() && accountCount > 0; linkIndex++) {
+                SelectedAccount acc = accounts.get(linkIndex % accountCount);
+                rows.add(pending(acc, validLinks.get(linkIndex)));
             }
         } else {
             int perLink = Math.max(params.accountsPerLink(), 0);

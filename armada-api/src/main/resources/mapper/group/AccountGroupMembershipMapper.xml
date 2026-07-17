@@ -5,7 +5,9 @@
   <select id="selectAccountBaselineRow" resultType="com.armada.group.model.vo.AccountGroupBaselineRow">
     SELECT a.id AS accountId,
            a.group_baseline_state AS groupBaselineState,
-           b.baseline_group_jids AS baselineGroupJidsJson
+           b.baseline_group_jids AS baselineGroupJidsJson,
+           b.baseline_group_subjects AS baselineGroupSubjectsJson,
+           b.group_count AS groupCount
     FROM account a
     LEFT JOIN account_group_baseline b ON b.account_id = a.id
     WHERE a.id = #{accountId}
@@ -14,19 +16,20 @@
   </select>
 
   <insert id="capturePendingAccountGroupBaseline">
+    <!-- tenant_id 由租户拦截器注入,禁止事件载荷覆盖当前租户边界。 -->
     INSERT INTO account_group_baseline (
-      account_id, baseline_group_jids, group_count, captured_at, created_at, updated_at
+      account_id, baseline_group_jids, baseline_group_subjects,
+      group_count, captured_at, created_at, updated_at
     )
-    SELECT a.id, #{baselineGroupJidsJson}, #{groupCount}, #{capturedAt}, #{now}, #{now}
+    SELECT a.id, #{baseline.baselineGroupJidsJson}, #{baseline.baselineGroupSubjectsJson},
+           #{baseline.groupCount}, #{capturedAt}, #{now}, #{now}
     FROM account a
-    WHERE a.id = #{accountId}
+    WHERE a.id = #{baseline.accountId}
       AND a.deleted_at IS NULL
       AND a.group_baseline_state = 1
+    <!-- 唯一键冲突意味着首次快照已存在;静态 JID 和群名都不能被后续回报改写。 -->
     ON DUPLICATE KEY UPDATE
-      baseline_group_jids = VALUES(baseline_group_jids),
-      group_count = VALUES(group_count),
-      captured_at = VALUES(captured_at),
-      updated_at = VALUES(updated_at)
+      account_id = account_group_baseline.account_id
   </insert>
 
   <update id="markAccountBaselineCaptured">
@@ -91,7 +94,7 @@
       updated_at = VALUES(updated_at)
   </insert>
 
-  <select id="selectOnlineMemberQueryAccount" resultType="com.armada.group.model.vo.GroupMemberQueryAccount">
+  <select id="selectGroupExecutionAccount" resultType="com.armada.group.model.vo.GroupExecutionAccount">
     SELECT a.id AS accountId,
            a.protocol_account_id AS protocolAccountId
     FROM account_group_membership m

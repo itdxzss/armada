@@ -23,6 +23,19 @@ class MarketingTaskMapperSqlShapeTest {
             "src/main/resources/db/migration/V052__marketing_attempt_group_status.sql");
 
     @Test
+    void executionTargetsReadCurrentProtocolRoutingFactsFromAccount() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        assertThat(xml)
+                .contains("<result column=\"protocol_id\" property=\"protocolId\"/>")
+                .contains("<result column=\"protocol_ws_phone\" property=\"protocolWsPhone\"/>")
+                .contains("a.protocol_id AS protocol_id")
+                .contains("a.ws_phone AS protocol_ws_phone");
+    }
+
+    @Test
     void taskLifecycleUsesFiveStatesAndForwardMigration() throws IOException {
         assertThat(Arrays.stream(MarketingTaskStatus.values()).map(Enum::name))
                 .containsExactly("PENDING", "SENDING", "PAUSED", "COMPLETED", "CLOSED");
@@ -67,7 +80,14 @@ class MarketingTaskMapperSqlShapeTest {
         assertThat(dynamicTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_jid AS groupJid")
-                .contains("(#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})");
+                .contains("m.deleted_at IS NULL")
+                .contains("TRIM(m.group_jid) &lt;&gt; ''")
+                .contains("LEFT JOIN group_link g")
+                .contains("(#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})")
+                .doesNotContain("account_group_baseline")
+                .doesNotContain("account_state")
+                .doesNotContain("group_link_health")
+                .doesNotContain("membership_state");
         assertThat(currentTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_link_id = #{groupLinkId}")

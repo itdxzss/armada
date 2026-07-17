@@ -15,6 +15,7 @@ import java.io.InputStream;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -71,6 +72,23 @@ public class ProtocolHttpExecutor {
     }
 
     /**
+     * 使用 URI 模板变量发起 GET 请求并反序列化 2xx 响应体。
+     *
+     * <p>模板变量由 Spring 按其所处的 path/query 位置编码，避免 adapter 手工编码后被二次编码。</p>
+     *
+     * @param uriTemplate  相对或绝对 URI 模板
+     * @param responseType 响应类型
+     * @param uriVariables URI 模板变量
+     * @param <T>          响应类型
+     * @return 反序列化后的响应对象
+     * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
+     */
+    public <T> T getTyped(String uriTemplate, Class<T> responseType, Object... uriVariables) {
+        return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
+                .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
+    }
+
+    /**
      * 发起 POST 请求并反序列化 2xx 响应体。
      *
      * @param uri          相对或绝对 URI
@@ -81,6 +99,27 @@ public class ProtocolHttpExecutor {
      */
     public <T> T postTyped(String uri, Object body, Class<T> responseType) {
         return execute("POST", uri, () -> restClient.post().uri(uri)
+                .body(body == null ? EMPTY_JSON_BODY : body)
+                .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
+    }
+
+    /**
+     * 使用 URI 模板变量发起 POST 请求并反序列化 2xx 响应体。
+     *
+     * @param uriTemplate  相对或绝对 URI 模板
+     * @param body         请求体；为空时发送空 JSON 对象
+     * @param responseType 响应类型
+     * @param uriVariables URI 模板变量
+     * @param <T>          响应类型
+     * @return 反序列化后的响应对象
+     * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
+     */
+    public <T> T postTyped(
+            String uriTemplate,
+            Object body,
+            Class<T> responseType,
+            Object... uriVariables) {
+        return execute("POST", uriTemplate, () -> restClient.post().uri(uriTemplate, uriVariables)
                 .body(body == null ? EMPTY_JSON_BODY : body)
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
     }
@@ -194,7 +233,8 @@ public class ProtocolHttpExecutor {
                 httpStatus,
                 protocolCode,
                 error.retryAfterMs(),
-                error.ownerEndpoint());
+                error.ownerEndpoint(),
+                error.retryable());
 
         // 抛出统一异常:message 面向日志排障,结构化字段面向业务编排。
         throw new ProtocolException(
@@ -239,9 +279,11 @@ public class ProtocolHttpExecutor {
     private static ProtocolErrorCode mapErrorCode(String protocolCode, int httpStatus) {
         // 优先信任协议层 code,因为 NOT_OWNER/ONLINE_LIMITED 等语义无法只靠 HTTP 状态区分。
         if (protocolCode != null && !protocolCode.isBlank()) {
+            // Web 服务历史错误码可能使用小写和连字符，例如 bad-request；先转成 Java 枚举命名格式。
+            String normalized = protocolCode.trim().replace('-', '_').toUpperCase(Locale.ROOT);
             try {
-                // 两边同名时直接映射,避免维护一张重复映射表。
-                return ProtocolErrorCode.valueOf(protocolCode);
+                // 只规范化内部错误码，异常 Metadata 仍保留协议层返回的原始 protocolCode。
+                return ProtocolErrorCode.valueOf(normalized);
             } catch (IllegalArgumentException ignored) {
                 // 新协议码先兜底 UNKNOWN,后续按业务需要再加入 ProtocolErrorCode。
                 return ProtocolErrorCode.UNKNOWN;
@@ -328,7 +370,7 @@ public class ProtocolHttpExecutor {
         return false;
     }
 
-    private record ErrorResponseBody(String code, String message, Map<String, Object> details) {
+    private record ErrorResponseBody(String code, String message, Boolean retryable, Map<String, Object> details) {
 
         /**
          * 构造空错误体。
@@ -336,7 +378,7 @@ public class ProtocolHttpExecutor {
          * @return 不含协议 code/message/details 的错误体
          */
         private static ErrorResponseBody empty() {
-            return new ErrorResponseBody(null, null, Map.of());
+            return new ErrorResponseBody(null, null, null, Map.of());
         }
 
         /**

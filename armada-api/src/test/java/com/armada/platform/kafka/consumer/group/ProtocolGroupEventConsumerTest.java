@@ -27,11 +27,72 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolGroupHealthReportedSink sink;
 
+    @Mock
+    private ProtocolGroupJoinResultReportedSink joinResultSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new ProtocolGroupEventConsumer(new ObjectMapper(), sink);
+        consumer = new ProtocolGroupEventConsumer(new ObjectMapper(), sink, joinResultSink);
+    }
+
+    @Test
+    void onMessage_joinResultEnvelopeDispatchesNumericAndStringIds() {
+        String raw = """
+                {
+                  "eventId": "acc-1:group.join_result_reported:cmd-1",
+                  "event": "group.join_result_reported",
+                  "accountId": "acc-1",
+                  "workerId": "worker-a",
+                  "data": {
+                    "tenantId": "1",
+                    "joinTaskId": 9,
+                    "joinTaskResultId": "26",
+                    "accountId": 382,
+                    "protocolAccountId": "acc-1",
+                    "commandId": "cmd-1",
+                    "attemptNo": "2",
+                    "outcome": "FAILED",
+                    "groupJid": null,
+                    "reasonCode": "TEMPORARY_FAILURE",
+                    "reasonMessage": "temporary",
+                    "retryable": true,
+                    "timestamp": 1782712801000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupJoinResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupJoinResultReportedEvent.class);
+        verify(joinResultSink).handleJoinResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupJoinResultReportedEvent(
+                "acc-1:group.join_result_reported:cmd-1", 1L, 9L, 26L, 382L,
+                "acc-1", "cmd-1", 2, "FAILED", null,
+                "TEMPORARY_FAILURE", "temporary", true, 1782712801000L, "worker-a"));
+    }
+
+    @Test
+    void onMessage_joinResultMissingCorrelationOrInvalidOutcomeIsRejected() {
+        String missingCommand = """
+                {"event":"group.join_result_reported","data":{
+                  "tenantId":1,"joinTaskId":9,"joinTaskResultId":26,"accountId":382,
+                  "protocolAccountId":"acc-1","attemptNo":1,"outcome":"JOINED","retryable":false
+                }}
+                """;
+        String invalidOutcome = """
+                {"event":"group.join_result_reported","data":{
+                  "tenantId":1,"joinTaskId":9,"joinTaskResultId":26,"accountId":382,
+                  "protocolAccountId":"acc-1","commandId":"cmd-1","attemptNo":1,
+                  "outcome":"MAYBE","retryable":false
+                }}
+                """;
+
+        assertThatThrownBy(() -> consumer.onMessage(missingCommand)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(invalidOutcome)).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(joinResultSink);
     }
 
     @Test
@@ -88,7 +149,7 @@ class ProtocolGroupEventConsumerTest {
 
         consumer.onMessage(raw);
 
-        verifyNoInteractions(sink);
+        verifyNoInteractions(sink, joinResultSink);
     }
 
     @Test

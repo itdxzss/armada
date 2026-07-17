@@ -34,6 +34,65 @@
     LIMIT 1
   </select>
 
+  <!--
+    指定账号分组随机选在线正常拉手账号。协议字段必须完整，风险未上报或明确允许且未禁言。
+    选号刻意不连接营销/任务占用表：占用是具体任务事实，不能改变账号作为通用拉手的可用性。
+    tenant_id 由租户拦截器注入，状态表同时按 tenant_id 关联，防止跨租户串行。
+  -->
+  <select id="selectRandomOnlineNormalByGroupId"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.account_group_id = #{groupId}
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND a.protocol_id IS NOT NULL
+      AND TRIM(a.protocol_id) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+      AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
+      AND s.mute_status IS NULL
+    ORDER BY RAND()
+    LIMIT 1
+  </select>
+
+  <!--
+    历史群拉人后续联系人/ADD 当前仅有 Web adapter，因此专用选号在 SQL 层排除 Android。
+    存量 Web 账号的 protocol_id 允许为 NULL/空，必须与 ProtocolBackend.fromProtocolId 的
+    Web fallback 保持一致，不能再把这类账号误判为协议身份不完整。
+  -->
+  <select id="selectRandomOnlineNormalWebByGroupId"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.account_group_id = #{groupId}
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND (
+        a.protocol_id IS NULL
+        OR TRIM(a.protocol_id) = ''
+        OR UPPER(TRIM(a.protocol_id)) = #{webProtocolId}
+      )
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+      AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
+      AND s.mute_status IS NULL
+    ORDER BY RAND()
+    LIMIT 1
+  </select>
+
   <select id="selectActiveByProtocolAccountId" resultType="com.armada.account.model.entity.Account">
     SELECT * FROM account
     WHERE protocol_account_id = #{protocolAccountId}
@@ -49,6 +108,22 @@
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
     </if>
     <if test="ids == null or ids.size() == 0">
+    SELECT * FROM account WHERE 1=0
+    </if>
+  </select>
+
+  <!--
+    固定号码协议寻址只校验当前租户、软删除和协议身份；不预检在线、群成员、角色或禁言状态。
+    Service 负责按规范化后的首次输入顺序重建 Map，并统一过滤协议字段不完整账号。
+  -->
+  <select id="selectActiveByWsPhones" resultType="com.armada.account.model.entity.Account">
+    <if test="wsPhones != null and wsPhones.size() &gt; 0">
+    SELECT * FROM account
+    WHERE deleted_at IS NULL
+      AND ws_phone IN
+    <foreach collection="wsPhones" item="phone" open="(" separator="," close=")">#{phone}</foreach>
+    </if>
+    <if test="wsPhones == null or wsPhones.size() == 0">
     SELECT * FROM account WHERE 1=0
     </if>
   </select>

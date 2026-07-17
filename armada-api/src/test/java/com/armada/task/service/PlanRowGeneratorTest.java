@@ -34,15 +34,16 @@ class PlanRowGeneratorTest {
     }
 
     @Test
-    void mode2_eachAccountJoinsFirstKLinks_cappedByAvailable() {
-        // 方式二:M=2 · K=3 · 仅2条有效链接 → linkCap=2;[A,B] → A:[L1,L2] B:[L1,L2]
+    void mode2_assignsEachLinkOnce_roundRobinAcrossAccounts() {
+        // 方式二:M=3 · K=2 · 5条链接 → A:2,B:2,C:1,单任务内同一链接只分配一个账号。
         List<PlanRow> rows = PlanRowGenerator.generate(
-                new DistributionParams(DistributionMode.FIXED_ACCOUNT_MULTI_LINK, 0, 2, 3),
-                List.of(A, B), List.of("L1", "L2"), List.of());
+                new DistributionParams(DistributionMode.FIXED_ACCOUNT_MULTI_LINK, 0, 3, 2),
+                List.of(A, B, C), List.of("L1", "L2", "L3", "L4", "L5"), List.of());
         assertThat(rows).extracting("account", "link")
                 .containsExactly(
-                        tuple("911", "L1"), tuple("911", "L2"),
-                        tuple("922", "L1"), tuple("922", "L2"));
+                        tuple("911", "L1"), tuple("922", "L2"), tuple("933", "L3"),
+                        tuple("911", "L4"), tuple("922", "L5"));
+        assertThat(rows).extracting("link").doesNotHaveDuplicates();
     }
 
     @Test

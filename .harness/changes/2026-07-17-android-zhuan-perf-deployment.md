@@ -3,7 +3,7 @@
 - 日期 / 分支 / worktree：2026-07-17 / `1.0.1-snapshot` / 当前主 worktree
 - 需求来源：用户要求 Android 新机不接第一套，改接第二套性能环境；Web 与 Android 同时接入一个 Armada
 - 设计文档：`docs/superpowers/specs/2026-07-17-android-zhuan-perf-deployment-design.md`
-- 状态：进行中（设计完成，未实施）
+- 状态：进行中（设计和实施计划完成，尚未编码或部署）
 
 ## 目标（一句话）
 
@@ -21,7 +21,7 @@
 - [ ] 为 Zhuan 增加 Redis standalone/cluster、TLS、ACL 和全局 prefix 支持及测试。
 - [ ] 将共享 Redis 上的宽泛 `KEYS` 清理改为 namespace 限定的 Cluster SCAN。
 - [ ] 准备新机外部 Redis Compose 配置和 perf Zhuan 受保护配置。
-- [ ] 编写并评审实施计划。
+- [x] 编写并自审实施计划。
 - [ ] 用户开放 MSK、Redis、Android HTTP 安全组并完成连通性复核。
 - [ ] 创建独立 RDS schema/用户，执行迁移并复制 `wa_devices` 参考表。
 - [ ] 创建并核对三个 perf Android command topic。

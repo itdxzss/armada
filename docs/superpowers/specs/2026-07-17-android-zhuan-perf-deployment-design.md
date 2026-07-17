@@ -149,8 +149,9 @@ Armada 切换前必须查询 `armada_perf.protocol_command_outbox`，确认不�
 - Web 协议：`armada-perf:*`；
 - Android Zhuan：`android-zhuan-perf:*`。
 
-Zhuan 在 Cluster 模式下必须配置非空全局 prefix。prefix 为空、等于 `armada-perf:`，或不是
-`android-zhuan-perf:` 时启动失败。第一套 standalone 模式继续允许使用原配置，避免本次改造影响第一套。
+Zhuan 通用代码在 Cluster 模式下必须配置非空、以冒号结尾的全局 prefix；第一套 standalone 模式继续允许
+使用原配置，避免本次改造影响第一套。第二套部署检查再强制 prefix 必须等于 `android-zhuan-perf:`，并拒绝
+空值、Web 使用的 `armada-perf:` 或其它 namespace，避免把某个环境名称硬编码进通用程序。
 
 ### 5.2 客户端与 key 操作
 

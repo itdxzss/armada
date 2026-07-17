@@ -28,25 +28,30 @@
 
 ## 执行前基线
 
-- Armada: `mvn -Dtest='ProtocolAndroidCommandPropertiesTest,ProtocolKafkaConfigurationTest,ProtocolCommandOutboxServiceImplTest,AndroidMessageSendBackendTest' test`，35 tests，0 failure，0 error，BUILD SUCCESS。
+- Armada: `mvn -Dtest='ProtocolCommandOutboxServiceImplTest,AndroidMessageSendBackendTest,ProtocolConfigurationTest,ProtocolAndroidCommandPropertiesTest,ProtocolKafkaConfigurationTest' test`，39 tests，0 failure，0 error，BUILD SUCCESS。
 - Android Zhuan: `go test ./internal/configs ./internal/armada -count=1`，两个 package 均通过。
-- 两个仓库均在 `1.0.1-snapshot`；Zhuan 原有按钮消息改动已按用户要求分别提交为 `114232f 修正安卓按钮消息版本号`、`0a3dbb9 调整安卓按钮消息顶层结构`。
+- 两个仓库均在 `1.0.1-snapshot`；Zhuan 按钮消息改动已按用户要求分别提交为 `114232f 修正安卓按钮消息版本号`、`0a3dbb9 调整安卓按钮消息顶层结构`、`cc11ac4 完善安卓按钮消息原生流参数`、`d395c86 调整安卓按钮消息协议参数`。
 
 ## 验证（evidence-before-done）
 
 - Zhuan 聚焦：`go test ./internal/configs ./internal/armada -count=1`，两个 package 通过。
-- Zhuan race：`go test -race ./internal/armada -run 'Test(CommandPool|CommandConsumerRunStops|StartCommandPools)' -count=1`，通过。
+- Zhuan race：`go test -race ./internal/armada -count=1`，通过。
 - Zhuan vet：`go vet ./internal/configs ./internal/armada`，通过。
+- Zhuan build：`go build ./...`，通过。
+- Zhuan 全量已知失败：`go vet ./...` 仍报 `tcpclient.go` IPv6 地址格式、`promise.go` 未调用 cancel，以及 `appstate_test.go` 的 `[]byte`/`*waproto.SyncdSnapshot` 类型不匹配；`go test ./...` 同样在 appstate 编译失败，并保留 `pkg/noise` 向量/缺少 `vectors.txt` 等既有失败。topic 涉及 package 均通过。
 - Armada 聚焦：39 tests，0 failure，0 error，BUILD SUCCESS。
-- 部署模板：`node armada-deploy/verify-config.mjs` 与 `bash armada-deploy/package-prod.test.sh` 均通过。
-- 完整质量门禁和 dev-1 验收结果在后续步骤追加。
+- Armada 全量：`mvn test` 因本机 MySQL `root@localhost` 无密码访问被拒绝而无法完成数据库集成测试；中止时统计为 154 tests、47 errors，根因均为 Spring context/Flyway 无法连接本机数据库。该环境问题不影响上述聚焦测试。
+- 部署模板：`node armada-deploy/verify-config.mjs`、`bash armada-deploy/deploy-test.test.sh`、`bash armada-deploy/package-prod.test.sh` 均通过。
+- 合同移除扫描：活跃代码和模板中 `protocol.android.commands.v1`、`PROTOCOL_ANDROID_COMMANDS_TOPIC`、旧 TOML 单通道键均无命中。
+- 安全扫描：本次 topic 提交未发现私钥、AWS access key 或明文数据库密码模式。
+- 独立代码审查及复核：无 Critical；发现的两个 Important 均位于运维文档——旧 topic 非终态 outbox 可能在重启后继续发送、旧 lifecycle 手册仍引用单 topic。已补充停服后全量取消旧 topic PENDING/LOCKED 行及零残留查询，并将旧手册标为废弃、链接新手册；复核确认两个 Important 均清零。剩余仅 writer 关闭计数、错 topic/commit/安全日志组合测试等 Minor 覆盖建议，未发现对应生产缺陷。
 
 ## 部署
 
 - 目标: dev-1 (`65.2.123.53`)，用户已确认允许停机和丢弃旧 topic 未消费命令。
 - 切换手册：`docs/operations/android-command-topic-isolation-cutover.md`。
 - 当前实现 commit：Armada `808cd42`；Zhuan `5c169ce`、`1dda337`。
-- 实施后追加 commit、镜像、切换时间和验收结果。
+- 用户最后要求本次只做本地改动，因此未执行 SSH、停机、topic 创建或部署；远程验收保持待办。
 
 ## 遗留 / 跟进
 

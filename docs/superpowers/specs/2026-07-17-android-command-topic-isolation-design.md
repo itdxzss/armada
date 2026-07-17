@@ -1,6 +1,6 @@
 # Android Zhuan 命令 Topic 隔离设计
 
-> 状态：已确认，待实施计划
+> 状态：已实施并完成本地聚焦验证；按用户要求未部署
 > 日期：2026-07-17
 > 范围：`armada/armada-api`、`whatsapp-server-feature-android-zhuan`
 
@@ -233,4 +233,3 @@ topic。
 - 三组 consumer 会增加 Kafka group member 和连接数；默认 4/4/4 需要在 dev-1 验收连接数和资源占用。
 - 本次只隔离 source command topic。若未来 event publisher 或 Redis 成为共享瓶颈，需要基于新证据单独设计，
   不在本次预先拆分。
-

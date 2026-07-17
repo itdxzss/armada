@@ -14,7 +14,7 @@
 
 ## 1. 切换前记录与停机
 
-先记录切换时间、当前两个容器的镜像和本地两个仓库的 commit，写入 Harness 变更记录。不得记录 broker、数据库/Redis 凭据、账号凭据、手机号或消息正文。
+先记录切换时间、当前两个容器的镜像和本地两个仓库的 commit，写入 Harness 变更记录。把停服维护窗口的 epoch 毫秒记为 `cutover_epoch_ms`，后续 SQL 中的 `:cutover_epoch_ms` 均绑定该值。不得记录 broker、数据库/Redis 凭据、账号凭据、手机号或消息正文。
 
 停止 Armada backend 和 Zhuan，避免切换期间继续写入旧 topic 或由新旧配置同时消费：
 
@@ -23,6 +23,40 @@ ssh -T -i '/Users/daishuaishuai/IdeaProjects/测试pem/dev-1.pem' \
   ubuntu@ec2-65-2-123-53.ap-south-1.compute.amazonaws.com \
   'cd /home/app/armada-deploy && sudo docker compose -f docker-compose.rds.yml stop backend && cd /home/app/whatsapp-android-zhuan-deploy/src/deploy && sudo docker compose stop whatsapp-android-zhuan'
 ```
+
+Armada publisher 会使用 outbox 行中已经保存的 `kafka_topic`，所以仅停止旧 consumer、丢弃 Kafka 中的旧积压还不够。两个服务均停止后，先查询旧 topic 上尚可发送的 Android outbox 行：
+
+```sql
+SELECT command_id, command_type, aggregate_type, aggregate_id, status
+FROM protocol_command_outbox
+WHERE protocol_backend = 'ANDROID'
+  AND kafka_topic = 'protocol.android.commands.v1'
+  AND deleted_at IS NULL
+  AND status IN (0, 1)
+ORDER BY id;
+```
+
+用户已授权丢弃旧 topic 未完成命令。记录受影响的 command/aggregate ID 和行数后，在同一维护窗口把这些 `PENDING(0)`/`LOCKED(1)` 行改为 `CANCELED(4)`，防止新版本重启后继续向旧 topic 生产：
+
+```sql
+START TRANSACTION;
+
+UPDATE protocol_command_outbox
+SET status = 4,
+    locked_by = NULL,
+    locked_at = NULL,
+    last_error = 'canceled by Android command topic split 2026-07-17',
+    updated_at = :cutover_epoch_ms
+WHERE protocol_backend = 'ANDROID'
+  AND kafka_topic = 'protocol.android.commands.v1'
+  AND deleted_at IS NULL
+  AND status IN (0, 1);
+
+SELECT ROW_COUNT() AS canceled_legacy_outbox_rows;
+COMMIT;
+```
+
+`CANCELED` 行不会再被 dispatcher 扫描。逐条核对关联业务状态；这些命令不得记为成功，如业务表仍处于等待态，应按受影响 ID 记录为本次获准丢弃并单独人工收敛。再次查询上述条件必须返回零行，才可继续启动新版本。不得把旧行改写到新 topic，否则可能绕过原命令族的业务重试/幂等边界。
 
 ## 2. 创建并核对三个 Kafka topic
 
@@ -168,6 +202,19 @@ WHERE protocol_backend = 'ANDROID'
   AND created_at >= :cutover_epoch_ms
   AND kafka_topic = 'protocol.android.commands.v1';
 ```
+
+还必须跨越切换时间检查所有历史行，确保旧 topic 不存在重启后仍可发送的状态；仅检查 `created_at >= :cutover_epoch_ms` 不足以发现切换前遗留的 PENDING/LOCKED 行：
+
+```sql
+SELECT COUNT(*) AS legacy_dispatchable_rows
+FROM protocol_command_outbox
+WHERE protocol_backend = 'ANDROID'
+  AND kafka_topic = 'protocol.android.commands.v1'
+  AND deleted_at IS NULL
+  AND status IN (0, 1);
+```
+
+`legacy_rows` 与 `legacy_dispatchable_rows` 都必须为零。
 
 业务验收顺序：
 

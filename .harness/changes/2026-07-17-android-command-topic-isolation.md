@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-17 / `1.0.1-snapshot` / 当前 checkout
 - 需求来源: 用户确认；`docs/superpowers/specs/2026-07-17-android-command-topic-isolation-design.md`
-- 状态: 进行中
+- 状态: dev-1 已完成停机切换和部署，待业务侧补发 lifecycle/group-join 实际命令快照
 
 ## 目标（一句话）
 
@@ -16,7 +16,7 @@
 - [x] Zhuan 三个独立 consumer pool 与错路由永久提交
 - [x] 离线营销 `ACCOUNT_OFFLINE`、离线进群 `ACCOUNT_NOT_ONLINE` 回归
 - [x] 本地 Java/Go/部署模板聚焦验证
-- [ ] dev-1 停机切换与隔离验收
+- [x] dev-1 停机切换、部署与消费隔离验收
 
 ## 关键设计决策
 
@@ -50,9 +50,17 @@
 
 - 目标: dev-1 (`65.2.123.53`)，用户已确认允许停机和丢弃旧 topic 未消费命令。
 - 切换手册：`docs/operations/android-command-topic-isolation-cutover.md`。
-- 当前实现 commit：Armada `808cd42`；Zhuan `5c169ce`、`1dda337`。
-- 用户最后要求本次只做本地改动，因此未执行 SSH、停机、topic 创建或部署；远程验收保持待办。
+- 部署时本地 commit：Armada `005ba0b`（topic 核心 `808cd42`）；Zhuan `d395c86`（topic 核心 `5c169ce`、`1dda337`）。
+- 停机切换时间：`cutover_epoch_ms=1784261749000`；旧 topic 可发送 outbox 取消 `0` 行，切换后可发送残留为 `0`。
+- 已创建 `protocol.android.lifecycle.commands.v1`、`protocol.android.message.commands.v1`、`protocol.android.group-join.commands.v1`，均为 4 分区；旧 `protocol.android.commands.v1` 保留。
+- Zhuan 受保护 TOML 已从 3 个旧键迁移为 9 个新键，旧键计数为 `0`；启动日志确认三组 topic/group 与并发度 `4/4/4`。
+- 三个 consumer group 都只分配到同名 topic，各有 4 个分区；验收时 message group 四分区 lag 均为 `0`。
+- Armada 容器内三个 topic 环境变量均为新值；切换后真实 outbox 快照为 `message.send.requested -> protocol.android.message.commands.v1`，`SENT(2)` 共 91 条，旧 topic 新行数和全历史可发送行均为 `0`。
+- 验收结束时 Armada API 返回 HTTP 200，Zhuan/Redis/callback 均 healthy；本地与远程 Armada JAR SHA-256 一致，Zhuan 核心源码组合 SHA-256 一致。
+- 已保留回滚资源：Armada 旧镜像标签 `armada-backend:pre-topic-split-1784261625000`，Zhuan 旧源码和受保护配置备份 `/home/ubuntu/armada-deploy-backups/whatsapp-android-zhuan-pre-topic-split-1784261749000`。
+- 部署异常处理：Zhuan 旧容器引用的镜像对象已被清理，普通 `up -d` 未替换容器，使用新镜像 `--force-recreate` 后健康；Armada 脚本在 Spring 完成启动前立即验 API 得到 502，约 10 秒启动完成后 API 稳定返回 200。
 
 ## 遗留 / 跟进
 
 - 旧 `protocol.android.commands.v1` 保留；后续删除必须单独批准。
+- 验收期间没有新的 lifecycle/group-join 业务命令；这两组已确认运行时配置、topic 和消费分区，但实际发送证据需在有授权登录态和明确测试账号/群链接后补齐。

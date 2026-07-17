@@ -329,7 +329,7 @@ public class ProtocolConfiguration {
      * 注册 Android Zhuan 营销消息 backend。
      *
      * @param outboxService 协议命令 outbox 服务
-     * @param properties Android 命令 topic 配置
+     * @param properties Android 营销消息命令 topic 配置
      * @return Android 营销消息 backend
      */
     @Bean

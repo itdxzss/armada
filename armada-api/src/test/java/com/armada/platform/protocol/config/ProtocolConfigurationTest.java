@@ -90,6 +90,15 @@ class ProtocolConfigurationTest {
             assertThat(context.getBeansOfType(MessageSendBackend.class))
                     .containsKeys("webMessageSendBackend", "androidMessageSendBackend");
 
+            ProtocolAndroidCommandProperties androidProperties =
+                    context.getBean(ProtocolAndroidCommandProperties.class);
+            assertThat(androidProperties.getLifecycleTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_LIFECYCLE_TOPIC);
+            assertThat(androidProperties.getMessageTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC);
+            assertThat(androidProperties.getGroupJoinTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
+
             ProtocolProperties properties = context.getBean(ProtocolProperties.class);
             assertThat(properties.getBaseUrl()).isEqualTo("http://localhost:3000");
             assertThat(properties.getApiKey()).isEmpty();

@@ -59,7 +59,9 @@ class ProtocolCommandOutboxServiceImplTest {
                 List.of("cmd-web", "cmd-android"), List.of(),
                 ProtocolAccountCommandProperties.DEFAULT_TOPIC,
                 "protocol.master.commands.test",
-                "protocol.android.commands.test");
+                ProtocolAndroidCommandProperties.DEFAULT_LIFECYCLE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC,
+                "protocol.android.group-join.commands.test");
         when(mapper.batchInsertPending(anyList())).thenReturn(2);
 
         ProtocolCommandOutboxEnqueueResult result = service.enqueueGroupJoinCommands(List.of(
@@ -71,7 +73,7 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(result.inserted()).isEqualTo(2);
         List<ProtocolCommandOutbox> rows = capturedRows();
         assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
-                .containsExactly("protocol.master.commands.test", "protocol.android.commands.test");
+                .containsExactly("protocol.master.commands.test", "protocol.android.group-join.commands.test");
         assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
                 .containsExactly("acc-web", "acc-android");
         assertThat(rows).extracting(ProtocolCommandOutbox::getBatchId)
@@ -166,7 +168,10 @@ class ProtocolCommandOutboxServiceImplTest {
     void enqueueOnlineCommands_androidBackend_usesAndroidTopicAndPersistsBackendInSafePayload() throws Exception {
         TestableProtocolCommandOutboxService service =
                 newService(List.of("cmd-android"), List.of(), ProtocolAccountCommandProperties.DEFAULT_TOPIC,
-                        ProtocolMasterCommandProperties.DEFAULT_TOPIC, "protocol.android.commands.test");
+                        ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                        "protocol.android.lifecycle.commands.test",
+                        ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC,
+                        ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
         ProtocolOnlineCommandRequest command = new ProtocolOnlineCommandRequest(
                 100L,
                 "acc_100",
@@ -182,7 +187,7 @@ class ProtocolCommandOutboxServiceImplTest {
         service.enqueueOnlineCommands(List.of(command));
 
         ProtocolCommandOutbox row = capturedRows().get(0);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.commands.test");
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.lifecycle.commands.test");
         assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });
@@ -333,7 +338,10 @@ class ProtocolCommandOutboxServiceImplTest {
     void enqueueOfflineCommands_androidBackend_usesAndroidTopicAndPersistsBackendInSafePayload() throws Exception {
         TestableProtocolCommandOutboxService service =
                 newService(List.of("cmd-android-offline"), List.of(), ProtocolAccountCommandProperties.DEFAULT_TOPIC,
-                        ProtocolMasterCommandProperties.DEFAULT_TOPIC, "protocol.android.commands.test");
+                        ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                        "protocol.android.lifecycle.commands.test",
+                        ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC,
+                        ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
         ProtocolOfflineCommandRequest command = new ProtocolOfflineCommandRequest(
                 100L,
                 "acc_100",
@@ -344,7 +352,7 @@ class ProtocolCommandOutboxServiceImplTest {
         service.enqueueOfflineCommands(List.of(command));
 
         ProtocolCommandOutbox row = capturedRows().get(0);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.commands.test");
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.lifecycle.commands.test");
         assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });
@@ -497,7 +505,7 @@ class ProtocolCommandOutboxServiceImplTest {
         ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
-                "protocol.android.commands.v1",
+                "protocol.android.message.commands.v1",
                 "acc_android",
                 Map.ofEntries(
                         Map.entry("tenantId", 1L),
@@ -521,7 +529,7 @@ class ProtocolCommandOutboxServiceImplTest {
         ProtocolCommandOutbox row = capturedRows().get(0);
         assertThat(row.getAggregateType()).isEqualTo("MARKETING_SEND_ATTEMPT");
         assertThat(row.getAggregateId()).isEqualTo(9001L);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.commands.v1");
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.message.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_android");
         assertThat(row.getProtocolBackend()).isEqualTo("ANDROID");
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
@@ -635,7 +643,10 @@ class ProtocolCommandOutboxServiceImplTest {
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {
         return newService(commandIds, batchIds, ProtocolAccountCommandProperties.DEFAULT_TOPIC,
-                ProtocolMasterCommandProperties.DEFAULT_TOPIC, ProtocolAndroidCommandProperties.DEFAULT_TOPIC);
+                ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_LIFECYCLE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds,
@@ -643,20 +654,26 @@ class ProtocolCommandOutboxServiceImplTest {
                                                             String accountCommandTopic,
                                                             String masterCommandTopic) {
         return newService(commandIds, batchIds, accountCommandTopic, masterCommandTopic,
-                ProtocolAndroidCommandProperties.DEFAULT_TOPIC);
+                ProtocolAndroidCommandProperties.DEFAULT_LIFECYCLE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds,
                                                             List<String> batchIds,
                                                             String accountCommandTopic,
                                                             String masterCommandTopic,
-                                                            String androidCommandTopic) {
+                                                            String androidLifecycleCommandTopic,
+                                                            String androidMessageCommandTopic,
+                                                            String androidGroupJoinCommandTopic) {
         ProtocolAccountCommandProperties accountProperties = new ProtocolAccountCommandProperties();
         accountProperties.setTopic(accountCommandTopic);
         ProtocolMasterCommandProperties masterProperties = new ProtocolMasterCommandProperties();
         masterProperties.setTopic(masterCommandTopic);
         ProtocolAndroidCommandProperties androidProperties = new ProtocolAndroidCommandProperties();
-        androidProperties.setTopic(androidCommandTopic);
+        androidProperties.setLifecycleTopic(androidLifecycleCommandTopic);
+        androidProperties.setMessageTopic(androidMessageCommandTopic);
+        androidProperties.setGroupJoinTopic(androidGroupJoinCommandTopic);
         return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, accountProperties,
                 masterProperties, androidProperties, commandIds, batchIds);
     }

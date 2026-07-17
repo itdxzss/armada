@@ -42,6 +42,18 @@ class ProtocolCommandPublisherPropertiesTest {
     }
 
     @Test
+    void bindsCommandPublisherMaxInFlight() {
+        contextRunner
+                .withPropertyValues("armada.protocol.command-publisher.max-in-flight=37")
+                .run(context -> {
+                    ProtocolCommandPublisherProperties properties =
+                            context.getBean(ProtocolCommandPublisherProperties.class);
+
+                    assertThat(properties.getMaxInFlight()).isEqualTo(37);
+                });
+    }
+
+    @Test
     void providesDefaultSendTimeout() {
         contextRunner.run(context -> {
             ProtocolCommandPublisherProperties properties =
@@ -53,12 +65,36 @@ class ProtocolCommandPublisherPropertiesTest {
     }
 
     @Test
+    void providesDefaultMaxInFlight() {
+        contextRunner.run(context -> {
+            ProtocolCommandPublisherProperties properties =
+                    context.getBean(ProtocolCommandPublisherProperties.class);
+
+            assertThat(properties.getMaxInFlight())
+                    .isEqualTo(ProtocolCommandPublisherProperties.DEFAULT_MAX_IN_FLIGHT);
+        });
+    }
+
+    @Test
+    void rejectsNonPositiveMaxInFlight() {
+        contextRunner
+                .withPropertyValues("armada.protocol.command-publisher.max-in-flight=0")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .hasRootCauseMessage("协议命令 Kafka 最大在途数必须大于 0");
+                });
+    }
+
+    @Test
     void bindsApplicationYamlCommandPublisherDefaults() {
         applicationYamlContextRunner.run(context -> {
             ProtocolCommandPublisherProperties properties =
                     context.getBean(ProtocolCommandPublisherProperties.class);
 
             assertThat(properties.getSendTimeoutMs()).isEqualTo(10_000L);
+            assertThat(properties.getMaxInFlight()).isEqualTo(100);
         });
     }
 

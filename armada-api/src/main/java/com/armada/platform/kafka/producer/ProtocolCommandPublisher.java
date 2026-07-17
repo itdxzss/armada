@@ -25,12 +25,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -100,7 +101,8 @@ public class ProtocolCommandPublisher {
      * 批量发送协议命令。
      *
      * <p>online 命令在本方法开头按 tenant_id 分组批量读取凭据和代理,避免一条命令一次查库。
-     * 每条命令仍独立返回结果,dispatcher 可以继续逐行标记 SENT/RETRY/DEAD。</p>
+     * 可发送命令按配置的最大在途数分窗口异步发送,每条命令仍独立返回结果,dispatcher 可以继续逐行标记
+     * SENT/RETRY/DEAD。</p>
      *
      * @param rows 已锁定的 outbox 行
      * @return 与 rows 顺序一致的发送结果
@@ -110,42 +112,106 @@ public class ProtocolCommandPublisher {
             return List.of();
         }
         PreparedEnvelopes prepared = prepareEnvelopes(rows);
-        List<ProtocolCommandPublishOutcome> outcomes = new ArrayList<>(rows.size());
-        for (ProtocolCommandOutbox row : rows) {
+        // outcome 按输入下标预留位置，避免 Future 完成顺序改变 publishBatch 的返回契约。
+        List<ProtocolCommandPublishOutcome> outcomes =
+                new ArrayList<>(Collections.nCopies(rows.size(), null));
+        List<PreparedPublish> sendable = new ArrayList<>();
+        for (int index = 0; index < rows.size(); index++) {
+            ProtocolCommandOutbox row = rows.get(index);
             RuntimeException prepareFailure = prepared.failures().get(commandKey(row));
             if (prepareFailure != null) {
-                outcomes.add(ProtocolCommandPublishOutcome.failure(row, prepareFailure));
+                outcomes.set(index, ProtocolCommandPublishOutcome.failure(row, prepareFailure));
                 continue;
             }
             ProtocolCommandEnvelope envelope = prepared.envelopes().get(commandKey(row));
             if (envelope == null) {
-                outcomes.add(ProtocolCommandPublishOutcome.failure(row,
+                outcomes.set(index, ProtocolCommandPublishOutcome.failure(row,
                         validation("协议命令 envelope 缺失: " + safeCommandId(row))));
                 continue;
             }
-            try {
-                outcomes.add(ProtocolCommandPublishOutcome.success(row, send(row, envelope)));
-            } catch (RuntimeException ex) {
-                outcomes.add(ProtocolCommandPublishOutcome.failure(row, ex));
-            }
+            sendable.add(new PreparedPublish(index, row, envelope));
         }
-        return outcomes;
+        // 只有 envelope 准备成功的行才占用发送窗口；窗口完成后再进入下一窗，形成明确的应用层背压。
+        int maxInFlight = properties.getMaxInFlight();
+        for (int start = 0; start < sendable.size(); start += maxInFlight) {
+            int end = Math.min(start + maxInFlight, sendable.size());
+            publishWindow(sendable.subList(start, end), outcomes);
+        }
+        return List.copyOf(outcomes);
     }
 
-    private ProtocolCommandPublishResult send(ProtocolCommandOutbox row, ProtocolCommandEnvelope envelope) {
-        try {
-            kafkaTemplate.send(row.getKafkaTopic(), row.getKafkaKey(), envelope)
-                    .get(properties.getSendTimeoutMs(), TimeUnit.MILLISECONDS);
-            log.debug("协议命令 Kafka 发送成功 commandId={} batchId={} accountId={} protocolAccountId={} topic={}",
-                    row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getProtocolAccountId(),
-                    row.getKafkaTopic());
-            return new ProtocolCommandPublishResult(row.getCommandId(), row.getKafkaTopic(), row.getKafkaKey());
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw kafkaFailure(row, ex);
-        } catch (ExecutionException | TimeoutException ex) {
-            throw kafkaFailure(row, ex);
+    /**
+     * 提交一个有界发送窗口并等待窗口内全部 Kafka 结果收敛。
+     *
+     * <p>第一个循环只调用异步 send，不等待单条 ACK，因此 Kafka Producer 可以把同 Topic/Partition 的 Record
+     * 自动组成 RecordBatch。全部 Future 创建完成后再统一等待，确保下一窗口开始前在途数已经降为 0。</p>
+     *
+     * @param window 当前发送窗口
+     * @param outcomes 按原始 rows 下标保存的发送结果
+     */
+    private void publishWindow(List<PreparedPublish> window,
+                               List<ProtocolCommandPublishOutcome> outcomes) {
+        List<PendingPublish> pending = new ArrayList<>(window.size());
+        for (PreparedPublish prepared : window) {
+            pending.add(new PendingPublish(
+                    prepared.index(),
+                    sendAsync(prepared.row(), prepared.envelope())));
         }
+        // sendAsync 已把单条成功和失败都转换为正常完成的 outcome，单条失败不会让 allOf 提前打断整窗。
+        CompletableFuture.allOf(pending.stream()
+                        .map(PendingPublish::outcome)
+                        .toArray(CompletableFuture[]::new))
+                .join();
+        // 此时所有 Future 均已完成；按输入下标回填只维持返回顺序，不会把发送过程重新串行化。
+        for (PendingPublish publish : pending) {
+            outcomes.set(publish.index(), publish.outcome().join());
+        }
+    }
+
+    /**
+     * 异步提交单条 Kafka Record，并把 producer ACK 或异常转换为该 outbox 行的独立结果。
+     *
+     * <p>超时从调用 send 时开始计时，避免窗口内较晚读取 Future 的消息获得额外等待时间。异常在 Future 内部
+     * 收敛为失败 outcome，使其它消息可以继续独立完成。</p>
+     *
+     * @param row 待发送 outbox 行
+     * @param envelope Kafka 命令 envelope
+     * @return 最终正常完成并携带单条发送结果的 Future
+     */
+    private CompletableFuture<ProtocolCommandPublishOutcome> sendAsync(
+            ProtocolCommandOutbox row,
+            ProtocolCommandEnvelope envelope) {
+        try {
+            return kafkaTemplate.send(row.getKafkaTopic(), row.getKafkaKey(), envelope)
+                    .orTimeout(properties.getSendTimeoutMs(), TimeUnit.MILLISECONDS)
+                    .handle((ignored, error) -> {
+                        if (error != null) {
+                            return ProtocolCommandPublishOutcome.failure(
+                                    row, kafkaFailure(row, unwrapCompletion(error)));
+                        }
+                        log.debug("协议命令 Kafka 发送成功 commandId={} batchId={} accountId={} "
+                                        + "protocolAccountId={} topic={}",
+                                row.getCommandId(), row.getBatchId(), row.getAggregateId(),
+                                row.getProtocolAccountId(), row.getKafkaTopic());
+                        return ProtocolCommandPublishOutcome.success(row,
+                                new ProtocolCommandPublishResult(
+                                        row.getCommandId(), row.getKafkaTopic(), row.getKafkaKey()));
+                    });
+        } catch (RuntimeException ex) {
+            // serializer、metadata 或 producer 缓冲区可能在返回 Future 前同步抛错，也必须保持逐行失败语义。
+            return CompletableFuture.completedFuture(
+                    ProtocolCommandPublishOutcome.failure(row, kafkaFailure(row, ex)));
+        }
+    }
+
+    /**
+     * 提取 CompletableFuture 包装的真实异常，避免重试日志只看到 CompletionException 外壳。
+     */
+    private static Throwable unwrapCompletion(Throwable error) {
+        if (error instanceof CompletionException && error.getCause() != null) {
+            return error.getCause();
+        }
+        return error;
     }
 
     private PreparedEnvelopes prepareEnvelopes(List<ProtocolCommandOutbox> rows) {
@@ -398,8 +464,8 @@ public class ProtocolCommandPublisher {
         return new BusinessException(ErrorCode.VALIDATION, message);
     }
 
-    private ProtocolException kafkaFailure(ProtocolCommandOutbox row, Exception ex) {
-        return ProtocolException.unknown("协议命令 Kafka 发送失败 commandId=" + row.getCommandId(), ex);
+    private ProtocolException kafkaFailure(ProtocolCommandOutbox row, Throwable error) {
+        return ProtocolException.unknown("协议命令 Kafka 发送失败 commandId=" + row.getCommandId(), error);
     }
 
     private static String commandKey(ProtocolCommandOutbox row) {
@@ -417,6 +483,19 @@ public class ProtocolCommandPublisher {
     private record PreparedEnvelopes(
             Map<String, ProtocolCommandEnvelope> envelopes,
             Map<String, RuntimeException> failures
+    ) {
+    }
+
+    private record PreparedPublish(
+            int index,
+            ProtocolCommandOutbox row,
+            ProtocolCommandEnvelope envelope
+    ) {
+    }
+
+    private record PendingPublish(
+            int index,
+            CompletableFuture<ProtocolCommandPublishOutcome> outcome
     ) {
     }
 

@@ -116,12 +116,14 @@ test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
   assert_contains "${command_log}" "<--exclude=/.env>"
   assert_contains "${command_log}" "<--exclude=*.key>"
   assert_contains "${command_log}" "<tester@127.0.0.1:/home/app/zhuan-safe/>"
+  assert_contains "${payload_log}" "sudo docker compose run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod"
+  assert_contains "${payload_log}" "sudo docker compose up -d --force-recreate whatsapp-android-zhuan"
 
   config_line="$(awk 'index($0, "sudo docker compose config --quiet") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   build_line="$(awk 'index($0, "sudo docker compose build whatsapp-android-zhuan") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   deps_line="$(awk 'index($0, "sudo docker compose up -d redis-zhuan callback-zhuan") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
-  migrate_line="$(awk 'index($0, "whatsapp-migrate -env prod") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
-  main_line="$(awk 'index($0, "sudo docker compose up -d whatsapp-android-zhuan") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
+  migrate_line="$(awk 'index($0, "sudo docker compose run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
+  main_line="$(awk 'index($0, "sudo docker compose up -d --force-recreate whatsapp-android-zhuan") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   health_line="$(awk 'index($0, "curl -fsS -m 8 http://127.0.0.1:8001/swagger/index.html") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   [ "${config_line}" -lt "${build_line}" ] || fail "expected Compose config before build"
   [ "${build_line}" -lt "${deps_line}" ] || fail "expected build before dependency startup"
@@ -378,6 +380,16 @@ test_protocol_remote_deploy_verifies_node_24_apps_after_reload() {
   assert_contains "${script_content}" 'expectedProtocolApps = 5'
 }
 
+test_protocol_remote_deploy_loads_preserved_environment() {
+  local script_content
+  script_content="$(cat "${SCRIPT}")"
+
+  assert_contains "${script_content}" 'test -f .env || { echo "远端缺少协议配置: ${remote_dir}/protocol-layer/.env" >&2; exit 36; }'
+  assert_contains "${script_content}" 'set -a'
+  assert_contains "${script_content}" '. ./.env'
+  assert_contains "${script_content}" 'set +a'
+}
+
 test_zhuan_sync_preserves_remote_runtime_files() {
   local script_content
   script_content="$(cat "${SCRIPT}")"
@@ -417,8 +429,8 @@ test_zhuan_remote_deploy_checks_config_and_runs_lifecycle() {
   assert_contains "${script_content}" "sudo docker compose config --quiet"
   assert_contains "${script_content}" "sudo docker compose build whatsapp-android-zhuan"
   assert_contains "${script_content}" "sudo docker compose up -d redis-zhuan callback-zhuan"
-  assert_contains "${script_content}" "sudo docker compose run --rm whatsapp-android-zhuan /app/whatsapp-migrate -env prod"
-  assert_contains "${script_content}" "sudo docker compose up -d whatsapp-android-zhuan"
+  assert_contains "${script_content}" "sudo docker compose run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod"
+  assert_contains "${script_content}" "sudo docker compose up -d --force-recreate whatsapp-android-zhuan"
 }
 
 test_zhuan_deploy_waits_for_health_and_checks_http() {
@@ -457,6 +469,7 @@ test_frontend_dry_run_infers_second_environment_title
 test_sh_invocation_reexecs_bash_for_help
 test_protocol_remote_deploy_requires_node_24_toolchain
 test_protocol_remote_deploy_verifies_node_24_apps_after_reload
+test_protocol_remote_deploy_loads_preserved_environment
 test_zhuan_sync_preserves_remote_runtime_files
 test_zhuan_remote_deploy_checks_config_and_runs_lifecycle
 test_zhuan_deploy_waits_for_health_and_checks_http

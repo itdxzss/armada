@@ -471,6 +471,10 @@ set -eu
 remote_dir="$1"
 preferred_pm2_config="$2"
 cd "${remote_dir}/protocol-layer"
+test -f .env || { echo "远端缺少协议配置: ${remote_dir}/protocol-layer/.env" >&2; exit 36; }
+set -a
+. ./.env
+set +a
 command -v npm >/dev/null 2>&1 || { echo "远端缺少 npm" >&2; exit 30; }
 command -v pm2 >/dev/null 2>&1 || { echo "远端缺少 pm2" >&2; exit 31; }
 node_version="$(node --version)"
@@ -542,8 +546,8 @@ cd "${remote_dir}/deploy"
 sudo docker compose config --quiet
 sudo docker compose build whatsapp-android-zhuan
 sudo docker compose up -d redis-zhuan callback-zhuan
-sudo docker compose run --rm whatsapp-android-zhuan /app/whatsapp-migrate -env prod
-sudo docker compose up -d whatsapp-android-zhuan
+sudo docker compose run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod
+sudo docker compose up -d --force-recreate whatsapp-android-zhuan
 '
 
 zhuan_remote_health_check='

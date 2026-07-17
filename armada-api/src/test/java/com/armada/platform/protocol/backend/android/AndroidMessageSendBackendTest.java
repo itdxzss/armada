@@ -78,7 +78,7 @@ class AndroidMessageSendBackendTest {
 
     @Test
     void writesValidSingleLinkButtonToAndroidTopicWithExplicitPhone() {
-        properties.setTopic("protocol.android.commands.custom");
+        properties.setMessageTopic("protocol.android.message.commands.custom");
         MessageSendCommand command = buttonCommand(
                 "cmd_button",
                 card(List.of(button("link", "查看详情", "https://example.com/promo"))));
@@ -93,7 +93,7 @@ class AndroidMessageSendBackendTest {
         verify(outboxService).enqueueMessageCommands(captor.capture());
         ProtocolMessageOutboxCommand outboxCommand = captor.getValue().get(0);
         assertThat(outboxCommand.backend()).isEqualTo(ProtocolBackend.ANDROID);
-        assertThat(outboxCommand.kafkaTopic()).isEqualTo("protocol.android.commands.custom");
+        assertThat(outboxCommand.kafkaTopic()).isEqualTo("protocol.android.message.commands.custom");
         Map<String, Object> payload = objectMapper.convertValue(
                 outboxCommand.payload(), new TypeReference<>() {
                 });

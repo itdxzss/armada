@@ -1,5 +1,7 @@
 # Android Zhuan Lifecycle Cutover
 
+> **已废弃（2026-07-17）**：本文只保留早期 Android lifecycle 单 topic 迁移的历史记录，步骤 4、11 中的 `protocol.android.commands.v1`、旧 consumer group 和单一 `concurrency` 已不适用于当前版本，禁止按本文执行新切换。当前 lifecycle/message/group-join 三 topic 停机切换必须使用 [dev-1 Android 命令 Topic 隔离切换手册](./android-command-topic-isolation-cutover.md)。
+
 ## Authorization boundary
 
 This runbook is a verification checklist only. It does not authorize SSH access, deployment, service changes, account deletion, proxy release, outbox termination, or any other environment mutation. Each such action requires a separate confirmation naming the target environment, tenant scope, operator, and approved account-ID list.

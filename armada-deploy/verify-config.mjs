@@ -30,6 +30,21 @@ expectIncludes(envExample, "ARMADA_PROTOCOL_API_KEY=", ".env.example");
 expectIncludes(envExample, "APP_TITLE=第一套环境", ".env.example");
 expectIncludes(
   envExample,
+  "PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC=protocol.android.lifecycle.commands.v1",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
+  "PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC=protocol.android.message.commands.v1",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
+  "PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC=protocol.android.group-join.commands.v1",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
   "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL=http://65.2.122.109:8080/readyz",
   ".env.example"
 );
@@ -46,6 +61,21 @@ expectIncludes(
 expectIncludes(
   compose,
   "APP_TITLE: ${APP_TITLE:-Wheel SaaS}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC:-protocol.android.lifecycle.commands.v1}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC:-protocol.android.message.commands.v1}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:-protocol.android.group-join.commands.v1}",
   "docker-compose.rds.yml"
 );
 expectIncludes(

@@ -159,7 +159,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
-                properties.getTopic(),
+                properties.getMessageTopic(),
                 command.account().protocolAccountId(),
                 payload);
     }

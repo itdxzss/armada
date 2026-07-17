@@ -463,7 +463,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * 把统一进群命令转换为待发送 outbox 行。
      *
      * <p>Web 命令进入 master topic，由 master 按协议账号路由 worker；Android 命令直接进入 Android
-     * topic。两端都使用 protocolAccountId 作为 Kafka key，使单账号命令在分区内有序。</p>
+     * 进群命令 topic。两端都使用 protocolAccountId 作为 Kafka key，使单账号命令在分区内有序。</p>
      *
      * @param command 已完成字段校验的进群命令
      * @param commandId 本次生成的全局命令 ID
@@ -481,7 +481,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setAggregateType(AGGREGATE_TYPE_JOIN_TASK_RESULT);
         row.setAggregateId(command.joinTaskResultId());
         row.setKafkaTopic(command.protocolBackend() == ProtocolBackend.ANDROID
-                ? androidCommandProperties.getTopic() : masterCommandProperties.getTopic());
+                ? androidCommandProperties.getGroupJoinTopic() : masterCommandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
         row.setProtocolBackend(command.protocolBackend().name());
@@ -921,13 +921,13 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     private String onlineCommandTopic(ProtocolBackend protocolBackend) {
         return protocolBackend == ProtocolBackend.ANDROID
-                ? androidCommandProperties.getTopic()
+                ? androidCommandProperties.getLifecycleTopic()
                 : accountCommandProperties.getTopic();
     }
 
     private String offlineCommandTopic(ProtocolBackend protocolBackend) {
         return protocolBackend == ProtocolBackend.ANDROID
-                ? androidCommandProperties.getTopic()
+                ? androidCommandProperties.getLifecycleTopic()
                 : masterCommandProperties.getTopic();
     }
 

@@ -93,7 +93,9 @@ armada:
       account-commands:
         topic: ${PROTOCOL_ACCOUNT_COMMANDS_TOPIC:protocol.account.commands.v1}
       android-commands:
-        topic: ${PROTOCOL_ANDROID_COMMANDS_TOPIC:protocol.android.commands.v1}
+        lifecycle-topic: ${PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC:protocol.android.lifecycle.commands.v1}
+        message-topic: ${PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC:protocol.android.message.commands.v1}
+        group-join-topic: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:protocol.android.group-join.commands.v1}
       master-commands:
         topic: ${PROTOCOL_MASTER_COMMANDS_TOPIC:${PROTOCOL_COMMANDS_TOPIC:protocol.master.commands.v1}}
       account-events:

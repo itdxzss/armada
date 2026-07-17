@@ -29,8 +29,14 @@ class ProtocolKafkaConfigurationTest {
             assertThat(context).doesNotHaveBean(CommonErrorHandler.class);
             assertThat(context.getBean(ProtocolAccountCommandProperties.class).getTopic())
                     .isEqualTo(ProtocolAccountCommandProperties.DEFAULT_TOPIC);
-            assertThat(context.getBean(ProtocolAndroidCommandProperties.class).getTopic())
-                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_TOPIC);
+            ProtocolAndroidCommandProperties androidProperties =
+                    context.getBean(ProtocolAndroidCommandProperties.class);
+            assertThat(androidProperties.getLifecycleTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_LIFECYCLE_TOPIC);
+            assertThat(androidProperties.getMessageTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC);
+            assertThat(androidProperties.getGroupJoinTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
             assertThat(context.getBean(ProtocolMasterCommandProperties.class).getTopic())
                     .isEqualTo(ProtocolMasterCommandProperties.DEFAULT_TOPIC);
             assertThat(context.getBean(ProtocolAccountEventConsumerProperties.class).getTopic())

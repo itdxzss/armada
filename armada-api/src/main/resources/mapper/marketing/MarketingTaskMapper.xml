@@ -649,35 +649,18 @@
                g.link_url AS groupLinkUrl,
                COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
         FROM account a
-        JOIN account_state s ON s.account_id = a.id
         JOIN account_group_membership m ON m.account_id = a.id
-        JOIN group_link g ON g.id = m.group_link_id
-                         AND g.deleted_at IS NULL
-                         AND g.membership_state IN (2, 3)
+        LEFT JOIN group_link g ON g.id = m.group_link_id
         LEFT JOIN group_link_preview p ON p.group_link_id = g.id
                                       AND p.group_jid = m.group_jid
-        LEFT JOIN group_link_health h ON h.group_link_id = g.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
-                                           AND a.group_baseline_state = 2
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL
-          AND s.login_state = 1
-          AND s.account_state = 2
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND a.group_baseline_state IN (2, 3)
-          AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
           AND m.deleted_at IS NULL
           AND (#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})
-          AND p.group_jid IS NOT NULL
-          AND TRIM(p.group_jid) &lt;&gt; ''
-          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
-          AND (
-              a.group_baseline_state &lt;&gt; 2
-              OR b.id IS NULL
-              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
-          )
+          AND m.group_jid IS NOT NULL
+          AND TRIM(m.group_jid) &lt;&gt; ''
         ORDER BY m.group_link_id ASC
     </select>
 

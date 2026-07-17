@@ -280,13 +280,12 @@ public class MarketingRoundWorker {
     /**
      * 追加账号动态维度的本轮发送目标。
      *
-     * <p>动态维度每轮都从账号当前在群关系里取群,并由 SQL 层排除账号导入云控前记录的 baseline 群。
-     * 这样任务创建后账号新进群,下一轮就能自然覆盖到。</p>
+     * <p>动态维度每轮从账号当前在群关系里取符合发送时间边界的群。
+     * 任务运行期间新增或退出的群,在 membership 全量同步后的下一轮自然生效。</p>
      */
     private void appendAccountDynamicSendTargets(MarketingTask task,
                                                  MarketingTaskTarget target,
                                                  List<ResolvedMarketingTarget> sendTargets) {
-        // 账号动态维度每轮实时查询当前在群关系,SQL 层会排除 baseline 群和本任务发送时间前加入的群。
         List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(
                 target.getAccountId(), task.getAccountGroupSendAt());
         if (groups.isEmpty()) {

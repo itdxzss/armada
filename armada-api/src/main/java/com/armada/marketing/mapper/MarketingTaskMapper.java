@@ -182,7 +182,7 @@ public interface MarketingTaskMapper {
     MarketingTargetCandidateRow selectAccountTargetCandidate(@Param("accountGroupId") Long accountGroupId,
                                                              @Param("accountId") Long accountId);
 
-    /** 查询账号动态目标在本轮可发送的当前群,已排除账号导入云控前 baseline 群和发送时间前已加入的群。 */
+    /** 查询账号动态目标在发送时间边界内的当前群。 */
     List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId,
                                                                 @Param("accountGroupSendAt") Long accountGroupSendAt);
 

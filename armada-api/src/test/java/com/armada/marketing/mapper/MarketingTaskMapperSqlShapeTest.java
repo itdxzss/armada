@@ -80,7 +80,14 @@ class MarketingTaskMapperSqlShapeTest {
         assertThat(dynamicTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_jid AS groupJid")
-                .contains("(#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})");
+                .contains("m.deleted_at IS NULL")
+                .contains("TRIM(m.group_jid) &lt;&gt; ''")
+                .contains("LEFT JOIN group_link g")
+                .contains("(#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})")
+                .doesNotContain("account_group_baseline")
+                .doesNotContain("account_state")
+                .doesNotContain("group_link_health")
+                .doesNotContain("membership_state");
         assertThat(currentTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_link_id = #{groupLinkId}")

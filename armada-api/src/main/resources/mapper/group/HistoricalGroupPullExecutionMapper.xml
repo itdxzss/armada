@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.HistoricalGroupPullExecutionMapper">
+
+  <sql id="Columns">
+    id, tenant_id, created_by, idempotency_key, operation_account_id, group_jid,
+    group_subject_snapshot, invite_link, puller_account_group_id, puller_account_id,
+    single_add_count, marketing_template_id, normal_count, marketing_count, invalid_count,
+    duplicate_count, pull_success_count, pull_failure_count, send_success_count,
+    send_failure_count, pull_status, marketing_status, failure_stage, error_code,
+    error_message, started_at, finished_at, created_at, updated_at
+  </sql>
+
+  <!-- tenant_id 由租户拦截器注入；(tenant_id,idempotency_key) 是创建幂等边界。 -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO historical_group_pull_execution (
+      created_by, idempotency_key, operation_account_id, group_jid,
+      group_subject_snapshot, invite_link, puller_account_group_id, puller_account_id,
+      single_add_count, marketing_template_id, normal_count, marketing_count, invalid_count,
+      duplicate_count, pull_success_count, pull_failure_count, send_success_count,
+      send_failure_count, pull_status, marketing_status, failure_stage, error_code,
+      error_message, started_at, finished_at, created_at, updated_at
+    ) VALUES (
+      #{createdBy}, #{idempotencyKey}, #{operationAccountId}, #{groupJid},
+      #{groupSubjectSnapshot}, #{inviteLink}, #{pullerAccountGroupId}, #{pullerAccountId},
+      #{singleAddCount}, #{marketingTemplateId}, COALESCE(#{normalCount}, 0),
+      COALESCE(#{marketingCount}, 0), COALESCE(#{invalidCount}, 0),
+      COALESCE(#{duplicateCount}, 0), COALESCE(#{pullSuccessCount}, 0),
+      COALESCE(#{pullFailureCount}, 0), COALESCE(#{sendSuccessCount}, 0),
+      COALESCE(#{sendFailureCount}, 0), COALESCE(#{pullStatus}, 0),
+      COALESCE(#{marketingStatus}, 0), #{failureStage}, #{errorCode},
+      #{errorMessage}, #{startedAt}, #{finishedAt}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectByTenantAndId" resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_execution
+    WHERE tenant_id = #{tenantId}
+      AND id = #{id}
+    LIMIT 1
+  </select>
+
+  <!-- 同一执行的结果事件串行回写，避免最后两个并发结果都漏掉终态聚合。 -->
+  <select id="selectByTenantAndIdForUpdate"
+          resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_execution
+    WHERE tenant_id = #{tenantId}
+      AND id = #{id}
+    FOR UPDATE
+  </select>
+
+  <select id="selectByTenantAndIdempotencyKey"
+          resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_execution
+    WHERE tenant_id = #{tenantId}
+      AND idempotency_key = #{idempotencyKey}
+    LIMIT 1
+  </select>
+
+  <!-- 唯一键冲突后的 locking read 可越过 REPEATABLE READ 旧快照看到并发已提交行。 -->
+  <select id="selectByTenantAndIdempotencyKeyForUpdate"
+          resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_execution
+    WHERE tenant_id = #{tenantId}
+      AND idempotency_key = #{idempotencyKey}
+    FOR UPDATE
+  </select>
+
+  <select id="selectLatestByTenantAccountAndGroup"
+          resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_execution
+    WHERE tenant_id = #{tenantId}
+      AND operation_account_id = #{operationAccountId}
+      AND group_jid = #{groupJid}
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  </select>
+
+  <!-- 只有一个 worker 能把期望态推进到目标态。 -->
+  <update id="claimStatus">
+    UPDATE historical_group_pull_execution
+    SET pull_status = #{targetStatus},
+        started_at = COALESCE(started_at, #{startedAt}),
+        updated_at = #{startedAt}
+    WHERE id = #{id}
+      AND pull_status = #{expectedStatus}
+  </update>
+
+  <!-- NOT_STARTED -> SENDING 是全部营销账号发送的唯一并发闸门。 -->
+  <update id="claimMarketingIfNotStarted">
+    UPDATE historical_group_pull_execution
+    SET marketing_status = #{sendingStatus},
+        marketing_template_id = #{marketingTemplateId},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND marketing_status = #{notStartedStatus}
+  </update>
+
+  <!-- 所有营销成员均在本地失败时，无需等待协议回执即可收敛终态。 -->
+  <update id="finishMarketingIfSending">
+    UPDATE historical_group_pull_execution
+    SET marketing_status = #{row.marketingStatus},
+        send_success_count = #{row.sendSuccessCount},
+        send_failure_count = #{row.sendFailureCount},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND marketing_status = #{sendingStatus}
+  </update>
+
+  <!-- 拉手在执行内只选择一次；终态冻结后不得补写或替换。 -->
+  <update id="assignPullerIfRunning">
+    UPDATE historical_group_pull_execution
+    SET puller_account_id = #{pullerAccountId},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND pull_status = #{runningStatus}
+      AND puller_account_id IS NULL
+  </update>
+
+  <!-- 一次性执行的终态不可被迟到回执覆盖。 -->
+  <update id="finishIfRunning">
+    UPDATE historical_group_pull_execution
+    SET normal_count = COALESCE(#{row.normalCount}, normal_count),
+        marketing_count = COALESCE(#{row.marketingCount}, marketing_count),
+        invalid_count = COALESCE(#{row.invalidCount}, invalid_count),
+        duplicate_count = COALESCE(#{row.duplicateCount}, duplicate_count),
+        pull_success_count = COALESCE(#{row.pullSuccessCount}, pull_success_count),
+        pull_failure_count = COALESCE(#{row.pullFailureCount}, pull_failure_count),
+        send_success_count = COALESCE(#{row.sendSuccessCount}, send_success_count),
+        send_failure_count = COALESCE(#{row.sendFailureCount}, send_failure_count),
+        pull_status = #{row.pullStatus},
+        marketing_status = COALESCE(#{row.marketingStatus}, marketing_status),
+        failure_stage = #{row.failureStage},
+        error_code = #{row.errorCode},
+        error_message = #{row.errorMessage},
+        finished_at = #{row.finishedAt},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND pull_status = #{runningStatus}
+  </update>
+
+  <!-- 直接从不可变成员终态汇总，重复调用得到相同结果。 -->
+  <update id="refreshTerminalStats">
+    UPDATE historical_group_pull_execution e
+    SET e.pull_success_count = (
+          SELECT COUNT(*) FROM historical_group_pull_member m
+          WHERE m.tenant_id = e.tenant_id AND m.execution_id = e.id
+            AND m.add_status = #{addSuccessStatus}
+        ),
+        e.pull_failure_count = (
+          SELECT COUNT(*) FROM historical_group_pull_member m
+          WHERE m.tenant_id = e.tenant_id AND m.execution_id = e.id
+            AND m.add_status != #{addSuccessStatus}
+        ),
+        e.send_success_count = (
+          SELECT COUNT(*) FROM historical_group_pull_member m
+          WHERE m.tenant_id = e.tenant_id AND m.execution_id = e.id
+            AND m.send_status = #{sendSuccessStatus}
+        ),
+        e.send_failure_count = (
+          SELECT COUNT(*) FROM historical_group_pull_member m
+          WHERE m.tenant_id = e.tenant_id AND m.execution_id = e.id
+            AND m.send_status = #{sendFailedStatus}
+        ),
+        e.updated_at = #{updatedAt}
+    WHERE e.id = #{id}
+  </update>
+
+  <!-- 后台启动恢复没有 TenantContext；接口显式关闭租户拦截器。原执行只落失败，不自动重试。 -->
+  <update id="failStaleInProgress">
+    UPDATE historical_group_pull_execution
+    SET pull_status = CASE
+          WHEN pull_status = #{runningPullStatus} THEN #{failedPullStatus}
+          ELSE pull_status
+        END,
+        marketing_status = CASE
+          WHEN marketing_status = #{sendingMarketingStatus} THEN #{failedMarketingStatus}
+          ELSE marketing_status
+        END,
+        failure_stage = COALESCE(failure_stage, #{failureStage}),
+        error_code = #{errorCode},
+        error_message = #{errorMessage},
+        finished_at = #{finishedAt},
+        updated_at = #{finishedAt}
+    WHERE pull_status = #{runningPullStatus}
+       OR marketing_status = #{sendingMarketingStatus}
+  </update>
+
+</mapper>

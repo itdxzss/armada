@@ -78,11 +78,15 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 建群营销执行项聚合类型。 */
     public static final String AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM = "GROUP_CREATION_MARKETING_ITEM";
 
+    /** 历史群拉人营销成员聚合类型。 */
+    public static final String AGGREGATE_TYPE_HISTORICAL_GROUP_PULL_MEMBER = "HISTORICAL_GROUP_PULL_MEMBER";
+
     private static final int MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH = 1_000;
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
     private static final String BATCH_ID_PREFIX = "batch_";
+    private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
 
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
@@ -513,6 +517,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         if (command.correlation().groupCreation() != null) {
             row.setAggregateType(AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM);
             row.setAggregateId(command.correlation().groupCreation().itemId());
+        } else if (command.correlation().historicalGroup() != null) {
+            row.setAggregateType(AGGREGATE_TYPE_HISTORICAL_GROUP_PULL_MEMBER);
+            row.setAggregateId(command.correlation().historicalGroup().memberId());
         } else {
             row.setAggregateType(AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT);
             row.setAggregateId(command.correlation().marketing().attemptId());
@@ -875,10 +882,23 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         if (correlation.groupCreation() != null) {
             if (correlation.groupCreation().taskId() == null
                     || correlation.groupCreation().itemId() == null
-                    || correlation.marketing() != null) {
+                    || correlation.marketing() != null
+                    || correlation.historicalGroup() != null) {
                 throw new BusinessException(ErrorCode.VALIDATION, "建群营销消息发送命令缺少执行项字段");
             }
             return;
+        }
+        if (correlation.historicalGroup() != null) {
+            if (!SOURCE_HISTORICAL_GROUP_PULL.equals(correlation.source())
+                    || correlation.historicalGroup().executionId() == null
+                    || correlation.historicalGroup().memberId() == null
+                    || correlation.marketing() != null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "历史群营销消息发送命令缺少执行成员字段");
+            }
+            return;
+        }
+        if (SOURCE_HISTORICAL_GROUP_PULL.equals(correlation.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "历史群营销消息发送命令缺少执行成员字段");
         }
         if (correlation.marketing() == null
                 || correlation.marketing().taskId() == null

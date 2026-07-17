@@ -114,6 +114,43 @@ class AndroidMessageSendBackendTest {
                 .containsEntry("value", "https://example.com/promo"));
     }
 
+    @Test
+    void encodesOnlyHistoricalCorrelationForHistoricalGroupPull() {
+        MessageSendCommand command = new MessageSendCommand(
+                account(),
+                new MessageSendCommand.MessageTarget("120363history@g.us"),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("offer", null, null, null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(
+                        7L,
+                        "historical_group_pull",
+                        null,
+                        null,
+                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
+                "cmd_historical_android");
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null, List.of("cmd_historical_android"), 1));
+
+        backend.enqueue(List.of(command));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        Map<String, Object> payload = objectMapper.convertValue(
+                captor.getValue().get(0).payload(), new TypeReference<>() {
+                });
+        assertThat(payload)
+                .containsEntry("source", "historical_group_pull")
+                .containsEntry("historicalExecutionId", 91L)
+                .containsEntry("historicalMemberId", 301L)
+                .doesNotContainKeys(
+                        "marketingTaskId", "attemptId", "targetId", "roundNo",
+                        "groupCreationTaskId", "groupCreationItemId");
+    }
+
     private static Stream<Arguments> invalidButtonCards() {
         return Stream.of(
                 Arguments.of(card(List.of()), "数量只支持 1 个"),
@@ -171,6 +208,7 @@ class AndroidMessageSendBackendTest {
                 7L,
                 "marketing_task",
                 new MessageSendCommand.MarketingCorrelation(42L, 501L, 9001L, 1L),
+                null,
                 null);
     }
 }

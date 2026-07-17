@@ -3,6 +3,8 @@ package com.armada.platform.protocol.http.account;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import java.util.ArrayList;
@@ -22,6 +24,13 @@ public class HttpAccountParticipatingGroupAdapter implements AccountParticipatin
 
     private static final String BATCH_GROUPS_URI = "/v1/accounts/groups/batch";
 
+    private static final String CURRENT_GROUPS_URI_TEMPLATE = "/v1/accounts/{accountId}/groups";
+
+    private static final String METADATA_SUMMARIES_URI_TEMPLATE =
+            "/v1/accounts/{accountId}/groups/metadata-summaries";
+
+    private static final int METADATA_SUMMARIES_MAX_CONCURRENCY = 16;
+
     /**
      * 协议层 route 目前限制单次最多 200 个账号;这里切片，避免营销分组里账号数超过 200 时整批 400。
      */
@@ -36,6 +45,63 @@ public class HttpAccountParticipatingGroupAdapter implements AccountParticipatin
      */
     public HttpAccountParticipatingGroupAdapter(ProtocolHttpExecutor httpExecutor) {
         this.httpExecutor = httpExecutor;
+    }
+
+    /**
+     * 查询固定账号当前参与群的轻量快照。
+     *
+     * @param account 固定操作账号引用
+     * @return 仅映射群 JID 和群名称的当前群列表
+     * @throws ProtocolException 当协议响应不完整或协议调用失败时抛出
+     */
+    @Override
+    public List<AccountParticipatingGroupResult.Group> listCurrent(ProtocolAccountRef account) {
+        String accountId = requireAccountId(account);
+        CurrentGroupsResponse response = httpExecutor.getTyped(
+                CURRENT_GROUPS_URI_TEMPLATE,
+                CurrentGroupsResponse.class,
+                accountId);
+        if (response == null || response.total() == null || response.groups() == null
+                || response.total() != response.groups().size()) {
+            // HTTP 2xx 但缺少完整逐群结果不能伪装成空列表，否则业务层会把所有 baseline 群误判为已退群。
+            throw invalidResponse("current groups 结果数量不一致");
+        }
+        return response.groups().stream()
+                .map(HttpAccountParticipatingGroupAdapter::toLightGroup)
+                .toList();
+    }
+
+    /**
+     * 批量查询固定账号在指定群中的 metadata 摘要。
+     *
+     * @param account     固定操作账号引用
+     * @param groupJids   待查询群 JID，输入顺序会原样传给协议层
+     * @param concurrency 协议层并发数，范围 1 至 16
+     * @return 按协议层结果顺序返回的逐群摘要
+     * @throws ProtocolException 当参数、顶层响应或协议调用失败时抛出
+     */
+    @Override
+    public List<AccountGroupMetadataSummaryResult> summarize(
+            ProtocolAccountRef account,
+            List<String> groupJids,
+            int concurrency) {
+        String accountId = requireAccountId(account);
+        if (groupJids == null || groupJids.isEmpty()
+                || concurrency < 1 || concurrency > METADATA_SUMMARIES_MAX_CONCURRENCY) {
+            throw new ProtocolException(
+                    ProtocolErrorCode.BAD_REQUEST,
+                    "协议层 account group metadata summaries 参数无效");
+        }
+        MetadataSummariesResponse response = httpExecutor.postTyped(
+                METADATA_SUMMARIES_URI_TEMPLATE,
+                new MetadataSummariesRequest(List.copyOf(groupJids), concurrency),
+                MetadataSummariesResponse.class,
+                accountId);
+        validateMetadataSummaries(response);
+        // 逐群 success/error 是协议契约的一部分；不能在 adapter 里过滤失败项或抛成整批异常。
+        return response.results().stream()
+                .map(HttpAccountParticipatingGroupAdapter::toMetadataSummary)
+                .toList();
     }
 
     /**
@@ -113,6 +179,57 @@ public class HttpAccountParticipatingGroupAdapter implements AccountParticipatin
                 response.announce());
     }
 
+    private static AccountParticipatingGroupResult.Group toLightGroup(GroupResponse response) {
+        return new AccountParticipatingGroupResult.Group(
+                blankToNull(response.groupJid()),
+                blankToNull(response.subject()),
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private static AccountGroupMetadataSummaryResult toMetadataSummary(
+            MetadataSummaryResponse response) {
+        return new AccountGroupMetadataSummaryResult(
+                blankToNull(response.groupJid()),
+                Boolean.TRUE.equals(response.success()),
+                blankToNull(response.error()),
+                blankToNull(response.subject()),
+                response.memberSize(),
+                blankToNull(response.selfRole()),
+                response.announceOnly(),
+                Boolean.TRUE.equals(response.stateAbnormal()));
+    }
+
+    private static void validateMetadataSummaries(MetadataSummariesResponse response) {
+        if (response == null || response.total() == null || response.succeeded() == null
+                || response.failed() == null || response.results() == null) {
+            throw invalidResponse("metadata summaries 顶层字段缺失");
+        }
+        long actualSucceeded = response.results().stream()
+                .filter(result -> Boolean.TRUE.equals(result.success()))
+                .count();
+        int total = response.results().size();
+        if (response.total() != total
+                || response.succeeded() + response.failed() != response.total()
+                || response.succeeded() != actualSucceeded) {
+            // 顶层计数与逐项结果矛盾时直接失败，避免调用方在缺项情况下错误推进业务状态。
+            throw invalidResponse("metadata summaries 结果数量不一致");
+        }
+    }
+
+    private static String requireAccountId(ProtocolAccountRef account) {
+        if (account == null) {
+            throw new ProtocolException(ProtocolErrorCode.BAD_REQUEST, "协议层操作账号不能为空");
+        }
+        return account.protocolAccountId();
+    }
+
+    private static ProtocolException invalidResponse(String message) {
+        return new ProtocolException(ProtocolErrorCode.UNKNOWN, "协议层 " + message);
+    }
+
     private static List<String> normalizeAccountIds(List<String> protocolAccountIds) {
         if (protocolAccountIds == null) {
             return List.of();
@@ -129,6 +246,30 @@ public class HttpAccountParticipatingGroupAdapter implements AccountParticipatin
     }
 
     private record BatchGroupsRequest(List<String> accountIds, int concurrency) {
+    }
+
+    private record MetadataSummariesRequest(List<String> groupJids, int concurrency) {
+    }
+
+    private record CurrentGroupsResponse(Integer total, List<GroupResponse> groups) {
+    }
+
+    private record MetadataSummariesResponse(
+            Integer total,
+            Integer succeeded,
+            Integer failed,
+            List<MetadataSummaryResponse> results) {
+    }
+
+    private record MetadataSummaryResponse(
+            String groupJid,
+            Boolean success,
+            String error,
+            String subject,
+            Integer memberSize,
+            String selfRole,
+            Boolean announceOnly,
+            Boolean stateAbnormal) {
     }
 
     private record BatchGroupsResponse(Integer total, Integer succeeded, Integer failed,

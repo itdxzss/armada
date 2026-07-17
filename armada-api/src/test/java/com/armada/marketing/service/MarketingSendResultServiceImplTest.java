@@ -229,6 +229,38 @@ class MarketingSendResultServiceImplTest {
                 11L, "cmd_gcm_item_11", "SEND_FAILED", "rate limited", 1783159200000L);
     }
 
+    @Test
+    void supportsExistingSourcesButExplicitlyRejectsHistoricalGroupPull() {
+        assertThat(service.supports(event(true))).isTrue();
+        assertThat(service.supports(groupCreationEvent(true))).isTrue();
+        ProtocolMessageSendResultReportedEvent historical = new ProtocolMessageSendResultReportedEvent(
+                "evt_historical",
+                1L,
+                null,
+                null,
+                null,
+                null,
+                "acc_1",
+                "120363history@g.us",
+                "cmd_historical",
+                false,
+                null,
+                "SEND_FAILED",
+                "administrator permission denied",
+                1783159200000L,
+                "worker-a",
+                null,
+                null,
+                "historical_group_pull",
+                "UNCONFIRMED",
+                "PRECHECK_SKIPPED_BY_SOURCE",
+                1783159199000L,
+                91L,
+                301L);
+
+        assertThat(service.supports(historical)).isFalse();
+    }
+
     private static ProtocolMessageSendResultReportedEvent event(boolean success) {
         return new ProtocolMessageSendResultReportedEvent(
                 "evt_1",
@@ -251,7 +283,9 @@ class MarketingSendResultServiceImplTest {
                 "marketing_task",
                 "NORMAL",
                 "GROUP_SEND_ALLOWED",
-                1783159199000L);
+                1783159199000L,
+                null,
+                null);
     }
 
     private static ProtocolMessageSendResultReportedEvent failedEvent() {
@@ -276,7 +310,9 @@ class MarketingSendResultServiceImplTest {
                 "marketing_task",
                 "BANNED",
                 "CHAT_SUSPENDED",
-                1783159198000L);
+                1783159198000L,
+                null,
+                null);
     }
 
     private static ProtocolMessageSendResultReportedEvent groupCreationEvent(boolean success) {
@@ -299,6 +335,8 @@ class MarketingSendResultServiceImplTest {
                 22L,
                 11L,
                 "group_creation_marketing",
+                null,
+                null,
                 null,
                 null,
                 null);

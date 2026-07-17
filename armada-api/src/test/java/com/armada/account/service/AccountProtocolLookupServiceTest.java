@@ -2,6 +2,8 @@ package com.armada.account.service;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -13,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -52,7 +55,22 @@ class AccountProtocolLookupServiceTest {
                         account(4L, "WEB", "acc-4", "944")));
 
         assertThat(service.findActiveProtocolRefs(List.of(1L, 2L, 3L, 4L)))
-                .containsExactly(new ProtocolAccountRef(4L, ProtocolBackend.WEB, "acc-4", "944"));
+                .containsExactly(
+                        new ProtocolAccountRef(1L, ProtocolBackend.WEB, "acc-1", "911"),
+                        new ProtocolAccountRef(4L, ProtocolBackend.WEB, "acc-4", "944"));
+    }
+
+    @Test
+    void findActiveProtocolRef_legacyWebWithoutProtocolIdUsesWebFallback() {
+        when(accountMapper.selectActiveById(302L))
+                .thenReturn(account(302L, null, "acc_919755599869", "919755599869"));
+
+        assertThat(service.findActiveProtocolRef(302L))
+                .contains(new ProtocolAccountRef(
+                        302L,
+                        ProtocolBackend.WEB,
+                        "acc_919755599869",
+                        "919755599869"));
     }
 
     @Test
@@ -60,6 +78,18 @@ class AccountProtocolLookupServiceTest {
         assertThat(service.findActiveProtocolRefs(List.of())).isEmpty();
         assertThat(service.findActiveProtocolRefs(null)).isEmpty();
         verifyNoInteractions(accountMapper);
+    }
+
+    @Test
+    void findRandomOnlineNormalWebByGroupIdUsesDedicatedWebSelector() {
+        when(accountMapper.selectRandomOnlineNormalWebByGroupId(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, "WEB"))
+                .thenReturn(account(51L, "WEB", "web-51", "9551"));
+
+        assertThat(service.findRandomOnlineNormalWebByGroupId(301L))
+                .contains(new ProtocolAccountRef(51L, ProtocolBackend.WEB, "web-51", "9551"));
+        verify(accountMapper).selectRandomOnlineNormalWebByGroupId(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, "WEB");
     }
 
     private static Account account(Long id, String protocolId, String protocolAccountId, String wsPhone) {

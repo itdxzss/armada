@@ -20,6 +20,7 @@ import com.armada.platform.protocol.http.account.HttpAccountLifecycleAdapter;
 import com.armada.platform.protocol.http.account.HttpAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.http.contact.HttpContactAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupCreateAdapter;
+import com.armada.platform.protocol.http.group.HttpGroupInviteAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupMetadataAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
@@ -31,6 +32,7 @@ import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
@@ -379,6 +381,17 @@ public class ProtocolConfiguration {
     @Bean
     public GroupParticipantPort groupParticipantPort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpGroupParticipantAdapter(protocolHttpExecutor);
+    }
+
+    /**
+     * 注册群邀请链接查询协议端口。
+     *
+     * @param protocolHttpExecutor 协议层 HTTP 执行器
+     * @return 群邀请链接查询端口 HTTP 实现
+     */
+    @Bean
+    public GroupInvitePort groupInvitePort(ProtocolHttpExecutor protocolHttpExecutor) {
+        return new HttpGroupInviteAdapter(protocolHttpExecutor);
     }
 
     /**

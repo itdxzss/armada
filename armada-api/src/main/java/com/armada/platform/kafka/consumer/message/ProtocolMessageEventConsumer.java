@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -26,14 +27,15 @@ public class ProtocolMessageEventConsumer {
 
     public static final String EVENT_MESSAGE_SEND_RESULT_REPORTED = "message.send_result_reported";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
+    private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
 
     private final ObjectMapper objectMapper;
-    private final ProtocolMessageSendResultReportedSink sink;
+    private final List<ProtocolMessageSendResultReportedSink> sinks;
 
     public ProtocolMessageEventConsumer(ObjectMapper objectMapper,
-                                        ProtocolMessageSendResultReportedSink sink) {
+                                        List<ProtocolMessageSendResultReportedSink> sinks) {
         this.objectMapper = objectMapper;
-        this.sink = sink;
+        this.sinks = List.copyOf(sinks);
     }
 
     /** 解析协议事件 envelope,识别发送结果事件后交给业务 sink 处理。 */
@@ -50,11 +52,26 @@ public class ProtocolMessageEventConsumer {
             return;
         }
         ProtocolMessageSendResultReportedEvent event = toSendResultReportedEvent(envelope, dataNode(envelope));
-        log.info("协议消息发送结果事件收到 eventId={} tenantId={} taskId={} attemptId={} success={} "
-                        + "messageId={} workerId={}",
-                event.eventId(), event.tenantId(), event.marketingTaskId(), event.attemptId(), event.success(),
+        log.info("协议消息发送结果事件收到 eventId={} tenantId={} taskId={} attemptId={} "
+                        + "historicalExecutionId={} historicalMemberId={} success={} messageId={} workerId={}",
+                event.eventId(), event.tenantId(), event.marketingTaskId(), event.attemptId(),
+                event.historicalExecutionId(), event.historicalMemberId(), event.success(),
                 event.messageId(), event.workerId());
-        sink.handleSendResultReported(event);
+        selectSink(event).handleSendResultReported(event);
+    }
+
+    /** 每个已识别来源必须且只能由一个 sink 负责，避免重复或遗漏业务回写。 */
+    private ProtocolMessageSendResultReportedSink selectSink(ProtocolMessageSendResultReportedEvent event) {
+        List<ProtocolMessageSendResultReportedSink> supported = sinks.stream()
+                .filter(sink -> sink.supports(event))
+                .toList();
+        if (supported.size() != 1) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "协议消息发送结果必须匹配唯一处理器: source=" + event.source()
+                            + ", matches=" + supported.size());
+        }
+        return supported.get(0);
     }
 
     /** Kafka value 必须是协议事件 JSON envelope;非法 JSON 交给 Spring Kafka 重试/DLT。 */
@@ -73,19 +90,20 @@ public class ProtocolMessageEventConsumer {
     private static ProtocolMessageSendResultReportedEvent toSendResultReportedEvent(JsonNode envelope, JsonNode data) {
         String source = text(data, "source");
         boolean groupCreationMarketing = SOURCE_GROUP_CREATION_MARKETING.equals(source);
+        boolean historicalGroupPull = SOURCE_HISTORICAL_GROUP_PULL.equals(source);
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
-                groupCreationMarketing
+                groupCreationMarketing || historicalGroupPull
                         ? longValue(data, "marketingTaskId")
                         : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
-                groupCreationMarketing
+                groupCreationMarketing || historicalGroupPull
                         ? longValue(data, "targetId")
                         : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
-                groupCreationMarketing
+                groupCreationMarketing || historicalGroupPull
                         ? longValue(data, "attemptId")
                         : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
-                groupCreationMarketing
+                groupCreationMarketing || historicalGroupPull
                         ? longValue(data, "roundNo")
                         : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
@@ -106,7 +124,15 @@ public class ProtocolMessageEventConsumer {
                 source,
                 text(data, "groupStatus"),
                 text(data, "groupStatusReason"),
-                longValue(data, "groupStatusCheckedAt"));
+                longValue(data, "groupStatusCheckedAt"),
+                historicalGroupPull
+                        ? requiredLong(data, "historicalExecutionId",
+                                "协议消息发送结果事件缺少 data.historicalExecutionId")
+                        : longValue(data, "historicalExecutionId"),
+                historicalGroupPull
+                        ? requiredLong(data, "historicalMemberId",
+                                "协议消息发送结果事件缺少 data.historicalMemberId")
+                        : longValue(data, "historicalMemberId"));
     }
 
     /** 兼容协议层 envelope.data 包裹格式;测试或临时工具也可直接传扁平字段。 */

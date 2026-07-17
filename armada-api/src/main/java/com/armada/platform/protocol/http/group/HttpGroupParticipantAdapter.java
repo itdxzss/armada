@@ -75,7 +75,7 @@ public class HttpGroupParticipantAdapter implements GroupParticipantPort {
     }
 
     /**
-     * 调用协议层成员变更接口批量升管理员、降管理员或移除成员。
+     * 调用协议层成员变更接口批量添加、升管理员、降管理员或移除成员。
      *
      * <p>请求路径由 {@link GroupParticipantAction#wireValue()} 决定，body 中同时携带
      * {@code accountId}、目标成员列表和 30 秒协议等待上限。baseUrl 指向 master 时，

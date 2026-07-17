@@ -72,6 +72,23 @@ public class ProtocolHttpExecutor {
     }
 
     /**
+     * 使用 URI 模板变量发起 GET 请求并反序列化 2xx 响应体。
+     *
+     * <p>模板变量由 Spring 按其所处的 path/query 位置编码，避免 adapter 手工编码后被二次编码。</p>
+     *
+     * @param uriTemplate  相对或绝对 URI 模板
+     * @param responseType 响应类型
+     * @param uriVariables URI 模板变量
+     * @param <T>          响应类型
+     * @return 反序列化后的响应对象
+     * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
+     */
+    public <T> T getTyped(String uriTemplate, Class<T> responseType, Object... uriVariables) {
+        return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
+                .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
+    }
+
+    /**
      * 发起 POST 请求并反序列化 2xx 响应体。
      *
      * @param uri          相对或绝对 URI
@@ -82,6 +99,27 @@ public class ProtocolHttpExecutor {
      */
     public <T> T postTyped(String uri, Object body, Class<T> responseType) {
         return execute("POST", uri, () -> restClient.post().uri(uri)
+                .body(body == null ? EMPTY_JSON_BODY : body)
+                .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
+    }
+
+    /**
+     * 使用 URI 模板变量发起 POST 请求并反序列化 2xx 响应体。
+     *
+     * @param uriTemplate  相对或绝对 URI 模板
+     * @param body         请求体；为空时发送空 JSON 对象
+     * @param responseType 响应类型
+     * @param uriVariables URI 模板变量
+     * @param <T>          响应类型
+     * @return 反序列化后的响应对象
+     * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
+     */
+    public <T> T postTyped(
+            String uriTemplate,
+            Object body,
+            Class<T> responseType,
+            Object... uriVariables) {
+        return execute("POST", uriTemplate, () -> restClient.post().uri(uriTemplate, uriVariables)
                 .body(body == null ? EMPTY_JSON_BODY : body)
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
     }

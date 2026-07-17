@@ -477,7 +477,8 @@ public class GroupCreationMarketingWorker {
                         tenantId,
                         SOURCE_GROUP_CREATION_MARKETING,
                         null,
-                        new MessageSendCommand.GroupCreationCorrelation(taskId, item.getId())),
+                        new MessageSendCommand.GroupCreationCorrelation(taskId, item.getId()),
+                        null),
                 commandId);
         MessageSendEnqueueResult result = messageSendPort.enqueue(List.of(command));
         if (result == null || result.items().size() != 1

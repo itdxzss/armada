@@ -491,6 +491,7 @@ class ProtocolCommandOutboxServiceImplTest {
                         1L,
                         "marketing_task",
                         new MessageSendCommand.MarketingCorrelation(42L, 7001L, 9001L, 1L),
+                        null,
                         null),
                 "cmd_android");
         ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
@@ -528,6 +529,42 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(payload)
                 .containsEntry("wsPhone", "919000000001")
                 .containsEntry("messageType", "TEXT");
+    }
+
+    @Test
+    void enqueueMessageCommands_acceptsHistoricalCorrelationAndUsesMemberAggregate() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        MessageSendCommand command = new MessageSendCommand(
+                new ProtocolAccountRef(501L, ProtocolBackend.WEB, "acc_web", "919000000001"),
+                new MessageSendCommand.MessageTarget("120363history@g.us"),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("offer", null, null, null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(
+                        1L,
+                        "historical_group_pull",
+                        null,
+                        null,
+                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
+                "cmd_historical");
+        ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
+                command,
+                ProtocolBackend.WEB,
+                "protocol.master.commands.v1",
+                "acc_web",
+                Map.of(
+                        "tenantId", 1L,
+                        "historicalExecutionId", 91L,
+                        "historicalMemberId", 301L,
+                        "source", "historical_group_pull"));
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueMessageCommands(List.of(outboxCommand));
+
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getAggregateType()).isEqualTo("HISTORICAL_GROUP_PULL_MEMBER");
+        assertThat(row.getAggregateId()).isEqualTo(301L);
     }
 
     @Test

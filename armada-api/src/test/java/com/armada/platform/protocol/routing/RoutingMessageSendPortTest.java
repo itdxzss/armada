@@ -97,6 +97,7 @@ class RoutingMessageSendPortTest {
                         1L,
                         "marketing_task",
                         new MessageSendCommand.MarketingCorrelation(2L, 3L, 4L, 1L),
+                        null,
                         null),
                 commandId);
     }

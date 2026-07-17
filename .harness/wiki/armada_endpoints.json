@@ -71,19 +71,91 @@
           {
             "kind": "body",
             "name": "request",
-            "type": "AccountIdsDTO",
-            "desc": "账号 ID 列表"
+            "type": "AccountLifecycleBatchDTO",
+            "desc": "账号列表;新请求体可为每个账号携带协议后端"
           }
         ],
-        "response": "AccountBatchOnlineVO",
-        "ret_raw": "ApiResponse<AccountBatchOnlineVO>",
+        "response": "AccountBatchCommandResultVO",
+        "ret_raw": "ApiResponse<AccountBatchCommandResultVO>",
         "retdoc": "outbox 批量下线命令受理汇总"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/batch-offline-by-query",
+        "name": "batchOfflineByQuery",
+        "summary": "按账号列表已生效筛选条件发起批量离线。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "query",
+            "type": "AccountBatchQueryDTO",
+            "desc": "已生效筛选条件"
+          }
+        ],
+        "response": "AccountBatchCommandResultVO",
+        "ret_raw": "ApiResponse<AccountBatchCommandResultVO>",
+        "retdoc": "全部内部批次的聚合结果"
       },
       {
         "method": "POST",
         "path": "/api/accounts/batch-online",
         "name": "batchOnline",
         "summary": "A4 批量发起账号上线(后端逐账号分配空闲代理,批量写入 outbox)。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "AccountLifecycleBatchDTO",
+            "desc": "账号列表;新请求体可为每个账号携带协议后端"
+          }
+        ],
+        "response": "AccountBatchCommandResultVO",
+        "ret_raw": "ApiResponse<AccountBatchCommandResultVO>",
+        "retdoc": "outbox 批量上线命令受理汇总"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/batch-online-by-query",
+        "name": "batchOnlineByQuery",
+        "summary": "按账号列表已生效筛选条件发起批量登录。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "query",
+            "type": "AccountBatchQueryDTO",
+            "desc": "已生效筛选条件"
+          }
+        ],
+        "response": "AccountBatchCommandResultVO",
+        "ret_raw": "ApiResponse<AccountBatchCommandResultVO>",
+        "retdoc": "全部内部批次的聚合结果"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/batch-operation-preview",
+        "name": "previewBatchOperation",
+        "summary": "预估批量登录或离线的操作范围。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "AccountBatchPreviewDTO",
+            "desc": "操作类型和显式范围"
+          }
+        ],
+        "response": "AccountBatchPreviewVO",
+        "ret_raw": "ApiResponse<AccountBatchPreviewVO>",
+        "retdoc": "匹配、预计执行及跳过数量"
+      },
+      {
+        "method": "POST",
+        "path": "/api/accounts/batch-takeover",
+        "name": "batchTakeover",
+        "summary": "A4.0 批量发起一键抢登。",
         "perm": null,
         "params": [
           {
@@ -98,6 +170,50 @@
         "retdoc": "outbox 批量上线命令受理汇总"
       },
       {
+        "method": "POST",
+        "path": "/api/accounts/export-ws-phones",
+        "name": "exportWsPhones",
+        "summary": "导出前端勾选且账号状态正常的 WS 号码。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "AccountWsPhoneExportDTO",
+            "desc": "所选账号 ID 和可选分组名称"
+          }
+        ],
+        "response": "ResponseEntity<byte[]>",
+        "ret_raw": "ResponseEntity<byte[]>",
+        "retdoc": "TXT 附件响应，X-Export-Count 为实际写入号码数"
+      },
+      {
+        "method": "GET",
+        "path": "/api/accounts/online-attempts/{onlineAttemptId}",
+        "name": "onlineAttemptTimeline",
+        "summary": "A4.4 查询单次上线尝试诊断时间线。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "onlineAttemptId",
+            "type": "String",
+            "desc": "上线尝试 ID"
+          },
+          {
+            "kind": "query",
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": "20",
+            "desc": "返回数量上限"
+          }
+        ],
+        "response": "List<AccountOnlineAttemptLogVO>",
+        "ret_raw": "ApiResponse<List<AccountOnlineAttemptLogVO>>",
+        "retdoc": "诊断时间线,时间升序"
+      },
+      {
         "method": "GET",
         "path": "/api/accounts/stats",
         "name": "stats",
@@ -107,6 +223,32 @@
         "response": "AccountStatsVO",
         "ret_raw": "ApiResponse<AccountStatsVO>",
         "retdoc": "统计卡数据(total/online/offline/banned/risk/assigned/unassigned)"
+      },
+      {
+        "method": "GET",
+        "path": "/api/accounts/{id:\\\\d+}/online-attempts",
+        "name": "onlineAttempts",
+        "summary": "A4.3 查询账号最近上线尝试诊断记录。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "账号 ID"
+          },
+          {
+            "kind": "query",
+            "name": "limit",
+            "type": "int",
+            "required": false,
+            "default": "20",
+            "desc": "返回数量上限"
+          }
+        ],
+        "response": "List<AccountOnlineAttemptLogVO>",
+        "ret_raw": "ApiResponse<List<AccountOnlineAttemptLogVO>>",
+        "retdoc": "最近诊断记录,最近优先"
       },
       {
         "method": "POST",
@@ -387,6 +529,34 @@
     ]
   },
   {
+    "controller": "GroupController",
+    "module": "group",
+    "package": "com.armada.group.controller",
+    "source": "armada-api/src/main/java/com/armada/group/controller/GroupController.java",
+    "base": "/api/groups",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/groups/create",
+        "name": "create",
+        "summary": "创建 WhatsApp 群并添加初始成员。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupCreateDTO",
+            "desc": "创建请求"
+          }
+        ],
+        "response": "GroupCreateVO",
+        "ret_raw": "ApiResponse<GroupCreateVO>",
+        "retdoc": "新建群 JID 与逐成员结果"
+      }
+    ]
+  },
+  {
     "controller": "GroupLinkController",
     "module": "group",
     "package": "com.armada.group.controller",
@@ -560,6 +730,32 @@
       },
       {
         "method": "POST",
+        "path": "/api/group-links/{id}/avatar",
+        "name": "updateAvatar",
+        "summary": "上传 WhatsApp 真实群头像,操作账号由后端自动选择。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "part",
+            "name": "file",
+            "type": "MultipartFile",
+            "required": true,
+            "default": null,
+            "desc": "头像图片"
+          }
+        ],
+        "response": "GroupAvatarUpdateVO",
+        "ret_raw": "ApiResponse<GroupAvatarUpdateVO>",
+        "retdoc": "WhatsApp 应用与本地镜像同步状态"
+      },
+      {
+        "method": "POST",
         "path": "/api/group-links/{id}/description",
         "name": "updateDescription",
         "summary": "修改 WhatsApp 真实群描述。",
@@ -584,6 +780,24 @@
       },
       {
         "method": "GET",
+        "path": "/api/group-links/{id}/detail",
+        "name": "detail",
+        "summary": "查询群详情抽屉所需的本地与实时聚合数据。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          }
+        ],
+        "response": "GroupDetailVO",
+        "ret_raw": "ApiResponse<GroupDetailVO>",
+        "retdoc": "群详情;协议不可用时包含降级原因"
+      },
+      {
+        "method": "GET",
         "path": "/api/group-links/{id}/members",
         "name": "members",
         "summary": "群组明细实时成员列表。",
@@ -599,6 +813,78 @@
         "response": "GroupLinkMemberListVO",
         "ret_raw": "ApiResponse<GroupLinkMemberListVO>",
         "retdoc": "协议层实时返回的成员列表;成员明细不落库"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/members/demote-batch",
+        "name": "demoteMembers",
+        "summary": "批量取消管理员,执行账号由后端自动选择。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": ""
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupMemberBatchCommandDTO",
+            "desc": ""
+          }
+        ],
+        "response": "GroupMemberBatchResultVO",
+        "ret_raw": "ApiResponse<GroupMemberBatchResultVO>",
+        "retdoc": ""
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/members/kick-batch",
+        "name": "kickMembers",
+        "summary": "批量踢出群成员,执行账号由后端自动选择。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": ""
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupMemberBatchCommandDTO",
+            "desc": ""
+          }
+        ],
+        "response": "GroupMemberBatchResultVO",
+        "ret_raw": "ApiResponse<GroupMemberBatchResultVO>",
+        "retdoc": ""
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/members/promote-batch",
+        "name": "promoteMembers",
+        "summary": "批量设置管理员,执行账号由后端自动选择。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": ""
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupMemberBatchCommandDTO",
+            "desc": ""
+          }
+        ],
+        "response": "GroupMemberBatchResultVO",
+        "ret_raw": "ApiResponse<GroupMemberBatchResultVO>",
+        "retdoc": ""
       },
       {
         "method": "POST",
@@ -626,6 +912,30 @@
       },
       {
         "method": "POST",
+        "path": "/api/group-links/{id}/settings",
+        "name": "updateSetting",
+        "summary": "修改单项 WhatsApp 群权限,操作账号由后端自动选择。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupSettingCommandDTO",
+            "desc": "权限键与目标状态"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
+      },
+      {
+        "method": "POST",
         "path": "/api/group-links/{id}/subject",
         "name": "updateSubject",
         "summary": "修改 WhatsApp 真实群名称。",
@@ -641,7 +951,31 @@
             "kind": "body",
             "name": "dto",
             "type": "GroupSubjectCommandDTO",
-            "desc": "操作账号与新群名称"
+            "desc": "新群名称"
+          }
+        ],
+        "response": "无",
+        "ret_raw": "ApiResponse<Void>",
+        "retdoc": "空响应"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-links/{id}/timed-message",
+        "name": "updateTimedMessage",
+        "summary": "设置 WhatsApp 群限时消息,操作账号由后端自动选择。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "群链接 ID"
+          },
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "GroupTimedMessageCommandDTO",
+            "desc": "限时消息档位"
           }
         ],
         "response": "无",
@@ -795,6 +1129,382 @@
     ]
   },
   {
+    "controller": "HistoricalGroupController",
+    "module": "group",
+    "package": "com.armada.group.controller",
+    "source": "armada-api/src/main/java/com/armada/group/controller/HistoricalGroupController.java",
+    "base": "/api/historical-groups",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/api/historical-groups",
+        "name": "list",
+        "summary": "读取操作账号 baseline 历史群,不触发协议刷新。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "query",
+            "name": "accountId",
+            "type": "Long",
+            "required": true,
+            "default": null,
+            "desc": "当前租户操作账号 ID"
+          }
+        ],
+        "response": "List<HistoricalGroupItemVO>",
+        "ret_raw": "ApiResponse<List<HistoricalGroupItemVO>>",
+        "retdoc": "按 baseline JID 顺序排列的历史群"
+      },
+      {
+        "method": "GET",
+        "path": "/api/historical-groups/detail",
+        "name": "detail",
+        "summary": "用户打开单群详情时按需加载完整 metadata、成员和当前邀请链接。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "query",
+            "name": "accountId",
+            "type": "Long",
+            "required": true,
+            "default": null,
+            "desc": "固定操作账号 ID"
+          },
+          {
+            "kind": "query",
+            "name": "groupJid",
+            "type": "String",
+            "required": true,
+            "default": null,
+            "desc": "baseline 群 JID"
+          }
+        ],
+        "response": "HistoricalGroupDetailVO",
+        "ret_raw": "ApiResponse<HistoricalGroupDetailVO>",
+        "retdoc": "单群实时详情及操作门禁状态"
+      },
+      {
+        "method": "POST",
+        "path": "/api/historical-groups/participants/demote",
+        "name": "demote",
+        "summary": "使用固定操作账号批量降级历史群内其他管理员。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "HistoricalGroupParticipantActionDTO",
+            "desc": "固定账号、baseline 群和目标成员"
+          }
+        ],
+        "response": "HistoricalGroupParticipantActionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupParticipantActionVO>",
+        "retdoc": "按请求顺序排列的逐成员结果"
+      },
+      {
+        "method": "POST",
+        "path": "/api/historical-groups/participants/promote",
+        "name": "promote",
+        "summary": "使用固定操作账号批量提升历史群普通成员。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "HistoricalGroupParticipantActionDTO",
+            "desc": "固定账号、baseline 群和目标成员"
+          }
+        ],
+        "response": "HistoricalGroupParticipantActionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupParticipantActionVO>",
+        "retdoc": "按请求顺序排列的逐成员结果"
+      },
+      {
+        "method": "POST",
+        "path": "/api/historical-groups/participants/remove",
+        "name": "remove",
+        "summary": "使用固定操作账号批量移除历史群内可操作成员。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "HistoricalGroupParticipantActionDTO",
+            "desc": "固定账号、baseline 群和目标成员"
+          }
+        ],
+        "response": "HistoricalGroupParticipantActionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupParticipantActionVO>",
+        "retdoc": "按请求顺序排列的逐成员结果"
+      },
+      {
+        "method": "POST",
+        "path": "/api/historical-groups/refresh",
+        "name": "refresh",
+        "summary": "手动刷新操作账号历史群的当前关系与摘要。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "HistoricalGroupRefreshDTO",
+            "desc": "刷新请求"
+          }
+        ],
+        "response": "List<HistoricalGroupItemVO>",
+        "ret_raw": "ApiResponse<List<HistoricalGroupItemVO>>",
+        "retdoc": "仅对本次请求有效的刷新结果"
+      }
+    ]
+  },
+  {
+    "controller": "HistoricalGroupMarketingController",
+    "module": "group",
+    "package": "com.armada.group.controller",
+    "source": "armada-api/src/main/java/com/armada/group/controller/HistoricalGroupMarketingController.java",
+    "base": "/api/historical-group-pull-executions",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/historical-group-pull-executions/{id}/marketing-send",
+        "name": "send",
+        "summary": "为执行中的全部营销账号各下发一次所选模板。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "历史群执行 ID"
+          },
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "HistoricalGroupMarketingSendDTO",
+            "desc": "当前租户模板选择"
+          }
+        ],
+        "response": "HistoricalGroupPullExecutionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupPullExecutionVO>",
+        "retdoc": "启动后或重复请求时的当前执行状态"
+      }
+    ]
+  },
+  {
+    "controller": "HistoricalGroupPullExecutionController",
+    "module": "group",
+    "package": "com.armada.group.controller",
+    "source": "armada-api/src/main/java/com/armada/group/controller/HistoricalGroupPullExecutionController.java",
+    "base": "/api/historical-group-pull-executions",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/historical-group-pull-executions",
+        "name": "create",
+        "summary": "上传料子并创建幂等待执行记录；邀请链接只由后端实时详情取得。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "queryobj",
+            "name": "form",
+            "type": "HistoricalGroupPullCreateForm",
+            "desc": "multipart 文件与固定创建字段"
+          }
+        ],
+        "response": "HistoricalGroupPullExecutionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupPullExecutionVO>",
+        "retdoc": "新建执行；重复幂等键返回原执行"
+      },
+      {
+        "method": "GET",
+        "path": "/api/historical-group-pull-executions/latest",
+        "name": "latest",
+        "summary": "查询固定操作账号与群最近一次执行；没有历史执行时 data 为 null。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "query",
+            "name": "accountId",
+            "type": "Long",
+            "required": true,
+            "default": null,
+            "desc": "操作账号 ID"
+          },
+          {
+            "kind": "query",
+            "name": "groupJid",
+            "type": "String",
+            "required": true,
+            "default": null,
+            "desc": "目标群 JID"
+          }
+        ],
+        "response": "HistoricalGroupPullExecutionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupPullExecutionVO>",
+        "retdoc": "最近执行或空 data"
+      },
+      {
+        "method": "GET",
+        "path": "/api/historical-group-pull-executions/{id}",
+        "name": "getById",
+        "summary": "查询指定执行和全部逐成员结果。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "执行 ID"
+          }
+        ],
+        "response": "HistoricalGroupPullExecutionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupPullExecutionVO>",
+        "retdoc": "执行详情"
+      },
+      {
+        "method": "POST",
+        "path": "/api/historical-group-pull-executions/{id}/start",
+        "name": "start",
+        "summary": "重新校验服务端门禁并原子启动待执行任务。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "待启动执行 ID"
+          }
+        ],
+        "response": "HistoricalGroupPullExecutionVO",
+        "ret_raw": "ApiResponse<HistoricalGroupPullExecutionVO>",
+        "retdoc": "已进入运行态的执行详情"
+      }
+    ]
+  },
+  {
+    "controller": "GroupCreationMarketingTaskController",
+    "module": "marketing",
+    "package": "com.armada.marketing.controller",
+    "source": "armada-api/src/main/java/com/armada/marketing/controller/GroupCreationMarketingTaskController.java",
+    "base": "/api/group-creation-marketing-tasks",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/api/group-creation-marketing-tasks",
+        "name": "list",
+        "summary": "查询建群营销任务分页列表。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "queryobj",
+            "name": "query",
+            "type": "GroupCreationMarketingTaskQuery",
+            "desc": "查询条件和分页参数"
+          }
+        ],
+        "response": "分页（GroupCreationMarketingTaskVO）",
+        "ret_raw": "ApiResponse<PageResult<GroupCreationMarketingTaskVO>>",
+        "retdoc": "建群营销任务分页列表"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-creation-marketing-tasks",
+        "name": "create",
+        "summary": "创建建群营销任务。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "CreateGroupCreationMarketingTaskDTO",
+            "desc": "创建任务请求"
+          }
+        ],
+        "response": "GroupCreationMarketingTaskDetailVO",
+        "ret_raw": "ApiResponse<GroupCreationMarketingTaskDetailVO>",
+        "retdoc": "创建后的任务详情"
+      },
+      {
+        "method": "GET",
+        "path": "/api/group-creation-marketing-tasks/account-candidates",
+        "name": "accountCandidates",
+        "summary": "查询账号分组内可用于建群营销的候选账号。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "query",
+            "name": "accountGroupId",
+            "type": "Long",
+            "required": true,
+            "default": null,
+            "desc": "账号分组 ID"
+          }
+        ],
+        "response": "List<GroupCreationMarketingAccountCandidate>",
+        "ret_raw": "ApiResponse<List<GroupCreationMarketingAccountCandidate>>",
+        "retdoc": "可执行建群营销的账号候选列表"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-creation-marketing-tasks/export",
+        "name": "export",
+        "summary": "导出建群营销统计 Excel。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "GroupCreationMarketingTaskExportRequest",
+            "desc": "导出任务 ID 列表"
+          }
+        ],
+        "response": "ResponseEntity<byte[]>",
+        "ret_raw": "ResponseEntity<byte[]>",
+        "retdoc": "Excel 文件二进制响应"
+      },
+      {
+        "method": "GET",
+        "path": "/api/group-creation-marketing-tasks/{id}",
+        "name": "detail",
+        "summary": "查询建群营销任务详情。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "建群营销任务 ID"
+          }
+        ],
+        "response": "GroupCreationMarketingTaskDetailVO",
+        "ret_raw": "ApiResponse<GroupCreationMarketingTaskDetailVO>",
+        "retdoc": "建群营销任务详情"
+      },
+      {
+        "method": "POST",
+        "path": "/api/group-creation-marketing-tasks/{id}/stop",
+        "name": "stop",
+        "summary": "停止建群营销任务。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "建群营销任务 ID"
+          }
+        ],
+        "response": "Integer",
+        "ret_raw": "ApiResponse<Integer>",
+        "retdoc": "实际更新的任务主表行数"
+      }
+    ]
+  },
+  {
     "controller": "MarketingTaskController",
     "module": "marketing",
     "package": "com.armada.marketing.controller",
@@ -842,7 +1552,7 @@
         "method": "GET",
         "path": "/api/marketing-tasks/account-tree",
         "name": "accountTree",
-        "summary": "查询建任务抽屉的账号→可营销群树。",
+        "summary": "查询建任务抽屉的账号树首屏。",
         "perm": null,
         "params": [
           {
@@ -857,6 +1567,24 @@
         "response": "MarketingAccountTreeVO",
         "ret_raw": "ApiResponse<MarketingAccountTreeVO>",
         "retdoc": "账号→可营销群树"
+      },
+      {
+        "method": "GET",
+        "path": "/api/marketing-tasks/account-tree/accounts/{accountId}/groups",
+        "name": "accountGroups",
+        "summary": "懒加载单个账号的实时可营销群。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "accountId",
+            "type": "Long",
+            "desc": "账号 ID"
+          }
+        ],
+        "response": "MarketingTreeAccountVO",
+        "ret_raw": "ApiResponse<MarketingTreeAccountVO>",
+        "retdoc": "账号节点及其可营销群"
       },
       {
         "method": "POST",
@@ -895,6 +1623,24 @@
         "retdoc": "营销任务详情"
       },
       {
+        "method": "POST",
+        "path": "/api/marketing-tasks/{id}/close",
+        "name": "close",
+        "summary": "手动关闭非终态营销任务。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "营销任务 ID"
+          }
+        ],
+        "response": "MarketingTaskVO",
+        "ret_raw": "ApiResponse<MarketingTaskVO>",
+        "retdoc": "已关闭的营销任务"
+      },
+      {
         "method": "PUT",
         "path": "/api/marketing-tasks/{id}/marketing-template",
         "name": "updateMarketingTemplate",
@@ -920,6 +1666,42 @@
       },
       {
         "method": "POST",
+        "path": "/api/marketing-tasks/{id}/pause",
+        "name": "pause",
+        "summary": "暂停执行中的营销任务。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "营销任务 ID"
+          }
+        ],
+        "response": "MarketingTaskVO",
+        "ret_raw": "ApiResponse<MarketingTaskVO>",
+        "retdoc": "暂停后的营销任务"
+      },
+      {
+        "method": "POST",
+        "path": "/api/marketing-tasks/{id}/resume",
+        "name": "resume",
+        "summary": "继续已暂停的营销任务。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "营销任务 ID"
+          }
+        ],
+        "response": "MarketingTaskVO",
+        "ret_raw": "ApiResponse<MarketingTaskVO>",
+        "retdoc": "继续后的营销任务"
+      },
+      {
+        "method": "POST",
         "path": "/api/marketing-tasks/{id}/start",
         "name": "start",
         "summary": "启动营销任务。",
@@ -935,24 +1717,6 @@
         "response": "MarketingTaskVO",
         "ret_raw": "ApiResponse<MarketingTaskVO>",
         "retdoc": "启动后的营销任务"
-      },
-      {
-        "method": "POST",
-        "path": "/api/marketing-tasks/{id}/stop",
-        "name": "stop",
-        "summary": "停止营销任务。",
-        "perm": null,
-        "params": [
-          {
-            "kind": "path",
-            "name": "id",
-            "type": "Long",
-            "desc": "营销任务 ID"
-          }
-        ],
-        "response": "MarketingTaskVO",
-        "ret_raw": "ApiResponse<MarketingTaskVO>",
-        "retdoc": "停止后的营销任务"
       }
     ]
   },
@@ -1063,6 +1827,75 @@
     ]
   },
   {
+    "controller": "MarketingTemplateFileController",
+    "module": "marketing",
+    "package": "com.armada.marketing.controller",
+    "source": "armada-api/src/main/java/com/armada/marketing/controller/MarketingTemplateFileController.java",
+    "base": "/api/marketing-template-files",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/marketing-template-files",
+        "name": "upload",
+        "summary": "上传图片,返回可保存到模板的文件 ID 与预览 URL。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "part",
+            "name": "file",
+            "type": "MultipartFile",
+            "required": true,
+            "default": null,
+            "desc": ""
+          }
+        ],
+        "response": "MarketingTemplateFileVO",
+        "ret_raw": "ApiResponse<MarketingTemplateFileVO>",
+        "retdoc": ""
+      },
+      {
+        "method": "GET",
+        "path": "/api/marketing-template-files/{id}/content",
+        "name": "content",
+        "summary": "读取图片内容,供模板列表/编辑/预览回显。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": ""
+          }
+        ],
+        "response": "ResponseEntity<byte[]>",
+        "ret_raw": "ResponseEntity<byte[]>",
+        "retdoc": ""
+      }
+    ]
+  },
+  {
+    "controller": "ProtocolProcessController",
+    "module": "platform",
+    "package": "com.armada.platform.protocol.controller",
+    "source": "armada-api/src/main/java/com/armada/platform/protocol/controller/ProtocolProcessController.java",
+    "base": "/api/protocol",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/api/protocol/restart",
+        "name": "restart",
+        "summary": "",
+        "perm": null,
+        "params": [],
+        "response": "ProtocolRestartVO",
+        "ret_raw": "ApiResponse<ProtocolRestartVO>",
+        "retdoc": ""
+      }
+    ]
+  },
+  {
     "controller": "TenantAuthController",
     "module": "platform",
     "package": "com.armada.platform.tenant.controller",
@@ -1136,6 +1969,24 @@
       },
       {
         "method": "POST",
+        "path": "/api/ip-proxies/check",
+        "name": "checkProxies",
+        "summary": "批量执行 IP 代理真实出口检测。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "IpProxyBatchCheckDTO",
+            "desc": "代理 ID 列表"
+          }
+        ],
+        "response": "List<IpProxyCheckResultVO>",
+        "ret_raw": "ApiResponse<List<IpProxyCheckResultVO>>",
+        "retdoc": "本次检测结果列表"
+      },
+      {
+        "method": "POST",
         "path": "/api/ip-proxies/import",
         "name": "importProxies",
         "summary": "批量导入 IP 代理：逐行解析 host:port:用户名:密码，去重 + 格式校验后入库，返回导入统计。",
@@ -1153,6 +2004,24 @@
         "retdoc": "导入结果"
       },
       {
+        "method": "POST",
+        "path": "/api/ip-proxies/import/sample-check",
+        "name": "sampleCheckImport",
+        "summary": "TXT 导入前手动抽样检测：随机抽取最多 5 条本批新增候选，供前端决定是否允许导入。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "body",
+            "name": "dto",
+            "type": "IpProxyImportDTO",
+            "desc": "导入参数（国家、协议、来源、多行原文）"
+          }
+        ],
+        "response": "IpProxyImportSampleCheckVO",
+        "ret_raw": "ApiResponse<IpProxyImportSampleCheckVO>",
+        "retdoc": "本次抽样检测结果"
+      },
+      {
         "method": "GET",
         "path": "/api/ip-proxies/regions",
         "name": "regions",
@@ -1162,6 +2031,147 @@
         "response": "List<String>",
         "ret_raw": "ApiResponse<List<String>>",
         "retdoc": "去重后的国家/区域列表,「混合（不限国家）」优先"
+      },
+      {
+        "method": "POST",
+        "path": "/api/ip-proxies/{id}/check",
+        "name": "checkProxy",
+        "summary": "对单条 IP 代理执行真实出口检测。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "id",
+            "type": "Long",
+            "desc": "代理 ID"
+          }
+        ],
+        "response": "IpProxyCheckResultVO",
+        "ret_raw": "ApiResponse<IpProxyCheckResultVO>",
+        "retdoc": "本次检测结果"
+      }
+    ]
+  },
+  {
+    "controller": "IpProxyStatsController",
+    "module": "resource",
+    "package": "com.armada.resource.controller",
+    "source": "armada-api/src/main/java/com/armada/resource/controller/IpProxyStatsController.java",
+    "base": "/api/ip-proxies/stats",
+    "class_perm": null,
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/api/ip-proxies/stats/countries",
+        "name": "countries",
+        "summary": "国家/地区维度统计表。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "queryobj",
+            "name": "query",
+            "type": "IpProxyStatsCountryQuery",
+            "desc": ""
+          }
+        ],
+        "response": "分页（IpProxyCountryStatsVO）",
+        "ret_raw": "ApiResponse<PageResult<IpProxyCountryStatsVO>>",
+        "retdoc": ""
+      },
+      {
+        "method": "GET",
+        "path": "/api/ip-proxies/stats/countries/{region}/export",
+        "name": "exportRegionProxies",
+        "summary": "指定国家/地区下的全部 IP 导出。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "region",
+            "type": "String",
+            "desc": ""
+          }
+        ],
+        "response": "ResponseEntity<byte[]>",
+        "ret_raw": "ResponseEntity<byte[]>",
+        "retdoc": ""
+      },
+      {
+        "method": "GET",
+        "path": "/api/ip-proxies/stats/countries/{region}/proxies",
+        "name": "regionProxies",
+        "summary": "指定国家/地区下的 IP 明细。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "region",
+            "type": "String",
+            "desc": ""
+          },
+          {
+            "kind": "queryobj",
+            "name": "query",
+            "type": "IpProxyStatsDetailQuery",
+            "desc": ""
+          }
+        ],
+        "response": "分页（IpProxyStatsDetailVO）",
+        "ret_raw": "ApiResponse<PageResult<IpProxyStatsDetailVO>>",
+        "retdoc": ""
+      },
+      {
+        "method": "POST",
+        "path": "/api/ip-proxies/stats/countries/{region}/sample-check",
+        "name": "sampleCheckRegion",
+        "summary": "指定国家/地区随机抽样检测。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "region",
+            "type": "String",
+            "desc": ""
+          },
+          {
+            "kind": "body",
+            "name": "request",
+            "type": "IpProxyCountrySampleCheckDTO",
+            "desc": ""
+          }
+        ],
+        "response": "IpProxyCountrySampleCheckVO",
+        "ret_raw": "ApiResponse<IpProxyCountrySampleCheckVO>",
+        "retdoc": ""
+      },
+      {
+        "method": "GET",
+        "path": "/api/ip-proxies/stats/countries/{region}/sample-check/stats",
+        "name": "countrySampleStats",
+        "summary": "指定国家/地区抽样检测弹框统计。",
+        "perm": null,
+        "params": [
+          {
+            "kind": "path",
+            "name": "region",
+            "type": "String",
+            "desc": ""
+          }
+        ],
+        "response": "IpProxyCountrySampleStatsVO",
+        "ret_raw": "ApiResponse<IpProxyCountrySampleStatsVO>",
+        "retdoc": ""
+      },
+      {
+        "method": "GET",
+        "path": "/api/ip-proxies/stats/summary",
+        "name": "summary",
+        "summary": "顶部统计卡片。",
+        "perm": null,
+        "params": [],
+        "response": "IpProxyStatsSummaryVO",
+        "ret_raw": "ApiResponse<IpProxyStatsSummaryVO>",
+        "retdoc": ""
       }
     ]
   },

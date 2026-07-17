@@ -536,6 +536,7 @@ public class MarketingRoundWorker {
                         SOURCE_MARKETING_TASK,
                         new MessageSendCommand.MarketingCorrelation(
                                 task.getId(), target.getId(), attempt.getId(), attempt.getRoundNo()),
+                        null,
                         null),
                 attempt.getCommandId());
     }

@@ -1,12 +1,17 @@
 package com.armada.platform.protocol.http.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import java.util.List;
@@ -18,6 +23,129 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 class HttpAccountParticipatingGroupAdapterTest {
+
+    @Test
+    void listCurrentGetsLightGroupsForFixedAccount() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountParticipatingGroupPort port =
+                new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol-master.internal/v1/accounts/acc_86%2F1111/groups"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "total": 2,
+                          "groups": [
+                            { "groupJid": "120363first@g.us", "subject": "第一个群" },
+                            { "groupJid": "120363second@g.us", "subject": null }
+                          ]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        List<AccountParticipatingGroupResult.Group> groups = port.listCurrent(account("acc_86/1111"));
+
+        assertThat(groups).containsExactly(
+                new AccountParticipatingGroupResult.Group(
+                        "120363first@g.us", "第一个群", null, null, null, null),
+                new AccountParticipatingGroupResult.Group(
+                        "120363second@g.us", null, null, null, null, null));
+        server.verify();
+    }
+
+    @Test
+    void summarizePostsOrderedGroupJidsAndMapsPerGroupErrorsAndNullFields() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountParticipatingGroupPort port =
+                new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo(
+                        "http://protocol-master.internal/v1/accounts/acc_861111/groups/metadata-summaries"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "groupJids": ["120363failed@g.us", "120363healthy@g.us"],
+                          "concurrency": 4
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {
+                          "total": 2,
+                          "succeeded": 1,
+                          "failed": 1,
+                          "results": [{
+                            "groupJid": "120363failed@g.us",
+                            "success": false,
+                            "error": "metadata socket unavailable",
+                            "subject": null,
+                            "memberSize": null,
+                            "selfRole": null,
+                            "announceOnly": null,
+                            "stateAbnormal": true,
+                            "participants": [{ "id": "must-not-leak@s.whatsapp.net" }]
+                          }, {
+                            "groupJid": "120363healthy@g.us",
+                            "success": true,
+                            "subject": "正常群",
+                            "memberSize": 16,
+                            "selfRole": "ADMIN",
+                            "announceOnly": false,
+                            "stateAbnormal": false
+                          }]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        List<AccountGroupMetadataSummaryResult> results = port.summarize(
+                account("acc_861111"),
+                List.of("120363failed@g.us", "120363healthy@g.us"),
+                4);
+
+        assertThat(results).containsExactly(
+                new AccountGroupMetadataSummaryResult(
+                        "120363failed@g.us", false, "metadata socket unavailable",
+                        null, null, null, null, true),
+                new AccountGroupMetadataSummaryResult(
+                        "120363healthy@g.us", true, null,
+                        "正常群", 16, "ADMIN", false, false));
+        assertThat(AccountGroupMetadataSummaryResult.class.getRecordComponents())
+                .extracting(component -> component.getName())
+                .doesNotContain("participants");
+        server.verify();
+    }
+
+    @Test
+    void summarizeRejectsIncompleteTopLevelResponseInsteadOfDroppingGroupErrors() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AccountParticipatingGroupPort port =
+                new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo(
+                        "http://protocol-master.internal/v1/accounts/acc_861111/groups/metadata-summaries"))
+                .andRespond(withSuccess("""
+                        {
+                          "total": 2,
+                          "succeeded": 1,
+                          "failed": 1,
+                          "results": [{
+                            "groupJid": "120363healthy@g.us",
+                            "success": true,
+                            "memberSize": 1,
+                            "stateAbnormal": false
+                          }]
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> port.summarize(
+                account("acc_861111"),
+                List.of("120363healthy@g.us", "120363missing@g.us"),
+                4))
+                .isInstanceOf(ProtocolException.class)
+                .hasMessageContaining("metadata summaries")
+                .hasMessageContaining("结果数量不一致");
+        server.verify();
+    }
 
     @Test
     void listBatchPostsAccountIdsAndMapsPerAccountGroups() {
@@ -151,5 +279,9 @@ class HttpAccountParticipatingGroupAdapterTest {
                 .map(value -> "\"" + value + "\"")
                 .reduce((left, right) -> left + "," + right)
                 .orElse("");
+    }
+
+    private static ProtocolAccountRef account(String protocolAccountId) {
+        return new ProtocolAccountRef(1L, ProtocolBackend.WEB, protocolAccountId, "8613800000000");
     }
 }

@@ -2,7 +2,9 @@ package com.armada.group.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -22,8 +24,36 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private AccountGroupMembershipMapper membershipMapper;
+
     @Test
-    void applyGroupsReported_filtersBaselineUpsertsVisibleMembershipAndDeletesMissingMemberships() {
+    void v056_addsNullableBaselineGroupSubjectsJsonColumn() {
+        assertThat(jdbc.queryForObject("""
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'account_group_baseline'
+                  AND column_name = 'baseline_group_subjects'
+                """, String.class)).isEqualTo("json");
+        assertThat(jdbc.queryForObject("""
+                SELECT is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'account_group_baseline'
+                  AND column_name = 'baseline_group_subjects'
+                """, String.class)).isEqualTo("YES");
+        assertThat(jdbc.queryForObject("""
+                SELECT column_comment
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'account_group_baseline'
+                  AND column_name = 'baseline_group_subjects'
+                """, String.class)).contains("静态群名").contains("不表示当前成员关系");
+    }
+
+    @Test
+    void applyGroupsReported_upsertsAllCurrentMembershipsAndDeletesMissingMemberships() {
         long accountId = seedAccount("923300001001");
         String baselineJid = "120363baseline@g.us";
         String visibleJid = "120363visible@g.us";
@@ -47,7 +77,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 "evt-groups-db-1"));
         long afterSync = System.currentTimeMillis();
 
-        assertThat(countMembership(accountId, baselineJid, true)).isZero();
+        assertThat(countMembership(accountId, baselineJid, true)).isOne();
         assertThat(countMembership(accountId, visibleJid, true)).isOne();
         assertThat(countMembership(accountId, staleJid, true)).isZero();
         assertThat(countMembership(accountId, staleJid, false)).isOne();
@@ -101,7 +131,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     }
 
     @Test
-    void applyGroupsReported_pendingBaselineCapturesJsonAndDoesNotWriteVisibleMembership() {
+    void applyGroupsReported_pendingBaselineCapturesJsonAndWritesCurrentMembership() {
         long accountId = seedAccountWithoutBaseline("923300001003");
         String importedJid = "120363imported-baseline@g.us";
         String staleJid = "120363pending-stale@g.us";
@@ -117,10 +147,50 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                         importedJid, "导入时已有群", 12, null, null, false, false, null)),
                 "evt-groups-db-3"));
 
-        assertThat(countMembership(accountId, importedJid, true)).isZero();
+        assertThat(countMembership(accountId, importedJid, true)).isOne();
         assertThat(countMembership(accountId, staleJid, true)).isZero();
         assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
+        String firstSubjectsJson = baselineSubjectsJson(accountId);
+        assertThat(firstSubjectsJson).isNotNull();
+        assertThat(baselineSubject(accountId, importedJid)).isEqualTo("导入时已有群");
         assertThat(groupBaselineState(accountId)).isEqualTo(2);
+
+        service.applyGroupsReported(new AccountGroupsReportedEvent(
+                TEST_TENANT_ID,
+                accountId,
+                "acc_923300001003",
+                1782626501000L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        "120363later@g.us", "后续群名", 13, null, null, false, false, null)),
+                "evt-groups-db-3-later"));
+
+        assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
+        assertThat(baselineSubjectsJson(accountId)).isEqualTo(firstSubjectsJson);
+        assertThat(countMembership(accountId, importedJid, true)).isZero();
+        assertThat(countMembership(accountId, "120363later@g.us", true)).isOne();
+
+        jdbc.update("UPDATE account SET group_baseline_state = 1 WHERE id = ?", accountId);
+        AccountGroupBaselineRow replacement = new AccountGroupBaselineRow();
+        replacement.setAccountId(accountId);
+        replacement.setBaselineGroupJidsJson("[\"120363replacement@g.us\"]");
+        replacement.setBaselineGroupSubjectsJson("{\"120363replacement@g.us\":\"覆盖名\"}");
+        replacement.setGroupCount(1);
+        membershipMapper.capturePendingAccountGroupBaseline(
+                replacement, 1782626601000L, System.currentTimeMillis());
+
+        assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
+        assertThat(baselineSubjectsJson(accountId)).isEqualTo(firstSubjectsJson);
+    }
+
+    @Test
+    void selectAccountBaselineRow_mapsHistoricalNullSubjects() {
+        long accountId = seedAccount("923300001005");
+        seedBaseline(accountId, "[\"120363historical@g.us\"]");
+
+        AccountGroupBaselineRow row = membershipMapper.selectAccountBaselineRow(accountId);
+
+        assertThat(row.getBaselineGroupJidsJson()).isEqualTo("[\"120363historical@g.us\"]");
+        assertThat(row.getBaselineGroupSubjectsJson()).isNull();
     }
 
     @Test
@@ -269,6 +339,21 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     private String baselineJson(long accountId) {
         return jdbc.queryForObject("SELECT baseline_group_jids FROM account_group_baseline WHERE account_id = ?",
                 String.class, accountId);
+    }
+
+    private String baselineSubjectsJson(long accountId) {
+        return jdbc.queryForObject(
+                "SELECT baseline_group_subjects FROM account_group_baseline WHERE account_id = ?",
+                String.class,
+                accountId);
+    }
+
+    private String baselineSubject(long accountId, String groupJid) {
+        return jdbc.queryForObject("""
+                SELECT JSON_UNQUOTE(JSON_EXTRACT(baseline_group_subjects, ?))
+                FROM account_group_baseline
+                WHERE account_id = ?
+                """, String.class, "$.\"" + groupJid + "\"", accountId);
     }
 
     private int groupBaselineState(long accountId) {

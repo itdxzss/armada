@@ -113,12 +113,14 @@ public record MessageSendCommand(
      * @param source 命令来源
      * @param marketing 普通营销关联
      * @param groupCreation 建群营销关联
+     * @param historicalGroup 历史群拉人营销关联
      */
     public record MessageCorrelation(
             Long tenantId,
             String source,
             MarketingCorrelation marketing,
-            GroupCreationCorrelation groupCreation
+            GroupCreationCorrelation groupCreation,
+            HistoricalGroupCorrelation historicalGroup
     ) {
     }
 
@@ -140,5 +142,14 @@ public record MessageSendCommand(
      * @param itemId 建群营销执行项 ID
      */
     public record GroupCreationCorrelation(Long taskId, Long itemId) {
+    }
+
+    /**
+     * 历史群拉人营销结果关联。
+     *
+     * @param executionId 历史群单群执行 ID
+     * @param memberId 本次发送账号对应的执行成员 ID
+     */
+    public record HistoricalGroupCorrelation(Long executionId, Long memberId) {
     }
 }

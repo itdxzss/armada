@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.HistoricalGroupPullMemberMapper">
+
+  <sql id="Columns">
+    id, tenant_id, execution_id, line_no, phone, material_type, account_id,
+    protocol_account_id_snapshot, contact_status, contact_error_code, contact_error_message,
+    add_status, add_error_code, add_error_message, send_status, send_command_id,
+    send_result_event_id, send_error_code, send_error_message, created_at, updated_at
+  </sql>
+
+  <!-- tenant_id 由租户拦截器注入；成员只建立一次，不在失败后复制或重试。 -->
+  <insert id="batchInsert">
+    INSERT INTO historical_group_pull_member (
+      execution_id, line_no, phone, material_type, account_id, protocol_account_id_snapshot,
+      contact_status, contact_error_code, contact_error_message, add_status, add_error_code,
+      add_error_message, send_status, send_command_id, send_result_event_id, send_error_code,
+      send_error_message, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="r" separator=",">
+      (
+        #{r.executionId}, #{r.lineNo}, #{r.phone}, #{r.materialType}, #{r.accountId},
+        #{r.protocolAccountIdSnapshot}, COALESCE(#{r.contactStatus}, 0), #{r.contactErrorCode},
+        #{r.contactErrorMessage}, COALESCE(#{r.addStatus}, 0), #{r.addErrorCode},
+        #{r.addErrorMessage}, COALESCE(#{r.sendStatus}, 0), #{r.sendCommandId},
+        #{r.sendResultEventId}, #{r.sendErrorCode}, #{r.sendErrorMessage},
+        #{r.createdAt}, #{r.updatedAt}
+      )
+    </foreach>
+  </insert>
+
+  <select id="selectByTenantAndId" resultType="com.armada.group.model.entity.HistoricalGroupPullMember">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_member
+    WHERE tenant_id = #{tenantId}
+      AND id = #{id}
+    LIMIT 1
+  </select>
+
+  <select id="selectOrderedByExecutionId" resultType="com.armada.group.model.entity.HistoricalGroupPullMember">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_member
+    WHERE execution_id = #{executionId}
+    <!-- MARKETING=2 优先于 NORMAL=1；line_no 只保留首次源行展示和类型内稳定顺序。 -->
+    ORDER BY material_type DESC, line_no ASC, id ASC
+  </select>
+
+  <update id="updateContactResultIfPending">
+    UPDATE historical_group_pull_member
+    SET contact_status = #{targetStatus},
+        contact_error_code = #{errorCode},
+        contact_error_message = #{errorMessage},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND contact_status = #{pendingStatus}
+  </update>
+
+  <update id="updateAddResultIfPending">
+    UPDATE historical_group_pull_member
+    SET add_status = #{targetStatus},
+        add_error_code = #{errorCode},
+        add_error_message = #{errorMessage},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND add_status = #{pendingStatus}
+  </update>
+
+  <!-- 服务重启不续跑遗留协议步骤；先冻结成员，再冻结所属执行。 -->
+  <update id="failStalePulling">
+    UPDATE historical_group_pull_member m
+    INNER JOIN historical_group_pull_execution e
+      ON e.tenant_id = m.tenant_id
+     AND e.id = m.execution_id
+    SET m.contact_error_code = CASE
+          WHEN m.contact_status = #{pendingStatus} THEN #{row.contactErrorCode}
+          ELSE m.contact_error_code
+        END,
+        m.contact_error_message = CASE
+          WHEN m.contact_status = #{pendingStatus} THEN #{row.contactErrorMessage}
+          ELSE m.contact_error_message
+        END,
+        m.contact_status = CASE
+          WHEN m.contact_status = #{pendingStatus} THEN #{failedStatus}
+          ELSE m.contact_status
+        END,
+        m.add_error_code = CASE
+          WHEN m.add_status = #{pendingStatus} THEN #{row.addErrorCode}
+          ELSE m.add_error_code
+        END,
+        m.add_error_message = CASE
+          WHEN m.add_status = #{pendingStatus} THEN #{row.addErrorMessage}
+          ELSE m.add_error_message
+        END,
+        m.add_status = CASE
+          WHEN m.add_status = #{pendingStatus} THEN #{failedStatus}
+          ELSE m.add_status
+        END,
+        m.updated_at = #{row.updatedAt}
+    WHERE e.pull_status = #{runningStatus}
+      AND (m.contact_status = #{pendingStatus} OR m.add_status = #{pendingStatus})
+  </update>
+
+  <!-- send_command_id 唯一，且只有 PENDING 成员能被认领。 -->
+  <update id="markSendSendingIfPending">
+    UPDATE historical_group_pull_member
+    SET send_status = #{sendingStatus},
+        send_command_id = #{commandId},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND send_status = #{pendingStatus}
+      AND send_command_id IS NULL
+  </update>
+
+  <!-- 没有可路由账号时不构造协议命令，直接给该营销成员最终命运。 -->
+  <update id="markSendFailedIfPending">
+    UPDATE historical_group_pull_member
+    SET send_status = #{failedStatus},
+        send_error_code = #{row.sendErrorCode},
+        send_error_message = #{row.sendErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND send_status = #{pendingStatus}
+      AND send_command_id IS NULL
+  </update>
+
+  <!-- 已认领命令入队异常时按成员和命令号冻结，禁止后续重复下发。 -->
+  <update id="markSendFailedByCommandId">
+    UPDATE historical_group_pull_member
+    SET send_status = #{failedStatus},
+        send_error_code = #{row.sendErrorCode},
+        send_error_message = #{row.sendErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND send_command_id = #{row.sendCommandId}
+      AND send_status = #{sendingStatus}
+      AND send_result_event_id IS NULL
+  </update>
+
+  <!-- 首个协议事件冻结结果；同时约束成员、执行与命令，防止错误关联污染其它成员。 -->
+  <update id="updateSendResultIfSending">
+    UPDATE historical_group_pull_member
+    SET send_status = #{row.sendStatus},
+        send_result_event_id = #{row.sendResultEventId},
+        send_error_code = #{row.sendErrorCode},
+        send_error_message = #{row.sendErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND execution_id = #{row.executionId}
+      AND send_command_id = #{row.sendCommandId}
+      AND send_status = #{sendingStatus}
+      AND send_result_event_id IS NULL
+  </update>
+
+  <!-- 首个事件冻结结果；重复 event 或迟到 event 都不能覆盖成员终态。 -->
+  <update id="updateSendResultByCommandId">
+    UPDATE historical_group_pull_member
+    SET send_status = #{targetStatus},
+        send_result_event_id = #{eventId},
+        send_error_code = #{errorCode},
+        send_error_message = #{errorMessage},
+        updated_at = #{updatedAt}
+    WHERE send_command_id = #{commandId}
+      AND send_status = #{sendingStatus}
+      AND send_result_event_id IS NULL
+  </update>
+
+  <!-- 启动恢复跨租户处理；遗留 SENDING 只置失败，不重发命令。 -->
+  <update id="failStaleSending">
+    UPDATE historical_group_pull_member
+    SET send_status = #{failedStatus},
+        send_error_code = #{errorCode},
+        send_error_message = #{errorMessage},
+        updated_at = #{updatedAt}
+    WHERE send_status = #{sendingStatus}
+      AND send_result_event_id IS NULL
+  </update>
+
+</mapper>

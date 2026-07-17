@@ -67,8 +67,9 @@ armada:
     # 新调用按协议后端读取独立连接配置；上面的旧字段继续兼容现有 Web adapter。
     backends:
       WEB:
-        base-url: ${PROTOCOL_WEB_BASE_URL:${PROTOCOL_BASE_URL:http://localhost:3000}}
-        api-key: ${PROTOCOL_WEB_API_KEY:${PROTOCOL_API_KEY:}}
+        # 新的分后端配置优先；未配置时继续继承部署脚本长期使用的 ARMADA_PROTOCOL_* 变量。
+        base-url: ${PROTOCOL_WEB_BASE_URL:${ARMADA_PROTOCOL_BASE_URL:${PROTOCOL_BASE_URL:http://localhost:3000}}}
+        api-key: ${PROTOCOL_WEB_API_KEY:${ARMADA_PROTOCOL_API_KEY:${PROTOCOL_API_KEY:}}}
         connect-timeout-ms: ${PROTOCOL_WEB_CONNECT_TIMEOUT_MS:3000}
         read-timeout-ms: ${PROTOCOL_WEB_READ_TIMEOUT_MS:60000}
       ANDROID:

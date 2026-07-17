@@ -45,6 +45,40 @@ public interface AccountMapper {
     Account selectActiveById(@Param("id") Long id);
 
     /**
+     * 从指定账号分组随机选择在线正常且协议身份完整的活跃账号。
+     *
+     * <p>状态筛选全部下推 SQL，且故意不关联任何任务占用表；tenant_id 由租户拦截器注入。</p>
+     *
+     * @param groupId 账号分组 ID
+     * @param normalAccountState 正常账号生命周期状态码
+     * @param onlineLoginState 在线登录状态码
+     * @param riskAllowed 风险允许状态码；未上报风险同样允许
+     * @return 随机候选；无候选时返回 null，由 Service 转为 Optional.empty
+     */
+    Account selectRandomOnlineNormalByGroupId(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("riskAllowed") int riskAllowed);
+
+    /**
+     * 从指定分组随机选择在线正常且协议身份完整的 Web 拉手账号。
+     *
+     * @param groupId           账号分组 ID
+     * @param normalAccountState 正常账号生命周期状态码
+     * @param onlineLoginState  在线登录状态码
+     * @param riskAllowed       风险允许状态码
+     * @param webProtocolId     Web 协议标识
+     * @return 随机 Web 候选；无候选时返回 null
+     */
+    Account selectRandomOnlineNormalWebByGroupId(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("riskAllowed") int riskAllowed,
+            @Param("webProtocolId") String webProtocolId);
+
+    /**
      * 按协议账号句柄查未软删账号。
      *
      * <p>协议层 Kafka 事件的 accountId 对应本表 protocol_account_id,状态回写入口用它反查账号主键。</p>
@@ -63,6 +97,16 @@ public interface AccountMapper {
      * @return 活跃账号列表;不存在或已软删账号不会返回
      */
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 按完整 WA 号码批量查询未软删账号。
+     *
+     * <p>该查询服务固定账号协议寻址，不连接状态或群关系表，离线、禁言等运行时事实不应提前排除。</p>
+     *
+     * @param wsPhones 已去空、去重的完整 WA 号码
+     * @return 当前租户可见的活跃账号；数据库返回顺序不作为业务顺序
+     */
+    List<Account> selectActiveByWsPhones(@Param("wsPhones") List<String> wsPhones);
 
     /**
      * 查询指定账号中未软删且账号状态正常的 WS 号码。

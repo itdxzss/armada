@@ -54,6 +54,7 @@ public final class WebMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.MessageCorrelation correlation = command.correlation();
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
+        MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
         MessageSendCommand.MessageContent content = command.payload().content();
         WebMessagePayload payload = new WebMessagePayload(
                 correlation.tenantId(),
@@ -72,7 +73,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 command.payload().mentionAll(),
                 correlation.source(),
                 groupCreation == null ? null : groupCreation.taskId(),
-                groupCreation == null ? null : groupCreation.itemId());
+                groupCreation == null ? null : groupCreation.itemId(),
+                historicalGroup == null ? null : historicalGroup.executionId(),
+                historicalGroup == null ? null : historicalGroup.memberId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.WEB,
@@ -129,7 +132,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             boolean mentionAll,
             String source,
             Long groupCreationTaskId,
-            Long groupCreationItemId
+            Long groupCreationItemId,
+            Long historicalExecutionId,
+            Long historicalMemberId
     ) {
     }
 

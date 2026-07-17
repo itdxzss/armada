@@ -127,12 +127,13 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
      * 把统一命令编码成 Android Kafka payload 和 outbox 路由信息。
      *
      * <p>{@code wsPhone} 是 Android 在线实例解析所需事实，只存在于 Android payload；普通营销和
-     * 建群营销的关联字段按实际 source 二选一写入，避免两个业务关联同时出现。</p>
+     * 建群营销、普通营销和历史群营销的关联字段按实际 source 三选一写入，避免业务关联串线。</p>
      */
     private ProtocolMessageOutboxCommand toOutboxCommand(MessageSendCommand command) {
         MessageSendCommand.MessageCorrelation correlation = command.correlation();
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
+        MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
         MessageSendCommand.MessageContent content = command.payload().content();
         AndroidMessagePayload payload = new AndroidMessagePayload(
                 correlation.tenantId(),
@@ -152,7 +153,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 marketing == null ? null : marketing.attemptId(),
                 marketing == null ? null : marketing.roundNo(),
                 groupCreation == null ? null : groupCreation.taskId(),
-                groupCreation == null ? null : groupCreation.itemId());
+                groupCreation == null ? null : groupCreation.itemId(),
+                historicalGroup == null ? null : historicalGroup.executionId(),
+                historicalGroup == null ? null : historicalGroup.memberId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
@@ -214,7 +217,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long attemptId,
             Long roundNo,
             Long groupCreationTaskId,
-            Long groupCreationItemId
+            Long groupCreationItemId,
+            Long historicalExecutionId,
+            Long historicalMemberId
     ) {
     }
 

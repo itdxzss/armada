@@ -9,8 +9,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ProtocolMessageEventConsumerTest {
@@ -22,7 +27,9 @@ class ProtocolMessageEventConsumerTest {
 
     @BeforeEach
     void setUp() {
-        consumer = new ProtocolMessageEventConsumer(new ObjectMapper(), sink);
+        // 个别路由所有权测试会构造独立 sink 列表，默认 sink 在这些用例中不会被访问。
+        lenient().when(sink.supports(any())).thenReturn(true);
+        consumer = new ProtocolMessageEventConsumer(new ObjectMapper(), java.util.List.of(sink));
     }
 
     @Test
@@ -207,6 +214,86 @@ class ProtocolMessageEventConsumerTest {
         assertThat(event.groupCreationTaskId()).isEqualTo(22L);
         assertThat(event.groupCreationItemId()).isEqualTo(11L);
         assertThat(event.source()).isEqualTo("group_creation_marketing");
+    }
+
+    @Test
+    void onMessage_historicalGroupPullDispatchesExecutionMemberReferenceToOnlySupportingSink() {
+        ProtocolMessageSendResultReportedSink marketingSink = mock(ProtocolMessageSendResultReportedSink.class);
+        ProtocolMessageSendResultReportedSink historicalSink = mock(ProtocolMessageSendResultReportedSink.class);
+        when(marketingSink.supports(any())).thenReturn(false);
+        when(historicalSink.supports(any())).thenReturn(true);
+        ProtocolMessageEventConsumer historicalConsumer = new ProtocolMessageEventConsumer(
+                new ObjectMapper(), java.util.List.of(marketingSink, historicalSink));
+        String raw = """
+                {
+                  "eventId":"evt_historical_1",
+                  "event":"message.send_result_reported",
+                  "accountId":"acc_marketing_1",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":1,
+                    "historicalExecutionId":91,
+                    "historicalMemberId":301,
+                    "protocolAccountId":"acc_marketing_1",
+                    "groupJid":"120363history@g.us",
+                    "commandId":"cmd_historical_91_301",
+                    "success":false,
+                    "reasonCode":"SEND_FAILED",
+                    "reasonMessage":"administrator permission denied",
+                    "timestamp":1783159200000,
+                    "source":"historical_group_pull",
+                    "groupStatus":"UNCONFIRMED",
+                    "groupStatusReason":"PRECHECK_SKIPPED_BY_SOURCE",
+                    "groupStatusCheckedAt":1783159199000
+                  }
+                }
+                """;
+
+        historicalConsumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(historicalSink).handleSendResultReported(captor.capture());
+        verify(marketingSink, org.mockito.Mockito.never()).handleSendResultReported(any());
+        ProtocolMessageSendResultReportedEvent event = captor.getValue();
+        assertThat(event.historicalExecutionId()).isEqualTo(91L);
+        assertThat(event.historicalMemberId()).isEqualTo(301L);
+        assertThat(event.marketingTaskId()).isNull();
+        assertThat(event.groupCreationTaskId()).isNull();
+        assertThat(event.reasonMessage()).isEqualTo("administrator permission denied");
+        assertThat(event.groupStatusReason()).isEqualTo("PRECHECK_SKIPPED_BY_SOURCE");
+    }
+
+    @Test
+    void onMessage_rejectsAmbiguousSinkOwnership() {
+        ProtocolMessageSendResultReportedSink first = mock(ProtocolMessageSendResultReportedSink.class);
+        ProtocolMessageSendResultReportedSink second = mock(ProtocolMessageSendResultReportedSink.class);
+        when(first.supports(any())).thenReturn(true);
+        when(second.supports(any())).thenReturn(true);
+        ProtocolMessageEventConsumer ambiguousConsumer = new ProtocolMessageEventConsumer(
+                new ObjectMapper(), java.util.List.of(first, second));
+        String raw = """
+                {
+                  "eventId":"evt_ambiguous",
+                  "event":"message.send_result_reported",
+                  "data":{
+                    "tenantId":1,
+                    "marketingTaskId":42,
+                    "targetId":501,
+                    "attemptId":9001,
+                    "roundNo":1,
+                    "protocolAccountId":"acc_1",
+                    "groupJid":"120363001@g.us",
+                    "success":true
+                  }
+                }
+                """;
+
+        assertThatThrownBy(() -> ambiguousConsumer.onMessage(raw))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("唯一处理器");
+        verify(first, org.mockito.Mockito.never()).handleSendResultReported(any());
+        verify(second, org.mockito.Mockito.never()).handleSendResultReported(any());
     }
 
     @Test

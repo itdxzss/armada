@@ -28,6 +28,8 @@ package com.armada.platform.kafka.consumer.message;
  * @param groupStatus     发送时群状态快照
  * @param groupStatusReason 群状态判定原因
  * @param groupStatusCheckedAt 群状态判定时间(epoch毫秒)
+ * @param historicalExecutionId 历史群单群执行 ID;source=historical_group_pull 时使用
+ * @param historicalMemberId 历史群营销成员 ID;source=historical_group_pull 时使用
  */
 public record ProtocolMessageSendResultReportedEvent(
         String eventId,
@@ -50,6 +52,8 @@ public record ProtocolMessageSendResultReportedEvent(
         String source,
         String groupStatus,
         String groupStatusReason,
-        Long groupStatusCheckedAt
+        Long groupStatusCheckedAt,
+        Long historicalExecutionId,
+        Long historicalMemberId
 ) {
 }

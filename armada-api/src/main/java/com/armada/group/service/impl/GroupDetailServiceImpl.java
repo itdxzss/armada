@@ -626,6 +626,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupParticipantResult current,
             GroupParticipantAction action) {
         return switch (action) {
+            case ADD -> current != null;
             case PROMOTE -> current != null
                     && (Boolean.TRUE.equals(current.admin())
                     || Boolean.TRUE.equals(current.owner()));

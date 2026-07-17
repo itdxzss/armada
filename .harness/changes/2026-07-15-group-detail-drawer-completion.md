@@ -2,6 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-15 / 1.0.1-snapshot / armada
 - 需求来源: 用户逐项确认；`docs/superpowers/specs/2026-07-15-group-detail-drawer-completion-design.md`
+- 跨仓复核问题: `docs/superpowers/reviews/2026-07-16-group-detail-drawer-cross-repo-findings.md`
 - 状态: 本地实施完成，待确认环境后执行 DbTest 与 WhatsApp 真群验收
 
 ## 目标（一句话）

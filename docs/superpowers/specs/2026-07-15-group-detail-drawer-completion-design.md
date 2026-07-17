@@ -6,6 +6,8 @@
 >
 > 目标仓库：`armada`、`armada-protocol`、`wheel-saas-pure-web`
 >
+> 跨仓复核问题：`docs/superpowers/reviews/2026-07-16-group-detail-drawer-cross-repo-findings.md`
+>
 > 产品边界：只补齐当前群详情抽屉已经存在的入口，不新增按钮、页面或业务能力
 
 ## 1. 背景

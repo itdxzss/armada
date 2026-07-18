@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * 不可用 IP 定时重检任务配置。
  *
- * <p>对应 {@code armada.ip-proxy-unavailable-recheck.*} 前缀。默认每 15 分钟重检 20 个不可用 IP,
+ * <p>对应 {@code armada.ip-proxy-unavailable-recheck.*} 前缀。默认每 15 分钟重检 200 个不可用 IP,
  * 避免慢代理把调度线程长期占满。</p>
  *
  * @param enabled      是否启用定时任务
@@ -17,7 +17,7 @@ public class IpProxyUnavailableRecheckJobProperties {
 
     private boolean enabled = true;
     private long fixedDelayMs = 900_000L;
-    private int batchSize = 20;
+    private int batchSize = 200;
 
     public IpProxyUnavailableRecheckJobProperties() {
     }

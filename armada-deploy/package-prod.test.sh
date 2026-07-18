@@ -64,6 +64,8 @@ test_app_package_templates() {
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC:-protocol.android.lifecycle.commands.v1}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC:-protocol.android.message.commands.v1}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:-protocol.android.group-join.commands.v1}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "      IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200"
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "      ARMADA_IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200"
   assert_file_contains "${PROD_DIR}/app/.env.example" "APP_TITLE=Wheel SaaS"
   assert_file_contains "${PROD_DIR}/app/.env.example" "DB_URL=jdbc:mysql://"
   assert_file_contains "${PROD_DIR}/app/.env.example" "KAFKA_BROKERS="

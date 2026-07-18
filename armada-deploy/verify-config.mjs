@@ -83,5 +83,15 @@ expectIncludes(
   "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL: ${ARMADA_PROTOCOL_RESTART_MASTER_READY_URL:-http://65.2.122.109:8080/readyz}",
   "docker-compose.rds.yml"
 );
+expectIncludes(
+  compose,
+  "      IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "      ARMADA_IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200",
+  "docker-compose.rds.yml"
+);
 
 console.log("armada deploy config verification passed");

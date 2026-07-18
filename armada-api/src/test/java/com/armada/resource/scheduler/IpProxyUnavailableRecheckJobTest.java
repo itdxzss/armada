@@ -35,17 +35,17 @@ class IpProxyUnavailableRecheckJobTest {
     }
 
     @Test
-    void runOnce_enabledDelegatesToService() {
-        when(service.recheckUnavailableProxies(20))
+    void runOnce_enabledDelegatesDefaultBatchSizeToService() {
+        when(service.recheckUnavailableProxies(200))
                 .thenReturn(new IpProxyRecheckResult(3, 3, 1));
         IpProxyUnavailableRecheckJob job = new IpProxyUnavailableRecheckJob(
-                service, new IpProxyUnavailableRecheckJobProperties(true, 900_000L, 20));
+                service, new IpProxyUnavailableRecheckJobProperties());
 
         IpProxyUnavailableRecheckJob.JobResult result = job.runOnce();
 
         assertThat(result.scanned()).isEqualTo(3);
         assertThat(result.checked()).isEqualTo(3);
         assertThat(result.failed()).isEqualTo(1);
-        verify(service).recheckUnavailableProxies(20);
+        verify(service).recheckUnavailableProxies(200);
     }
 }

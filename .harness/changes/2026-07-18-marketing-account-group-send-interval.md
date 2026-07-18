@@ -3,7 +3,8 @@
 - 日期 / 分支 / worktree: 2026-07-18 / `1.0.1-snapshot` / 主工作区
 - 需求来源: 用户要求新增营销任务页面增加“单账号下群组发送间隔”，默认 0.5 秒、最大 3 秒，避免同一账号瞬间向全部群推送营销命令
 - 设计文档: `docs/superpowers/specs/2026-07-18-marketing-account-group-send-interval-design.md`
-- 状态: 设计已确认，待实施计划
+- 实施计划: `docs/superpowers/plans/2026-07-18-marketing-account-group-send-interval.md`
+- 状态: 设计已确认，实施计划已完成，待编码
 
 ## 目标（一句话）
 
@@ -14,7 +15,7 @@
 - [x] 核对普通营销任务前端、任务聚合、轮次 worker、outbox dispatcher、Web/Android 消费现状。
 - [x] 确认页面名称、范围、精度、双协议范围和固定推送间隔口径。
 - [x] 完成 Armada-only 设计。
-- [ ] 编写实施计划。
+- [x] 编写实施计划。
 - [ ] 前端按 TDD 增加字段、校验和请求映射。
 - [ ] 后端按 TDD 增加任务配置、Flyway、Mapper、DTO/VO 和创建校验。
 - [ ] 按 TDD 增加普通营销 outbox 初始排期和投递快照。

@@ -18,6 +18,7 @@
         <result column="sent_message_count" property="sentMessageCount"/>
         <result column="failed_message_count" property="failedMessageCount"/>
         <result column="send_per_round" property="sendPerRound"/>
+        <result column="account_group_send_interval_ms" property="accountGroupSendIntervalMs"/>
         <result column="send_interval_seconds" property="sendIntervalSeconds"/>
         <result column="is_online_check_enabled" property="onlineCheckEnabled"/>
         <result column="is_abnormal_group_skipped" property="abnormalGroupSkipped"/>
@@ -68,7 +69,8 @@
         id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
         sent_message_count, failed_message_count,
-        send_per_round, send_interval_seconds, is_online_check_enabled, is_abnormal_group_skipped,
+        send_per_round, account_group_send_interval_ms, send_interval_seconds,
+        is_online_check_enabled, is_abnormal_group_skipped,
         is_auto_retry_enabled, retry_limit, current_round_no, remark,
         account_group_send_at, task_start_at, task_end_at, started_at, next_round_at,
         last_round_started_at, last_sent_at, finished_at,
@@ -99,14 +101,14 @@
         INSERT INTO marketing_task
             (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
-             failed_message_count, send_per_round, send_interval_seconds,
+             failed_message_count, send_per_round, account_group_send_interval_ms, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
              current_round_no, remark, account_group_send_at, task_start_at, task_end_at, started_at,
              next_round_at, last_round_started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
             (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
-             #{failedMessageCount}, #{sendPerRound}, #{sendIntervalSeconds},
+             #{failedMessageCount}, #{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
              #{currentRoundNo}, #{remark}, #{accountGroupSendAt}, #{taskStartAt}, #{taskEndAt},
              #{startedAt}, #{nextRoundAt}, #{lastRoundStartedAt}, #{lastSentAt}, #{finishedAt},

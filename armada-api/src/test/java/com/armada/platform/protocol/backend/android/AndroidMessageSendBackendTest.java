@@ -103,7 +103,8 @@ class AndroidMessageSendBackendTest {
                 .containsEntry("marketingTaskId", 42L)
                 .containsEntry("attemptId", 9001L)
                 .containsEntry("targetId", 501L)
-                .containsEntry("roundNo", 1L);
+                .containsEntry("roundNo", 1L)
+                .doesNotContainKeys("dispatchPolicy", "notBeforeAt", "dispatchIntervalMs");
         @SuppressWarnings("unchecked")
         Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
         @SuppressWarnings("unchecked")
@@ -129,7 +130,8 @@ class AndroidMessageSendBackendTest {
                         null,
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
-                "cmd_historical_android");
+                "cmd_historical_android",
+                0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         null, List.of("cmd_historical_android"), 1));
@@ -173,7 +175,8 @@ class AndroidMessageSendBackendTest {
                         new MessageSendCommand.MessageContent("hello", null, null, null),
                         false),
                 correlation(),
-                commandId);
+                commandId,
+                2_500L);
     }
 
     private static MessageSendCommand buttonCommand(
@@ -187,7 +190,8 @@ class AndroidMessageSendBackendTest {
                         new MessageSendCommand.MessageContent("body", null, null, card),
                         true),
                 correlation(),
-                commandId);
+                commandId,
+                2_500L);
     }
 
     private static MessageSendCommand.MessageButtonCard card(List<MessageSendCommand.MessageButton> buttons) {

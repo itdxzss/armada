@@ -250,7 +250,8 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
                         null,
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(execution.getId(), member.getId())),
-                commandId);
+                commandId,
+                0L);
     }
 
     private static MessageType messageType(String value) {

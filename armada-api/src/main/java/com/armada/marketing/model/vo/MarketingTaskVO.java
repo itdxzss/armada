@@ -1,5 +1,7 @@
 package com.armada.marketing.model.vo;
 
+import java.math.BigDecimal;
+
 /**
  * 营销任务列表行/创建返回视图。
  */
@@ -17,6 +19,7 @@ public record MarketingTaskVO(
         Integer sentMessageCount,
         Integer failedMessageCount,
         Integer sendPerRound,
+        BigDecimal accountGroupSendIntervalSeconds,
         Integer sendIntervalSeconds,
         Boolean onlineCheckEnabled,
         Boolean abnormalGroupSkipped,

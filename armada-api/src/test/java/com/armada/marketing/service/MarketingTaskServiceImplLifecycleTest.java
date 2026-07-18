@@ -1,5 +1,6 @@
 package com.armada.marketing.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -20,7 +21,10 @@ import com.armada.marketing.service.impl.MarketingAccountTreeRealtimeService;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.marketing.service.impl.MarketingTaskServiceImpl;
 import com.armada.shared.exception.BusinessException;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -57,7 +61,7 @@ class MarketingTaskServiceImplLifecycleTest {
     private MarketingTaskServiceImpl service;
 
     @Test
-    void createTask_futureTaskLocksAccountsAfterTargetsPersisted() {
+    void createTask_futureTaskPersistsAccountGroupIntervalAndLocksAccountsAfterTargetsPersisted() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
         when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
         when(taskMapper.selectAccountTargetCandidate(
@@ -76,14 +80,49 @@ class MarketingTaskServiceImplLifecycleTest {
         CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
                 "未来执行任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
                 null, now + 60_000L, now + 600_000L,
-                1, 30, true, true, false, null,
+                1, new BigDecimal("3.0"), 30, true, true, false, null,
                 java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
 
-        service.createTask(request);
+        var created = service.createTask(request);
 
+        assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(3_000);
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("3.0");
         verify(templateMapper).selectByIdForUpdate(TEMPLATE_ID);
         verify(occupancyService).lockTaskAccountsOrThrow(
                 eq(insertedTask.get()), anyLong());
+    }
+
+    @Test
+    void createTask_missingAccountGroupIntervalDefaultsToHalfSecond() {
+        AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
+        when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.selectAccountTargetCandidate(
+                eq(12L),
+                eq(31L),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(accountCandidate());
+        doAnswer(invocation -> {
+            MarketingTask task = invocation.getArgument(0);
+            task.setId(TASK_ID);
+            insertedTask.set(task);
+            return 1;
+        }).when(taskMapper).insertTask(org.mockito.ArgumentMatchers.any());
+        when(taskMapper.selectTaskById(TASK_ID)).thenAnswer(invocation -> insertedTask.get());
+
+        var created = service.createTask(requestWithInterval(null));
+
+        assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(500);
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("0.5");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0.4", "0.55", "3.1"})
+    void createTask_invalidAccountGroupIntervalIsRejected(String interval) {
+        assertThatThrownBy(() -> service.createTask(requestWithInterval(new BigDecimal(interval))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("单账号下群组发送间隔必须为0.5到3秒，最多一位小数");
+
+        verify(taskMapper, never()).insertTask(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -207,5 +246,12 @@ class MarketingTaskServiceImplLifecycleTest {
         row.setAccountId(31L);
         row.setAccountPhone("923100000031");
         return row;
+    }
+
+    private static CreateMarketingTaskDTO requestWithInterval(BigDecimal interval) {
+        return new CreateMarketingTaskDTO(
+                "间隔测试任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
+                null, null, null, 1, interval, 30, true, true, false, null,
+                java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
     }
 }

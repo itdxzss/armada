@@ -27,6 +27,7 @@ import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -59,6 +60,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private static final int STATUS_COMPLETED = MarketingTaskStatus.COMPLETED.code();
     private static final int STATUS_CLOSED = MarketingTaskStatus.CLOSED.code();
     private static final long ACCOUNT_GROUP_SEND_LOOKBACK_MS = 72L * 60L * 60L * 1000L;
+    private static final BigDecimal MIN_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS = new BigDecimal("0.5");
+    private static final BigDecimal MAX_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS = new BigDecimal("3");
+    private static final int DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS = 500;
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
@@ -359,6 +363,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (positive(request.sendPerRound()) < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "单次发送数量必须为正整数");
         }
+        if (!validAccountGroupSendInterval(request.accountGroupSendIntervalSeconds())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "单账号下群组发送间隔必须为0.5到3秒，最多一位小数");
+        }
         if (positive(request.sendIntervalSeconds()) < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "发送间隔必须为正整数");
         }
@@ -562,6 +569,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setSentMessageCount(0);
         task.setFailedMessageCount(0);
         task.setSendPerRound(positive(request.sendPerRound()));
+        task.setAccountGroupSendIntervalMs(normalizeAccountGroupSendIntervalMs(
+                request.accountGroupSendIntervalSeconds()));
         task.setSendIntervalSeconds(positive(request.sendIntervalSeconds()));
         task.setOnlineCheckEnabled(Boolean.TRUE.equals(request.onlineCheckEnabled()));
         task.setAbnormalGroupSkipped(Boolean.TRUE.equals(request.abnormalGroupSkipped()));
@@ -616,6 +625,25 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return value == null ? 0 : value;
     }
 
+    private static boolean validAccountGroupSendInterval(BigDecimal value) {
+        return value == null
+                || (value.compareTo(MIN_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS) >= 0
+                && value.compareTo(MAX_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS) <= 0
+                && value.stripTrailingZeros().scale() <= 1);
+    }
+
+    private static int normalizeAccountGroupSendIntervalMs(BigDecimal value) {
+        if (value == null) {
+            return DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS;
+        }
+        return value.movePointRight(3).intValueExact();
+    }
+
+    private static BigDecimal accountGroupSendIntervalSeconds(Integer milliseconds) {
+        int normalized = milliseconds == null ? DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS : milliseconds;
+        return BigDecimal.valueOf(normalized, 3).stripTrailingZeros();
+    }
+
     private static String snapshotName(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
@@ -629,6 +657,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
+                accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
@@ -716,6 +745,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
+                accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),

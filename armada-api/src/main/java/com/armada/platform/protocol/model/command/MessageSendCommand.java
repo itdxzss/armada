@@ -12,13 +12,15 @@ import java.util.List;
  * @param payload 消息内容
  * @param correlation 营销业务关联信息
  * @param commandId 全局唯一命令 ID
+ * @param notBeforeAt Armada 内部最早投递时间（epoch 毫秒），不进入协议 payload；0 表示立即
  */
 public record MessageSendCommand(
         ProtocolAccountRef account,
         MessageTarget target,
         MessagePayload payload,
         MessageCorrelation correlation,
-        String commandId
+        String commandId,
+        long notBeforeAt
 ) {
 
     /**

@@ -2,6 +2,9 @@ package com.armada.platform.kafka.dispatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -9,12 +12,16 @@ import static org.mockito.Mockito.when;
 
 import com.armada.platform.kafka.config.ProtocolCommandDispatcherProperties;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -26,6 +33,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 class ProtocolCommandDispatchTriggerTest {
 
     private final List<ProtocolCommandOutbox> rows = List.of(outboxRow("cmd-1"));
+    private final TaskScheduler scheduler = mock(TaskScheduler.class);
 
     @AfterEach
     void clearSynchronization() {
@@ -41,7 +49,8 @@ class ProtocolCommandDispatchTriggerTest {
         ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(
                 dispatcher,
                 executor,
-                new ProtocolCommandDispatcherProperties());
+                new ProtocolCommandDispatcherProperties(),
+                scheduler);
         TransactionSynchronizationManager.initSynchronization();
 
         trigger.dispatchAfterCommit(rows);
@@ -63,7 +72,8 @@ class ProtocolCommandDispatchTriggerTest {
         ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(
                 dispatcher,
                 executor,
-                new ProtocolCommandDispatcherProperties());
+                new ProtocolCommandDispatcherProperties(),
+                scheduler);
 
         trigger.dispatchAfterCommit(rows);
 
@@ -79,7 +89,8 @@ class ProtocolCommandDispatchTriggerTest {
         RecordingExecutor executor = new RecordingExecutor();
         ProtocolCommandDispatcherProperties properties = new ProtocolCommandDispatcherProperties();
         properties.setImmediateEnabled(false);
-        ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(dispatcher, executor, properties);
+        ProtocolCommandDispatchTrigger trigger =
+                new ProtocolCommandDispatchTrigger(dispatcher, executor, properties, scheduler);
 
         trigger.dispatchAfterCommit(rows);
 
@@ -96,10 +107,37 @@ class ProtocolCommandDispatchTriggerTest {
         ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(
                 dispatcher,
                 rejectingExecutor,
-                new ProtocolCommandDispatcherProperties());
+                new ProtocolCommandDispatcherProperties(),
+                scheduler);
 
         assertThatCode(() -> trigger.dispatchAfterCommit(rows)).doesNotThrowAnyException();
         verify(dispatcher).dispatchInsertedRows(rows);
+    }
+
+    @Test
+    void dispatchAfterCommit_futureRowsAreScheduledAtNextRetryAt() {
+        ProtocolCommandDispatcher dispatcher = dispatcher();
+        RecordingExecutor executor = new RecordingExecutor();
+        ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
+        long futureAt = System.currentTimeMillis() + 60_000L;
+        ProtocolCommandOutbox futureRow = outboxRow("cmd-future");
+        futureRow.setNextRetryAt(futureAt);
+        doReturn(scheduledFuture).when(scheduler).schedule(any(Runnable.class), eq(Instant.ofEpochMilli(futureAt)));
+        ProtocolCommandDispatchTrigger trigger = new ProtocolCommandDispatchTrigger(
+                dispatcher,
+                executor,
+                new ProtocolCommandDispatcherProperties(),
+                scheduler);
+
+        trigger.dispatchAfterCommit(List.of(futureRow));
+
+        assertThat(executor.tasks).isEmpty();
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(scheduler).schedule(captor.capture(), eq(Instant.ofEpochMilli(futureAt)));
+        captor.getValue().run();
+        assertThat(executor.tasks).hasSize(1);
+        executor.tasks.get(0).run();
+        verify(dispatcher).dispatchInsertedRows(List.of(futureRow));
     }
 
     private static ProtocolCommandDispatcher dispatcher() {

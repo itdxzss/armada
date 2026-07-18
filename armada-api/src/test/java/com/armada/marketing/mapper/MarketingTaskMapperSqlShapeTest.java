@@ -21,6 +21,25 @@ class MarketingTaskMapperSqlShapeTest {
             "src/main/resources/db/migration/V050__marketing_task_five_state_lifecycle.sql");
     private static final Path GROUP_STATUS_MIGRATION = Path.of(
             "src/main/resources/db/migration/V052__marketing_attempt_group_status.sql");
+    private static final Path ACCOUNT_GROUP_INTERVAL_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V058__marketing_account_group_send_interval.sql");
+
+    @Test
+    void accountGroupSendIntervalIsPersistedInMillisecondsWithForwardMigration() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        assertThat(xml)
+                .contains("<result column=\"account_group_send_interval_ms\" property=\"accountGroupSendIntervalMs\"/>")
+                .contains("send_per_round, account_group_send_interval_ms, send_interval_seconds")
+                .contains("#{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds}");
+        assertThat(ACCOUNT_GROUP_INTERVAL_MIGRATION).exists();
+        assertThat(Files.readString(ACCOUNT_GROUP_INTERVAL_MIGRATION, StandardCharsets.UTF_8))
+                .contains("information_schema.columns")
+                .contains("column_name = 'account_group_send_interval_ms'")
+                .contains("ADD COLUMN account_group_send_interval_ms INT NOT NULL DEFAULT 500");
+    }
 
     @Test
     void executionTargetsReadCurrentProtocolRoutingFactsFromAccount() throws IOException {

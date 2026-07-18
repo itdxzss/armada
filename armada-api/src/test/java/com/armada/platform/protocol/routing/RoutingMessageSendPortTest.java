@@ -99,7 +99,8 @@ class RoutingMessageSendPortTest {
                         new MessageSendCommand.MarketingCorrelation(2L, 3L, 4L, 1L),
                         null,
                         null),
-                commandId);
+                commandId,
+                0L);
     }
 
     private static final class RecordingBackend implements MessageSendBackend {

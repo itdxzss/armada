@@ -6,6 +6,7 @@ import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
+import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
@@ -531,7 +532,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setPayloadJson(payloadJson(outboxCommand.payload()));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
-        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setNextRetryAt(Math.max(IMMEDIATE_RETRY_AT, command.notBeforeAt()));
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;

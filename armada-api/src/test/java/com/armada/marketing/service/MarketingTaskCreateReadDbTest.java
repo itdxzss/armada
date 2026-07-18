@@ -10,6 +10,7 @@ import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import com.armada.testsupport.DbTestBase;
+import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
@@ -60,12 +61,43 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 .as("累计成功群数在首次成功回调前必须为0")
                 .isZero();
         assertThat(created.targetPairCount()).isEqualTo(1);
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("0.5");
 
         Integer targetRows = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM marketing_task_target WHERE marketing_task_id = ?",
                 Integer.class,
                 created.id());
         assertThat(targetRows).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT account_group_send_interval_ms FROM marketing_task WHERE id = ?",
+                Integer.class,
+                created.id())).isEqualTo(500);
+        assertThat(service.getDetail(created.id()).accountGroupSendIntervalSeconds())
+                .isEqualByComparingTo("0.5");
+
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setKeyword("巴铁烟草群发");
+        assertThat(service.listTasks(query).list()).singleElement()
+                .extracting(MarketingTaskVO::accountGroupSendIntervalSeconds)
+                .isEqualTo(new BigDecimal("0.5"));
+    }
+
+    @Test
+    void createTask_persistsExplicitAccountGroupSendInterval() {
+        Fixture fixture = seedFixture("explicit-account-group-interval");
+        MarketingTaskVO created = service.createTask(requestWithInterval(
+                "显式账号群间隔任务",
+                fixture,
+                new BigDecimal("2.3"),
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("2.3");
+        assertThat(jdbc.queryForObject(
+                "SELECT account_group_send_interval_ms FROM marketing_task WHERE id = ?",
+                Integer.class,
+                created.id())).isEqualTo(2_300);
+        assertThat(service.getDetail(created.id()).accountGroupSendIntervalSeconds())
+                .isEqualByComparingTo("2.3");
     }
 
     @Test
@@ -405,6 +437,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 taskStartAt,
                 taskEndAt,
                 1,
+                null,
                 30,
                 true,
                 true,
@@ -425,6 +458,32 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 null,
                 startMode,
                 1,
+                null,
+                30,
+                true,
+                true,
+                false,
+                "备注",
+                selections);
+    }
+
+    private CreateMarketingTaskDTO requestWithInterval(
+            String taskName,
+            Fixture fixture,
+            BigDecimal intervalSeconds,
+            List<MarketingSelectionDTO> selections) {
+        return new CreateMarketingTaskDTO(
+                taskName,
+                fixture.accountGroupId(),
+                "营销账号组",
+                fixture.templateId(),
+                "营销模板",
+                "PENDING",
+                null,
+                null,
+                null,
+                1,
+                intervalSeconds,
                 30,
                 true,
                 true,

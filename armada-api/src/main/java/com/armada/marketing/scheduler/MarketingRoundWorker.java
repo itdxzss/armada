@@ -27,6 +27,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -51,6 +52,7 @@ public class MarketingRoundWorker {
     private static final String SOURCE_MARKETING_TASK = "marketing_task";
     private static final String REASON_INVALID_TEMPLATE_CONFIG = "INVALID_TEMPLATE_CONFIG";
     private static final String REASON_ACCOUNT_OCCUPIED = "ACCOUNT_OCCUPIED";
+    private static final int DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS = 500;
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
@@ -220,7 +222,7 @@ public class MarketingRoundWorker {
         allAttempts.addAll(skippedAttempts);
         allAttempts.addAll(attempts);
         insertAttempts(allAttempts, "营销发送尝试");
-        EnqueueSummary summary = enqueueCommands(task, sendTargets, attempts, message);
+        EnqueueSummary summary = enqueueCommands(task, sendTargets, attempts, message, now);
         log.info("营销任务轮次发送命令已生成 tenantId={} taskId={} roundNo={} targetCount={} occupiedSkipped={} "
                         + "sourceTargetCount={} attemptCount={} commandCount={} outboxBatches={} batchSize={} messageType={} "
                         + "accepted={} rejected={} imageBytes={} nextRoundAt={}",
@@ -431,8 +433,11 @@ public class MarketingRoundWorker {
     private EnqueueSummary enqueueCommands(MarketingTask task,
                                            List<ResolvedMarketingTarget> sendTargets,
                                            List<MarketingTaskSendAttempt> attempts,
-                                           MarketingMessageComposer.ComposedMessage message) {
+                                           MarketingMessageComposer.ComposedMessage message,
+                                           long roundStartedAt) {
         int batchSize = outboxBatchSize(message);
+        int dispatchIntervalMs = accountGroupSendIntervalMs(task);
+        Map<Long, Integer> accountPositions = new HashMap<>();
         List<MessageSendCommand> batch = new ArrayList<>(batchSize);
         List<MarketingTaskSendAttempt> batchAttempts = new ArrayList<>(batchSize);
         int batchCount = 0;
@@ -444,7 +449,10 @@ public class MarketingRoundWorker {
             ResolvedMarketingTarget sendTarget = sendTargets.get(i);
             MarketingTaskTarget target = sendTarget.target();
             MarketingTaskSendAttempt attempt = attempts.get(i);
-            batch.add(toMessageSendCommand(task, target, sendTarget, attempt, message));
+            int accountPosition = accountPositions.getOrDefault(target.getAccountId(), 0);
+            accountPositions.put(target.getAccountId(), accountPosition + 1);
+            long notBeforeAt = roundStartedAt + (long) accountPosition * dispatchIntervalMs;
+            batch.add(toMessageSendCommand(task, sendTarget, attempt, message, notBeforeAt));
             batchAttempts.add(attempt);
             if (batch.size() == batchSize) {
                 BatchResult result = enqueueBatch(batch, batchAttempts, resultAt);
@@ -515,10 +523,11 @@ public class MarketingRoundWorker {
     /** 把营销域已组合消息转换为协议无关发送命令。 */
     private static MessageSendCommand toMessageSendCommand(
             MarketingTask task,
-            MarketingTaskTarget target,
             ResolvedMarketingTarget sendTarget,
             MarketingTaskSendAttempt attempt,
-            MarketingMessageComposer.ComposedMessage message) {
+            MarketingMessageComposer.ComposedMessage message,
+            long notBeforeAt) {
+        MarketingTaskTarget target = sendTarget.target();
         return new MessageSendCommand(
                 accountRef(target),
                 new MessageSendCommand.MessageTarget(sendTarget.groupJid()),
@@ -537,7 +546,13 @@ public class MarketingRoundWorker {
                                 task.getId(), target.getId(), attempt.getId(), attempt.getRoundNo()),
                         null,
                         null),
-                attempt.getCommandId());
+                attempt.getCommandId(),
+                notBeforeAt);
+    }
+
+    private static int accountGroupSendIntervalMs(MarketingTask task) {
+        Integer intervalMs = task.getAccountGroupSendIntervalMs();
+        return intervalMs == null || intervalMs < 1 ? DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS : intervalMs;
     }
 
     /**

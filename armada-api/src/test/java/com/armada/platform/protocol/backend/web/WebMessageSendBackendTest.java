@@ -58,7 +58,8 @@ class WebMessageSendBackendTest {
                 .containsEntry("messageType", "BUTTON_CARD")
                 .containsEntry("mentionAll", true)
                 .containsEntry("source", "marketing_task")
-                .doesNotContainKey("wsPhone");
+                .doesNotContainKey("wsPhone")
+                .doesNotContainKeys("dispatchPolicy", "notBeforeAt", "dispatchIntervalMs");
         @SuppressWarnings("unchecked")
         Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
         @SuppressWarnings("unchecked")
@@ -84,7 +85,8 @@ class WebMessageSendBackendTest {
                                 null),
                         false),
                 correlation(),
-                "cmd_image");
+                "cmd_image",
+                0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
                         null, List.of("cmd_image"), 1));
@@ -121,7 +123,8 @@ class WebMessageSendBackendTest {
                         null,
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
-                "cmd_historical_web");
+                "cmd_historical_web",
+                0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
                         null, List.of("cmd_historical_web"), 1));
@@ -164,7 +167,8 @@ class WebMessageSendBackendTest {
                                         null)),
                         true),
                 correlation(),
-                "cmd_web");
+                "cmd_web",
+                2_500L);
     }
 
     private static ProtocolAccountRef account() {

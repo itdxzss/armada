@@ -262,6 +262,7 @@ class MarketingTaskControllerDbTest {
                 "营销模板",
                 "PENDING",
                 1,
+                null,
                 30,
                 true,
                 true,

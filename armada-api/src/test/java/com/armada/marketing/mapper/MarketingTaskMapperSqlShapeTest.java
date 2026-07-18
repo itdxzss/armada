@@ -68,6 +68,7 @@ class MarketingTaskMapperSqlShapeTest {
                 StandardCharsets.UTF_8);
 
         String candidateSql = selectBlock(xml, "selectTargetCandidate");
+        String accountCandidateSql = selectBlock(xml, "selectAccountTargetCandidate");
         String dynamicTargetSql = selectBlock(xml, "selectDynamicTargetGroups");
         String currentTargetSql = selectBlock(xml, "selectCurrentTargetGroup");
         String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
@@ -76,7 +77,13 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("JOIN group_link_preview p ON p.group_link_id = g.id")
                 .contains("p.group_jid AS groupJid")
                 .contains("a.account_group_id = #{accountGroupId}");
-        assertThat(candidateSql).doesNotContain("account_group_membership m");
+        assertThat(candidateSql)
+                .contains("collection=\"selectableAccountStates\"")
+                .doesNotContain("s.account_state = 2")
+                .doesNotContain("account_group_membership m");
+        assertThat(accountCandidateSql)
+                .contains("collection=\"selectableAccountStates\"")
+                .doesNotContain("s.account_state = 2");
         assertThat(dynamicTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_jid AS groupJid")

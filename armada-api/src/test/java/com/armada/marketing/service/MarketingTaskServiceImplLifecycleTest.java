@@ -60,7 +60,11 @@ class MarketingTaskServiceImplLifecycleTest {
     void createTask_futureTaskLocksAccountsAfterTargetsPersisted() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
         when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
-        when(taskMapper.selectAccountTargetCandidate(12L, 31L)).thenReturn(accountCandidate());
+        when(taskMapper.selectAccountTargetCandidate(
+                eq(12L),
+                eq(31L),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(accountCandidate());
         doAnswer(invocation -> {
             MarketingTask task = invocation.getArgument(0);
             task.setId(TASK_ID);

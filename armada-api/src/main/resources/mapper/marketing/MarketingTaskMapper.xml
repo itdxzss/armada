@@ -606,7 +606,14 @@
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
-          AND s.account_state = 2
+          AND s.account_state IN
+          <foreach collection="selectableAccountStates"
+                   item="accountState"
+                   open="("
+                   separator=","
+                   close=")">
+              #{accountState}
+          </foreach>
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND a.group_baseline_state IN (2, 3)
@@ -632,7 +639,14 @@
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
-          AND s.account_state = 2
+          AND s.account_state IN
+          <foreach collection="selectableAccountStates"
+                   item="accountState"
+                   open="("
+                   separator=","
+                   close=")">
+              #{accountState}
+          </foreach>
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND a.group_baseline_state IN (2, 3)

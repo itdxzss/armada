@@ -486,7 +486,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private MarketingTargetCandidateRow requireCandidate(Long accountGroupId, Long accountId, Long groupLinkId) {
         // 目标候选必须同时满足:账号存在且属于本次选择的分组、登录态在线、群入口未软删且有 group_jid。
         // group_jid 是协议层发送寻址必需字段,没有它时不能等到发送阶段才失败。
-        MarketingTargetCandidateRow row = taskMapper.selectTargetCandidate(accountGroupId, accountId, groupLinkId);
+        MarketingTargetCandidateRow row = taskMapper.selectTargetCandidate(
+                accountGroupId,
+                accountId,
+                groupLinkId,
+                MarketingAccountEligibility.selectableAccountStates());
         if (row == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号或群组不可用: account=" + accountId + ", group=" + groupLinkId);
         }
@@ -498,7 +502,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private MarketingTargetCandidateRow requireAccountCandidate(Long accountGroupId, Long accountId) {
         // 账号动态目标只校验账号归属、在线、无风控/禁言。群是否可发由每轮发送前的动态群查询决定。
-        MarketingTargetCandidateRow row = taskMapper.selectAccountTargetCandidate(accountGroupId, accountId);
+        MarketingTargetCandidateRow row = taskMapper.selectAccountTargetCandidate(
+                accountGroupId,
+                accountId,
+                MarketingAccountEligibility.selectableAccountStates());
         if (row == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: account=" + accountId);
         }

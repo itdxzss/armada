@@ -1,5 +1,7 @@
 package com.armada.marketing.service;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
@@ -148,6 +150,76 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 Integer.class,
                 created.id());
         assertThat(targetScope).isEqualTo(2);
+    }
+
+    @Test
+    void createTask_accountDynamicAllowsOnlineTakeoverLifecycleStates() {
+        for (int accountState : List.of(
+                AccountStateCode.LOGIN_REPLACED,
+                AccountStateCode.TAKING_OVER)) {
+            Fixture fixture = seedTakeoverFixture(
+                    "takeover-dynamic-" + accountState,
+                    accountState,
+                    AccountLoginStateCode.ONLINE);
+
+            MarketingTaskVO created = service.createTask(request(
+                    "抢登动态任务-" + accountState,
+                    fixture.accountGroupId(),
+                    fixture.templateId(),
+                    "PENDING",
+                    List.of(new MarketingSelectionDTO(
+                            fixture.accountId(),
+                            "ACCOUNT_DYNAMIC",
+                            List.of()))));
+
+            assertThat(created.selectedAccountCount()).isEqualTo(1);
+            assertThat(created.targetPairCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void createTask_fixedGroupAllowsOnlineTakeoverLifecycleStates() {
+        for (int accountState : List.of(
+                AccountStateCode.LOGIN_REPLACED,
+                AccountStateCode.TAKING_OVER)) {
+            Fixture fixture = seedTakeoverFixture(
+                    "takeover-fixed-" + accountState,
+                    accountState,
+                    AccountLoginStateCode.ONLINE);
+
+            MarketingTaskVO created = service.createTask(request(
+                    "抢登固定群任务-" + accountState,
+                    fixture.accountGroupId(),
+                    fixture.templateId(),
+                    "PENDING",
+                    List.of(new MarketingSelectionDTO(
+                            fixture.accountId(),
+                            List.of(fixture.groupLinkId())))));
+
+            assertThat(created.selectedAccountCount()).isEqualTo(1);
+            assertThat(created.targetPairCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void createTask_rejectsOfflineTakingOverAccount() {
+        Fixture fixture = seedTakeoverFixture(
+                "takeover-offline",
+                AccountStateCode.TAKING_OVER,
+                AccountLoginStateCode.OFFLINE);
+        CreateMarketingTaskDTO req = request(
+                "离线抢登中任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        "ACCOUNT_DYNAMIC",
+                        List.of())));
+
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号不可用");
     }
 
     @Test
@@ -438,6 +510,22 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                     """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
         }
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
+    }
+
+    private Fixture seedTakeoverFixture(String suffix, int accountState, int loginState) {
+        Fixture fixture = seedFixture(suffix, false, accountState);
+        jdbc.update("""
+                UPDATE account
+                SET protocol_account_id = ?,
+                    group_baseline_state = 3
+                WHERE id = ?
+                """, "acc_" + fixture.phone(), fixture.accountId());
+        jdbc.update("""
+                UPDATE account_state
+                SET login_state = ?
+                WHERE account_id = ?
+                """, loginState, fixture.accountId());
+        return fixture;
     }
 
     private GroupFixture seedGroup(String suffix, String groupJid, String groupUrl) {

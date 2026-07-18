@@ -173,14 +173,18 @@ public interface MarketingTaskMapper {
     /** 分页列表。 */
     List<MarketingTask> selectPage(@Param("q") MarketingTaskQuery query);
 
-    /** 查询一个账号+群入口是否能形成发送目标。 */
+    /** 查询一个账号+群入口是否满足普通营销允许状态并能形成发送目标。 */
     MarketingTargetCandidateRow selectTargetCandidate(@Param("accountGroupId") Long accountGroupId,
                                                       @Param("accountId") Long accountId,
-                                                      @Param("groupLinkId") Long groupLinkId);
+                                                      @Param("groupLinkId") Long groupLinkId,
+                                                      @Param("selectableAccountStates")
+                                                      List<Integer> selectableAccountStates);
 
-    /** 查询一个账号是否能形成账号动态目标。 */
+    /** 查询一个账号是否满足普通营销允许状态并能形成账号动态目标。 */
     MarketingTargetCandidateRow selectAccountTargetCandidate(@Param("accountGroupId") Long accountGroupId,
-                                                             @Param("accountId") Long accountId);
+                                                             @Param("accountId") Long accountId,
+                                                             @Param("selectableAccountStates")
+                                                             List<Integer> selectableAccountStates);
 
     /** 查询账号动态目标在发送时间边界内的当前群。 */
     List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId,

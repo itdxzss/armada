@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-19 / `1.0.1-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户本次确认；`docs/superpowers/specs/2026-07-19-android-marketing-image-redis-lru-design.md`
-- 状态: 进行中（设计已确认，待实施计划）
+- 状态: 进行中（设计与跨仓实施计划已确认，待编码）
 
 ## 目标（一句话）
 
@@ -13,7 +13,9 @@
 - [x] 核对 Armada -> outbox -> Kafka -> Android -> WhatsApp 当前图片链路。
 - [x] 确认 Redis、Kafka 引用、LRU、图片规范化、TTL、错误和验收口径。
 - [x] 输出跨仓设计文档。
-- [ ] 输出分步骤实施计划。
+- [x] 输出分步骤实施计划：
+  - `docs/superpowers/plans/2026-07-19-android-marketing-image-redis-lru-armada.md`
+  - `docs/superpowers/plans/2026-07-19-android-marketing-image-redis-lru-zhuan.md`
 - [ ] Armada 增加 Redis 原图缓存和 Android 图片引用契约。
 - [ ] Android 增加引用加载、规范化、64MB/20 分钟访问续期 LRU 和 singleflight。
 - [ ] 调整普通图片及卡片发送，复用规范化字节和小缩略图。

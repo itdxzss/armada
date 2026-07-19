@@ -3,7 +3,7 @@
 - 日期 / 分支 / worktree：2026-07-19 / 1.0.1-snapshot / 主工作区
 - 需求来源：用户要求为第二套环境补齐覆盖后端、前端、Baileys 和 Android Zhuan 的部署能力
 - 设计文档：docs/superpowers/specs/2026-07-19-armada-multi-environment-deploy-design.md
-- 状态：设计完成，待用户审阅书面版本
+- 状态：书面设计已确认，实施计划已完成，待执行
 
 ## 目标（一句话）
 
@@ -18,8 +18,8 @@
 - [x] 确认采用统一入口 + profile + 组件模块。
 - [x] 确认日常快速检查与显式 --check 分层。
 - [x] 完成部署设计。
-- [ ] 用户审阅书面设计。
-- [ ] 编写实施计划。
+- [x] 用户审阅书面设计。
+- [x] 编写实施计划。
 - [ ] TDD 实现 profile、模块化、第二套部署和验证。
 - [ ] 打通第二套 Baileys 私网 SSH 路由。
 - [ ] 第二套 dry-run、分组件和 full 验收。

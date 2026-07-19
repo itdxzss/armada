@@ -1,7 +1,7 @@
 # Armada 多环境统一部署设计
 
 - 日期：2026-07-19
-- 状态：设计已确认，待用户审阅书面版本
+- 状态：书面设计已确认，待按实施计划执行
 - 范围：第一套测试环境、第二套性能环境；Armada 后端、Vue 前端、Baileys 协议层、Android Zhuan
 
 ## 1. 目标
@@ -137,7 +137,8 @@ ZHUAN_HOST=3.111.245.182
 ZHUAN_USER=ec2-user
 ZHUAN_KEY_PATH=测试pem/android-protocol.pem
 ZHUAN_REMOTE_DIR=/home/ec2-user/whatsapp-android-zhuan
-ZHUAN_COMPOSE_FILE=deploy/docker-compose.perf.yml
+ZHUAN_COMPOSE_DIR=deploy
+ZHUAN_COMPOSE_FILE=docker-compose.perf.yml
 
 EXPECTED_ARMADA_SCHEMA=armada_perf
 EXPECTED_ZHUAN_SCHEMA=whatsapp_android_zhuan_perf

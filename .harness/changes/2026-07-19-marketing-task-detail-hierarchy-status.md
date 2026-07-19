@@ -1,8 +1,8 @@
 # 变更记录：营销任务明细层级与群组状态统一
 
 - 日期 / 分支 / worktree: 2026-07-19 / `1.0.1-snapshot` / 主工作树
-- 需求来源: 用户补充需求第 4、5 条；设计文档 `docs/superpowers/specs/2026-07-19-marketing-task-detail-hierarchy-status-design.md`
-- 状态: 方案设计待评审
+- 需求来源: 用户补充需求第 4、5 条；设计文档 `docs/superpowers/specs/2026-07-19-marketing-task-detail-hierarchy-status-design.md`；实施计划 `docs/superpowers/plans/2026-07-19-marketing-task-detail-hierarchy-status.md`
+- 状态: 实施计划待执行
 
 ## 目标（一句话）
 
@@ -15,8 +15,8 @@
 - [x] 对账协议群可发送状态和发送失败回执。
 - [x] 确认最后发送成功无条件显示群组状态“正常”。
 - [x] 完成跨仓方案设计。
-- [ ] 用户评审方案设计。
-- [ ] 编写实施计划并拆分协议层、后端、前端任务。
+- [x] 用户评审方案设计。
+- [x] 编写实施计划并拆分协议层、后端、前端任务。
 - [ ] 按 TDD 实施并完成跨仓验证。
 
 ## 关键设计决策
@@ -33,7 +33,8 @@
 
 ## 验证（evidence-before-done）
 
-- 本阶段只验证设计文档完整性、内部一致性和 Git diff；尚未进入代码验证。
+- 已验证设计文档与实施计划的需求覆盖、三仓文件落点、TDD 顺序、验证命令、发布依赖和回滚边界。
+- 已执行文档 `git diff --check`；尚未进入业务代码测试。
 - 实施阶段必须执行协议单测、后端真库 DbTest、前端定向测试与生产构建。
 
 ## 部署
@@ -42,5 +43,5 @@
 
 ## 遗留 / 跟进
 
-- 用户评审通过后使用 `writing-plans` 生成实施计划。
+- 实施时使用 `subagent-driven-development`（推荐）或 `executing-plans` 按任务逐项执行。
 - 保留前端提交 `35ae2b6d` 已有的详情轮询行为，本需求不调整其交互策略。

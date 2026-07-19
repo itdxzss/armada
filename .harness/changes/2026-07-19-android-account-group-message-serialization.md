@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-19 / 当前分支 / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户确认的同账号 Android 群消息串行设计；跨仓设计见 `../whatsapp-server-feature-android-zhuan/docs/superpowers/specs/2026-07-19-android-account-group-message-serialization-design.md`
-- 状态: 进行中（设计已确认，待用户审阅书面规格与编写实施计划）
+- 状态: 进行中（设计与实施计划已确认，待执行）
 
 ## 目标（一句话）
 
@@ -13,6 +13,7 @@ Armada 把账号群发送间隔写入 Android 消息命令，使 Go 能按账号
 - [x] 确认普通营销 `accountGroupSendIntervalMs` 当前仅用于 `notBeforeAt` 错峰投递。
 - [x] 确认 Android wire payload 当前没有 `sendIntervalMs`。
 - [x] 确认 Android 结果先写 Kafka、再提交输入 offset 的现有契约。
+- [x] 编写跨仓实施计划：`../whatsapp-server-feature-android-zhuan/docs/superpowers/plans/2026-07-19-android-account-group-message-serialization.md`。
 - [ ] 为协议无关消息命令补充账号群发送间隔，并由各群消息来源显式赋值。
 - [ ] Android backend 把间隔编码为 `sendIntervalMs`，Web backend 保持不变。
 - [ ] 补充普通营销、建群营销、历史群营销和 Android payload 契约测试。
@@ -50,5 +51,5 @@ Armada 把账号群发送间隔写入 Android 消息命令，使 Go 能按账号
 
 ## 遗留 / 跟进
 
-- 等用户审阅书面规格后编写跨仓实施计划。
+- 按跨仓实施计划执行 TDD、并发 race 验证和结果回执回归测试。
 - Go 内存队列不设业务容量上限；上线后观察账号队列深度和进程总排队量。

@@ -12,6 +12,7 @@ import java.util.List;
  * @param payload 消息内容
  * @param correlation 营销业务关联信息
  * @param commandId 全局唯一命令 ID
+ * @param sendIntervalMs 同账号相邻群消息完成后的发送间隔（毫秒）
  * @param notBeforeAt Armada 内部最早投递时间（epoch 毫秒），不进入协议 payload；0 表示立即
  */
 public record MessageSendCommand(
@@ -20,8 +21,12 @@ public record MessageSendCommand(
         MessagePayload payload,
         MessageCorrelation correlation,
         String commandId,
+        int sendIntervalMs,
         long notBeforeAt
 ) {
+
+    /** 未显式配置时使用的同账号群消息发送间隔。 */
+    public static final int DEFAULT_SEND_INTERVAL_MS = 500;
 
     /**
      * 消息发送目标。

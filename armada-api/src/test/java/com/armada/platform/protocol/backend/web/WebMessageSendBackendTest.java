@@ -86,6 +86,7 @@ class WebMessageSendBackendTest {
                         false),
                 correlation(),
                 "cmd_image",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
@@ -124,6 +125,7 @@ class WebMessageSendBackendTest {
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
                 "cmd_historical_web",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
@@ -168,6 +170,7 @@ class WebMessageSendBackendTest {
                         true),
                 correlation(),
                 "cmd_web",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 2_500L);
     }
 

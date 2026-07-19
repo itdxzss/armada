@@ -201,6 +201,7 @@ class MarketingRoundWorkerTest {
         properties.setOutboxBatchSize(500);
 
         MarketingTask task = task();
+        task.setAccountGroupSendIntervalMs(750);
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(2);
@@ -241,6 +242,8 @@ class MarketingRoundWorkerTest {
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
         assertThat(commands).extracting(command -> command.payload().type().name()).containsOnly("TEXT");
         assertThat(commands).extracting(command -> command.payload().mentionAll()).containsOnly(true);
+        assertThat(commands).extracting(MessageSendCommand::sendIntervalMs)
+                .containsOnly(750);
         assertThat(commands).extracting(MessageSendCommand::notBeforeAt)
                 .containsExactly(2_000L, 2_000L);
     }
@@ -428,6 +431,8 @@ class MarketingRoundWorkerTest {
         verify(outbox).enqueue(commandsCaptor.capture());
         assertThat(commandsCaptor.getValue()).extracting(command -> command.target().groupJid())
                 .containsExactly("12036308101@g.us", "12036308102@g.us");
+        assertThat(commandsCaptor.getValue()).extracting(MessageSendCommand::sendIntervalMs)
+                .containsOnly(500);
         assertThat(commandsCaptor.getValue()).extracting(MessageSendCommand::notBeforeAt)
                 .containsExactly(2_000L, 2_500L);
     }

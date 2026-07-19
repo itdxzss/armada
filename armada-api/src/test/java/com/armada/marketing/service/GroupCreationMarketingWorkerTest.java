@@ -130,6 +130,7 @@ class GroupCreationMarketingWorkerTest {
             assertThat(command.target().groupJid()).isEqualTo("120363created@g.us");
             assertThat(command.payload().content().text()).isEqualTo("hello");
             assertThat(command.payload().mentionAll()).isTrue();
+            assertThat(command.sendIntervalMs()).isEqualTo(500);
             assertThat(command.correlation().source()).isEqualTo("group_creation_marketing");
         });
         verify(groupCreationMapper).markItemMarketingSending(argThat(dispatch ->

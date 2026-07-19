@@ -547,6 +547,7 @@ public class MarketingRoundWorker {
                         null,
                         null),
                 attempt.getCommandId(),
+                accountGroupSendIntervalMs(task),
                 notBeforeAt);
     }
 

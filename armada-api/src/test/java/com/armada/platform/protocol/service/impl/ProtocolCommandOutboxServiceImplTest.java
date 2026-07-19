@@ -502,6 +502,7 @@ class ProtocolCommandOutboxServiceImplTest {
                         null,
                         null),
                 "cmd_android",
+                750,
                 2_500L);
         ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
                 command,
@@ -560,6 +561,7 @@ class ProtocolCommandOutboxServiceImplTest {
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
                 "cmd_historical",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
         ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
                 command,

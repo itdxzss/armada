@@ -104,6 +104,7 @@ class AndroidMessageSendBackendTest {
                 .containsEntry("attemptId", 9001L)
                 .containsEntry("targetId", 501L)
                 .containsEntry("roundNo", 1L)
+                .containsEntry("sendIntervalMs", 750)
                 .doesNotContainKeys("dispatchPolicy", "notBeforeAt", "dispatchIntervalMs");
         @SuppressWarnings("unchecked")
         Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
@@ -131,6 +132,7 @@ class AndroidMessageSendBackendTest {
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
                 "cmd_historical_android",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
@@ -176,6 +178,7 @@ class AndroidMessageSendBackendTest {
                         false),
                 correlation(),
                 commandId,
+                750,
                 2_500L);
     }
 
@@ -191,6 +194,7 @@ class AndroidMessageSendBackendTest {
                         true),
                 correlation(),
                 commandId,
+                750,
                 2_500L);
     }
 

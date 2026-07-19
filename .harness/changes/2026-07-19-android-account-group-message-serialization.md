@@ -1,8 +1,8 @@
 # 变更记录：Android 同账号群消息串行发送
 
-- 日期 / 分支 / worktree: 2026-07-19 / 当前分支 / `/Users/daishuaishuai/IdeaProjects/armada`
+- 日期 / 分支 / worktree: 2026-07-19 / `1.0.1-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户确认的同账号 Android 群消息串行设计；跨仓设计见 `../whatsapp-server-feature-android-zhuan/docs/superpowers/specs/2026-07-19-android-account-group-message-serialization-design.md`
-- 状态: 进行中（设计与实施计划已确认，待执行）
+- 状态: 本地实现完成并完成相称验证，未提交、未部署
 
 ## 目标（一句话）
 
@@ -14,10 +14,11 @@ Armada 把账号群发送间隔写入 Android 消息命令，使 Go 能按账号
 - [x] 确认 Android wire payload 当前没有 `sendIntervalMs`。
 - [x] 确认 Android 结果先写 Kafka、再提交输入 offset 的现有契约。
 - [x] 编写跨仓实施计划：`../whatsapp-server-feature-android-zhuan/docs/superpowers/plans/2026-07-19-android-account-group-message-serialization.md`。
-- [ ] 为协议无关消息命令补充账号群发送间隔，并由各群消息来源显式赋值。
-- [ ] Android backend 把间隔编码为 `sendIntervalMs`，Web backend 保持不变。
-- [ ] 补充普通营销、建群营销、历史群营销和 Android payload 契约测试。
-- [ ] 与 Go 账号队列实现联调，验证成功/失败结果事件继续更新 attempt/target。
+- [x] 为协议无关消息命令补充账号群发送间隔，并由各群消息来源显式赋值。
+- [x] Android backend 把间隔编码为 `sendIntervalMs`，Web backend 保持不变。
+- [x] 补充普通营销、建群营销、历史群营销和 Android payload 契约测试。
+- [x] 完成 Go 账号动态队列、共享 dispatcher 和结果发布后提交 offset 的跨仓契约测试。
+- [x] 补齐 Go 对 `historical_group_pull` execution/member 关联的解析、归因和结果事件透传。
 
 ## 关键设计决策
 
@@ -43,13 +44,31 @@ Armada 把账号群发送间隔写入 Android 消息命令，使 Go 能按账号
 - `AndroidMessageSendBackend.AndroidMessagePayload` 当前没有发送间隔字段。
 - Go `MessageCommandExecutor` 当前顺序为 StoreResult -> Publish result event -> MarkPublished；consumer 随后 Commit。
 
-实施阶段必须补充并运行定向单测；涉及并发的 Go 变更必须运行 `go test -race`。未执行测试前不得标记完成。
+实施结果：
+
+- Armada 红灯确认：新增 `sendIntervalMs()` 断言后，定向测试按预期因字段不存在编译失败。
+- Armada 定向回归：`MarketingRoundWorkerTest`、`GroupCreationMarketingWorkerTest`、
+  `HistoricalGroupMarketingServiceImplTest`、Android/Web backend、routing、outbox 共 77 个测试通过。
+- 普通营销测试显式锁定非默认 `750ms` 页面配置透传，不只覆盖兼容默认值。
+- Armada 全量 `mvn test` 会进入本地未配置的真库/集成测试并持续连接 MySQL，已中止；本次无数据库改动，
+  全量 test compile 和上述受影响单测均通过。
+- Go parser、dispatcher、account consumer、启动接线定向测试通过；同账号 500 条突发、多个 reader
+  共用 dispatcher、冷却期间入队、panic、取消和退出竞态均有覆盖。
+- 历史群消息通过真实 account consumer/executor 发布带 execution/member 的结果事件后再提交 offset；
+  可归因的非法历史群 payload 也能保留关联并发布失败结果。
+- dispatcher 的账号日志使用现有末四位脱敏；panic 只记录固定 `panic_recovered` 分类和安全元数据，
+  不记录 panic value、消息正文或完整账号 ID。
+- `go test -race ./internal/armada` 通过；`go build ./...` 通过。
+- `go test ./...` 中本次相关 `internal/armada` 通过；全仓仍有未改动区域的既有失败：
+  `internal/service/appstate` 测试参数类型不匹配，`pkg/noise` 缺少 `vectors.txt` 且固定向量不一致。
+- `go vet ./...` 同样被既有 `appstate` 测试编译错误阻断，并报告未改文件中的 IPv6 地址格式和
+  `context.WithTimeout` cancel 警告。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 尚未实施、未部署。
+- commit / 环境 / 部署后验证结果: 按用户要求所有本次实现改动保持未提交；未部署、未 SSH、未改远程配置。
 
 ## 遗留 / 跟进
 
-- 按跨仓实施计划执行 TDD、并发 race 验证和结果回执回归测试。
 - Go 内存队列不设业务容量上限；上线后观察账号队列深度和进程总排队量。
+- 若后续要求全仓 Go 测试全绿，需另行处理 `appstate` 和 `pkg/noise` 既有测试问题；不纳入本次功能改动。

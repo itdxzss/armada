@@ -251,6 +251,7 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(execution.getId(), member.getId())),
                 commandId,
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
     }
 

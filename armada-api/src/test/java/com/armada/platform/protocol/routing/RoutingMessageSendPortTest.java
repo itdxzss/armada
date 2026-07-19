@@ -100,6 +100,7 @@ class RoutingMessageSendPortTest {
                         null,
                         null),
                 commandId,
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
     }
 

@@ -126,6 +126,7 @@ class HistoricalGroupMarketingServiceImplTest {
                     org.assertj.core.api.Assertions.assertThat(command.correlation().source())
                             .isEqualTo("historical_group_pull");
                     org.assertj.core.api.Assertions.assertThat(command.payload().mentionAll()).isTrue();
+                    org.assertj.core.api.Assertions.assertThat(command.sendIntervalMs()).isEqualTo(500);
                 });
         org.assertj.core.api.Assertions.assertThat(members.get(1).getSendStatus())
                 .isEqualTo(HistoricalGroupMemberSendStatus.NOT_APPLICABLE.code());

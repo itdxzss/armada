@@ -41,6 +41,13 @@
         WHERE id = #{id} AND deleted_at IS NULL
     </select>
 
+    <select id="selectByIds" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
+        FROM marketing_template
+        WHERE deleted_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
     <!-- 创建任务先锁定素材事实源，保证并发删除必须等任务创建事务结束后再处理关联任务 -->
     <select id="selectByIdForUpdate" resultType="com.armada.marketing.model.entity.MarketingTemplate">
         SELECT <include refid="Columns"/>

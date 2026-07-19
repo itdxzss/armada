@@ -33,5 +33,8 @@ public record MarketingTaskVO(
         Long lastSentAt,
         Long finishedAt,
         Long createdAt,
-        Long updatedAt) {
+        Long updatedAt,
+        String marketingTemplateContent,
+        String marketingTemplateBodyText,
+        String marketingTemplatePromotionLink) {
 }

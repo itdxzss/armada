@@ -46,10 +46,13 @@ public class MarketingTaskController {
      * 查询营销任务列表。
      *
      * <p>支持 ID 精准筛选、任务名称模糊筛选、状态筛选和最后发送时间范围筛选;分页参数沿用
-     * `page/pageSize`。列表只返回任务主信息,不返回 target 明细。</p>
+     * `page/pageSize`。列表只返回任务主信息,不返回 target 明细;模板展示字段按当前页任务引用的
+     * 去重模板 ID 批量读取,不依赖模板列表接口。模板已软删除或跨租户不可见时任务仍正常返回,
+     * 对应模板展示字段为 null。</p>
      *
      * @param query 查询和分页参数
-     * @return 营销任务分页列表
+     * @return 营销任务分页列表,每行包含 marketingTemplateContent、marketingTemplateBodyText
+     * 和 marketingTemplatePromotionLink
      */
     @GetMapping
     public ApiResponse<PageResult<MarketingTaskVO>> list(@ModelAttribute MarketingTaskQuery query) {

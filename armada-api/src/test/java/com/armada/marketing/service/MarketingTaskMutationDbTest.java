@@ -45,6 +45,12 @@ class MarketingTaskMutationDbTest extends DbTestBase {
         assertThat(started.status()).isEqualTo(STATUS_SENDING);
         assertThat(started.startedAt()).isNotNull();
         assertThat(started.updatedAt()).isNotNull();
+        assertThat(created.marketingTemplateContent()).isEqualTo("内容");
+        assertThat(created.marketingTemplateBodyText()).isEqualTo("正文");
+        assertThat(created.marketingTemplatePromotionLink()).isNull();
+        assertThat(started.marketingTemplateContent()).isEqualTo("内容");
+        assertThat(started.marketingTemplateBodyText()).isEqualTo("正文");
+        assertThat(started.marketingTemplatePromotionLink()).isNull();
     }
 
     @Test

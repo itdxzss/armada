@@ -21,6 +21,9 @@ public interface MarketingTemplateMapper {
     /** 按 ID 查未删模板。 */
     MarketingTemplate selectById(@Param("id") Long id);
 
+    /** 按 ID 集合批量查询未删除模板；调用方保证 ids 非空且已去重。 */
+    List<MarketingTemplate> selectByIds(@Param("ids") List<Long> ids);
+
     /**
      * 按 ID 查询并锁定未删除模板。
      *

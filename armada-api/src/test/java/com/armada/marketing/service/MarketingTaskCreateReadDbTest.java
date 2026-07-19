@@ -14,6 +14,9 @@ import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,6 +37,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     private static final int STATUS_SENDING = 2;
     private static final int TARGET_STATUS_PARTIAL_FAILED = 5;
     private static final long THREE_DAYS_MS = 72L * 60L * 60L * 1000L;
+    private static final long OTHER_TENANT_ID = 2L;
 
     @Autowired
     private MarketingTaskService service;
@@ -274,6 +278,112 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         assertThat(page.list()).singleElement()
                 .extracting(MarketingTaskVO::taskName)
                 .isEqualTo("目标任务A");
+    }
+
+    @Test
+    void listTasks_returnsCurrentTemplateInfoForSharedAndDifferentTemplates() {
+        Fixture first = seedFixture("template-info-first");
+        Fixture second = seedFixture("template-info-second");
+        Fixture third = seedFixture("template-info-third");
+        jdbc.update("""
+                UPDATE marketing_template
+                SET content = ?, body_text = ?, promotion_link = ?
+                WHERE id = ?
+                """, "共享标题", "共享正文", "https://example.com/shared", first.templateId());
+        jdbc.update("""
+                UPDATE marketing_template
+                SET content = ?, body_text = ?, promotion_link = NULL
+                WHERE id = ?
+                """, "独立标题", "独立正文", third.templateId());
+
+        service.createTask(request("模板展示任务A", first.accountGroupId(), first.templateId(), "PENDING",
+                List.of(new MarketingSelectionDTO(first.accountId(), List.of(first.groupLinkId())))));
+        service.createTask(request("模板展示任务B", second.accountGroupId(), first.templateId(), "PENDING",
+                List.of(new MarketingSelectionDTO(second.accountId(), List.of(second.groupLinkId())))));
+        service.createTask(request("模板展示任务C", third.accountGroupId(), third.templateId(), "PENDING",
+                List.of(new MarketingSelectionDTO(third.accountId(), List.of(third.groupLinkId())))));
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setKeyword("模板展示任务");
+        query.setPageSize(10);
+
+        PageResult<MarketingTaskVO> page = service.listTasks(query);
+        Map<String, MarketingTaskVO> byName = page.list().stream()
+                .collect(Collectors.toMap(MarketingTaskVO::taskName, Function.identity()));
+
+        assertThat(page.total()).isEqualTo(3);
+        assertThat(List.of(byName.get("模板展示任务A"), byName.get("模板展示任务B")))
+                .allSatisfy(row -> {
+                    assertThat(row.marketingTemplateContent()).isEqualTo("共享标题");
+                    assertThat(row.marketingTemplateBodyText()).isEqualTo("共享正文");
+                    assertThat(row.marketingTemplatePromotionLink()).isEqualTo("https://example.com/shared");
+                });
+        assertThat(byName.get("模板展示任务C").marketingTemplateContent()).isEqualTo("独立标题");
+        assertThat(byName.get("模板展示任务C").marketingTemplateBodyText()).isEqualTo("独立正文");
+        assertThat(byName.get("模板展示任务C").marketingTemplatePromotionLink()).isNull();
+    }
+
+    @Test
+    void listTasks_keepsTaskWhenReferencedTemplateWasSoftDeleted() {
+        Fixture fixture = seedFixture("template-info-deleted");
+        MarketingTaskVO created = service.createTask(request(
+                "模板已删除仍展示任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        jdbc.update("UPDATE marketing_template SET deleted_at = ? WHERE id = ?",
+                System.currentTimeMillis(), fixture.templateId());
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setId(created.id());
+        query.setPageSize(10);
+
+        PageResult<MarketingTaskVO> page = service.listTasks(query);
+
+        assertThat(page.list()).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo(created.id());
+            assertThat(row.marketingTemplateContent()).isNull();
+            assertThat(row.marketingTemplateBodyText()).isNull();
+            assertThat(row.marketingTemplatePromotionLink()).isNull();
+        });
+    }
+
+    @Test
+    void listTasks_doesNotExposeTemplateFieldsFromAnotherTenant() {
+        Fixture fixture = seedFixture("template-info-tenant");
+        MarketingTaskVO created = service.createTask(request(
+                "跨租户模板不可见任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        long now = System.currentTimeMillis();
+        long foreignTemplateId = insertAndReturnId("""
+                INSERT INTO marketing_template
+                    (tenant_id, template_name, link_mode, text_type, content, body_text,
+                     promotion_link, created_at, updated_at)
+                VALUES (?, ?, 1, 'PROMO', ?, ?, ?, ?, ?)
+                """, ps -> {
+            ps.setLong(1, OTHER_TENANT_ID);
+            ps.setString(2, "其他租户模板");
+            ps.setString(3, "其他租户标题");
+            ps.setString(4, "其他租户正文");
+            ps.setString(5, "https://other-tenant.example.com");
+            ps.setLong(6, now);
+            ps.setLong(7, now);
+        });
+        jdbc.update("UPDATE marketing_task SET marketing_template_id = ? WHERE id = ?",
+                foreignTemplateId, created.id());
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setId(created.id());
+        query.setPageSize(10);
+
+        PageResult<MarketingTaskVO> page = service.listTasks(query);
+
+        assertThat(page.list()).singleElement().satisfies(row -> {
+            assertThat(row.marketingTemplateContent()).isNull();
+            assertThat(row.marketingTemplateBodyText()).isNull();
+            assertThat(row.marketingTemplatePromotionLink()).isNull();
+        });
     }
 
     @Test

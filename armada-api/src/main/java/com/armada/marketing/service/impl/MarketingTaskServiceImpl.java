@@ -76,8 +76,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
      *
-     * <p>任务 Mapper 负责本聚合读写;模板 Mapper 只用于校验模板存在并读取模板名称快照,
-     * 不读取或复制模板正文。</p>
+     * <p>任务 Mapper 负责本聚合读写；模板 Mapper 负责校验模板存在、读取模板名称快照，
+     * 并为任务响应补充当前模板展示字段；模板正文不复制到任务表。</p>
      *
      * @param taskMapper      营销任务与目标明细数据访问
      * @param templateMapper  营销模板数据访问
@@ -113,9 +113,16 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     public PageResult<MarketingTaskVO> listTasks(MarketingTaskQuery query) {
         long total = taskMapper.countPage(query);
         // 与其它列表服务保持一致:total=0 时不再查 page rows,避免一次必然空结果的 SELECT。
-        List<MarketingTaskVO> rows = total == 0
-                ? List.of()
-                : taskMapper.selectPage(query).stream().map(MarketingTaskServiceImpl::toVO).toList();
+        List<MarketingTaskVO> rows;
+        if (total == 0) {
+            rows = List.of();
+        } else {
+            List<MarketingTask> tasks = taskMapper.selectPage(query);
+            Map<Long, MarketingTemplate> templatesById = loadTemplatesById(tasks);
+            rows = tasks.stream()
+                    .map(task -> toVO(task, templatesById.get(task.getMarketingTemplateId())))
+                    .toList();
+        }
         log.info("营销任务列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
@@ -151,7 +158,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 occupancyService.lockTaskAccountsOrThrow(task, now);
         log.info("营销任务已创建 tenantId={} taskId={} targets={} lockedAccounts={} status={}",
                 task.getTenantId(), task.getId(), targets.size(), lockedAccounts.size(), task.getStatus());
-        return toVO(taskMapper.selectTaskById(task.getId()));
+        return toVO(taskMapper.selectTaskById(task.getId()), template);
     }
 
     /**
@@ -663,7 +670,30 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return (int) targets.stream().map(MarketingTaskTarget::getAccountId).distinct().count();
     }
 
-    private static MarketingTaskVO toVO(MarketingTask task) {
+    private Map<Long, MarketingTemplate> loadTemplatesById(List<MarketingTask> tasks) {
+        List<Long> templateIds = tasks.stream()
+                .map(MarketingTask::getMarketingTemplateId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        if (templateIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, MarketingTemplate> templatesById = new LinkedHashMap<>();
+        for (MarketingTemplate template : templateMapper.selectByIds(templateIds)) {
+            templatesById.put(template.getId(), template);
+        }
+        return templatesById;
+    }
+
+    private MarketingTaskVO toVO(MarketingTask task) {
+        MarketingTemplate template = task.getMarketingTemplateId() == null
+                ? null
+                : templateMapper.selectById(task.getMarketingTemplateId());
+        return toVO(task, template);
+    }
+
+    private static MarketingTaskVO toVO(MarketingTask task, MarketingTemplate template) {
         return new MarketingTaskVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
@@ -672,7 +702,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
-                task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt());
+                task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
+                template == null ? null : template.getContent(),
+                template == null ? null : template.getBodyText(),
+                template == null ? null : template.getPromotionLink());
     }
 
     private static MarketingTaskTargetVO toTargetVO(MarketingTaskTarget target) {

@@ -1528,7 +1528,7 @@
         ],
         "response": "分页（MarketingTaskVO）",
         "ret_raw": "ApiResponse<PageResult<MarketingTaskVO>>",
-        "retdoc": "营销任务分页列表"
+        "retdoc": "营销任务分页列表,每行包含 marketingTemplateContent、marketingTemplateBodyText 和 marketingTemplatePromotionLink"
       },
       {
         "method": "POST",

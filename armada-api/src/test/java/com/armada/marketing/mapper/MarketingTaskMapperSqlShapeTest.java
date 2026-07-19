@@ -336,6 +336,21 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("a.id DESC");
     }
 
+    @Test
+    void detailRollupUsesLatestEffectiveRoundForExecutionResult() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("WHEN a.status = 1 THEN 'SUCCESS'")
+                .contains("WHEN a.status = 2 THEN 'FAILED'")
+                .contains("ORDER BY a.round_no DESC, a.attempt_no DESC, a.id DESC")
+                .contains("AS executionResult");
+    }
+
     private static String selectBlock(String xml, String id) {
         String startTag = "<select id=\"" + id + "\"";
         int start = xml.indexOf(startTag);

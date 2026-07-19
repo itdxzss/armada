@@ -341,6 +341,84 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
+    void getDetail_usesLatestEffectiveRoundForGroupExecutionResult() {
+        Fixture fixture = seedTakeoverFixture(
+                "detail-execution-result",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        GroupFixture secondGroup = seedGroup(
+                "detail-execution-result-empty",
+                "120363188@g.us",
+                "https://chat.whatsapp.com/detail-execution-result-empty");
+        MarketingTaskVO created = service.createTask(request(
+                "群执行结果任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        List.of(fixture.groupLinkId(), secondGroup.groupLinkId())))));
+        List<Long> targetIds = jdbc.queryForList(
+                "SELECT id FROM marketing_task_target WHERE marketing_task_id = ? ORDER BY id ASC",
+                Long.class,
+                created.id());
+
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 1, 1, null, null, "NORMAL", 4000L);
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 2, 2, "SEND_FAILED", "发送失败", "NORMAL", 2000L);
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 3, 3, "ACCOUNT_OCCUPIED", "账号被占用", "UNCONFIRMED", 6000L);
+        insertAttempt(created.id(), targetIds.get(1), secondGroup.groupLinkId(), secondGroup.groupJid(),
+                "群B", 1, 3, "ACCOUNT_OCCUPIED", "账号被占用", "UNCONFIRMED", 5000L);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.groups())
+                    .filteredOn(group -> fixture.groupJid().equals(group.groupJid()))
+                    .singleElement()
+                    .satisfies(group -> assertThat(group.executionResult()).isEqualTo("FAILED"));
+            assertThat(account.groups())
+                    .filteredOn(group -> secondGroup.groupJid().equals(group.groupJid()))
+                    .singleElement()
+                    .satisfies(group -> assertThat(group.executionResult()).isNull());
+        });
+    }
+
+    @Test
+    void getDetail_rollsUpDynamicGroupExecutionResult() {
+        Fixture fixture = seedTakeoverFixture(
+                "detail-dynamic-execution-result",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        MarketingTaskVO created = service.createTask(request(
+                "动态群执行结果任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        "ACCOUNT_DYNAMIC",
+                        List.of()))));
+        Long targetId = jdbc.queryForObject(
+                "SELECT id FROM marketing_task_target WHERE marketing_task_id = ?",
+                Long.class,
+                created.id());
+
+        insertAttempt(created.id(), targetId, fixture.groupLinkId(), fixture.groupJid(),
+                "动态群A", 1, 1, null, null, "NORMAL", 1000L);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account ->
+                assertThat(account.groups()).singleElement().satisfies(group -> {
+                    assertThat(group.groupJid()).isEqualTo(fixture.groupJid());
+                    assertThat(group.executionResult()).isEqualTo("SUCCESS");
+                }));
+    }
+
+    @Test
     void getDetail_keepsAccountRowsWithoutSendAttempts() {
         Fixture fixture = seedFixture("detail-empty-rollup");
         MarketingTaskVO created = service.createTask(request(

@@ -701,8 +701,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static MarketingTaskGroupStatVO toGroupStatVO(MarketingTaskAccountGroupStatRow row) {
         return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
-                row.getGroupName(), groupStatus(row.getGroupStatus()), zero(row.getSentMessageCount()),
-                zero(row.getFailedMessageCount()),
+                row.getGroupName(), groupStatus(row.getGroupStatus()), row.getExecutionResult(),
+                zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
                 row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());
     }
 

@@ -7,8 +7,11 @@ package com.armada.marketing.model.vo;
  * @param groupJid 实际发送群的 WhatsApp JID
  * @param groupLinkUrl 实际发送群的邀请链接
  * @param groupName 实际发送群的最新可用名称
- * @param groupStatus 最新已完成发送记录中的群组检测状态，未确认时为 {@code UNCONFIRMED}
- * @param executionResult 按轮次和尝试次数确定的最新发送结果：{@code SUCCESS} 或 {@code FAILED}；无有效结果时为空
+ * @param groupStatus 最后有效尝试归一出的群组状态，值为 NORMAL、ACCOUNT_BANNED、GROUP_BANNED、
+ *                    NO_PERMISSION、KICKED_OUT 或 UNCONFIRMED
+ * @param executionResult 按轮次、尝试次数和记录 ID 确定的最后有效发送结果：{@code SUCCESS} 或
+ *                        {@code FAILED}；无有效结果时为空
+ * @param executionReason 发送失败时的统一失败原因，成功或无有效结果时为空
  * @param sentMessageCount 该账号向该群组发送成功的历史累计次数
  * @param failedMessageCount 该账号向该群组发送失败的历史累计次数
  * @param lastAttemptAt 最近一次发送尝试或跳过的毫秒时间戳
@@ -22,6 +25,7 @@ public record MarketingTaskGroupStatVO(
         String groupName,
         String groupStatus,
         String executionResult,
+        String executionReason,
         Integer sentMessageCount,
         Integer failedMessageCount,
         Long lastAttemptAt,

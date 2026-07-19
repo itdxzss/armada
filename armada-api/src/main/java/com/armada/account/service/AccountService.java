@@ -5,6 +5,7 @@ import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountStatsVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 账号业务接口(账号列表菜单)。
@@ -29,6 +30,16 @@ public interface AccountService {
      * @return 统计卡数据
      */
     AccountStatsVO getStats();
+
+    /**
+     * 批量读取未软删账号的当前登录态。
+     *
+     * <p>未上报状态以键存在、值为 {@code null} 表示；不存在或已软删账号不返回。</p>
+     *
+     * @param accountIds 账号主键列表
+     * @return 账号 ID 到当前登录态的映射
+     */
+    Map<Long, Integer> getLoginStatesByIds(List<Long> accountIds);
 
     /**
      * 批量迁移分组:将指定账号迁移到目标分组。

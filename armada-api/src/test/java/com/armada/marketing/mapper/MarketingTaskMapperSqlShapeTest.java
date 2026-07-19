@@ -295,10 +295,10 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("a.status IN (1, 2, 3)")
-                .contains("SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount")
-                .contains("WHEN a.status IN (2, 3) THEN COALESCE")
-                .doesNotContain("SUM(CASE WHEN a.status IN (2, 3)");
+                .contains("a.status IN (0, 1, 2, 3)")
+                .contains("SUM(CASE WHEN attemptStatus = 2 THEN 1 ELSE 0 END) AS failedMessageCount")
+                .contains("WHEN attemptStatus IN (2, 3) THEN COALESCE")
+                .doesNotContain("SUM(CASE WHEN attemptStatus IN (2, 3)");
     }
 
     @Test
@@ -310,10 +310,9 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("ELSE ''")
-                .contains("a.id DESC")
-                .contains("NULLIF(\n                   SUBSTRING_INDEX(")
-                .contains("),\n                   ''\n               ) AS lastReason");
+                .contains("WHEN attemptStatus = 1 THEN ''")
+                .contains("ORDER BY eventAt DESC, attemptId DESC")
+                .contains(") AS lastReason");
     }
 
     @Test
@@ -330,10 +329,11 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("ADD COLUMN group_status_reason VARCHAR(64)")
                 .contains("ADD COLUMN group_status_checked_at BIGINT");
         assertThat(sql)
-                .contains("WHEN a.status IN (1, 2) THEN")
-                .contains("COALESCE(NULLIF(TRIM(a.group_status), ''), 'UNCONFIRMED')")
-                .contains("AS groupStatus")
-                .contains("a.id DESC");
+                .contains("a.group_status AS rawGroupStatus")
+                .contains("a.group_status_reason AS groupStatusReason")
+                .contains("WHERE attemptStatus IN (1, 2)")
+                .contains("e.rawGroupStatus AS groupStatus")
+                .contains("e.groupStatusReason AS groupStatusReason");
     }
 
     @Test
@@ -345,10 +345,33 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("WHEN a.status = 1 THEN 'SUCCESS'")
-                .contains("WHEN a.status = 2 THEN 'FAILED'")
-                .contains("ORDER BY a.round_no DESC, a.attempt_no DESC, a.id DESC")
-                .contains("AS executionResult");
+                .contains("ROW_NUMBER() OVER")
+                .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
+                .contains("e.attemptStatus AS latestAttemptStatus")
+                .doesNotContain("AS executionResult");
+    }
+
+    @Test
+    void detailRollupJoinsOneLatestEffectiveAttemptForAllDerivedFields() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("a.status IN (0, 1, 2, 3)")
+                .contains("latest_effective AS")
+                .contains("WHERE attemptStatus IN (1, 2)")
+                .contains("PARTITION BY accountId, groupKey")
+                .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
+                .contains("e.attemptStatus AS latestAttemptStatus")
+                .contains("e.reasonCode AS reasonCode")
+                .contains("e.reasonMessage AS reasonMessage")
+                .contains("e.rawGroupStatus AS groupStatus")
+                .contains("e.groupStatusReason AS groupStatusReason")
+                .contains("SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount")
+                .contains("MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt");
     }
 
     private static String selectBlock(String xml, String id) {

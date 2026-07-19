@@ -5,6 +5,7 @@ import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountListVoRow;
@@ -15,7 +16,9 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,6 +101,27 @@ public class AccountServiceImpl implements AccountService {
                 row.getAssigned(),
                 unassigned
         );
+    }
+
+    /**
+     * 批量读取当前租户内未软删账号的实时登录态。
+     *
+     * <p>查询只返回仍有效的账号；账号已存在但协议尚未上报登录态时，结果保留账号 ID，
+     * 对应值为 {@code null}。空入参直接返回空 Map，不访问数据库。</p>
+     *
+     * @param accountIds 账号主键列表
+     * @return 账号 ID 到当前登录态的只读映射；不存在或已软删账号不包含在结果中
+     */
+    @Override
+    public Map<Long, Integer> getLoginStatesByIds(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Integer> states = new LinkedHashMap<>();
+        for (AccountState row : accountMapper.selectActiveLoginStatesByIds(accountIds)) {
+            states.put(row.getAccountId(), row.getLoginState());
+        }
+        return Collections.unmodifiableMap(states);
     }
 
     /**

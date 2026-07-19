@@ -1,5 +1,6 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.account.service.AccountService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
@@ -35,6 +36,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -69,6 +71,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private final MarketingTemplateService templateService;
     private final MarketingAccountTreeRealtimeService accountTreeRealtimeService;
     private final MarketingAccountOccupancyService occupancyService;
+    private final AccountService accountService;
 
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
@@ -81,17 +84,20 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
      * @param templateService 营销模板业务服务
      * @param accountTreeRealtimeService 营销账号树实时查询服务
      * @param occupancyService 普通营销账号占用服务
+     * @param accountService 账号域服务，用于批量读取当前登录态
      */
     public MarketingTaskServiceImpl(MarketingTaskMapper taskMapper,
                                     MarketingTemplateMapper templateMapper,
                                     MarketingTemplateService templateService,
                                     MarketingAccountTreeRealtimeService accountTreeRealtimeService,
-                                    MarketingAccountOccupancyService occupancyService) {
+                                    MarketingAccountOccupancyService occupancyService,
+                                    AccountService accountService) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
         this.templateService = templateService;
         this.accountTreeRealtimeService = accountTreeRealtimeService;
         this.occupancyService = occupancyService;
+        this.accountService = accountService;
     }
 
     /**
@@ -151,8 +157,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     /**
      * 查询营销任务详情。
      *
-     * <p>详情由任务主表和目标明细组成:主表提供配置、状态和计数,目标明细提供每个账号×群组
-     * 的号码、群 JID、群链接、群名和发送结果字段。任务不存在时抛业务 404。</p>
+     * <p>详情按账号、群组两级聚合：账号层批量补充当前实时登录态和当前任务成功发送总次数；
+     * 群组层展示成功发送次数，并从同一条最后有效尝试归一群组状态、执行结果和失败原因。
+     * 任务不存在时抛业务 404。</p>
      *
      * @param id 营销任务 ID
      * @return 营销任务详情,包含目标明细列表
@@ -164,7 +171,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         List<MarketingTaskTargetVO> targets = taskMapper.selectTargetsByTaskId(id)
                 .stream().map(MarketingTaskServiceImpl::toTargetVO).toList();
         List<MarketingTaskAccountGroupStatRow> groupStats = taskMapper.selectAccountGroupStatsByTaskId(id);
-        List<MarketingTaskAccountTargetVO> accountTargets = toAccountTargets(targets, groupStats);
+        Set<Long> accountIds = targets.stream()
+                .map(MarketingTaskTargetVO::accountId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, Integer> loginStates = accountService.getLoginStatesByIds(List.copyOf(accountIds));
+        List<MarketingTaskAccountTargetVO> accountTargets = toAccountTargets(targets, groupStats, loginStates);
         log.info("营销任务详情查询 id={} targets={} accounts={}", id, targets.size(), accountTargets.size());
         return toDetailVO(task, targets, accountTargets);
     }
@@ -673,7 +684,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     private static List<MarketingTaskAccountTargetVO> toAccountTargets(List<MarketingTaskTargetVO> targets,
-                                                                       List<MarketingTaskAccountGroupStatRow> groupStats) {
+                                                                       List<MarketingTaskAccountGroupStatRow> groupStats,
+                                                                       Map<Long, Integer> loginStates) {
         Map<Long, MarketingTaskTargetVO> targetByAccount = new LinkedHashMap<>();
         for (MarketingTaskTargetVO target : targets) {
             targetByAccount.putIfAbsent(target.accountId(), target);
@@ -683,31 +695,38 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             statsByAccount.computeIfAbsent(row.getAccountId(), ignored -> new ArrayList<>()).add(row);
         }
         return targetByAccount.values().stream()
-                .map(target -> toAccountTarget(target, statsByAccount.getOrDefault(target.accountId(), List.of())))
+                .map(target -> toAccountTarget(
+                        target,
+                        statsByAccount.getOrDefault(target.accountId(), List.of()),
+                        loginStates.get(target.accountId())))
                 .toList();
     }
 
     private static MarketingTaskAccountTargetVO toAccountTarget(MarketingTaskTargetVO target,
-                                                                List<MarketingTaskAccountGroupStatRow> rows) {
+                                                                List<MarketingTaskAccountGroupStatRow> rows,
+                                                                Integer loginState) {
         List<MarketingTaskGroupStatVO> groups = rows.stream()
                 .map(MarketingTaskServiceImpl::toGroupStatVO)
                 .toList();
         int sent = rows.stream().mapToInt(row -> zero(row.getSentMessageCount())).sum();
         int failed = rows.stream().mapToInt(row -> zero(row.getFailedMessageCount())).sum();
         int status = MarketingTaskAccountStatusResolver.resolve(target.status(), sent, failed);
-        return new MarketingTaskAccountTargetVO(target.accountId(), target.accountPhone(), status,
+        return new MarketingTaskAccountTargetVO(target.accountId(), target.accountPhone(), loginState, status,
                 sent, failed, latestAttemptAt(rows), latestSentAt(rows), latestReason(rows), groups);
     }
 
     private static MarketingTaskGroupStatVO toGroupStatVO(MarketingTaskAccountGroupStatRow row) {
+        MarketingGroupExecutionNormalizer.NormalizedExecution execution =
+                MarketingGroupExecutionNormalizer.normalize(
+                        row.getLatestAttemptStatus(),
+                        row.getReasonCode(),
+                        row.getReasonMessage(),
+                        row.getGroupStatus(),
+                        row.getGroupStatusReason());
         return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
-                row.getGroupName(), groupStatus(row.getGroupStatus()), row.getExecutionResult(),
+                row.getGroupName(), execution.groupStatus(), execution.executionResult(), execution.executionReason(),
                 zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
                 row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());
-    }
-
-    private static String groupStatus(String value) {
-        return StringUtils.hasText(value) ? value : "UNCONFIRMED";
     }
 
     private static Long latestAttemptAt(List<MarketingTaskAccountGroupStatRow> rows) {

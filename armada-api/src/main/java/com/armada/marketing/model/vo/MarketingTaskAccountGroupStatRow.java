@@ -37,15 +37,20 @@ public class MarketingTaskAccountGroupStatRow {
      */
     private String groupName;
 
-    /**
-     * 最新已完成发送记录中的群组检测状态，未确认时为 {@code UNCONFIRMED}。
-     */
+    /** 最新有效发送尝试状态:1=成功,2=失败;没有有效结果时为空。 */
+    private Integer latestAttemptStatus;
+
+    /** 最新有效发送尝试失败原因码。 */
+    private String reasonCode;
+
+    /** 最新有效发送尝试失败原因描述。 */
+    private String reasonMessage;
+
+    /** 最新有效发送尝试携带的原始群组检测状态。 */
     private String groupStatus;
 
-    /**
-     * 按轮次和尝试次数确定的最新发送结果：{@code SUCCESS} 或 {@code FAILED}；无有效结果时为空。
-     */
-    private String executionResult;
+    /** 最新有效发送尝试携带的群组检测原因。 */
+    private String groupStatusReason;
 
     /**
      * 该账号向该群组发送成功的历史累计次数。
@@ -181,39 +186,93 @@ public class MarketingTaskAccountGroupStatRow {
     }
 
     /**
-     * 获取最新已完成发送记录中的群组检测状态。
+     * 获取最新有效发送尝试状态。
      *
-     * @return 群组检测状态，未确认时为 {@code UNCONFIRMED}
+     * @return 1=成功,2=失败;没有有效结果时为 null
+     */
+    public Integer getLatestAttemptStatus() {
+        return latestAttemptStatus;
+    }
+
+    /**
+     * 设置最新有效发送尝试状态。
+     *
+     * @param latestAttemptStatus 1=成功,2=失败;没有有效结果时为 null
+     */
+    public void setLatestAttemptStatus(Integer latestAttemptStatus) {
+        this.latestAttemptStatus = latestAttemptStatus;
+    }
+
+    /**
+     * 获取最新有效发送尝试失败原因码。
+     *
+     * @return 失败原因码
+     */
+    public String getReasonCode() {
+        return reasonCode;
+    }
+
+    /**
+     * 设置最新有效发送尝试失败原因码。
+     *
+     * @param reasonCode 失败原因码
+     */
+    public void setReasonCode(String reasonCode) {
+        this.reasonCode = reasonCode;
+    }
+
+    /**
+     * 获取最新有效发送尝试失败原因描述。
+     *
+     * @return 失败原因描述
+     */
+    public String getReasonMessage() {
+        return reasonMessage;
+    }
+
+    /**
+     * 设置最新有效发送尝试失败原因描述。
+     *
+     * @param reasonMessage 失败原因描述
+     */
+    public void setReasonMessage(String reasonMessage) {
+        this.reasonMessage = reasonMessage;
+    }
+
+    /**
+     * 获取最新有效发送尝试携带的原始群组检测状态。
+     *
+     * @return 原始群组检测状态
      */
     public String getGroupStatus() {
         return groupStatus;
     }
 
     /**
-     * 设置最新已完成发送记录中的群组检测状态。
+     * 设置最新有效发送尝试携带的原始群组检测状态。
      *
-     * @param groupStatus 群组检测状态，未确认时为 {@code UNCONFIRMED}
+     * @param groupStatus 原始群组检测状态
      */
     public void setGroupStatus(String groupStatus) {
         this.groupStatus = groupStatus;
     }
 
     /**
-     * 获取按轮次和尝试次数确定的最新发送结果。
+     * 获取最新有效发送尝试携带的群组检测原因。
      *
-     * @return {@code SUCCESS} 或 {@code FAILED}；无有效结果时返回 {@code null}
+     * @return 群组检测原因
      */
-    public String getExecutionResult() {
-        return executionResult;
+    public String getGroupStatusReason() {
+        return groupStatusReason;
     }
 
     /**
-     * 设置按轮次和尝试次数确定的最新发送结果。
+     * 设置最新有效发送尝试携带的群组检测原因。
      *
-     * @param executionResult {@code SUCCESS} 或 {@code FAILED}；无有效结果时为 {@code null}
+     * @param groupStatusReason 群组检测原因
      */
-    public void setExecutionResult(String executionResult) {
-        this.executionResult = executionResult;
+    public void setGroupStatusReason(String groupStatusReason) {
+        this.groupStatusReason = groupStatusReason;
     }
 
     /**

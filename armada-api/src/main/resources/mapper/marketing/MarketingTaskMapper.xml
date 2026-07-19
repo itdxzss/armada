@@ -158,7 +158,8 @@
     <select id="selectAccountGroupStatsByTaskId"
             resultType="com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow">
         WITH attempt_facts AS (
-            SELECT t.account_id AS accountId,
+            SELECT t.tenant_id AS tenant_id,
+                   t.account_id AS accountId,
                    t.account_phone AS accountPhone,
                    t.id AS targetId,
                    a.id AS attemptId,
@@ -200,7 +201,8 @@
               AND a.status IN (0, 1, 2, 3)
         ),
         group_aggregate AS (
-            SELECT accountId,
+            SELECT tenant_id,
+                   accountId,
                    accountPhone,
                    groupKey,
                    MAX(groupLinkId) AS groupLinkId,
@@ -248,7 +250,7 @@
                        ''
                    ) AS lastReason
             FROM attempt_facts
-            GROUP BY accountId, accountPhone, groupKey
+            GROUP BY tenant_id, accountId, accountPhone, groupKey
         ),
         latest_effective AS (
             SELECT ranked.*

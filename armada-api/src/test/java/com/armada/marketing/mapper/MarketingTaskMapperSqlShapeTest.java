@@ -374,6 +374,25 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt");
     }
 
+    @Test
+    void detailRollupKeepsTenantColumnAvailableForInterceptorGeneratedFilters() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String detailSql = sqlBody(selectBlock(xml, "selectAccountGroupStatsByTaskId"))
+                .replace("#{taskId}", "42");
+        TenantLineInnerInterceptor interceptor = new TenantLineInnerInterceptor(() -> new LongValue(7L));
+
+        String parsedSql = interceptor.parserSingle(detailSql, null);
+
+        assertThat(parsedSql)
+                .contains("t.tenant_id AS tenant_id")
+                .contains("FROM attempt_facts WHERE tenant_id = 7")
+                .contains("effective.tenant_id = 7")
+                .contains("e.tenant_id = 7")
+                .contains("g.tenant_id = 7");
+    }
+
     private static String selectBlock(String xml, String id) {
         String startTag = "<select id=\"" + id + "\"";
         int start = xml.indexOf(startTag);

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.armada.account.service.AccountService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
+import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTemplate;
@@ -83,6 +84,50 @@ class MarketingTaskServiceImplListTest {
         verify(templateMapper, never()).selectById(anyLong());
     }
 
+    @Test
+    void listTasks_usesFirstLinkJumpButtonForButtonTemplates() {
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setPage(1);
+        query.setPageSize(10);
+        MarketingTask task = task(1L, 10L, "按钮模板任务");
+        MarketingTemplate template = template(10L, "活动标题", "活动正文", null);
+        template.setLinkMode(LinkMode.BUTTON.code());
+        template.setButtons("""
+                [{"type":"QUICK_REPLY","text":"立即咨询","param":null},
+                 {"type":"LINK_JUMP","text":"查看活动","param":"https://example.com/first"},
+                 {"type":"LINK_JUMP","text":"查看详情","param":"https://example.com/second"}]
+                """);
+        when(taskMapper.countPage(query)).thenReturn(1L);
+        when(taskMapper.selectPage(query)).thenReturn(List.of(task));
+        when(templateMapper.selectByIds(List.of(10L))).thenReturn(List.of(template));
+
+        MarketingTaskVO row = service.listTasks(query).list().get(0);
+
+        assertThat(row.marketingTemplatePromotionLink()).isEqualTo("https://example.com/first");
+    }
+
+    @Test
+    void listTasks_returnsNoPromotionLinkWhenButtonTemplateHasNoLinkJump() {
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setPage(1);
+        query.setPageSize(10);
+        MarketingTask task = task(1L, 10L, "无跳转按钮任务");
+        MarketingTemplate template = template(
+                10L, "活动标题", "活动正文", "https://example.com/stale");
+        template.setLinkMode(LinkMode.BUTTON.code());
+        template.setButtons("""
+                [{"type":"COPY_CONTENT","text":"复制优惠码","param":"VIP2026"},
+                 {"type":"QUICK_REPLY","text":"立即咨询","param":null}]
+                """);
+        when(taskMapper.countPage(query)).thenReturn(1L);
+        when(taskMapper.selectPage(query)).thenReturn(List.of(task));
+        when(templateMapper.selectByIds(List.of(10L))).thenReturn(List.of(template));
+
+        MarketingTaskVO row = service.listTasks(query).list().get(0);
+
+        assertThat(row.marketingTemplatePromotionLink()).isNull();
+    }
+
     private static MarketingTask task(long id, long templateId, String name) {
         MarketingTask task = new MarketingTask();
         task.setId(id);
@@ -96,6 +141,7 @@ class MarketingTaskServiceImplListTest {
     private static MarketingTemplate template(long id, String content, String bodyText, String promotionLink) {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(id);
+        template.setLinkMode(LinkMode.NORMAL.code());
         template.setContent(content);
         template.setBodyText(bodyText);
         template.setPromotionLink(promotionLink);

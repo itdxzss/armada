@@ -2,6 +2,7 @@ package com.armada.marketing.service;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
@@ -320,6 +321,36 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         assertThat(byName.get("模板展示任务C").marketingTemplateContent()).isEqualTo("独立标题");
         assertThat(byName.get("模板展示任务C").marketingTemplateBodyText()).isEqualTo("独立正文");
         assertThat(byName.get("模板展示任务C").marketingTemplatePromotionLink()).isNull();
+    }
+
+    @Test
+    void listTasks_returnsFirstLinkJumpButtonAsPromotionLink() {
+        Fixture fixture = seedFixture("template-button-link");
+        jdbc.update("""
+                UPDATE marketing_template
+                SET link_mode = ?, buttons = ?, promotion_link = NULL
+                WHERE id = ?
+                """,
+                LinkMode.BUTTON.code(),
+                """
+                [{"type":"QUICK_REPLY","text":"咨询","param":null},
+                 {"type":"LINK_JUMP","text":"首个链接","param":"https://example.com/first"},
+                 {"type":"LINK_JUMP","text":"第二链接","param":"https://example.com/second"}]
+                """,
+                fixture.templateId());
+        MarketingTaskVO created = service.createTask(request(
+                "按钮推广链接任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setId(created.id());
+        query.setPageSize(10);
+
+        MarketingTaskVO row = service.listTasks(query).list().get(0);
+
+        assertThat(row.marketingTemplatePromotionLink()).isEqualTo("https://example.com/first");
     }
 
     @Test

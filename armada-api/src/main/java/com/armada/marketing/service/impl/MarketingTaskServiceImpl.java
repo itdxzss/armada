@@ -1,8 +1,11 @@
 package com.armada.marketing.service.impl;
 
 import com.armada.account.service.AccountService;
+import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
+import com.armada.marketing.model.ButtonType;
+import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
@@ -35,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -705,7 +709,18 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
                 template == null ? null : template.getContent(),
                 template == null ? null : template.getBodyText(),
-                template == null ? null : template.getPromotionLink());
+                template == null ? null : templatePromotionLink(template).orElse(null));
+    }
+
+    private static Optional<String> templatePromotionLink(MarketingTemplate template) {
+        if (template.getLinkMode() == null || template.getLinkMode() != LinkMode.BUTTON.code()) {
+            return Optional.ofNullable(template.getPromotionLink());
+        }
+        return MarketingTemplateConverter.buttonsFromJson(template.getButtons()).stream()
+                .filter(button -> button.type() == ButtonType.LINK_JUMP)
+                .map(button -> button.param())
+                .filter(StringUtils::hasText)
+                .findFirst();
     }
 
     private static MarketingTaskTargetVO toTargetVO(MarketingTaskTarget target) {

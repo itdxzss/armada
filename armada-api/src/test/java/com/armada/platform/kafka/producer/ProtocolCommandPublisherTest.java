@@ -29,6 +29,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,15 +64,7 @@ class ProtocolCommandPublisherTest {
 
     @BeforeEach
     void setUp() {
-        ProtocolCommandPublisherProperties properties = new ProtocolCommandPublisherProperties();
-        properties.setSendTimeoutMs(1_000);
-        publisher = new ProtocolCommandPublisher(
-                kafkaTemplate,
-                new ObjectMapper().setSerializationInclusion(JsonInclude.Include.NON_NULL),
-                properties,
-                credentialMapper,
-                ipProxyMapper,
-                new ProxyResolver());
+        publisher = publisherWithMaxInFlight(ProtocolCommandPublisherProperties.DEFAULT_MAX_IN_FLIGHT);
     }
 
     @Test
@@ -179,6 +174,56 @@ class ProtocolCommandPublisherTest {
                 .doesNotContain("credentialJson")
                 .doesNotContain("credentialFormat")
                 .doesNotContain("\"proxyId\"");
+    }
+
+    @Test
+    void publishBatch_submitsOneWindowBeforeWaitingAndKeepsInputOrder() throws Exception {
+        ProtocolCommandPublisher boundedPublisher = publisherWithMaxInFlight(2);
+        List<ProtocolCommandOutbox> rows = List.of(
+                passthroughOutboxRow("cmd_100", 100L, "acc_100"),
+                passthroughOutboxRow("cmd_101", 101L, "acc_101"),
+                passthroughOutboxRow("cmd_102", 102L, "acc_102"));
+        CompletableFuture<SendResult<String, ProtocolCommandEnvelope>> first = new CompletableFuture<>();
+        CompletableFuture<SendResult<String, ProtocolCommandEnvelope>> second = new CompletableFuture<>();
+        CompletableFuture<SendResult<String, ProtocolCommandEnvelope>> third = new CompletableFuture<>();
+        List<CompletableFuture<SendResult<String, ProtocolCommandEnvelope>>> sendFutures =
+                List.of(first, second, third);
+        CountDownLatch firstWindowSubmitted = new CountDownLatch(2);
+        CountDownLatch thirdSubmitted = new CountDownLatch(1);
+        AtomicInteger sendCount = new AtomicInteger();
+        when(kafkaTemplate.send(any(), any(), any())).thenAnswer(invocation -> {
+            int index = sendCount.getAndIncrement();
+            if (index < 2) {
+                firstWindowSubmitted.countDown();
+            } else {
+                thirdSubmitted.countDown();
+            }
+            return sendFutures.get(index);
+        });
+
+        CompletableFuture<List<ProtocolCommandPublishOutcome>> publishing =
+                CompletableFuture.supplyAsync(() -> boundedPublisher.publishBatch(rows));
+
+        boolean submittedFullWindow = firstWindowSubmitted.await(1, TimeUnit.SECONDS);
+        int sendsBeforeAck = sendCount.get();
+        second.completeExceptionally(new IllegalStateException("broker unavailable"));
+        boolean crossedWindowBeforeFirstCompleted = thirdSubmitted.await(100, TimeUnit.MILLISECONDS);
+        first.complete(null);
+        boolean submittedNextWindow = thirdSubmitted.await(1, TimeUnit.SECONDS);
+        third.complete(null);
+        List<ProtocolCommandPublishOutcome> outcomes = publishing.get(1, TimeUnit.SECONDS);
+
+        assertThat(submittedFullWindow).isTrue();
+        assertThat(sendsBeforeAck).isEqualTo(2);
+        assertThat(crossedWindowBeforeFirstCompleted).isFalse();
+        assertThat(submittedNextWindow).isTrue();
+        assertThat(outcomes)
+                .extracting(outcome -> outcome.row().getCommandId())
+                .containsExactly("cmd_100", "cmd_101", "cmd_102");
+        assertThat(outcomes)
+                .extracting(ProtocolCommandPublishOutcome::succeeded)
+                .containsExactly(true, false, true);
+        assertThat(outcomes.get(1).error()).isInstanceOf(ProtocolException.class);
     }
 
     @Test
@@ -362,6 +407,34 @@ class ProtocolCommandPublisherTest {
         row.setCommandType("account.groups_sync.requested");
         row.setKafkaTopic("protocol.master.commands.v1");
         return row;
+    }
+
+    private static ProtocolCommandOutbox passthroughOutboxRow(String commandId,
+                                                              Long accountId,
+                                                              String protocolAccountId) {
+        ProtocolCommandOutbox row = outboxRow(
+                commandId,
+                1L,
+                accountId,
+                protocolAccountId,
+                "{\"accountId\":" + accountId + ",\"protocolAccountId\":\"" + protocolAccountId
+                        + "\",\"source\":\"scheduled_account_group_sync\"}");
+        row.setCommandType("account.groups_sync.requested");
+        row.setKafkaTopic("protocol.master.commands.v1");
+        return row;
+    }
+
+    private ProtocolCommandPublisher publisherWithMaxInFlight(int maxInFlight) {
+        ProtocolCommandPublisherProperties properties = new ProtocolCommandPublisherProperties();
+        properties.setSendTimeoutMs(5_000);
+        properties.setMaxInFlight(maxInFlight);
+        return new ProtocolCommandPublisher(
+                kafkaTemplate,
+                new ObjectMapper().setSerializationInclusion(JsonInclude.Include.NON_NULL),
+                properties,
+                credentialMapper,
+                ipProxyMapper,
+                new ProxyResolver());
     }
 
     private static ProtocolCommandOutbox outboxRow(String commandId,

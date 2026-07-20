@@ -44,8 +44,8 @@ public interface MarketingTemplateConverter {
         }
     }
 
-    /** JSON 字符串 → List<MessageButton>(供 toVO 的 buttons 字段);坏数据返回空列表不抛。 */
-    default List<MessageButton> buttonsFromJson(String json) {
+    /** JSON 字符串 → List<MessageButton>(供 toVO 和任务展示字段使用);坏数据返回空列表不抛。 */
+    static List<MessageButton> buttonsFromJson(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
         }

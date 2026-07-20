@@ -21,6 +21,25 @@ class MarketingTaskMapperSqlShapeTest {
             "src/main/resources/db/migration/V050__marketing_task_five_state_lifecycle.sql");
     private static final Path GROUP_STATUS_MIGRATION = Path.of(
             "src/main/resources/db/migration/V052__marketing_attempt_group_status.sql");
+    private static final Path ACCOUNT_GROUP_INTERVAL_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V058__marketing_account_group_send_interval.sql");
+
+    @Test
+    void accountGroupSendIntervalIsPersistedInMillisecondsWithForwardMigration() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        assertThat(xml)
+                .contains("<result column=\"account_group_send_interval_ms\" property=\"accountGroupSendIntervalMs\"/>")
+                .contains("send_per_round, account_group_send_interval_ms, send_interval_seconds")
+                .contains("#{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds}");
+        assertThat(ACCOUNT_GROUP_INTERVAL_MIGRATION).exists();
+        assertThat(Files.readString(ACCOUNT_GROUP_INTERVAL_MIGRATION, StandardCharsets.UTF_8))
+                .contains("information_schema.columns")
+                .contains("column_name = 'account_group_send_interval_ms'")
+                .contains("ADD COLUMN account_group_send_interval_ms INT NOT NULL DEFAULT 500");
+    }
 
     @Test
     void executionTargetsReadCurrentProtocolRoutingFactsFromAccount() throws IOException {
@@ -68,6 +87,7 @@ class MarketingTaskMapperSqlShapeTest {
                 StandardCharsets.UTF_8);
 
         String candidateSql = selectBlock(xml, "selectTargetCandidate");
+        String accountCandidateSql = selectBlock(xml, "selectAccountTargetCandidate");
         String dynamicTargetSql = selectBlock(xml, "selectDynamicTargetGroups");
         String currentTargetSql = selectBlock(xml, "selectCurrentTargetGroup");
         String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
@@ -76,7 +96,13 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("JOIN group_link_preview p ON p.group_link_id = g.id")
                 .contains("p.group_jid AS groupJid")
                 .contains("a.account_group_id = #{accountGroupId}");
-        assertThat(candidateSql).doesNotContain("account_group_membership m");
+        assertThat(candidateSql)
+                .contains("collection=\"selectableAccountStates\"")
+                .doesNotContain("s.account_state = 2")
+                .doesNotContain("account_group_membership m");
+        assertThat(accountCandidateSql)
+                .contains("collection=\"selectableAccountStates\"")
+                .doesNotContain("s.account_state = 2");
         assertThat(dynamicTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_jid AS groupJid")
@@ -269,10 +295,10 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("a.status IN (1, 2, 3)")
-                .contains("SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount")
-                .contains("WHEN a.status IN (2, 3) THEN COALESCE")
-                .doesNotContain("SUM(CASE WHEN a.status IN (2, 3)");
+                .contains("a.status IN (0, 1, 2, 3)")
+                .contains("SUM(CASE WHEN attemptStatus = 2 THEN 1 ELSE 0 END) AS failedMessageCount")
+                .contains("WHEN attemptStatus IN (2, 3) THEN COALESCE")
+                .doesNotContain("SUM(CASE WHEN attemptStatus IN (2, 3)");
     }
 
     @Test
@@ -284,10 +310,9 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("ELSE ''")
-                .contains("a.id DESC")
-                .contains("NULLIF(\n                   SUBSTRING_INDEX(")
-                .contains("),\n                   ''\n               ) AS lastReason");
+                .contains("WHEN attemptStatus = 1 THEN ''")
+                .contains("ORDER BY eventAt DESC, attemptId DESC")
+                .contains(") AS lastReason");
     }
 
     @Test
@@ -304,10 +329,68 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("ADD COLUMN group_status_reason VARCHAR(64)")
                 .contains("ADD COLUMN group_status_checked_at BIGINT");
         assertThat(sql)
-                .contains("WHEN a.status IN (1, 2) THEN")
-                .contains("COALESCE(NULLIF(TRIM(a.group_status), ''), 'UNCONFIRMED')")
-                .contains("AS groupStatus")
-                .contains("a.id DESC");
+                .contains("a.group_status AS rawGroupStatus")
+                .contains("a.group_status_reason AS groupStatusReason")
+                .contains("WHERE attemptStatus IN (1, 2)")
+                .contains("e.rawGroupStatus AS groupStatus")
+                .contains("e.groupStatusReason AS groupStatusReason");
+    }
+
+    @Test
+    void detailRollupUsesLatestEffectiveRoundForExecutionResult() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("ROW_NUMBER() OVER")
+                .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
+                .contains("e.attemptStatus AS latestAttemptStatus")
+                .doesNotContain("AS executionResult");
+    }
+
+    @Test
+    void detailRollupJoinsOneLatestEffectiveAttemptForAllDerivedFields() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("a.status IN (0, 1, 2, 3)")
+                .contains("latest_effective AS")
+                .contains("WHERE attemptStatus IN (1, 2)")
+                .contains("PARTITION BY accountId, groupKey")
+                .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
+                .contains("e.attemptStatus AS latestAttemptStatus")
+                .contains("e.reasonCode AS reasonCode")
+                .contains("e.reasonMessage AS reasonMessage")
+                .contains("e.rawGroupStatus AS groupStatus")
+                .contains("e.groupStatusReason AS groupStatusReason")
+                .contains("SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount")
+                .contains("MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt");
+    }
+
+    @Test
+    void detailRollupKeepsTenantColumnAvailableForInterceptorGeneratedFilters() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String detailSql = sqlBody(selectBlock(xml, "selectAccountGroupStatsByTaskId"))
+                .replace("#{taskId}", "42");
+        TenantLineInnerInterceptor interceptor = new TenantLineInnerInterceptor(() -> new LongValue(7L));
+
+        String parsedSql = interceptor.parserSingle(detailSql, null);
+
+        assertThat(parsedSql)
+                .contains("t.tenant_id AS tenant_id")
+                .contains("FROM attempt_facts WHERE tenant_id = 7")
+                .contains("effective.tenant_id = 7")
+                .contains("e.tenant_id = 7")
+                .contains("g.tenant_id = 7");
     }
 
     private static String selectBlock(String xml, String id) {

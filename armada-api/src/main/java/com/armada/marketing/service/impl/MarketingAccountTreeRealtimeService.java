@@ -182,7 +182,7 @@ public class MarketingAccountTreeRealtimeService {
                                       MarketingAccountOccupancyOwnerRow owner) {
         return owner == null
                 && STATUS_ONLINE.equals(status)
-                && Integer.valueOf(AccountStateCode.NORMAL).equals(account.getAccountState())
+                && MarketingAccountEligibility.supportsAccountState(account.getAccountState())
                 && baselineState(account) != BASELINE_PENDING
                 && account.getProtocolAccountId() != null
                 && !account.getProtocolAccountId().isBlank();
@@ -204,7 +204,7 @@ public class MarketingAccountTreeRealtimeService {
             return "协议账号缺失";
         }
         if (STATUS_ONLINE.equals(status)
-                && !Integer.valueOf(AccountStateCode.NORMAL).equals(account.getAccountState())) {
+                && !MarketingAccountEligibility.supportsAccountState(account.getAccountState())) {
             return "账号不可用";
         }
         return statusText(status);

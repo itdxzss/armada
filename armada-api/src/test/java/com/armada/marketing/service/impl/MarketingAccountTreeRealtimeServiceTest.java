@@ -3,6 +3,8 @@ package com.armada.marketing.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
@@ -88,6 +90,29 @@ class MarketingAccountTreeRealtimeServiceTest {
             assertThat(account.selectable()).isFalse();
             assertThat(account.disabledReason()).isEqualTo("账号不可用");
         });
+    }
+
+    @Test
+    void accountTreeAllowsOnlyOnlineTakeoverLifecycleStates() {
+        MarketingAccountTreeAccountRow replaced = accountRow(6L, "923300000006", 2);
+        replaced.setAccountState(AccountStateCode.LOGIN_REPLACED);
+        MarketingAccountTreeAccountRow takingOver = accountRow(7L, "923300000007", 2);
+        takingOver.setAccountState(AccountStateCode.TAKING_OVER);
+        MarketingAccountTreeAccountRow offlineTakingOver = accountRow(8L, "923300000008", 2);
+        offlineTakingOver.setAccountState(AccountStateCode.TAKING_OVER);
+        offlineTakingOver.setLoginState(AccountLoginStateCode.OFFLINE);
+        when(taskMapper.selectAccountTreeAccounts(8L))
+                .thenReturn(List.of(replaced, takingOver, offlineTakingOver));
+
+        var tree = service.accountTree(8L);
+
+        assertThat(tree.accounts())
+                .extracting(account -> account.accountId(), account -> account.selectable())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(6L, true),
+                        org.assertj.core.groups.Tuple.tuple(7L, true),
+                        org.assertj.core.groups.Tuple.tuple(8L, false));
+        assertThat(tree.accounts().get(2).disabledReason()).isEqualTo("离线");
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.armada.marketing.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -10,17 +11,26 @@ import static org.mockito.Mockito.when;
 
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
+import com.armada.account.service.AccountService;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
+import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.service.impl.MarketingAccountTreeRealtimeService;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.marketing.service.impl.MarketingTaskServiceImpl;
 import com.armada.shared.exception.BusinessException;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -53,14 +63,59 @@ class MarketingTaskServiceImplLifecycleTest {
     @Mock
     private MarketingAccountOccupancyService occupancyService;
 
+    @Mock
+    private AccountService accountService;
+
     @InjectMocks
     private MarketingTaskServiceImpl service;
 
     @Test
-    void createTask_futureTaskLocksAccountsAfterTargetsPersisted() {
+    void getDetailBatchLoadsLoginStateAndNormalizesOneEffectiveAttempt() {
+        MarketingTask task = new MarketingTask();
+        task.setId(TASK_ID);
+        MarketingTaskTarget target = new MarketingTaskTarget();
+        target.setId(501L);
+        target.setAccountId(31L);
+        target.setAccountPhone("923300000031");
+        target.setStatus(1);
+        MarketingTaskAccountGroupStatRow group = new MarketingTaskAccountGroupStatRow();
+        group.setAccountId(31L);
+        group.setGroupJid("120363031@g.us");
+        group.setLatestAttemptStatus(MarketingSendAttemptStatus.FAILED.code());
+        group.setReasonCode("ACCOUNT_BANNED");
+        group.setReasonMessage("forbidden");
+        group.setGroupStatus("BANNED");
+        group.setGroupStatusReason("CHAT_SUSPENDED");
+        group.setSentMessageCount(2);
+        group.setFailedMessageCount(1);
+        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(TASK_ID)).thenReturn(List.of(target));
+        when(taskMapper.selectAccountGroupStatsByTaskId(TASK_ID)).thenReturn(List.of(group));
+        when(accountService.getLoginStatesByIds(List.of(31L))).thenReturn(Map.of(31L, 1));
+
+        var detail = service.getDetail(TASK_ID);
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.loginState()).isEqualTo(1);
+            assertThat(account.sentMessageCount()).isEqualTo(2);
+            assertThat(account.groups()).singleElement().satisfies(item -> {
+                assertThat(item.groupStatus()).isEqualTo("ACCOUNT_BANNED");
+                assertThat(item.executionResult()).isEqualTo("FAILED");
+                assertThat(item.executionReason()).isEqualTo("账号封禁");
+            });
+        });
+        verify(accountService).getLoginStatesByIds(List.of(31L));
+    }
+
+    @Test
+    void createTask_futureTaskPersistsAccountGroupIntervalAndLocksAccountsAfterTargetsPersisted() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
         when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
-        when(taskMapper.selectAccountTargetCandidate(12L, 31L)).thenReturn(accountCandidate());
+        when(taskMapper.selectAccountTargetCandidate(
+                eq(12L),
+                eq(31L),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(accountCandidate());
         doAnswer(invocation -> {
             MarketingTask task = invocation.getArgument(0);
             task.setId(TASK_ID);
@@ -72,14 +127,49 @@ class MarketingTaskServiceImplLifecycleTest {
         CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
                 "未来执行任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
                 null, now + 60_000L, now + 600_000L,
-                1, 30, true, true, false, null,
+                1, new BigDecimal("3.0"), 30, true, true, false, null,
                 java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
 
-        service.createTask(request);
+        var created = service.createTask(request);
 
+        assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(3_000);
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("3.0");
         verify(templateMapper).selectByIdForUpdate(TEMPLATE_ID);
         verify(occupancyService).lockTaskAccountsOrThrow(
                 eq(insertedTask.get()), anyLong());
+    }
+
+    @Test
+    void createTask_missingAccountGroupIntervalDefaultsToHalfSecond() {
+        AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
+        when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.selectAccountTargetCandidate(
+                eq(12L),
+                eq(31L),
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(accountCandidate());
+        doAnswer(invocation -> {
+            MarketingTask task = invocation.getArgument(0);
+            task.setId(TASK_ID);
+            insertedTask.set(task);
+            return 1;
+        }).when(taskMapper).insertTask(org.mockito.ArgumentMatchers.any());
+        when(taskMapper.selectTaskById(TASK_ID)).thenAnswer(invocation -> insertedTask.get());
+
+        var created = service.createTask(requestWithInterval(null));
+
+        assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(500);
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("0.5");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0.4", "0.55", "3.1"})
+    void createTask_invalidAccountGroupIntervalIsRejected(String interval) {
+        assertThatThrownBy(() -> service.createTask(requestWithInterval(new BigDecimal(interval))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("单账号下群组发送间隔必须为0.5到3秒，最多一位小数");
+
+        verify(taskMapper, never()).insertTask(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -203,5 +293,12 @@ class MarketingTaskServiceImplLifecycleTest {
         row.setAccountId(31L);
         row.setAccountPhone("923100000031");
         return row;
+    }
+
+    private static CreateMarketingTaskDTO requestWithInterval(BigDecimal interval) {
+        return new CreateMarketingTaskDTO(
+                "间隔测试任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
+                null, null, null, 1, interval, 30, true, true, false, null,
+                java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
     }
 }

@@ -99,7 +99,9 @@ class RoutingMessageSendPortTest {
                         new MessageSendCommand.MarketingCorrelation(2L, 3L, 4L, 1L),
                         null,
                         null),
-                commandId);
+                commandId,
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
+                0L);
     }
 
     private static final class RecordingBackend implements MessageSendBackend {

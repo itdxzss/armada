@@ -1,5 +1,6 @@
 package com.armada.marketing.model.dto;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -15,6 +16,7 @@ import java.util.List;
  * @param taskStartAt           任务计划开始时间(epoch毫秒)
  * @param taskEndAt             任务计划结束时间(epoch毫秒)
  * @param sendPerRound          单轮发送条数
+ * @param accountGroupSendIntervalSeconds 单账号下群组发送间隔秒数
  * @param sendIntervalSeconds   发送间隔秒数
  * @param onlineCheckEnabled    发送前是否检测账号在线
  * @param abnormalGroupSkipped  是否跳过异常群
@@ -33,6 +35,7 @@ public record CreateMarketingTaskDTO(
         Long taskStartAt,
         Long taskEndAt,
         Integer sendPerRound,
+        BigDecimal accountGroupSendIntervalSeconds,
         Integer sendIntervalSeconds,
         Boolean onlineCheckEnabled,
         Boolean abnormalGroupSkipped,
@@ -50,6 +53,7 @@ public record CreateMarketingTaskDTO(
                                   String marketingTemplateName,
                                   String startMode,
                                   Integer sendPerRound,
+                                  BigDecimal accountGroupSendIntervalSeconds,
                                   Integer sendIntervalSeconds,
                                   Boolean onlineCheckEnabled,
                                   Boolean abnormalGroupSkipped,
@@ -57,7 +61,7 @@ public record CreateMarketingTaskDTO(
                                   String remark,
                                   List<MarketingSelectionDTO> selections) {
         this(taskName, accountGroupId, accountGroupName, marketingTemplateId, marketingTemplateName, startMode,
-                null, null, null, sendPerRound, sendIntervalSeconds, onlineCheckEnabled, abnormalGroupSkipped,
-                autoRetryEnabled, remark, selections);
+                null, null, null, sendPerRound, accountGroupSendIntervalSeconds, sendIntervalSeconds,
+                onlineCheckEnabled, abnormalGroupSkipped, autoRetryEnabled, remark, selections);
     }
 }

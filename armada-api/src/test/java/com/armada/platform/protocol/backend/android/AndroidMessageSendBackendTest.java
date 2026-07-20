@@ -8,6 +8,8 @@ import com.armada.platform.protocol.model.enums.MessageType;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.media.AndroidImageAsset;
+import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,9 +24,13 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,7 +38,9 @@ class AndroidMessageSendBackendTest {
 
     private final ProtocolCommandOutboxService outboxService = mock(ProtocolCommandOutboxService.class);
     private final ProtocolAndroidCommandProperties properties = new ProtocolAndroidCommandProperties();
-    private final AndroidMessageSendBackend backend = new AndroidMessageSendBackend(outboxService, properties);
+    private final AndroidImageAssetStore assetStore = mock(AndroidImageAssetStore.class);
+    private final AndroidMessageSendBackend backend =
+            new AndroidMessageSendBackend(outboxService, properties, assetStore);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @ParameterizedTest
@@ -103,7 +111,9 @@ class AndroidMessageSendBackendTest {
                 .containsEntry("marketingTaskId", 42L)
                 .containsEntry("attemptId", 9001L)
                 .containsEntry("targetId", 501L)
-                .containsEntry("roundNo", 1L);
+                .containsEntry("roundNo", 1L)
+                .containsEntry("sendIntervalMs", 750)
+                .doesNotContainKeys("dispatchPolicy", "notBeforeAt", "dispatchIntervalMs");
         @SuppressWarnings("unchecked")
         Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
         @SuppressWarnings("unchecked")
@@ -129,7 +139,9 @@ class AndroidMessageSendBackendTest {
                         null,
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
-                "cmd_historical_android");
+                "cmd_historical_android",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
+                0L);
         when(outboxService.enqueueMessageCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         null, List.of("cmd_historical_android"), 1));
@@ -149,6 +161,93 @@ class AndroidMessageSendBackendTest {
                 .doesNotContainKeys(
                         "marketingTaskId", "attemptId", "targetId", "roundNo",
                         "groupCreationTaskId", "groupCreationItemId");
+    }
+
+    @Test
+    void writesImageReferenceWithoutBase64() {
+        byte[] source = "source-image".getBytes();
+        MessageSendCommand command = imageCommand("cmd_image", source);
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null, List.of("cmd_image"), 1));
+
+        backend.enqueue(List.of(command));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        Map<String, Object> payload = objectMapper.convertValue(
+                captor.getValue().get(0).payload(), new TypeReference<>() {
+                });
+        @SuppressWarnings("unchecked")
+        Map<String, Object> image = (Map<String, Object>) payload.get("image");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> assetRef = (Map<String, Object>) image.get("assetRef");
+
+        assertThat(image).doesNotContainKeys("base64", "mimetype");
+        assertThat(assetRef)
+                .containsEntry("sizeBytes", source.length)
+                .containsEntry("mimetype", "image/png")
+                .containsEntry("transformProfile", "marketing-image-v1");
+        assertThat(assetRef.get("sha256").toString()).hasSize(64);
+    }
+
+    @Test
+    void ensuresSameTemplateImageOnlyOnceForManyGroupsInOneBatch() {
+        byte[] source = "shared-template-image".getBytes();
+        MessageSendCommand first = imageCommand("cmd_1", source);
+        MessageSendCommand second = imageCommand("cmd_2", source.clone());
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null, List.of("cmd_1", "cmd_2"), 2));
+
+        backend.enqueue(List.of(first, second));
+
+        ArgumentCaptor<AndroidImageAsset> assets =
+                ArgumentCaptor.forClass(AndroidImageAsset.class);
+        verify(assetStore, times(1)).ensure(assets.capture());
+        assertThat(assets.getValue().tenantId()).isEqualTo(7L);
+        assertThat(assets.getValue().sourceBytes()).isSameAs(source);
+    }
+
+    @Test
+    void encodesLinkAndButtonThumbnailsAsOneSharedAssetReference() {
+        byte[] source = "shared-card-image".getBytes();
+        MessageSendCommand link = linkCardCommand("cmd_link", source);
+        MessageSendCommand button = buttonCardCommand("cmd_button", source);
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null, List.of("cmd_link", "cmd_button"), 2));
+
+        backend.enqueue(List.of(link, button));
+
+        verify(assetStore, times(1)).ensure(any(AndroidImageAsset.class));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        List<Map<String, Object>> payloads = captor.getValue().stream()
+                .map(value -> objectMapper.convertValue(
+                        value.payload(), new TypeReference<Map<String, Object>>() {
+                        }))
+                .toList();
+        assertThat(payloads.toString())
+                .contains("assetRef")
+                .doesNotContain("base64");
+    }
+
+    @Test
+    void doesNotPersistOutboxWhenRedisCannotEnsureAsset() {
+        MessageSendCommand command = imageCommand("cmd_image", "image".getBytes());
+        doThrow(new IllegalStateException("redis unavailable"))
+                .when(assetStore).ensure(any(AndroidImageAsset.class));
+
+        assertThatThrownBy(() -> backend.enqueue(List.of(command)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("redis unavailable");
+
+        verify(outboxService, never()).enqueueMessageCommands(anyList());
     }
 
     private static Stream<Arguments> invalidButtonCards() {
@@ -173,7 +272,62 @@ class AndroidMessageSendBackendTest {
                         new MessageSendCommand.MessageContent("hello", null, null, null),
                         false),
                 correlation(),
-                commandId);
+                commandId,
+                750,
+                2_500L);
+    }
+
+    private static MessageSendCommand imageCommand(String commandId, byte[] source) {
+        return new MessageSendCommand(
+                account(),
+                new MessageSendCommand.MessageTarget("120363001@g.us"),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.IMAGE,
+                        new MessageSendCommand.MessageContent(
+                                "caption",
+                                new MessageSendCommand.MessageMedia(source, "image/png"),
+                                null,
+                                null),
+                        false),
+                correlation(),
+                commandId,
+                750,
+                0L);
+    }
+
+    private static MessageSendCommand linkCardCommand(String commandId, byte[] source) {
+        MessageSendCommand.MessageMedia thumbnail =
+                new MessageSendCommand.MessageMedia(source, "image/png");
+        return new MessageSendCommand(
+                account(),
+                new MessageSendCommand.MessageTarget("120363002@g.us"),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.LINK_CARD,
+                        new MessageSendCommand.MessageContent(
+                                "body",
+                                null,
+                                new MessageSendCommand.MessageLinkCard(
+                                        "https://example.com/card",
+                                        "title",
+                                        "description",
+                                        thumbnail),
+                                null),
+                        false),
+                correlation(),
+                commandId,
+                750,
+                0L);
+    }
+
+    private static MessageSendCommand buttonCardCommand(String commandId, byte[] source) {
+        MessageSendCommand.MessageMedia thumbnail =
+                new MessageSendCommand.MessageMedia(source, "image/png");
+        MessageSendCommand.MessageButtonCard buttonCard = new MessageSendCommand.MessageButtonCard(
+                "title",
+                "footer",
+                List.of(button("link", "查看详情", "https://example.com/button")),
+                thumbnail);
+        return buttonCommand(commandId, buttonCard);
     }
 
     private static MessageSendCommand buttonCommand(
@@ -187,7 +341,9 @@ class AndroidMessageSendBackendTest {
                         new MessageSendCommand.MessageContent("body", null, null, card),
                         true),
                 correlation(),
-                commandId);
+                commandId,
+                750,
+                2_500L);
     }
 
     private static MessageSendCommand.MessageButtonCard card(List<MessageSendCommand.MessageButton> buttons) {

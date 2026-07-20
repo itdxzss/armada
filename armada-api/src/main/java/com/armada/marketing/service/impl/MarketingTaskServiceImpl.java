@@ -1,7 +1,11 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.account.service.AccountService;
+import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
+import com.armada.marketing.model.ButtonType;
+import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
@@ -27,13 +31,16 @@ import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -59,35 +66,42 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private static final int STATUS_COMPLETED = MarketingTaskStatus.COMPLETED.code();
     private static final int STATUS_CLOSED = MarketingTaskStatus.CLOSED.code();
     private static final long ACCOUNT_GROUP_SEND_LOOKBACK_MS = 72L * 60L * 60L * 1000L;
+    private static final BigDecimal MIN_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS = new BigDecimal("0.5");
+    private static final BigDecimal MAX_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS = new BigDecimal("3");
+    private static final int DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS = 500;
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
     private final MarketingTemplateService templateService;
     private final MarketingAccountTreeRealtimeService accountTreeRealtimeService;
     private final MarketingAccountOccupancyService occupancyService;
+    private final AccountService accountService;
 
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
      *
-     * <p>任务 Mapper 负责本聚合读写;模板 Mapper 只用于校验模板存在并读取模板名称快照,
-     * 不读取或复制模板正文。</p>
+     * <p>任务 Mapper 负责本聚合读写；模板 Mapper 负责校验模板存在、读取模板名称快照，
+     * 并为任务响应补充当前模板展示字段；模板正文不复制到任务表。</p>
      *
      * @param taskMapper      营销任务与目标明细数据访问
      * @param templateMapper  营销模板数据访问
      * @param templateService 营销模板业务服务
      * @param accountTreeRealtimeService 营销账号树实时查询服务
      * @param occupancyService 普通营销账号占用服务
+     * @param accountService 账号域服务，用于批量读取当前登录态
      */
     public MarketingTaskServiceImpl(MarketingTaskMapper taskMapper,
                                     MarketingTemplateMapper templateMapper,
                                     MarketingTemplateService templateService,
                                     MarketingAccountTreeRealtimeService accountTreeRealtimeService,
-                                    MarketingAccountOccupancyService occupancyService) {
+                                    MarketingAccountOccupancyService occupancyService,
+                                    AccountService accountService) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
         this.templateService = templateService;
         this.accountTreeRealtimeService = accountTreeRealtimeService;
         this.occupancyService = occupancyService;
+        this.accountService = accountService;
     }
 
     /**
@@ -103,9 +117,16 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     public PageResult<MarketingTaskVO> listTasks(MarketingTaskQuery query) {
         long total = taskMapper.countPage(query);
         // 与其它列表服务保持一致:total=0 时不再查 page rows,避免一次必然空结果的 SELECT。
-        List<MarketingTaskVO> rows = total == 0
-                ? List.of()
-                : taskMapper.selectPage(query).stream().map(MarketingTaskServiceImpl::toVO).toList();
+        List<MarketingTaskVO> rows;
+        if (total == 0) {
+            rows = List.of();
+        } else {
+            List<MarketingTask> tasks = taskMapper.selectPage(query);
+            Map<Long, MarketingTemplate> templatesById = loadTemplatesById(tasks);
+            rows = tasks.stream()
+                    .map(task -> toVO(task, templatesById.get(task.getMarketingTemplateId())))
+                    .toList();
+        }
         log.info("营销任务列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
@@ -141,14 +162,15 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 occupancyService.lockTaskAccountsOrThrow(task, now);
         log.info("营销任务已创建 tenantId={} taskId={} targets={} lockedAccounts={} status={}",
                 task.getTenantId(), task.getId(), targets.size(), lockedAccounts.size(), task.getStatus());
-        return toVO(taskMapper.selectTaskById(task.getId()));
+        return toVO(taskMapper.selectTaskById(task.getId()), template);
     }
 
     /**
      * 查询营销任务详情。
      *
-     * <p>详情由任务主表和目标明细组成:主表提供配置、状态和计数,目标明细提供每个账号×群组
-     * 的号码、群 JID、群链接、群名和发送结果字段。任务不存在时抛业务 404。</p>
+     * <p>详情按账号、群组两级聚合：账号层批量补充当前实时登录态和当前任务成功发送总次数；
+     * 群组层展示成功发送次数，并从同一条最后有效尝试归一群组状态、执行结果和失败原因。
+     * 任务不存在时抛业务 404。</p>
      *
      * @param id 营销任务 ID
      * @return 营销任务详情,包含目标明细列表
@@ -160,7 +182,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         List<MarketingTaskTargetVO> targets = taskMapper.selectTargetsByTaskId(id)
                 .stream().map(MarketingTaskServiceImpl::toTargetVO).toList();
         List<MarketingTaskAccountGroupStatRow> groupStats = taskMapper.selectAccountGroupStatsByTaskId(id);
-        List<MarketingTaskAccountTargetVO> accountTargets = toAccountTargets(targets, groupStats);
+        Set<Long> accountIds = targets.stream()
+                .map(MarketingTaskTargetVO::accountId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, Integer> loginStates = accountService.getLoginStatesByIds(List.copyOf(accountIds));
+        List<MarketingTaskAccountTargetVO> accountTargets = toAccountTargets(targets, groupStats, loginStates);
         log.info("营销任务详情查询 id={} targets={} accounts={}", id, targets.size(), accountTargets.size());
         return toDetailVO(task, targets, accountTargets);
     }
@@ -359,6 +385,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (positive(request.sendPerRound()) < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "单次发送数量必须为正整数");
         }
+        if (!validAccountGroupSendInterval(request.accountGroupSendIntervalSeconds())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "单账号下群组发送间隔必须为0.5到3秒，最多一位小数");
+        }
         if (positive(request.sendIntervalSeconds()) < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "发送间隔必须为正整数");
         }
@@ -486,7 +515,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private MarketingTargetCandidateRow requireCandidate(Long accountGroupId, Long accountId, Long groupLinkId) {
         // 目标候选必须同时满足:账号存在且属于本次选择的分组、登录态在线、群入口未软删且有 group_jid。
         // group_jid 是协议层发送寻址必需字段,没有它时不能等到发送阶段才失败。
-        MarketingTargetCandidateRow row = taskMapper.selectTargetCandidate(accountGroupId, accountId, groupLinkId);
+        MarketingTargetCandidateRow row = taskMapper.selectTargetCandidate(
+                accountGroupId,
+                accountId,
+                groupLinkId,
+                MarketingAccountEligibility.selectableAccountStates());
         if (row == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号或群组不可用: account=" + accountId + ", group=" + groupLinkId);
         }
@@ -498,7 +531,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private MarketingTargetCandidateRow requireAccountCandidate(Long accountGroupId, Long accountId) {
         // 账号动态目标只校验账号归属、在线、无风控/禁言。群是否可发由每轮发送前的动态群查询决定。
-        MarketingTargetCandidateRow row = taskMapper.selectAccountTargetCandidate(accountGroupId, accountId);
+        MarketingTargetCandidateRow row = taskMapper.selectAccountTargetCandidate(
+                accountGroupId,
+                accountId,
+                MarketingAccountEligibility.selectableAccountStates());
         if (row == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: account=" + accountId);
         }
@@ -555,6 +591,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setSentMessageCount(0);
         task.setFailedMessageCount(0);
         task.setSendPerRound(positive(request.sendPerRound()));
+        task.setAccountGroupSendIntervalMs(normalizeAccountGroupSendIntervalMs(
+                request.accountGroupSendIntervalSeconds()));
         task.setSendIntervalSeconds(positive(request.sendIntervalSeconds()));
         task.setOnlineCheckEnabled(Boolean.TRUE.equals(request.onlineCheckEnabled()));
         task.setAbnormalGroupSkipped(Boolean.TRUE.equals(request.abnormalGroupSkipped()));
@@ -609,6 +647,25 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return value == null ? 0 : value;
     }
 
+    private static boolean validAccountGroupSendInterval(BigDecimal value) {
+        return value == null
+                || (value.compareTo(MIN_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS) >= 0
+                && value.compareTo(MAX_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS) <= 0
+                && value.stripTrailingZeros().scale() <= 1);
+    }
+
+    private static int normalizeAccountGroupSendIntervalMs(BigDecimal value) {
+        if (value == null) {
+            return DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS;
+        }
+        return value.movePointRight(3).intValueExact();
+    }
+
+    private static BigDecimal accountGroupSendIntervalSeconds(Integer milliseconds) {
+        int normalized = milliseconds == null ? DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS : milliseconds;
+        return BigDecimal.valueOf(normalized, 3).stripTrailingZeros();
+    }
+
     private static String snapshotName(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
@@ -617,15 +674,53 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return (int) targets.stream().map(MarketingTaskTarget::getAccountId).distinct().count();
     }
 
-    private static MarketingTaskVO toVO(MarketingTask task) {
+    private Map<Long, MarketingTemplate> loadTemplatesById(List<MarketingTask> tasks) {
+        List<Long> templateIds = tasks.stream()
+                .map(MarketingTask::getMarketingTemplateId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        if (templateIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, MarketingTemplate> templatesById = new LinkedHashMap<>();
+        for (MarketingTemplate template : templateMapper.selectByIds(templateIds)) {
+            templatesById.put(template.getId(), template);
+        }
+        return templatesById;
+    }
+
+    private MarketingTaskVO toVO(MarketingTask task) {
+        MarketingTemplate template = task.getMarketingTemplateId() == null
+                ? null
+                : templateMapper.selectById(task.getMarketingTemplateId());
+        return toVO(task, template);
+    }
+
+    private static MarketingTaskVO toVO(MarketingTask task, MarketingTemplate template) {
         return new MarketingTaskVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
+                accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
-                task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt());
+                task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
+                template == null ? null : template.getContent(),
+                template == null ? null : template.getBodyText(),
+                template == null ? null : templatePromotionLink(template).orElse(null));
+    }
+
+    private static Optional<String> templatePromotionLink(MarketingTemplate template) {
+        if (template.getLinkMode() == null || template.getLinkMode() != LinkMode.BUTTON.code()) {
+            return Optional.ofNullable(template.getPromotionLink());
+        }
+        return MarketingTemplateConverter.buttonsFromJson(template.getButtons()).stream()
+                .filter(button -> button.type() == ButtonType.LINK_JUMP)
+                .map(button -> button.param())
+                .filter(StringUtils::hasText)
+                .findFirst();
     }
 
     private static MarketingTaskTargetVO toTargetVO(MarketingTaskTarget target) {
@@ -637,7 +732,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     private static List<MarketingTaskAccountTargetVO> toAccountTargets(List<MarketingTaskTargetVO> targets,
-                                                                       List<MarketingTaskAccountGroupStatRow> groupStats) {
+                                                                       List<MarketingTaskAccountGroupStatRow> groupStats,
+                                                                       Map<Long, Integer> loginStates) {
         Map<Long, MarketingTaskTargetVO> targetByAccount = new LinkedHashMap<>();
         for (MarketingTaskTargetVO target : targets) {
             targetByAccount.putIfAbsent(target.accountId(), target);
@@ -647,31 +743,38 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             statsByAccount.computeIfAbsent(row.getAccountId(), ignored -> new ArrayList<>()).add(row);
         }
         return targetByAccount.values().stream()
-                .map(target -> toAccountTarget(target, statsByAccount.getOrDefault(target.accountId(), List.of())))
+                .map(target -> toAccountTarget(
+                        target,
+                        statsByAccount.getOrDefault(target.accountId(), List.of()),
+                        loginStates.get(target.accountId())))
                 .toList();
     }
 
     private static MarketingTaskAccountTargetVO toAccountTarget(MarketingTaskTargetVO target,
-                                                                List<MarketingTaskAccountGroupStatRow> rows) {
+                                                                List<MarketingTaskAccountGroupStatRow> rows,
+                                                                Integer loginState) {
         List<MarketingTaskGroupStatVO> groups = rows.stream()
                 .map(MarketingTaskServiceImpl::toGroupStatVO)
                 .toList();
         int sent = rows.stream().mapToInt(row -> zero(row.getSentMessageCount())).sum();
         int failed = rows.stream().mapToInt(row -> zero(row.getFailedMessageCount())).sum();
         int status = MarketingTaskAccountStatusResolver.resolve(target.status(), sent, failed);
-        return new MarketingTaskAccountTargetVO(target.accountId(), target.accountPhone(), status,
+        return new MarketingTaskAccountTargetVO(target.accountId(), target.accountPhone(), loginState, status,
                 sent, failed, latestAttemptAt(rows), latestSentAt(rows), latestReason(rows), groups);
     }
 
     private static MarketingTaskGroupStatVO toGroupStatVO(MarketingTaskAccountGroupStatRow row) {
+        MarketingGroupExecutionNormalizer.NormalizedExecution execution =
+                MarketingGroupExecutionNormalizer.normalize(
+                        row.getLatestAttemptStatus(),
+                        row.getReasonCode(),
+                        row.getReasonMessage(),
+                        row.getGroupStatus(),
+                        row.getGroupStatusReason());
         return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
-                row.getGroupName(), groupStatus(row.getGroupStatus()), zero(row.getSentMessageCount()),
-                zero(row.getFailedMessageCount()),
+                row.getGroupName(), execution.groupStatus(), execution.executionResult(), execution.executionReason(),
+                zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
                 row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());
-    }
-
-    private static String groupStatus(String value) {
-        return StringUtils.hasText(value) ? value : "UNCONFIRMED";
     }
 
     private static Long latestAttemptAt(List<MarketingTaskAccountGroupStatRow> rows) {
@@ -709,6 +812,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
+                accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),

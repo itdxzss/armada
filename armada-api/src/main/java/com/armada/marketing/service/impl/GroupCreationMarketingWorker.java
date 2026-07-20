@@ -479,7 +479,9 @@ public class GroupCreationMarketingWorker {
                         null,
                         new MessageSendCommand.GroupCreationCorrelation(taskId, item.getId()),
                         null),
-                commandId);
+                commandId,
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
+                0L);
         MessageSendEnqueueResult result = messageSendPort.enqueue(List.of(command));
         if (result == null || result.items().size() != 1
                 || result.items().get(0) == null

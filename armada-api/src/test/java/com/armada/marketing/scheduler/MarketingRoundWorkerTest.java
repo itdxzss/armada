@@ -28,6 +28,8 @@ import com.armada.platform.protocol.port.MessageSendPort;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -199,6 +201,7 @@ class MarketingRoundWorkerTest {
         properties.setOutboxBatchSize(500);
 
         MarketingTask task = task();
+        task.setAccountGroupSendIntervalMs(750);
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(2);
@@ -215,7 +218,8 @@ class MarketingRoundWorkerTest {
             return attempts.size();
         }).when(taskMapper).insertSendAttempts(any());
 
-        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, properties, fixedClock(2_000L));
         worker.runRound(1L, 42L);
 
         @SuppressWarnings("unchecked")
@@ -238,6 +242,10 @@ class MarketingRoundWorkerTest {
                 .containsExactlyElementsOf(attempts.stream().map(MarketingTaskSendAttempt::getCommandId).toList());
         assertThat(commands).extracting(command -> command.payload().type().name()).containsOnly("TEXT");
         assertThat(commands).extracting(command -> command.payload().mentionAll()).containsOnly(true);
+        assertThat(commands).extracting(MessageSendCommand::sendIntervalMs)
+                .containsOnly(750);
+        assertThat(commands).extracting(MessageSendCommand::notBeforeAt)
+                .containsExactly(2_000L, 2_000L);
     }
 
     @Test
@@ -341,7 +349,8 @@ class MarketingRoundWorkerTest {
             return attempts.size();
         }).when(taskMapper).insertSendAttempts(any());
 
-        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, properties, fixedClock(2_000L));
         worker.runRound(1L, 42L);
 
         @SuppressWarnings("unchecked")
@@ -403,7 +412,8 @@ class MarketingRoundWorkerTest {
             return attempts.size();
         }).when(taskMapper).insertSendAttempts(any());
 
-        MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
+        MarketingRoundWorker worker = worker(
+                taskMapper, outbox, properties, fixedClock(2_000L));
         worker.runRound(1L, 42L);
 
         @SuppressWarnings("unchecked")
@@ -421,6 +431,10 @@ class MarketingRoundWorkerTest {
         verify(outbox).enqueue(commandsCaptor.capture());
         assertThat(commandsCaptor.getValue()).extracting(command -> command.target().groupJid())
                 .containsExactly("12036308101@g.us", "12036308102@g.us");
+        assertThat(commandsCaptor.getValue()).extracting(MessageSendCommand::sendIntervalMs)
+                .containsOnly(500);
+        assertThat(commandsCaptor.getValue()).extracting(MessageSendCommand::notBeforeAt)
+                .containsExactly(2_000L, 2_500L);
     }
 
     @Test
@@ -737,6 +751,7 @@ class MarketingRoundWorkerTest {
         task.setTenantId(1L);
         task.setStatus(2);
         task.setSendIntervalSeconds(30);
+        task.setAccountGroupSendIntervalMs(500);
         task.setCurrentRoundNo(0L);
         task.setMarketingTemplateId(77L);
         task.setAccountGroupSendAt(1_000L);
@@ -865,5 +880,9 @@ class MarketingRoundWorkerTest {
         file.setContentType("image/png");
         file.setContent(new byte[] {1, 2, 3});
         return file;
+    }
+
+    private static Clock fixedClock(long epochMillis) {
+        return Clock.fixed(Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC);
     }
 }

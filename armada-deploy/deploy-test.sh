@@ -8,29 +8,121 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 
+profile_die() {
+  printf 'ERR %s\n' "$*" >&2
+  exit 1
+}
+
+SELECTED_ENV=test1
+ENV_OPTION_SEEN=0
+EXPECT_ENV_VALUE=0
+for arg in "$@"; do
+  if [ "${EXPECT_ENV_VALUE}" = 1 ]; then
+    SELECTED_ENV="${arg}"
+    EXPECT_ENV_VALUE=0
+    continue
+  fi
+  case "${arg}" in
+    --env)
+      [ "${ENV_OPTION_SEEN}" = 0 ] || profile_die "--env 不能重复"
+      ENV_OPTION_SEEN=1
+      EXPECT_ENV_VALUE=1
+      ;;
+    --env=*)
+      [ "${ENV_OPTION_SEEN}" = 0 ] || profile_die "--env 不能重复"
+      ENV_OPTION_SEEN=1
+      SELECTED_ENV="${arg#*=}"
+      ;;
+  esac
+done
+[ "${EXPECT_ENV_VALUE}" = 0 ] || profile_die "--env 需要环境名"
+case "${SELECTED_ENV}" in
+  test1|perf2) ;;
+  *) profile_die "环境只允许 test1 或 perf2: ${SELECTED_ENV}" ;;
+esac
+
+PROFILE_FILE="${SCRIPT_DIR}/envs/${SELECTED_ENV}.conf"
+[ -f "${PROFILE_FILE}" ] || profile_die "缺少环境档案: ${PROFILE_FILE}"
+# shellcheck source=/dev/null
+. "${PROFILE_FILE}"
+[ "${ENV_ID:-}" = "${SELECTED_ENV}" ] || profile_die "环境档案 ID 不匹配: ${PROFILE_FILE}"
+
+for required_profile_var in \
+  PROFILE_APP_TITLE \
+  PROFILE_ARMADA_HOST PROFILE_ARMADA_USER PROFILE_ARMADA_KEY_REL \
+  PROFILE_ARMADA_REMOTE_DIR PROFILE_ARMADA_COMPOSE_FILE \
+  PROFILE_ARMADA_COMPOSE_PROJECT PROFILE_ARMADA_PUBLIC_URL \
+  PROFILE_PROTOCOL_HOST PROFILE_PROTOCOL_USER PROFILE_PROTOCOL_KEY_REL \
+  PROFILE_PROTOCOL_REMOTE_DIR PROFILE_PROTOCOL_PM2_CONFIG \
+  PROFILE_PROTOCOL_HEALTH_PORT PROFILE_PROTOCOL_TRANSPORT \
+  PROFILE_ZHUAN_HOST PROFILE_ZHUAN_USER PROFILE_ZHUAN_KEY_REL \
+  PROFILE_ZHUAN_REMOTE_DIR PROFILE_ZHUAN_COMPOSE_FILE PROFILE_ZHUAN_HTTP_PORT \
+  PROFILE_ZHUAN_START_SERVICES PROFILE_ZHUAN_HEALTH_SERVICES \
+  EXPECTED_ARMADA_DB_SCHEMA EXPECTED_ANDROID_TOPIC_PREFIX \
+  EXPECTED_ZHUAN_DB_SCHEMA; do
+  [ -n "${!required_profile_var:-}" ] \
+    || profile_die "环境档案缺少必填字段: ${required_profile_var}"
+done
+case "${PROFILE_PROTOCOL_TRANSPORT}" in
+  direct|jump) ;;
+  *) profile_die "协议连接模式只允许 direct 或 jump: ${PROFILE_PROTOCOL_TRANSPORT}" ;;
+esac
+readonly EXPECTED_ARMADA_DB_SCHEMA EXPECTED_ANDROID_BASE_URL \
+  EXPECTED_ANDROID_TOPIC_PREFIX EXPECTED_ZHUAN_DB_SCHEMA \
+  EXPECTED_ZHUAN_REDIS_PREFIX EXPECTED_KAFKA_TOPICS EXPECTED_KAFKA_GROUPS
+
 # Use the public IP by default so local proxy fake-ip DNS cannot break ssh/rsync.
-SSH_HOST="${ARMADA_DEPLOY_HOST:-65.2.123.53}"
-SSH_USER="${ARMADA_DEPLOY_USER:-ubuntu}"
-SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/dev-1.pem}"
-REMOTE_DIR="${ARMADA_DEPLOY_REMOTE_DIR:-/home/app/armada-deploy}"
-COMPOSE_FILE="${ARMADA_DEPLOY_COMPOSE:-docker-compose.rds.yml}"
-COMPOSE_PROJECT="${ARMADA_DEPLOY_PROJECT:-armada-deploy}"
-PUBLIC_URL="${ARMADA_DEPLOY_PUBLIC_URL:-http://armada.65.2.123.53.nip.io/}"
-APP_TITLE="${ARMADA_APP_TITLE:-${APP_TITLE:-}}"
+SSH_HOST="${ARMADA_DEPLOY_HOST:-${PROFILE_ARMADA_HOST}}"
+SSH_USER="${ARMADA_DEPLOY_USER:-${PROFILE_ARMADA_USER}}"
+SSH_KEY="${ARMADA_DEPLOY_KEY:-${WORKSPACE_ROOT}/${PROFILE_ARMADA_KEY_REL}}"
+REMOTE_DIR="${ARMADA_DEPLOY_REMOTE_DIR:-${PROFILE_ARMADA_REMOTE_DIR}}"
+COMPOSE_FILE="${ARMADA_DEPLOY_COMPOSE:-${PROFILE_ARMADA_COMPOSE_FILE}}"
+COMPOSE_PROJECT="${ARMADA_DEPLOY_PROJECT:-${PROFILE_ARMADA_COMPOSE_PROJECT}}"
+PUBLIC_URL="${ARMADA_DEPLOY_PUBLIC_URL:-${PROFILE_ARMADA_PUBLIC_URL}}"
+APP_TITLE="${ARMADA_APP_TITLE:-${APP_TITLE:-${PROFILE_APP_TITLE}}}"
 FRONTEND_DIR="${ARMADA_FRONTEND_DIR:-${WORKSPACE_ROOT}/wheel-saas-pure-web}"
 PROTOCOL_DIR="${ARMADA_PROTOCOL_DIR:-${WORKSPACE_ROOT}/armada-protocol}"
 PROTOCOL_LAYER_DIR="${PROTOCOL_DIR}/protocol-layer"
-PROTOCOL_SSH_HOST="${ARMADA_PROTOCOL_DEPLOY_HOST:-65.2.122.109}"
-PROTOCOL_SSH_USER="${ARMADA_PROTOCOL_DEPLOY_USER:-ec2-user}"
-PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/测试pem/protocol.pem}"
-PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-/home/ec2-user/armada-protocol}"
-PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-armada.ecosystem.config.cjs}"
+PROTOCOL_SSH_HOST="${ARMADA_PROTOCOL_DEPLOY_HOST:-${PROFILE_PROTOCOL_HOST}}"
+PROTOCOL_SSH_USER="${ARMADA_PROTOCOL_DEPLOY_USER:-${PROFILE_PROTOCOL_USER}}"
+PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/${PROFILE_PROTOCOL_KEY_REL}}"
+PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-${PROFILE_PROTOCOL_REMOTE_DIR}}"
+PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-${PROFILE_PROTOCOL_PM2_CONFIG}}"
+PROTOCOL_HEALTH_PORT="${ARMADA_PROTOCOL_HEALTH_PORT:-${PROFILE_PROTOCOL_HEALTH_PORT}}"
+PROTOCOL_TRANSPORT="${ARMADA_PROTOCOL_TRANSPORT:-${PROFILE_PROTOCOL_TRANSPORT}}"
+PROTOCOL_JUMP_HOST="${ARMADA_PROTOCOL_JUMP_HOST:-${PROFILE_PROTOCOL_JUMP_HOST}}"
+PROTOCOL_JUMP_USER="${ARMADA_PROTOCOL_JUMP_USER:-${PROFILE_PROTOCOL_JUMP_USER}}"
+PROTOCOL_JUMP_KEY="${ARMADA_PROTOCOL_JUMP_KEY:-${WORKSPACE_ROOT}/${PROFILE_PROTOCOL_JUMP_KEY_REL}}"
 ZHUAN_DIR="${ARMADA_ZHUAN_DIR:-${WORKSPACE_ROOT}/whatsapp-server-feature-android-zhuan}"
-ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${SSH_HOST}}"
-ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${SSH_USER}}"
-ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${SSH_KEY}}"
-ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-/home/app/whatsapp-android-zhuan-deploy/src}"
+if [ "${ENV_ID}" = test1 ]; then
+  ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${SSH_HOST}}"
+  ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${SSH_USER}}"
+  ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${SSH_KEY}}"
+  ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-/home/app/whatsapp-android-zhuan-deploy/src}"
+else
+  ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${PROFILE_ZHUAN_HOST}}"
+  ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${PROFILE_ZHUAN_USER}}"
+  ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${WORKSPACE_ROOT}/${PROFILE_ZHUAN_KEY_REL}}"
+  ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-${PROFILE_ZHUAN_REMOTE_DIR}}"
+fi
+ZHUAN_COMPOSE_FILE="${ARMADA_ZHUAN_COMPOSE_FILE:-${PROFILE_ZHUAN_COMPOSE_FILE}}"
+ZHUAN_HTTP_PORT="${ARMADA_ZHUAN_HTTP_PORT:-${PROFILE_ZHUAN_HTTP_PORT}}"
+ZHUAN_START_SERVICES="${PROFILE_ZHUAN_START_SERVICES}"
+ZHUAN_HEALTH_SERVICES="${PROFILE_ZHUAN_HEALTH_SERVICES}"
+ZHUAN_HEALTH_DISPLAY="${ZHUAN_HEALTH_SERVICES// /、}"
 JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
+
+# shellcheck source=lib/common.sh
+. "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/armada.sh
+. "${SCRIPT_DIR}/lib/armada.sh"
+# shellcheck source=lib/protocol.sh
+. "${SCRIPT_DIR}/lib/protocol.sh"
+# shellcheck source=lib/zhuan.sh
+. "${SCRIPT_DIR}/lib/zhuan.sh"
+# shellcheck source=lib/deep-check.sh
+. "${SCRIPT_DIR}/lib/deep-check.sh"
+armada_init_colors
 
 SCOPE="all"
 ASSUME_YES=0
@@ -43,25 +135,14 @@ BRANCH_WORKTREE=""
 API_DIR=""
 JAR_PATH=""
 BUILD_PROTOCOL=0
-
-if [ -t 1 ]; then
-  C_B=$'\033[1m'
-  C_G=$'\033[32m'
-  C_Y=$'\033[33m'
-  C_R=$'\033[31m'
-  C_0=$'\033[0m'
-else
-  C_B=
-  C_G=
-  C_Y=
-  C_R=
-  C_0=
-fi
-
-info() { printf '%s\n' "${C_B}> $*${C_0}"; }
-ok() { printf '%s\n' "${C_G}OK $*${C_0}"; }
-warn() { printf '%s\n' "${C_Y}WARN $*${C_0}"; }
-die() { printf '%s\n' "${C_R}ERR $*${C_0}" >&2; exit 1; }
+SUMMARY_ENABLED=0
+ACTIVE_COMPONENT=""
+STATUS_PROTOCOL=SKIPPED
+STATUS_ZHUAN=SKIPPED
+STATUS_BACKEND=SKIPPED
+STATUS_FRONTEND=SKIPPED
+CHECK_ONLY=0
+SCOPE_EXPLICIT=0
 
 refresh_build_paths() {
   API_DIR="${BUILD_REPO_ROOT}/armada-api"
@@ -69,15 +150,7 @@ refresh_build_paths() {
   DEPLOY_ASSET_DIR="${BUILD_REPO_ROOT}/armada-deploy"
 }
 
-cleanup_branch_worktree() {
-  if [ -n "${BRANCH_WORKTREE}" ]; then
-    git -C "${REPO_ROOT}" worktree remove --force "${BRANCH_WORKTREE}" >/dev/null 2>&1 \
-      || rmdir "${BRANCH_WORKTREE}" >/dev/null 2>&1 \
-      || true
-  fi
-}
-
-trap cleanup_branch_worktree EXIT
+trap 'armada_on_exit "$?"' EXIT
 
 validate_branch_name() {
   [ -n "${DEPLOY_BRANCH}" ] || die "--branch 不能为空"
@@ -103,43 +176,8 @@ prepare_branch_worktree() {
 
 refresh_build_paths
 
-if [ -z "${APP_TITLE}" ]; then
-  case "${SSH_HOST}" in
-    65.2.123.53|ec2-65-2-123-53.ap-south-1.compute.amazonaws.com)
-      APP_TITLE="第一套环境"
-      ;;
-    3.110.124.52|ec2-3-110-124-52.ap-south-1.compute.amazonaws.com)
-      APP_TITLE="第二套环境"
-      ;;
-    *)
-      APP_TITLE="Wheel SaaS"
-      ;;
-  esac
-fi
-
-shell_single_quote() {
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-}
-
 APP_TITLE_REMOTE="$(shell_single_quote "${APP_TITLE}")"
 ZHUAN_SSH_KEY_RSYNC="$(shell_single_quote "${ZHUAN_SSH_KEY}")"
-
-validate_zhuan_remote_dir() {
-  case "${ZHUAN_REMOTE_DIR}" in
-    /) die "Zhuan 远端目录不能是根目录" ;;
-    /*) ;;
-    *) die "Zhuan 远端目录必须是绝对路径: ${ZHUAN_REMOTE_DIR}" ;;
-  esac
-  case "${ZHUAN_REMOTE_DIR}" in
-    *[!A-Za-z0-9_./-]*) die "Zhuan 远端目录仅允许字母、数字、点、下划线、斜杠和连字符: ${ZHUAN_REMOTE_DIR}" ;;
-  esac
-  case "${ZHUAN_REMOTE_DIR}" in
-    *//*|*/./*|*/.) die "Zhuan 远端目录不能包含重复斜杠或 . 路径段: ${ZHUAN_REMOTE_DIR}" ;;
-  esac
-  case "/${ZHUAN_REMOTE_DIR#/}/" in
-    */../*) die "Zhuan 远端目录不能包含 .. 路径段: ${ZHUAN_REMOTE_DIR}" ;;
-  esac
-}
 
 usage() {
   cat <<EOF
@@ -150,6 +188,8 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web + Baileys/Zhuan 协议�
   ./armada-deploy/deploy-test.sh          只显示部署指引,不执行部署。
 
 参数:
+  --env test1|perf2  选择环境;默认 test1。
+  --check          对所选环境执行只读深度检查;不构建、不同步、不重启。
   --all            构建并部署后端 + 前端。保持旧语义,不部署协议层。
   --full           构建并部署后端 + 前端 + Baileys 协议层 + Zhuan 协议。
   --be             只构建并部署后端。
@@ -168,7 +208,7 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web + Baileys/Zhuan 协议�
   ARMADA_DEPLOY_KEY
   ARMADA_DEPLOY_REMOTE_DIR
   ARMADA_DEPLOY_BRANCH
-  ARMADA_APP_TITLE       前端左上角环境标识;未设置时按 ARMADA_DEPLOY_HOST 推断
+  ARMADA_APP_TITLE       前端左上角环境标识;未设置时使用环境档案值
   ARMADA_FRONTEND_DIR
   ARMADA_PROTOCOL_DIR
   ARMADA_PROTOCOL_DEPLOY_HOST
@@ -176,11 +216,18 @@ deploy-test.sh - 部署 armada API + wheel-saas-pure-web + Baileys/Zhuan 协议�
   ARMADA_PROTOCOL_DEPLOY_KEY
   ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR
   ARMADA_PROTOCOL_PM2_CONFIG
+  ARMADA_PROTOCOL_NODE_BIN
+  ARMADA_PROTOCOL_NPM_BIN
+  ARMADA_PROTOCOL_TRANSPORT
+  ARMADA_PROTOCOL_JUMP_HOST
+  ARMADA_PROTOCOL_JUMP_USER
+  ARMADA_PROTOCOL_JUMP_KEY
   ARMADA_ZHUAN_DIR
   ARMADA_ZHUAN_DEPLOY_HOST
   ARMADA_ZHUAN_DEPLOY_USER
   ARMADA_ZHUAN_DEPLOY_KEY
   ARMADA_ZHUAN_DEPLOY_REMOTE_DIR
+  ARMADA_ZHUAN_COMPOSE_FILE
 
 Armada 目标服务器:
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
@@ -199,6 +246,10 @@ guide() {
 Armada 测试环境部署指引
 
 你要部署什么?
+  选择环境:
+    --env test1    第一套测试环境(默认)
+    --env perf2    第二套性能环境
+
   后端 + 前端:
     ./armada-deploy/deploy-test.sh --all -y
 
@@ -220,6 +271,9 @@ Armada 测试环境部署指引
   只看部署计划,不真正执行:
     ./armada-deploy/deploy-test.sh --dry-run
 
+  只读深度检查:
+    ./armada-deploy/deploy-test.sh --env perf2 --check
+
   部署指定 armada 分支:
     ./armada-deploy/deploy-test.sh --all --branch main -y
     ./armada-deploy/deploy-test.sh --be --branch feature/group-import -y
@@ -234,6 +288,8 @@ Armada 测试环境部署指引
      ./armada-deploy/deploy-test.sh --be --branch main --dry-run
 
 常用参数:
+  --env        只接受 test1 或 perf2;不接受文件路径。
+  --check      检查配置、Kafka 元数据和跨组件连通性;不修改环境。
   --all        本地构建后端 jar 和前端 dist,同步两者并重启两个容器。
   --full       部署后端 + 前端 + Baileys 协议层 + Zhuan 协议。
   --be         本地构建后端 jar,同步 jar,只重建/重启 armada-backend。
@@ -264,12 +320,21 @@ fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --all) SCOPE="all" ;;
-    --full) SCOPE="full" ;;
-    --be) SCOPE="be" ;;
-    --fe) SCOPE="fe" ;;
-    --protocol) SCOPE="protocol" ;;
-    --zhuan) SCOPE="zhuan" ;;
+    --env)
+      shift
+      [ $# -gt 0 ] || die "--env 需要环境名"
+      [ "$1" = "${SELECTED_ENV}" ] || die "环境解析结果不一致: $1"
+      ;;
+    --env=*)
+      [ "${1#*=}" = "${SELECTED_ENV}" ] || die "环境解析结果不一致: ${1#*=}"
+      ;;
+    --check) CHECK_ONLY=1 ;;
+    --all) SCOPE="all"; SCOPE_EXPLICIT=1 ;;
+    --full) SCOPE="full"; SCOPE_EXPLICIT=1 ;;
+    --be) SCOPE="be"; SCOPE_EXPLICIT=1 ;;
+    --fe) SCOPE="fe"; SCOPE_EXPLICIT=1 ;;
+    --protocol) SCOPE="protocol"; SCOPE_EXPLICIT=1 ;;
+    --zhuan) SCOPE="zhuan"; SCOPE_EXPLICIT=1 ;;
     --branch)
       shift
       [ $# -gt 0 ] || die "--branch 需要分支名"
@@ -284,6 +349,17 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+if [ "${CHECK_ONLY}" = 1 ]; then
+  if [ "${SCOPE_EXPLICIT}" = 1 ] \
+    || [ "${DRY_RUN}" = 1 ] \
+    || [ "${TAIL_LOGS}" = 1 ] \
+    || [ "${ASSUME_YES}" = 1 ] \
+    || [ -n "${DEPLOY_BRANCH}" ]; then
+    die "--check 不能与部署或日志参数组合"
+  fi
+  SCOPE=check
+fi
 
 if [ -n "${DEPLOY_BRANCH}" ] && [ "${DRY_RUN}" != 1 ]; then
   prepare_branch_worktree
@@ -334,10 +410,18 @@ case "${SCOPE}" in
     BUILD_ZHUAN=1
     SCOPE_DESC="只 Zhuan 协议"
     ;;
+  check)
+    SCOPE_DESC="只读深度检查"
+    ;;
   *)
     die "无效部署范围: ${SCOPE}"
     ;;
 esac
+
+if [ "${BUILD_PROTOCOL}" = 1 ]; then STATUS_PROTOCOL=PENDING; fi
+if [ "${BUILD_ZHUAN}" = 1 ]; then STATUS_ZHUAN=PENDING; fi
+if [ "${BUILD_BE}" = 1 ]; then STATUS_BACKEND=PENDING; fi
+if [ "${BUILD_FE}" = 1 ]; then STATUS_FRONTEND=PENDING; fi
 
 if [ "${SCOPE}" != "all" ] && [ "${SCOPE}" != "full" ]; then
   COMPOSE_UP_EXTRA="--no-deps"
@@ -347,28 +431,15 @@ COMPOSE_UP_ARGS="up -d --build"
 [ -n "${SERVICES}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${SERVICES}"
 COMPOSE_UP_COMMAND="docker compose ${COMPOSE_UP_ARGS}"
 
-find_jdk17() {
-  local candidate=""
-  if command -v /usr/libexec/java_home >/dev/null 2>&1; then
-    candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
-  fi
-  if [ -z "${candidate}" ]; then
-    candidate="${JAVA17_HOME:-${JAVA_HOME:-}}"
-  fi
-  if [ -n "${candidate}" ] && [ -x "${candidate}/bin/javac" ]; then
-    printf '%s\n' "${candidate}"
-    return 0
-  fi
-  return 1
-}
-
 JDK17_HOME=""
 if [ "${BUILD_BE}" = 1 ]; then
-  JDK17_HOME="$(find_jdk17)" || die "需要 JDK 17。请安装 JDK 17 或设置 JAVA17_HOME。"
+  JDK17_HOME="$(armada_find_jdk17)" || die "需要 JDK 17。请安装 JDK 17 或设置 JAVA17_HOME。"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
-  [ -f "${SSH_KEY}" ] || die "找不到 SSH 私钥: ${SSH_KEY}"
+  validate_remote_dir "Armada" "${REMOTE_DIR}"
+  validate_ssh_identity "Armada" "${SSH_HOST}" "${SSH_USER}"
+  require_ssh_key " Armada" "${SSH_KEY}"
   [ -f "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" ] || die "缺少 ${DEPLOY_ASSET_DIR}/docker-compose.rds.yml"
   [ -f "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile"
   [ -f "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" ] || die "缺少 ${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile"
@@ -386,7 +457,17 @@ if [ "${BUILD_FE}" = 1 ]; then
   [ -f "${FRONTEND_DIR}/package.json" ] || die "找不到前端 package.json"
 fi
 if [ "${BUILD_PROTOCOL}" = 1 ]; then
-  [ -f "${PROTOCOL_SSH_KEY}" ] || die "找不到协议 SSH 私钥: ${PROTOCOL_SSH_KEY}"
+  validate_remote_dir "协议" "${PROTOCOL_REMOTE_DIR}"
+  validate_ssh_identity "协议" "${PROTOCOL_SSH_HOST}" "${PROTOCOL_SSH_USER}"
+  require_ssh_key "协议" "${PROTOCOL_SSH_KEY}"
+  case "${PROTOCOL_TRANSPORT}" in
+    direct) ;;
+    jump)
+      validate_ssh_identity "协议跳板" "${PROTOCOL_JUMP_HOST}" "${PROTOCOL_JUMP_USER}"
+      require_ssh_key "协议跳板" "${PROTOCOL_JUMP_KEY}"
+      ;;
+    *) die "协议连接模式只允许 direct 或 jump: ${PROTOCOL_TRANSPORT}" ;;
+  esac
   [ -d "${PROTOCOL_DIR}" ] || die "找不到协议仓库目录: ${PROTOCOL_DIR}"
   [ -d "${PROTOCOL_LAYER_DIR}" ] || die "找不到协议层目录: ${PROTOCOL_LAYER_DIR}"
   [ -f "${PROTOCOL_LAYER_DIR}/package.json" ] || die "找不到协议层 package.json"
@@ -395,16 +476,25 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   [ -d "${PROTOCOL_LAYER_DIR}/src" ] || die "找不到协议层 src 目录"
   [ -d "${PROTOCOL_LAYER_DIR}/deploy" ] || die "找不到协议层 deploy 目录"
   [ -d "${PROTOCOL_DIR}/openapi" ] || die "找不到协议 openapi 目录"
+  if [ "${DRY_RUN}" != 1 ]; then
+    protocol_validate_local_toolchain
+  fi
 fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
-  validate_zhuan_remote_dir
-  [ -f "${ZHUAN_SSH_KEY}" ] || die "找不到 Zhuan SSH 私钥: ${ZHUAN_SSH_KEY}"
+  case "${ZHUAN_COMPOSE_FILE}" in
+    docker-compose.yml|docker-compose.perf.yml) ;;
+    *) die "Zhuan Compose 只允许 docker-compose.yml 或 docker-compose.perf.yml" ;;
+  esac
+  validate_remote_dir "Zhuan" "${ZHUAN_REMOTE_DIR}"
+  validate_ssh_identity "Zhuan" "${ZHUAN_SSH_HOST}" "${ZHUAN_SSH_USER}"
+  require_ssh_key " Zhuan" "${ZHUAN_SSH_KEY}"
   [ -d "${ZHUAN_DIR}" ] || die "找不到 Zhuan 仓库目录: ${ZHUAN_DIR}"
   [ -f "${ZHUAN_DIR}/go.mod" ] || die "找不到 Zhuan go.mod"
   [ -f "${ZHUAN_DIR}/go.sum" ] || die "找不到 Zhuan go.sum"
   [ -f "${ZHUAN_DIR}/.dockerignore" ] || die "找不到 Zhuan .dockerignore"
   [ -f "${ZHUAN_DIR}/deploy/Dockerfile" ] || die "找不到 Zhuan deploy/Dockerfile"
-  [ -f "${ZHUAN_DIR}/deploy/docker-compose.yml" ] || die "找不到 Zhuan deploy/docker-compose.yml"
+  [ -f "${ZHUAN_DIR}/deploy/${ZHUAN_COMPOSE_FILE}" ] \
+    || die "找不到 Zhuan deploy/${ZHUAN_COMPOSE_FILE}"
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then
@@ -420,8 +510,13 @@ if [ "${BUILD_FE}" = 1 ]; then
     die "pnpm 不可用,且 ${FRONTEND_DIR}/node_modules 不存在"
   fi
 fi
-command -v rsync >/dev/null 2>&1 || die "需要 rsync"
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ] || [ "${BUILD_PROTOCOL}" = 1 ] || [ "${BUILD_ZHUAN}" = 1 ]; then
+  command -v rsync >/dev/null 2>&1 || die "需要 rsync"
+fi
 command -v ssh >/dev/null 2>&1 || die "需要 ssh"
+if [ "${CHECK_ONLY}" = 1 ]; then
+  command -v curl >/dev/null 2>&1 || die "只读深度检查需要 curl"
+fi
 
 SSH_OPTS=(
   -i "${SSH_KEY}"
@@ -429,21 +524,28 @@ SSH_OPTS=(
   -o ConnectTimeout=15
   -o StrictHostKeyChecking=accept-new
 )
-RSYNC_SSH="ssh -i ${SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+RSYNC_SSH="$(build_rsync_ssh "${SSH_KEY}")"
 PROTOCOL_SSH_OPTS=(
   -i "${PROTOCOL_SSH_KEY}"
   -o BatchMode=yes
   -o ConnectTimeout=15
   -o StrictHostKeyChecking=accept-new
 )
-PROTOCOL_RSYNC_SSH="ssh -i ${PROTOCOL_SSH_KEY} -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+PROTOCOL_PROXY_COMMAND=""
+if [ "${PROTOCOL_TRANSPORT}" = jump ]; then
+  PROTOCOL_PROXY_COMMAND="$(build_proxy_command "${PROTOCOL_JUMP_KEY}" "${PROTOCOL_JUMP_HOST}" "${PROTOCOL_JUMP_USER}")"
+  PROTOCOL_SSH_OPTS+=(
+    -o "ProxyCommand=${PROTOCOL_PROXY_COMMAND}"
+  )
+fi
+PROTOCOL_RSYNC_SSH="$(build_rsync_ssh "${PROTOCOL_SSH_KEY}" "${PROTOCOL_PROXY_COMMAND}")"
 ZHUAN_SSH_OPTS=(
   -i "${ZHUAN_SSH_KEY}"
   -o BatchMode=yes
   -o ConnectTimeout=15
   -o StrictHostKeyChecking=accept-new
 )
-ZHUAN_RSYNC_SSH="ssh -i '${ZHUAN_SSH_KEY_RSYNC}' -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new"
+ZHUAN_RSYNC_SSH="$(build_rsync_ssh "${ZHUAN_SSH_KEY}")"
 
 ssh_run() {
   ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_HOST}" "$@"
@@ -457,120 +559,15 @@ zhuan_ssh_run() {
   ssh "${ZHUAN_SSH_OPTS[@]}" "${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}" "$@"
 }
 
-remote_required_env_check='
-set -eu
-cd "$1"
-test -f .env || { echo "远端缺少 .env: $1/.env" >&2; exit 20; }
-for key in DB_URL DB_USER DB_PASSWORD; do
-  grep -Eq "^${key}=.+" .env || { echo "$1/.env 缺少必需配置 ${key}" >&2; exit 21; }
-done
-'
-
-protocol_remote_deploy='
-set -eu
-remote_dir="$1"
-preferred_pm2_config="$2"
-cd "${remote_dir}/protocol-layer"
-command -v npm >/dev/null 2>&1 || { echo "远端缺少 npm" >&2; exit 30; }
-command -v pm2 >/dev/null 2>&1 || { echo "远端缺少 pm2" >&2; exit 31; }
-node_version="$(node --version)"
-case "${node_version}" in
-  v24.*) ;;
-  *)
-    echo "远端 Node.js 必须为 24.x,当前为 ${node_version}" >&2
-    exit 33
-    ;;
-esac
-daemon_pid_file="${PM2_HOME:-${HOME}/.pm2}/pm2.pid"
-if [ -s "${daemon_pid_file}" ]; then
-  daemon_pid="$(cat "${daemon_pid_file}")"
-  if kill -0 "${daemon_pid}" 2>/dev/null; then
-    daemon_exe="$(readlink -f "/proc/${daemon_pid}/exe")"
-    daemon_version="$("${daemon_exe}" --version 2>/dev/null || true)"
-    case "${daemon_version}" in
-      v24.*) ;;
-      *)
-        echo "PM2 daemon 必须运行在 Node.js 24.x,当前为 ${daemon_version:-unknown} (${daemon_exe:-unknown})" >&2
-        echo "请先使用 Node.js 24 执行: pm2 save --force && pm2 kill && pm2 resurrect" >&2
-        exit 34
-        ;;
-    esac
-  fi
+if [ "${CHECK_ONLY}" = 1 ]; then
+  run_deep_check
+  exit 0
 fi
-npm ci --no-audit --no-fund
-npm run build
-if [ -f "${preferred_pm2_config}" ]; then
-  pm2_config="${preferred_pm2_config}"
-elif [ -f deploy/pm2.config.cjs ]; then
-  pm2_config="deploy/pm2.config.cjs"
-else
-  echo "远端缺少 PM2 配置: ${preferred_pm2_config} 或 deploy/pm2.config.cjs" >&2
-  exit 32
-fi
-pm2 startOrReload "${pm2_config}" --update-env
-pm2 jlist | node -e "
-let input = \"\"
-process.stdin.on(\"data\", chunk => { input += chunk })
-process.stdin.on(\"end\", () => {
-  const expectedProtocolApps = 5
-  const apps = JSON.parse(input).filter(app =>
-    /^(?:armada-)?protocol-(?:master|worker-[1-4])$/.test(app.name ?? \"\")
-  )
-  const invalid = apps.filter(app => !String(app.pm2_env?.node_version ?? \"\").startsWith(\"24.\"))
-  if (apps.length !== expectedProtocolApps || invalid.length > 0) {
-    const versions = apps.map(app => (app.name ?? \"unknown\") + \":\" + (app.pm2_env?.node_version ?? \"unknown\")).join(\",\")
-    console.error(\"协议 PM2 应用必须全部运行在 Node.js 24.x; found=\" + apps.length + \"/\" + expectedProtocolApps + \"; versions=\" + versions)
-    process.exit(35)
-  }
-  console.log(\"协议 PM2 Node.js 版本校验通过: \" + apps.map(app => app.name + \":\" + app.pm2_env.node_version).join(\",\"))
-})
-"
-pm2 save >/dev/null 2>&1 || true
-'
-
-zhuan_remote_required_files_check='
-set -eu
-remote_dir="$1"
-test -f "${remote_dir}/deploy/.env" || { echo "远端缺少 Zhuan 配置: ${remote_dir}/deploy/.env" >&2; exit 40; }
-test -f "${remote_dir}/deploy/configs/prod_configs.toml" || { echo "远端缺少 Zhuan 配置: ${remote_dir}/deploy/configs/prod_configs.toml" >&2; exit 41; }
-'
-
-zhuan_remote_deploy='
-set -eu
-remote_dir="$1"
-cd "${remote_dir}/deploy"
-sudo docker compose config --quiet
-sudo docker compose build whatsapp-android-zhuan
-sudo docker compose up -d redis-zhuan callback-zhuan
-sudo docker compose run --rm whatsapp-android-zhuan /app/whatsapp-migrate -env prod
-sudo docker compose up -d whatsapp-android-zhuan
-'
-
-zhuan_remote_health_check='
-set -eu
-remote_dir="$1"
-cd "${remote_dir}/deploy"
-for container in redis-zhuan callback-zhuan whatsapp-android-zhuan; do
-  attempt=1
-  while :; do
-    state="$(sudo docker inspect -f "{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" "${container}" 2>/dev/null || true)"
-    if [ "${state}" = "running/healthy" ]; then
-      break
-    fi
-    if [ "${attempt}" -ge 24 ]; then
-      echo "Zhuan 容器未在时限内就绪: ${container}, state=${state:-missing}" >&2
-      exit 42
-    fi
-    sleep 5
-    attempt=$((attempt + 1))
-  done
-done
-curl -fsS -m 8 http://127.0.0.1:8001/swagger/index.html >/dev/null
-'
 
 print_plan() {
   echo
   info "部署计划"
+  printf '  环境 ID       : %s\n' "${ENV_ID}"
   printf '  范围          : %s\n' "${SCOPE_DESC}"
   if [ -n "${DEPLOY_BRANCH}" ]; then
     printf '  armada 分支   : origin/%s%s\n' "${DEPLOY_BRANCH}" "$([ "${DRY_RUN}" = 1 ] && printf ' (dry-run 不拉取)')"
@@ -579,8 +576,12 @@ print_plan() {
   fi
   printf '  构建目录      : %s\n' "${BUILD_REPO_ROOT}"
   printf '  编排目录      : %s\n' "${DEPLOY_ASSET_DIR}"
+  if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+    print_repository_evidence "Armada 源码" "${BUILD_REPO_ROOT}"
+  fi
   if [ "${BUILD_FE}" = 1 ]; then
     printf '  前端目录      : %s\n' "${FRONTEND_DIR}"
+    print_repository_evidence "前端源码" "${FRONTEND_DIR}"
   fi
   if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
     printf '  Armada 目标   : %s@%s:%s\n' "${SSH_USER}" "${SSH_HOST}" "${REMOTE_DIR}"
@@ -589,12 +590,20 @@ print_plan() {
   fi
   if [ "${BUILD_PROTOCOL}" = 1 ]; then
     printf '  协议目录      : %s\n' "${PROTOCOL_DIR}"
+    print_repository_evidence "协议源码" "${PROTOCOL_DIR}"
     printf '  协议目标      : %s@%s:%s\n' "${PROTOCOL_SSH_USER}" "${PROTOCOL_SSH_HOST}" "${PROTOCOL_REMOTE_DIR}"
+    if [ "${PROTOCOL_TRANSPORT}" = jump ]; then
+      printf '  协议连接      : jump via %s@%s\n' "${PROTOCOL_JUMP_USER}" "${PROTOCOL_JUMP_HOST}"
+    else
+      printf '  协议连接      : direct\n'
+    fi
     printf '  协议 PM2      : %s\n' "${PROTOCOL_PM2_CONFIG}"
   fi
   if [ "${BUILD_ZHUAN}" = 1 ]; then
     printf '  Zhuan 目录     : %s\n' "${ZHUAN_DIR}"
+    print_repository_evidence "Zhuan 源码" "${ZHUAN_DIR}"
     printf '  Zhuan 目标     : %s@%s:%s\n' "${ZHUAN_SSH_USER}" "${ZHUAN_SSH_HOST}" "${ZHUAN_REMOTE_DIR}"
+    printf '  Zhuan compose  : %s\n' "${ZHUAN_COMPOSE_FILE}"
   fi
   if [ "${BUILD_BE}" = 1 ]; then
     printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
@@ -631,34 +640,19 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将在 Armada 远端执行 APP_TITLE='${APP_TITLE}' ${COMPOSE_UP_COMMAND}"
   fi
   if [ "${BUILD_PROTOCOL}" = 1 ]; then
+    info "[dry-run] 将本地构建协议层: cd ${PROTOCOL_LAYER_DIR} && Node.js 24 npm run build"
     info "[dry-run] 将同步协议层源码到 ${PROTOCOL_REMOTE_DIR}"
-    info "[dry-run] 将构建协议层: cd ${PROTOCOL_REMOTE_DIR}/protocol-layer && npm ci --no-audit --no-fund && npm run build"
+    info "[dry-run] 将在远端构建协议层: cd ${PROTOCOL_REMOTE_DIR}/protocol-layer && npm ci --no-audit --no-fund && npm run build"
     info "[dry-run] 将重载协议 PM2: pm2 startOrReload ${PROTOCOL_PM2_CONFIG} --update-env"
   fi
   if [ "${BUILD_ZHUAN}" = 1 ]; then
     info "[dry-run] 将同步 Zhuan 源码到 ${ZHUAN_REMOTE_DIR},保留远端配置和日志"
     info "[dry-run] 将校验并构建 Zhuan Compose 服务"
     info "[dry-run] 将运行迁移: whatsapp-migrate -env prod"
-    info "[dry-run] 将启动并验活 redis-zhuan、callback-zhuan、whatsapp-android-zhuan"
+    info "[dry-run] 将启动并验活 ${ZHUAN_HEALTH_DISPLAY}"
   fi
   ok "dry-run 完成"
   exit 0
-fi
-
-if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
-  info "检查 Armada SSH 连通性..."
-  ssh_run true || die "Armada SSH 连接失败"
-  ok "Armada 服务器可达"
-fi
-if [ "${BUILD_PROTOCOL}" = 1 ]; then
-  info "检查协议 SSH 连通性..."
-  protocol_ssh_run true || die "协议 SSH 连接失败"
-  ok "协议服务器可达"
-fi
-if [ "${BUILD_ZHUAN}" = 1 ]; then
-  info "检查 Zhuan SSH 连通性..."
-  zhuan_ssh_run true || die "Zhuan SSH 连接失败"
-  ok "Zhuan 服务器可达"
 fi
 
 if [ "${ASSUME_YES}" != 1 ]; then
@@ -669,177 +663,121 @@ if [ "${ASSUME_YES}" != 1 ]; then
     *) die "已取消" ;;
   esac
 fi
+SUMMARY_ENABLED=1
 
 if [ "${BUILD_BE}" = 1 ]; then
-  info "构建后端 jar..."
-  (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests clean package)
-  [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
-  ok "后端 jar 已就绪: ${JAR_PATH}"
+  ACTIVE_COMPONENT=backend
+  armada_build_backend
+  ACTIVE_COMPONENT=""
 fi
 
 if [ "${BUILD_FE}" = 1 ]; then
-  info "构建前端 dist..."
-  if [ "${PNPM_AVAILABLE}" = 1 ]; then
-    (cd "${FRONTEND_DIR}" && pnpm install --frozen-lockfile && pnpm build)
-  else
-    warn "pnpm 不可用,使用现有 node_modules 执行 npm run build"
-    (cd "${FRONTEND_DIR}" && npm run build)
-  fi
-  [ -d "${FRONTEND_DIR}/dist" ] || die "构建后未找到前端 dist: ${FRONTEND_DIR}/dist"
-  ok "前端 dist 已就绪: ${FRONTEND_DIR}/dist"
-fi
-
-if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
-  info "准备 Armada 远端目录..."
-  ssh_run "mkdir -p '${REMOTE_DIR}/armada-api/target' '${REMOTE_DIR}/wheel-saas-pure-web/dist'"
-
-  info "检查 Armada 远端 .env..."
-  ssh_run "bash -s -- '${REMOTE_DIR}'" <<<"${remote_required_env_check}"
-  ok "Armada 远端 .env 已包含必需数据库配置"
-
-  info "同步 Armada 部署编排文件..."
-  rsync -az -e "${RSYNC_SSH}" \
-    "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" \
-    "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" \
-    "${DEPLOY_ASSET_DIR}/render-platform-config.sh" \
-    "${DEPLOY_ASSET_DIR}/nginx.conf" \
-    "${DEPLOY_ASSET_DIR}/stale-chunk-reload.js" \
-    "${DEPLOY_ASSET_DIR}/docker-compose.rds.yml" \
-    "${DEPLOY_ASSET_DIR}/.env.example" \
-    "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/"
-fi
-
-if [ "${BUILD_BE}" = 1 ]; then
-  info "同步后端 jar..."
-  rsync -a --partial -e "${RSYNC_SSH}" \
-    "${JAR_PATH}" \
-    "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/armada-api/target/${JAR_NAME}"
-fi
-
-if [ "${BUILD_FE}" = 1 ]; then
-  info "同步前端 dist..."
-  # Keep old hashed chunks because browsers may still reference cached entry bundles.
-  rsync -az -e "${RSYNC_SSH}" \
-    "${FRONTEND_DIR}/dist/" \
-    "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/wheel-saas-pure-web/dist/"
+  ACTIVE_COMPONENT=frontend
+  armada_build_frontend
+  ACTIVE_COMPONENT=""
 fi
 
 if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  ACTIVE_COMPONENT=protocol
+  protocol_build_local
+  ACTIVE_COMPONENT=""
+fi
+
+if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  ACTIVE_COMPONENT=armada
+  info "检查 Armada SSH 连通性..."
+  ssh_run true || die "Armada SSH 连接失败"
+  ok "Armada 服务器可达"
+  ACTIVE_COMPONENT=""
+fi
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  ACTIVE_COMPONENT=protocol
+  info "检查协议 SSH 连通性..."
+  protocol_ssh_run true || die "协议 SSH 连接失败"
+  ok "协议服务器可达"
+  ACTIVE_COMPONENT=""
+fi
+if [ "${BUILD_ZHUAN}" = 1 ]; then
+  ACTIVE_COMPONENT=zhuan
+  info "检查 Zhuan SSH 连通性..."
+  zhuan_ssh_run true || die "Zhuan SSH 连接失败"
+  ok "Zhuan 服务器可达"
+  ACTIVE_COMPONENT=""
+fi
+
+if [ "${BUILD_PROTOCOL}" = 1 ]; then
+  ACTIVE_COMPONENT=protocol
+  STATUS_PROTOCOL=RUNNING
   info "准备协议远端目录..."
-  protocol_ssh_run "mkdir -p '${PROTOCOL_REMOTE_DIR}/protocol-layer' '${PROTOCOL_REMOTE_DIR}/openapi'"
-
+  protocol_prepare_remote
   info "同步协议层源码..."
-  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
-    "${PROTOCOL_LAYER_DIR}/src/" \
-    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/src/"
-  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
-    "${PROTOCOL_LAYER_DIR}/deploy/" \
-    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/deploy/"
-  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
-    "${PROTOCOL_DIR}/openapi/" \
-    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/openapi/"
-  rsync -az -e "${PROTOCOL_RSYNC_SSH}" \
-    "${PROTOCOL_LAYER_DIR}/package.json" \
-    "${PROTOCOL_LAYER_DIR}/package-lock.json" \
-    "${PROTOCOL_LAYER_DIR}/tsconfig.json" \
-    "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/"
-  if [ -f "${PROTOCOL_LAYER_DIR}/jest.config.mjs" ]; then
-    rsync -az -e "${PROTOCOL_RSYNC_SSH}" \
-      "${PROTOCOL_LAYER_DIR}/jest.config.mjs" \
-      "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/"
-  fi
-  if [ -d "${PROTOCOL_LAYER_DIR}/patches" ]; then
-    rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
-      "${PROTOCOL_LAYER_DIR}/patches/" \
-      "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/patches/"
-  fi
-
+  protocol_sync_source
   info "构建并重载协议层..."
-  protocol_ssh_run "bash -s -- '${PROTOCOL_REMOTE_DIR}' '${PROTOCOL_PM2_CONFIG}'" <<<"${protocol_remote_deploy}"
+  protocol_deploy_remote
+  info "检查协议层访问..."
+  protocol_verify_health
+  STATUS_PROTOCOL=SUCCESS
+  ACTIVE_COMPONENT=""
+  ok "协议层可访问"
 fi
 
 if [ "${BUILD_ZHUAN}" = 1 ]; then
-  info "准备 Zhuan 远端目录..."
-  zhuan_ssh_run "mkdir -p '${ZHUAN_REMOTE_DIR}'"
-
-  info "检查 Zhuan 远端配置..."
-  zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_required_files_check}"
+  ACTIVE_COMPONENT=zhuan
+  STATUS_ZHUAN=RUNNING
+  info "准备并检查 Zhuan 远端..."
+  zhuan_prepare_remote
   ok "Zhuan 远端运行配置已就绪"
-
   info "同步 Zhuan 源码..."
-  rsync -rltz --delete -e "${ZHUAN_RSYNC_SSH}" \
-    --exclude-from="${ZHUAN_DIR}/.dockerignore" \
-    --exclude=deploy/.env \
-    --exclude=deploy/configs/prod_configs.toml \
-    --exclude=deploy/logs/ \
-    --exclude=deploy/callback-logs/ \
-    --exclude=logs/ \
-    --exclude='/.env' \
-    --exclude='/.env.*' \
-    --exclude='configs/*.toml' \
-    --exclude='*.pem' \
-    --exclude='*.key' \
-    --exclude='*.log' \
-    --exclude='*.zip' \
-    --exclude='*.tar' \
-    --exclude='*.tar.gz' \
-    --exclude='*.tgz' \
-    --exclude='*.gz' \
-    --exclude='*.bz2' \
-    --exclude='*.xz' \
-    --exclude='*.zst' \
-    --exclude='*.7z' \
-    --exclude='*.rar' \
-    "${ZHUAN_DIR}/" \
-    "${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}/"
-
+  zhuan_sync_source
   info "构建并启动 Zhuan 协议..."
-  zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_deploy}"
-
+  zhuan_deploy_remote
   info "检查 Zhuan 容器和 API..."
-  zhuan_ssh_run "bash -s -- '${ZHUAN_REMOTE_DIR}'" <<<"${zhuan_remote_health_check}"
+  zhuan_verify_health
+  STATUS_ZHUAN=SUCCESS
+  ACTIVE_COMPONENT=""
   ok "Zhuan 协议可访问"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
-  info "启动 Armada 容器..."
-  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+  ACTIVE_COMPONENT=armada
+  if [ "${BUILD_BE}" = 1 ]; then STATUS_BACKEND=RUNNING; fi
+  if [ "${BUILD_FE}" = 1 ]; then STATUS_FRONTEND=RUNNING; fi
+  info "准备 Armada 远端目录..."
+  armada_prepare_remote
+  ok "Armada 远端 .env 已包含必需数据库配置"
+
+  info "同步 Armada 部署编排文件..."
+  armada_sync_assets
+fi
+
+if [ "${BUILD_BE}" = 1 ]; then
+  info "同步后端 jar..."
+  armada_sync_backend
+fi
+
+if [ "${BUILD_FE}" = 1 ]; then
+  info "同步前端 dist..."
+  armada_sync_frontend
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  info "启动 Armada 容器..."
+  armada_start
   info "检查 Armada 容器状态..."
-fi
-if [ "${BUILD_BE}" = 1 ]; then
-  ssh_run "docker inspect -f '{{.State.Status}}' armada-backend | grep -q '^running$'"
-fi
-if [ "${BUILD_FE}" = 1 ]; then
-  ssh_run "docker inspect -f '{{.State.Status}}' armada-nginx | grep -q '^running$'"
-fi
-if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
+  armada_verify_selected "${BUILD_BE}" "${BUILD_FE}"
+  if [ "${BUILD_BE}" = 1 ]; then STATUS_BACKEND=SUCCESS; fi
+  if [ "${BUILD_FE}" = 1 ]; then STATUS_FRONTEND=SUCCESS; fi
+  ACTIVE_COMPONENT=""
   ok "Armada 容器运行中"
 fi
 
 if [ "${BUILD_FE}" = 1 ]; then
-  info "检查前端访问..."
-  ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; curl -fsS -m 8 \"http://127.0.0.1:\${port}/\" | grep -qi '<!doctype html'"
   ok "前端可访问"
-
-  info "检查前端环境标识..."
-  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; curl -fsS -m 8 \"http://127.0.0.1:\${port}/platform-config.json\" | grep -F \"\${APP_TITLE}\" >/dev/null"
   ok "前端环境标识: ${APP_TITLE}"
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then
-  info "检查 API 代理路径..."
-  ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -fsS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|0|40001)'"
   ok "API 路径已打到后端"
-fi
-
-if [ "${BUILD_PROTOCOL}" = 1 ]; then
-  info "检查协议层访问..."
-  protocol_ssh_run "pm2 describe armada-protocol-master >/dev/null 2>&1 || pm2 describe protocol-master >/dev/null 2>&1"
-  protocol_ssh_run "curl -fsS -m 8 http://127.0.0.1:8080/healthz >/dev/null"
-  ok "协议层可访问"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
@@ -853,9 +791,9 @@ if [ "${BUILD_ZHUAN}" = 1 ]; then
 fi
 
 if [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_BE}" = 1 ]; then
-  ssh_run "docker logs -f --tail 120 armada-backend"
+  armada_tail_backend_logs
 elif [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_PROTOCOL}" = 1 ]; then
-  protocol_ssh_run "pm2 logs --lines 120"
+  protocol_tail_logs
 elif [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_ZHUAN}" = 1 ]; then
-  zhuan_ssh_run "cd '${ZHUAN_REMOTE_DIR}/deploy' && sudo docker compose logs -f --tail 120 whatsapp-android-zhuan"
+  zhuan_tail_logs
 fi

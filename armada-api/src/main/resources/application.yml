@@ -62,7 +62,7 @@ armada:
   ip-proxy-unavailable-recheck:
     enabled: ${IP_PROXY_UNAVAILABLE_RECHECK_ENABLED:true}
     fixed-delay-ms: ${IP_PROXY_UNAVAILABLE_RECHECK_FIXED_DELAY_MS:900000}
-    batch-size: ${IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE:20}
+    batch-size: ${IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE:200}
   # 协议层连接配置。默认连本机 armada-protocol;测试/部署环境按 yml 覆盖。
   protocol:
     base-url: http://localhost:3000
@@ -82,8 +82,19 @@ armada:
         api-key: ${PROTOCOL_ANDROID_API_KEY:}
         connect-timeout-ms: ${PROTOCOL_ANDROID_CONNECT_TIMEOUT_MS:3000}
         read-timeout-ms: ${PROTOCOL_ANDROID_READ_TIMEOUT_MS:60000}
+    android-image-cache:
+      redis:
+        mode: ${ANDROID_IMAGE_REDIS_MODE:standalone}
+        addresses: ${ANDROID_IMAGE_REDIS_ADDRESSES:localhost:6379}
+        username: ${ANDROID_IMAGE_REDIS_USERNAME:}
+        password: ${ANDROID_IMAGE_REDIS_PASSWORD:}
+        database: ${ANDROID_IMAGE_REDIS_DATABASE:0}
+        tls: ${ANDROID_IMAGE_REDIS_TLS:false}
+        # 必须与同环境 Android Zhuan 的 redis.keyprefix 完全一致。
+        key-prefix: ${ANDROID_IMAGE_REDIS_KEY_PREFIX:android-zhuan:}
     command-publisher:
       send-timeout-ms: ${PROTOCOL_COMMAND_SEND_TIMEOUT_MS:10000}
+      max-in-flight: ${PROTOCOL_COMMAND_MAX_IN_FLIGHT:100}
     command-dispatcher:
       immediate-enabled: ${PROTOCOL_COMMAND_DISPATCH_IMMEDIATE_ENABLED:true}
       batch-size: ${PROTOCOL_COMMAND_DISPATCH_BATCH_SIZE:100}

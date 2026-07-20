@@ -18,6 +18,7 @@
         <result column="sent_message_count" property="sentMessageCount"/>
         <result column="failed_message_count" property="failedMessageCount"/>
         <result column="send_per_round" property="sendPerRound"/>
+        <result column="account_group_send_interval_ms" property="accountGroupSendIntervalMs"/>
         <result column="send_interval_seconds" property="sendIntervalSeconds"/>
         <result column="is_online_check_enabled" property="onlineCheckEnabled"/>
         <result column="is_abnormal_group_skipped" property="abnormalGroupSkipped"/>
@@ -68,7 +69,8 @@
         id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
         sent_message_count, failed_message_count,
-        send_per_round, send_interval_seconds, is_online_check_enabled, is_abnormal_group_skipped,
+        send_per_round, account_group_send_interval_ms, send_interval_seconds,
+        is_online_check_enabled, is_abnormal_group_skipped,
         is_auto_retry_enabled, retry_limit, current_round_no, remark,
         account_group_send_at, task_start_at, task_end_at, started_at, next_round_at,
         last_round_started_at, last_sent_at, finished_at,
@@ -99,14 +101,14 @@
         INSERT INTO marketing_task
             (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
-             failed_message_count, send_per_round, send_interval_seconds,
+             failed_message_count, send_per_round, account_group_send_interval_ms, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
              current_round_no, remark, account_group_send_at, task_start_at, task_end_at, started_at,
              next_round_at, last_round_started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
             (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
-             #{failedMessageCount}, #{sendPerRound}, #{sendIntervalSeconds},
+             #{failedMessageCount}, #{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
              #{currentRoundNo}, #{remark}, #{accountGroupSendAt}, #{taskStartAt}, #{taskEndAt},
              #{startedAt}, #{nextRoundAt}, #{lastRoundStartedAt}, #{lastSentAt}, #{finishedAt},
@@ -155,83 +157,137 @@
 
     <select id="selectAccountGroupStatsByTaskId"
             resultType="com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow">
-        SELECT t.account_id AS accountId,
-               t.account_phone AS accountPhone,
-               COALESCE(a.group_link_id, p.group_link_id, t.group_link_id) AS groupLinkId,
-               COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''), t.group_jid) AS groupJid,
-               SUBSTRING_INDEX(
-                   GROUP_CONCAT(
-                       COALESCE(g.link_url, t.group_link_url)
-                       ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC
-                       SEPARATOR '\n'
-                   ),
-                   '\n',
-                   1
-               ) AS groupLinkUrl,
-               SUBSTRING_INDEX(
-                   GROUP_CONCAT(
-                       COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name)
-                       ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC
-                       SEPARATOR '\n'
-                   ),
-                   '\n',
-                   1
-               ) AS groupName,
-               COALESCE(
+        WITH attempt_facts AS (
+            SELECT t.tenant_id AS tenant_id,
+                   t.account_id AS accountId,
+                   t.account_phone AS accountPhone,
+                   t.id AS targetId,
+                   a.id AS attemptId,
+                   a.status AS attemptStatus,
+                   a.reason_code AS reasonCode,
+                   a.reason_message AS reasonMessage,
+                   a.group_status AS rawGroupStatus,
+                   a.group_status_reason AS groupStatusReason,
+                   a.round_no AS roundNo,
+                   a.attempt_no AS attemptNo,
+                   COALESCE(a.result_at, a.attempted_at, a.created_at) AS eventAt,
+                   COALESCE(a.group_link_id, p.group_link_id, t.group_link_id) AS groupLinkId,
+                   COALESCE(
+                       NULLIF(TRIM(a.group_jid), ''),
+                       NULLIF(TRIM(p.group_jid), ''),
+                       NULLIF(TRIM(t.group_jid), '')
+                   ) AS groupJid,
+                   COALESCE(
+                       NULLIF(TRIM(a.group_jid), ''),
+                       NULLIF(TRIM(p.group_jid), ''),
+                       NULLIF(TRIM(t.group_jid), ''),
+                       CONCAT('link:', COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)),
+                       CONCAT('target:', t.id)
+                   ) AS groupKey,
+                   COALESCE(g.link_url, t.group_link_url) AS groupLinkUrl,
+                   COALESCE(
+                       NULLIF(TRIM(a.group_name), ''),
+                       NULLIF(TRIM(g.group_name), ''),
+                       NULLIF(TRIM(p.wa_subject), ''),
+                       NULLIF(TRIM(t.group_name), '')
+                   ) AS groupName
+            FROM marketing_task_target t
+            JOIN marketing_task_send_attempt a ON a.target_id = t.id
+                                              AND a.marketing_task_id = t.marketing_task_id
+            LEFT JOIN group_link_preview p ON p.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
+            LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
+            WHERE t.marketing_task_id = #{taskId}
+              AND a.marketing_task_id = #{taskId}
+              AND a.status IN (0, 1, 2, 3)
+        ),
+        group_aggregate AS (
+            SELECT tenant_id,
+                   accountId,
+                   accountPhone,
+                   groupKey,
+                   MAX(groupLinkId) AS groupLinkId,
+                   MAX(groupJid) AS groupJid,
                    SUBSTRING_INDEX(
                        GROUP_CONCAT(
-                           CASE
-                               WHEN a.status IN (1, 2) THEN
-                                   COALESCE(NULLIF(TRIM(a.group_status), ''), 'UNCONFIRMED')
-                               ELSE NULL
-                           END
-                           ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC, a.id DESC
+                           groupLinkUrl
+                           ORDER BY eventAt DESC, attemptId DESC
                            SEPARATOR '\n'
                        ),
                        '\n',
                        1
-                   ),
-                   'UNCONFIRMED'
-               ) AS groupStatus,
-               SUM(CASE WHEN a.status = 1 THEN 1 ELSE 0 END) AS sentMessageCount,
-               SUM(CASE WHEN a.status = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
-               MAX(COALESCE(a.result_at, a.attempted_at, a.created_at)) AS lastAttemptAt,
-               MAX(CASE WHEN a.status = 1 THEN COALESCE(a.result_at, a.attempted_at, a.created_at) ELSE NULL END) AS lastSentAt,
-               <!-- 成功记录必须用空字符串参与排序，避免旧失败/跳过原因穿透到最新成功结果。 -->
-               NULLIF(
+                   ) AS groupLinkUrl,
                    SUBSTRING_INDEX(
                        GROUP_CONCAT(
-                           CASE
-                               WHEN a.status IN (2, 3) THEN COALESCE(
-                                   NULLIF(TRIM(a.reason_message), ''),
-                                   a.reason_code,
-                                   CASE WHEN a.status = 3 THEN '本轮已跳过' ELSE '发送失败' END
-                               )
-                               ELSE ''
-                           END
-                           ORDER BY COALESCE(a.result_at, a.attempted_at, a.created_at) DESC, a.id DESC
+                           groupName
+                           ORDER BY eventAt DESC, attemptId DESC
                            SEPARATOR '\n'
                        ),
                        '\n',
                        1
-                   ),
-                   ''
-               ) AS lastReason
-        FROM marketing_task_target t
-        JOIN marketing_task_send_attempt a ON a.target_id = t.id
-                                          AND a.marketing_task_id = t.marketing_task_id
-        LEFT JOIN group_link_preview p ON p.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
-        LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
-        WHERE t.marketing_task_id = #{taskId}
-          AND a.marketing_task_id = #{taskId}
-          AND a.status IN (1, 2, 3)
-        GROUP BY t.account_id,
-                 t.account_phone,
-                 COALESCE(a.group_link_id, p.group_link_id, t.group_link_id),
-                 COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''), t.group_jid)
-        ORDER BY t.account_id ASC,
-                 MAX(COALESCE(a.result_at, a.attempted_at, a.created_at)) DESC,
-                 COALESCE(a.group_link_id, p.group_link_id, t.group_link_id) ASC
+                   ) AS groupName,
+                   SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount,
+                   SUM(CASE WHEN attemptStatus = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
+                   MAX(eventAt) AS lastAttemptAt,
+                   MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt,
+                   NULLIF(
+                       SUBSTRING_INDEX(
+                           GROUP_CONCAT(
+                               CASE
+                                   WHEN attemptStatus IN (2, 3) THEN COALESCE(
+                                       NULLIF(TRIM(reasonMessage), ''),
+                                       reasonCode,
+                                       CASE WHEN attemptStatus = 3 THEN '本轮已跳过' ELSE '发送失败' END
+                                   )
+                                   WHEN attemptStatus = 1 THEN ''
+                                   ELSE NULL
+                               END
+                               ORDER BY eventAt DESC, attemptId DESC
+                               SEPARATOR '\n'
+                           ),
+                           '\n',
+                           1
+                       ),
+                       ''
+                   ) AS lastReason
+            FROM attempt_facts
+            GROUP BY tenant_id, accountId, accountPhone, groupKey
+        ),
+        latest_effective AS (
+            SELECT ranked.*
+            FROM (
+                SELECT effective.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY accountId, groupKey
+                           ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC
+                       ) AS effectiveRank
+                FROM attempt_facts effective
+                WHERE attemptStatus IN (1, 2)
+            ) ranked
+            WHERE ranked.effectiveRank = 1
+        )
+        SELECT g.accountId,
+               g.accountPhone,
+               g.groupLinkId,
+               g.groupJid,
+               g.groupLinkUrl,
+               g.groupName,
+               e.attemptStatus AS latestAttemptStatus,
+               e.reasonCode AS reasonCode,
+               e.reasonMessage AS reasonMessage,
+               e.rawGroupStatus AS groupStatus,
+               e.groupStatusReason AS groupStatusReason,
+               g.sentMessageCount,
+               g.failedMessageCount,
+               g.lastAttemptAt,
+               g.lastSentAt,
+               g.lastReason
+        FROM group_aggregate g
+        LEFT JOIN latest_effective e
+          ON e.accountId = g.accountId
+         AND e.groupKey = g.groupKey
+        ORDER BY g.accountId ASC,
+                 g.lastAttemptAt DESC,
+                 g.groupKey ASC
     </select>
 
     <select id="selectDueSendingTasks" resultMap="MarketingTaskResultMap">
@@ -606,7 +662,14 @@
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
-          AND s.account_state = 2
+          AND s.account_state IN
+          <foreach collection="selectableAccountStates"
+                   item="accountState"
+                   open="("
+                   separator=","
+                   close=")">
+              #{accountState}
+          </foreach>
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND a.group_baseline_state IN (2, 3)
@@ -632,7 +695,14 @@
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
-          AND s.account_state = 2
+          AND s.account_state IN
+          <foreach collection="selectableAccountStates"
+                   item="accountState"
+                   open="("
+                   separator=","
+                   close=")">
+              #{accountState}
+          </foreach>
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND a.group_baseline_state IN (2, 3)

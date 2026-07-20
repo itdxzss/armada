@@ -2,11 +2,16 @@ package com.armada.platform.kafka.dispatch;
 
 import com.armada.platform.kafka.config.ProtocolCommandDispatcherProperties;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -28,6 +33,7 @@ public class ProtocolCommandDispatchTrigger {
     private final ProtocolCommandDispatcher dispatcher;
     private final Executor executor;
     private final ProtocolCommandDispatcherProperties properties;
+    private final TaskScheduler scheduler;
 
     /**
      * 创建协议命令 dispatch 触发器。
@@ -35,14 +41,17 @@ public class ProtocolCommandDispatchTrigger {
      * @param dispatcher dispatcher
      * @param executor   dispatch 后台执行器
      * @param properties dispatcher 配置
+     * @param scheduler  应用现有的任务调度器
      */
     public ProtocolCommandDispatchTrigger(
             ProtocolCommandDispatcher dispatcher,
             @Qualifier("protocolCommandDispatchExecutor") Executor executor,
-            ProtocolCommandDispatcherProperties properties) {
+            ProtocolCommandDispatcherProperties properties,
+            @Qualifier("taskScheduler") TaskScheduler scheduler) {
         this.dispatcher = dispatcher;
         this.executor = executor;
         this.properties = properties;
+        this.scheduler = scheduler;
     }
 
     /**
@@ -64,13 +73,42 @@ public class ProtocolCommandDispatchTrigger {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    submitDispatch(dispatchRows);
+                    dispatchOrSchedule(dispatchRows);
                 }
             });
             return;
         }
         log.debug("协议命令 outbox 无事务同步上下文,立即提交异步 dispatch rows={}", dispatchRows.size());
-        submitDispatch(dispatchRows);
+        dispatchOrSchedule(dispatchRows);
+    }
+
+    private void dispatchOrSchedule(List<ProtocolCommandOutbox> rows) {
+        long now = System.currentTimeMillis();
+        Map<Long, List<ProtocolCommandOutbox>> rowsByDueAt = new TreeMap<>();
+        for (ProtocolCommandOutbox row : rows) {
+            long dueAt = row.getNextRetryAt() == null ? 0L : Math.max(0L, row.getNextRetryAt());
+            rowsByDueAt.computeIfAbsent(dueAt, ignored -> new ArrayList<>()).add(row);
+        }
+        for (Map.Entry<Long, List<ProtocolCommandOutbox>> entry : rowsByDueAt.entrySet()) {
+            List<ProtocolCommandOutbox> dueRows = List.copyOf(entry.getValue());
+            if (entry.getKey() <= now) {
+                submitDispatch(dueRows);
+            } else {
+                scheduleDispatch(entry.getKey(), dueRows);
+            }
+        }
+    }
+
+    private void scheduleDispatch(long dueAt, List<ProtocolCommandOutbox> rows) {
+        try {
+            if (scheduler.schedule(() -> submitDispatch(rows), Instant.ofEpochMilli(dueAt)) == null) {
+                log.warn("协议命令 outbox 定时发送未创建任务 dueAt={} rows={}，等待周期扫描兜底",
+                        dueAt, rows.size());
+            }
+        } catch (RuntimeException ex) {
+            log.warn("协议命令 outbox 定时发送调度失败 dueAt={} rows={}，等待周期扫描兜底",
+                    dueAt, rows.size(), ex);
+        }
     }
 
     private void submitDispatch(List<ProtocolCommandOutbox> rows) {

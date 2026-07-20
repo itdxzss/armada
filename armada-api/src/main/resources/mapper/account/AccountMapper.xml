@@ -113,6 +113,26 @@
   </select>
 
   <!--
+    营销任务明细一次性补充当前登录态，避免按账号逐条查询。
+    LEFT JOIN 保留尚未上报状态的有效账号；tenant_id 双键关联防止跨租户串联，软删账号不返回。
+  -->
+  <select id="selectActiveLoginStatesByIds" resultType="com.armada.account.model.entity.AccountState">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT a.id AS accountId,
+           s.login_state AS loginState
+    FROM account a
+    LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    ORDER BY a.id ASC
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT a.id AS accountId, NULL AS loginState FROM account a WHERE 1=0
+    </if>
+  </select>
+
+  <!--
     固定号码协议寻址只校验当前租户、软删除和协议身份；不预检在线、群成员、角色或禁言状态。
     Service 负责按规范化后的首次输入顺序重建 Map，并统一过滤协议字段不完整账号。
   -->

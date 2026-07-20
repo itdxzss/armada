@@ -4,6 +4,7 @@ import com.armada.account.model.dto.AccountBatchTargetQuery;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountDeleteGateRow;
+import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.vo.AccountBatchPreviewRow;
 import com.armada.account.model.vo.AccountBatchTargetRow;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
@@ -97,6 +98,17 @@ public interface AccountMapper {
      * @return 活跃账号列表;不存在或已软删账号不会返回
      */
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 批量读取未软删账号的当前登录态。
+     *
+     * <p>只投影 {@link AccountState#getAccountId()} 与 {@link AccountState#getLoginState()}；
+     * 已软删账号不返回，状态未上报时 loginState 为 null。</p>
+     *
+     * @param ids 账号主键列表
+     * @return 当前租户的活跃账号登录态
+     */
+    List<AccountState> selectActiveLoginStatesByIds(@Param("ids") List<Long> ids);
 
     /**
      * 按完整 WA 号码批量查询未软删账号。

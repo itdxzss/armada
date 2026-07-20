@@ -501,7 +501,9 @@ class ProtocolCommandOutboxServiceImplTest {
                         new MessageSendCommand.MarketingCorrelation(42L, 7001L, 9001L, 1L),
                         null,
                         null),
-                "cmd_android");
+                "cmd_android",
+                750,
+                2_500L);
         ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
@@ -532,11 +534,14 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.message.commands.v1");
         assertThat(row.getKafkaKey()).isEqualTo("acc_android");
         assertThat(row.getProtocolBackend()).isEqualTo("ANDROID");
+        assertThat(row.getNextRetryAt()).isEqualTo(2_500L);
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });
         assertThat(payload)
                 .containsEntry("wsPhone", "919000000001")
-                .containsEntry("messageType", "TEXT");
+                .containsEntry("messageType", "TEXT")
+                .doesNotContainKeys("notBeforeAt");
+        verify(dispatchTrigger).dispatchAfterCommit(anyList());
     }
 
     @Test
@@ -555,7 +560,9 @@ class ProtocolCommandOutboxServiceImplTest {
                         null,
                         null,
                         new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
-                "cmd_historical");
+                "cmd_historical",
+                MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
+                0L);
         ProtocolMessageOutboxCommand outboxCommand = new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.WEB,

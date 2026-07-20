@@ -1,5 +1,8 @@
 package com.armada.marketing.service;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
+import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
@@ -8,9 +11,13 @@ import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import com.armada.testsupport.DbTestBase;
+import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,6 +38,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     private static final int STATUS_SENDING = 2;
     private static final int TARGET_STATUS_PARTIAL_FAILED = 5;
     private static final long THREE_DAYS_MS = 72L * 60L * 60L * 1000L;
+    private static final long OTHER_TENANT_ID = 2L;
 
     @Autowired
     private MarketingTaskService service;
@@ -58,12 +66,43 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 .as("累计成功群数在首次成功回调前必须为0")
                 .isZero();
         assertThat(created.targetPairCount()).isEqualTo(1);
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("0.5");
 
         Integer targetRows = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM marketing_task_target WHERE marketing_task_id = ?",
                 Integer.class,
                 created.id());
         assertThat(targetRows).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT account_group_send_interval_ms FROM marketing_task WHERE id = ?",
+                Integer.class,
+                created.id())).isEqualTo(500);
+        assertThat(service.getDetail(created.id()).accountGroupSendIntervalSeconds())
+                .isEqualByComparingTo("0.5");
+
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setKeyword("巴铁烟草群发");
+        assertThat(service.listTasks(query).list()).singleElement()
+                .extracting(MarketingTaskVO::accountGroupSendIntervalSeconds)
+                .isEqualTo(new BigDecimal("0.5"));
+    }
+
+    @Test
+    void createTask_persistsExplicitAccountGroupSendInterval() {
+        Fixture fixture = seedFixture("explicit-account-group-interval");
+        MarketingTaskVO created = service.createTask(requestWithInterval(
+                "显式账号群间隔任务",
+                fixture,
+                new BigDecimal("2.3"),
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+
+        assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("2.3");
+        assertThat(jdbc.queryForObject(
+                "SELECT account_group_send_interval_ms FROM marketing_task WHERE id = ?",
+                Integer.class,
+                created.id())).isEqualTo(2_300);
+        assertThat(service.getDetail(created.id()).accountGroupSendIntervalSeconds())
+                .isEqualByComparingTo("2.3");
     }
 
     @Test
@@ -151,6 +190,76 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
+    void createTask_accountDynamicAllowsOnlineTakeoverLifecycleStates() {
+        for (int accountState : List.of(
+                AccountStateCode.LOGIN_REPLACED,
+                AccountStateCode.TAKING_OVER)) {
+            Fixture fixture = seedTakeoverFixture(
+                    "takeover-dynamic-" + accountState,
+                    accountState,
+                    AccountLoginStateCode.ONLINE);
+
+            MarketingTaskVO created = service.createTask(request(
+                    "抢登动态任务-" + accountState,
+                    fixture.accountGroupId(),
+                    fixture.templateId(),
+                    "PENDING",
+                    List.of(new MarketingSelectionDTO(
+                            fixture.accountId(),
+                            "ACCOUNT_DYNAMIC",
+                            List.of()))));
+
+            assertThat(created.selectedAccountCount()).isEqualTo(1);
+            assertThat(created.targetPairCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void createTask_fixedGroupAllowsOnlineTakeoverLifecycleStates() {
+        for (int accountState : List.of(
+                AccountStateCode.LOGIN_REPLACED,
+                AccountStateCode.TAKING_OVER)) {
+            Fixture fixture = seedTakeoverFixture(
+                    "takeover-fixed-" + accountState,
+                    accountState,
+                    AccountLoginStateCode.ONLINE);
+
+            MarketingTaskVO created = service.createTask(request(
+                    "抢登固定群任务-" + accountState,
+                    fixture.accountGroupId(),
+                    fixture.templateId(),
+                    "PENDING",
+                    List.of(new MarketingSelectionDTO(
+                            fixture.accountId(),
+                            List.of(fixture.groupLinkId())))));
+
+            assertThat(created.selectedAccountCount()).isEqualTo(1);
+            assertThat(created.targetPairCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void createTask_rejectsOfflineTakingOverAccount() {
+        Fixture fixture = seedTakeoverFixture(
+                "takeover-offline",
+                AccountStateCode.TAKING_OVER,
+                AccountLoginStateCode.OFFLINE);
+        CreateMarketingTaskDTO req = request(
+                "离线抢登中任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        "ACCOUNT_DYNAMIC",
+                        List.of())));
+
+        assertThatThrownBy(() -> service.createTask(req))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号不可用");
+    }
+
+    @Test
     void listTasks_filtersByKeywordAndStatus() {
         Fixture one = seedFixture("list-one");
         Fixture two = seedFixture("list-two");
@@ -170,6 +279,142 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         assertThat(page.list()).singleElement()
                 .extracting(MarketingTaskVO::taskName)
                 .isEqualTo("目标任务A");
+    }
+
+    @Test
+    void listTasks_returnsCurrentTemplateInfoForSharedAndDifferentTemplates() {
+        Fixture first = seedFixture("template-info-first");
+        Fixture second = seedFixture("template-info-second");
+        Fixture third = seedFixture("template-info-third");
+        jdbc.update("""
+                UPDATE marketing_template
+                SET content = ?, body_text = ?, promotion_link = ?
+                WHERE id = ?
+                """, "共享标题", "共享正文", "https://example.com/shared", first.templateId());
+        jdbc.update("""
+                UPDATE marketing_template
+                SET content = ?, body_text = ?, promotion_link = NULL
+                WHERE id = ?
+                """, "独立标题", "独立正文", third.templateId());
+
+        service.createTask(request("模板展示任务A", first.accountGroupId(), first.templateId(), "PENDING",
+                List.of(new MarketingSelectionDTO(first.accountId(), List.of(first.groupLinkId())))));
+        service.createTask(request("模板展示任务B", second.accountGroupId(), first.templateId(), "PENDING",
+                List.of(new MarketingSelectionDTO(second.accountId(), List.of(second.groupLinkId())))));
+        service.createTask(request("模板展示任务C", third.accountGroupId(), third.templateId(), "PENDING",
+                List.of(new MarketingSelectionDTO(third.accountId(), List.of(third.groupLinkId())))));
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setKeyword("模板展示任务");
+        query.setPageSize(10);
+
+        PageResult<MarketingTaskVO> page = service.listTasks(query);
+        Map<String, MarketingTaskVO> byName = page.list().stream()
+                .collect(Collectors.toMap(MarketingTaskVO::taskName, Function.identity()));
+
+        assertThat(page.total()).isEqualTo(3);
+        assertThat(List.of(byName.get("模板展示任务A"), byName.get("模板展示任务B")))
+                .allSatisfy(row -> {
+                    assertThat(row.marketingTemplateContent()).isEqualTo("共享标题");
+                    assertThat(row.marketingTemplateBodyText()).isEqualTo("共享正文");
+                    assertThat(row.marketingTemplatePromotionLink()).isEqualTo("https://example.com/shared");
+                });
+        assertThat(byName.get("模板展示任务C").marketingTemplateContent()).isEqualTo("独立标题");
+        assertThat(byName.get("模板展示任务C").marketingTemplateBodyText()).isEqualTo("独立正文");
+        assertThat(byName.get("模板展示任务C").marketingTemplatePromotionLink()).isNull();
+    }
+
+    @Test
+    void listTasks_returnsFirstLinkJumpButtonAsPromotionLink() {
+        Fixture fixture = seedFixture("template-button-link");
+        jdbc.update("""
+                UPDATE marketing_template
+                SET link_mode = ?, buttons = ?, promotion_link = NULL
+                WHERE id = ?
+                """,
+                LinkMode.BUTTON.code(),
+                """
+                [{"type":"QUICK_REPLY","text":"咨询","param":null},
+                 {"type":"LINK_JUMP","text":"首个链接","param":"https://example.com/first"},
+                 {"type":"LINK_JUMP","text":"第二链接","param":"https://example.com/second"}]
+                """,
+                fixture.templateId());
+        MarketingTaskVO created = service.createTask(request(
+                "按钮推广链接任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setId(created.id());
+        query.setPageSize(10);
+
+        MarketingTaskVO row = service.listTasks(query).list().get(0);
+
+        assertThat(row.marketingTemplatePromotionLink()).isEqualTo("https://example.com/first");
+    }
+
+    @Test
+    void listTasks_keepsTaskWhenReferencedTemplateWasSoftDeleted() {
+        Fixture fixture = seedFixture("template-info-deleted");
+        MarketingTaskVO created = service.createTask(request(
+                "模板已删除仍展示任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        jdbc.update("UPDATE marketing_template SET deleted_at = ? WHERE id = ?",
+                System.currentTimeMillis(), fixture.templateId());
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setId(created.id());
+        query.setPageSize(10);
+
+        PageResult<MarketingTaskVO> page = service.listTasks(query);
+
+        assertThat(page.list()).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo(created.id());
+            assertThat(row.marketingTemplateContent()).isNull();
+            assertThat(row.marketingTemplateBodyText()).isNull();
+            assertThat(row.marketingTemplatePromotionLink()).isNull();
+        });
+    }
+
+    @Test
+    void listTasks_doesNotExposeTemplateFieldsFromAnotherTenant() {
+        Fixture fixture = seedFixture("template-info-tenant");
+        MarketingTaskVO created = service.createTask(request(
+                "跨租户模板不可见任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
+        long now = System.currentTimeMillis();
+        long foreignTemplateId = insertAndReturnId("""
+                INSERT INTO marketing_template
+                    (tenant_id, template_name, link_mode, text_type, content, body_text,
+                     promotion_link, created_at, updated_at)
+                VALUES (?, ?, 1, 'PROMO', ?, ?, ?, ?, ?)
+                """, ps -> {
+            ps.setLong(1, OTHER_TENANT_ID);
+            ps.setString(2, "其他租户模板");
+            ps.setString(3, "其他租户标题");
+            ps.setString(4, "其他租户正文");
+            ps.setString(5, "https://other-tenant.example.com");
+            ps.setLong(6, now);
+            ps.setLong(7, now);
+        });
+        jdbc.update("UPDATE marketing_task SET marketing_template_id = ? WHERE id = ?",
+                foreignTemplateId, created.id());
+        MarketingTaskQuery query = new MarketingTaskQuery();
+        query.setId(created.id());
+        query.setPageSize(10);
+
+        PageResult<MarketingTaskVO> page = service.listTasks(query);
+
+        assertThat(page.list()).singleElement().satisfies(row -> {
+            assertThat(row.marketingTemplateContent()).isNull();
+            assertThat(row.marketingTemplateBodyText()).isNull();
+            assertThat(row.marketingTemplatePromotionLink()).isNull();
+        });
     }
 
     @Test
@@ -234,6 +479,84 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             assertThat(account.groups().get(1).failedMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(1).lastReason()).isEqualTo("群禁言");
         });
+    }
+
+    @Test
+    void getDetail_usesLatestEffectiveRoundForGroupExecutionResult() {
+        Fixture fixture = seedTakeoverFixture(
+                "detail-execution-result",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        GroupFixture secondGroup = seedGroup(
+                "detail-execution-result-empty",
+                "120363188@g.us",
+                "https://chat.whatsapp.com/detail-execution-result-empty");
+        MarketingTaskVO created = service.createTask(request(
+                "群执行结果任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        List.of(fixture.groupLinkId(), secondGroup.groupLinkId())))));
+        List<Long> targetIds = jdbc.queryForList(
+                "SELECT id FROM marketing_task_target WHERE marketing_task_id = ? ORDER BY id ASC",
+                Long.class,
+                created.id());
+
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 1, 1, null, null, "NORMAL", 4000L);
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 2, 2, "SEND_FAILED", "发送失败", "NORMAL", 2000L);
+        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
+                "群A", 3, 3, "ACCOUNT_OCCUPIED", "账号被占用", "UNCONFIRMED", 6000L);
+        insertAttempt(created.id(), targetIds.get(1), secondGroup.groupLinkId(), secondGroup.groupJid(),
+                "群B", 1, 3, "ACCOUNT_OCCUPIED", "账号被占用", "UNCONFIRMED", 5000L);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.groups())
+                    .filteredOn(group -> fixture.groupJid().equals(group.groupJid()))
+                    .singleElement()
+                    .satisfies(group -> assertThat(group.executionResult()).isEqualTo("FAILED"));
+            assertThat(account.groups())
+                    .filteredOn(group -> secondGroup.groupJid().equals(group.groupJid()))
+                    .singleElement()
+                    .satisfies(group -> assertThat(group.executionResult()).isNull());
+        });
+    }
+
+    @Test
+    void getDetail_rollsUpDynamicGroupExecutionResult() {
+        Fixture fixture = seedTakeoverFixture(
+                "detail-dynamic-execution-result",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        MarketingTaskVO created = service.createTask(request(
+                "动态群执行结果任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        "ACCOUNT_DYNAMIC",
+                        List.of()))));
+        Long targetId = jdbc.queryForObject(
+                "SELECT id FROM marketing_task_target WHERE marketing_task_id = ?",
+                Long.class,
+                created.id());
+
+        insertAttempt(created.id(), targetId, fixture.groupLinkId(), fixture.groupJid(),
+                "动态群A", 1, 1, null, null, "NORMAL", 1000L);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account ->
+                assertThat(account.groups()).singleElement().satisfies(group -> {
+                    assertThat(group.groupJid()).isEqualTo(fixture.groupJid());
+                    assertThat(group.executionResult()).isEqualTo("SUCCESS");
+                }));
     }
 
     @Test
@@ -333,6 +656,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 taskStartAt,
                 taskEndAt,
                 1,
+                null,
                 30,
                 true,
                 true,
@@ -353,6 +677,32 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 null,
                 startMode,
                 1,
+                null,
+                30,
+                true,
+                true,
+                false,
+                "备注",
+                selections);
+    }
+
+    private CreateMarketingTaskDTO requestWithInterval(
+            String taskName,
+            Fixture fixture,
+            BigDecimal intervalSeconds,
+            List<MarketingSelectionDTO> selections) {
+        return new CreateMarketingTaskDTO(
+                taskName,
+                fixture.accountGroupId(),
+                "营销账号组",
+                fixture.templateId(),
+                "营销模板",
+                "PENDING",
+                null,
+                null,
+                null,
+                1,
+                intervalSeconds,
                 30,
                 true,
                 true,
@@ -438,6 +788,22 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                     """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
         }
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
+    }
+
+    private Fixture seedTakeoverFixture(String suffix, int accountState, int loginState) {
+        Fixture fixture = seedFixture(suffix, false, accountState);
+        jdbc.update("""
+                UPDATE account
+                SET protocol_account_id = ?,
+                    group_baseline_state = 3
+                WHERE id = ?
+                """, "acc_" + fixture.phone(), fixture.accountId());
+        jdbc.update("""
+                UPDATE account_state
+                SET login_state = ?
+                WHERE account_id = ?
+                """, loginState, fixture.accountId());
+        return fixture;
     }
 
     private GroupFixture seedGroup(String suffix, String groupJid, String groupUrl) {

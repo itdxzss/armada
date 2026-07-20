@@ -1,6 +1,9 @@
 package com.armada.platform.protocol.backend.android;
 
 import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
+import com.armada.platform.protocol.media.AndroidImageAsset;
+import com.armada.platform.protocol.media.AndroidImageAssetRef;
+import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.enums.MessageType;
@@ -11,10 +14,13 @@ import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.util.HttpUrlValidator;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -30,6 +36,9 @@ import java.util.Map;
  */
 public final class AndroidMessageSendBackend implements MessageSendBackend {
 
+    /** 组件日志。 */
+    private static final Logger log = LoggerFactory.getLogger(AndroidMessageSendBackend.class);
+
     /** Android 按钮能力校验失败时返回给营销域的稳定原因码。 */
     private static final String INVALID_BUTTON_CONFIG = "INVALID_ANDROID_BUTTON_CONFIG";
 
@@ -39,17 +48,23 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
     /** Android 命令 topic 配置。 */
     private final ProtocolAndroidCommandProperties properties;
 
+    /** Android 营销图片共享 Redis 缓存。 */
+    private final AndroidImageAssetStore assetStore;
+
     /**
      * 创建 Android 营销消息 backend。
      *
      * @param outboxService 协议命令 outbox 服务
      * @param properties Android 命令 topic 配置
+     * @param assetStore Android 营销图片共享 Redis 缓存
      */
     public AndroidMessageSendBackend(
             ProtocolCommandOutboxService outboxService,
-            ProtocolAndroidCommandProperties properties) {
+            ProtocolAndroidCommandProperties properties,
+            AndroidImageAssetStore assetStore) {
         this.outboxService = outboxService;
         this.properties = properties;
+        this.assetStore = assetStore;
     }
 
     /** 返回该实现负责的协议后端类型，供统一路由注册和分组。 */
@@ -72,7 +87,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
         if (commands == null || commands.isEmpty()) {
             return new MessageSendEnqueueResult(List.of());
         }
-        List<ProtocolMessageOutboxCommand> acceptedCommands = new ArrayList<>(commands.size());
+        List<MessageSendCommand> acceptedBusinessCommands = new ArrayList<>(commands.size());
         Map<String, MessageSendEnqueueItem> results = new HashMap<>(commands.size());
         for (MessageSendCommand command : commands) {
             MessageSendEnqueueItem validation = validateButtonCard(command);
@@ -80,8 +95,14 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 results.put(command.commandId(), validation);
                 continue;
             }
-            acceptedCommands.add(toOutboxCommand(command));
+            acceptedBusinessCommands.add(command);
             results.put(command.commandId(), MessageSendEnqueueItem.accepted(command.commandId()));
+        }
+        ResolvedMediaRegistry mediaRegistry = resolveMedia(acceptedBusinessCommands);
+        List<ProtocolMessageOutboxCommand> acceptedCommands =
+                new ArrayList<>(acceptedBusinessCommands.size());
+        for (MessageSendCommand command : acceptedBusinessCommands) {
+            acceptedCommands.add(toOutboxCommand(command, mediaRegistry));
         }
         if (!acceptedCommands.isEmpty()) {
             outboxService.enqueueMessageCommands(acceptedCommands);
@@ -124,12 +145,77 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
     }
 
     /**
+     * 按租户和原图内容解析本批次全部媒体，并在 outbox 落库前确保 Redis 可读。
+     *
+     * <p>相同 byte[] 只计算一次摘要；内容相同但数组不同的媒体仍会按 tenantId + SHA-256
+     * 合并，避免模板图片随群组数重复写缓存。</p>
+     */
+    private ResolvedMediaRegistry resolveMedia(List<MessageSendCommand> commands) {
+        Map<Long, IdentityHashMap<byte[], AndroidImageAsset>> assetsBySource = new HashMap<>();
+        Map<String, AndroidImageAsset> uniqueAssets = new LinkedHashMap<>();
+        Map<Long, IdentityHashMap<MessageSendCommand.MessageMedia, AndroidImageAssetRef>> references =
+                new HashMap<>();
+        int referenceCount = 0;
+        for (MessageSendCommand command : commands) {
+            Long tenantId = command.correlation().tenantId();
+            MessageSendCommand.MessageContent content = command.payload().content();
+            referenceCount += registerMedia(
+                    tenantId, content.image(), assetsBySource, uniqueAssets, references);
+            if (content.linkCard() != null) {
+                referenceCount += registerMedia(
+                        tenantId,
+                        content.linkCard().thumbnail(),
+                        assetsBySource,
+                        uniqueAssets,
+                        references);
+            }
+            if (content.buttonCard() != null) {
+                referenceCount += registerMedia(
+                        tenantId,
+                        content.buttonCard().thumbnail(),
+                        assetsBySource,
+                        uniqueAssets,
+                        references);
+            }
+        }
+        uniqueAssets.values().forEach(assetStore::ensure);
+        log.debug(
+                "Android image batch resolved commandCount={} referenceCount={} uniqueAssetCount={}",
+                commands.size(),
+                referenceCount,
+                uniqueAssets.size());
+        return new ResolvedMediaRegistry(references);
+    }
+
+    private static int registerMedia(
+            Long tenantId,
+            MessageSendCommand.MessageMedia media,
+            Map<Long, IdentityHashMap<byte[], AndroidImageAsset>> assetsBySource,
+            Map<String, AndroidImageAsset> uniqueAssets,
+            Map<Long, IdentityHashMap<MessageSendCommand.MessageMedia, AndroidImageAssetRef>> references) {
+        if (media == null) {
+            return 0;
+        }
+        IdentityHashMap<byte[], AndroidImageAsset> tenantAssets =
+                assetsBySource.computeIfAbsent(tenantId, ignored -> new IdentityHashMap<>());
+        AndroidImageAsset asset = tenantAssets.computeIfAbsent(
+                media.bytes(),
+                source -> AndroidImageAsset.from(tenantId, source, media.mimetype()));
+        uniqueAssets.putIfAbsent(asset.identity(), asset);
+        references.computeIfAbsent(tenantId, ignored -> new IdentityHashMap<>())
+                .put(media, asset.reference());
+        return 1;
+    }
+
+    /**
      * 把统一命令编码成 Android Kafka payload 和 outbox 路由信息。
      *
      * <p>{@code wsPhone} 是 Android 在线实例解析所需事实，只存在于 Android payload；普通营销和
      * 建群营销、普通营销和历史群营销的关联字段按实际 source 三选一写入，避免业务关联串线。</p>
      */
-    private ProtocolMessageOutboxCommand toOutboxCommand(MessageSendCommand command) {
+    private ProtocolMessageOutboxCommand toOutboxCommand(
+            MessageSendCommand command,
+            ResolvedMediaRegistry mediaRegistry) {
         MessageSendCommand.MessageCorrelation correlation = command.correlation();
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
@@ -143,10 +229,11 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 command.target().groupJid(),
                 command.payload().type().name(),
                 content.text(),
-                media(content.image()),
-                linkCard(content.linkCard()),
-                buttonCard(content.buttonCard()),
+                media(correlation.tenantId(), content.image(), mediaRegistry),
+                linkCard(correlation.tenantId(), content.linkCard(), mediaRegistry),
+                buttonCard(correlation.tenantId(), content.buttonCard(), mediaRegistry),
                 command.payload().mentionAll(),
+                command.sendIntervalMs(),
                 correlation.source(),
                 marketing == null ? null : marketing.taskId(),
                 marketing == null ? null : marketing.targetId(),
@@ -164,27 +251,37 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 payload);
     }
 
-    /** 把内存图片字节转换为 Kafka JSON 使用的 base64 媒体对象。 */
-    private static AndroidMediaPayload media(MessageSendCommand.MessageMedia media) {
+    /** 把内存图片转换为不含物理 Redis Key 的 Kafka 资源引用。 */
+    private static AndroidMediaPayload media(
+            Long tenantId,
+            MessageSendCommand.MessageMedia media,
+            ResolvedMediaRegistry registry) {
         if (media == null) {
             return null;
         }
-        return new AndroidMediaPayload(
-                Base64.getEncoder().encodeToString(media.bytes()),
-                media.mimetype());
+        return new AndroidMediaPayload(registry.get(tenantId, media));
     }
 
     /** 转换链接卡片；缩略图为空时保持为空，由 Android 原生发送器按无图卡片处理。 */
-    private static AndroidLinkCardPayload linkCard(MessageSendCommand.MessageLinkCard card) {
+    private static AndroidLinkCardPayload linkCard(
+            Long tenantId,
+            MessageSendCommand.MessageLinkCard card,
+            ResolvedMediaRegistry registry) {
         if (card == null) {
             return null;
         }
         return new AndroidLinkCardPayload(
-                card.url(), card.title(), card.description(), media(card.thumbnail()));
+                card.url(),
+                card.title(),
+                card.description(),
+                media(tenantId, card.thumbnail(), registry));
     }
 
     /** 转换按钮卡片；按钮合法性已在写 outbox 前由 {@link #validateButtonCard} 保证。 */
-    private static AndroidButtonCardPayload buttonCard(MessageSendCommand.MessageButtonCard card) {
+    private static AndroidButtonCardPayload buttonCard(
+            Long tenantId,
+            MessageSendCommand.MessageButtonCard card,
+            ResolvedMediaRegistry registry) {
         if (card == null) {
             return null;
         }
@@ -194,7 +291,11 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                         .map(button -> new AndroidButtonPayload(
                                 button.type(), button.displayText(), button.value()))
                         .toList();
-        return new AndroidButtonCardPayload(card.title(), card.footer(), buttons, media(card.thumbnail()));
+        return new AndroidButtonCardPayload(
+                card.title(),
+                card.footer(),
+                buttons,
+                media(tenantId, card.thumbnail(), registry));
     }
 
     /** Android Zhuan 的 {@code message.send.requested} Kafka 业务 payload。 */
@@ -211,6 +312,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             AndroidLinkCardPayload linkCard,
             AndroidButtonCardPayload buttonCard,
             boolean mentionAll,
+            int sendIntervalMs,
             String source,
             Long marketingTaskId,
             Long targetId,
@@ -223,8 +325,8 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
     ) {
     }
 
-    /** Android Kafka payload 中的 base64 媒体。 */
-    private record AndroidMediaPayload(String base64, String mimetype) {
+    /** Android Kafka payload 中的 Redis 图片资源引用。 */
+    private record AndroidMediaPayload(AndroidImageAssetRef assetRef) {
     }
 
     /** Android 链接卡片 wire payload。 */
@@ -249,5 +351,24 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
 
     /** Android 按钮 wire payload；当前能力校验保证批次中实际只出现一个 link 按钮。 */
     private record AndroidButtonPayload(String type, String displayText, String value) {
+    }
+
+    /** 本批次按租户和媒体对象保存的 Redis 图片引用。 */
+    private record ResolvedMediaRegistry(
+            Map<Long, IdentityHashMap<MessageSendCommand.MessageMedia, AndroidImageAssetRef>>
+                    references) {
+
+        private AndroidImageAssetRef get(
+                Long tenantId,
+                MessageSendCommand.MessageMedia media) {
+            IdentityHashMap<MessageSendCommand.MessageMedia, AndroidImageAssetRef> tenantReferences =
+                    references.get(tenantId);
+            AndroidImageAssetRef reference =
+                    tenantReferences == null ? null : tenantReferences.get(media);
+            if (reference == null) {
+                throw new IllegalStateException("Android image asset reference is missing");
+            }
+            return reference;
+        }
     }
 }

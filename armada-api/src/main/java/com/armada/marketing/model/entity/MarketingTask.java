@@ -19,6 +19,7 @@ public class MarketingTask {
     private Integer sentMessageCount;
     private Integer failedMessageCount;
     private Integer sendPerRound;
+    private Integer accountGroupSendIntervalMs;
     private Integer sendIntervalSeconds;
     private Boolean onlineCheckEnabled;
     private Boolean abnormalGroupSkipped;
@@ -149,6 +150,14 @@ public class MarketingTask {
 
     public void setSendPerRound(Integer sendPerRound) {
         this.sendPerRound = sendPerRound;
+    }
+
+    public Integer getAccountGroupSendIntervalMs() {
+        return accountGroupSendIntervalMs;
+    }
+
+    public void setAccountGroupSendIntervalMs(Integer accountGroupSendIntervalMs) {
+        this.accountGroupSendIntervalMs = accountGroupSendIntervalMs;
     }
 
     public Integer getSendIntervalSeconds() {

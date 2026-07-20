@@ -7,7 +7,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.OriginTrackedMapPropertySource;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.mock.env.MockEnvironment;
 
 class IpProxyUnavailableRecheckJobPropertiesTest {
 
@@ -38,6 +41,18 @@ class IpProxyUnavailableRecheckJobPropertiesTest {
 
         assertThat(properties.enabled()).isTrue();
         assertThat(properties.fixedDelayMs()).isEqualTo(900_000L);
-        assertThat(properties.batchSize()).isEqualTo(20);
+        assertThat(properties.batchSize()).isEqualTo(200);
+    }
+
+    @Test
+    void applicationYamlDefaultsBatchSizeToTwoHundred() throws Exception {
+        MockEnvironment environment = new MockEnvironment();
+        new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml"))
+                .forEach(environment.getPropertySources()::addLast);
+
+        assertThat(environment.getProperty(
+                "armada.ip-proxy-unavailable-recheck.batch-size", Integer.class))
+                .isEqualTo(200);
     }
 }

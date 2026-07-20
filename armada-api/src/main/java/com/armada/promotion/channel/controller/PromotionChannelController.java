@@ -32,7 +32,7 @@ public class PromotionChannelController {
      * @param request 渠道新增参数，不包含 tenantId
      * @return 新增后的渠道详情，响应中不会包含 Access Token
      */
-    @PostMapping
+    @PostMapping("/create")
     public ApiResponse<PromotionChannelVO> create(@RequestBody PromotionChannelCreateDTO request) {
         return ApiResponse.ok(service.create(request));
     }
@@ -43,7 +43,7 @@ public class PromotionChannelController {
      * @param query 页面筛选与分页参数
      * @return 统一分页结果
      */
-    @GetMapping
+    @GetMapping("query")
     public ApiResponse<PageResult<PromotionChannelVO>> page(@ModelAttribute PromotionChannelQuery query) {
         return ApiResponse.ok(service.page(query));
     }

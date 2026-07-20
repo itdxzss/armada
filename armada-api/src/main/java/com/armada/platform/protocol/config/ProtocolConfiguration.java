@@ -26,6 +26,7 @@ import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupSettingsAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
+import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
@@ -330,13 +331,15 @@ public class ProtocolConfiguration {
      *
      * @param outboxService 协议命令 outbox 服务
      * @param properties Android 营销消息命令 topic 配置
+     * @param assetStore Android 营销图片共享 Redis 缓存
      * @return Android 营销消息 backend
      */
     @Bean
     public MessageSendBackend androidMessageSendBackend(
             ProtocolCommandOutboxService outboxService,
-            ProtocolAndroidCommandProperties properties) {
-        return new AndroidMessageSendBackend(outboxService, properties);
+            ProtocolAndroidCommandProperties properties,
+            AndroidImageAssetStore assetStore) {
+        return new AndroidMessageSendBackend(outboxService, properties, assetStore);
     }
 
     /**

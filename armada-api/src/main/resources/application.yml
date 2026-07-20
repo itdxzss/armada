@@ -77,6 +77,16 @@ armada:
         api-key: ${PROTOCOL_ANDROID_API_KEY:}
         connect-timeout-ms: ${PROTOCOL_ANDROID_CONNECT_TIMEOUT_MS:3000}
         read-timeout-ms: ${PROTOCOL_ANDROID_READ_TIMEOUT_MS:60000}
+    android-image-cache:
+      redis:
+        mode: ${ANDROID_IMAGE_REDIS_MODE:standalone}
+        addresses: ${ANDROID_IMAGE_REDIS_ADDRESSES:localhost:6379}
+        username: ${ANDROID_IMAGE_REDIS_USERNAME:}
+        password: ${ANDROID_IMAGE_REDIS_PASSWORD:}
+        database: ${ANDROID_IMAGE_REDIS_DATABASE:0}
+        tls: ${ANDROID_IMAGE_REDIS_TLS:false}
+        # 必须与同环境 Android Zhuan 的 redis.keyprefix 完全一致。
+        key-prefix: ${ANDROID_IMAGE_REDIS_KEY_PREFIX:android-zhuan:}
     command-publisher:
       send-timeout-ms: ${PROTOCOL_COMMAND_SEND_TIMEOUT_MS:10000}
       max-in-flight: ${PROTOCOL_COMMAND_MAX_IN_FLIGHT:100}

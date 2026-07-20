@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-19 / `1.0.1-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户本次确认；`docs/superpowers/specs/2026-07-19-android-marketing-image-redis-lru-design.md`
-- 状态: 进行中（设计与跨仓实施计划已确认，待编码）
+- 状态: 本地编码与聚焦验证完成，待测试环境集成验收
 
 ## 目标（一句话）
 
@@ -16,10 +16,11 @@
 - [x] 输出分步骤实施计划：
   - `docs/superpowers/plans/2026-07-19-android-marketing-image-redis-lru-armada.md`
   - `docs/superpowers/plans/2026-07-19-android-marketing-image-redis-lru-zhuan.md`
-- [ ] Armada 增加 Redis 原图缓存和 Android 图片引用契约。
-- [ ] Android 增加引用加载、规范化、64MB/20 分钟访问续期 LRU 和 singleflight。
-- [ ] 调整普通图片及卡片发送，复用规范化字节和小缩略图。
-- [ ] 补齐 Java/Go 单测、并发测试和测试环境集成验收。
+- [x] Armada 增加 Redis 原图缓存和 Android 图片引用契约。
+- [x] Android 增加引用加载、规范化、64MB/20 分钟访问续期 LRU 和 singleflight。
+- [x] 调整普通图片及卡片发送，复用规范化字节和小缩略图。
+- [x] 补齐 Java/Go 聚焦单测和并发测试。
+- [ ] 在测试环境完成同模板图片发送 100 群的集成验收。
 
 ## 关键设计决策
 
@@ -43,12 +44,17 @@
 
 ## 验证（evidence-before-done）
 
-- 设计阶段只做代码与配置只读核对，尚未修改业务代码或运行测试。
-- 实施阶段必须记录 Armada Maven 测试、Android `go vet/build/test`、相关 `go test -race` 及测试环境 100 群同图验收的真实输出。
+- Armada 聚焦测试：25 个测试通过，覆盖 Redis 配置、原图资源、Redis ensure、Android backend 和 Web backend 回归。
+- Armada `mvn -DskipTests package` 通过；`armada-deploy/verify-config.mjs` 通过。
+- 用户确认本次不执行 Armada MySQL 真库测试；本变更也没有表、SQL、Mapper 或 Flyway 修改。
+- Android 图片解析、LRU、singleflight、规范化、sender、executor、生命周期聚焦测试通过；缓存与加载并发测试使用 `go test -race` 通过。
+- Android `go build ./...` 通过；任务相关包 `go vet` 通过。
+- Android 全量 `go vet ./...` / `go test ./...` 未全绿：未修改的旧 `appstate_test.go` 仍向当前 `decodeSnapshot` 传 `[]byte`，另有既有 vet 告警、Noise 向量测试问题；当前沙箱还禁止 miniredis/httptest 监听本地端口。
+- 尚未执行真实 Redis、Kafka、WhatsApp 或测试环境 100 群同图验收。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 未部署；用户确认测试环境无需特殊发布顺序。
+- commit / 环境 / 部署后验证结果: 代码已纳入本次 Git 提交，未部署；用户确认测试环境无需特殊发布顺序。
 
 ## 遗留 / 跟进
 

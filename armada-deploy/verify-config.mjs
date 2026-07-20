@@ -48,6 +48,21 @@ expectIncludes(
   "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL=http://65.2.122.109:8080/readyz",
   ".env.example"
 );
+expectIncludes(envExample, "ANDROID_IMAGE_REDIS_MODE=standalone", ".env.example");
+expectIncludes(
+  envExample,
+  "ANDROID_IMAGE_REDIS_ADDRESSES=REPLACE_SHARED_REDIS_ENDPOINT:6379",
+  ".env.example"
+);
+expectIncludes(envExample, "ANDROID_IMAGE_REDIS_USERNAME=", ".env.example");
+expectIncludes(envExample, "ANDROID_IMAGE_REDIS_PASSWORD=", ".env.example");
+expectIncludes(envExample, "ANDROID_IMAGE_REDIS_DATABASE=0", ".env.example");
+expectIncludes(envExample, "ANDROID_IMAGE_REDIS_TLS=false", ".env.example");
+expectIncludes(
+  envExample,
+  "ANDROID_IMAGE_REDIS_KEY_PREFIX=android-zhuan:",
+  ".env.example"
+);
 expectIncludes(
   compose,
   "ARMADA_PROTOCOL_BASE_URL: ${ARMADA_PROTOCOL_BASE_URL:-http://65.2.122.109:8080}",
@@ -81,6 +96,41 @@ expectIncludes(
 expectIncludes(
   compose,
   "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL: ${ARMADA_PROTOCOL_RESTART_MASTER_READY_URL:-http://65.2.122.109:8080/readyz}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_MODE: ${ANDROID_IMAGE_REDIS_MODE:-standalone}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_ADDRESSES: ${ANDROID_IMAGE_REDIS_ADDRESSES}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_USERNAME: ${ANDROID_IMAGE_REDIS_USERNAME:-}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_PASSWORD: ${ANDROID_IMAGE_REDIS_PASSWORD:-}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_DATABASE: ${ANDROID_IMAGE_REDIS_DATABASE:-0}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_TLS: ${ANDROID_IMAGE_REDIS_TLS:-false}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "ANDROID_IMAGE_REDIS_KEY_PREFIX: ${ANDROID_IMAGE_REDIS_KEY_PREFIX:-android-zhuan:}",
   "docker-compose.rds.yml"
 );
 expectIncludes(

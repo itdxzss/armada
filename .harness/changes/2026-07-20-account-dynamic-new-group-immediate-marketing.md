@@ -1,8 +1,8 @@
 # 变更记录：账号动态营销新群即时发送
 
 - 日期 / 分支 / worktree: 2026-07-20 / `1.0.1-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
-- 需求来源: 用户本次需求；设计文档 `docs/superpowers/specs/2026-07-20-account-dynamic-new-group-immediate-marketing-design.md`
-- 状态: 进行中（设计已确认，等待书面规格复核）
+- 需求来源: 用户本次需求；设计文档 `docs/superpowers/specs/2026-07-20-account-dynamic-new-group-immediate-marketing-design.md`；实施计划 `docs/superpowers/plans/2026-07-20-account-dynamic-new-group-immediate-marketing.md`
+- 状态: 进行中（设计和实施计划已完成，等待选择执行方式）
 
 ## 目标（一句话）
 
@@ -14,8 +14,8 @@
 - [x] 对账 Armada membership、动态目标解析、attempt 和 outbox 链路。
 - [x] 确认按任务 + 账号 + 群 JID 幂等以及多账号分别触发。
 - [x] 完成轻量方案设计。
-- [ ] 用户复核书面设计。
-- [ ] 编写实施计划。
+- [x] 用户复核书面设计。
+- [x] 编写并自检实施计划。
 - [ ] TDD 实现群快照差量、即时 attempt/outbox 和一次业务重试。
 - [ ] 运行单元测试、真库 DbTest 和 Web/Zhuan 端到端验收。
 - [ ] 完成后端专家评审和部署验证。
@@ -40,6 +40,7 @@
 
 - 设计自检：`git diff --cached --check` 通过，无空白错误。
 - 占位符扫描：设计文档无 `TBD`、`TODO`、`FIXME` 或待定项。
+- 实施计划自检：任务拆为 8 个 TDD 阶段，包含精确文件、测试命令、真库迁移、回滚、数据模型生成和最终评审步骤；`git diff --check` 通过。
 - 代码和 DbTest 尚未开始；不得声明功能已完成。
 
 ## 部署
@@ -48,4 +49,4 @@
 
 ## 遗留 / 跟进
 
-- 书面设计经用户复核后，进入 implementation plan；未获得复核前不修改业务代码。
+- 等待用户选择 Subagent-Driven 或 Inline Execution；执行前创建隔离 worktree，当前主 worktree 的部署改动不得带入本需求提交。

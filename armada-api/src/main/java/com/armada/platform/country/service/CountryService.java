@@ -1,6 +1,7 @@
 package com.armada.platform.country.service;
 
 import com.armada.platform.country.model.vo.CountryOptionsVO;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
 import java.util.Collection;
 import java.util.Map;
 
@@ -54,4 +55,20 @@ public interface CountryService {
      * @return 可写入 ip_proxy.region 的中文 region
      */
     String resolveIpRegionByIso2(String iso2);
+
+    /**
+     * 校验并返回一个启用国家，供渠道等业务保存稳定 country.id。
+     *
+     * @param countryId 国家主键
+     * @return 国家只读引用
+     */
+    CountryReferenceVO requireActiveReference(Long countryId);
+
+    /**
+     * 批量查询国家展示引用，用于列表一次性补齐国家名称、区号和国旗，避免 N+1。
+     *
+     * @param countryIds 国家主键集合
+     * @return 以 country.id 为 key 的引用映射
+     */
+    Map<Long, CountryReferenceVO> referencesByIds(Collection<Long> countryIds);
 }

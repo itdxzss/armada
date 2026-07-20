@@ -96,6 +96,22 @@ class CountryServiceImplTest {
         verify(mapper).selectIpSupported();
     }
 
+    @Test
+    void references_validateActiveCountryAndLoadPageDisplayDataInBatch() {
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        india.setId(101L);
+        when(mapper.selectActiveById(101L)).thenReturn(india);
+        when(mapper.selectByIds(List.of(101L))).thenReturn(List.of(india));
+
+        assertThat(service.requireActiveReference(101L).nameZh()).isEqualTo("印度");
+        assertThat(service.referencesByIds(List.of(101L, 101L)))
+                .containsOnlyKeys(101L)
+                .extractingByKey(101L)
+                .satisfies(reference -> assertThat(reference.phonePrefix()).isEqualTo("+91"));
+
+        verify(mapper).selectByIds(List.of(101L));
+    }
+
     private static Country country(String iso2, String nameZh, String phonePrefix, String flag) {
         Country country = new Country();
         country.setIso2(iso2);

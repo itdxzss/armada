@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.promotion.channel.mapper.PromotionChannelMapper">
+
+  <!-- 新增前校验：模板必须属于当前租户、处于启用状态且未软删。 -->
+  <select id="selectAvailableTemplateById"
+          resultType="com.armada.promotion.channel.model.entity.PromotionLandingTemplate">
+    SELECT id, template_code, template_name
+    FROM promotion_landing_template
+    WHERE id = #{id}
+      AND status = 1
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 域名先规范化再查询；tenant_id 由租户拦截器注入。 -->
+  <select id="selectActiveDomainByHost"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE domain_host = #{domainHost}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 域名全局唯一键负责处理并发抢占，Service 捕获冲突后重新判断模板归属。 -->
+  <insert id="insertDomain" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_domain
+      (domain_host, landing_template_id, created_by, updated_by, created_at, updated_at)
+    VALUES
+      (#{domainHost}, #{landingTemplateId}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <!-- 创建人按已确认口径取归属用户；tenant_id 由拦截器自动补充。 -->
+  <insert id="insertChannel" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_channel
+      (channel_code, channel_name, owner_user_id, promotion_domain_id,
+       target_country_id, preselected_country_id, platform,
+       is_in_app_open_allowed, is_marketing_allowed, status,
+       created_by, updated_by, created_at, updated_at)
+    VALUES
+      (#{channelCode}, #{channelName}, #{ownerUserId}, #{promotionDomainId},
+       #{targetCountryId}, #{preselectedCountryId}, #{platform},
+       #{isInAppOpenAllowed}, #{isMarketingAllowed}, #{status},
+       #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <!-- access_token_ciphertext 只接收应用层 AES-GCM 密文，禁止传入或记录明文 Token。 -->
+  <insert id="insertTrackingConfig" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_channel_tracking_config
+      (channel_id, provider_type, tracking_id,
+       access_token_ciphertext, encryption_key_id, token_fingerprint,
+       lead_event_name, login_request_event_name, login_success_event_name,
+       created_by, updated_by, created_at, updated_at)
+    VALUES
+      (#{channelId}, #{providerType}, #{trackingId},
+       #{accessTokenCiphertext}, #{encryptionKeyId}, #{tokenFingerprint},
+       #{leadEventName}, #{loginRequestEventName}, #{loginSuccessEventName},
+       #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <!-- countPage/selectPage 共用筛选，保证分页总数与列表口径一致。 -->
+  <sql id="pageFilter">
+    c.deleted_at IS NULL
+    <!-- 混合国家使用 target_country_id IS NULL 表达；选择混合时优先于真实国家 ID。 -->
+    <choose>
+      <when test="mixedTargetCountry != null and mixedTargetCountry">
+        AND c.target_country_id IS NULL
+      </when>
+      <when test="targetCountryId != null">
+        AND c.target_country_id = #{targetCountryId}
+      </when>
+    </choose>
+    <if test="landingTemplateId != null">
+      AND d.landing_template_id = #{landingTemplateId}
+    </if>
+    <!-- 创建人精确条件优先；上级用户由前端展开为 ownerUserIds 后执行 IN 查询。 -->
+    <choose>
+      <when test="creatorUserId != null">
+        AND c.owner_user_id = #{creatorUserId}
+      </when>
+      <when test="ownerUserIds != null and ownerUserIds.size() > 0">
+        AND c.owner_user_id IN
+        <foreach collection="ownerUserIds" item="ownerUserId" open="(" separator="," close=")">
+          #{ownerUserId}
+        </foreach>
+      </when>
+    </choose>
+  </sql>
+
+  <!-- 先统计总数，无结果时 Service 不再执行列表和国家批量查询。 -->
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d ON d.id = c.promotion_domain_id
+    WHERE <include refid="pageFilter"/>
+  </select>
+
+  <!-- 列表仅查询页面展示所需字段，明确不读取 Token 密文、指纹和密钥版本。 -->
+  <select id="selectPage" resultType="com.armada.promotion.channel.model.vo.PromotionChannelVoRow">
+    SELECT c.id,
+           c.channel_name AS channelName,
+           c.channel_code AS channelCode,
+           c.owner_user_id AS ownerUserId,
+           c.target_country_id AS targetCountryId,
+           c.preselected_country_id AS preselectedCountryId,
+           d.landing_template_id AS landingTemplateId,
+           t.template_name AS templateName,
+           d.domain_host AS domainHost,
+           c.platform,
+           tc.tracking_id AS trackingId,
+           tc.last_probe_status AS lastProbeStatus,
+           c.status,
+           c.is_in_app_open_allowed AS isInAppOpenAllowed,
+           c.is_marketing_allowed AS isMarketingAllowed,
+           c.created_at AS createdAt
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d ON d.id = c.promotion_domain_id
+    INNER JOIN promotion_landing_template t ON t.id = d.landing_template_id
+    LEFT JOIN promotion_channel_tracking_config tc
+      ON tc.channel_id = c.id AND tc.deleted_at IS NULL
+    WHERE <include refid="pageFilter"/>
+    ORDER BY c.created_at DESC, c.id DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+</mapper>

@@ -41,6 +41,22 @@
     LIMIT 1
   </select>
 
+  <select id="selectActiveById" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+      AND id = #{id}
+    LIMIT 1
+  </select>
+
+  <select id="selectByIds" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+
   <update id="updateLastIpSampleCheckAtByNameZh">
     UPDATE country
     SET last_ip_sample_check_at = #{checkedAt},

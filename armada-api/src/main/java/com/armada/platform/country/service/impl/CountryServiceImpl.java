@@ -4,6 +4,7 @@ import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -13,6 +14,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -169,6 +173,56 @@ public class CountryServiceImpl implements CountryService {
             }
         }
         throw new BusinessException(ErrorCode.VALIDATION, "检测国家不支持 IP 管理: " + normalized);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>新增渠道写入 country.id 前必须调用本方法，防止保存不存在或已停用的国家引用。</p>
+     */
+    @Override
+    public CountryReferenceVO requireActiveReference(Long countryId) {
+        if (countryId == null || countryId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家ID必须为正整数");
+        }
+        Country country = mapper.selectActiveById(countryId);
+        if (country == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家不存在或已停用: " + countryId);
+        }
+        return toReference(country);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>先清理空值和重复 ID，再执行一次批量查询，供渠道分页避免 N+1。</p>
+     */
+    @Override
+    public Map<Long, CountryReferenceVO> referencesByIds(Collection<Long> countryIds) {
+        if (countryIds == null || countryIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = countryIds.stream()
+                .filter(Objects::nonNull)
+                .filter(id -> id > 0)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return mapper.selectByIds(ids).stream()
+                .map(CountryServiceImpl::toReference)
+                .collect(Collectors.toUnmodifiableMap(CountryReferenceVO::id, Function.identity()));
+    }
+
+    /** 把国家域内部实体转换为允许跨业务域传递的只读引用。 */
+    private static CountryReferenceVO toReference(Country country) {
+        return new CountryReferenceVO(
+                country.getId(),
+                country.getIso2(),
+                country.getNameZh(),
+                country.getPhonePrefix(),
+                country.getFlag());
     }
 
     private static String digitsOnly(String value) {

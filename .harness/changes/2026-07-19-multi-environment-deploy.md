@@ -3,7 +3,7 @@
 - 日期 / 分支 / worktree：2026-07-19 / 1.0.1-snapshot / 主工作区
 - 需求来源：用户要求为第二套环境补齐覆盖后端、前端、Baileys 和 Android Zhuan 的部署能力
 - 设计文档：docs/superpowers/specs/2026-07-19-armada-multi-environment-deploy-design.md
-- 状态：书面设计已确认，实施计划已完成，待执行
+- 状态：本地实现与校验已完成，待用户复核；未执行远程检查或部署
 
 ## 目标（一句话）
 
@@ -20,9 +20,11 @@
 - [x] 完成部署设计。
 - [x] 用户审阅书面设计。
 - [x] 编写实施计划。
-- [ ] TDD 实现 profile、模块化、第二套部署和验证。
+- [x] TDD 实现 profile、模块化、第二套部署和验证。
+- [x] 默认部署按 scope 做快速检查，完整基础设施检查仅由显式 `--check` 触发。
+- [x] 本地完成 test1 / perf2 四组件 full dry-run。
 - [ ] 打通第二套 Baileys 私网 SSH 路由。
-- [ ] 第二套 dry-run、分组件和 full 验收。
+- [ ] 经用户复核后执行第二套只读 `--check`、分组件和 full 远程验收。
 
 ## 关键设计决策
 
@@ -40,7 +42,14 @@
 - 已读取 armada、前端和 Zhuan 项目规则及部署脚本。
 - 已运行当前部署脚本 --help 与第一套 --dry-run。
 - 2026-07-19 只读远端核验：第二套 Armada backend/nginx running；第二套 Zhuan app/callback healthy；未修改远端状态。
-- 尚未运行代码测试；当前阶段仅新增设计与变更记录。
+- `bash -n armada-deploy/deploy-test.sh` 与全部 `armada-deploy/lib/*.sh` 通过。
+- `bash armada-deploy/deploy-test.test.sh` 通过，覆盖 profile、直接/跳板传输、组件顺序、失败停止、脱敏和显式深检查边界。
+- `node --check armada-deploy/lib/kafka-check.mjs`、`node armada-deploy/verify-config.mjs`、`bash armada-deploy/package-prod.test.sh` 通过。
+- `armada-api` 执行 `mvn -DskipTests package` 通过。
+- 前端使用仓库现有依赖执行 TypeScript / Vue TypeScript 检查及 `npm run build` 通过。
+- 协议层使用 keg-only Node.js 24 执行 `npm run lint` 与 `npm run build` 通过。
+- `./armada-deploy/deploy-test.sh --env test1 --full --dry-run` 与 `--env perf2 --full --dry-run` 均通过；未执行 SSH、rsync、构建或重启。
+- 本地安装了 Homebrew keg-only `node@24` 供协议层校验使用；未替换系统默认 Node.js。
 
 ## 部署
 
@@ -48,6 +57,7 @@
 
 ## 遗留 / 跟进
 
-- 第二套 Armada 远端 Compose 尚未透传 Android URL，需随实现同步并重建 backend。
+- 第二套 Armada 远端 Compose 尚未透传 Android URL；本地模板已补齐，待获批部署时同步并重建 backend。
 - 第二套 Baileys 私网 SSH 需要打通。
-- 实施和远程验证前再次确认第二套环境、四仓 commit 和部署 scope。
+- `perf2` Kafka 契约已按当前 lifecycle / message / group-join 三链路修正；远程 `--check` 尚未执行。
+- 远程验证前再次确认第二套环境、四仓 commit 和部署 scope。

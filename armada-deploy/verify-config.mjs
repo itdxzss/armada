@@ -26,6 +26,11 @@ expectIncludes(
   "ARMADA_PROTOCOL_BASE_URL=http://65.2.122.109:8080",
   ".env.example"
 );
+expectIncludes(
+  envExample,
+  "PROTOCOL_ANDROID_BASE_URL=http://localhost:8000",
+  ".env.example"
+);
 expectIncludes(envExample, "ARMADA_PROTOCOL_API_KEY=", ".env.example");
 expectIncludes(envExample, "APP_TITLE=第一套环境", ".env.example");
 expectIncludes(
@@ -66,6 +71,11 @@ expectIncludes(
 expectIncludes(
   compose,
   "ARMADA_PROTOCOL_BASE_URL: ${ARMADA_PROTOCOL_BASE_URL:-http://65.2.122.109:8080}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "PROTOCOL_ANDROID_BASE_URL: ${PROTOCOL_ANDROID_BASE_URL:-http://localhost:8000}",
   "docker-compose.rds.yml"
 );
 expectIncludes(

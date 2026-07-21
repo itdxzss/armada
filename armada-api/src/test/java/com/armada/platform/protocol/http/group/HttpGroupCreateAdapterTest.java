@@ -7,8 +7,11 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.GroupCreateCommand;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
-import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.routing.GroupCreateBackend;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -22,7 +25,7 @@ class HttpGroupCreateAdapterTest {
     void createPostsNormalizedParticipantsAndMapsResult() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GroupCreatePort port = new HttpGroupCreateAdapter(new ProtocolHttpExecutor(builder.build()));
+        GroupCreateBackend backend = new HttpGroupCreateAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol-master.internal/v1/groups/create"))
                 .andExpect(method(HttpMethod.POST))
@@ -58,10 +61,12 @@ class HttpGroupCreateAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        GroupCreateResult result = port.create(
-                "acc_861111",
+        GroupCreateResult result = backend.create(new GroupCreateCommand(
+                new ProtocolAccountRef(7L, ProtocolBackend.WEB, "acc_861111", "861111"),
                 " 测试群 ",
-                List.of("+86 139-0000-0000", "8613911111111@s.whatsapp.net"));
+                List.of("+86 139-0000-0000", "8613911111111@s.whatsapp.net"),
+                false,
+                "test:web-group-create"));
 
         assertThat(result.groupJid()).isEqualTo("120363create@g.us");
         assertThat(result.partial()).isFalse();
@@ -77,7 +82,7 @@ class HttpGroupCreateAdapterTest {
     void createWithAnnounceOnlyPostsAnnouncementFlag() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GroupCreatePort port = new HttpGroupCreateAdapter(new ProtocolHttpExecutor(builder.build()));
+        GroupCreateBackend backend = new HttpGroupCreateAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol-master.internal/v1/groups/create"))
                 .andExpect(method(HttpMethod.POST))
@@ -102,11 +107,12 @@ class HttpGroupCreateAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        GroupCreateResult result = port.create(
-                "acc_861111",
+        GroupCreateResult result = backend.create(new GroupCreateCommand(
+                new ProtocolAccountRef(7L, ProtocolBackend.WEB, "acc_861111", "861111"),
                 "测试群",
                 List.of("8613900000000"),
-                true);
+                true,
+                "test:web-group-create-announcement"));
 
         assertThat(result.groupJid()).isEqualTo("120363create@g.us");
         server.verify();

@@ -5,9 +5,7 @@ import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
-import com.fasterxml.jackson.databind.JsonNode;
-
-import java.util.List;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 
 /**
  * 使用 Android 原生群成员接口二次确认账号是否真实入群。
@@ -15,27 +13,25 @@ import java.util.List;
 public final class AndroidGroupMembershipVerifier {
 
     private static final String VERIFY_OPERATION = "group.members.verify";
-    private static final String PARTICIPANTS_FIELD = "Participants";
-    private static final List<String> PARTICIPANT_IDENTITY_FIELDS = List.of(
-            "phone",
-            "phone_number",
-            "phoneNumber",
-            "jid");
 
     private final AndroidNativeClient client;
     private final AndroidResponseDecoder decoder;
+    private final AndroidGroupMemberMapper memberMapper;
 
     /**
      * 创建 Android 群成员确认器。
      *
      * @param client Android 原生 HTTP client
      * @param decoder Android 原生响应 decoder
+     * @param memberMapper Android 群成员响应 mapper
      */
     public AndroidGroupMembershipVerifier(
             AndroidNativeClient client,
-            AndroidResponseDecoder decoder) {
+            AndroidResponseDecoder decoder,
+            AndroidGroupMemberMapper memberMapper) {
         this.client = client;
         this.decoder = decoder;
+        this.memberMapper = memberMapper;
     }
 
     /**
@@ -57,18 +53,12 @@ public final class AndroidGroupMembershipVerifier {
             if (!response.success()) {
                 throw unconfirmed(account, operationId, response.rawProtocolCode(), null);
             }
-            JsonNode participants = response.data() == null
-                    ? null
-                    : response.data().path(PARTICIPANTS_FIELD);
-            if (participants == null || !participants.isArray()) {
-                throw unconfirmed(account, operationId, null, null);
-            }
-            for (JsonNode participant : participants) {
-                if (matchesAccount(participant, account.wsPhone())) {
-                    return GroupJoinOutcome.JOINED;
-                }
-            }
-            return GroupJoinOutcome.PENDING_APPROVAL;
+            boolean joined = memberMapper.map(response.data()).stream()
+                    .map(GroupParticipantResult::phone)
+                    .anyMatch(account.wsPhone()::equals);
+            return joined
+                    ? GroupJoinOutcome.JOINED
+                    : GroupJoinOutcome.PENDING_APPROVAL;
         } catch (ProtocolException ex) {
             if (ex.errorCode() == ProtocolErrorCode.JOIN_RESULT_UNCONFIRMED) {
                 throw ex;
@@ -79,29 +69,6 @@ public final class AndroidGroupMembershipVerifier {
                     ex.protocolCode().orElse(null),
                     ex);
         }
-    }
-
-    private static boolean matchesAccount(JsonNode participant, String accountPhone) {
-        for (String field : PARTICIPANT_IDENTITY_FIELDS) {
-            String participantPhone = normalizePhone(participant.path(field).asText(""));
-            if (accountPhone.equals(participantPhone)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String normalizePhone(String value) {
-        String normalized = value == null ? "" : value.trim();
-        int at = normalized.indexOf('@');
-        if (at >= 0) {
-            normalized = normalized.substring(0, at);
-        }
-        int device = normalized.indexOf(':');
-        if (device >= 0) {
-            normalized = normalized.substring(0, device);
-        }
-        return normalized.startsWith("+") ? normalized.substring(1) : normalized;
     }
 
     private static ProtocolException unconfirmed(

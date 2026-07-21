@@ -15,6 +15,9 @@ import com.armada.marketing.model.support.GroupCreateRestrictionClassifier;
 import com.armada.marketing.model.support.GroupCreationMarketingItemMarketingDispatch;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.MarketingMessageComposer;
+import com.armada.platform.protocol.model.command.ContactSaveCommand;
+import com.armada.platform.protocol.model.command.GroupCreateCommand;
+import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.MessageType;
@@ -26,7 +29,7 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
-import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -119,7 +122,7 @@ public class GroupCreationMarketingWorker {
     private final GroupCreatePort groupCreatePort;
 
     /** 群成员协议端口,用于发送前读取群成员数快照。 */
-    private final GroupParticipantPort groupParticipantPort;
+    private final GroupMemberListPort groupMemberListPort;
 
     /** 换号重试服务,负责重置执行项或终态放弃。 */
     private final GroupCreationMarketingRetryService retryService;
@@ -143,7 +146,7 @@ public class GroupCreationMarketingWorker {
      * @param messageSendPort           协议无关消息发送端口
      * @param contactPort               联系人协议端口
      * @param groupCreatePort           建群协议端口
-     * @param groupParticipantPort      群成员协议端口
+     * @param groupMemberListPort       群成员列表查询协议端口
      * @param retryService              换号重试服务
      * @param accountRestrictionService 账号受限标记服务
      * @param objectMapper              JSON 序列化器
@@ -156,7 +159,7 @@ public class GroupCreationMarketingWorker {
                                         MessageSendPort messageSendPort,
                                         ContactPort contactPort,
                                         GroupCreatePort groupCreatePort,
-                                        GroupParticipantPort groupParticipantPort,
+                                        GroupMemberListPort groupMemberListPort,
                                         GroupCreationMarketingRetryService retryService,
                                         AccountRestrictionService accountRestrictionService,
                                         ObjectMapper objectMapper,
@@ -168,7 +171,7 @@ public class GroupCreationMarketingWorker {
         this.messageSendPort = messageSendPort;
         this.contactPort = contactPort;
         this.groupCreatePort = groupCreatePort;
-        this.groupParticipantPort = groupParticipantPort;
+        this.groupMemberListPort = groupMemberListPort;
         this.retryService = retryService;
         this.accountRestrictionService = accountRestrictionService;
         this.objectMapper = objectMapper;
@@ -265,12 +268,19 @@ public class GroupCreationMarketingWorker {
         }
         GroupCreationMarketingTask task = context.task();
         GroupCreationMarketingAccountCandidate account = context.account();
+        ProtocolAccountRef accountRef = protocolAccountRef(account);
+        String operationId = "group-creation-marketing-item:" + item.getId();
 
         List<String> participants = participants(item.getMaterialContent());
-        ContactSaveSummary contactSaveSummary = preSaveContacts(account.getProtocolAccountId(), participants);
+        ContactSaveSummary contactSaveSummary = preSaveContacts(accountRef, participants, operationId);
         GroupCreateResult groupResult;
         try {
-            groupResult = groupCreatePort.create(account.getProtocolAccountId(), item.getGroupSubject(), participants, true);
+            groupResult = groupCreatePort.create(new GroupCreateCommand(
+                    accountRef,
+                    item.getGroupSubject(),
+                    participants,
+                    true,
+                    operationId));
         } catch (RuntimeException ex) {
             String reason = readableMessage(ex);
             Optional<String> restrictedReason = GroupCreateRestrictionClassifier.restrictedReason(ex);
@@ -299,7 +309,8 @@ public class GroupCreationMarketingWorker {
         MarketingTemplateFile imageFile = template.getImageFileId() == null ? null : fileMapper.selectById(template.getImageFileId());
         MarketingMessageComposer.ComposedMessage message = messageComposer.compose(template, imageFile);
         String protocolResultJson = protocolResultJson(contactSaveSummary, groupResult);
-        GroupMemberSnapshot memberSnapshot = groupMemberSnapshot(account.getProtocolAccountId(), groupResult.groupJid());
+        GroupMemberSnapshot memberSnapshot = groupMemberSnapshot(
+                accountRef, groupResult.groupJid(), operationId);
         String commandId = newCommandId();
         transactionOperations.executeWithoutResult(status -> {
             MessageSendEnqueueItem enqueueResult = enqueueMarketingCommand(
@@ -375,30 +386,40 @@ public class GroupCreationMarketingWorker {
         return replacement;
     }
 
-    private ContactSaveSummary preSaveContacts(String protocolAccountId, List<String> participants) {
+    private ContactSaveSummary preSaveContacts(
+            ProtocolAccountRef account,
+            List<String> participants,
+            String operationId) {
         int submitted = 0;
         List<ContactSaveFailure> failures = new ArrayList<>();
         for (String participant : participants) {
             try {
-                submitContactPreSave(protocolAccountId, participant);
+                submitContactPreSave(account, participant, operationId);
                 submitted++;
             } catch (RuntimeException ex) {
                 String reason = readableMessage(ex);
                 failures.add(new ContactSaveFailure(participant, reason));
-                log.warn("建群营销联系人预保存提交失败 protocolAccountId={} participant={} reason={}",
-                        protocolAccountId, participant, reason);
+                log.warn("建群营销联系人预保存提交失败 armadaAccountId={} operationId={} reason={}",
+                        account.armadaAccountId(), operationId, reason);
             }
         }
         return new ContactSaveSummary(participants.size(), submitted, failures.size(), failures.stream().limit(5).toList());
     }
 
-    private void submitContactPreSave(String protocolAccountId, String participant) {
+    private void submitContactPreSave(
+            ProtocolAccountRef account,
+            String participant,
+            String operationId) {
         CONTACT_PRE_SAVE_EXECUTOR.execute(() -> {
             try {
-                contactPort.saveContact(protocolAccountId, participant, participant);
+                contactPort.save(new ContactSaveCommand(
+                        account,
+                        participant,
+                        participant,
+                        operationId));
             } catch (RuntimeException ex) {
-                log.warn("建群营销联系人预保存异步失败 protocolAccountId={} participant={} reason={}",
-                        protocolAccountId, participant, readableMessage(ex));
+                log.warn("建群营销联系人预保存异步失败 armadaAccountId={} operationId={} reason={}",
+                        account.armadaAccountId(), operationId, readableMessage(ex));
             }
         });
     }
@@ -426,14 +447,18 @@ public class GroupCreationMarketingWorker {
         }
     }
 
-    private GroupMemberSnapshot groupMemberSnapshot(String protocolAccountId, String groupJid) {
+    private GroupMemberSnapshot groupMemberSnapshot(
+            ProtocolAccountRef account,
+            String groupJid,
+            String operationId) {
         try {
-            List<GroupParticipantResult> participants = groupParticipantPort.listParticipants(protocolAccountId, groupJid);
+            List<GroupParticipantResult> participants = groupMemberListPort.list(
+                    new GroupMemberListQuery(account, groupJid, operationId));
             long checkedAt = System.currentTimeMillis();
             return new GroupMemberSnapshot(participants == null ? 0 : participants.size(), checkedAt);
         } catch (RuntimeException ex) {
-            log.warn("建群营销发送前群人数查询失败 protocolAccountId={} groupJid={} reason={}",
-                    protocolAccountId, groupJid, readableMessage(ex));
+            log.warn("建群营销发送前群人数查询失败 armadaAccountId={} operationId={} reason={}",
+                    account.armadaAccountId(), operationId, readableMessage(ex));
             return GroupMemberSnapshot.empty();
         }
     }
@@ -518,6 +543,15 @@ public class GroupCreationMarketingWorker {
 
     private static boolean online(GroupCreationMarketingAccountCandidate account) {
         return account != null && Integer.valueOf(AccountLoginStateCode.ONLINE).equals(account.getLoginState());
+    }
+
+    private static ProtocolAccountRef protocolAccountRef(
+            GroupCreationMarketingAccountCandidate account) {
+        return new ProtocolAccountRef(
+                account.getAccountId(),
+                ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                account.getProtocolAccountId(),
+                account.getAccountPhone());
     }
 
     private static List<String> participants(String materialContent) {

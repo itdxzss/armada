@@ -1,7 +1,10 @@
 package com.armada.platform.protocol.http.contact;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
-import com.armada.platform.protocol.port.ContactPort;
+import com.armada.platform.protocol.model.command.ContactSaveCommand;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.routing.ContactBackend;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -19,7 +22,7 @@ class HttpContactAdapterTest {
     void saveContactPostsNormalizedJidAndNestedContactBody() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        ContactPort port = new HttpContactAdapter(new ProtocolHttpExecutor(builder.build()));
+        ContactBackend backend = new HttpContactAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol-master.internal/v1/contacts/8613900000000@s.whatsapp.net/save"))
                 .andExpect(method(HttpMethod.POST))
@@ -37,7 +40,11 @@ class HttpContactAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        port.saveContact("acc_7", "+86 139-0000-0000", "8613900000000");
+        backend.save(new ContactSaveCommand(
+                new ProtocolAccountRef(7L, ProtocolBackend.WEB, "acc_7", "8613000000000"),
+                "+86 139-0000-0000",
+                "8613900000000",
+                "test:web-contact-save"));
 
         server.verify();
     }

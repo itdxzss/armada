@@ -11,6 +11,7 @@ import com.armada.group.model.enums.HistoricalGroupPullStatus;
 import com.armada.group.service.HistoricalGroupPullProtocolPorts;
 import com.armada.group.service.HistoricalGroupPullWorker;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.ContactSaveCommand;
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
@@ -151,7 +152,7 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         if (!joinTargetGroup(execution, puller, members)) {
             return;
         }
-        processContacts(puller.protocolAccountId(), members);
+        processContacts(puller, members);
         processAddBatches(execution, puller.protocolAccountId(), members);
         finalizer.finish(executionId, null, null, null);
     }
@@ -184,13 +185,17 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         return false;
     }
 
-    private void processContacts(String protocolAccountId, List<HistoricalGroupPullMember> members) {
+    private void processContacts(ProtocolAccountRef puller, List<HistoricalGroupPullMember> members) {
         for (HistoricalGroupPullMember member : members) {
             if (member.getContactStatus() != HistoricalGroupContactStatus.PENDING.code()) {
                 continue;
             }
             try {
-                protocolPorts.contact().saveContact(protocolAccountId, member.getPhone(), member.getPhone());
+                protocolPorts.contact().save(new ContactSaveCommand(
+                        puller,
+                        member.getPhone(),
+                        member.getPhone(),
+                        "historical-group-pull-member:" + member.getId()));
                 updateContact(member.getId(), HistoricalGroupContactStatus.SUCCESS, null);
             } catch (RuntimeException ex) {
                 Failure failure = failureOf(ex);

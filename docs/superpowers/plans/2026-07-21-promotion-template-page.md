@@ -12,7 +12,7 @@
 
 - 保留 `promotion_landing_template.tenant_id` 和现有租户内模板编码唯一键。
 - 新增 `is_subaccount_visible TINYINT(1) NOT NULL DEFAULT 1`，本期只查询展示，不开发修改逻辑。
-- V058 不修改；新增 V060 完成字段扩展与 `tenant_id=1` 固定数据初始化。
+- V061 基础迁移不修改；新增 V063 完成字段扩展与 `tenant_id=1` 固定数据初始化。
 - 分页 SQL 必须在 MySQL 中完成，按 `id DESC` 排序，默认 `pageSize=20`。
 - 不修改任何公共分页或公共响应方法，不提交、不推送。
 
@@ -57,18 +57,18 @@
 ### Task 3: 表字段与固定模板数据
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V060__promotion_template_visibility_and_seed.sql`
+- Create: `armada-api/src/main/resources/db/migration/V063__promotion_template_visibility_and_seed.sql`
 - Modify: `armada-api/src/test/java/com/armada/promotion/PromotionSchemaSqlContractTest.java`
 - Modify: `.harness/wiki/数据模型.md`
 - Modify: `docs/business/promotion-template-channel-statistics-data-model.md`
 
 **Interfaces:**
-- Consumes: V058 既有 `promotion_landing_template`
+- Consumes: V061 既有 `promotion_landing_template`
 - Produces: `is_subaccount_visible` 及 ID `130/40/39/38/37` 的租户 1 固定模板
 
-- [ ] 先扩展 SQL 合同测试，断言 V060 保留 `tenant_id`、新增可见字段并插入五条固定数据。
-- [ ] 运行 `PromotionSchemaSqlContractTest` 确认 V060 不存在时失败。
-- [ ] 新增 V060；支持参数保存稳定代码 `themeColor`、`showAppDownload`，五条数据可见性均为 1。
+- [ ] 先扩展 SQL 合同测试，断言 V063 保留 `tenant_id`、新增可见字段并插入五条固定数据。
+- [ ] 运行 `PromotionSchemaSqlContractTest` 确认 V063 不存在时失败。
+- [ ] 新增 V063；支持参数保存稳定代码 `themeColor`、`showAppDownload`，五条数据可见性均为 1。
 - [ ] 同步数据模型和接口文档。
 
 ### Task 4: 验证与暂存

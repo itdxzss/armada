@@ -1,5 +1,5 @@
 -- 渠道国家引用改为保存 CountryOptionVO.value：真实国家使用 ISO2，混合选项使用 MIXED。
--- 使用后续版本迁移而不是修改 V058，避免已执行环境出现 Flyway checksum 不一致。
+-- 使用后续版本迁移而不是修改 V061，避免已执行环境出现 Flyway checksum 不一致。
 
 ALTER TABLE promotion_channel
     ADD COLUMN target_country_value VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL

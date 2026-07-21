@@ -10,17 +10,17 @@ import java.util.Map;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 
-/** V058 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
+/** V061-V063 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
 class PromotionSchemaSqlContractTest {
 
     private static final String MIGRATION =
-            "db/migration/V058__promotion_template_channel_statistics.sql";
+            "db/migration/V061__promotion_template_channel_statistics.sql";
 
     private static final String COUNTRY_VALUE_MIGRATION =
-            "db/migration/V059__promotion_channel_country_values.sql";
+            "db/migration/V062__promotion_channel_country_values.sql";
 
     private static final String TEMPLATE_SEED_MIGRATION =
-            "db/migration/V060__promotion_template_visibility_and_seed.sql";
+            "db/migration/V063__promotion_template_visibility_and_seed.sql";
 
     private static final Map<String, List<String>> TABLE_FIELDS = approvedTableFields();
 
@@ -105,7 +105,7 @@ class PromotionSchemaSqlContractTest {
     void templateSeedMigrationKeepsTenantIsolationAndAddsFiveVisibleTemplates() throws IOException {
         String sql = migrationSql(TEMPLATE_SEED_MIGRATION);
 
-        assertThat(sql).contains("CREATE TEMPORARY TABLE v060_template_seed_guard");
+        assertThat(sql).contains("CREATE TEMPORARY TABLE v063_template_seed_guard");
         assertThat(sql).contains("id IN (130, 40, 39, 38, 37)");
         assertThat(sql).contains("tenant_id = 1 AND template_code IN");
         assertThat(sql).contains("ADD COLUMN is_subaccount_visible TINYINT(1) NOT NULL DEFAULT 1");

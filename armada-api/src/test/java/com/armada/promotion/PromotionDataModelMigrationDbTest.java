@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** V058 推广模板与渠道管理数据模型的真实 MySQL 验证。 */
+/** V061 推广模板与渠道管理数据模型的真实 MySQL 验证。 */
 class PromotionDataModelMigrationDbTest extends DbTestBase {
 
     private static final List<String> TABLES = List.of(
@@ -29,7 +29,7 @@ class PromotionDataModelMigrationDbTest extends DbTestBase {
     private JdbcTemplate jdbc;
 
     @Test
-    void v058CreatesAllApprovedTablesWithArmadaStorageDefaults() {
+    void v061CreatesAllApprovedTablesWithArmadaStorageDefaults() {
         for (String table : TABLES) {
             assertThat(tableExists(table)).as(table).isTrue();
             assertThat(tableEngine(table)).as(table + " engine").isEqualToIgnoringCase("InnoDB");
@@ -39,7 +39,7 @@ class PromotionDataModelMigrationDbTest extends DbTestBase {
     }
 
     @Test
-    void v058DefersChannelStatisticsTables() {
+    void v061DefersChannelStatisticsTables() {
         for (String table : DEFERRED_STATISTICS_TABLES) {
             assertThat(tableExists(table)).as(table).isFalse();
         }

@@ -1,13 +1,13 @@
 -- 先检查固定模板的主键和租户内编码是否已被其他数据占用。
 -- 临时表预置 guard_key=1；发现冲突时再次写入 1，让迁移明确失败，避免静默覆盖存量数据。
-DROP TEMPORARY TABLE IF EXISTS v060_template_seed_guard;
-CREATE TEMPORARY TABLE v060_template_seed_guard (
+DROP TEMPORARY TABLE IF EXISTS v063_template_seed_guard;
+CREATE TEMPORARY TABLE v063_template_seed_guard (
     guard_key TINYINT NOT NULL PRIMARY KEY
 ) ENGINE = MEMORY;
 
-INSERT INTO v060_template_seed_guard (guard_key) VALUES (1);
+INSERT INTO v063_template_seed_guard (guard_key) VALUES (1);
 
-INSERT INTO v060_template_seed_guard (guard_key)
+INSERT INTO v063_template_seed_guard (guard_key)
 SELECT 1
 FROM promotion_landing_template
 WHERE (
@@ -24,7 +24,7 @@ WHERE (
     )
 LIMIT 1;
 
-DROP TEMPORARY TABLE v060_template_seed_guard;
+DROP TEMPORARY TABLE v063_template_seed_guard;
 
 -- 为后续“子账号可见”功能预留字段。本期不提供修改接口，默认全部可见。
 ALTER TABLE promotion_landing_template

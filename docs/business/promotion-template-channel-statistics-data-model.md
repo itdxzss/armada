@@ -1,6 +1,6 @@
 # 推广模板与渠道管理数据模型及接口
 
-> 最终执行迁移：`armada-api/src/main/resources/db/migration/V058__promotion_template_channel_statistics.sql`
+> 推广迁移执行链：`V061__promotion_template_channel_statistics.sql` → `V062__promotion_channel_country_values.sql` → `V063__promotion_template_visibility_and_seed.sql`
 > 本期范围：模板管理基础表、渠道新增、渠道分页；渠道统计表和操作日志表暂不创建。
 > 租户策略：接口不接收 `tenantId`，数据库仍由 Armada 的 MyBatis 拦截器自动完成租户隔离。
 
@@ -125,7 +125,7 @@ erDiagram
 - `themeColor`：主题色
 - `showAppDownload`：展示底部应用下载
 
-V060 为 `tenant_id=1` 初始化以下模板；`is_subaccount_visible` 本期全部为 `1`，只预留展示字段，暂不提供修改接口。
+V063 为 `tenant_id=1` 初始化以下模板；`is_subaccount_visible` 本期全部为 `1`，只预留展示字段，暂不提供修改接口。
 
 | ID | 模板编码 | 模板名称 | 支持参数 | 备注 |
 |---:|---|---|---|---|

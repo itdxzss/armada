@@ -10,7 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** V060 固定模板与 MyBatis 租户隔离真库测试。 */
+/** V063 固定模板与 MyBatis 租户隔离真库测试。 */
 class PromotionTemplateMapperDbTest extends DbTestBase {
 
     private static final List<Long> SEEDED_IDS = List.of(130L, 40L, 39L, 38L, 37L);

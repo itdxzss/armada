@@ -119,7 +119,8 @@ Android Zhuan 已能接收 WhatsApp `w:gp2` 群成员通知和 `dirty(groups)` �
 
 保留现有字段：
 
-- `last_seen_at`：最近一次在完整快照中看到该群的时间。
+- `last_seen_at`：最近一次由完整快照或精确 `add` 确认仍在群的时间；精确 `remove/leave` 先于任何
+  在群证据到达时允许为 null，禁止伪造时间。
 - `joined_at`：当前一次入群关系开始时间。只有从非发送状态恢复到 `IN_GROUP` 时更新；普通
   快照重复看到该群时不改。
 - `created_at`：首次建立这条当前关系记录的时间。
@@ -185,6 +186,15 @@ Android Zhuan 已能接收 WhatsApp `w:gp2` 群成员通知和 `dirty(groups)` �
 `snapshotComplete` 仅在 IQ 成功、存在合法 groups 容器且 `skippedGroupCount == 0` 时为 true。
 查询失败不发布伪造空快照。为支持滚动部署，应先部署 Android 的加法字段；旧 Armada 会忽略
 未知 JSON 字段。
+
+Armada 对字段缺失使用账号 `protocol_id` 做兼容判定，避免本次范围外的 Baileys 被误判：
+
+- 显式 `snapshotComplete=true` 且 `skippedGroupCount=0`：完整快照。
+- 显式 false 或 `skippedGroupCount>0`：不完整快照。
+- 字段缺失且账号协议后端为 Web/Baileys：沿用旧契约，按完整快照处理。
+- 字段缺失且账号协议后端为 Android：按不完整快照处理，防止旧版或回滚中的 Android 清空关系。
+
+因此本次不需要修改 `armada-protocol`，Android 与 Armada 可安全滚动发布。
 
 ## 10. Armada 状态转换
 

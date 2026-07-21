@@ -112,6 +112,9 @@ public record AccountListVO(
         /** 出口国家(状态回写优先,当前绑定代理兜底)。 */
         String country,
 
+        /** 出口国家对应的国旗 emoji;混合国家或无匹配国家时为空。 */
+        String countryFlag,
+
         /** IP 来源(账号状态快照优先,当前绑定 IP 代理来源兜底)。 */
         String ipSource
 ) {

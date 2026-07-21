@@ -51,7 +51,14 @@ class CountryMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void selectActiveByIdAndBatchIds_returnCountryReferences() {
+    void selectByIso2s_returnsCountryOptionsInBatch() {
+        assertThat(mapper.selectByIso2s(List.of("IN")))
+                .singleElement()
+                .satisfies(row -> assertThat(row.getNameZh()).isEqualTo("印度"));
+    }
+
+    @Test
+    void legacyIdQueriesRemainAvailable() {
         Country india = mapper.selectActiveByIso2("IN");
 
         assertThat(mapper.selectActiveById(india.getId()).getIso2()).isEqualTo("IN");

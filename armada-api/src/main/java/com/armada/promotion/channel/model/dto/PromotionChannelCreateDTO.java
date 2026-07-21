@@ -7,10 +7,10 @@ import com.fasterxml.jackson.annotation.JsonAlias;
  *
  * @param channelName 渠道名称
  * @param ownerUserId 归属用户 ID，同时作为当前阶段的创建人
- * @param targetCountryId 目标国家 ID；null 表示已选择“混合（不限国家）”
+ * @param targetCountry 国家下拉 value；真实国家为 ISO2（如 IN），混合国家为 MIXED
  * @param landingTemplateId 绑定的落地页模板 ID
  * @param domain 访问域名，可传纯域名或 https:// 前缀
- * @param preselectedCountryId 落地页手机号输入框默认区号国家 ID
+ * @param preselectedCountry 落地页手机号输入框默认区号国家 ISO2（如 IN），不允许 MIXED
  * @param platform 推广平台：1=Facebook、2=TikTok、3=快手、4=MGSKY Ads
  * @param trackingId Pixel 或其他平台追踪 ID
  * @param accessToken CAPI Access Token，仅用于加密后落库
@@ -23,10 +23,10 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 public record PromotionChannelCreateDTO(
         String channelName,
         Long ownerUserId,
-        Long targetCountryId,
+        String targetCountry,
         Long landingTemplateId,
         String domain,
-        Long preselectedCountryId,
+        String preselectedCountry,
         Integer platform,
         @JsonAlias("fbPixelId") String trackingId,
         @JsonAlias("fbAccessToken") String accessToken,

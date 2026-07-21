@@ -42,16 +42,16 @@ class PromotionChannelControllerTest {
     void createAcceptsFacebookFieldAliasesAndReturnsChannel() throws Exception {
         when(service.create(any())).thenReturn(channel());
 
-        mockMvc.perform(post("/api/promotion-channels")
+        mockMvc.perform(post("/api/promotion-channels/create")
                         .contentType("application/json")
                         .content("""
                                 {
                                   "channelName":"印度渠道",
                                   "ownerUserId":20001,
-                                  "targetCountryId":101,
+                                  "targetCountry":"IN",
                                   "landingTemplateId":11,
                                   "domain":"go.example.com",
-                                  "preselectedCountryId":101,
+                                  "preselectedCountry":"IN",
                                   "platform":1,
                                   "fbPixelId":"pixel-123",
                                   "fbAccessToken":"token-abc",
@@ -67,6 +67,8 @@ class PromotionChannelControllerTest {
         verify(service).create(org.mockito.ArgumentMatchers.argThat(request ->
                 "pixel-123".equals(request.trackingId())
                         && "token-abc".equals(request.accessToken())
+                        && "IN".equals(request.targetCountry())
+                        && "IN".equals(request.preselectedCountry())
                         && request.ownerUserId().equals(20001L)));
     }
 
@@ -74,8 +76,8 @@ class PromotionChannelControllerTest {
     void pageBindsCreatorAndRepeatedOwnerIdsWithoutTenantParameter() throws Exception {
         when(service.page(any())).thenReturn(PageResult.of(List.of(channel()), 1, 100, 1));
 
-        mockMvc.perform(get("/api/promotion-channels")
-                        .param("targetCountryId", "101")
+        mockMvc.perform(get("/api/promotion-channels/query")
+                        .param("targetCountry", "IN")
                         .param("landingTemplateId", "11")
                         .param("creatorUserId", "20001")
                         .param("ownerUserIds", "20001", "20002")
@@ -87,6 +89,7 @@ class PromotionChannelControllerTest {
 
         ArgumentCaptor<PromotionChannelQuery> captor = ArgumentCaptor.forClass(PromotionChannelQuery.class);
         verify(service).page(captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().getTargetCountry()).isEqualTo("IN");
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getCreatorUserId()).isEqualTo(20001L);
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getOwnerUserIds())
                 .containsExactly(20001L, 20002L);
@@ -95,11 +98,11 @@ class PromotionChannelControllerTest {
     private static PromotionChannelVO channel() {
         return new PromotionChannelVO(
                 51L, "印度渠道", "a8k2m9qx", 20001L, 20001L,
-                101L, "IN", "印度", "flag", false,
+                "IN", "IN", "印度", "flag", false,
                 11L, "基础领奖", 1, "Facebook", "UNPROBED",
                 "https://go.example.com/a8k2m9qx",
                 "https://go.example.com/a8k2m9qx/1",
-                101L, "IN", "印度", "+91", "flag",
+                "IN", "IN", "印度", "+91", "flag",
                 1, true, true, 1784217600000L);
     }
 }

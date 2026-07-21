@@ -6,11 +6,8 @@ import java.util.List;
 /** 渠道管理分页查询。创建人就是渠道归属用户；上级用户由前端展开为 ownerUserIds。 */
 public class PromotionChannelQuery extends PageQuery {
 
-    /** 目标国家精确筛选；与 mixedTargetCountry 同时传入时，混合国家条件优先。 */
-    private Long targetCountryId;
-
-    /** 是否只查询“混合（不限国家）”渠道。 */
-    private Boolean mixedTargetCountry;
+    /** 目标国家精确筛选：真实国家传 ISO2（如 IN），混合国家传 MIXED。 */
+    private String targetCountry;
 
     /** 绑定模板精确筛选。 */
     private Long landingTemplateId;
@@ -26,20 +23,12 @@ public class PromotionChannelQuery extends PageQuery {
         setPageSize(100);
     }
 
-    public Long getTargetCountryId() {
-        return targetCountryId;
+    public String getTargetCountry() {
+        return targetCountry;
     }
 
-    public void setTargetCountryId(Long targetCountryId) {
-        this.targetCountryId = targetCountryId;
-    }
-
-    public Boolean getMixedTargetCountry() {
-        return mixedTargetCountry;
-    }
-
-    public void setMixedTargetCountry(Boolean mixedTargetCountry) {
-        this.mixedTargetCountry = mixedTargetCountry;
+    public void setTargetCountry(String targetCountry) {
+        this.targetCountry = targetCountry;
     }
 
     public Long getLandingTemplateId() {

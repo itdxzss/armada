@@ -21,6 +21,7 @@ erDiagram
         VARCHAR128 template_name "模板名称，例如基础领奖"
         VARCHAR512 preview_uri "预览资源，例如/preview/base.png"
         JSON supported_params "支持参数，例如themeColor"
+        TINYINT is_subaccount_visible "子账号是否可见，例如1"
         TINYINT status "1启用0停用，例如1"
         VARCHAR500 remark "备注，例如印度默认模板"
         BIGINT created_by "创建人，例如20001"
@@ -49,8 +50,8 @@ erDiagram
         VARCHAR128 channel_name "渠道名称，例如印度渠道"
         BIGINT owner_user_id "归属用户兼创建人筛选值，例如20001"
         BIGINT promotion_domain_id "域名记录ID，例如3001"
-        BIGINT target_country_id "目标国家；NULL表示混合，例如102"
-        BIGINT preselected_country_id "默认区号国家，例如102"
+        VARCHAR16 target_country_value "ISO2或MIXED，例如IN"
+        VARCHAR16 preselected_country_value "默认区号ISO2，例如IN"
         TINYINT platform "1FB 2TikTok 3快手 4MGSKY，例如1"
         TINYINT is_in_app_open_allowed "允许应用内打开，例如1"
         TINYINT is_marketing_allowed "允许参加营销，例如1"
@@ -113,18 +114,39 @@ erDiagram
 
 没有为页面四个可选条件各建一个联合索引。当前数据量下先保留“唯一键 + 默认列表索引”，避免写放大和无依据的过度索引；上线后根据慢查询和 `EXPLAIN` 再增加真正命中的索引。
 
-## 4. 新增接口
+## 4. 模板分页接口
 
-`POST /api/promotion-channels`
+`GET /api/promotion-templates/query?page=1&pageSize=20`
+
+接口不接收 `tenantId`，当前租户由请求上下文提供，MyBatis 租户拦截器自动为 `promotion_landing_template` 查询增加租户条件。列表只返回启用且未删除的模板，按 `id DESC` 排序，分页完全下推 MySQL。
+
+返回字段包括模板 ID、编码、名称、预览 URI、子账号可见、支持参数、备注以及创建/更新时间。`supported_params` 在数据库保存稳定代码，接口返回代码与中文标签：
+
+- `themeColor`：主题色
+- `showAppDownload`：展示底部应用下载
+
+V060 为 `tenant_id=1` 初始化以下模板；`is_subaccount_visible` 本期全部为 `1`，只预留展示字段，暂不提供修改接口。
+
+| ID | 模板编码 | 模板名称 | 支持参数 | 备注 |
+|---:|---|---|---|---|
+| 130 | base_sex2 | 约会二代 | themeColor | - |
+| 40 | basic_earn | 基础领奖 | themeColor | 1231 |
+| 39 | basic_party_man | 基础约会-投男粉 | themeColor、showAppDownload | - |
+| 38 | basic_party_female | 基础约会-投女粉 | themeColor、showAppDownload | - |
+| 37 | base_sex | 约会二代 | themeColor | - |
+
+## 5. 渠道新增接口
+
+`POST /api/promotion-channels/create`
 
 ```json
 {
   "channelName": "印度渠道",
   "ownerUserId": 20001,
-  "targetCountryId": 102,
+  "targetCountry": "IN",
   "landingTemplateId": 1001,
   "domain": "https://go.example.com",
-  "preselectedCountryId": 102,
+  "preselectedCountry": "IN",
   "platform": 1,
   "trackingId": "123456789012345",
   "accessToken": "只在请求中出现",
@@ -136,20 +158,19 @@ erDiagram
 }
 ```
 
-兼容页面字段别名：`fbPixelId` 等价于 `trackingId`，`fbAccessToken` 等价于 `accessToken`。`targetCountryId=null` 表示已经选择“混合（不限国家）”。
+兼容页面字段别名：`fbPixelId` 等价于 `trackingId`，`fbAccessToken` 等价于 `accessToken`。国家字段直接保存国家下拉 `CountryOptionVO.value`：真实国家使用大写 ISO2（如 `IN`），目标国家选择“混合（不限国家）”时传 `MIXED`；`preselectedCountry` 必须是真实国家 ISO2，不能传 `MIXED`。
 
 新增事务依次执行：参数校验 → 校验模板和国家 → 规范化域名 → 复用同模板域名或拒绝跨模板占用 → 生成渠道码并插入渠道 → 加密并插入追踪配置。任一步失败全部回滚。
 
-## 5. 分页接口
+## 6. 渠道分页接口
 
-`GET /api/promotion-channels`
+`GET /api/promotion-channels/query`
 
 查询参数：
 
 | 参数 | 含义 |
 |---|---|
-| targetCountryId | 按真实目标国家筛选 |
-| mixedTargetCountry | `true` 时筛选目标国家为“混合” |
+| targetCountry | 按国家下拉 value 精确筛选；真实国家传 ISO2，混合传 `MIXED` |
 | landingTemplateId | 按绑定模板筛选 |
 | creatorUserId | 创建人精确筛选；实际查询 `owner_user_id` |
 | ownerUserIds | 上级用户保留筛选；前端把上级用户展开为下属归属用户 ID 集合，后端执行 `IN` |
@@ -157,7 +178,7 @@ erDiagram
 
 如果同时传 `creatorUserId` 和 `ownerUserIds`，精确创建人条件优先。所有筛选、统计和分页均下推到 MySQL，不做内存分页。响应包含页面所需国家、模板、平台、推广链接、裂变链接、状态、归属用户和创建时间，不包含 Token、密文、指纹或密钥版本。
 
-## 6. Token 配置
+## 7. Token 配置
 
 提交 Access Token 前必须配置环境变量：
 

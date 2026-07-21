@@ -13,10 +13,10 @@ public class PromotionChannel {
     private Long ownerUserId;
     /** 域名绑定记录 ID，通过它间接关联落地页模板。 */
     private Long promotionDomainId;
-    /** 目标国家 ID；null 表示混合（不限国家）。 */
-    private Long targetCountryId;
-    /** 落地页手机号输入框默认区号国家 ID。 */
-    private Long preselectedCountryId;
+    /** 目标国家下拉 value：真实国家为 ISO2，混合国家为 MIXED。 */
+    private String targetCountry;
+    /** 落地页手机号输入框默认区号国家 ISO2，不允许 MIXED。 */
+    private String preselectedCountry;
     /** 推广平台代码：1=Facebook、2=TikTok、3=快手、4=MGSKY Ads。 */
     private Integer platform;
     /** 是否允许在推广平台内置浏览器打开：0=否、1=是。 */
@@ -74,20 +74,20 @@ public class PromotionChannel {
         this.promotionDomainId = promotionDomainId;
     }
 
-    public Long getTargetCountryId() {
-        return targetCountryId;
+    public String getTargetCountry() {
+        return targetCountry;
     }
 
-    public void setTargetCountryId(Long targetCountryId) {
-        this.targetCountryId = targetCountryId;
+    public void setTargetCountry(String targetCountry) {
+        this.targetCountry = targetCountry;
     }
 
-    public Long getPreselectedCountryId() {
-        return preselectedCountryId;
+    public String getPreselectedCountry() {
+        return preselectedCountry;
     }
 
-    public void setPreselectedCountryId(Long preselectedCountryId) {
-        this.preselectedCountryId = preselectedCountryId;
+    public void setPreselectedCountry(String preselectedCountry) {
+        this.preselectedCountry = preselectedCountry;
     }
 
     public Integer getPlatform() {

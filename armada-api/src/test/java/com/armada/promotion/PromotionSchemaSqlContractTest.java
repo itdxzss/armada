@@ -16,6 +16,12 @@ class PromotionSchemaSqlContractTest {
     private static final String MIGRATION =
             "db/migration/V058__promotion_template_channel_statistics.sql";
 
+    private static final String COUNTRY_VALUE_MIGRATION =
+            "db/migration/V059__promotion_channel_country_values.sql";
+
+    private static final String TEMPLATE_SEED_MIGRATION =
+            "db/migration/V060__promotion_template_visibility_and_seed.sql";
+
     private static final Map<String, List<String>> TABLE_FIELDS = approvedTableFields();
 
     private static final List<String> DEFERRED_STATISTICS_TABLES = List.of(
@@ -82,9 +88,43 @@ class PromotionSchemaSqlContractTest {
                 + "(tenant_id, channel_id)");
     }
 
+    @Test
+    void countryValueMigrationBackfillsStableOptionValuesBeforeDroppingIds() throws IOException {
+        String sql = migrationSql(COUNTRY_VALUE_MIGRATION);
+
+        assertThat(sql).contains("ADD COLUMN target_country_value VARCHAR(16)");
+        assertThat(sql).contains("ADD COLUMN preselected_country_value VARCHAR(16)");
+        assertThat(sql).contains("WHEN pc.target_country_id IS NULL THEN 'MIXED'");
+        assertThat(sql).contains("UPPER(tc.iso2)");
+        assertThat(sql).contains("UPPER(pc_country.iso2)");
+        assertThat(sql).contains("DROP COLUMN target_country_id");
+        assertThat(sql).contains("DROP COLUMN preselected_country_id");
+    }
+
+    @Test
+    void templateSeedMigrationKeepsTenantIsolationAndAddsFiveVisibleTemplates() throws IOException {
+        String sql = migrationSql(TEMPLATE_SEED_MIGRATION);
+
+        assertThat(sql).contains("CREATE TEMPORARY TABLE v060_template_seed_guard");
+        assertThat(sql).contains("id IN (130, 40, 39, 38, 37)");
+        assertThat(sql).contains("tenant_id = 1 AND template_code IN");
+        assertThat(sql).contains("ADD COLUMN is_subaccount_visible TINYINT(1) NOT NULL DEFAULT 1");
+        assertThat(sql).doesNotContain("DROP COLUMN tenant_id");
+        assertThat(sql).contains("SELECT 130, 1, 'base_sex2', '约会二代'");
+        assertThat(sql).contains("SELECT 40, 1, 'basic_earn', '基础领奖'");
+        assertThat(sql).contains("SELECT 39, 1, 'basic_party_man', '基础约会-投男粉'");
+        assertThat(sql).contains("SELECT 38, 1, 'basic_party_female', '基础约会-投女粉'");
+        assertThat(sql).contains("SELECT 37, 1, 'base_sex', '约会二代'");
+        assertThat(sql).contains("'[\"themeColor\", \"showAppDownload\"]'");
+    }
+
     private String migrationSql() throws IOException {
+        return migrationSql(MIGRATION);
+    }
+
+    private String migrationSql(String resource) throws IOException {
         try (var stream = Objects.requireNonNull(
-                getClass().getClassLoader().getResourceAsStream(MIGRATION), MIGRATION)) {
+                getClass().getClassLoader().getResourceAsStream(resource), resource)) {
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
     }

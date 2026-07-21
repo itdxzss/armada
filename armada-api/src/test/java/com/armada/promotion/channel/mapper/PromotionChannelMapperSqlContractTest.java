@@ -16,13 +16,24 @@ class PromotionChannelMapperSqlContractTest {
         String xml = mapperXml();
 
         assertThat(xml).contains("<sql id=\"pageFilter\">");
-        assertThat(xml).contains("c.target_country_id = #{targetCountryId}");
-        assertThat(xml).contains("c.target_country_id IS NULL");
+        assertThat(xml).contains("c.target_country_value = #{targetCountry}");
+        assertThat(xml).doesNotContain("mixedTargetCountry", "c.target_country_id IS NULL");
         assertThat(xml).contains("d.landing_template_id = #{landingTemplateId}");
         assertThat(xml).contains("c.owner_user_id = #{creatorUserId}");
         assertThat(xml).contains("collection=\"ownerUserIds\"");
         assertThat(xml).contains("LIMIT #{offset}, #{pageSize}");
         assertThat(xml).doesNotContain("#{tenantId}", "#{tenant_id}");
+    }
+
+    @Test
+    void insertAndPageProjectionUseCountryOptionValuesInsteadOfDatabaseIds() throws IOException {
+        String xml = mapperXml();
+
+        assertThat(xml).contains("target_country_value, preselected_country_value");
+        assertThat(xml).contains("#{targetCountry}, #{preselectedCountry}");
+        assertThat(xml).contains("c.target_country_value AS targetCountry");
+        assertThat(xml).contains("c.preselected_country_value AS preselectedCountry");
+        assertThat(xml).doesNotContain("#{targetCountryId}", "#{preselectedCountryId}");
     }
 
     @Test

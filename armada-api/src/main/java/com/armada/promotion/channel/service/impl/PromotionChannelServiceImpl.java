@@ -1,6 +1,6 @@
 package com.armada.promotion.channel.service.impl;
 
-import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
@@ -21,7 +21,6 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -79,17 +78,17 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         if (template == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "绑定模板不存在或已停用: " + value.landingTemplateId());
         }
-        CountryReferenceVO targetCountry = value.targetCountryId() == null
-                ? null : countryService.requireActiveReference(value.targetCountryId());
-        CountryReferenceVO preselectedCountry =
-                countryService.requireActiveReference(value.preselectedCountryId());
+        CountryOptionVO targetCountry = countryService.requireActiveOption(value.targetCountry(), true);
+        CountryOptionVO preselectedCountry =
+                countryService.requireActiveOption(value.preselectedCountry(), false);
 
         // 步骤3：同域名同模板直接复用；同域名跨模板立即拒绝，数据库唯一键负责兜住并发竞争。
         PromotionDomain domain = resolveDomain(value);
         long now = System.currentTimeMillis();
 
         // 步骤4：生成不可预测的公开渠道码并插入主记录；极低概率碰撞时由唯一键触发重试。
-        PromotionChannel channel = buildChannel(value, domain.getId(), now);
+        PromotionChannel channel = buildChannel(
+                value, targetCountry.value(), preselectedCountry.value(), domain.getId(), now);
         insertChannelWithCodeRetry(channel);
 
         // 步骤5：只有支持 CAPI 的平台才创建追踪配置；Token 在进入 Mapper 前已经完成应用层加密。
@@ -124,24 +123,24 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         List<PromotionChannelVoRow> rows = mapper.selectPage(query);
 
         // 步骤4：收集本页国家 ID 后一次批量读取展示信息，避免逐行查询产生 N+1。
-        Set<Long> countryIds = new LinkedHashSet<>();
+        Set<String> countryValues = new LinkedHashSet<>();
         for (PromotionChannelVoRow row : rows) {
-            if (row.getTargetCountryId() != null) {
-                countryIds.add(row.getTargetCountryId());
+            if (row.getTargetCountry() != null) {
+                countryValues.add(row.getTargetCountry());
             }
-            if (row.getPreselectedCountryId() != null) {
-                countryIds.add(row.getPreselectedCountryId());
+            if (row.getPreselectedCountry() != null) {
+                countryValues.add(row.getPreselectedCountry());
             }
         }
-        Map<Long, CountryReferenceVO> countries =
-                countryService.referencesByIds(new ArrayList<>(countryIds));
+        Map<String, CountryOptionVO> countries =
+                countryService.optionsByValues(List.copyOf(countryValues));
 
         // 步骤5：补齐国家名称、区号、平台和链接等页面展示字段；Token 始终不进入分页投影。
         List<PromotionChannelVO> items = rows.stream()
                 .map(row -> converter.toVO(
                         row,
-                        countries.get(row.getTargetCountryId()),
-                        countries.get(row.getPreselectedCountryId())))
+                        countries.get(row.getTargetCountry()),
+                        countries.get(row.getPreselectedCountry())))
                 .toList();
         return PageResult.of(items, query.getPage(), query.getPageSize(), total);
     }
@@ -158,10 +157,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         String channelName = requiredText(request.channelName(), "渠道名称", 128);
         requirePositive(request.ownerUserId(), "归属用户");
         requirePositive(request.landingTemplateId(), "绑定模板");
-        requirePositive(request.preselectedCountryId(), "预选区号");
-        if (request.targetCountryId() != null) {
-            requirePositive(request.targetCountryId(), "目标国家");
-        }
+        String targetCountry = requiredText(request.targetCountry(), "目标国家", 16);
+        String preselectedCountry = requiredText(request.preselectedCountry(), "预选区号", 16);
         PromotionPlatform platform = PromotionPlatform.require(request.platform());
         String domainHost = PromotionDomainNormalizer.normalize(request.domain());
         String trackingId = optionalText(request.trackingId(), "Pixel/追踪 ID", 128);
@@ -182,10 +179,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         return new ValidatedCreate(
                 channelName,
                 request.ownerUserId(),
-                request.targetCountryId(),
+                targetCountry,
                 request.landingTemplateId(),
                 domainHost,
-                request.preselectedCountryId(),
+                preselectedCountry,
                 platform,
                 trackingId,
                 token,
@@ -238,13 +235,18 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     }
 
     /** 根据已校验参数构造渠道写入实体；创建人按当前需求取归属用户。 */
-    private PromotionChannel buildChannel(ValidatedCreate value, Long domainId, long now) {
+    private PromotionChannel buildChannel(
+            ValidatedCreate value,
+            String targetCountry,
+            String preselectedCountry,
+            Long domainId,
+            long now) {
         PromotionChannel row = new PromotionChannel();
         row.setChannelName(value.channelName());
         row.setOwnerUserId(value.ownerUserId());
         row.setPromotionDomainId(domainId);
-        row.setTargetCountryId(value.targetCountryId());
-        row.setPreselectedCountryId(value.preselectedCountryId());
+        row.setTargetCountry(targetCountry);
+        row.setPreselectedCountry(preselectedCountry);
         row.setPlatform(value.platform().code());
         row.setIsInAppOpenAllowed(value.inAppOpenAllowed() ? 1 : 0);
         row.setIsMarketingAllowed(value.marketingAllowed() ? 1 : 0);
@@ -312,8 +314,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setChannelName(channel.getChannelName());
         row.setChannelCode(channel.getChannelCode());
         row.setOwnerUserId(channel.getOwnerUserId());
-        row.setTargetCountryId(channel.getTargetCountryId());
-        row.setPreselectedCountryId(channel.getPreselectedCountryId());
+        row.setTargetCountry(channel.getTargetCountry());
+        row.setPreselectedCountry(channel.getPreselectedCountry());
         row.setLandingTemplateId(template.getId());
         row.setTemplateName(template.getTemplateName());
         row.setDomainHost(domain.getDomainHost());
@@ -327,12 +329,13 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     }
 
     /** 校验分页筛选条件，并对上级用户展开集合去重、限流。 */
-    private static void validateQuery(PromotionChannelQuery query) {
+    private void validateQuery(PromotionChannelQuery query) {
         if (query == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "分页查询参数不能为空");
         }
-        if (query.getTargetCountryId() != null) {
-            requirePositive(query.getTargetCountryId(), "目标国家");
+        if (StringUtils.hasText(query.getTargetCountry())) {
+            CountryOptionVO country = countryService.requireActiveOption(query.getTargetCountry(), true);
+            query.setTargetCountry(country.value());
         }
         if (query.getLandingTemplateId() != null) {
             requirePositive(query.getLandingTemplateId(), "绑定模板");
@@ -401,10 +404,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private record ValidatedCreate(
             String channelName,
             Long ownerUserId,
-            Long targetCountryId,
+            String targetCountry,
             Long landingTemplateId,
             String domainHost,
-            Long preselectedCountryId,
+            String preselectedCountry,
             PromotionPlatform platform,
             String trackingId,
             String accessToken,

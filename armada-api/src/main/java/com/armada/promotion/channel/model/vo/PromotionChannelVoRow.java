@@ -11,10 +11,10 @@ public class PromotionChannelVoRow {
     private String channelCode;
     /** 归属用户 ID，也是当前页面创建人筛选值。 */
     private Long ownerUserId;
-    /** 目标国家 ID；null 表示混合。 */
-    private Long targetCountryId;
-    /** 预选区号国家 ID。 */
-    private Long preselectedCountryId;
+    /** 目标国家下拉 value：真实国家为 ISO2，混合国家为 MIXED。 */
+    private String targetCountry;
+    /** 预选区号国家 ISO2。 */
+    private String preselectedCountry;
     /** 绑定模板 ID。 */
     private Long landingTemplateId;
     /** 绑定模板名称。 */
@@ -44,10 +44,10 @@ public class PromotionChannelVoRow {
     public void setChannelCode(String channelCode) { this.channelCode = channelCode; }
     public Long getOwnerUserId() { return ownerUserId; }
     public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
-    public Long getTargetCountryId() { return targetCountryId; }
-    public void setTargetCountryId(Long targetCountryId) { this.targetCountryId = targetCountryId; }
-    public Long getPreselectedCountryId() { return preselectedCountryId; }
-    public void setPreselectedCountryId(Long preselectedCountryId) { this.preselectedCountryId = preselectedCountryId; }
+    public String getTargetCountry() { return targetCountry; }
+    public void setTargetCountry(String targetCountry) { this.targetCountry = targetCountry; }
+    public String getPreselectedCountry() { return preselectedCountry; }
+    public void setPreselectedCountry(String preselectedCountry) { this.preselectedCountry = preselectedCountry; }
     public Long getLandingTemplateId() { return landingTemplateId; }
     public void setLandingTemplateId(Long landingTemplateId) { this.landingTemplateId = landingTemplateId; }
     public String getTemplateName() { return templateName; }

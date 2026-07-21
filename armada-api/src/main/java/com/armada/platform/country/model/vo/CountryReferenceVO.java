@@ -1,7 +1,7 @@
 package com.armada.platform.country.model.vo;
 
 /**
- * 跨业务域使用的国家主数据只读引用，避免渠道域直接依赖 CountryMapper 或 Country 实体。
+ * 跨业务域使用的国家主数据只读引用，避免调用方直接依赖 CountryMapper 或 Country 实体。
  *
  * @param id 国家主键
  * @param iso2 ISO/CLDR 二字母国家码

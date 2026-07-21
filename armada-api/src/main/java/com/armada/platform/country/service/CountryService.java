@@ -1,6 +1,7 @@
 package com.armada.platform.country.service;
 
 import com.armada.platform.country.model.vo.CountryOptionsVO;
+import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
 import java.util.Collection;
 import java.util.Map;
@@ -57,7 +58,24 @@ public interface CountryService {
     String resolveIpRegionByIso2(String iso2);
 
     /**
-     * 校验并返回一个启用国家，供渠道等业务保存稳定 country.id。
+     * 校验并返回国家下拉 value 对应的启用选项。
+     *
+     * @param value 真实国家 ISO2 或 MIXED
+     * @param mixedAllowed 是否允许 MIXED 虚拟选项
+     * @return 规范化后的国家选项
+     */
+    CountryOptionVO requireActiveOption(String value, boolean mixedAllowed);
+
+    /**
+     * 批量查询国家选项，用于列表一次性补齐名称、区号和国旗，避免 N+1。
+     *
+     * @param values 国家 ISO2/MIXED 集合
+     * @return 以规范化 value 为 key 的选项映射
+     */
+    Map<String, CountryOptionVO> optionsByValues(Collection<String> values);
+
+    /**
+     * 按主键校验并返回启用国家。保留该方法兼容仍使用 country.id 的既有业务域。
      *
      * @param countryId 国家主键
      * @return 国家只读引用
@@ -65,7 +83,7 @@ public interface CountryService {
     CountryReferenceVO requireActiveReference(Long countryId);
 
     /**
-     * 批量查询国家展示引用，用于列表一次性补齐国家名称、区号和国旗，避免 N+1。
+     * 批量按主键查询国家展示引用。保留该方法兼容仍使用 country.id 的既有业务域。
      *
      * @param countryIds 国家主键集合
      * @return 以 country.id 为 key 的引用映射

@@ -42,10 +42,13 @@ public interface CountryMapper {
      */
     Country selectActiveByNameZh(@Param("nameZh") String nameZh);
 
-    /** 按主键查询启用国家。 */
+    /** 批量按 ISO2 查询国家展示信息；空集合由调用方拦截。 */
+    List<Country> selectByIso2s(@Param("iso2s") Collection<String> iso2s);
+
+    /** 按主键查询启用国家；保留用于既有 ID 引用调用。 */
     Country selectActiveById(@Param("id") Long id);
 
-    /** 批量查询国家展示信息；空集合由调用方拦截。 */
+    /** 批量按主键查询国家展示信息；保留用于既有 ID 引用调用。 */
     List<Country> selectByIds(@Param("ids") Collection<Long> ids);
 
     /**

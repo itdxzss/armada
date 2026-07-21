@@ -1,6 +1,6 @@
 package com.armada.promotion.channel.converter;
 
-import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.promotion.channel.model.enums.PromotionPlatform;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
@@ -17,14 +17,14 @@ public interface PromotionChannelConverter {
      * <p>推广链接和裂变链接在读取时动态生成，避免保存冗余完整 URL；转换过程不接触 Token。</p>
      *
      * @param row 渠道、域名、模板和探测状态投影
-     * @param targetCountry 目标国家展示信息；混合渠道时为 null
+     * @param targetCountry 目标国家选项；混合渠道时为 MIXED 虚拟选项
      * @param preselectedCountry 预选区号国家展示信息
      * @return 渠道页面数据
      */
     default PromotionChannelVO toVO(
             PromotionChannelVoRow row,
-            CountryReferenceVO targetCountry,
-            CountryReferenceVO preselectedCountry) {
+            CountryOptionVO targetCountry,
+            CountryOptionVO preselectedCountry) {
         if (row == null) {
             return null;
         }
@@ -35,11 +35,11 @@ public interface PromotionChannelConverter {
                 row.getChannelCode(),
                 row.getOwnerUserId(),
                 row.getOwnerUserId(),
-                row.getTargetCountryId(),
+                row.getTargetCountry(),
                 targetCountry == null ? null : targetCountry.iso2(),
                 targetCountry == null ? null : targetCountry.nameZh(),
                 targetCountry == null ? null : targetCountry.flag(),
-                row.getTargetCountryId() == null,
+                "MIXED".equals(row.getTargetCountry()),
                 row.getLandingTemplateId(),
                 row.getTemplateName(),
                 row.getPlatform(),
@@ -47,7 +47,7 @@ public interface PromotionChannelConverter {
                 trackingStatus(row),
                 baseLink,
                 baseLink + "/1",
-                row.getPreselectedCountryId(),
+                row.getPreselectedCountry(),
                 preselectedCountry == null ? null : preselectedCountry.iso2(),
                 preselectedCountry == null ? null : preselectedCountry.nameZh(),
                 preselectedCountry == null ? null : preselectedCountry.phonePrefix(),

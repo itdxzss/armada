@@ -10,7 +10,9 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,8 +25,8 @@ import org.springframework.util.StringUtils;
 /**
  * 国家/地区主数据服务实现。
  *
- * <p>国家表是平台级主数据,不带 tenant_id。当前只承担 IP 管理下拉和旧 IP 代理池 region
- * 兼容转换两个职责:下拉对前端暴露稳定的 ISO2 值,写入/查询 IP 代理池时仍转换为历史使用的中文 region 快照。</p>
+ * <p>国家表是平台级主数据,不带 tenant_id。下拉对前端暴露稳定的 ISO2/MIXED value；
+ * IP 域继续兼容中文 region 快照，渠道域直接保存 value，既有 ID 引用方法保持不变。</p>
  */
 @Service
 public class CountryServiceImpl implements CountryService {
@@ -178,8 +180,87 @@ public class CountryServiceImpl implements CountryService {
     /**
      * {@inheritDoc}
      *
-     * <p>新增渠道写入 country.id 前必须调用本方法，防止保存不存在或已停用的国家引用。</p>
+     * <p>渠道只保存下拉选项的稳定 value。真实国家统一规范为大写 ISO2；MIXED
+     * 是业务虚拟项，只能用于允许混合国家的字段。</p>
      */
+    @Override
+    public CountryOptionVO requireActiveOption(String value, boolean mixedAllowed) {
+        String normalized = normalizeOptionValue(value);
+        if (MIXED_VALUE.equals(normalized)) {
+            if (!mixedAllowed) {
+                throw new BusinessException(ErrorCode.VALIDATION, "预选区号必须选择真实国家，不能选择 MIXED");
+            }
+            return MIXED_OPTION;
+        }
+        Country country = mapper.selectActiveByIso2(normalized);
+        if (country == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家不存在或已停用: " + normalized);
+        }
+        return toOption(country);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>先规范化并去重 value，再按 ISO2 批量查询；MIXED 直接使用内存中的虚拟选项。</p>
+     */
+    @Override
+    public Map<String, CountryOptionVO> optionsByValues(Collection<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashSet<String> normalizedValues = new LinkedHashSet<>();
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                normalizedValues.add(normalizeOptionValue(value));
+            }
+        }
+        if (normalizedValues.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, CountryOptionVO> result = new LinkedHashMap<>();
+        if (normalizedValues.remove(MIXED_VALUE)) {
+            result.put(MIXED_VALUE, MIXED_OPTION);
+        }
+        if (!normalizedValues.isEmpty()) {
+            for (Country country : mapper.selectByIso2s(List.copyOf(normalizedValues))) {
+                CountryOptionVO option = toOption(country);
+                // SQL 把有效记录排在前面；同 ISO2 存在历史软删行时保留第一条，避免覆盖当前主数据。
+                result.putIfAbsent(option.value(), option);
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** 把国家域内部实体转换为已有的下拉选项模型，跨业务域不暴露 Country 实体。 */
+    private static CountryOptionVO toOption(Country country) {
+        return new CountryOptionVO(
+                country.getIso2(),
+                country.getIso2(),
+                country.getNameZh(),
+                country.getPhonePrefix() == null ? "" : country.getPhonePrefix(),
+                country.getFlag() == null ? "" : country.getFlag(),
+                false);
+    }
+
+    /** 规范化并限制 CountryOptionVO.value，防止任意文本进入渠道国家字段。 */
+    private static String normalizeOptionValue(String value) {
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家不能为空");
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if (MIXED_VALUE.equals(normalized)) {
+            return normalized;
+        }
+        if (normalized.length() != 2
+                || normalized.charAt(0) < 'A' || normalized.charAt(0) > 'Z'
+                || normalized.charAt(1) < 'A' || normalized.charAt(1) > 'Z') {
+            throw new BusinessException(ErrorCode.VALIDATION, "国家值必须是 ISO2 或 MIXED: " + value.trim());
+        }
+        return normalized;
+    }
+
+    /** {@inheritDoc} */
     @Override
     public CountryReferenceVO requireActiveReference(Long countryId) {
         if (countryId == null || countryId <= 0) {
@@ -192,11 +273,7 @@ public class CountryServiceImpl implements CountryService {
         return toReference(country);
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>先清理空值和重复 ID，再执行一次批量查询，供渠道分页避免 N+1。</p>
-     */
+    /** {@inheritDoc} */
     @Override
     public Map<Long, CountryReferenceVO> referencesByIds(Collection<Long> countryIds) {
         if (countryIds == null || countryIds.isEmpty()) {
@@ -215,7 +292,7 @@ public class CountryServiceImpl implements CountryService {
                 .collect(Collectors.toUnmodifiableMap(CountryReferenceVO::id, Function.identity()));
     }
 
-    /** 把国家域内部实体转换为允许跨业务域传递的只读引用。 */
+    /** 把国家实体转换为兼容既有 country.id 调用的只读引用。 */
     private static CountryReferenceVO toReference(Country country) {
         return new CountryReferenceVO(
                 country.getId(),

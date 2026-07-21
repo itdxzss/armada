@@ -8,7 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
@@ -61,9 +61,10 @@ class PromotionChannelServiceImplTest {
     @Test
     void createPersistsOwnerAsCreatorAndEncryptsFacebookToken() {
         PromotionLandingTemplate template = template(11L, "基础领奖");
-        CountryReferenceVO target = country(101L, "IN", "印度", "+91");
+        CountryOptionVO target = country("IN", "印度", "+91");
         when(mapper.selectAvailableTemplateById(11L)).thenReturn(template);
-        when(countryService.requireActiveReference(101L)).thenReturn(target);
+        when(countryService.requireActiveOption("IN", true)).thenReturn(target);
+        when(countryService.requireActiveOption("IN", false)).thenReturn(target);
         when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(null);
         when(codeGenerator.generate()).thenReturn("a8k2m9qx");
         when(tokenCipher.encrypt("secret-token")).thenReturn(
@@ -77,7 +78,7 @@ class PromotionChannelServiceImplTest {
             return 1;
         }).when(mapper).insertChannel(any(PromotionChannel.class));
 
-        var result = service.create(request(11L, 101L, 101L, "https://GO.example.com", 1,
+        var result = service.create(request(11L, "IN", "IN", "https://GO.example.com", 1,
                 "pixel-123", "secret-token"));
 
         ArgumentCaptor<PromotionDomain> domainCaptor = ArgumentCaptor.forClass(PromotionDomain.class);
@@ -90,6 +91,8 @@ class PromotionChannelServiceImplTest {
         assertThat(channelCaptor.getValue().getOwnerUserId()).isEqualTo(20001L);
         assertThat(channelCaptor.getValue().getCreatedBy()).isEqualTo(20001L);
         assertThat(channelCaptor.getValue().getPromotionDomainId()).isEqualTo(31L);
+        assertThat(channelCaptor.getValue().getTargetCountry()).isEqualTo("IN");
+        assertThat(channelCaptor.getValue().getPreselectedCountry()).isEqualTo("IN");
         assertThat(channelCaptor.getValue().getIsMarketingAllowed()).isEqualTo(1);
 
         ArgumentCaptor<PromotionChannelTrackingConfig> trackingCaptor =
@@ -106,7 +109,8 @@ class PromotionChannelServiceImplTest {
     @Test
     void createReusesSameTemplateDomainButRejectsCrossTemplateDomain() {
         when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "模板A"));
-        when(countryService.requireActiveReference(101L)).thenReturn(country(101L, "IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
         PromotionDomain occupied = new PromotionDomain();
         occupied.setId(31L);
         occupied.setDomainHost("go.example.com");
@@ -114,7 +118,7 @@ class PromotionChannelServiceImplTest {
         when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(occupied);
 
         assertThatThrownBy(() -> service.create(
-                request(11L, 101L, 101L, "go.example.com", 1, null, null)))
+                request(11L, "IN", "IN", "go.example.com", 1, null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已绑定其他模板");
 
@@ -130,9 +134,9 @@ class PromotionChannelServiceImplTest {
         PromotionChannelVoRow row = row();
         when(mapper.countPage(query)).thenReturn(1L);
         when(mapper.selectPage(query)).thenReturn(List.of(row));
-        when(countryService.referencesByIds(List.of(101L, 102L))).thenReturn(Map.of(
-                101L, country(101L, "IN", "印度", "+91"),
-                102L, country(102L, "BR", "巴西", "+55")));
+        when(countryService.optionsByValues(List.of("IN", "BR"))).thenReturn(Map.of(
+                "IN", country("IN", "印度", "+91"),
+                "BR", country("BR", "巴西", "+55")));
 
         var result = service.page(query);
 
@@ -149,15 +153,15 @@ class PromotionChannelServiceImplTest {
 
     private static PromotionChannelCreateDTO request(
             Long templateId,
-            Long targetCountryId,
-            Long preselectedCountryId,
+            String targetCountry,
+            String preselectedCountry,
             String domain,
             Integer platform,
             String trackingId,
             String token) {
         return new PromotionChannelCreateDTO(
-                "印度渠道", 20001L, targetCountryId, templateId, domain,
-                preselectedCountryId, platform, trackingId, token,
+                "印度渠道", 20001L, targetCountry, templateId, domain,
+                preselectedCountry, platform, trackingId, token,
                 "Lead", "InitiateCheckout", "CompleteRegistration", true, true);
     }
 
@@ -168,8 +172,8 @@ class PromotionChannelServiceImplTest {
         return row;
     }
 
-    private static CountryReferenceVO country(Long id, String iso2, String name, String prefix) {
-        return new CountryReferenceVO(id, iso2, name, prefix, "flag");
+    private static CountryOptionVO country(String iso2, String name, String prefix) {
+        return new CountryOptionVO(iso2, iso2, name, prefix, "flag", false);
     }
 
     private static PromotionChannelVoRow row() {
@@ -178,8 +182,8 @@ class PromotionChannelServiceImplTest {
         row.setChannelCode("a8k2m9qx");
         row.setChannelName("印度渠道");
         row.setOwnerUserId(20001L);
-        row.setTargetCountryId(101L);
-        row.setPreselectedCountryId(102L);
+        row.setTargetCountry("IN");
+        row.setPreselectedCountry("BR");
         row.setLandingTemplateId(11L);
         row.setTemplateName("基础领奖");
         row.setDomainHost("go.example.com");

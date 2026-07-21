@@ -41,6 +41,14 @@
     LIMIT 1
   </select>
 
+  <select id="selectByIso2s" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE iso2 IN
+    <foreach collection="iso2s" item="iso2" open="(" separator="," close=")">#{iso2}</foreach>
+    ORDER BY is_active DESC, id DESC
+  </select>
+
   <select id="selectActiveById" resultType="com.armada.platform.country.model.entity.Country">
     SELECT <include refid="Columns"/>
     FROM country

@@ -35,12 +35,12 @@
   <insert id="insertChannel" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO promotion_channel
       (channel_code, channel_name, owner_user_id, promotion_domain_id,
-       target_country_id, preselected_country_id, platform,
+       target_country_value, preselected_country_value, platform,
        is_in_app_open_allowed, is_marketing_allowed, status,
        created_by, updated_by, created_at, updated_at)
     VALUES
       (#{channelCode}, #{channelName}, #{ownerUserId}, #{promotionDomainId},
-       #{targetCountryId}, #{preselectedCountryId}, #{platform},
+       #{targetCountry}, #{preselectedCountry}, #{platform},
        #{isInAppOpenAllowed}, #{isMarketingAllowed}, #{status},
        #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
   </insert>
@@ -62,15 +62,10 @@
   <!-- countPage/selectPage 共用筛选，保证分页总数与列表口径一致。 -->
   <sql id="pageFilter">
     c.deleted_at IS NULL
-    <!-- 混合国家使用 target_country_id IS NULL 表达；选择混合时优先于真实国家 ID。 -->
-    <choose>
-      <when test="mixedTargetCountry != null and mixedTargetCountry">
-        AND c.target_country_id IS NULL
-      </when>
-      <when test="targetCountryId != null">
-        AND c.target_country_id = #{targetCountryId}
-      </when>
-    </choose>
+    <!-- 真实国家和混合国家统一按 CountryOptionVO.value 精确筛选。 -->
+    <if test="targetCountry != null and targetCountry != ''">
+      AND c.target_country_value = #{targetCountry}
+    </if>
     <if test="landingTemplateId != null">
       AND d.landing_template_id = #{landingTemplateId}
     </if>
@@ -102,8 +97,8 @@
            c.channel_name AS channelName,
            c.channel_code AS channelCode,
            c.owner_user_id AS ownerUserId,
-           c.target_country_id AS targetCountryId,
-           c.preselected_country_id AS preselectedCountryId,
+           c.target_country_value AS targetCountry,
+           c.preselected_country_value AS preselectedCountry,
            d.landing_template_id AS landingTemplateId,
            t.template_name AS templateName,
            d.domain_host AS domainHost,

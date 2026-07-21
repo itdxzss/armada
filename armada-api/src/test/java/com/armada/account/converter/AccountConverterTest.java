@@ -40,11 +40,13 @@ class AccountConverterTest {
         AccountListVoRow row = new AccountListVoRow();
         row.setId(9L);
         row.setProxyCountry("印度");
+        row.setCountryFlag("🇮🇳");
         row.setIpSource("iproyal");
 
         AccountListVO vo = converter.toAccountListVO(row);
 
         assertThat(vo.country()).isEqualTo("印度");
+        assertThat(vo.countryFlag()).isEqualTo("🇮🇳");
         assertThat(vo.ipSource()).isEqualTo("iproyal");
     }
 

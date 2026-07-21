@@ -313,6 +313,7 @@
            s.block_error_code AS blockErrorCode, s.block_reason AS blockReason,
            s.state_source AS stateSource, s.truth_ip AS truthIp,
            COALESCE(s.proxy_country, p.region) AS proxyCountry,
+           country_master.flag AS countryFlag,
            COALESCE(s.proxy_source, p.source) AS ipSource,
            s.pull_into_group_count AS pullIntoGroupCount,
            s.invalidated_at AS invalidatedAt,
@@ -325,6 +326,9 @@
       AND c.deleted_at IS NULL
     LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
       AND p.deleted_at IS NULL AND p.status = 2
+    LEFT JOIN country country_master
+      ON country_master.name_zh = COALESCE(s.proxy_country, p.region)
+      AND country_master.deleted_at IS NULL
     LEFT JOIN (
       SELECT tenant_id, account_id, COUNT(*) AS groups_num
       FROM account_group_membership

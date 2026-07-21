@@ -230,6 +230,7 @@ class AccountControllerDbTest {
                 .andExpect(jsonPath("$.data.list[0].id").value(accountId))
                 .andExpect(jsonPath("$.data.list[0].numberSource").value(3))
                 .andExpect(jsonPath("$.data.list[0].country").value("印度"))
+                .andExpect(jsonPath("$.data.list[0].countryFlag").value("🇮🇳"))
                 .andExpect(jsonPath("$.data.list[0].ipSource").value("iproyal"))
                 .andReturn();
 

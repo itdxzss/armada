@@ -1,7 +1,7 @@
 -- V061：推广落地页模板与渠道管理数据模型；渠道统计相关表延后建设。
 -- 业务表统一 tenant_id 行隔离、BIGINT epoch毫秒时间和 utf8mb4；不创建物理外键。
 
---落地页模板表，保存渠道可以绑定的落地页模板，多个渠道绑定一个模板
+-- 落地页模板表，保存渠道可以绑定的落地页模板，多个渠道绑定一个模板
 CREATE TABLE promotion_landing_template (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '落地页模板主键,例如 1001',
     tenant_id BIGINT NOT NULL COMMENT '所属租户ID,例如 1',
@@ -21,7 +21,7 @@ CREATE TABLE promotion_landing_template (
     KEY idx_promotion_landing_template_available (tenant_id, status, deleted_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='推广落地页模板';
 
---域名与模板绑定表，一个域名只能绑定同一个模板，但是一个模板和域名可以创建多个渠道，这样可以防止跨租户抢占同一个域名。如果业务允许不同租户共享域名，这个唯一约束就需要调整
+-- 域名与模板绑定表，一个域名只能绑定同一个模板，但是一个模板和域名可以创建多个渠道，这样可以防止跨租户抢占同一个域名。如果业务允许不同租户共享域名，这个唯一约束就需要调整
 CREATE TABLE promotion_domain (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '推广域名记录主键,例如 3001',
     tenant_id BIGINT NOT NULL COMMENT '域名所属租户ID,例如 1',
@@ -37,7 +37,7 @@ CREATE TABLE promotion_domain (
     KEY idx_promotion_domain_template (tenant_id, landing_template_id, deleted_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='推广域名与落地页模板绑定';
 
---推广渠道主表，渠道管理页面最核心的业务表，保存一个渠道的基础定义，渠道不直接报错模板ID，是因为模板绑定关系由域名决定
+-- 推广渠道主表，渠道管理页面最核心的业务表，保存一个渠道的基础定义，渠道不直接报错模板ID，是因为模板绑定关系由域名决定
 CREATE TABLE promotion_channel (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '推广渠道主键,例如 5001',
     tenant_id BIGINT NOT NULL COMMENT '所属租户ID,例如 1',
@@ -61,7 +61,7 @@ CREATE TABLE promotion_channel (
 	KEY idx_promotion_channel_list (tenant_id, deleted_at, created_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='推广渠道主数据';
 
---Pixel/CAPI追踪配置表，保存渠道向 Facebook、TikTok 等广告平台上报转化事件所需要的敏感配置，不放到渠道主表的原因是安全问题
+-- Pixel/CAPI追踪配置表，保存渠道向 Facebook、TikTok 等广告平台上报转化事件所需要的敏感配置，不放到渠道主表的原因是安全问题
 CREATE TABLE promotion_channel_tracking_config (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT '渠道追踪配置主键,例如 6001',
     tenant_id BIGINT NOT NULL COMMENT '所属租户ID,例如 1',

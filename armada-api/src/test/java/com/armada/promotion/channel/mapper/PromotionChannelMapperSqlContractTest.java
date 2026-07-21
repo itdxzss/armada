@@ -46,6 +46,46 @@ class PromotionChannelMapperSqlContractTest {
                 .doesNotContain("access_token_ciphertext", "token_fingerprint", "encryption_key_id");
     }
 
+    @Test
+    void updateSqlPreservesTokenUnlessNewCiphertextIsProvided() throws IOException {
+        String xml = mapperXml();
+        int lockSelectStart = xml.indexOf("<select id=\"selectActiveChannelById\"");
+        String lockSelect = xml.substring(lockSelectStart, xml.indexOf("</select>", lockSelectStart));
+
+        assertThat(xml).contains("<select id=\"countReusableTrackingToken\" resultType=\"int\">");
+        assertThat(xml).contains("provider_type = #{providerType}");
+        assertThat(xml).contains("tracking_id = #{trackingId}");
+        assertThat(xml).contains("access_token_ciphertext IS NOT NULL");
+        assertThat(lockSelect).contains("FOR UPDATE").doesNotContain("LIMIT");
+        assertThat(xml).contains("<update id=\"updateChannel\">");
+        assertThat(xml).contains("<update id=\"updateTrackingConfig\">");
+        assertThat(xml).contains("<if test=\"accessTokenCiphertext != null\">");
+        assertThat(xml).contains("access_token_ciphertext = #{accessTokenCiphertext}");
+        assertThat(xml).contains("deleted_at = NULL");
+    }
+
+    @Test
+    void providerChangeCanClearOldTrackingCredentialsWithoutDeletingConfiguration() throws IOException {
+        String xml = mapperXml();
+
+        assertThat(xml).contains("<update id=\"clearTrackingCredentials\">");
+        assertThat(xml).contains("access_token_ciphertext = NULL");
+        assertThat(xml).contains("encryption_key_id = NULL");
+        assertThat(xml).contains("token_fingerprint = NULL");
+        assertThat(xml).contains("token_expires_at = NULL");
+    }
+
+    @Test
+    void deleteSqlUsesSoftDeleteAndNeverPhysicalDelete() throws IOException {
+        String xml = mapperXml();
+
+        assertThat(xml).contains("<update id=\"softDeleteTrackingConfig\">");
+        assertThat(xml).contains("<update id=\"softDeleteChannel\">");
+        assertThat(xml).contains("SET deleted_at = #{deletedAt}");
+        assertThat(xml).contains("WHERE id = #{id}", "WHERE channel_id = #{channelId}");
+        assertThat(xml).doesNotContain("<delete", "DELETE FROM promotion_channel");
+    }
+
     private String mapperXml() throws IOException {
         try (var stream = Objects.requireNonNull(
                 getClass().getClassLoader().getResourceAsStream(RESOURCE), RESOURCE)) {

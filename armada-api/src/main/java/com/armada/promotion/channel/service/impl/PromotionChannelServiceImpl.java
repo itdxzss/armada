@@ -6,6 +6,7 @@ import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.entity.PromotionChannel;
 import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
@@ -32,13 +33,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/** 渠道新增与分页实现。租户隔离由现有 MyBatis 拦截器透明处理。 */
+/** 渠道新增、分页、编辑与删除实现。租户隔离由现有 MyBatis 拦截器透明处理。 */
 @Service
 public class PromotionChannelServiceImpl implements PromotionChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(PromotionChannelServiceImpl.class);
     private static final int CHANNEL_CODE_RETRY_LIMIT = 5;
     private static final int OWNER_FILTER_MAX = 500;
+    private static final int CHANNEL_STATUS_DISABLED = 0;
+    private static final int CHANNEL_STATUS_ENABLED = 1;
     private static final String DEFAULT_LEAD_EVENT = "Lead";
     private static final String DEFAULT_LOGIN_REQUEST_EVENT = "InitiateCheckout";
     private static final String DEFAULT_LOGIN_SUCCESS_EVENT = "CompleteRegistration";
@@ -71,7 +74,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(rollbackFor = Exception.class)
     public PromotionChannelVO create(PromotionChannelCreateDTO request) {
         // 步骤1：统一完成必填、长度、平台能力和域名格式校验，避免无效数据进入后续数据库操作。
-        ValidatedCreate value = validate(request);
+        ValidatedWrite value = validate(request);
 
         // 步骤2：模板、目标国家和预选区号必须引用现有主数据；跨业务域的国家数据只通过 CountryService 获取。
         PromotionLandingTemplate template = mapper.selectAvailableTemplateById(value.landingTemplateId());
@@ -146,14 +149,106 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>渠道、域名引用和追踪配置处于同一事务。编辑不会修改公开渠道码和创建信息；
+     * 只有平台和追踪 ID 未变且旧密文完整时，Token 留空才保留原值。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void update(Long id, PromotionChannelUpdateDTO request) {
+        requirePositive(id, "渠道");
+        PromotionChannel existing = requireActiveChannel(id);
+        ValidatedWrite value = validate(request);
+        requireReusableTrackingToken(value, existing);
+
+        // 模板与国家继续复用新增路径的主数据校验，防止编辑绕过已有业务约束。
+        requireAvailableTemplate(value.landingTemplateId());
+        CountryOptionVO targetCountry = countryService.requireActiveOption(value.targetCountry(), true);
+        CountryOptionVO preselectedCountry =
+                countryService.requireActiveOption(value.preselectedCountry(), false);
+
+        // 域名记录可能被多个渠道共享，因此编辑只切换引用，绝不原地修改旧域名绑定。
+        PromotionDomain domain = resolveDomain(value);
+        long now = System.currentTimeMillis();
+        PromotionChannel channel = buildChannel(
+                value, targetCountry.value(), preselectedCountry.value(), domain.getId(), now);
+        channel.setId(id);
+        if (mapper.updateChannel(channel) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
+        }
+
+        syncTrackingConfig(value, existing, now);
+        log.info("推广渠道已更新 id={} ownerUserId={} platform={} status={}",
+                id, value.ownerUserId(), value.platform().code(), value.status());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>追踪配置与渠道在同一事务内软删除；域名和账号历史引用不参与级联。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        requirePositive(id, "渠道");
+        PromotionChannel channel = requireActiveChannel(id);
+        long now = System.currentTimeMillis();
+
+        // 编辑和删除统一按“渠道主表 -> 追踪配置”更新，避免并发请求形成相反加锁顺序。
+        if (mapper.softDeleteChannel(id, channel.getOwnerUserId(), now) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
+        }
+        mapper.softDeleteTrackingConfig(id, channel.getOwnerUserId(), now);
+        log.info("推广渠道已软删除 id={} ownerUserId={}", id, channel.getOwnerUserId());
+    }
+
+    /**
      * 校验并规范化新增参数。
      *
      * <p>FB/TikTok 的追踪 ID 与 Token 必须成对出现；快手和 MGSKY Ads 不接受 CAPI 字段。</p>
      */
-    private ValidatedCreate validate(PromotionChannelCreateDTO request) {
+    private ValidatedWrite validate(PromotionChannelCreateDTO request) {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新增渠道参数不能为空");
         }
+        return validate(request, false, CHANNEL_STATUS_ENABLED);
+    }
+
+    /**
+     * 校验并规范化编辑参数。
+     *
+     * <p>字段级校验允许 Token 留空；后续结合已锁定的渠道和追踪配置，
+     * 仅在平台、追踪 ID 未变且旧密文完整时允许复用。</p>
+     */
+    private ValidatedWrite validate(PromotionChannelUpdateDTO request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "编辑渠道参数不能为空");
+        }
+        int status = requireChannelStatus(request.status());
+        PromotionChannelCreateDTO common = new PromotionChannelCreateDTO(
+                request.channelName(),
+                request.ownerUserId(),
+                request.targetCountry(),
+                request.landingTemplateId(),
+                request.domain(),
+                request.preselectedCountry(),
+                request.platform(),
+                request.trackingId(),
+                request.accessToken(),
+                request.leadEventName(),
+                request.loginRequestEventName(),
+                request.loginSuccessEventName(),
+                request.inAppOpenAllowed(),
+                request.marketingAllowed());
+        return validate(common, true, status);
+    }
+
+    /** 复用新增与编辑的字段校验，并按调用场景区分 Token 留空语义。 */
+    private ValidatedWrite validate(
+            PromotionChannelCreateDTO request,
+            boolean existingTokenMayBeKept,
+            int status) {
         String channelName = requiredText(request.channelName(), "渠道名称", 128);
         requirePositive(request.ownerUserId(), "归属用户");
         requirePositive(request.landingTemplateId(), "绑定模板");
@@ -172,11 +267,15 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     platform.label() + " 当前不支持 CAPI 追踪配置");
         }
-        if (platform.capiSupported() && hasTrackingId != hasToken) {
+        if (platform.capiSupported()
+                && ((!existingTokenMayBeKept && hasTrackingId != hasToken)
+                || (existingTokenMayBeKept && hasToken && !hasTrackingId))) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "Pixel/追踪 ID 与 Access Token 必须同时填写或同时留空");
+                    existingTokenMayBeKept
+                            ? "填写新 Access Token 时必须同时填写 Pixel/追踪 ID"
+                            : "Pixel/追踪 ID 与 Access Token 必须同时填写或同时留空");
         }
-        return new ValidatedCreate(
+        return new ValidatedWrite(
                 channelName,
                 request.ownerUserId(),
                 targetCountry,
@@ -190,7 +289,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 eventName(request.loginRequestEventName(), DEFAULT_LOGIN_REQUEST_EVENT),
                 eventName(request.loginSuccessEventName(), DEFAULT_LOGIN_SUCCESS_EVENT),
                 request.inAppOpenAllowed() == null || request.inAppOpenAllowed(),
-                request.marketingAllowed() == null || request.marketingAllowed());
+                request.marketingAllowed() == null || request.marketingAllowed(),
+                status);
     }
 
     /**
@@ -198,7 +298,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
      *
      * <p>先查后插用于正常路径，唯一键用于解决两个请求同时创建同一域名的竞态。</p>
      */
-    private PromotionDomain resolveDomain(ValidatedCreate value) {
+    private PromotionDomain resolveDomain(ValidatedWrite value) {
         PromotionDomain existing = mapper.selectActiveDomainByHost(value.domainHost());
         if (existing != null) {
             requireSameTemplate(existing, value.landingTemplateId());
@@ -236,7 +336,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
     /** 根据已校验参数构造渠道写入实体；创建人按当前需求取归属用户。 */
     private PromotionChannel buildChannel(
-            ValidatedCreate value,
+            ValidatedWrite value,
             String targetCountry,
             String preselectedCountry,
             Long domainId,
@@ -250,7 +350,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setPlatform(value.platform().code());
         row.setIsInAppOpenAllowed(value.inAppOpenAllowed() ? 1 : 0);
         row.setIsMarketingAllowed(value.marketingAllowed() ? 1 : 0);
-        row.setStatus(1);
+        row.setStatus(value.status());
         row.setCreatedBy(value.ownerUserId());
         row.setUpdatedBy(value.ownerUserId());
         row.setCreatedAt(now);
@@ -280,7 +380,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
     /** 构造追踪配置，并在应用层把 Access Token 转成密文、密钥版本和不可逆指纹。 */
     private PromotionChannelTrackingConfig buildTrackingConfig(
-            ValidatedCreate value,
+            ValidatedWrite value,
             Long channelId,
             long now) {
         PromotionChannelTrackingConfig row = new PromotionChannelTrackingConfig();
@@ -301,6 +401,72 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;
+    }
+
+    /**
+     * 同步平台追踪配置。
+     *
+     * <p>非 CAPI 平台软删配置；CAPI 平台优先更新或复活旧行，不存在时才插入，
+     * 从而兼容渠道在不同推广平台之间切换。</p>
+     */
+    private void syncTrackingConfig(
+            ValidatedWrite value,
+            PromotionChannel existing,
+            long now) {
+        Long channelId = existing.getId();
+        if (!value.platform().capiSupported()) {
+            mapper.softDeleteTrackingConfig(channelId, value.ownerUserId(), now);
+            return;
+        }
+        boolean platformChanged = !Integer.valueOf(value.platform().code()).equals(existing.getPlatform());
+        boolean trackingIdCleared = !StringUtils.hasText(value.trackingId());
+        if (!StringUtils.hasText(value.accessToken()) && (platformChanged || trackingIdCleared)) {
+            // 不允许把旧平台 Token 带到新平台；显式清空追踪 ID 时也同步清除失去归属的密文。
+            mapper.clearTrackingCredentials(channelId, value.ownerUserId(), now);
+        }
+        PromotionChannelTrackingConfig tracking = buildTrackingConfig(value, channelId, now);
+        if (mapper.updateTrackingConfig(tracking) == 0) {
+            mapper.insertTrackingConfig(tracking);
+        }
+    }
+
+    /** 查询当前租户内有效渠道，不存在或已软删时统一抛 NOT_FOUND。 */
+    private PromotionChannel requireActiveChannel(Long id) {
+        PromotionChannel channel = mapper.selectActiveChannelById(id);
+        if (channel == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
+        }
+        return channel;
+    }
+
+    /**
+     * Token 留空只代表“沿用同平台已有密文”，不能把 Facebook 凭据带到 TikTok，
+     * 也不能在数据库本来没有 Token 时凭空创建只有追踪 ID 的无效配置。
+     */
+    private void requireReusableTrackingToken(ValidatedWrite value, PromotionChannel existing) {
+        if (!value.platform().capiSupported()
+                || StringUtils.hasText(value.accessToken())
+                || !StringUtils.hasText(value.trackingId())) {
+            return;
+        }
+        if (!Integer.valueOf(value.platform().code()).equals(existing.getPlatform())) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "切换推广平台并填写 Pixel/追踪 ID 时必须提供新 Access Token");
+        }
+        if (mapper.countReusableTrackingToken(
+                existing.getId(), value.platform().code(), value.trackingId()) == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "平台或 Pixel/追踪 ID 已变化，请填写新 Access Token");
+        }
+    }
+
+    /** 查询当前租户内可用模板，不存在或停用时统一抛 NOT_FOUND。 */
+    private PromotionLandingTemplate requireAvailableTemplate(Long id) {
+        PromotionLandingTemplate template = mapper.selectAvailableTemplateById(id);
+        if (template == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "绑定模板不存在或已停用: " + id);
+        }
+        return template;
     }
 
     /** 把刚创建的多表数据整理成与分页 Mapper 一致的投影，再统一交给转换器生成 VO。 */
@@ -401,7 +567,15 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         }
     }
 
-    private record ValidatedCreate(
+    /** 校验渠道状态只允许启用或禁用两个稳定值。 */
+    private static int requireChannelStatus(Integer status) {
+        if (status == null || (status != CHANNEL_STATUS_DISABLED && status != CHANNEL_STATUS_ENABLED)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "渠道状态必须是0(禁用)或1(启用)");
+        }
+        return status;
+    }
+
+    private record ValidatedWrite(
             String channelName,
             Long ownerUserId,
             String targetCountry,
@@ -415,6 +589,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             String loginRequestEventName,
             String loginSuccessEventName,
             boolean inAppOpenAllowed,
-            boolean marketingAllowed) {
+            boolean marketingAllowed,
+            int status) {
     }
 }

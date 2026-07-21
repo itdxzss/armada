@@ -3,8 +3,10 @@ package com.armada.promotion.channel.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -93,6 +95,46 @@ class PromotionChannelControllerTest {
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getCreatorUserId()).isEqualTo(20001L);
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getOwnerUserIds())
                 .containsExactly(20001L, 20002L);
+    }
+
+    @Test
+    void updateBindsEditableFieldsAndTikTokAliasesWithoutTenantParameter() throws Exception {
+        mockMvc.perform(put("/api/promotion-channels/51")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "channelName":"TikTok渠道",
+                                  "ownerUserId":20002,
+                                  "targetCountry":"MIXED",
+                                  "landingTemplateId":11,
+                                  "domain":"new.example.com",
+                                  "preselectedCountry":"IN",
+                                  "platform":2,
+                                  "tiktokPixelId":"pixel-new",
+                                  "tiktokAccessToken":"token-new",
+                                  "inAppOpenAllowed":true,
+                                  "marketingAllowed":false,
+                                  "status":0
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(service).update(org.mockito.ArgumentMatchers.eq(51L),
+                org.mockito.ArgumentMatchers.argThat(request ->
+                        "pixel-new".equals(request.trackingId())
+                                && "token-new".equals(request.accessToken())
+                                && request.ownerUserId().equals(20002L)
+                                && request.status().equals(0)));
+    }
+
+    @Test
+    void deleteDelegatesPathIdAndReturnsUnifiedSuccess() throws Exception {
+        mockMvc.perform(delete("/api/promotion-channels/51"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+
+        verify(service).delete(51L);
     }
 
     private static PromotionChannelVO channel() {

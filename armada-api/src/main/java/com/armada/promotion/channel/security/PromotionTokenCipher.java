@@ -11,6 +11,7 @@ import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -32,9 +33,10 @@ public class PromotionTokenCipher {
      * @param encodedKey Base64 编码的 32 字节 AES 密钥
      * @param keyId 密钥版本，用于后续轮换和解密定位
      */
+    @Autowired
     public PromotionTokenCipher(
             @Value("${armada.promotion.tracking.encryption-key:}") String encodedKey,
-            @Value("${armada.promotion.tracking.encryption-key-id:env-v1}") String keyId) {
+            @Value("${armada.promotion.tracking.encryption-key-id:}") String keyId) {
         this(encodedKey, keyId, new SecureRandom());
     }
 

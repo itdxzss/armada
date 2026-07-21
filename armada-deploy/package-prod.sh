@@ -273,7 +273,7 @@ create_app_package() {
   render_template "${SCRIPT_DIR}/prod/app/docker-compose.yml" "${release_dir}/docker-compose.yml"
   cp "${SCRIPT_DIR}/prod/app/.env.example" "${release_dir}/.env.example"
   copy_common_release_files "${release_dir}"
-  write_release_env "${release_dir}" "armada-app" "armada-prod" "app" "DB_URL DB_USER DB_PASSWORD DEV_LOGIN_PASSWORD KAFKA_BROKERS ARMADA_PROTOCOL_BASE_URL ARMADA_PROTOCOL_API_KEY"
+  write_release_env "${release_dir}" "armada-app" "armada-prod" "app" "DB_URL DB_USER DB_PASSWORD DEV_LOGIN_PASSWORD KAFKA_BROKERS ARMADA_PROTOCOL_BASE_URL ARMADA_PROTOCOL_API_KEY PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID"
   info "saving app images"
   docker save -o "${release_dir}/images/app-images.tar" "${BACKEND_IMAGE}" "${NGINX_IMAGE}"
   mkdir -p "${OUTPUT_DIR}"

@@ -9,12 +9,14 @@
 ```bash
 tar -xzf armada-app-prod-<version>.tar.gz
 cd armada-app-prod-<version>
+umask 077
 cp .env.example .env
+chmod 600 .env
 vim .env
 ./scripts/install.sh
 ```
 
-必须替换 `.env` 里的 RDS、MSK、协议机内网地址和共享 API key。
+必须替换 `.env` 里的 RDS、MSK、协议机内网地址、共享 API key 和推广 Token AES-256 密钥。密钥使用 `openssl rand -base64 32` 生成；密钥变化时必须同时更新 `PROMOTION_TRACKING_ENCRYPTION_KEY_ID`，旧密钥按轮换计划保留，不能在每次部署时重新生成。
 
 ## Protocol Machine
 

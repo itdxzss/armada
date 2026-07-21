@@ -2,18 +2,22 @@ package com.armada.promotion.channel.controller;
 
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 渠道管理新增和分页接口。 */
+/** 渠道管理新增、分页、编辑和删除接口。 */
 @RestController
 @RequestMapping("/api/promotion-channels")
 public class PromotionChannelController {
@@ -46,5 +50,36 @@ public class PromotionChannelController {
     @GetMapping("query")
     public ApiResponse<PageResult<PromotionChannelVO>> page(@ModelAttribute PromotionChannelQuery query) {
         return ApiResponse.ok(service.page(query));
+    }
+
+    /**
+     * 编辑推广渠道。
+     *
+     * <p>渠道码和创建信息不会被修改；平台和追踪 ID 均未变且已有完整密文时，空 Token 表示保留原值。</p>
+     *
+     * @param id 渠道 ID
+     * @param request 渠道完整编辑参数，不包含 tenantId
+     * @return 统一空成功响应
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在或参数不符合业务约束时抛出
+     */
+    @PutMapping("/{id}")
+    public ApiResponse<Void> update(
+            @PathVariable Long id,
+            @RequestBody PromotionChannelUpdateDTO request) {
+        service.update(id, request);
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 软删除推广渠道。
+     *
+     * @param id 渠道 ID
+     * @return 统一空成功响应
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
+     */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        service.delete(id);
+        return ApiResponse.ok();
     }
 }

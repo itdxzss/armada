@@ -416,12 +416,29 @@ protocol_ssh_run() {
 }
 
 remote_required_env_check='
-set -eu
+set -euo pipefail
 cd "$1"
 test -f .env || { echo "远端缺少 .env: $1/.env" >&2; exit 20; }
-for key in DB_URL DB_USER DB_PASSWORD; do
+chmod 600 .env
+for key in DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID; do
   grep -Eq "^${key}=.+" .env || { echo "$1/.env 缺少必需配置 ${key}" >&2; exit 21; }
 done
+promotion_key="$(grep -E '^PROMOTION_TRACKING_ENCRYPTION_KEY=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')"
+promotion_key_id="$(grep -E '^PROMOTION_TRACKING_ENCRYPTION_KEY_ID=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')"
+case "${promotion_key}:${promotion_key_id}" in
+  *REPLACE*|*CHANGE_ME*)
+    echo "$1/.env 的推广 Token 加密配置仍是占位值" >&2
+    exit 22
+    ;;
+esac
+if ! decoded_key_bytes="$(printf '%s' "${promotion_key}" | base64 --decode 2>/dev/null | wc -c | tr -d '[:space:]')"; then
+  echo "$1/.env 的 PROMOTION_TRACKING_ENCRYPTION_KEY 不是合法 Base64" >&2
+  exit 22
+fi
+[ "${decoded_key_bytes}" = 32 ] || {
+  echo "$1/.env 的 PROMOTION_TRACKING_ENCRYPTION_KEY 解码后必须为 32 字节" >&2
+  exit 22
+}
 '
 
 protocol_remote_deploy='
@@ -563,7 +580,7 @@ if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
 
   info "检查 Armada 远端 .env..."
   ssh_run "bash -s -- '${REMOTE_DIR}'" <<<"${remote_required_env_check}"
-  ok "Armada 远端 .env 已包含必需数据库配置"
+  ok "Armada 远端 .env 已包含必需数据库和推广 Token 加密配置"
 
   info "同步 Armada 部署编排文件..."
   rsync -az -e "${RSYNC_SSH}" \

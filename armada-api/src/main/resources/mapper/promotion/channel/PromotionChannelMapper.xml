@@ -59,6 +59,120 @@
        #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
   </insert>
 
+  <!-- 编辑/删除前只查询当前租户内有效渠道；敏感追踪配置不进入该投影。 -->
+  <select id="selectActiveChannelById"
+          resultType="com.armada.promotion.channel.model.entity.PromotionChannel">
+    SELECT id,
+           channel_code AS channelCode,
+           channel_name AS channelName,
+           owner_user_id AS ownerUserId,
+           promotion_domain_id AS promotionDomainId,
+           target_country_value AS targetCountry,
+           preselected_country_value AS preselectedCountry,
+           platform,
+           is_in_app_open_allowed AS isInAppOpenAllowed,
+           is_marketing_allowed AS isMarketingAllowed,
+           status,
+           created_by AS createdBy,
+           updated_by AS updatedBy,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+    FROM promotion_channel
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <!-- 只有平台和追踪 ID 均未变且三个密文字段完整时，空 Token 才表示沿用旧值。 -->
+  <select id="countReusableTrackingToken" resultType="int">
+    SELECT COUNT(*)
+    FROM promotion_channel_tracking_config
+    WHERE channel_id = #{channelId}
+      AND provider_type = #{providerType}
+      AND tracking_id = #{trackingId}
+      AND access_token_ciphertext IS NOT NULL
+      AND encryption_key_id IS NOT NULL
+      AND token_fingerprint IS NOT NULL
+      AND deleted_at IS NULL
+  </select>
+
+  <!-- 渠道码和创建信息属于稳定历史事实，编辑时只更新页面可编辑字段。 -->
+  <update id="updateChannel">
+    UPDATE promotion_channel
+    SET channel_name = #{channelName},
+        owner_user_id = #{ownerUserId},
+        promotion_domain_id = #{promotionDomainId},
+        target_country_value = #{targetCountry},
+        preselected_country_value = #{preselectedCountry},
+        platform = #{platform},
+        is_in_app_open_allowed = #{isInAppOpenAllowed},
+        is_marketing_allowed = #{isMarketingAllowed},
+        status = #{status},
+        updated_by = #{updatedBy},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- Token 留空时不生成赋值片段，从而保留原密文；配置变更后清空旧探测结论。 -->
+  <update id="updateTrackingConfig">
+    UPDATE promotion_channel_tracking_config
+    SET provider_type = #{providerType},
+        tracking_id = #{trackingId},
+        <if test="accessTokenCiphertext != null">
+          access_token_ciphertext = #{accessTokenCiphertext},
+          encryption_key_id = #{encryptionKeyId},
+          token_fingerprint = #{tokenFingerprint},
+          token_expires_at = NULL,
+        </if>
+        lead_event_name = #{leadEventName},
+        login_request_event_name = #{loginRequestEventName},
+        login_success_event_name = #{loginSuccessEventName},
+        last_probe_status = NULL,
+        last_probe_event_name = NULL,
+        last_probe_event_id = NULL,
+        last_probe_error_code = NULL,
+        last_probe_error_message = NULL,
+        last_probed_at = NULL,
+        updated_by = #{updatedBy},
+        updated_at = #{updatedAt},
+        deleted_at = NULL
+    WHERE channel_id = #{channelId}
+  </update>
+
+  <!-- 平台变化时旧 Token 不具备跨平台语义，必须先清空再同步新平台配置。 -->
+  <update id="clearTrackingCredentials">
+    UPDATE promotion_channel_tracking_config
+    SET tracking_id = NULL,
+        access_token_ciphertext = NULL,
+        encryption_key_id = NULL,
+        token_fingerprint = NULL,
+        token_expires_at = NULL,
+        updated_by = #{updatedBy},
+        updated_at = #{updatedAt}
+    WHERE channel_id = #{channelId}
+  </update>
+
+  <!-- 非 CAPI 平台和渠道删除都只软删追踪配置，保留审计与恢复能力。 -->
+  <update id="softDeleteTrackingConfig">
+    UPDATE promotion_channel_tracking_config
+    SET deleted_at = #{deletedAt},
+        updated_by = #{updatedBy},
+        updated_at = #{deletedAt}
+    WHERE channel_id = #{channelId}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- 删除渠道不级联域名或历史账号，只让渠道退出当前有效集合。 -->
+  <update id="softDeleteChannel">
+    UPDATE promotion_channel
+    SET deleted_at = #{deletedAt},
+        updated_by = #{updatedBy},
+        updated_at = #{deletedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
   <!-- countPage/selectPage 共用筛选，保证分页总数与列表口径一致。 -->
   <sql id="pageFilter">
     c.deleted_at IS NULL

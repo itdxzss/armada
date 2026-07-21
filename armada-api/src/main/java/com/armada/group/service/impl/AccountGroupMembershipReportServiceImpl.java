@@ -4,8 +4,11 @@ import com.armada.account.model.enums.AccountGroupBaselineStateCode;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
+import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.service.AccountGroupMembershipReportService;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
+import com.armada.marketing.model.dto.MarketingNewGroupDTO;
+import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -37,6 +40,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
 
     private final AccountGroupMembershipMapper membershipMapper;
     private final AccountGroupMembershipSnapshotService snapshotService;
+    private final MarketingNewGroupImmediateSendService immediateSendService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -44,13 +48,16 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
      *
      * @param membershipMapper 账号群关系 mapper
      * @param snapshotService  账号可见群关系快照写入服务
+     * @param immediateSendService 新群首次即时营销服务
      * @param objectMapper     JSON 解析器
      */
     public AccountGroupMembershipReportServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                    AccountGroupMembershipSnapshotService snapshotService,
+                                                   MarketingNewGroupImmediateSendService immediateSendService,
                                                    ObjectMapper objectMapper) {
         this.membershipMapper = membershipMapper;
         this.snapshotService = snapshotService;
+        this.immediateSendService = immediateSendService;
         this.objectMapper = objectMapper;
     }
 
@@ -75,19 +82,29 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                         event.tenantId(), event.accountId(), event.protocolAccountId(), event.eventId());
                 return;
             }
-            if (baselineState(baselineRow) == BASELINE_PENDING) {
+            boolean pendingBaseline = baselineState(baselineRow) == BASELINE_PENDING;
+            if (pendingBaseline) {
                 capturePendingBaseline(event, syncAt, now);
             }
-            snapshotService.replaceVisibleGroups(
+            AccountGroupMembershipChangeSet changes = snapshotService.replaceVisibleGroups(
                     event.accountId(),
                     event.groups(),
                     syncAt,
                     event.eventId(),
                     event.source());
+            if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
+                List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
+                        .map(group -> new MarketingNewGroupDTO(
+                                group.groupLinkId(), group.groupJid(), group.groupName()))
+                        .toList();
+                immediateSendService.enqueueNewGroups(event.accountId(), addedGroups, now);
+            }
             log.info("账号群列表事件已回写 eventId={} source={} reportedAt={} tenantId={} accountId={} "
-                            + "protocolAccountId={} currentGroups={} currentGroupJidSample={}",
+                            + "protocolAccountId={} currentGroups={} addedGroups={} addedGroupJidSample={} "
+                            + "currentGroupJidSample={}",
                     event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
-                    event.protocolAccountId(), event.groups().size(),
+                    event.protocolAccountId(), changes.currentGroups().size(), changes.addedGroups().size(),
+                    jidSample(changes.addedGroups().stream().map(group -> group.groupJid()).toList()),
                     jidSample(event.groups().stream().map(AccountGroupsReportedEvent.Group::groupJid).toList()));
         } finally {
             if (previousTenant == null) {

@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-20 / `1.0.1-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户本次需求；设计文档 `docs/superpowers/specs/2026-07-20-account-dynamic-new-group-immediate-marketing-design.md`；实施计划 `docs/superpowers/plans/2026-07-20-account-dynamic-new-group-immediate-marketing.md`
-- 状态: 进行中（设计和实施计划已完成，等待选择执行方式）
+- 状态: 进行中（本地实现和非数据库验证已完成，真库 DbTest 待确认目标库）
 
 ## 目标（一句话）
 
@@ -16,9 +16,14 @@
 - [x] 完成轻量方案设计。
 - [x] 用户复核书面设计。
 - [x] 编写并自检实施计划。
-- [ ] TDD 实现群快照差量、即时 attempt/outbox 和一次业务重试。
-- [ ] 运行单元测试、真库 DbTest 和 Web/Zhuan 端到端验收。
-- [ ] 完成后端专家评审和部署验证。
+- [x] TDD 实现群快照差量、baseline 抑制和群回报触发。
+- [x] 抽取普通轮次与即时发送共享的消息命令工厂。
+- [x] 实现 `round_no=0` 首次 attempt 抢占、现有 outbox 分批入队和账号内发送间隔。
+- [x] 实现 `attemptId + commandId` 结果幂等和一次业务重试。
+- [x] 补充 V059、前滚/回滚 SQL、单元测试和真库 DbTest 用例。
+- [x] 完成非数据库编译、XML、聚焦单测和静态差异检查。
+- [ ] 在确认的隔离测试库执行 Flyway 与真库 DbTest，并据真实 schema 更新数据模型 wiki。
+- [ ] 在测试环境完成 Web/Zhuan 实际进群发送验收。
 
 ## 关键设计决策
 
@@ -30,6 +35,8 @@
 - 业务重试复用同一 attempt 行，将 `attempt_no` 从 1 更新到 2，并以 commandId 条件拦截迟到结果。
 - 复用 `MessageSendPort`、`protocol_command_outbox` 和 afterCommit dispatcher；Web、Android Zhuan 协议层均不改。
 - 即时发送不更新任务 `current_round_no`、`next_round_at` 等正常轮次字段。
+- 同次上报超过现有 outbox 单批上限时，沿用普通营销文本/图片批大小拆分；跨批保持全局 `notBeforeAt` 顺序。
+- 调度批大小参数改由非 profile 限定的通用配置注册，避免新群检测服务在非 `kafka` profile 下缺少配置 Bean。
 
 否决方案：
 
@@ -38,15 +45,21 @@
 
 ## 验证（evidence-before-done）
 
-- 设计自检：`git diff --cached --check` 通过，无空白错误。
-- 占位符扫描：设计文档无 `TBD`、`TODO`、`FIXME` 或待定项。
-- 实施计划自检：任务拆为 8 个 TDD 阶段，包含精确文件、测试命令、真库迁移、回滚、数据模型生成和最终评审步骤；`git diff --check` 通过。
-- 代码和 DbTest 尚未开始；不得声明功能已完成。
+- 分支确认：`git branch --show-current` 输出 `1.0.1-snapshot`。
+- Mapper XML：`xmllint --noout` 校验群 membership 和营销 Mapper，exit 0。
+- 全量测试源码编译：Java 17 下 `mvn -q -DskipTests test`，exit 0；新增 DbTest 已通过编译。
+- 聚焦非数据库测试：Java 17 + Byte Buddy agent 下执行 12 个相关测试类，86 tests / 0 failures / 0 errors / 0 skipped。
+- 聚焦范围覆盖：群差量、baseline 抑制、消息工厂、正常轮次回归、即时幂等/间隔/分批、一次重试、旧 command 迟到结果、SQL 形态、非 Kafka 配置装配及 Web/Android 路由后端。
+- 静态检查：`git diff --check`、`TODO/FIXME/System.out/printStackTrace` 扫描通过；未修改 Web、Android Zhuan 或前端项目。
+- 真库 DbTest **已编写但未执行**：当前尚未确认 `.env` 指向可迁移、可回滚的隔离测试库，按仓库红线不擅自连接数据库。
+- `.harness/wiki/数据模型.md` **尚未更新**：必须等 V059 在确认的测试库迁移后从真实 schema 重新生成。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 尚未实施、尚未部署。
+- commit / 环境 / 部署后验证结果: 按用户要求只保留 `1.0.1-snapshot` 当前 worktree 本地修改，未 commit、未部署、未访问远程环境。
 
 ## 遗留 / 跟进
 
-- 等待用户选择 Subagent-Driven 或 Inline Execution；执行前创建隔离 worktree，当前主 worktree 的部署改动不得带入本需求提交。
+- 用户已明确要求在当前 `1.0.1-snapshot` worktree 内联修改且不 commit，覆盖原计划中的隔离 worktree/逐任务 commit 步骤。
+- 下一步需由用户确认 DbTest 数据库目标是可执行 Flyway 的隔离本地/测试库，再运行迁移、Mapper、结果重试和端到端 DbTest。
+- 真库通过后重新生成 `.harness/wiki/数据模型.md`，随后安排 Web/Zhuan 测试环境实际进群验收。

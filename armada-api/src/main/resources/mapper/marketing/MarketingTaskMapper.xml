@@ -65,6 +65,29 @@
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
 
+    <resultMap id="MarketingTaskSendAttemptResultMap"
+               type="com.armada.marketing.model.entity.MarketingTaskSendAttempt">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="marketing_task_id" property="marketingTaskId"/>
+        <result column="target_id" property="targetId"/>
+        <result column="group_link_id" property="groupLinkId"/>
+        <result column="group_jid" property="groupJid"/>
+        <result column="group_name" property="groupName"/>
+        <result column="round_no" property="roundNo"/>
+        <result column="attempt_no" property="attemptNo"/>
+        <result column="is_retry" property="retry"/>
+        <result column="command_id" property="commandId"/>
+        <result column="status" property="status"/>
+        <result column="reason_code" property="reasonCode"/>
+        <result column="reason_message" property="reasonMessage"/>
+        <result column="message_id" property="messageId"/>
+        <result column="submitted_at" property="submittedAt"/>
+        <result column="result_at" property="resultAt"/>
+        <result column="attempted_at" property="attemptedAt"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
     <sql id="TaskColumns">
         id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
@@ -153,6 +176,26 @@
         LEFT JOIN account a ON a.id = t.account_id AND a.deleted_at IS NULL
         WHERE t.marketing_task_id = #{taskId}
         ORDER BY t.id ASC
+    </select>
+
+    <select id="selectOwnedSendingDynamicTarget" resultMap="MarketingTaskTargetResultMap">
+        SELECT <include refid="TargetColumns"/>
+        FROM marketing_task_target t
+        JOIN marketing_task mt ON mt.id = t.marketing_task_id
+                              AND mt.deleted_at IS NULL
+                              AND mt.status = 2
+                              AND (mt.task_start_at IS NULL OR mt.task_start_at &lt;= #{now})
+                              AND (mt.task_end_at IS NULL OR mt.task_end_at &gt; #{now})
+        JOIN marketing_account_occupancy o ON o.account_id = t.account_id
+                                          AND o.marketing_task_id = mt.id
+        JOIN account a ON a.id = t.account_id
+                      AND a.deleted_at IS NULL
+                      AND a.protocol_account_id IS NOT NULL
+                      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+        WHERE t.account_id = #{accountId}
+          AND t.target_scope = 2
+        ORDER BY t.id ASC
+        LIMIT 1
     </select>
 
     <select id="selectAccountGroupStatsByTaskId"
@@ -423,6 +466,58 @@
              #{submittedAt}, #{resultAt}, #{attemptedAt}, #{createdAt})
     </insert>
 
+    <select id="selectSendAttemptById" resultMap="MarketingTaskSendAttemptResultMap">
+        SELECT id, tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
+               round_no, attempt_no, is_retry, command_id, status, reason_code, reason_message,
+               message_id, submitted_at, result_at, attempted_at, created_at
+        FROM marketing_task_send_attempt
+        WHERE id = #{attemptId}
+    </select>
+
+    <select id="selectTargetById" resultMap="MarketingTaskTargetResultMap">
+        SELECT <include refid="TargetColumns"/>
+        FROM marketing_task_target t
+        JOIN account a ON a.id = t.account_id
+                      AND a.deleted_at IS NULL
+        WHERE t.id = #{targetId}
+    </select>
+
+    <update id="resubmitImmediateAttempt">
+        UPDATE marketing_task_send_attempt
+        SET attempt_no = 2,
+            is_retry = 1,
+            command_id = #{newCommandId},
+            status = 0,
+            reason_code = NULL,
+            reason_message = NULL,
+            message_id = NULL,
+            submitted_at = #{submittedAt},
+            result_at = NULL,
+            attempted_at = #{submittedAt}
+        WHERE id = #{attemptId}
+          AND round_no = 0
+          AND attempt_no = 1
+          AND is_retry = 0
+          AND command_id = #{expectedCommandId}
+          AND status = 0
+    </update>
+
+    <update id="incrementTargetRetryCount">
+        UPDATE marketing_task_target
+        SET retry_count = retry_count + 1,
+            last_attempt_at = #{updatedAt},
+            updated_at = #{updatedAt}
+        WHERE id = #{targetId}
+          AND EXISTS (
+              SELECT 1
+              FROM marketing_task_send_attempt a
+              WHERE a.id = #{attemptId}
+                AND a.target_id = marketing_task_target.id
+                AND a.round_no = 0
+                AND a.attempt_no = 2
+          )
+    </update>
+
     <update id="markAttemptSuccess">
         UPDATE marketing_task_send_attempt
         SET status = 1,
@@ -433,6 +528,7 @@
             group_status_checked_at = #{groupStatusCheckedAt},
             result_at = #{resultAt}
         WHERE id = #{attemptId}
+          AND command_id = #{commandId}
           AND status = 0
     </update>
 
@@ -447,6 +543,7 @@
             group_status_checked_at = #{groupStatusCheckedAt},
             result_at = #{resultAt}
         WHERE id = #{attemptId}
+          AND command_id = #{commandId}
           AND status = 0
     </update>
 

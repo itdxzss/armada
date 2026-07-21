@@ -3,6 +3,7 @@ package com.armada.marketing.mapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
+import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
@@ -72,10 +73,8 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         attempt.setCreatedAt(now);
 
         mapper.insertSendAttempts(List.of(attempt));
-        int first = mapper.markAttemptSuccess(attempt.getId(), "wamid.1", attempt.getGroupJid(),
-                "NORMAL", "GROUP_SEND_ALLOWED", now + 5, now + 10);
-        int second = mapper.markAttemptSuccess(attempt.getId(), "wamid.1", attempt.getGroupJid(),
-                "NORMAL", "GROUP_SEND_ALLOWED", now + 15, now + 20);
+        int first = mapper.markAttemptSuccess(successResult(attempt, now + 5, now + 10));
+        int second = mapper.markAttemptSuccess(successResult(attempt, now + 15, now + 20));
 
         assertThat(attempt.getId()).isNotNull();
         assertThat(first).isEqualTo(1);
@@ -85,6 +84,23 @@ class MarketingRoundMapperDbTest extends DbTestBase {
                 "SELECT group_jid FROM marketing_task_send_attempt WHERE id = ?",
                 String.class,
                 attempt.getId())).isEqualTo("120363001@g.us");
+    }
+
+    private static MarketingSendAttemptResult successResult(
+            MarketingTaskSendAttempt attempt,
+            long groupStatusCheckedAt,
+            long resultAt) {
+        return new MarketingSendAttemptResult(
+                attempt.getId(),
+                attempt.getCommandId(),
+                "wamid.1",
+                null,
+                null,
+                attempt.getGroupJid(),
+                "NORMAL",
+                "GROUP_SEND_ALLOWED",
+                groupStatusCheckedAt,
+                resultAt);
     }
 
     @Test

@@ -33,6 +33,98 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
     private JdbcTemplate jdbc;
 
     @Test
+    void staleCommandResultCannotFinalizeCurrentAttempt() {
+        long now = System.currentTimeMillis();
+        Long taskId = insertTask("stale-command-" + now, now);
+        Long targetId = insertDynamicTarget(taskId, now);
+        Long groupLinkId = insertGroupLink(now);
+        String groupJid = "120363stale@g.us";
+        Long attemptId = insertSubmittedAttempt(
+                taskId, targetId, groupLinkId, groupJid, 0L, now);
+
+        ProtocolMessageSendResultReportedEvent stale = successEvent(
+                taskId,
+                targetId,
+                attemptId,
+                groupJid,
+                0L,
+                now + 1_000,
+                "cmd_stale");
+        service.handleSendResultReported(stale);
+
+        Integer status = jdbc.queryForObject(
+                "SELECT status FROM marketing_task_send_attempt WHERE id = ?",
+                Integer.class,
+                attemptId);
+        Integer sent = jdbc.queryForObject(
+                "SELECT sent_message_count FROM marketing_task WHERE id = ?",
+                Integer.class,
+                taskId);
+        assertThat(status).isZero();
+        assertThat(sent).isZero();
+    }
+
+    @Test
+    void immediateFailureRetriesSameAttemptOnceAndRejectsStaleCommandResult() {
+        long now = System.currentTimeMillis();
+        RetryFixture fixture = insertRetryFixture(now);
+
+        service.handleSendResultReported(failedEvent(fixture, fixture.firstCommandId(), now + 1_000));
+
+        Map<String, Object> retrying = jdbc.queryForMap("""
+                SELECT attempt_no, is_retry, command_id, status
+                FROM marketing_task_send_attempt
+                WHERE id = ?
+                """, fixture.attemptId());
+        String retryCommandId = (String) retrying.get("command_id");
+        assertThat(retrying.get("attempt_no")).isEqualTo(2);
+        assertThat(retrying.get("is_retry")).isEqualTo(true);
+        assertThat(retryCommandId).startsWith("cmd_").isNotEqualTo(fixture.firstCommandId());
+        assertThat(retrying.get("status")).isEqualTo(0);
+        assertThat(jdbc.queryForObject(
+                "SELECT retry_count FROM marketing_task_target WHERE id = ?",
+                Integer.class,
+                fixture.targetId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT failed_message_count FROM marketing_task WHERE id = ?",
+                Integer.class,
+                fixture.taskId())).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM protocol_command_outbox WHERE command_id = ?",
+                Integer.class,
+                retryCommandId)).isEqualTo(1);
+
+        service.handleSendResultReported(successEvent(
+                fixture.taskId(),
+                fixture.targetId(),
+                fixture.attemptId(),
+                fixture.groupJid(),
+                0L,
+                now + 2_000,
+                fixture.firstCommandId()));
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM marketing_task_send_attempt WHERE id = ?",
+                Integer.class,
+                fixture.attemptId())).isZero();
+
+        service.handleSendResultReported(failedEvent(fixture, retryCommandId, now + 3_000));
+
+        Map<String, Object> finalized = jdbc.queryForMap("""
+                SELECT attempt_no, is_retry, command_id, status
+                FROM marketing_task_send_attempt
+                WHERE id = ?
+                """, fixture.attemptId());
+        assertThat(finalized.get("attempt_no")).isEqualTo(2);
+        assertThat(finalized.get("is_retry")).isEqualTo(true);
+        assertThat(finalized.get("command_id")).isEqualTo(retryCommandId);
+        assertThat(finalized.get("status")).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT failed_message_count FROM marketing_task WHERE id = ?",
+                Integer.class,
+                fixture.taskId())).isEqualTo(1);
+    }
+
+    @Test
     void successResultRollsUpAttemptSnapshotToDynamicTargetDetail() {
         long now = System.currentTimeMillis();
         Long taskId = insertTask("send-result-dynamic-" + now, now);
@@ -332,6 +424,109 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
         });
     }
 
+    private RetryFixture insertRetryFixture(long now) {
+        Long templateId = insertRetryTemplate(now);
+        Long accountGroupId = insertRetryAccountGroup(now);
+        Long accountId = insertRetryAccount(accountGroupId, now);
+        String groupJid = "120363retry" + now + "@g.us";
+        Long groupLinkId = insertRetryGroup(groupJid, now);
+        Long taskId = insertTask("immediate-retry-" + now, now);
+        jdbc.update("""
+                UPDATE marketing_task
+                SET account_group_id = ?, marketing_template_id = ?, marketing_template_name = ?,
+                    is_auto_retry_enabled = 1, retry_limit = 1,
+                    task_start_at = ?, task_end_at = ?, updated_at = ?
+                WHERE id = ?
+                """, accountGroupId, templateId, "即时重试模板", now - 1_000, now + 60_000, now, taskId);
+        Long targetId = insertDynamicTarget(taskId, accountId, "923retry" + now, now);
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid,
+                     joined_at, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now, now);
+        jdbc.update("""
+                INSERT INTO marketing_account_occupancy
+                    (tenant_id, account_id, marketing_task_id, occupied_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, taskId, now, now, now);
+        String firstCommandId = "cmd_retry_first_" + now;
+        Long attemptId = insertSubmittedAttempt(
+                taskId, targetId, groupLinkId, groupJid, 0L, now, firstCommandId);
+        return new RetryFixture(taskId, targetId, attemptId, groupJid, firstCommandId);
+    }
+
+    private Long insertRetryTemplate(long now) {
+        return insertAndReturnId("""
+                INSERT INTO marketing_template
+                    (tenant_id, template_name, link_mode, text_type, image_file_id,
+                     content, body_text, buttons, promotion_link, mention_all, remark,
+                     created_by, created_at, updated_at)
+                VALUES
+                    (?, ?, 1, 'dbtest', NULL,
+                     'hello', NULL, NULL, NULL, 0, NULL,
+                     1, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, "immediate-retry-template-" + now);
+            ps.setLong(3, now);
+            ps.setLong(4, now);
+        });
+    }
+
+    private Long insertRetryAccountGroup(long now) {
+        return insertAndReturnId("""
+                INSERT INTO account_group
+                    (tenant_id, name, system_builtin, created_at, updated_at)
+                VALUES (?, ?, 0, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, "immediate-retry-group-" + now);
+            ps.setLong(3, now);
+            ps.setLong(4, now);
+        });
+    }
+
+    private Long insertRetryAccount(Long accountGroupId, long now) {
+        Long accountId = insertAndReturnId("""
+                INSERT INTO account
+                    (tenant_id, ws_phone, account_type, ownership, account_group_id,
+                     protocol_id, protocol_account_id, group_baseline_state,
+                     priority, created_at, updated_at)
+                VALUES (?, ?, 1, 1, ?, 'WEB', ?, 3, 0, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, "923retry" + now);
+            ps.setLong(3, accountGroupId);
+            ps.setString(4, "acc_retry_" + now);
+            ps.setLong(5, now);
+            ps.setLong(6, now);
+        });
+        jdbc.update("""
+                INSERT INTO account_state
+                    (tenant_id, account_id, account_state, login_state,
+                     risk_status, mute_status, created_at, updated_at)
+                VALUES (?, ?, 2, 1, 1, NULL, ?, ?)
+                """, TEST_TENANT_ID, accountId, now, now);
+        return accountId;
+    }
+
+    private Long insertRetryGroup(String groupJid, long now) {
+        Long groupLinkId = insertGroupLink(now);
+        jdbc.update("""
+                INSERT INTO group_link_preview
+                    (tenant_id, group_link_id, group_jid, wa_subject,
+                     announce_only, created_at, updated_at)
+                VALUES (?, ?, ?, '即时重试群', 0, ?, ?)
+                """, TEST_TENANT_ID, groupLinkId, groupJid, now, now);
+        jdbc.update("""
+                INSERT INTO group_link_health
+                    (tenant_id, group_link_id, health_status, is_banned, created_at, updated_at)
+                VALUES (?, ?, 1, 0, ?, ?)
+                """, TEST_TENANT_ID, groupLinkId, now, now);
+        return groupLinkId;
+    }
+
     private Long insertDynamicTarget(Long taskId, long now) {
         return insertDynamicTarget(taskId, 501L, "923sendresult", now);
     }
@@ -453,6 +648,23 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                                         String groupJid,
                                         long roundNo,
                                         long now) {
+        return insertSubmittedAttempt(
+                taskId,
+                targetId,
+                groupLinkId,
+                groupJid,
+                roundNo,
+                now,
+                commandId(taskId, roundNo, groupJid));
+    }
+
+    private Long insertSubmittedAttempt(Long taskId,
+                                        Long targetId,
+                                        Long groupLinkId,
+                                        String groupJid,
+                                        long roundNo,
+                                        long now,
+                                        String commandId) {
         return insertAndReturnId("""
                 INSERT INTO marketing_task_send_attempt
                     (tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
@@ -469,7 +681,7 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
             ps.setLong(4, groupLinkId);
             ps.setString(5, groupJid);
             ps.setLong(6, roundNo);
-            ps.setString(7, "cmd_success_group_" + taskId + "_" + roundNo + "_" + groupJid);
+            ps.setString(7, commandId);
             ps.setLong(8, now);
             ps.setLong(9, now);
             ps.setLong(10, now);
@@ -482,6 +694,23 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                                                                        String groupJid,
                                                                        long roundNo,
                                                                        long timestamp) {
+        return successEvent(
+                taskId,
+                targetId,
+                attemptId,
+                groupJid,
+                roundNo,
+                timestamp,
+                commandId(taskId, roundNo, groupJid));
+    }
+
+    private static ProtocolMessageSendResultReportedEvent successEvent(Long taskId,
+                                                                       Long targetId,
+                                                                       Long attemptId,
+                                                                       String groupJid,
+                                                                       long roundNo,
+                                                                       long timestamp,
+                                                                       String commandId) {
         return new ProtocolMessageSendResultReportedEvent(
                 "evt_success_group_" + attemptId,
                 TEST_TENANT_ID,
@@ -491,7 +720,7 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                 roundNo,
                 "acc_923sendresult",
                 groupJid,
-                "cmd_success_group_" + taskId + "_" + roundNo + "_" + groupJid,
+                commandId,
                 true,
                 "wamid." + attemptId,
                 null,
@@ -506,6 +735,40 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                 timestamp - 1,
                 null,
                 null);
+    }
+
+    private static ProtocolMessageSendResultReportedEvent failedEvent(
+            RetryFixture fixture,
+            String commandId,
+            long timestamp) {
+        return new ProtocolMessageSendResultReportedEvent(
+                "evt_failed_retry_" + timestamp,
+                TEST_TENANT_ID,
+                fixture.taskId(),
+                fixture.targetId(),
+                fixture.attemptId(),
+                0L,
+                "acc_retry",
+                fixture.groupJid(),
+                commandId,
+                false,
+                null,
+                "SEND_FAILED",
+                "rate limited",
+                timestamp,
+                "worker-a",
+                null,
+                null,
+                "marketing_task",
+                "NORMAL",
+                "GROUP_SEND_ALLOWED",
+                timestamp - 1,
+                null,
+                null);
+    }
+
+    private static String commandId(Long taskId, long roundNo, String groupJid) {
+        return "cmd_success_group_" + taskId + "_" + roundNo + "_" + groupJid;
     }
 
     private Long insertAndReturnId(String sql, SqlBinder binder) {
@@ -530,6 +793,15 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("等待并发发送结果测试被中断", ex);
         }
+    }
+
+    private record RetryFixture(
+            Long taskId,
+            Long targetId,
+            Long attemptId,
+            String groupJid,
+            String firstCommandId
+    ) {
     }
 
     @FunctionalInterface

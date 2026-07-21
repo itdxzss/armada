@@ -5,6 +5,7 @@ import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.GroupCreationMarketingItem;
 import com.armada.marketing.model.entity.GroupCreationMarketingTask;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
+import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedSink;
 import com.armada.shared.exception.BusinessException;
@@ -33,13 +34,16 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
     private final MarketingTaskMapper taskMapper;
     private final GroupCreationMarketingTaskMapper groupCreationMapper;
     private final GroupCreationMarketingRetryService retryService;
+    private final MarketingImmediateRetryService immediateRetryService;
 
     public MarketingSendResultServiceImpl(MarketingTaskMapper taskMapper,
                                           GroupCreationMarketingTaskMapper groupCreationMapper,
-                                          GroupCreationMarketingRetryService retryService) {
+                                          GroupCreationMarketingRetryService retryService,
+                                          MarketingImmediateRetryService immediateRetryService) {
         this.taskMapper = taskMapper;
         this.groupCreationMapper = groupCreationMapper;
         this.retryService = retryService;
+        this.immediateRetryService = immediateRetryService;
     }
 
     /** 普通营销与建群营销沿用本处理器；历史群结果必须交给独立执行域。 */
@@ -62,12 +66,17 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
                 handleGroupCreationMarketingResult(event, resultAt);
                 return;
             }
+            if (!event.success() && immediateRetryService.retryIfEligible(event, resultAt)) {
+                log.info("新群即时营销失败已进入单次重试 tenantId={} taskId={} targetId={} "
+                                + "attemptId={} commandId={}",
+                        event.tenantId(), event.marketingTaskId(), event.targetId(),
+                        event.attemptId(), event.commandId());
+                return;
+            }
+            MarketingSendAttemptResult attemptResult = attemptResult(event, resultAt);
             int updated = event.success()
-                    ? taskMapper.markAttemptSuccess(event.attemptId(), event.messageId(), event.groupJid(),
-                            event.groupStatus(), event.groupStatusReason(), event.groupStatusCheckedAt(), resultAt)
-                    : taskMapper.markAttemptFailed(event.attemptId(), event.reasonCode(),
-                            event.reasonMessage(), event.groupJid(), event.groupStatus(),
-                            event.groupStatusReason(), event.groupStatusCheckedAt(), resultAt);
+                    ? taskMapper.markAttemptSuccess(attemptResult)
+                    : taskMapper.markAttemptFailed(attemptResult);
             // markAttempt* 只更新 SUBMITTED 状态;重复事件 updated=0,避免任务计数重复累加。
             if (updated > 0) {
                 boolean newSuccessfulGroup = false;
@@ -206,5 +215,21 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
 
     private static boolean isGroupCreationMarketing(ProtocolMessageSendResultReportedEvent event) {
         return event != null && SOURCE_GROUP_CREATION_MARKETING.equals(event.source());
+    }
+
+    private static MarketingSendAttemptResult attemptResult(
+            ProtocolMessageSendResultReportedEvent event,
+            long resultAt) {
+        return new MarketingSendAttemptResult(
+                event.attemptId(),
+                event.commandId(),
+                event.messageId(),
+                event.reasonCode(),
+                event.reasonMessage(),
+                event.groupJid(),
+                event.groupStatus(),
+                event.groupStatusReason(),
+                event.groupStatusCheckedAt(),
+                resultAt);
     }
 }

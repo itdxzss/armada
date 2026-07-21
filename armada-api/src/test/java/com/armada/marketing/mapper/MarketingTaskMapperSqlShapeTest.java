@@ -23,6 +23,16 @@ class MarketingTaskMapperSqlShapeTest {
             "src/main/resources/db/migration/V052__marketing_attempt_group_status.sql");
     private static final Path ACCOUNT_GROUP_INTERVAL_MIGRATION = Path.of(
             "src/main/resources/db/migration/V058__marketing_account_group_send_interval.sql");
+    private static final Path IMMEDIATE_ROUND_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V059__marketing_new_group_immediate_round.sql");
+
+    @Test
+    void immediateRoundMigrationReservesZeroForNewGroupSend() throws IOException {
+        assertThat(IMMEDIATE_ROUND_MIGRATION).exists();
+        assertThat(Files.readString(IMMEDIATE_ROUND_MIGRATION, StandardCharsets.UTF_8))
+                .contains("MODIFY COLUMN round_no BIGINT NOT NULL DEFAULT 0")
+                .contains("营销轮次:0=新群首次即时发送 1+=正常任务轮次");
+    }
 
     @Test
     void accountGroupSendIntervalIsPersistedInMillisecondsWithForwardMigration() throws IOException {
@@ -52,6 +62,50 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("<result column=\"protocol_ws_phone\" property=\"protocolWsPhone\"/>")
                 .contains("a.protocol_id AS protocol_id")
                 .contains("a.ws_phone AS protocol_ws_phone");
+    }
+
+    @Test
+    void immediateTargetQueryUsesAccountOccupancyWithoutGlobalTaskScan() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectOwnedSendingDynamicTarget");
+
+        assertThat(sql)
+                .contains("WHERE t.account_id = #{accountId}")
+                .contains("t.target_scope = 2")
+                .contains("JOIN marketing_account_occupancy o ON o.account_id = t.account_id")
+                .contains("o.marketing_task_id = mt.id")
+                .contains("mt.status = 2")
+                .contains("mt.task_start_at IS NULL OR mt.task_start_at &lt;= #{now}")
+                .contains("mt.task_end_at IS NULL OR mt.task_end_at &gt; #{now}")
+                .contains("LIMIT 1")
+                .doesNotContain("account_group_membership");
+    }
+
+    @Test
+    void immediateRetryAtomicallyReplacesOnlyFirstSubmittedCommand() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String resubmitSql = updateBlock(xml, "resubmitImmediateAttempt");
+        String targetSql = selectBlock(xml, "selectTargetById");
+
+        assertThat(resubmitSql)
+                .contains("SET attempt_no = 2")
+                .contains("is_retry = 1")
+                .contains("command_id = #{newCommandId}")
+                .contains("round_no = 0")
+                .contains("attempt_no = 1")
+                .contains("is_retry = 0")
+                .contains("command_id = #{expectedCommandId}")
+                .contains("status = 0");
+        assertThat(targetSql)
+                .contains("<include refid=\"TargetColumns\"/>")
+                .contains("JOIN account a ON a.id = t.account_id")
+                .contains("WHERE t.id = #{targetId}");
     }
 
     @Test
@@ -140,12 +194,14 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))")
                 .contains("group_status = #{groupStatus}")
                 .contains("group_status_reason = #{groupStatusReason}")
-                .contains("group_status_checked_at = #{groupStatusCheckedAt}");
+                .contains("group_status_checked_at = #{groupStatusCheckedAt}")
+                .contains("AND command_id = #{commandId}");
         assertThat(markAttemptFailedSql)
                 .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))")
                 .contains("group_status = #{groupStatus}")
                 .contains("group_status_reason = #{groupStatusReason}")
-                .contains("group_status_checked_at = #{groupStatusCheckedAt}");
+                .contains("group_status_checked_at = #{groupStatusCheckedAt}")
+                .contains("AND command_id = #{commandId}");
         assertThat(markTargetSuccessSql)
                 .contains("LEFT JOIN group_link_preview p")
                 .contains("LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")

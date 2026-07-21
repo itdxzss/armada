@@ -8,7 +8,9 @@ import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.GroupCreationMarketingItem;
 import com.armada.marketing.model.entity.GroupCreationMarketingTask;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
+import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.marketing.service.impl.GroupCreationMarketingRetryService;
+import com.armada.marketing.service.impl.MarketingImmediateRetryService;
 import com.armada.marketing.service.impl.MarketingSendResultServiceImpl;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import org.junit.jupiter.api.AfterEach;
@@ -28,8 +30,9 @@ class MarketingSendResultServiceImplTest {
     private final MarketingTaskMapper mapper = mock(MarketingTaskMapper.class);
     private final GroupCreationMarketingTaskMapper groupCreationMapper = mock(GroupCreationMarketingTaskMapper.class);
     private final GroupCreationMarketingRetryService retryService = mock(GroupCreationMarketingRetryService.class);
+    private final MarketingImmediateRetryService immediateRetryService = mock(MarketingImmediateRetryService.class);
     private final MarketingSendResultServiceImpl service =
-            new MarketingSendResultServiceImpl(mapper, groupCreationMapper, retryService);
+            new MarketingSendResultServiceImpl(mapper, groupCreationMapper, retryService, immediateRetryService);
 
     @AfterEach
     void clearTenant() {
@@ -39,16 +42,14 @@ class MarketingSendResultServiceImplTest {
     @Test
     void successEventUpdatesAttemptAndIncrementsSuccessCountOnce() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L)).thenReturn(1);
+        when(mapper.markAttemptSuccess(successResult())).thenReturn(1);
         when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
         when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
         when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(1);
 
         service.handleSendResultReported(event);
 
-        verify(mapper).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L);
+        verify(mapper).markAttemptSuccess(successResult());
         verify(mapper).markTargetSuccessFromAttempt(501L, 9001L, 1783159200000L);
         verify(mapper).selectSuccessfulAttemptGroupJid(42L, 9001L);
         verify(mapper).insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L);
@@ -60,19 +61,32 @@ class MarketingSendResultServiceImplTest {
     @Test
     void failedEventUpdatesAttemptTargetAndIncrementsFailureCountOnce() {
         ProtocolMessageSendResultReportedEvent event = failedEvent();
-        when(mapper.markAttemptFailed(9001L, "SEND_FAILED", "rate limited", "120363001@g.us",
-                "BANNED", "CHAT_SUSPENDED", 1783159198000L, 1783159200000L)).thenReturn(1);
+        when(mapper.markAttemptFailed(failedResult())).thenReturn(1);
 
         service.handleSendResultReported(event);
 
-        verify(mapper).markAttemptFailed(9001L, "SEND_FAILED", "rate limited", "120363001@g.us",
-                "BANNED", "CHAT_SUSPENDED", 1783159198000L, 1783159200000L);
+        verify(mapper).markAttemptFailed(failedResult());
         verify(mapper).markTargetFailedFromAttempt(501L, 9001L, "SEND_FAILED", "rate limited", 1783159200000L);
         verify(mapper, never()).selectSuccessfulAttemptGroupJid(42L, 9001L);
         verify(mapper, never()).insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L);
         verify(mapper, never()).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
         verify(mapper).incrementTaskSendCounters(42L, 0, 1, 1783159200000L);
         verify(groupCreationMapper).markItemFailedByMarketingAttemptId(9001L, "SEND_FAILED", "rate limited", 1783159200000L);
+        verify(immediateRetryService).retryIfEligible(event, 1783159200000L);
+    }
+
+    @Test
+    void immediateFailureEnteringRetryDoesNotFinalizeOriginalResult() {
+        ProtocolMessageSendResultReportedEvent event = immediateFailedEvent();
+        when(immediateRetryService.retryIfEligible(event, 1783159200000L)).thenReturn(true);
+
+        service.handleSendResultReported(event);
+
+        verify(immediateRetryService).retryIfEligible(event, 1783159200000L);
+        verify(mapper, never()).markAttemptFailed(org.mockito.ArgumentMatchers.any());
+        verify(mapper, never()).markTargetFailedFromAttempt(
+                501L, 9001L, "SEND_FAILED", "rate limited", 1783159200000L);
+        verify(mapper, never()).incrementTaskSendCounters(42L, 0, 1, 1783159200000L);
     }
 
     @Test
@@ -83,8 +97,7 @@ class MarketingSendResultServiceImplTest {
         logger.addAppender(appender);
         try {
             ProtocolMessageSendResultReportedEvent event = event(true);
-            when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                    "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L)).thenReturn(1);
+            when(mapper.markAttemptSuccess(successResult())).thenReturn(1);
             when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
             when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
             when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(1);
@@ -107,13 +120,11 @@ class MarketingSendResultServiceImplTest {
     @Test
     void duplicateSuccessEventDoesNotIncrementCountersAgain() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L)).thenReturn(0);
+        when(mapper.markAttemptSuccess(successResult())).thenReturn(0);
 
         service.handleSendResultReported(event);
 
-        verify(mapper).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L);
+        verify(mapper).markAttemptSuccess(successResult());
         verify(mapper, never()).markTargetSuccessFromAttempt(501L, 9001L, 1783159200000L);
         verify(mapper, never()).markTargetFailedFromAttempt(501L, 9001L, null, null, 1783159200000L);
         verify(mapper, never()).selectSuccessfulAttemptGroupJid(42L, 9001L);
@@ -126,8 +137,7 @@ class MarketingSendResultServiceImplTest {
     @Test
     void laterSuccessfulAttemptForCountedGroupDoesNotIncrementGroupCount() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L)).thenReturn(1);
+        when(mapper.markAttemptSuccess(successResult())).thenReturn(1);
         when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
         when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(0);
 
@@ -145,8 +155,7 @@ class MarketingSendResultServiceImplTest {
         logger.addAppender(appender);
         try {
             ProtocolMessageSendResultReportedEvent event = event(true);
-            when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                    "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L)).thenReturn(1);
+            when(mapper.markAttemptSuccess(successResult())).thenReturn(1);
             when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn(null);
 
             service.handleSendResultReported(event);
@@ -165,8 +174,7 @@ class MarketingSendResultServiceImplTest {
     @Test
     void successfulGroupFactRollsBackWhenTaskCounterCannotBeUpdated() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                "NORMAL", "GROUP_SEND_ALLOWED", 1783159199000L, 1783159200000L)).thenReturn(1);
+        when(mapper.markAttemptSuccess(successResult())).thenReturn(1);
         when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
         when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
         when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(0);
@@ -186,8 +194,7 @@ class MarketingSendResultServiceImplTest {
 
         verify(groupCreationMapper).markItemSuccessByCommandId(
                 11L, "cmd_gcm_item_11", "120363001@g.us", "wamid.1", 1783159200000L);
-        verify(mapper, never()).markAttemptSuccess(9001L, "wamid.1", "120363001@g.us",
-                null, null, null, 1783159200000L);
+        verify(mapper, never()).markAttemptSuccess(org.mockito.ArgumentMatchers.any());
         verify(mapper, never()).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
     }
 
@@ -207,9 +214,9 @@ class MarketingSendResultServiceImplTest {
                 item, task, "cmd_gcm_item_11", "SEND_FAILED", "rate limited", 1783159200000L);
         verify(groupCreationMapper, never()).markItemFailedByCommandId(
                 11L, "cmd_gcm_item_11", "SEND_FAILED", "rate limited", 1783159200000L);
-        verify(mapper, never()).markAttemptFailed(9001L, "SEND_FAILED", "rate limited",
-                "120363001@g.us", null, null, null, 1783159200000L);
+        verify(mapper, never()).markAttemptFailed(org.mockito.ArgumentMatchers.any());
         verify(mapper, never()).incrementTaskSendCounters(42L, 0, 1, 1783159200000L);
+        verify(immediateRetryService, never()).retryIfEligible(event, 1783159200000L);
     }
 
     @Test
@@ -288,6 +295,34 @@ class MarketingSendResultServiceImplTest {
                 null);
     }
 
+    private static MarketingSendAttemptResult successResult() {
+        return new MarketingSendAttemptResult(
+                9_001L,
+                "cmd_1",
+                "wamid.1",
+                null,
+                null,
+                "120363001@g.us",
+                "NORMAL",
+                "GROUP_SEND_ALLOWED",
+                1_783_159_199_000L,
+                1_783_159_200_000L);
+    }
+
+    private static MarketingSendAttemptResult failedResult() {
+        return new MarketingSendAttemptResult(
+                9_001L,
+                "cmd_1",
+                null,
+                "SEND_FAILED",
+                "rate limited",
+                "120363001@g.us",
+                "BANNED",
+                "CHAT_SUSPENDED",
+                1_783_159_198_000L,
+                1_783_159_200_000L);
+    }
+
     private static ProtocolMessageSendResultReportedEvent failedEvent() {
         return new ProtocolMessageSendResultReportedEvent(
                 "evt_1",
@@ -313,6 +348,34 @@ class MarketingSendResultServiceImplTest {
                 1783159198000L,
                 null,
                 null);
+    }
+
+    private static ProtocolMessageSendResultReportedEvent immediateFailedEvent() {
+        ProtocolMessageSendResultReportedEvent event = failedEvent();
+        return new ProtocolMessageSendResultReportedEvent(
+                event.eventId(),
+                event.tenantId(),
+                event.marketingTaskId(),
+                event.targetId(),
+                event.attemptId(),
+                0L,
+                event.protocolAccountId(),
+                event.groupJid(),
+                event.commandId(),
+                event.success(),
+                event.messageId(),
+                event.reasonCode(),
+                event.reasonMessage(),
+                event.timestamp(),
+                event.workerId(),
+                event.groupCreationTaskId(),
+                event.groupCreationItemId(),
+                event.source(),
+                event.groupStatus(),
+                event.groupStatusReason(),
+                event.groupStatusCheckedAt(),
+                event.historicalExecutionId(),
+                event.historicalMemberId());
     }
 
     private static ProtocolMessageSendResultReportedEvent groupCreationEvent(boolean success) {

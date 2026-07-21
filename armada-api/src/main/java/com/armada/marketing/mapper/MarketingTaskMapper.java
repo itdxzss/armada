@@ -5,6 +5,7 @@ import com.armada.marketing.model.dto.MarketingTaskQuery;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
+import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
@@ -32,6 +33,16 @@ public interface MarketingTaskMapper {
 
     /** 按任务 ID 查目标明细。 */
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
+
+    /**
+     * 查询账号当前占用的发送中账号动态 target。
+     *
+     * @param accountId 账号 ID
+     * @param now       检测时间(epoch 毫秒)
+     * @return 当前占用任务的账号动态 target；没有匹配时返回 null
+     */
+    MarketingTaskTarget selectOwnedSendingDynamicTarget(@Param("accountId") Long accountId,
+                                                        @Param("now") long now);
 
     /** 从真实发送记录按账号+群组聚合营销明细。 */
     List<MarketingTaskAccountGroupStatRow> selectAccountGroupStatsByTaskId(@Param("taskId") Long taskId);
@@ -72,24 +83,28 @@ public interface MarketingTaskMapper {
     /** 插入单个发送尝试并回填 id。 */
     int insertSendAttempt(MarketingTaskSendAttempt attempt);
 
+    /** 按 ID 查询发送尝试，供即时发送结果判断是否仍可重试。 */
+    MarketingTaskSendAttempt selectSendAttemptById(@Param("attemptId") Long attemptId);
+
+    /** 按 ID 查询目标及账号当前协议路由事实。 */
+    MarketingTaskTarget selectTargetById(@Param("targetId") Long targetId);
+
+    /** 把首次即时 attempt 原子切换为第二次提交，并替换当前 commandId。 */
+    int resubmitImmediateAttempt(@Param("attemptId") Long attemptId,
+                                 @Param("expectedCommandId") String expectedCommandId,
+                                 @Param("newCommandId") String newCommandId,
+                                 @Param("submittedAt") long submittedAt);
+
+    /** 在即时 attempt 已切换到第二次提交后累计 target 重试次数。 */
+    int incrementTargetRetryCount(@Param("targetId") Long targetId,
+                                  @Param("attemptId") Long attemptId,
+                                  @Param("updatedAt") long updatedAt);
+
     /** 协议层成功结果幂等回写。 */
-    int markAttemptSuccess(@Param("attemptId") Long attemptId,
-                           @Param("messageId") String messageId,
-                           @Param("groupJid") String groupJid,
-                           @Param("groupStatus") String groupStatus,
-                           @Param("groupStatusReason") String groupStatusReason,
-                           @Param("groupStatusCheckedAt") Long groupStatusCheckedAt,
-                           @Param("resultAt") long resultAt);
+    int markAttemptSuccess(MarketingSendAttemptResult result);
 
     /** 协议层失败结果幂等回写。 */
-    int markAttemptFailed(@Param("attemptId") Long attemptId,
-                          @Param("reasonCode") String reasonCode,
-                          @Param("reasonMessage") String reasonMessage,
-                          @Param("groupJid") String groupJid,
-                          @Param("groupStatus") String groupStatus,
-                          @Param("groupStatusReason") String groupStatusReason,
-                          @Param("groupStatusCheckedAt") Long groupStatusCheckedAt,
-                          @Param("resultAt") long resultAt);
+    int markAttemptFailed(MarketingSendAttemptResult result);
 
     /**
      * 读取成功发送尝试最终持久化的非空群 JID。

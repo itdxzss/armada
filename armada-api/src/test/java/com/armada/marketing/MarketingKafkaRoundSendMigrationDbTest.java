@@ -48,6 +48,18 @@ class MarketingKafkaRoundSendMigrationDbTest extends DbTestBase {
         assertThat(indexExists("marketing_task_send_attempt", "uq_marketing_task_attempt_group_round")).isTrue();
     }
 
+    @Test
+    void marketingAttemptRoundCommentReservesZeroForImmediateNewGroupSend() {
+        String comment = jdbc.queryForObject(
+                "SELECT column_comment FROM information_schema.columns "
+                        + "WHERE table_schema = DATABASE() "
+                        + "AND table_name = 'marketing_task_send_attempt' "
+                        + "AND column_name = 'round_no'",
+                String.class);
+
+        assertThat(comment).isEqualTo("营销轮次:0=新群首次即时发送 1+=正常任务轮次");
+    }
+
     private String columnType(String tableName, String columnName) {
         return jdbc.queryForObject(
                 "SELECT data_type FROM information_schema.columns "

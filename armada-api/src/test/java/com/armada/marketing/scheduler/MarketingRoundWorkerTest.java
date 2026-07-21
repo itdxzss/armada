@@ -16,8 +16,10 @@ import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
+import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.marketing.service.MarketingMessageCommandFactory;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
@@ -41,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -69,7 +72,7 @@ class MarketingRoundWorkerTest {
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         assignAttemptIds(taskMapper, 9_800L);
-        when(taskMapper.markAttemptFailed(eq(9_802L), any(), any(), any(), any(), any(), any(), anyLong()))
+        when(taskMapper.markAttemptFailed(any(MarketingSendAttemptResult.class)))
                 .thenReturn(1);
         when(messageSendPort.enqueue(any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -88,10 +91,8 @@ class MarketingRoundWorkerTest {
         when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithTwoLinks());
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
-                templateMapper,
-                fileMapper,
                 defaultOccupancyService(),
-                new MarketingMessageComposer(),
+                messageFactory(templateMapper, fileMapper),
                 messageSendPort,
                 properties,
                 Clock.systemUTC());
@@ -107,15 +108,12 @@ class MarketingRoundWorkerTest {
         assertThat(commandsCaptor.getValue())
                 .extracting(command -> command.account().wsPhone())
                 .containsExactly("923000001", "923000002");
-        verify(taskMapper).markAttemptFailed(
-                eq(9_802L),
-                eq("INVALID_ANDROID_BUTTON_CONFIG"),
-                contains("按钮数量"),
-                eq(targets.get(1).getGroupJid()),
-                eq(null),
-                eq(null),
-                eq(null),
-                anyLong());
+        verify(taskMapper).markAttemptFailed(argThat(result ->
+                Long.valueOf(9_802L).equals(result.attemptId())
+                        && result.commandId().startsWith("cmd_")
+                        && "INVALID_ANDROID_BUTTON_CONFIG".equals(result.reasonCode())
+                        && result.reasonMessage().contains("按钮数量")
+                        && targets.get(1).getGroupJid().equals(result.groupJid())));
         verify(taskMapper).markTargetFailedFromAttempt(
                 eq(targets.get(1).getId()),
                 eq(9_802L),
@@ -530,8 +528,13 @@ class MarketingRoundWorkerTest {
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(imageTemplate());
         when(fileMapper.selectById(88L)).thenReturn(imageFile());
-        MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                defaultOccupancyService(),
+                messageFactory(templateMapper, fileMapper),
+                outbox,
+                properties,
+                Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -570,8 +573,13 @@ class MarketingRoundWorkerTest {
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(normalLinkCardTemplate());
         when(fileMapper.selectById(88L)).thenReturn(imageFile());
-        MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                defaultOccupancyService(),
+                messageFactory(templateMapper, fileMapper),
+                outbox,
+                properties,
+                Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -609,8 +617,13 @@ class MarketingRoundWorkerTest {
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithButtons());
-        MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                defaultOccupancyService(),
+                messageFactory(templateMapper, fileMapper),
+                outbox,
+                properties,
+                Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -650,8 +663,13 @@ class MarketingRoundWorkerTest {
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(invalidButtonTemplate());
-        MarketingRoundWorker worker = new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                defaultOccupancyService(), new MarketingMessageComposer(), outbox, properties, Clock.systemUTC());
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                defaultOccupancyService(),
+                messageFactory(templateMapper, fileMapper),
+                outbox,
+                properties,
+                Clock.systemUTC());
 
         worker.runRound(1L, 42L);
 
@@ -691,8 +709,22 @@ class MarketingRoundWorkerTest {
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(template());
-        return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                occupancyService, new MarketingMessageComposer(), outbox, properties, clock);
+        return new MarketingRoundWorker(
+                taskMapper,
+                occupancyService,
+                messageFactory(templateMapper, fileMapper),
+                outbox,
+                properties,
+                clock);
+    }
+
+    private static MarketingMessageCommandFactory messageFactory(
+            MarketingTemplateMapper templateMapper,
+            MarketingTemplateFileMapper fileMapper) {
+        return new MarketingMessageCommandFactory(
+                templateMapper,
+                fileMapper,
+                new MarketingMessageComposer());
     }
 
     private static MarketingAccountOccupancyService defaultOccupancyService() {

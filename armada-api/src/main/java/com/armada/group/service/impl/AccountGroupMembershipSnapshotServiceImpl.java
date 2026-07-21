@@ -10,14 +10,18 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -60,7 +64,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     }
 
     @Override
-    public List<AccountGroupMembershipSnapshot> replaceVisibleGroups(
+    public AccountGroupMembershipChangeSet replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
             long syncAt,
@@ -70,21 +74,35 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             throw new BusinessException(ErrorCode.VALIDATION, "账号群关系写入缺少 accountId");
         }
         long now = System.currentTimeMillis();
+        List<String> activeGroupJids = membershipMapper.selectActiveGroupJids(accountId);
+        Set<String> previousActive = activeGroupJids == null
+                ? Set.of()
+                : activeGroupJids.stream()
+                        .map(AccountGroupMembershipSnapshotServiceImpl::normalizeJid)
+                        .filter(java.util.Objects::nonNull)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<String, AccountGroupsReportedEvent.Group> visibleGroups = normalizeVisibleGroups(groups);
         List<AccountGroupMembershipSnapshot> snapshots = new ArrayList<>();
+        List<AccountGroupMembershipSnapshot> added = new ArrayList<>();
         for (Map.Entry<String, AccountGroupsReportedEvent.Group> entry : visibleGroups.entrySet()) {
             String groupJid = entry.getKey();
             AccountGroupsReportedEvent.Group group = entry.getValue();
             Long groupLinkId = ensureGroupLink(groupJid, group, now);
             persistSnapshots(groupLinkId, groupJid, group, syncAt, now);
             upsertMembership(accountId, groupLinkId, groupJid, group, syncAt, now);
-            snapshots.add(toSnapshot(groupLinkId, groupJid, group));
+            AccountGroupMembershipSnapshot snapshot = toSnapshot(groupLinkId, groupJid, group);
+            snapshots.add(snapshot);
+            if (!previousActive.contains(groupJid)) {
+                added.add(snapshot);
+            }
         }
         int deleted = membershipMapper.markMissingMembershipsDeleted(accountId, List.copyOf(visibleGroups.keySet()), now);
         log.info("账号可见群关系快照已刷新 eventId={} source={} accountId={} visibleGroups={} "
-                        + "visibleGroupJidSample={} deleted={} syncAt={}",
-                eventId, source, accountId, visibleGroups.size(), jidSample(visibleGroups.keySet()), deleted, syncAt);
-        return snapshots;
+                        + "addedGroups={} addedGroupJidSample={} visibleGroupJidSample={} deleted={} syncAt={}",
+                eventId, source, accountId, visibleGroups.size(), added.size(), jidSample(
+                        added.stream().map(AccountGroupMembershipSnapshot::groupJid).toList()),
+                jidSample(visibleGroups.keySet()), deleted, syncAt);
+        return new AccountGroupMembershipChangeSet(snapshots, added);
     }
 
     /**

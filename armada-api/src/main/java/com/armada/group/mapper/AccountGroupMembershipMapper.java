@@ -45,6 +45,14 @@ public interface AccountGroupMembershipMapper {
                                     @Param("now") long now);
 
     /**
+     * 查询账号刷新前仍活跃的群 JID。
+     *
+     * @param accountId 账号 ID
+     * @return 当前活跃群 JID，按关系创建顺序排列
+     */
+    List<String> selectActiveGroupJids(@Param("accountId") Long accountId);
+
+    /**
      * 按群 JID 查租户内活跃 group_link。
      *
      * @param groupJid WhatsApp 群 JID

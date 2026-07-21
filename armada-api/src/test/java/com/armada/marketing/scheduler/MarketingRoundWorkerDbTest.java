@@ -4,6 +4,7 @@ import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.service.MarketingMessageCommandFactory;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
@@ -103,8 +104,17 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
-        return new MarketingRoundWorker(taskMapper, templateMapper, fileMapper,
-                occupancyService, new MarketingMessageComposer(), messageSendPort, properties, Clock.systemUTC());
+        MarketingMessageCommandFactory messageFactory = new MarketingMessageCommandFactory(
+                templateMapper,
+                fileMapper,
+                new MarketingMessageComposer());
+        return new MarketingRoundWorker(
+                taskMapper,
+                occupancyService,
+                messageFactory,
+                messageSendPort,
+                properties,
+                Clock.systemUTC());
     }
 
     private MessageSendPort recordingOutbox(List<List<MessageSendCommand>> batches) {

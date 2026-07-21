@@ -10,6 +10,8 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
+import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -46,5 +48,37 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         ArgumentCaptor<GroupLink> captor = ArgumentCaptor.forClass(GroupLink.class);
         Mockito.verify(groupLinkMapper).insert(captor.capture());
         assertEquals(groupJid, captor.getValue().getGroupName());
+    }
+
+    @Test
+    void replaceVisibleGroups_returnsOnlyGroupsMissingBeforeRefreshAsAdded() {
+        when(membershipMapper.selectActiveGroupJids(10L))
+                .thenReturn(List.of("120363old@g.us"));
+        when(membershipMapper.selectActiveGroupLinkIdByGroupJid("120363old@g.us"))
+                .thenReturn(11L);
+        when(membershipMapper.selectActiveGroupLinkIdByGroupJid("120363new@g.us"))
+                .thenReturn(12L);
+
+        AccountGroupMembershipChangeSet result = service.replaceVisibleGroups(
+                10L,
+                List.of(
+                        group("120363old@g.us", "旧群"),
+                        group("120363new@g.us", "新群"),
+                        group("120363new@g.us", "重复新群")),
+                1783785600000L,
+                "evt-added",
+                "wa_groups_dirty");
+
+        org.assertj.core.api.Assertions.assertThat(result.currentGroups())
+                .extracting(AccountGroupMembershipSnapshot::groupJid)
+                .containsExactly("120363old@g.us", "120363new@g.us");
+        org.assertj.core.api.Assertions.assertThat(result.addedGroups())
+                .extracting(AccountGroupMembershipSnapshot::groupJid)
+                .containsExactly("120363new@g.us");
+    }
+
+    private static AccountGroupsReportedEvent.Group group(String jid, String subject) {
+        return new AccountGroupsReportedEvent.Group(
+                jid, subject, null, null, null, false, false, null);
     }
 }

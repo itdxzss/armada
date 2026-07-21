@@ -1,24 +1,20 @@
 package com.armada.marketing.scheduler;
 
 import com.armada.marketing.mapper.MarketingTaskMapper;
-import com.armada.marketing.mapper.MarketingTemplateFileMapper;
-import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
-import com.armada.marketing.model.entity.MarketingTemplate;
-import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
+import com.armada.marketing.model.support.MarketingResolvedTarget;
+import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.marketing.service.MarketingMessageCommandFactory;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
-import com.armada.platform.protocol.model.command.ProtocolAccountRef;
-import com.armada.platform.protocol.model.enums.MessageType;
-import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
@@ -30,7 +26,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,16 +44,12 @@ import org.springframework.util.StringUtils;
 @Profile("kafka")
 public class MarketingRoundWorker {
     private static final Logger log = LoggerFactory.getLogger(MarketingRoundWorker.class);
-    private static final String SOURCE_MARKETING_TASK = "marketing_task";
     private static final String REASON_INVALID_TEMPLATE_CONFIG = "INVALID_TEMPLATE_CONFIG";
     private static final String REASON_ACCOUNT_OCCUPIED = "ACCOUNT_OCCUPIED";
-    private static final int DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS = 500;
 
     private final MarketingTaskMapper taskMapper;
-    private final MarketingTemplateMapper templateMapper;
-    private final MarketingTemplateFileMapper fileMapper;
     private final MarketingAccountOccupancyService occupancyService;
-    private final MarketingMessageComposer messageComposer;
+    private final MarketingMessageCommandFactory messageFactory;
     private final MessageSendPort messageSendPort;
     private final MarketingRoundSchedulerProperties properties;
     private final Clock clock;
@@ -67,18 +58,14 @@ public class MarketingRoundWorker {
      * 注入营销任务轮次所需的数据访问、消息组装、outbox、调度配置和系统时钟。
      */
     public MarketingRoundWorker(MarketingTaskMapper taskMapper,
-                                MarketingTemplateMapper templateMapper,
-                                MarketingTemplateFileMapper fileMapper,
                                 MarketingAccountOccupancyService occupancyService,
-                                MarketingMessageComposer messageComposer,
+                                MarketingMessageCommandFactory messageFactory,
                                 MessageSendPort messageSendPort,
                                 MarketingRoundSchedulerProperties properties,
                                 Clock clock) {
         this.taskMapper = taskMapper;
-        this.templateMapper = templateMapper;
-        this.fileMapper = fileMapper;
         this.occupancyService = occupancyService;
-        this.messageComposer = messageComposer;
+        this.messageFactory = messageFactory;
         this.messageSendPort = messageSendPort;
         this.properties = properties;
         this.clock = clock;
@@ -139,7 +126,7 @@ public class MarketingRoundWorker {
             log.warn("营销任务轮次跳过:没有目标 tenantId={} taskId={}", task.getTenantId(), task.getId());
             return;
         }
-        List<ResolvedMarketingTarget> resolvedTargets = resolveSendTargets(task, targets);
+        List<MarketingResolvedTarget> resolvedTargets = resolveSendTargets(task, targets);
         if (resolvedTargets.isEmpty()) {
             now = clock.millis();
             if (endExpiredTaskIfNeeded(task, now)) {
@@ -154,7 +141,7 @@ public class MarketingRoundWorker {
         Map<Long, MarketingAccountOccupancyOwnerRow> owners =
                 occupancyService.acquireAndLoadTaskAccounts(task, now);
         TargetPartition partition = partitionTargets(task, resolvedTargets, owners);
-        List<ResolvedMarketingTarget> sendTargets = partition.sendableTargets();
+        List<MarketingResolvedTarget> sendTargets = partition.sendableTargets();
         long unfinished = sendTargets.isEmpty() ? 0L : taskMapper.countUnfinishedAttempts(taskId);
         // 目标解析和积压查询可能跨过结束时间;抢占轮次前必须使用新时间再次关闸。
         now = clock.millis();
@@ -189,7 +176,7 @@ public class MarketingRoundWorker {
                                      long now,
                                      long nextRoundAt) {
         List<MarketingTaskSendAttempt> skippedAttempts = occupiedAttempts(task, partition.occupiedTargets(), roundNo, now);
-        List<ResolvedMarketingTarget> sendTargets = partition.sendableTargets();
+        List<MarketingResolvedTarget> sendTargets = partition.sendableTargets();
         if (sendTargets.isEmpty()) {
             insertAttempts(skippedAttempts, "营销账号占用跳过尝试");
             log.info("营销任务本轮账号均被占用 tenantId={} taskId={} roundNo={} skipped={} nextRoundAt={}",
@@ -197,14 +184,13 @@ public class MarketingRoundWorker {
             return;
         }
 
-        MarketingTemplate template = requireTemplate(task.getMarketingTemplateId());
-        MarketingTemplateFile imageFile = template.getImageFileId() == null
-                ? null
-                : fileMapper.selectById(template.getImageFileId());
         MarketingMessageComposer.ComposedMessage message;
         try {
-            message = messageComposer.compose(template, imageFile);
+            message = messageFactory.composeTaskMessage(task);
         } catch (BusinessException ex) {
+            if (ex.getCode() == ErrorCode.NOT_FOUND.code()) {
+                throw ex;
+            }
             insertAttempts(skippedAttempts, "营销账号占用跳过尝试");
             recordLocalFailedAttempts(task, sendTargets, roundNo, now, ex.getMessage());
             log.warn("营销任务模板配置错误,本轮不下发协议命令 tenantId={} taskId={} roundNo={} "
@@ -215,7 +201,7 @@ public class MarketingRoundWorker {
         }
 
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
-        for (ResolvedMarketingTarget sendTarget : sendTargets) {
+        for (MarketingResolvedTarget sendTarget : sendTargets) {
             attempts.add(toAttempt(task, sendTarget, roundNo, now));
         }
         List<MarketingTaskSendAttempt> allAttempts = new ArrayList<>(skippedAttempts.size() + attempts.size());
@@ -249,10 +235,12 @@ public class MarketingRoundWorker {
      * 把任务 target 解析成本轮真实要发送的群列表。
      *
      * <p>固定群组 target 使用任务创建时保存的群快照;账号动态 target 会展开成当前账号下的 0 到多条群。
-     * 后续 attempt 和 outbox 只消费 {@link ResolvedMarketingTarget},避免再关心目标来源维度。</p>
+     * 后续 attempt 和 outbox 只消费 {@link MarketingResolvedTarget},避免再关心目标来源维度。</p>
      */
-    private List<ResolvedMarketingTarget> resolveSendTargets(MarketingTask task, List<MarketingTaskTarget> targets) {
-        List<ResolvedMarketingTarget> sendTargets = new ArrayList<>();
+    private List<MarketingResolvedTarget> resolveSendTargets(
+            MarketingTask task,
+            List<MarketingTaskTarget> targets) {
+        List<MarketingResolvedTarget> sendTargets = new ArrayList<>();
         for (MarketingTaskTarget target : targets) {
             if (isAccountDynamicTarget(target)) {
                 appendAccountDynamicSendTargets(task, target, sendTargets);
@@ -269,13 +257,15 @@ public class MarketingRoundWorker {
      * <p>固定群组语义是“用户明确选择哪些群就发哪些群”,所以发送时直接使用任务创建时保存的群快照,
      * 不再查询账号当前 membership。</p>
      */
-    private void appendFixedGroupSendTarget(MarketingTaskTarget target, List<ResolvedMarketingTarget> sendTargets) {
+    private void appendFixedGroupSendTarget(
+            MarketingTaskTarget target,
+            List<MarketingResolvedTarget> sendTargets) {
         if (!StringUtils.hasText(target.getGroupJid())) {
             log.warn("营销固定群目标缺少groupJid,本轮跳过 tenantId={} taskId={} targetId={} accountId={}",
                     target.getTenantId(), target.getMarketingTaskId(), target.getId(), target.getAccountId());
             return;
         }
-        sendTargets.add(new ResolvedMarketingTarget(target, target.getGroupLinkId(),
+        sendTargets.add(new MarketingResolvedTarget(target, target.getGroupLinkId(),
                 target.getGroupJid(), target.getGroupName()));
     }
 
@@ -287,7 +277,7 @@ public class MarketingRoundWorker {
      */
     private void appendAccountDynamicSendTargets(MarketingTask task,
                                                  MarketingTaskTarget target,
-                                                 List<ResolvedMarketingTarget> sendTargets) {
+                                                 List<MarketingResolvedTarget> sendTargets) {
         List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(
                 target.getAccountId(), task.getAccountGroupSendAt());
         if (groups.isEmpty()) {
@@ -299,7 +289,7 @@ public class MarketingRoundWorker {
             if (!StringUtils.hasText(group.getGroupJid())) {
                 continue;
             }
-            sendTargets.add(new ResolvedMarketingTarget(target, group.getGroupLinkId(),
+            sendTargets.add(new MarketingResolvedTarget(target, group.getGroupLinkId(),
                     group.getGroupJid(), group.getGroupName()));
         }
     }
@@ -312,11 +302,11 @@ public class MarketingRoundWorker {
     /** 按账号当前租约把本轮实际群目标拆成可发送和占用跳过两部分。 */
     private static TargetPartition partitionTargets(
             MarketingTask task,
-            List<ResolvedMarketingTarget> resolvedTargets,
+            List<MarketingResolvedTarget> resolvedTargets,
             Map<Long, MarketingAccountOccupancyOwnerRow> owners) {
-        List<ResolvedMarketingTarget> sendable = new ArrayList<>();
+        List<MarketingResolvedTarget> sendable = new ArrayList<>();
         List<OccupiedMarketingTarget> occupied = new ArrayList<>();
-        for (ResolvedMarketingTarget target : resolvedTargets) {
+        for (MarketingResolvedTarget target : resolvedTargets) {
             MarketingAccountOccupancyOwnerRow owner = owners.get(target.target().getAccountId());
             if (owner != null && task.getId().equals(owner.getMarketingTaskId())) {
                 sendable.add(target);
@@ -359,15 +349,6 @@ public class MarketingRoundWorker {
         }
     }
 
-    /** 模板在轮次执行时必须存在;否则本轮应整体回滚并等待人工修正任务配置。 */
-    private MarketingTemplate requireTemplate(Long templateId) {
-        MarketingTemplate template = templateMapper.selectById(templateId);
-        if (template == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + templateId);
-        }
-        return template;
-    }
-
     /**
      * 构造一条已提交状态的发送 attempt。
      *
@@ -375,7 +356,7 @@ public class MarketingRoundWorker {
      * commandId 在这里预生成,随后带入协议 outbox 建立一一对应关系。</p>
      */
     private MarketingTaskSendAttempt toAttempt(MarketingTask task,
-                                               ResolvedMarketingTarget sendTarget,
+                                               MarketingResolvedTarget sendTarget,
                                                long roundNo,
                                                long now) {
         MarketingTaskSendAttempt attempt = new MarketingTaskSendAttempt();
@@ -387,7 +368,7 @@ public class MarketingRoundWorker {
         attempt.setRoundNo(roundNo);
         attempt.setAttemptNo(1);
         attempt.setRetry(false);
-        attempt.setCommandId(newCommandId());
+        attempt.setCommandId(messageFactory.newCommandId());
         attempt.setStatus(MarketingSendAttemptStatus.SUBMITTED.code());
         attempt.setSubmittedAt(now);
         attempt.setAttemptedAt(now);
@@ -399,12 +380,12 @@ public class MarketingRoundWorker {
      * 历史脏数据可能绕过保存期校验。这里本地记录失败,避免继续下发“看似成功但按钮丢失”的纯文本消息。
      */
     private void recordLocalFailedAttempts(MarketingTask task,
-                                           List<ResolvedMarketingTarget> sendTargets,
+                                           List<MarketingResolvedTarget> sendTargets,
                                            long roundNo,
                                            long now,
                                            String reasonMessage) {
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
-        for (ResolvedMarketingTarget sendTarget : sendTargets) {
+        for (MarketingResolvedTarget sendTarget : sendTargets) {
             MarketingTaskSendAttempt attempt = toAttempt(task, sendTarget, roundNo, now);
             attempt.setStatus(MarketingSendAttemptStatus.FAILED.code());
             attempt.setReasonCode(REASON_INVALID_TEMPLATE_CONFIG);
@@ -431,12 +412,12 @@ public class MarketingRoundWorker {
      * 保证 attempt 与协议命令可以一一对应。</p>
      */
     private EnqueueSummary enqueueCommands(MarketingTask task,
-                                           List<ResolvedMarketingTarget> sendTargets,
+                                           List<MarketingResolvedTarget> sendTargets,
                                            List<MarketingTaskSendAttempt> attempts,
                                            MarketingMessageComposer.ComposedMessage message,
                                            long roundStartedAt) {
         int batchSize = outboxBatchSize(message);
-        int dispatchIntervalMs = accountGroupSendIntervalMs(task);
+        int dispatchIntervalMs = messageFactory.accountGroupSendIntervalMs(task);
         Map<Long, Integer> accountPositions = new HashMap<>();
         List<MessageSendCommand> batch = new ArrayList<>(batchSize);
         List<MarketingTaskSendAttempt> batchAttempts = new ArrayList<>(batchSize);
@@ -446,13 +427,13 @@ public class MarketingRoundWorker {
         int rejectedCount = 0;
         long resultAt = clock.millis();
         for (int i = 0; i < attempts.size(); i++) {
-            ResolvedMarketingTarget sendTarget = sendTargets.get(i);
+            MarketingResolvedTarget sendTarget = sendTargets.get(i);
             MarketingTaskTarget target = sendTarget.target();
             MarketingTaskSendAttempt attempt = attempts.get(i);
             int accountPosition = accountPositions.getOrDefault(target.getAccountId(), 0);
             accountPositions.put(target.getAccountId(), accountPosition + 1);
             long notBeforeAt = roundStartedAt + (long) accountPosition * dispatchIntervalMs;
-            batch.add(toMessageSendCommand(task, sendTarget, attempt, message, notBeforeAt));
+            batch.add(messageFactory.toCommand(task, sendTarget, attempt, message, notBeforeAt));
             batchAttempts.add(attempt);
             if (batch.size() == batchSize) {
                 BatchResult result = enqueueBatch(batch, batchAttempts, resultAt);
@@ -498,8 +479,10 @@ public class MarketingRoundWorker {
                 accepted++;
                 continue;
             }
-            int updated = taskMapper.markAttemptFailed(
+            MarketingSendAttemptResult attemptResult = new MarketingSendAttemptResult(
                     attempt.getId(),
+                    attempt.getCommandId(),
+                    null,
                     item.reasonCode(),
                     item.reasonMessage(),
                     attempt.getGroupJid(),
@@ -507,6 +490,7 @@ public class MarketingRoundWorker {
                     null,
                     null,
                     resultAt);
+            int updated = taskMapper.markAttemptFailed(attemptResult);
             if (updated > 0) {
                 taskMapper.markTargetFailedFromAttempt(
                         attempt.getTargetId(),
@@ -520,120 +504,16 @@ public class MarketingRoundWorker {
         return new BatchResult(accepted, rejected);
     }
 
-    /** 把营销域已组合消息转换为协议无关发送命令。 */
-    private static MessageSendCommand toMessageSendCommand(
-            MarketingTask task,
-            ResolvedMarketingTarget sendTarget,
-            MarketingTaskSendAttempt attempt,
-            MarketingMessageComposer.ComposedMessage message,
-            long notBeforeAt) {
-        MarketingTaskTarget target = sendTarget.target();
-        return new MessageSendCommand(
-                accountRef(target),
-                new MessageSendCommand.MessageTarget(sendTarget.groupJid()),
-                new MessageSendCommand.MessagePayload(
-                        MessageType.valueOf(message.messageType()),
-                        new MessageSendCommand.MessageContent(
-                                message.text(),
-                                mediaPayload(message.imageBytes(), message.imageMimetype()),
-                                linkCardPayload(message.linkCard()),
-                                buttonCardPayload(message.buttonCard())),
-                        message.mentionAll()),
-                new MessageSendCommand.MessageCorrelation(
-                        task.getTenantId(),
-                        SOURCE_MARKETING_TASK,
-                        new MessageSendCommand.MarketingCorrelation(
-                                task.getId(), target.getId(), attempt.getId(), attempt.getRoundNo()),
-                        null,
-                        null),
-                attempt.getCommandId(),
-                accountGroupSendIntervalMs(task),
-                notBeforeAt);
-    }
-
-    private static int accountGroupSendIntervalMs(MarketingTask task) {
-        Integer intervalMs = task.getAccountGroupSendIntervalMs();
-        return intervalMs == null || intervalMs < 1 ? DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS : intervalMs;
-    }
-
     /**
      * 计算本轮协议 outbox 批大小。
      *
      * <p>图片消息体更大,默认使用单独配置;最终值限制在 1 到 500,避免错误配置造成空批或超大事务。</p>
      */
     private int outboxBatchSize(MarketingMessageComposer.ComposedMessage message) {
-        int configured = hasLargeMediaPayload(message)
+        int configured = messageFactory.hasLargeMediaPayload(message)
                 ? properties.getImageOutboxBatchSize()
                 : properties.getOutboxBatchSize();
         return Math.max(1, Math.min(500, configured));
-    }
-
-    private static MessageSendCommand.MessageLinkCard linkCardPayload(
-            MarketingMessageComposer.LinkCardPayload linkCard) {
-        if (linkCard == null) {
-            return null;
-        }
-        return new MessageSendCommand.MessageLinkCard(
-                linkCard.url(),
-                linkCard.title(),
-                linkCard.description(),
-                mediaPayload(linkCard.thumbnail()));
-    }
-
-    private static MessageSendCommand.MessageButtonCard buttonCardPayload(
-            MarketingMessageComposer.ButtonCardPayload buttonCard) {
-        if (buttonCard == null) {
-            return null;
-        }
-        return new MessageSendCommand.MessageButtonCard(
-                buttonCard.title(),
-                buttonCard.footer(),
-                buttonCard.buttons().stream()
-                        .map(button -> new MessageSendCommand.MessageButton(
-                                button.type(), button.displayText(), button.value()))
-                        .toList(),
-                mediaPayload(buttonCard.thumbnail()));
-    }
-
-    private static MessageSendCommand.MessageMedia mediaPayload(
-            MarketingMessageComposer.MediaPayload media) {
-        if (media == null || media.bytes() == null || media.bytes().length == 0) {
-            return null;
-        }
-        return new MessageSendCommand.MessageMedia(media.bytes(), media.mimetype());
-    }
-
-    private static MessageSendCommand.MessageMedia mediaPayload(byte[] bytes, String mimetype) {
-        if (bytes == null || bytes.length == 0) {
-            return null;
-        }
-        return new MessageSendCommand.MessageMedia(bytes, mimetype);
-    }
-
-    private static boolean hasLargeMediaPayload(MarketingMessageComposer.ComposedMessage message) {
-        return "IMAGE".equals(message.messageType())
-                || (message.linkCard() != null && message.linkCard().thumbnail() != null)
-                || (message.buttonCard() != null && message.buttonCard().thumbnail() != null);
-    }
-
-    /** 使用账号表当前事实构造协议账号引用，不从协议句柄反推手机号。 */
-    private static ProtocolAccountRef accountRef(MarketingTaskTarget target) {
-        if (!StringUtils.hasText(target.getProtocolAccountId())
-                || !StringUtils.hasText(target.getProtocolWsPhone())) {
-            throw new BusinessException(
-                    ErrorCode.VALIDATION,
-                    "营销目标缺少协议账号事实: targetId=" + target.getId());
-        }
-        return new ProtocolAccountRef(
-                target.getAccountId(),
-                ProtocolBackend.fromProtocolId(target.getProtocolId()),
-                target.getProtocolAccountId(),
-                target.getProtocolWsPhone());
-    }
-
-    /** 预生成 commandId,让 attempt 行和协议 outbox 行在同一事务里建立可追踪关系。 */
-    private static String newCommandId() {
-        return "cmd_" + UUID.randomUUID().toString().replace("-", "");
     }
 
     /** 无效间隔兜底为 30 秒,避免后台异常配置导致轮次紧循环。 */
@@ -647,27 +527,15 @@ public class MarketingRoundWorker {
         return message.imageBytes() == null ? 0 : message.imageBytes().length;
     }
 
-    /**
-     * 一条库里的 target 在本轮解析出来的实际发送目标。
-     *
-     * <p>固定群组 target 会解析成一条;账号动态 target 可能解析成 0 到多条。</p>
-     */
-    private record ResolvedMarketingTarget(
-            MarketingTaskTarget target,
-            Long groupLinkId,
-            String groupJid,
-            String groupName) {
-    }
-
     /** 本轮因账号当前属于其它任务而不能发送的实际群目标。 */
     private record OccupiedMarketingTarget(
-            ResolvedMarketingTarget target,
+            MarketingResolvedTarget target,
             MarketingAccountOccupancyOwnerRow owner) {
     }
 
     /** 本轮目标按账号租约拆分后的结果。 */
     private record TargetPartition(
-            List<ResolvedMarketingTarget> sendableTargets,
+            List<MarketingResolvedTarget> sendableTargets,
             List<OccupiedMarketingTarget> occupiedTargets) {
     }
 

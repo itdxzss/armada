@@ -41,6 +41,16 @@
       AND group_baseline_state = 1
   </update>
 
+  <select id="selectActiveGroupJids" resultType="java.lang.String">
+    SELECT group_jid
+    FROM account_group_membership
+    WHERE account_id = #{accountId}
+      AND deleted_at IS NULL
+      AND group_jid IS NOT NULL
+      AND TRIM(group_jid) &lt;&gt; ''
+    ORDER BY id ASC
+  </select>
+
   <select id="selectActiveGroupLinkIdByGroupJid" resultType="long">
     SELECT g.id
     FROM group_link_preview p

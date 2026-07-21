@@ -5,7 +5,7 @@ package com.armada.platform.kafka.consumer.message;
  *
  * <p>该事件由协议 worker 在执行 {@code message.send.requested} 后发布。成功事件带
  * WhatsApp {@code messageId};失败事件带 {@code reasonCode/reasonMessage}。API 侧用
- * {@code attemptId} 做幂等回写,用 {@code commandId} 做排查关联。</p>
+ * {@code attemptId + commandId} 做幂等回写，并用 {@code commandId} 做跨层排查关联。</p>
  *
  * @param eventId         协议事件 ID
  * @param tenantId        租户 ID

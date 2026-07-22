@@ -327,6 +327,7 @@ class PromotionChannelServiceImplTest {
         occupied.setDomainHost("go.example.com");
         occupied.setLandingTemplateId(12L);
         when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(occupied);
+        when(mapper.selectActiveDomainByIdForUpdate(31L)).thenReturn(occupied);
 
         assertThatThrownBy(() -> service.create(
                 request(11L, "IN", "IN", "go.example.com", 1, null, null)))
@@ -343,6 +344,8 @@ class PromotionChannelServiceImplTest {
         when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
         when(mapper.selectActiveDomainByHost("new.example.com")).thenReturn(null);
         when(mapper.selectActiveDomainByTemplateId(11L))
+                .thenReturn(domain(31L, 11L, "old.example.com"));
+        when(mapper.selectActiveDomainByIdForUpdate(31L))
                 .thenReturn(domain(31L, 11L, "old.example.com"));
 
         assertThatThrownBy(() -> service.create(
@@ -362,6 +365,8 @@ class PromotionChannelServiceImplTest {
         when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
         when(mapper.selectActiveDomainByHost("go.example.com"))
                 .thenReturn(domain(31L, 11L, "go.example.com"));
+        when(mapper.selectActiveDomainByIdForUpdate(31L))
+                .thenReturn(domain(31L, 11L, "go.example.com"));
         when(codeGenerator.generate()).thenReturn("second01");
         doAnswer(invocation -> {
             ((PromotionChannel) invocation.getArgument(0)).setId(52L);
@@ -376,6 +381,7 @@ class PromotionChannelServiceImplTest {
         verify(mapper).insertChannel(channelCaptor.capture());
         assertThat(channelCaptor.getValue().getPromotionDomainId()).isEqualTo(31L);
         assertThat(result.channelCode()).isEqualTo("second01");
+        verify(mapper).selectActiveDomainByIdForUpdate(31L);
     }
 
     @Test
@@ -459,6 +465,7 @@ class PromotionChannelServiceImplTest {
         domain.setDomainHost("go.example.com");
         domain.setLandingTemplateId(11L);
         when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(domain);
+        when(mapper.selectActiveDomainByIdForUpdate(32L)).thenReturn(domain);
         when(tokenCipher.encrypt("new-token")).thenReturn(
                 new PromotionTokenCipher.EncryptedToken(new byte[]{4, 5, 6}, "key-v2", new byte[32]));
         when(mapper.updateChannel(any(PromotionChannel.class))).thenReturn(1);
@@ -481,12 +488,13 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void updateRejectsDifferentDomainWhenTemplateAlreadyHasOne() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
         when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "基础领奖"));
         when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
         when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
         when(mapper.selectActiveDomainByHost("new.example.com")).thenReturn(null);
         when(mapper.selectActiveDomainByTemplateId(11L))
+                .thenReturn(domain(31L, 11L, "old.example.com"));
+        when(mapper.selectActiveDomainByIdForUpdate(31L))
                 .thenReturn(domain(31L, 11L, "old.example.com"));
 
         PromotionChannelUpdateDTO request = new PromotionChannelUpdateDTO(
@@ -537,7 +545,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void updateChangingCapiProviderRequiresNewTokenWhenNewTrackingIdIsProvided() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
+        stubUpdateReferences();
 
         BusinessException exception = org.assertj.core.api.Assertions.catchThrowableOfType(
                 () -> service.update(51L, updateRequest(2, "pixel-tiktok", null, 1)),
@@ -556,7 +564,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void updateChangingTrackingIdRequiresNewTokenEvenOnSamePlatform() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
+        stubUpdateReferences();
         when(mapper.countReusableTrackingToken(51L, 1, "pixel-new")).thenReturn(0);
 
         BusinessException exception = org.assertj.core.api.Assertions.catchThrowableOfType(
@@ -583,16 +591,26 @@ class PromotionChannelServiceImplTest {
     }
 
     @Test
-    void deleteSoftDeletesChannelBeforeTrackingInOneBusinessOperation() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
+    void deleteReleasesDomainAfterLastActiveChannelIsDeleted() {
+        PromotionChannel channel = channel(51L, 20001L);
+        channel.setPromotionDomainId(31L);
+        when(mapper.selectActiveDomainByChannelIdForUpdate(51L))
+                .thenReturn(domain(31L, 11L, "go.example.com"));
+        when(mapper.selectActiveChannelById(51L)).thenReturn(channel);
         when(mapper.softDeleteChannel(
                 org.mockito.ArgumentMatchers.eq(51L),
+                org.mockito.ArgumentMatchers.eq(20001L),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+        when(mapper.selectAnyActiveChannelIdByDomainForUpdate(31L)).thenReturn(null);
+        when(mapper.softDeleteDomain(
+                org.mockito.ArgumentMatchers.eq(31L),
                 org.mockito.ArgumentMatchers.eq(20001L),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
         service.delete(51L);
 
         InOrder order = inOrder(mapper);
+        order.verify(mapper).selectActiveDomainByChannelIdForUpdate(51L);
         order.verify(mapper).softDeleteChannel(
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
@@ -600,6 +618,50 @@ class PromotionChannelServiceImplTest {
         order.verify(mapper).softDeleteTrackingConfig(
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
+                org.mockito.ArgumentMatchers.anyLong());
+        order.verify(mapper).selectAnyActiveChannelIdByDomainForUpdate(31L);
+        order.verify(mapper).softDeleteDomain(
+                org.mockito.ArgumentMatchers.eq(31L),
+                org.mockito.ArgumentMatchers.eq(20001L),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void deleteKeepsDomainWhileAnotherActiveChannelStillUsesIt() {
+        PromotionChannel channel = channel(51L, 20001L);
+        channel.setPromotionDomainId(31L);
+        when(mapper.selectActiveDomainByChannelIdForUpdate(51L))
+                .thenReturn(domain(31L, 11L, "go.example.com"));
+        when(mapper.selectActiveChannelById(51L)).thenReturn(channel);
+        when(mapper.softDeleteChannel(
+                org.mockito.ArgumentMatchers.eq(51L),
+                org.mockito.ArgumentMatchers.eq(20001L),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+        when(mapper.selectAnyActiveChannelIdByDomainForUpdate(31L)).thenReturn(52L);
+
+        service.delete(51L);
+
+        verify(mapper, never()).softDeleteDomain(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void deleteRejectsWhenChannelChangesDomainWhileWaitingForLock() {
+        when(mapper.selectActiveDomainByChannelIdForUpdate(51L))
+                .thenReturn(domain(31L, 11L, "old.example.com"));
+        PromotionChannel channel = channel(51L, 20001L);
+        channel.setPromotionDomainId(32L);
+        when(mapper.selectActiveChannelById(51L)).thenReturn(channel);
+
+        assertThatThrownBy(() -> service.delete(51L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("渠道域名绑定已变化");
+
+        verify(mapper, never()).softDeleteChannel(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyLong());
     }
 
@@ -664,6 +726,7 @@ class PromotionChannelServiceImplTest {
         domain.setDomainHost("go.example.com");
         domain.setLandingTemplateId(11L);
         when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(domain);
+        when(mapper.selectActiveDomainByIdForUpdate(31L)).thenReturn(domain);
     }
 
     private static PromotionChannelUpdateDTO updateRequest(

@@ -31,6 +31,12 @@ public interface PromotionChannelMapper {
     /** 唯一键冲突后按模板当前读，识别并发建立的模板域名映射。 */
     PromotionDomain selectActiveDomainByTemplateIdForUpdate(@Param("templateId") Long templateId);
 
+    /** 锁定准备被渠道引用的有效域名，防止最后渠道删除并发释放该绑定。 */
+    PromotionDomain selectActiveDomainByIdForUpdate(@Param("id") Long id);
+
+    /** 按渠道锁定其有效域名绑定，但不提前锁渠道行，避免同域名并发删除形成锁环。 */
+    PromotionDomain selectActiveDomainByChannelIdForUpdate(@Param("channelId") Long channelId);
+
     /** 新增域名与模板绑定，主键回填到实体。 */
     int insertDomain(PromotionDomain row);
 
@@ -86,6 +92,15 @@ public interface PromotionChannelMapper {
 
     /** 软删除渠道主记录，只更新当前租户内仍有效的行。 */
     int softDeleteChannel(
+            @Param("id") Long id,
+            @Param("updatedBy") Long updatedBy,
+            @Param("deletedAt") long deletedAt);
+
+    /** 当前读检查域名是否仍被其他有效渠道引用。 */
+    Long selectAnyActiveChannelIdByDomainForUpdate(@Param("domainId") Long domainId);
+
+    /** 最后一个有效渠道删除后释放域名与模板绑定，同时保留历史记录。 */
+    int softDeleteDomain(
             @Param("id") Long id,
             @Param("updatedBy") Long updatedBy,
             @Param("deletedAt") long deletedAt);

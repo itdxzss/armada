@@ -19,7 +19,7 @@
     SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
     FROM promotion_domain
     WHERE domain_host = #{domainHost}
-      AND deleted_at IS NULL
+      AND is_active = 1
     LIMIT 1
   </select>
 
@@ -29,7 +29,7 @@
     SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
     FROM promotion_domain
     WHERE landing_template_id = #{templateId}
-      AND deleted_at IS NULL
+      AND is_active = 1
     LIMIT 1
   </select>
 
@@ -39,7 +39,7 @@
     SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
     FROM promotion_domain
     WHERE domain_host = #{domainHost}
-      AND deleted_at IS NULL
+      AND is_active = 1
     FOR UPDATE
   </select>
 
@@ -49,7 +49,33 @@
     SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
     FROM promotion_domain
     WHERE landing_template_id = #{templateId}
-      AND deleted_at IS NULL
+      AND is_active = 1
+    FOR UPDATE
+  </select>
+
+  <!-- 新增和编辑在写渠道前锁定最终域名，避免并发删除把即将引用的域名软删。 -->
+  <select id="selectActiveDomainByIdForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE id = #{id}
+      AND is_active = 1
+    FOR UPDATE
+  </select>
+
+  <!-- 子查询只读取渠道的域名ID，FOR UPDATE 仅锁外层域名行，统一并发删除的加锁顺序。 -->
+  <select id="selectActiveDomainByChannelIdForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT d.id, d.domain_host, d.landing_template_id,
+           d.created_by, d.updated_by, d.created_at, d.updated_at
+    FROM promotion_domain d
+    WHERE d.id = (
+      SELECT c.promotion_domain_id
+      FROM promotion_channel c
+      WHERE c.id = #{channelId}
+        AND c.deleted_at IS NULL
+    )
+      AND d.is_active = 1
     FOR UPDATE
   </select>
 
@@ -297,9 +323,29 @@
       AND deleted_at IS NULL
   </update>
 
-  <!-- 删除渠道不级联域名或历史账号，只让渠道退出当前有效集合。 -->
+  <!-- 删除渠道先退出当前有效集合，Service 再判断是否需要释放域名绑定。 -->
   <update id="softDeleteChannel">
     UPDATE promotion_channel
+    SET deleted_at = #{deletedAt},
+        updated_by = #{updatedBy},
+        updated_at = #{deletedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- 锁定读保证能看到并发事务最新提交结果；返回任意一个仍引用该域名的有效渠道即可。 -->
+  <select id="selectAnyActiveChannelIdByDomainForUpdate" resultType="long">
+    SELECT id
+    FROM promotion_channel
+    WHERE promotion_domain_id = #{domainId}
+      AND deleted_at IS NULL
+    LIMIT 1
+    FOR UPDATE
+  </select>
+
+  <!-- 仅最后一个有效渠道删除后执行；软删保留历史渠道的域名引用。 -->
+  <update id="softDeleteDomain">
+    UPDATE promotion_domain
     SET deleted_at = #{deletedAt},
         updated_by = #{updatedBy},
         updated_at = #{deletedAt}

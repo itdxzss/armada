@@ -65,10 +65,14 @@ class PromotionDataModelMigrationDbTest extends DbTestBase {
     void indexesUseApprovedLeftmostColumnOrder() {
         assertThat(indexColumns("promotion_landing_template", "uq_promotion_landing_template_code"))
                 .containsExactly("tenant_id", "template_code");
-        assertThat(indexColumns("promotion_domain", "uq_promotion_domain_host"))
-                .containsExactly("domain_host");
+        assertThat(indexColumns("promotion_domain", "uq_promotion_domain_active_host"))
+                .containsExactly("domain_host", "is_active");
+        assertThat(indexColumns("promotion_domain", "uq_promotion_domain_active_template"))
+                .containsExactly("tenant_id", "landing_template_id", "is_active");
         assertThat(indexColumns("promotion_channel", "idx_promotion_channel_list"))
                 .containsExactly("tenant_id", "deleted_at", "created_at", "id");
+        assertThat(indexColumns("promotion_channel", "idx_promotion_channel_domain_active"))
+                .containsExactly("tenant_id", "promotion_domain_id", "deleted_at", "id");
         assertThat(indexColumns(
                 "promotion_channel_tracking_config", "uq_promotion_channel_tracking"))
                 .containsExactly("tenant_id", "channel_id");

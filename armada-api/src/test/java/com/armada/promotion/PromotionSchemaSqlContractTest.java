@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 
-/** V061-V064 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
+/** V061-V065 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
 class PromotionSchemaSqlContractTest {
 
     private static final String MIGRATION =
@@ -24,6 +24,9 @@ class PromotionSchemaSqlContractTest {
 
     private static final String TEMPLATE_DOMAIN_UNIQUE_MIGRATION =
             "db/migration/V064__promotion_template_single_domain.sql";
+
+    private static final String DOMAIN_SOFT_DELETE_UNIQUE_MIGRATION =
+            "db/migration/V065__promotion_domain_soft_delete_uniqueness.sql";
 
     private static final Map<String, List<String>> TABLE_FIELDS = approvedTableFields();
 
@@ -127,7 +130,27 @@ class PromotionSchemaSqlContractTest {
 
         assertThat(sql).contains("ALTER TABLE promotion_domain");
         assertThat(sql).contains("UNIQUE KEY uq_promotion_domain_tenant_template "
-                + "(tenant_id, landing_template_id)");
+                  + "(tenant_id, landing_template_id)");
+    }
+
+    @Test
+    void domainSoftDeleteMigrationReleasesUniqueKeysWithoutLosingHistory() throws IOException {
+        String sql = migrationSql(DOMAIN_SOFT_DELETE_UNIQUE_MIGRATION);
+
+        assertThat(sql).contains("UPDATE promotion_domain d");
+        assertThat(sql).contains("LEFT JOIN promotion_channel c");
+        assertThat(sql).contains("c.promotion_domain_id = d.id");
+        assertThat(sql).contains("c.deleted_at IS NULL");
+        assertThat(sql).contains("AND c.id IS NULL");
+        assertThat(sql).contains("ADD COLUMN is_active TINYINT(1)");
+        assertThat(sql).contains("CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END");
+        assertThat(sql).contains("DROP INDEX uq_promotion_domain_host");
+        assertThat(sql).contains("DROP INDEX uq_promotion_domain_tenant_template");
+        assertThat(sql).contains("UNIQUE KEY uq_promotion_domain_active_host (domain_host, is_active)");
+        assertThat(sql).contains("UNIQUE KEY uq_promotion_domain_active_template "
+                + "(tenant_id, landing_template_id, is_active)");
+        assertThat(sql).contains("INDEX idx_promotion_channel_domain_active");
+        assertThat(sql).contains("(tenant_id, promotion_domain_id, deleted_at, id)");
     }
 
     private String migrationSql() throws IOException {

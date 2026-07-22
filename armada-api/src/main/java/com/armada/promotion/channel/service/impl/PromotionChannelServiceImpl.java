@@ -265,9 +265,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, PromotionChannelUpdateDTO request) {
         requirePositive(id, "渠道");
-        PromotionChannel existing = requireActiveChannel(id);
         ValidatedWrite value = validate(request);
-        requireReusableTrackingToken(value, existing);
 
         // 模板与国家继续复用新增路径的主数据校验，防止编辑绕过已有业务约束。
         requireAvailableTemplate(value.landingTemplateId());
@@ -275,8 +273,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         CountryOptionVO preselectedCountry =
                 countryService.requireActiveOption(value.preselectedCountry(), false);
 
-        // 域名记录可能被多个渠道共享，因此编辑只切换引用，绝不原地修改旧域名绑定。
+        // 先锁定目标域名再锁渠道，和删除流程保持统一锁序，避免写入已被并发释放的域名。
         PromotionDomain domain = resolveDomain(value);
+        PromotionChannel existing = requireActiveChannel(id);
+        requireReusableTrackingToken(value, existing);
         long now = System.currentTimeMillis();
         PromotionChannel channel = buildChannel(
                 value, targetCountry.value(), preselectedCountry.value(), domain.getId(), now);
@@ -299,15 +299,31 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         requirePositive(id, "渠道");
+        // 先锁共享域名、再锁渠道，保证同一域名下多个渠道并发删除时不会形成交叉等待。
+        PromotionDomain domain = mapper.selectActiveDomainByChannelIdForUpdate(id);
         PromotionChannel channel = requireActiveChannel(id);
+        if (domain == null || !domain.getId().equals(channel.getPromotionDomainId())) {
+            // 等待渠道锁期间若编辑已切换域名，本次旧快照不能继续判断，应回滚后重试。
+            throw new BusinessException(ErrorCode.CONFLICT, "渠道域名绑定已变化，请重试删除");
+        }
         long now = System.currentTimeMillis();
 
-        // 编辑和删除统一按“渠道主表 -> 追踪配置”更新，避免并发请求形成相反加锁顺序。
+        // 渠道与追踪配置保留软删历史，不破坏账号等存量数据对渠道的引用。
         if (mapper.softDeleteChannel(id, channel.getOwnerUserId(), now) != 1) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
         mapper.softDeleteTrackingConfig(id, channel.getOwnerUserId(), now);
-        log.info("推广渠道已软删除 id={} ownerUserId={}", id, channel.getOwnerUserId());
+
+        // 只有不存在其他有效渠道时才释放模板—域名关系；共享该关系的其他渠道不会受影响。
+        boolean domainReleased = false;
+        if (domain != null && mapper.selectAnyActiveChannelIdByDomainForUpdate(domain.getId()) == null) {
+            if (mapper.softDeleteDomain(domain.getId(), channel.getOwnerUserId(), now) != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "域名绑定状态已变化，请重试");
+            }
+            domainReleased = true;
+        }
+        log.info("推广渠道已软删除 id={} ownerUserId={} domainReleased={}",
+                id, channel.getOwnerUserId(), domainReleased);
     }
 
     /** 平台不支持或配置不完整时返回页面可展示的失败详情，不调用 Facebook。 */
@@ -538,17 +554,43 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private PromotionDomain resolveDomain(ValidatedWrite value) {
         PromotionDomain domainByHost = mapper.selectActiveDomainByHost(value.domainHost());
         if (domainByHost != null) {
-            requireSameTemplate(domainByHost, value.landingTemplateId());
-            return domainByHost;
+            return lockExistingDomain(domainByHost, value);
         }
 
         PromotionDomain domainByTemplate =
                 mapper.selectActiveDomainByTemplateId(value.landingTemplateId());
         if (domainByTemplate != null) {
-            requireSameDomain(domainByTemplate, value.domainHost());
-            return domainByTemplate;
+            return lockExistingDomain(domainByTemplate, value);
         }
 
+        return insertDomain(value);
+    }
+
+    /** 锁定普通读命中的域名；若等待期间绑定已释放，则用 current read 重新解析。 */
+    private PromotionDomain lockExistingDomain(PromotionDomain candidate, ValidatedWrite value) {
+        PromotionDomain locked = mapper.selectActiveDomainByIdForUpdate(candidate.getId());
+        if (locked != null) {
+            requireSameTemplate(locked, value.landingTemplateId());
+            requireSameDomain(locked, value.domainHost());
+            return locked;
+        }
+
+        PromotionDomain currentByHost = mapper.selectActiveDomainByHostForUpdate(value.domainHost());
+        if (currentByHost != null) {
+            requireSameTemplate(currentByHost, value.landingTemplateId());
+            return currentByHost;
+        }
+        PromotionDomain currentByTemplate =
+                mapper.selectActiveDomainByTemplateIdForUpdate(value.landingTemplateId());
+        if (currentByTemplate != null) {
+            requireSameDomain(currentByTemplate, value.domainHost());
+            return currentByTemplate;
+        }
+        return insertDomain(value);
+    }
+
+    /** 建立新的模板—域名关系；唯一键冲突后用 current read 返回并发赢家或稳定业务错误。 */
+    private PromotionDomain insertDomain(ValidatedWrite value) {
         long now = System.currentTimeMillis();
         PromotionDomain created = new PromotionDomain();
         created.setDomainHost(value.domainHost());

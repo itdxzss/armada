@@ -47,6 +47,8 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(xml).contains("AND deleted_at IS NULL");
         assertThat(xml).contains("<select id=\"selectActiveDomainByHostForUpdate\"");
         assertThat(xml).contains("<select id=\"selectActiveDomainByTemplateIdForUpdate\"");
+        assertThat(xml).contains("<select id=\"selectActiveDomainByIdForUpdate\"");
+        assertThat(xml).contains("AND is_active = 1");
         assertThat(xml).contains("FOR UPDATE");
     }
 
@@ -143,8 +145,13 @@ class PromotionChannelMapperSqlContractTest {
     void deleteSqlUsesSoftDeleteAndNeverPhysicalDelete() throws IOException {
         String xml = mapperXml();
 
+        assertThat(xml).contains("<select id=\"selectActiveDomainByChannelIdForUpdate\"");
+        assertThat(xml).contains("WHERE c.id = #{channelId}");
         assertThat(xml).contains("<update id=\"softDeleteTrackingConfig\">");
         assertThat(xml).contains("<update id=\"softDeleteChannel\">");
+        assertThat(xml).contains("<select id=\"selectAnyActiveChannelIdByDomainForUpdate\"");
+        assertThat(xml).contains("WHERE promotion_domain_id = #{domainId}");
+        assertThat(xml).contains("<update id=\"softDeleteDomain\">");
         assertThat(xml).contains("SET deleted_at = #{deletedAt}");
         assertThat(xml).contains("WHERE id = #{id}", "WHERE channel_id = #{channelId}");
         assertThat(xml).doesNotContain("<delete", "DELETE FROM promotion_channel");

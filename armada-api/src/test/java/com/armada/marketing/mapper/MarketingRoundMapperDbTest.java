@@ -216,6 +216,25 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         assertThat(row).isNull();
     }
 
+    @Test
+    void selectCurrentTargetGroupReturnsNullForRetainedExitedMembership() {
+        long accountGroupId = insertAccountGroup("fixed-kicked");
+        long accountId = insertAccount(accountGroupId, "923900000009", 2);
+        String groupJid = "120363fixed-kicked@g.us";
+        long groupId = insertGroup("fixed-kicked", groupJid);
+        insertMembership(accountId, groupId, groupJid);
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                UPDATE account_group_membership
+                SET membership_status = 3, status_source = 'TEST_KICKED', status_updated_at = ?
+                WHERE account_id = ? AND group_link_id = ? AND deleted_at IS NULL
+                """, now, accountId, groupId);
+
+        MarketingTargetCandidateRow row = mapper.selectCurrentTargetGroup(accountId, groupId);
+
+        assertThat(row).isNull();
+    }
+
     private Long insertTask(String suffix, int status, long nextRoundAt) {
         long now = System.currentTimeMillis();
         return insertAndReturnId("""
@@ -345,9 +364,11 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         long now = System.currentTimeMillis();
         jdbc.update("""
                 INSERT INTO account_group_membership
-                    (tenant_id, account_id, group_link_id, group_jid, joined_at, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, joinedAt, now, now, now);
+                    (tenant_id, account_id, group_link_id, group_jid,
+                     membership_status, status_source, status_updated_at,
+                     joined_at, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, joinedAt, now, now, now);
     }
 
     private Long insertAndReturnId(String sql, SqlBinder binder) {

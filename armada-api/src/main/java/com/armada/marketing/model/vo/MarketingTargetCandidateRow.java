@@ -11,6 +11,8 @@ public class MarketingTargetCandidateRow {
     private String groupJid;
     private String groupLinkUrl;
     private String groupName;
+    private Integer membershipStatus;
+    private Long statusUpdatedAt;
 
     public Long getAccountId() {
         return accountId;
@@ -58,5 +60,21 @@ public class MarketingTargetCandidateRow {
 
     public void setGroupName(String groupName) {
         this.groupName = groupName;
+    }
+
+    public Integer getMembershipStatus() {
+        return membershipStatus;
+    }
+
+    public void setMembershipStatus(Integer membershipStatus) {
+        this.membershipStatus = membershipStatus;
+    }
+
+    public Long getStatusUpdatedAt() {
+        return statusUpdatedAt;
+    }
+
+    public void setStatusUpdatedAt(Long statusUpdatedAt) {
+        this.statusUpdatedAt = statusUpdatedAt;
     }
 }

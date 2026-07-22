@@ -1,5 +1,6 @@
 package com.armada.marketing.scheduler;
 
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -41,6 +42,9 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
 
     @Autowired
     private MarketingAccountOccupancyService occupancyService;
+
+    @Autowired
+    private AccountGroupMembershipStatusService membershipStatusService;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -111,6 +115,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         return new MarketingRoundWorker(
                 taskMapper,
                 occupancyService,
+                membershipStatusService,
                 messageFactory,
                 messageSendPort,
                 properties,

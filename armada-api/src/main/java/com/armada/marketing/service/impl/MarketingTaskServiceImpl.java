@@ -1,6 +1,7 @@
 package com.armada.marketing.service.impl;
 
 import com.armada.account.service.AccountService;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -13,6 +14,7 @@ import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
@@ -37,6 +39,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -758,9 +761,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 .toList();
         int sent = rows.stream().mapToInt(row -> zero(row.getSentMessageCount())).sum();
         int failed = rows.stream().mapToInt(row -> zero(row.getFailedMessageCount())).sum();
+        int skipped = rows.stream().mapToInt(row -> zero(row.getSkippedMessageCount())).sum();
         int status = MarketingTaskAccountStatusResolver.resolve(target.status(), sent, failed);
         return new MarketingTaskAccountTargetVO(target.accountId(), target.accountPhone(), loginState, status,
-                sent, failed, latestAttemptAt(rows), latestSentAt(rows), latestReason(rows), groups);
+                sent, failed, skipped, latestAttemptAt(rows), latestSentAt(rows), latestReason(rows), groups);
     }
 
     private static MarketingTaskGroupStatVO toGroupStatVO(MarketingTaskAccountGroupStatRow row) {
@@ -771,10 +775,52 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                         row.getReasonMessage(),
                         row.getGroupStatus(),
                         row.getGroupStatusReason());
+        String executionResult = MarketingGroupExecutionNormalizer.executionResult(
+                row.getLatestExecutionStatus());
+        String executionReason;
+        if (Integer.valueOf(MarketingSendAttemptStatus.FAILED.code())
+                .equals(row.getLatestExecutionStatus())) {
+            executionReason = MarketingGroupExecutionNormalizer.normalize(
+                    row.getLatestExecutionStatus(),
+                    row.getExecutionReasonCode(),
+                    row.getExecutionReasonMessage(),
+                    row.getGroupStatus(),
+                    row.getGroupStatusReason()).executionReason();
+        } else {
+            executionReason = MarketingGroupExecutionNormalizer.executionReason(
+                    row.getLatestExecutionStatus(),
+                    row.getExecutionReasonMessage(),
+                    row.getExecutionReasonCode());
+        }
+        AccountGroupMembershipStatus membershipStatus = resolveMembershipStatus(row, execution);
         return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
-                row.getGroupName(), execution.groupStatus(), execution.executionResult(), execution.executionReason(),
-                zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
+                row.getGroupName(), membershipStatus.apiValue(), execution.groupStatus(), executionResult,
+                executionReason, zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
+                zero(row.getSkippedMessageCount()),
                 row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());
+    }
+
+    private static AccountGroupMembershipStatus resolveMembershipStatus(
+            MarketingTaskAccountGroupStatRow row,
+            MarketingGroupExecutionNormalizer.NormalizedExecution execution) {
+        if (row.getMembershipStatus() != null) {
+            return AccountGroupMembershipStatus.fromCode(row.getMembershipStatus());
+        }
+        if (Integer.valueOf(MarketingSendAttemptStatus.SKIPPED.code())
+                .equals(row.getLatestExecutionStatus())) {
+            String reasonCode = row.getExecutionReasonCode();
+            if (reasonCode != null) {
+                return switch (reasonCode.trim().toUpperCase(Locale.ROOT)) {
+                    case "KICKED_OUT" -> AccountGroupMembershipStatus.KICKED_OUT;
+                    case "LEFT" -> AccountGroupMembershipStatus.LEFT;
+                    case "NOT_IN_GROUP" -> AccountGroupMembershipStatus.NOT_IN_GROUP;
+                    default -> AccountGroupMembershipStatus.UNCONFIRMED;
+                };
+            }
+        }
+        return "KICKED_OUT".equals(execution.groupStatus())
+                ? AccountGroupMembershipStatus.KICKED_OUT
+                : AccountGroupMembershipStatus.UNCONFIRMED;
     }
 
     private static Long latestAttemptAt(List<MarketingTaskAccountGroupStatRow> rows) {
@@ -811,7 +857,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return new MarketingTaskDetailVO(task.getId(), task.getTaskName(), task.getAccountGroupId(), task.getAccountGroupName(),
                 task.getMarketingTemplateId(), task.getMarketingTemplateName(), task.getStatus(),
                 task.getSelectedAccountCount(), task.getTargetGroupCount(), task.getTargetPairCount(),
-                task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
+                task.getSentMessageCount(), task.getFailedMessageCount(),
+                accountTargets.stream().mapToInt(target -> zero(target.skippedMessageCount())).sum(),
+                task.getSendPerRound(),
                 accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
                 task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),

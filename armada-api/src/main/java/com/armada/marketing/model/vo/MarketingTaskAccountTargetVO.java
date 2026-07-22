@@ -11,6 +11,7 @@ import java.util.List;
  * @param status 账号在当前营销任务中的聚合执行状态
  * @param sentMessageCount 该账号在当前任务中收到成功回执的累计发送次数
  * @param failedMessageCount 该账号在当前任务中收到失败回执的累计发送次数
+ * @param skippedMessageCount 该账号在当前任务中业务跳过的累计次数
  * @param lastAttemptAt 该账号最近一次已提交、成功、失败或跳过记录的时间戳
  * @param lastSentAt 该账号最近一次成功发送的时间戳，从未成功时为空
  * @param lastReason 该账号最近一次失败或跳过原因，供旧接口兼容
@@ -23,6 +24,7 @@ public record MarketingTaskAccountTargetVO(
         Integer status,
         Integer sentMessageCount,
         Integer failedMessageCount,
+        Integer skippedMessageCount,
         Long lastAttemptAt,
         Long lastSentAt,
         String lastReason,

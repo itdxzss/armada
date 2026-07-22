@@ -147,13 +147,15 @@ class MarketingTaskMapperSqlShapeTest {
         String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
 
         assertThat(candidateSql)
-                .contains("JOIN group_link_preview p ON p.group_link_id = g.id")
-                .contains("p.group_jid AS groupJid")
+                .contains("JOIN account_group_membership m ON m.account_id = a.id")
+                .contains("m.group_jid AS groupJid")
+                .contains("m.membership_status AS membershipStatus")
                 .contains("a.account_group_id = #{accountGroupId}");
         assertThat(candidateSql)
                 .contains("collection=\"selectableAccountStates\"")
                 .doesNotContain("s.account_state = 2")
-                .doesNotContain("account_group_membership m");
+                .doesNotContain("group_link_health")
+                .doesNotContain("account_group_baseline");
         assertThat(accountCandidateSql)
                 .contains("collection=\"selectableAccountStates\"")
                 .doesNotContain("s.account_state = 2");
@@ -171,12 +173,15 @@ class MarketingTaskMapperSqlShapeTest {
         assertThat(currentTargetSql)
                 .contains("JOIN account_group_membership m")
                 .contains("m.group_link_id = #{groupLinkId}")
+                .contains("m.membership_status IN (1, 2)")
                 .contains("WHERE a.id = #{accountId}");
         assertThat(treeAccountSql).contains("a.protocol_account_id AS protocolAccountId");
         assertThat(treeAccountSql)
                 .contains("account_group_membership")
                 .contains("COALESCE(gm.groupCount, 0) AS groupCount")
                 .contains("s.login_state AS loginState");
+        assertThat(treeAccountSql.replaceAll("\\s+", " "))
+                .doesNotContain("FROM account_group_membership m FROM account_group_membership m");
     }
 
     @Test
@@ -388,8 +393,8 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("a.group_status AS rawGroupStatus")
                 .contains("a.group_status_reason AS groupStatusReason")
                 .contains("WHERE attemptStatus IN (1, 2)")
-                .contains("e.rawGroupStatus AS groupStatus")
-                .contains("e.groupStatusReason AS groupStatusReason");
+                .contains("protocol.rawGroupStatus AS groupStatus")
+                .contains("protocol.groupStatusReason AS groupStatusReason");
     }
 
     @Test
@@ -403,7 +408,8 @@ class MarketingTaskMapperSqlShapeTest {
         assertThat(sql)
                 .contains("ROW_NUMBER() OVER")
                 .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
-                .contains("e.attemptStatus AS latestAttemptStatus")
+                .contains("protocol.attemptStatus AS latestAttemptStatus")
+                .contains("ended.attemptStatus AS latestExecutionStatus")
                 .doesNotContain("AS executionResult");
     }
 
@@ -417,16 +423,20 @@ class MarketingTaskMapperSqlShapeTest {
 
         assertThat(sql)
                 .contains("a.status IN (0, 1, 2, 3)")
-                .contains("latest_effective AS")
+                .contains("latest_protocol AS")
+                .contains("latest_ended AS")
                 .contains("WHERE attemptStatus IN (1, 2)")
-                .contains("PARTITION BY accountId, groupKey")
+                .contains("WHERE attemptStatus IN (1, 2, 3)")
+                .contains("PARTITION BY tenant_id, accountId, groupKey")
                 .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
-                .contains("e.attemptStatus AS latestAttemptStatus")
-                .contains("e.reasonCode AS reasonCode")
-                .contains("e.reasonMessage AS reasonMessage")
-                .contains("e.rawGroupStatus AS groupStatus")
-                .contains("e.groupStatusReason AS groupStatusReason")
+                .contains("protocol.attemptStatus AS latestAttemptStatus")
+                .contains("protocol.reasonCode AS reasonCode")
+                .contains("protocol.reasonMessage AS reasonMessage")
+                .contains("protocol.rawGroupStatus AS groupStatus")
+                .contains("protocol.groupStatusReason AS groupStatusReason")
+                .contains("ended.attemptStatus AS latestExecutionStatus")
                 .contains("SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount")
+                .contains("SUM(CASE WHEN attemptStatus = 3 THEN 1 ELSE 0 END) AS skippedMessageCount")
                 .contains("MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt");
     }
 
@@ -444,9 +454,10 @@ class MarketingTaskMapperSqlShapeTest {
         assertThat(parsedSql)
                 .contains("t.tenant_id AS tenant_id")
                 .contains("FROM attempt_facts WHERE tenant_id = 7")
-                .contains("effective.tenant_id = 7")
-                .contains("e.tenant_id = 7")
-                .contains("g.tenant_id = 7");
+                .contains("protocol.tenant_id = 7")
+                .contains("ended.tenant_id = 7")
+                .contains("m.tenant_id = 7")
+                .contains("d.tenant_id = 7");
     }
 
     private static String selectBlock(String xml, String id) {

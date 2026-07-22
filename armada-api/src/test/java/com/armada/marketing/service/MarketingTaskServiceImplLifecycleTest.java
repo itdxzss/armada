@@ -9,9 +9,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.service.AccountService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
-import com.armada.account.service.AccountService;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.entity.MarketingTask;
@@ -28,14 +28,15 @@ import com.armada.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 营销任务生命周期门禁单测。
@@ -86,6 +87,10 @@ class MarketingTaskServiceImplLifecycleTest {
         group.setReasonMessage("forbidden");
         group.setGroupStatus("BANNED");
         group.setGroupStatusReason("CHAT_SUSPENDED");
+        group.setMembershipStatus(3);
+        group.setLatestExecutionStatus(MarketingSendAttemptStatus.FAILED.code());
+        group.setExecutionReasonCode("ACCOUNT_BANNED");
+        group.setExecutionReasonMessage("账号封禁");
         group.setSentMessageCount(2);
         group.setFailedMessageCount(1);
         when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
@@ -99,12 +104,106 @@ class MarketingTaskServiceImplLifecycleTest {
             assertThat(account.loginState()).isEqualTo(1);
             assertThat(account.sentMessageCount()).isEqualTo(2);
             assertThat(account.groups()).singleElement().satisfies(item -> {
+                assertThat(item.membershipStatus()).isEqualTo("KICKED_OUT");
                 assertThat(item.groupStatus()).isEqualTo("ACCOUNT_BANNED");
                 assertThat(item.executionResult()).isEqualTo("FAILED");
                 assertThat(item.executionReason()).isEqualTo("账号封禁");
             });
         });
         verify(accountService).getLoginStatesByIds(List.of(31L));
+    }
+
+    @Test
+    void getDetailKeepsMembershipProtocolStatusAndSkippedExecutionIndependent() {
+        MarketingTask task = detailTask();
+        MarketingTaskTarget target = detailTarget();
+        MarketingTaskAccountGroupStatRow group = new MarketingTaskAccountGroupStatRow();
+        group.setAccountId(31L);
+        group.setGroupJid("120363031@g.us");
+        group.setMembershipStatus(4);
+        group.setLatestAttemptStatus(MarketingSendAttemptStatus.SUCCESS.code());
+        group.setLatestExecutionStatus(MarketingSendAttemptStatus.SKIPPED.code());
+        group.setExecutionReasonCode("LEFT");
+        group.setExecutionReasonMessage("账号已主动退出群聊");
+        group.setSentMessageCount(1);
+        group.setSkippedMessageCount(1);
+        stubDetail(task, target, group);
+
+        var detail = service.getDetail(TASK_ID);
+
+        assertThat(detail.skippedMessageCount()).isEqualTo(1);
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.skippedMessageCount()).isEqualTo(1);
+            assertThat(account.groups()).singleElement().satisfies(item -> {
+                assertThat(item.membershipStatus()).isEqualTo("LEFT");
+                assertThat(item.groupStatus()).isEqualTo("NORMAL");
+                assertThat(item.executionResult()).isEqualTo("SKIPPED");
+                assertThat(item.executionReason()).isEqualTo("账号已主动退出群聊");
+                assertThat(item.sentMessageCount()).isEqualTo(1);
+                assertThat(item.failedMessageCount()).isZero();
+                assertThat(item.skippedMessageCount()).isEqualTo(1);
+            });
+        });
+    }
+
+    @Test
+    void getDetailUsesHistoricalKickedOutResultWhenMembershipRowIsMissing() {
+        MarketingTaskAccountGroupStatRow group = new MarketingTaskAccountGroupStatRow();
+        group.setAccountId(31L);
+        group.setGroupJid("120363031@g.us");
+        group.setLatestAttemptStatus(MarketingSendAttemptStatus.FAILED.code());
+        group.setReasonCode("ACCOUNT_NOT_PARTICIPANT");
+        group.setLatestExecutionStatus(MarketingSendAttemptStatus.FAILED.code());
+        group.setExecutionReasonCode("ACCOUNT_NOT_PARTICIPANT");
+        stubDetail(detailTask(), detailTarget(), group);
+
+        var detail = service.getDetail(TASK_ID);
+
+        assertThat(detail.accountTargets()).singleElement()
+                .satisfies(account -> assertThat(account.groups()).singleElement()
+                        .satisfies(item -> assertThat(item.membershipStatus()).isEqualTo("KICKED_OUT")));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"KICKED_OUT", "LEFT", "NOT_IN_GROUP"})
+    void getDetailUsesSkippedExitReasonWhenMembershipRowIsMissing(String reasonCode) {
+        MarketingTaskAccountGroupStatRow group = new MarketingTaskAccountGroupStatRow();
+        group.setAccountId(31L);
+        group.setGroupJid("120363031@g.us");
+        group.setLatestExecutionStatus(MarketingSendAttemptStatus.SKIPPED.code());
+        group.setExecutionReasonCode(reasonCode);
+        group.setExecutionReasonMessage("账号当前不在群内");
+        stubDetail(detailTask(), detailTarget(), group);
+
+        var detail = service.getDetail(TASK_ID);
+
+        assertThat(detail.accountTargets()).singleElement()
+                .satisfies(account -> assertThat(account.groups()).singleElement()
+                        .satisfies(item -> assertThat(item.membershipStatus()).isEqualTo(reasonCode)));
+    }
+
+    private void stubDetail(MarketingTask task,
+                            MarketingTaskTarget target,
+                            MarketingTaskAccountGroupStatRow group) {
+        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(TASK_ID)).thenReturn(List.of(target));
+        when(taskMapper.selectAccountGroupStatsByTaskId(TASK_ID)).thenReturn(List.of(group));
+        when(accountService.getLoginStatesByIds(List.of(31L))).thenReturn(Map.of(31L, 1));
+    }
+
+    private static MarketingTask detailTask() {
+        MarketingTask task = new MarketingTask();
+        task.setId(TASK_ID);
+        return task;
+    }
+
+    private static MarketingTaskTarget detailTarget() {
+        MarketingTaskTarget target = new MarketingTaskTarget();
+        target.setId(501L);
+        target.setAccountId(31L);
+        target.setAccountPhone("923300000031");
+        target.setStatus(1);
+        return target;
     }
 
     @Test

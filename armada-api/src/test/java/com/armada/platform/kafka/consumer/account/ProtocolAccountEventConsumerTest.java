@@ -33,6 +33,9 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
 
+    @Mock
+    private ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
@@ -41,7 +44,8 @@ class ProtocolAccountEventConsumerTest {
                 new ObjectMapper(),
                 sink,
                 groupsReportedSink,
-                offlineDiagnosedSink);
+                offlineDiagnosedSink,
+                membershipChangedSink);
     }
 
     @Test
@@ -103,6 +107,8 @@ class ProtocolAccountEventConsumerTest {
                     "tenantId": 1,
                     "accountId": 100,
                     "source": "wa_groups_dirty",
+                    "snapshotComplete": false,
+                    "skippedGroupCount": 1,
                     "groups": [
                       {
                         "groupJid": "120363000000001@g.us",
@@ -131,6 +137,8 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.reportedAt()).isEqualTo(1782626401000L);
         assertThat(event.workerId()).isEqualTo("worker-a");
         assertThat(event.source()).isEqualTo("wa_groups_dirty");
+        assertThat(event.snapshotComplete()).isFalse();
+        assertThat(event.skippedGroupCount()).isEqualTo(1);
         assertThat(event.groups()).singleElement().satisfies(group -> {
             assertThat(group.groupJid()).isEqualTo("120363000000001@g.us");
             assertThat(group.subject()).isEqualTo("运营群");
@@ -141,6 +149,66 @@ class ProtocolAccountEventConsumerTest {
             assertThat(group.avatarUrl()).isEqualTo("https://example.test/avatar.jpg");
         });
         verifyNoInteractions(sink);
+    }
+
+    @Test
+    void onMessage_membershipChangedDispatchesSafeEvent() {
+        consumer.onMessage("""
+                {"eventId":"evt-membership-1","event":"account.group_membership_changed","version":"v1",
+                 "accountId":"acc_android_1","occurredAt":"2026-07-22T02:00:00Z","workerId":"android-1",
+                 "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
+                         "groupJid":"120363001@g.us","action":"remove",
+                         "selfParticipation":"SELF","source":"android_wgp2"}}
+                """);
+
+        ArgumentCaptor<ProtocolAccountGroupMembershipChangedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountGroupMembershipChangedEvent.class);
+        verify(membershipChangedSink).handleMembershipChanged(captor.capture());
+        ProtocolAccountGroupMembershipChangedEvent event = captor.getValue();
+        assertThat(event.eventId()).isEqualTo("evt-membership-1");
+        assertThat(event.tenantId()).isEqualTo(7L);
+        assertThat(event.accountId()).isEqualTo(100L);
+        assertThat(event.protocolAccountId()).isEqualTo("acc_android_1");
+        assertThat(event.groupJid()).isEqualTo("120363001@g.us");
+        assertThat(event.action()).isEqualTo("remove");
+        assertThat(event.selfParticipation()).isEqualTo("SELF");
+        assertThat(event.occurredAt()).isEqualTo(1784685600000L);
+        assertThat(event.source()).isEqualTo("android_wgp2");
+        assertThat(event.workerId()).isEqualTo("android-1");
+    }
+
+    @Test
+    void onMessage_membershipChangedWithoutRoutingAccountRejectsEvent() {
+        String raw = """
+                {"eventId":"evt-membership-2","event":"account.group_membership_changed","version":"v1",
+                 "occurredAt":"2026-07-22T02:00:00Z","workerId":"android-1",
+                 "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
+                         "groupJid":"120363001@g.us","action":"remove",
+                         "selfParticipation":"SELF","source":"android_wgp2"}}
+                """;
+
+        assertThatThrownBy(() -> consumer.onMessage(raw))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议账号群关系事件缺少 accountId");
+
+        verifyNoInteractions(membershipChangedSink);
+    }
+
+    @Test
+    void onMessage_membershipChangedWithMismatchedRoutingAccountRejectsEvent() {
+        String raw = """
+                {"eventId":"evt-membership-3","event":"account.group_membership_changed","version":"v1",
+                 "accountId":"acc_android_stale","occurredAt":"2026-07-22T02:00:00Z","workerId":"android-1",
+                 "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
+                         "groupJid":"120363001@g.us","action":"remove",
+                         "selfParticipation":"SELF","source":"android_wgp2"}}
+                """;
+
+        assertThatThrownBy(() -> consumer.onMessage(raw))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议账号群关系事件路由账号不一致");
+
+        verifyNoInteractions(membershipChangedSink);
     }
 
     @Test
@@ -254,6 +322,7 @@ class ProtocolAccountEventConsumerTest {
         verifyNoInteractions(sink);
         verifyNoInteractions(groupsReportedSink);
         verifyNoInteractions(offlineDiagnosedSink);
+        verifyNoInteractions(membershipChangedSink);
     }
 
     @Test

@@ -18,7 +18,8 @@ import org.springframework.stereotype.Component;
 /**
  * 协议账号事件 Kafka consumer。
  *
- * <p>当前接入 {@code account.state_changed}, {@code account.groups_reported}
+ * <p>当前接入 {@code account.state_changed}, {@code account.groups_reported},
+ * {@code account.group_membership_changed}
  * 和 {@code account.offline_diagnosed}。
  * 其它账号事件先记录并跳过,
  * 防止一次性引入过多回写规则。</p>
@@ -35,6 +36,10 @@ public class ProtocolAccountEventConsumer {
     /** 协议层账号当前群列表回报事件类型。 */
     public static final String EVENT_ACCOUNT_GROUPS_REPORTED = "account.groups_reported";
 
+    /** 协议层账号自身群关系精确变更事件类型。 */
+    public static final String EVENT_ACCOUNT_GROUP_MEMBERSHIP_CHANGED =
+            "account.group_membership_changed";
+
     /** 协议层账号离线诊断事件类型。 */
     public static final String EVENT_ACCOUNT_OFFLINE_DIAGNOSED = "account.offline_diagnosed";
 
@@ -42,6 +47,7 @@ public class ProtocolAccountEventConsumer {
     private final ProtocolAccountStateChangedSink stateChangedSink;
     private final ProtocolAccountGroupsReportedSink groupsReportedSink;
     private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
+    private final ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
 
     /**
      * 创建协议账号事件 consumer。
@@ -50,15 +56,18 @@ public class ProtocolAccountEventConsumer {
      * @param stateChangedSink  账号状态变更下游处理口
      * @param groupsReportedSink 账号当前群列表下游处理口
      * @param offlineDiagnosedSink 账号离线诊断下游处理口
+     * @param membershipChangedSink 账号自身群关系变更下游处理口
      */
     public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
                                         ProtocolAccountStateChangedSink stateChangedSink,
                                         ProtocolAccountGroupsReportedSink groupsReportedSink,
-                                        ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink) {
+                                        ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
+                                        ProtocolAccountGroupMembershipChangedSink membershipChangedSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
         this.groupsReportedSink = groupsReportedSink;
         this.offlineDiagnosedSink = offlineDiagnosedSink;
+        this.membershipChangedSink = membershipChangedSink;
     }
 
     /**
@@ -88,10 +97,18 @@ public class ProtocolAccountEventConsumer {
         if (EVENT_ACCOUNT_GROUPS_REPORTED.equals(eventType)) {
             ProtocolAccountGroupsReportedEvent event = toGroupsReportedEvent(envelope);
             log.info("协议账号群列表事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
-                            + "source={} reportedAt={} groupCount={} workerId={}",
+                            + "source={} reportedAt={} groupCount={} snapshotComplete={} skippedGroupCount={} workerId={}",
                     event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
-                    event.source(), event.reportedAt(), event.groups().size(), event.workerId());
+                    event.source(), event.reportedAt(), event.groups().size(), event.snapshotComplete(),
+                    event.skippedGroupCount(), event.workerId());
             groupsReportedSink.handleGroupsReported(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_GROUP_MEMBERSHIP_CHANGED.equals(eventType)) {
+            ProtocolAccountGroupMembershipChangedEvent event = toMembershipChangedEvent(envelope);
+            log.info("协议账号群关系事件收到 eventId={} accountId={} action={} source={} workerId={}",
+                    event.eventId(), event.accountId(), event.action(), event.source(), event.workerId());
+            membershipChangedSink.handleMembershipChanged(event);
             return;
         }
         if (EVENT_ACCOUNT_OFFLINE_DIAGNOSED.equals(eventType)) {
@@ -147,8 +164,47 @@ public class ProtocolAccountEventConsumer {
                 requiredText(envelope, "accountId", "协议账号群列表事件缺少 accountId"),
                 occurredAt(envelope),
                 text(data, "source"),
+                bool(data, "snapshotComplete"),
+                integer(data, "skippedGroupCount"),
                 text(envelope, "workerId"),
                 groups);
+    }
+
+    /**
+     * 将协议事件 envelope 转换为账号自身群关系事件。
+     *
+     * <p>顶层 {@code accountId} 是协议账号事件的 Kafka 路由键，必须存在并与
+     * {@code data.protocolAccountId} 完全一致；否则事件可能脱离原账号分区顺序，必须拒绝而不能继续回写。</p>
+     *
+     * @param envelope 协议层账号事件 envelope
+     * @return 完成必要字段和路由一致性校验后的精确关系事件
+     * @throws BusinessException 当 data、路由账号、事件 ID、租户、账号、群 JID、动作、本人分类或事实时间缺失，
+     *                           或路由账号与数据账号不一致时抛出
+     */
+    private ProtocolAccountGroupMembershipChangedEvent toMembershipChangedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "协议账号群关系事件缺少 accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议账号群关系事件缺少 data.protocolAccountId");
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群关系事件路由账号不一致");
+        }
+        Long occurredAt = occurredAt(envelope);
+        if (occurredAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群关系事件缺少 occurredAt");
+        }
+        return new ProtocolAccountGroupMembershipChangedEvent(
+                requiredText(envelope, "eventId", "协议账号群关系事件缺少 eventId"),
+                requiredLong(data, "tenantId", "协议账号群关系事件缺少 data.tenantId"),
+                requiredLong(data, "accountId", "协议账号群关系事件缺少 data.accountId"),
+                protocolAccountId,
+                requiredText(data, "groupJid", "协议账号群关系事件缺少 data.groupJid"),
+                requiredText(data, "action", "协议账号群关系事件缺少 data.action"),
+                requiredText(data, "selfParticipation", "协议账号群关系事件缺少 data.selfParticipation"),
+                occurredAt,
+                text(data, "source"),
+                text(envelope, "workerId"));
     }
 
     private ProtocolAccountOfflineDiagnosedEvent toOfflineDiagnosedEvent(JsonNode envelope) {
@@ -295,6 +351,10 @@ public class ProtocolAccountEventConsumer {
             }
         }
         return null;
+    }
+
+    private static Boolean bool(JsonNode node, String fieldName) {
+        return boolAny(node, fieldName);
     }
 
     private static String requiredText(JsonNode node, String fieldName, String errorMessage) {

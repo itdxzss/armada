@@ -8,6 +8,8 @@ package com.armada.group.model.vo;
 public class AccountGroupBaselineRow {
 
     private Long accountId;
+    private String protocolId;
+    private String protocolAccountId;
     private Integer groupBaselineState;
     private String baselineGroupJidsJson;
 
@@ -23,6 +25,22 @@ public class AccountGroupBaselineRow {
 
     public void setAccountId(Long accountId) {
         this.accountId = accountId;
+    }
+
+    public String getProtocolId() {
+        return protocolId;
+    }
+
+    public void setProtocolId(String protocolId) {
+        this.protocolId = protocolId;
+    }
+
+    public String getProtocolAccountId() {
+        return protocolAccountId;
+    }
+
+    public void setProtocolAccountId(String protocolAccountId) {
+        this.protocolAccountId = protocolAccountId;
     }
 
     public Integer getGroupBaselineState() {

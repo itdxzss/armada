@@ -4,10 +4,10 @@ import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import org.springframework.util.StringUtils;
 
 /**
- * 从同一条最后有效发送尝试派生页面群状态、执行结果和失败原因。
+ * 分别归一页面协议群状态与最后已结束执行结果。
  *
- * <p>有效尝试仅包含成功和失败；已提交、跳过记录可以出现在群组明细中，
- * 但不得覆盖最后有效执行结果。成功记录无条件清除历史失败语义并归一为正常。</p>
+ * <p>协议群状态只读取成功或失败回执；执行结果可读取成功、失败或业务跳过。
+ * 已提交记录不得覆盖任一最后结果，业务跳过也不得改写最后协议群状态。</p>
  */
 final class MarketingGroupExecutionNormalizer {
 
@@ -34,6 +34,9 @@ final class MarketingGroupExecutionNormalizer {
 
     /** 最后有效尝试发送失败。 */
     private static final String RESULT_FAILED = "FAILED";
+
+    /** 最后已结束尝试为业务跳过。 */
+    private static final String RESULT_SKIPPED = "SKIPPED";
 
     /** 协议明确判定发送账号已封禁。 */
     private static final String REASON_ACCOUNT_BANNED = "ACCOUNT_BANNED";
@@ -125,6 +128,31 @@ final class MarketingGroupExecutionNormalizer {
         }
         String fallback = firstText(reasonMessage, reasonCode, MESSAGE_UNKNOWN);
         return failed(STATUS_UNCONFIRMED, fallback);
+    }
+
+    /** 将最后已结束 attempt 状态映射为独立执行结果。 */
+    static String executionResult(Integer status) {
+        if (Integer.valueOf(MarketingSendAttemptStatus.SUCCESS.code()).equals(status)) {
+            return RESULT_SUCCESS;
+        }
+        if (Integer.valueOf(MarketingSendAttemptStatus.FAILED.code()).equals(status)) {
+            return RESULT_FAILED;
+        }
+        if (Integer.valueOf(MarketingSendAttemptStatus.SKIPPED.code()).equals(status)) {
+            return RESULT_SKIPPED;
+        }
+        return null;
+    }
+
+    /** 返回最后已结束 attempt 的直接执行原因，成功或未结束时为空。 */
+    static String executionReason(Integer status, String reasonMessage, String reasonCode) {
+        if (Integer.valueOf(MarketingSendAttemptStatus.SUCCESS.code()).equals(status)
+                || executionResult(status) == null) {
+            return null;
+        }
+        String fallback = Integer.valueOf(MarketingSendAttemptStatus.SKIPPED.code()).equals(status)
+                ? "本轮已跳过" : MESSAGE_UNKNOWN;
+        return firstText(reasonMessage, reasonCode, fallback);
     }
 
     private static NormalizedExecution failed(String groupStatus, String reason) {

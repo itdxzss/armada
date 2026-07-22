@@ -37,6 +37,9 @@ public class MarketingTaskAccountGroupStatRow {
      */
     private String groupName;
 
+    /** 当前账号群关系状态码。 */
+    private Integer membershipStatus;
+
     /** 最新有效发送尝试状态:1=成功,2=失败;没有有效结果时为空。 */
     private Integer latestAttemptStatus;
 
@@ -52,6 +55,15 @@ public class MarketingTaskAccountGroupStatRow {
     /** 最新有效发送尝试携带的群组检测原因。 */
     private String groupStatusReason;
 
+    /** 最后已结束尝试状态:1成功、2失败、3跳过。 */
+    private Integer latestExecutionStatus;
+
+    /** 最后已结束尝试原因码。 */
+    private String executionReasonCode;
+
+    /** 最后已结束尝试原因描述。 */
+    private String executionReasonMessage;
+
     /**
      * 该账号向该群组发送成功的历史累计次数。
      */
@@ -61,6 +73,9 @@ public class MarketingTaskAccountGroupStatRow {
      * 该账号向该群组发送失败的历史累计次数。
      */
     private Integer failedMessageCount;
+
+    /** 该账号向该群组业务跳过的累计次数。 */
+    private Integer skippedMessageCount;
 
     /**
      * 最近一次发送尝试或跳过的毫秒时间戳。
@@ -185,6 +200,14 @@ public class MarketingTaskAccountGroupStatRow {
         this.groupName = groupName;
     }
 
+    public Integer getMembershipStatus() {
+        return membershipStatus;
+    }
+
+    public void setMembershipStatus(Integer membershipStatus) {
+        this.membershipStatus = membershipStatus;
+    }
+
     /**
      * 获取最新有效发送尝试状态。
      *
@@ -275,6 +298,30 @@ public class MarketingTaskAccountGroupStatRow {
         this.groupStatusReason = groupStatusReason;
     }
 
+    public Integer getLatestExecutionStatus() {
+        return latestExecutionStatus;
+    }
+
+    public void setLatestExecutionStatus(Integer latestExecutionStatus) {
+        this.latestExecutionStatus = latestExecutionStatus;
+    }
+
+    public String getExecutionReasonCode() {
+        return executionReasonCode;
+    }
+
+    public void setExecutionReasonCode(String executionReasonCode) {
+        this.executionReasonCode = executionReasonCode;
+    }
+
+    public String getExecutionReasonMessage() {
+        return executionReasonMessage;
+    }
+
+    public void setExecutionReasonMessage(String executionReasonMessage) {
+        this.executionReasonMessage = executionReasonMessage;
+    }
+
     /**
      * 获取该账号向该群组发送成功的历史累计次数。
      *
@@ -309,6 +356,14 @@ public class MarketingTaskAccountGroupStatRow {
      */
     public void setFailedMessageCount(Integer failedMessageCount) {
         this.failedMessageCount = failedMessageCount;
+    }
+
+    public Integer getSkippedMessageCount() {
+        return skippedMessageCount;
+    }
+
+    public void setSkippedMessageCount(Integer skippedMessageCount) {
+        this.skippedMessageCount = skippedMessageCount;
     }
 
     /**

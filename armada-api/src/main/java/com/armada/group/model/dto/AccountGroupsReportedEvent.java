@@ -12,6 +12,8 @@ import java.util.List;
  * @param groups            协议层返回的账号当前参与群列表
  * @param eventId           协议层事件 ID,仅用于日志
  * @param source            群列表同步来源,仅用于日志
+ * @param snapshotComplete  协议层是否确认本次快照完整
+ * @param skippedGroupCount 协议层过滤的异常群条目数量
  */
 public record AccountGroupsReportedEvent(
         Long tenantId,
@@ -20,7 +22,9 @@ public record AccountGroupsReportedEvent(
         Long reportedAt,
         List<Group> groups,
         String eventId,
-        String source
+        String source,
+        Boolean snapshotComplete,
+        Integer skippedGroupCount
 ) {
 
     /**
@@ -34,6 +38,18 @@ public record AccountGroupsReportedEvent(
             List<Group> groups,
             String eventId) {
         this(tenantId, accountId, protocolAccountId, reportedAt, groups, eventId, null);
+    }
+
+    /** 兼容尚未携带快照完整性字段的内部和 Web 协议调用。 */
+    public AccountGroupsReportedEvent(
+            Long tenantId,
+            Long accountId,
+            String protocolAccountId,
+            Long reportedAt,
+            List<Group> groups,
+            String eventId,
+            String source) {
+        this(tenantId, accountId, protocolAccountId, reportedAt, groups, eventId, source, null, null);
     }
 
     /**

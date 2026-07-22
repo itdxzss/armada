@@ -181,6 +181,7 @@ class AccountListMapperDbTest extends DbTestBase {
         seedAccountMembership(account.getId(), "120363list-active-1@g.us", null, now);
         seedAccountMembership(account.getId(), "120363list-active-2@g.us", null, now);
         seedAccountMembership(account.getId(), "120363list-deleted@g.us", now, now);
+        seedAccountMembership(account.getId(), "120363list-kicked@g.us", null, now, 3);
 
         AccountQuery q = new AccountQuery();
         q.setPhone(account.getWsPhone());
@@ -303,6 +304,11 @@ class AccountListMapperDbTest extends DbTestBase {
     }
 
     private void seedAccountMembership(Long accountId, String groupJid, Long deletedAt, long now) {
+        seedAccountMembership(accountId, groupJid, deletedAt, now, 1);
+    }
+
+    private void seedAccountMembership(
+            Long accountId, String groupJid, Long deletedAt, long now, int membershipStatus) {
         long groupLinkId = insertAndReturnId("""
                 INSERT INTO group_link
                     (tenant_id, link_url, origin, membership_state, created_at, updated_at)
@@ -316,9 +322,11 @@ class AccountListMapperDbTest extends DbTestBase {
         jdbc.update("""
                 INSERT INTO account_group_membership
                     (tenant_id, account_id, group_link_id, group_jid, joined_at,
+                     membership_status, status_source, status_updated_at,
                      last_seen_at, created_at, updated_at, deleted_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now, now, deletedAt);
+                VALUES (?, ?, ?, ?, ?, ?, 'TEST_FIXTURE', ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, membershipStatus,
+                now, now, now, now, deletedAt);
     }
 
     private long insertAndReturnId(String sql, SqlBinder binder) {

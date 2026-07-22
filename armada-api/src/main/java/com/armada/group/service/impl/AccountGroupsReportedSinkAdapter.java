@@ -45,6 +45,8 @@ public class AccountGroupsReportedSinkAdapter implements ProtocolAccountGroupsRe
                         group.announceOnly(),
                         group.avatarUrl())).toList(),
                 event.eventId(),
-                event.source()));
+                event.source(),
+                event.snapshotComplete(),
+                event.skippedGroupCount()));
     }
 }

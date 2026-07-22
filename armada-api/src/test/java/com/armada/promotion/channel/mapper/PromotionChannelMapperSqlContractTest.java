@@ -37,6 +37,20 @@ class PromotionChannelMapperSqlContractTest {
     }
 
     @Test
+    void domainLookupSupportsBothSidesOfTemplateDomainUniqueness() throws IOException {
+        String xml = mapperXml();
+
+        assertThat(xml).contains("<select id=\"selectActiveDomainByHost\"");
+        assertThat(xml).contains("WHERE domain_host = #{domainHost}");
+        assertThat(xml).contains("<select id=\"selectActiveDomainByTemplateId\"");
+        assertThat(xml).contains("WHERE landing_template_id = #{templateId}");
+        assertThat(xml).contains("AND deleted_at IS NULL");
+        assertThat(xml).contains("<select id=\"selectActiveDomainByHostForUpdate\"");
+        assertThat(xml).contains("<select id=\"selectActiveDomainByTemplateIdForUpdate\"");
+        assertThat(xml).contains("FOR UPDATE");
+    }
+
+    @Test
     void listNeverSelectsTokenCiphertextOrFingerprint() throws IOException {
         String xml = mapperXml();
         String selectPage = xml.substring(xml.indexOf("<select id=\"selectPage\""),

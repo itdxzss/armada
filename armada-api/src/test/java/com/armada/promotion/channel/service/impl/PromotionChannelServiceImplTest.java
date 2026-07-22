@@ -38,6 +38,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 @ExtendWith(MockitoExtension.class)
 class PromotionChannelServiceImplTest {
@@ -336,6 +337,92 @@ class PromotionChannelServiceImplTest {
     }
 
     @Test
+    void createRejectsDifferentDomainWhenTemplateAlreadyHasOne() {
+        when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "模板A"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
+        when(mapper.selectActiveDomainByHost("new.example.com")).thenReturn(null);
+        when(mapper.selectActiveDomainByTemplateId(11L))
+                .thenReturn(domain(31L, 11L, "old.example.com"));
+
+        assertThatThrownBy(() -> service.create(
+                request(11L, "IN", "IN", "new.example.com", 1, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("同一模板只能绑定一个访问域名")
+                .hasMessageContaining("old.example.com");
+
+        verify(mapper, never()).insertDomain(any());
+        verify(mapper, never()).insertChannel(any());
+    }
+
+    @Test
+    void createAllowsAnotherChannelToReuseSameTemplateAndDomain() {
+        when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "模板A"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
+        when(mapper.selectActiveDomainByHost("go.example.com"))
+                .thenReturn(domain(31L, 11L, "go.example.com"));
+        when(codeGenerator.generate()).thenReturn("second01");
+        doAnswer(invocation -> {
+            ((PromotionChannel) invocation.getArgument(0)).setId(52L);
+            return 1;
+        }).when(mapper).insertChannel(any(PromotionChannel.class));
+
+        var result = service.create(
+                request(11L, "IN", "IN", "go.example.com", 1, null, null));
+
+        verify(mapper, never()).insertDomain(any());
+        ArgumentCaptor<PromotionChannel> channelCaptor = ArgumentCaptor.forClass(PromotionChannel.class);
+        verify(mapper).insertChannel(channelCaptor.capture());
+        assertThat(channelCaptor.getValue().getPromotionDomainId()).isEqualTo(31L);
+        assertThat(result.channelCode()).isEqualTo("second01");
+    }
+
+    @Test
+    void createUsesCurrentReadToReuseConcurrentTemplateDomainWinner() {
+        when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "模板A"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
+        when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(null);
+        when(mapper.selectActiveDomainByTemplateId(11L)).thenReturn(null);
+        when(mapper.insertDomain(any())).thenThrow(new DuplicateKeyException("concurrent winner"));
+        when(mapper.selectActiveDomainByHostForUpdate("go.example.com"))
+                .thenReturn(domain(31L, 11L, "go.example.com"));
+        when(codeGenerator.generate()).thenReturn("second02");
+        doAnswer(invocation -> {
+            ((PromotionChannel) invocation.getArgument(0)).setId(53L);
+            return 1;
+        }).when(mapper).insertChannel(any(PromotionChannel.class));
+
+        var result = service.create(
+                request(11L, "IN", "IN", "go.example.com", 1, null, null));
+
+        assertThat(result.channelCode()).isEqualTo("second02");
+        verify(mapper).selectActiveDomainByHostForUpdate("go.example.com");
+        verify(mapper, never()).selectActiveDomainByTemplateIdForUpdate(any());
+    }
+
+    @Test
+    void createReturnsStableConflictWhenConcurrentOwnerIsNotVisible() {
+        when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "模板A"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
+        when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(null);
+        when(mapper.selectActiveDomainByTemplateId(11L)).thenReturn(null);
+        when(mapper.insertDomain(any())).thenThrow(new DuplicateKeyException("invisible owner"));
+        when(mapper.selectActiveDomainByHostForUpdate("go.example.com")).thenReturn(null);
+        when(mapper.selectActiveDomainByTemplateIdForUpdate(11L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.create(
+                request(11L, "IN", "IN", "go.example.com", 1, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("访问域名或模板已被占用")
+                .hasMessageNotContaining("请重试");
+
+        verify(mapper, never()).insertChannel(any());
+    }
+
+    @Test
     void pageUsesOwnerIdsForReservedUpperUserFilterAndEnrichesCountriesInBatch() {
         PromotionChannelQuery query = new PromotionChannelQuery();
         query.setOwnerUserIds(List.of(20001L, 20002L));
@@ -390,6 +477,29 @@ class PromotionChannelServiceImplTest {
         verify(mapper).updateTrackingConfig(trackingCaptor.capture());
         assertThat(trackingCaptor.getValue().getProviderType()).isEqualTo(2);
         assertThat(trackingCaptor.getValue().getAccessTokenCiphertext()).containsExactly(4, 5, 6);
+    }
+
+    @Test
+    void updateRejectsDifferentDomainWhenTemplateAlreadyHasOne() {
+        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
+        when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "基础领奖"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
+        when(mapper.selectActiveDomainByHost("new.example.com")).thenReturn(null);
+        when(mapper.selectActiveDomainByTemplateId(11L))
+                .thenReturn(domain(31L, 11L, "old.example.com"));
+
+        PromotionChannelUpdateDTO request = new PromotionChannelUpdateDTO(
+                "更新渠道", 20002L, "IN", 11L, "new.example.com", "IN",
+                3, null, null, null, null, null, true, false, 1);
+
+        assertThatThrownBy(() -> service.update(51L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("同一模板只能绑定一个访问域名")
+                .hasMessageContaining("old.example.com");
+
+        verify(mapper, never()).insertDomain(any());
+        verify(mapper, never()).updateChannel(any());
     }
 
     @Test
@@ -600,6 +710,14 @@ class PromotionChannelServiceImplTest {
         row.setIsInAppOpenAllowed(1);
         row.setIsMarketingAllowed(1);
         row.setCreatedAt(1784217600000L);
+        return row;
+    }
+
+    private static PromotionDomain domain(Long id, Long templateId, String domainHost) {
+        PromotionDomain row = new PromotionDomain();
+        row.setId(id);
+        row.setLandingTemplateId(templateId);
+        row.setDomainHost(domainHost);
         return row;
     }
 

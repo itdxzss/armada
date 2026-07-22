@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 
-/** V061-V063 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
+/** V061-V064 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
 class PromotionSchemaSqlContractTest {
 
     private static final String MIGRATION =
@@ -21,6 +21,9 @@ class PromotionSchemaSqlContractTest {
 
     private static final String TEMPLATE_SEED_MIGRATION =
             "db/migration/V063__promotion_template_visibility_and_seed.sql";
+
+    private static final String TEMPLATE_DOMAIN_UNIQUE_MIGRATION =
+            "db/migration/V064__promotion_template_single_domain.sql";
 
     private static final Map<String, List<String>> TABLE_FIELDS = approvedTableFields();
 
@@ -116,6 +119,15 @@ class PromotionSchemaSqlContractTest {
         assertThat(sql).contains("SELECT 38, 1, 'basic_party_female', '基础约会-投女粉'");
         assertThat(sql).contains("SELECT 37, 1, 'base_sex', '约会二代'");
         assertThat(sql).contains("'[\"themeColor\", \"showAppDownload\"]'");
+    }
+
+    @Test
+    void templateDomainMigrationEnforcesOneActiveMappingPerTenantTemplate() throws IOException {
+        String sql = migrationSql(TEMPLATE_DOMAIN_UNIQUE_MIGRATION);
+
+        assertThat(sql).contains("ALTER TABLE promotion_domain");
+        assertThat(sql).contains("UNIQUE KEY uq_promotion_domain_tenant_template "
+                + "(tenant_id, landing_template_id)");
     }
 
     private String migrationSql() throws IOException {

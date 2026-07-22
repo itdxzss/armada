@@ -119,7 +119,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         CountryOptionVO preselectedCountry =
                 countryService.requireActiveOption(value.preselectedCountry(), false);
 
-        // 步骤3：同域名同模板直接复用；同域名跨模板立即拒绝，数据库唯一键负责兜住并发竞争。
+        // 步骤3：同模板同域名直接复用；域名或模板任一侧冲突都拒绝，唯一键负责兜住并发竞争。
         PromotionDomain domain = resolveDomain(value);
         long now = System.currentTimeMillis();
 
@@ -533,14 +533,22 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     /**
      * 获取或创建域名绑定。
      *
-     * <p>先查后插用于正常路径，唯一键用于解决两个请求同时创建同一域名的竞态。</p>
+     * <p>先按域名、再按模板检查双方归属。数据库唯一键用于解决并发请求绕过先查后插窗口的问题。</p>
      */
     private PromotionDomain resolveDomain(ValidatedWrite value) {
-        PromotionDomain existing = mapper.selectActiveDomainByHost(value.domainHost());
-        if (existing != null) {
-            requireSameTemplate(existing, value.landingTemplateId());
-            return existing;
+        PromotionDomain domainByHost = mapper.selectActiveDomainByHost(value.domainHost());
+        if (domainByHost != null) {
+            requireSameTemplate(domainByHost, value.landingTemplateId());
+            return domainByHost;
         }
+
+        PromotionDomain domainByTemplate =
+                mapper.selectActiveDomainByTemplateId(value.landingTemplateId());
+        if (domainByTemplate != null) {
+            requireSameDomain(domainByTemplate, value.domainHost());
+            return domainByTemplate;
+        }
+
         long now = System.currentTimeMillis();
         PromotionDomain created = new PromotionDomain();
         created.setDomainHost(value.domainHost());
@@ -553,13 +561,21 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             mapper.insertDomain(created);
             return created;
         } catch (DuplicateKeyException ex) {
-            // 另一个并发事务先完成插入后重新读取；若当前租户仍不可见，说明域名已被其他范围占用。
-            PromotionDomain concurrent = mapper.selectActiveDomainByHost(value.domainHost());
-            if (concurrent == null) {
-                throw new BusinessException(ErrorCode.CONFLICT, "访问域名已被占用: " + value.domainHost());
+            // 并发请求可能抢先占用域名，也可能抢先给模板绑定其他域名；分别查询后返回稳定业务错误。
+            PromotionDomain concurrentByHost =
+                    mapper.selectActiveDomainByHostForUpdate(value.domainHost());
+            if (concurrentByHost != null) {
+                requireSameTemplate(concurrentByHost, value.landingTemplateId());
+                return concurrentByHost;
             }
-            requireSameTemplate(concurrent, value.landingTemplateId());
-            return concurrent;
+            PromotionDomain concurrentByTemplate =
+                    mapper.selectActiveDomainByTemplateIdForUpdate(value.landingTemplateId());
+            if (concurrentByTemplate != null) {
+                requireSameDomain(concurrentByTemplate, value.domainHost());
+                return concurrentByTemplate;
+            }
+            // 可能由其他租户或历史软删记录占用；不暴露对方信息，也不误导为瞬时错误。
+            throw new BusinessException(ErrorCode.CONFLICT, "访问域名或模板已被占用");
         }
     }
 
@@ -568,6 +584,14 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         if (!templateId.equals(domain.getLandingTemplateId())) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "访问域名已绑定其他模板，请更换域名: " + domain.getDomainHost());
+        }
+    }
+
+    /** 确保模板没有绑定到其他域名；多个渠道可以复用同一条模板域名关系。 */
+    private static void requireSameDomain(PromotionDomain domain, String domainHost) {
+        if (!domainHost.equals(domain.getDomainHost())) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "同一模板只能绑定一个访问域名，当前已绑定: " + domain.getDomainHost());
         }
     }
 

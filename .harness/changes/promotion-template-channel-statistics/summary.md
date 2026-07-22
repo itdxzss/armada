@@ -84,3 +84,11 @@
 - 同一渠道完成后有 30 秒数据库冷却；生产出站地址只允许 `https://graph.facebook.com` 且没有可配置的不安全旁路，HTTP 单项超时上限 30 秒、总和不超过 45 秒，Token 解密后会常量时间校验指纹。
 - 探测抢占和最终回写均校验平台、Pixel ID 与 Token 指纹，最终回写还校验本次抢占开始时间；配置发生变化或新一轮探测已接管时返回 `CONFIG_CHANGED`，旧结果不会覆盖新状态。
 - 复用 V061 的最近探测字段，不新增表、列或索引；定向 Controller、Service、Mapper、密码组件和 HTTP 适配器测试共 44 个通过。
+
+## 模板域名唯一绑定（2026-07-22）
+
+- `promotion_domain` 作为模板与域名的唯一映射：同一租户内一个模板只能绑定一个域名，一个域名也不能跨模板复用。
+- 多个渠道可以复用同一条 `promotion_domain`，每条渠道仍独立生成 `channel_code`，因此业务关系为“一个模板 + 一个域名 + 多个渠道/推广码”。
+- 新增和编辑统一通过 `resolveDomain` 校验域名与模板两侧归属；编辑无需排除当前渠道，因为校验对象是共享的模板域名映射，不是渠道记录。
+- V064 增加 `(tenant_id, landing_template_id)` 唯一键兜住并发请求；唯一键冲突后使用 `FOR UPDATE` 当前读绕过 MySQL `REPEATABLE READ` 旧快照，并返回稳定的业务错误。
+- Service、Mapper、Schema 与 Flyway 定向契约测试共 45 个通过，`mvn -DskipTests package` 成功生成后端 JAR；本地不存在 `armada-api/.env`，未连接未知数据库执行真库 DbTest。

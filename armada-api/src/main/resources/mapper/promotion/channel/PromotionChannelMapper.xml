@@ -23,7 +23,37 @@
     LIMIT 1
   </select>
 
-  <!-- 域名全局唯一键负责处理并发抢占，Service 捕获冲突后重新判断模板归属。 -->
+  <!-- 反向检查模板是否已有域名；用于新增、编辑共用的“一模板一域名”校验。 -->
+  <select id="selectActiveDomainByTemplateId"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE landing_template_id = #{templateId}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 唯一键冲突后的锁定读属于 current read，可看到竞争事务刚提交的域名映射。 -->
+  <select id="selectActiveDomainByHostForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE domain_host = #{domainHost}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <!-- 与域名 current read 配对，识别同模板被并发绑定到其他域名的情况。 -->
+  <select id="selectActiveDomainByTemplateIdForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE landing_template_id = #{templateId}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <!-- 域名和模板唯一键共同处理并发抢占，Service 捕获冲突后重新判断双方归属。 -->
   <insert id="insertDomain" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO promotion_domain
       (domain_host, landing_template_id, created_by, updated_by, created_at, updated_at)

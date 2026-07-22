@@ -22,6 +22,15 @@ public interface PromotionChannelMapper {
     /** 按规范化域名查询当前租户内有效绑定。 */
     PromotionDomain selectActiveDomainByHost(@Param("domainHost") String domainHost);
 
+    /** 按模板查询当前租户内有效域名绑定，保证一个模板只能对应一个域名。 */
+    PromotionDomain selectActiveDomainByTemplateId(@Param("templateId") Long templateId);
+
+    /** 唯一键冲突后按域名当前读，绕过 REPEATABLE READ 的旧快照。 */
+    PromotionDomain selectActiveDomainByHostForUpdate(@Param("domainHost") String domainHost);
+
+    /** 唯一键冲突后按模板当前读，识别并发建立的模板域名映射。 */
+    PromotionDomain selectActiveDomainByTemplateIdForUpdate(@Param("templateId") Long templateId);
+
     /** 新增域名与模板绑定，主键回填到实体。 */
     int insertDomain(PromotionDomain row);
 

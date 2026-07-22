@@ -111,4 +111,17 @@ public interface AccountGroupMapper {
      * @return 该分组下活跃账号数量
      */
     long countAccountsByGroupId(@Param("groupId") Long groupId);
+
+    /** 按账号 ID 升序查询分组内活跃账号。 */
+    List<Long> selectAccountIdsByGroupId(@Param("groupId") Long groupId);
+
+    /** 将指定账号批量迁移到目标分组。 */
+    int updateAccountGroup(@Param("accountIds") List<Long> accountIds,
+                           @Param("targetGroupId") Long targetGroupId,
+                           @Param("updatedAt") long updatedAt);
+
+    /** 将多个来源分组内的全部活跃账号迁移到目标分组。 */
+    int mergeAccounts(@Param("sourceGroupIds") List<Long> sourceGroupIds,
+                      @Param("targetGroupId") Long targetGroupId,
+                      @Param("updatedAt") long updatedAt);
 }

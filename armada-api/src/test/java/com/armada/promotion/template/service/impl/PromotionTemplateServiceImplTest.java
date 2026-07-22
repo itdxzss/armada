@@ -1,13 +1,20 @@
 package com.armada.promotion.template.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.promotion.template.mapper.PromotionTemplateMapper;
 import com.armada.promotion.template.model.dto.PromotionTemplateQuery;
+import com.armada.promotion.template.model.dto.PromotionTemplateRemarkUpdateDTO;
 import com.armada.promotion.template.model.vo.PromotionTemplateRow;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +78,31 @@ class PromotionTemplateServiceImplTest {
 
         assertThat(transactional).isNotNull();
         assertThat(transactional.readOnly()).isTrue();
+    }
+
+    @Test
+    void updateRemarkWritesNormalizedRemarkAndCurrentTimestamp() {
+        String remark = "😀".repeat(500);
+        long before = System.currentTimeMillis();
+        when(mapper.updateRemark(eq(130L), eq(remark), anyLong())).thenReturn(1);
+
+        service.updateRemark(130L, new PromotionTemplateRemarkUpdateDTO("  " + remark + "  "));
+
+        var updatedAtCaptor = org.mockito.ArgumentCaptor.forClass(Long.class);
+        verify(mapper).updateRemark(eq(130L), eq(remark), updatedAtCaptor.capture());
+        assertThat(updatedAtCaptor.getValue()).isBetween(before, System.currentTimeMillis());
+    }
+
+    @Test
+    void updateRemarkRejectsMissingTemplate() {
+        when(mapper.updateRemark(eq(999L), isNull(), anyLong())).thenReturn(0);
+
+        assertThatThrownBy(() -> service.updateRemark(
+                999L, new PromotionTemplateRemarkUpdateDTO("   ")))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getCode())
+                        .isEqualTo(ErrorCode.NOT_FOUND.code()))
+                .hasMessage("模板不存在、已停用或已删除: 999");
     }
 
     private static PromotionTemplateRow row() {

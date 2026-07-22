@@ -1,14 +1,17 @@
 package com.armada.promotion.template.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.armada.boot.web.GlobalExceptionHandler;
 import com.armada.promotion.template.model.dto.PromotionTemplateQuery;
+import com.armada.promotion.template.model.dto.PromotionTemplateRemarkUpdateDTO;
 import com.armada.promotion.template.model.vo.PromotionTemplateSupportedParamVO;
 import com.armada.promotion.template.model.vo.PromotionTemplateVO;
 import com.armada.promotion.template.service.PromotionTemplateService;
@@ -20,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -60,6 +64,21 @@ class PromotionTemplateControllerTest {
         verify(service).page(captor.capture());
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getPage()).isEqualTo(2);
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getPageSize()).isEqualTo(20);
+    }
+
+    @Test
+    void updateRemarkDelegatesRequestAndReturnsUnifiedSuccess() throws Exception {
+        mockMvc.perform(patch("/api/promotion-templates/{id}/remark", 130L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"活动主模板\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        ArgumentCaptor<PromotionTemplateRemarkUpdateDTO> captor =
+                ArgumentCaptor.forClass(PromotionTemplateRemarkUpdateDTO.class);
+        verify(service).updateRemark(eq(130L), captor.capture());
+        org.assertj.core.api.Assertions.assertThat(captor.getValue().remark()).isEqualTo("活动主模板");
     }
 
     private static PromotionTemplateVO template() {

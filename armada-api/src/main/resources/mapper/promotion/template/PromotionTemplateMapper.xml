@@ -32,4 +32,14 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <!-- 备注与更新时间原子更新；tenant_id 由现有租户拦截器自动注入。 -->
+  <update id="updateRemark">
+    UPDATE promotion_landing_template
+    SET remark = #{remark},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = 1
+      AND deleted_at IS NULL
+  </update>
+
 </mapper>

@@ -2,10 +2,13 @@ package com.armada.promotion.template.service.impl;
 
 import com.armada.promotion.template.mapper.PromotionTemplateMapper;
 import com.armada.promotion.template.model.dto.PromotionTemplateQuery;
+import com.armada.promotion.template.model.dto.PromotionTemplateRemarkUpdateDTO;
 import com.armada.promotion.template.model.vo.PromotionTemplateRow;
 import com.armada.promotion.template.model.vo.PromotionTemplateSupportedParamVO;
 import com.armada.promotion.template.model.vo.PromotionTemplateVO;
 import com.armada.promotion.template.service.PromotionTemplateService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -21,6 +24,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class PromotionTemplateServiceImpl implements PromotionTemplateService {
 
+    private static final int REMARK_MAX_LENGTH = 500;
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() { };
     private static final Map<String, String> PARAM_LABELS = Map.of(
             "themeColor", "主题色",
@@ -60,6 +64,30 @@ public class PromotionTemplateServiceImpl implements PromotionTemplateService {
         return PageResult.of(items, query.getPage(), query.getPageSize(), total);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>备注和更新时间由单条 SQL 同时写入，避免页面看到新备注却仍显示旧更新时间。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateRemark(Long id, PromotionTemplateRemarkUpdateDTO request) {
+        // 步骤1：拒绝无效主键和空请求；空白备注允许保存，并统一落为 NULL。
+        if (id == null || id <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "模板ID必须为正整数");
+        }
+        if (request == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "修改备注参数不能为空");
+        }
+        String remark = normalizeRemark(request.remark());
+
+        // 步骤2：确认按钮触发请求后，以服务端当前毫秒时间更新，避免信任前端可伪造的时间。
+        long updatedAt = System.currentTimeMillis();
+        if (mapper.updateRemark(id, remark, updatedAt) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "模板不存在、已停用或已删除: " + id);
+        }
+    }
+
     private PromotionTemplateVO toVO(PromotionTemplateRow row) {
         return new PromotionTemplateVO(
                 row.getId(),
@@ -71,6 +99,19 @@ public class PromotionTemplateServiceImpl implements PromotionTemplateService {
                 row.getRemark(),
                 row.getCreatedAt(),
                 row.getUpdatedAt());
+    }
+
+    /** 校验可选备注；去除首尾空白，空白统一为 NULL，避免保存无意义空串。 */
+    private static String normalizeRemark(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.codePointCount(0, trimmed.length()) > REMARK_MAX_LENGTH) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION, "备注长度不能超过 " + REMARK_MAX_LENGTH + " 个字符");
+        }
+        return trimmed;
     }
 
     /** 解析数据库 JSON 数组，去除空值与重复代码并保持原配置顺序。 */

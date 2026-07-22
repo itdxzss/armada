@@ -4,6 +4,7 @@ import com.armada.promotion.template.model.dto.PromotionTemplateQuery;
 import com.armada.promotion.template.model.vo.PromotionTemplateRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 /** 推广模板数据访问；tenant_id 由现有 MyBatis 租户拦截器透明注入。 */
 @Mapper
@@ -14,4 +15,10 @@ public interface PromotionTemplateMapper {
 
     /** 在 MySQL 中完成当前租户模板的稳定排序和分页。 */
     List<PromotionTemplateRow> selectPage(PromotionTemplateQuery query);
+
+    /** 按主键修改当前租户的有效模板备注，同时刷新更新时间。 */
+    int updateRemark(
+            @Param("id") Long id,
+            @Param("remark") String remark,
+            @Param("updatedAt") long updatedAt);
 }

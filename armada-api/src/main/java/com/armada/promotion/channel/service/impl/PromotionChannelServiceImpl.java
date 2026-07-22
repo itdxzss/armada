@@ -6,6 +6,7 @@ import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.entity.PromotionChannel;
 import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
@@ -14,9 +15,12 @@ import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.enums.PromotionPlatform;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
+import com.armada.promotion.channel.service.FacebookCapiProbeClient;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
 import com.armada.promotion.channel.support.PromotionDomainNormalizer;
@@ -24,12 +28,18 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,24 +57,46 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private static final String DEFAULT_LEAD_EVENT = "Lead";
     private static final String DEFAULT_LOGIN_REQUEST_EVENT = "InitiateCheckout";
     private static final String DEFAULT_LOGIN_SUCCESS_EVENT = "CompleteRegistration";
+    private static final String PROBE_EVENT_NAME = "PageView";
+    private static final String PROBE_STATUS_NORMAL = "NORMAL";
+    private static final String PROBE_STATUS_ABNORMAL = "ABNORMAL";
+    private static final String PROBE_ERROR_UNSUPPORTED_PLATFORM = "UNSUPPORTED_PLATFORM";
+    private static final String PROBE_ERROR_UNCONFIGURED = "UNCONFIGURED";
+    private static final String PROBE_ERROR_TOKEN_DECRYPT_FAILED = "TOKEN_DECRYPT_FAILED";
+    private static final String PROBE_ERROR_INVALID_RESPONSE = "INVALID_PLATFORM_RESPONSE";
+    private static final String PROBE_ERROR_CONFIG_CHANGED = "CONFIG_CHANGED";
+    private static final int PROBE_DB_STATUS_RUNNING = 0;
+    private static final int PROBE_DB_STATUS_SUCCESS = 1;
+    private static final int PROBE_DB_STATUS_FAILED = 2;
+    private static final long PROBE_LOCK_TIMEOUT_MILLIS = 60_000L;
+    private static final long PROBE_COOLDOWN_MILLIS = 30_000L;
+    private static final int PROBE_ERROR_MESSAGE_MAX_LENGTH = 255;
+    private static final Pattern TEST_EVENT_CODE_PATTERN =
+            Pattern.compile("^TEST[A-Za-z0-9_-]{1,60}$");
 
     private final PromotionChannelMapper mapper;
     private final CountryService countryService;
     private final PromotionChannelConverter converter;
     private final ChannelCodeGenerator codeGenerator;
     private final PromotionTokenCipher tokenCipher;
+    private final FacebookCapiProbeClient facebookCapiProbeClient;
+    private final boolean probeEnabled;
 
     public PromotionChannelServiceImpl(
             PromotionChannelMapper mapper,
             CountryService countryService,
             PromotionChannelConverter converter,
             ChannelCodeGenerator codeGenerator,
-            PromotionTokenCipher tokenCipher) {
+            PromotionTokenCipher tokenCipher,
+            FacebookCapiProbeClient facebookCapiProbeClient,
+            @Value("${armada.promotion.tracking.facebook.probe-enabled:false}") boolean probeEnabled) {
         this.mapper = mapper;
         this.countryService = countryService;
         this.converter = converter;
         this.codeGenerator = codeGenerator;
         this.tokenCipher = tokenCipher;
+        this.facebookCapiProbeClient = facebookCapiProbeClient;
+        this.probeEnabled = probeEnabled;
     }
 
     /**
@@ -164,6 +196,65 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         return converter.toDetailVO(row);
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public PromotionChannelProbeVO probe(Long id, PromotionChannelProbeDTO request) {
+        if (!probeEnabled) {
+            throw new BusinessException(ErrorCode.VALIDATION, "Facebook CAPI 探测功能未启用");
+        }
+        requirePositive(id, "渠道");
+        PromotionChannelProbeConfigRow config = mapper.selectProbeConfigByChannelId(id);
+        if (config == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
+        }
+
+        long checkedAt = System.currentTimeMillis();
+        if (!Integer.valueOf(PromotionPlatform.FACEBOOK.code()).equals(config.getPlatform())) {
+            return rejectedProbe(config, PROBE_ERROR_UNSUPPORTED_PLATFORM,
+                    "当前推广平台不支持 Facebook CAPI 探测，未发起探测", checkedAt);
+        }
+        if (!hasCompleteTrackingConfig(config)) {
+            return rejectedProbe(config, PROBE_ERROR_UNCONFIGURED,
+                    "未配置 Pixel ID 或 Access Token，未发起探测", checkedAt);
+        }
+
+        String testEventCode = requireTestEventCode(request);
+        PromotionChannelTrackingConfig running = probeUpdate(config, PROBE_DB_STATUS_RUNNING, checkedAt);
+        running.setLastProbeEventName(PROBE_EVENT_NAME);
+        if (mapper.markProbeRunning(
+                running,
+                checkedAt - PROBE_LOCK_TIMEOUT_MILLIS,
+                checkedAt - PROBE_COOLDOWN_MILLIS) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "渠道正在探测或操作过于频繁，请稍后重试");
+        }
+
+        final String accessToken;
+        try {
+            accessToken = tokenCipher.decrypt(
+                    config.getAccessTokenCiphertext(),
+                    config.getEncryptionKeyId(),
+                    config.getTokenFingerprint());
+        } catch (BusinessException ex) {
+            return completeProbe(config, false, null,
+                    PROBE_ERROR_TOKEN_DECRYPT_FAILED,
+                    "Access Token 无法解密，请重新配置", checkedAt, System.currentTimeMillis());
+        }
+
+        String eventId = "probe_" + UUID.randomUUID().toString().replace("-", "");
+        long eventTimeSeconds = System.currentTimeMillis() / 1000;
+        FacebookCapiProbeClient.Command command = new FacebookCapiProbeClient.Command(
+                config.getTrackingId(), accessToken, testEventCode,
+                promotionLink(config), PROBE_EVENT_NAME, eventId, eventTimeSeconds,
+                sha256Hex(eventId));
+        FacebookCapiProbeClient.Result clientResult = facebookCapiProbeClient.probe(command);
+        if (clientResult == null) {
+            return completeProbe(config, false, eventId, PROBE_ERROR_INVALID_RESPONSE,
+                    "Facebook 返回结果无法识别", checkedAt, System.currentTimeMillis());
+        }
+        return completeProbe(config, clientResult.success(), eventId,
+                clientResult.errorCode(), clientResult.errorMessage(), checkedAt, System.currentTimeMillis());
+    }
+
     /**
      * {@inheritDoc}
      *
@@ -217,6 +308,136 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         }
         mapper.softDeleteTrackingConfig(id, channel.getOwnerUserId(), now);
         log.info("推广渠道已软删除 id={} ownerUserId={}", id, channel.getOwnerUserId());
+    }
+
+    /** 平台不支持或配置不完整时返回页面可展示的失败详情，不调用 Facebook。 */
+    private PromotionChannelProbeVO rejectedProbe(
+            PromotionChannelProbeConfigRow config,
+            String errorCode,
+            String errorMessage,
+            long probedAt) {
+        // 缺失配置不能进入“探测中”，因此不抢占也不回写；分页状态继续稳定显示未配置。
+        log.info("渠道CAPI探测未发起 id={} result={}", config.getChannelId(), errorCode);
+        return new PromotionChannelProbeVO(
+                false, PROBE_STATUS_ABNORMAL, config.getTrackingId(),
+                hasCompleteToken(config), null, null,
+                errorCode, errorMessage, probedAt);
+    }
+
+    /** 将 Facebook 调用结论脱敏落库并组装统一探测详情。 */
+    private PromotionChannelProbeVO completeProbe(
+            PromotionChannelProbeConfigRow config,
+            boolean success,
+            String eventId,
+            String errorCode,
+            String errorMessage,
+            long startedAt,
+            long probedAt) {
+        String stableErrorCode = success
+                ? null
+                : (StringUtils.hasText(errorCode) ? errorCode : PROBE_ERROR_INVALID_RESPONSE);
+        String stableErrorMessage = success
+                ? null
+                : probeErrorMessage(errorMessage);
+        String eventName = eventId == null ? null : PROBE_EVENT_NAME;
+
+        PromotionChannelTrackingConfig result = probeUpdate(
+                config, success ? PROBE_DB_STATUS_SUCCESS : PROBE_DB_STATUS_FAILED, probedAt);
+        result.setLastProbeEventName(eventName);
+        result.setLastProbeEventId(eventId);
+        result.setLastProbeErrorCode(stableErrorCode);
+        result.setLastProbeErrorMessage(stableErrorMessage);
+        if (mapper.updateProbeResult(result, startedAt) != 1) {
+            // 编辑会清空探测状态并替换指纹；CAS 失败说明本次结果已过期，绝不能覆盖新配置。
+            log.info("渠道CAPI探测结果已过期 id={}", config.getChannelId());
+            return new PromotionChannelProbeVO(
+                    false, PROBE_STATUS_ABNORMAL, config.getTrackingId(), true,
+                    eventName, eventId, PROBE_ERROR_CONFIG_CHANGED,
+                    "渠道配置在探测期间已变化，请重新探测", probedAt);
+        }
+
+        log.info("渠道CAPI探测完成 id={} success={} result={}",
+                config.getChannelId(), success, success ? PROBE_STATUS_NORMAL : stableErrorCode);
+        return new PromotionChannelProbeVO(
+                success,
+                success ? PROBE_STATUS_NORMAL : PROBE_STATUS_ABNORMAL,
+                config.getTrackingId(),
+                true,
+                eventName,
+                eventId,
+                stableErrorCode,
+                stableErrorMessage,
+                probedAt);
+    }
+
+    /** 构造只包含探测状态字段的追踪配置更新对象。 */
+    private static PromotionChannelTrackingConfig probeUpdate(
+            PromotionChannelProbeConfigRow config,
+            int status,
+            long updatedAt) {
+        PromotionChannelTrackingConfig row = new PromotionChannelTrackingConfig();
+        row.setChannelId(config.getChannelId());
+        row.setProviderType(config.getPlatform());
+        row.setTrackingId(config.getTrackingId());
+        row.setTokenFingerprint(config.getTokenFingerprint());
+        row.setLastProbeStatus(status);
+        row.setLastProbedAt(updatedAt);
+        row.setUpdatedBy(config.getOwnerUserId());
+        row.setUpdatedAt(updatedAt);
+        return row;
+    }
+
+    /** Facebook 真探测要求 Pixel ID 和三项 Token 持久化字段全部完整。 */
+    private static boolean hasCompleteTrackingConfig(PromotionChannelProbeConfigRow config) {
+        return StringUtils.hasText(config.getTrackingId()) && hasCompleteToken(config);
+    }
+
+    /** 三项 Token 持久化字段共同判断配置完整，避免使用半写入或旧版本数据。 */
+    private static boolean hasCompleteToken(PromotionChannelProbeConfigRow config) {
+        return config.getAccessTokenCiphertext() != null
+                && config.getAccessTokenCiphertext().length > 0
+                && StringUtils.hasText(config.getEncryptionKeyId())
+                && config.getTokenFingerprint() != null
+                && config.getTokenFingerprint().length > 0;
+    }
+
+    /** 只有真正调用 Facebook 前才要求 Test Event Code，失败详情查询不受影响。 */
+    private static String requireTestEventCode(PromotionChannelProbeDTO request) {
+        String value = request == null ? null : request.testEventCode();
+        if (!StringUtils.hasText(value)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "Meta Test Event Code 不能为空");
+        }
+        String trimmed = value.trim();
+        if (!TEST_EVENT_CODE_PATTERN.matcher(trimmed).matches()) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION,
+                    "Meta Test Event Code 必须以 TEST 开头且不超过64个字符");
+        }
+        return trimmed;
+    }
+
+    /** 渠道链接由受控域名和不可预测渠道码组成，不接受请求方传入 URL。 */
+    private static String promotionLink(PromotionChannelProbeConfigRow config) {
+        return "https://" + config.getDomainHost() + "/" + config.getChannelCode();
+    }
+
+    /** 使用合成事件 ID 生成不可逆 external_id，探测过程不读取任何真实用户 PII。 */
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("JDK缺少SHA-256算法", ex);
+        }
+    }
+
+    /** 平台错误只保留可操作的短摘要，防止原始响应进入数据库和接口。 */
+    private static String probeErrorMessage(String value) {
+        String message = StringUtils.hasText(value) ? value.trim() : "Facebook CAPI 探测失败";
+        return message.length() <= PROBE_ERROR_MESSAGE_MAX_LENGTH
+                ? message
+                : message.substring(0, PROBE_ERROR_MESSAGE_MAX_LENGTH);
     }
 
     /**

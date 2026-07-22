@@ -6,6 +6,7 @@ import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -35,6 +36,20 @@ public interface PromotionChannelMapper {
 
     /** 查询当前租户内未删除渠道的编辑回显字段，不返回 Token 材料。 */
     PromotionChannelDetailRow selectDetailById(@Param("id") Long id);
+
+    /** 探测专用敏感配置查询；结果只能在 Service 内使用，禁止直接返回 Controller。 */
+    PromotionChannelProbeConfigRow selectProbeConfigByChannelId(@Param("id") Long id);
+
+    /** 原子抢占探测状态；处于有效探测窗口内时返回 0，防止重复调用平台。 */
+    int markProbeRunning(
+            @Param("row") PromotionChannelTrackingConfig row,
+            @Param("staleBefore") Long staleBefore,
+            @Param("cooldownBefore") Long cooldownBefore);
+
+    /** 回写成功或脱敏失败结果；开始时间不匹配时拒绝旧请求覆盖新一轮探测。 */
+    int updateProbeResult(
+            @Param("row") PromotionChannelTrackingConfig row,
+            @Param("startedAt") Long startedAt);
 
     /** 判断当前平台和追踪 ID 是否存在可安全复用的完整 Token 密文。 */
     int countReusableTrackingToken(

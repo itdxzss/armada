@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.armada.boot.web.GlobalExceptionHandler;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.shared.response.PageResult;
@@ -114,6 +115,33 @@ class PromotionChannelControllerTest {
                 .andExpect(jsonPath("$.data.accessTokenCiphertext").doesNotExist());
 
         verify(service).detail(51L);
+    }
+
+    @Test
+    void probeReturnsFailureDetailWithoutTokenMaterial() throws Exception {
+        when(service.probe(org.mockito.ArgumentMatchers.eq(51L), any())).thenReturn(
+                new PromotionChannelProbeVO(
+                        false, "ABNORMAL", null, false,
+                        null, null, "UNCONFIGURED",
+                        "未配置 Pixel ID 或 Access Token，未发起探测", 1784692800000L));
+
+        mockMvc.perform(post("/api/promotion-channels/probe/51")
+                        .contentType("application/json")
+                        .content("""
+                                {"testEventCode":"TEST12345"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.success").value(false))
+                .andExpect(jsonPath("$.data.status").value("ABNORMAL"))
+                .andExpect(jsonPath("$.data.errorCode").value("UNCONFIGURED"))
+                .andExpect(jsonPath("$.data.accessTokenConfigured").value(false))
+                .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.data.accessTokenCiphertext").doesNotExist());
+
+        verify(service).probe(org.mockito.ArgumentMatchers.eq(51L),
+                org.mockito.ArgumentMatchers.argThat(request ->
+                        "TEST12345".equals(request.testEventCode())));
     }
 
     @Test

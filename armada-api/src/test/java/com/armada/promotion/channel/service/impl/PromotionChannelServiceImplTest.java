@@ -15,14 +15,17 @@ import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.entity.PromotionChannel;
 import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
+import com.armada.promotion.channel.service.FacebookCapiProbeClient;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -51,6 +54,9 @@ class PromotionChannelServiceImplTest {
     @Mock
     private PromotionTokenCipher tokenCipher;
 
+    @Mock
+    private FacebookCapiProbeClient facebookCapiProbeClient;
+
     private PromotionChannelServiceImpl service;
 
     @BeforeEach
@@ -58,9 +64,11 @@ class PromotionChannelServiceImplTest {
         service = new PromotionChannelServiceImpl(
                 mapper,
                 countryService,
-                new PromotionChannelConverter() { },
-                codeGenerator,
-                tokenCipher);
+              new PromotionChannelConverter() { },
+              codeGenerator,
+              tokenCipher,
+              facebookCapiProbeClient,
+              true);
     }
 
     @Test
@@ -145,6 +153,167 @@ class PromotionChannelServiceImplTest {
                 .satisfies(error -> assertThat(((BusinessException) error).getCode())
                         .isEqualTo(ErrorCode.NOT_FOUND.code()))
                 .hasMessage("渠道不存在或已删除: 999");
+    }
+
+    @Test
+    void probeIsSecurelyDisabledUntilDeploymentExplicitlyEnablesIt() {
+        PromotionChannelServiceImpl disabledService = new PromotionChannelServiceImpl(
+                mapper,
+                countryService,
+                new PromotionChannelConverter() { },
+                codeGenerator,
+                tokenCipher,
+                facebookCapiProbeClient,
+                false);
+
+        assertThatThrownBy(() -> disabledService.probe(
+                51L, new PromotionChannelProbeDTO("TEST12345")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("探测功能未启用");
+        verify(mapper, never()).selectProbeConfigByChannelId(any());
+    }
+
+    @Test
+    void probeSendsFacebookTestEventAndPersistsSuccess() {
+        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.markProbeRunning(
+                any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
+                .thenReturn(1);
+        when(tokenCipher.decrypt(
+                any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
+                .thenReturn("secret-token");
+        when(facebookCapiProbeClient.probe(any())).thenReturn(
+                new FacebookCapiProbeClient.Result(true, null, null));
+        when(mapper.updateProbeResult(any(PromotionChannelTrackingConfig.class), any(Long.class)))
+                .thenReturn(1);
+
+        var result = service.probe(51L, new PromotionChannelProbeDTO("TEST12345"));
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.status()).isEqualTo("NORMAL");
+        assertThat(result.trackingId()).isEqualTo("123456789012345");
+        assertThat(result.accessTokenConfigured()).isTrue();
+        assertThat(result.eventName()).isEqualTo("PageView");
+        assertThat(result.eventId()).startsWith("probe_");
+        assertThat(result.errorCode()).isNull();
+
+        ArgumentCaptor<FacebookCapiProbeClient.Command> commandCaptor =
+                ArgumentCaptor.forClass(FacebookCapiProbeClient.Command.class);
+        verify(facebookCapiProbeClient).probe(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().testEventCode()).isEqualTo("TEST12345");
+        assertThat(commandCaptor.getValue().eventSourceUrl())
+                .isEqualTo("https://go.example.com/a8k2m9qx");
+
+        ArgumentCaptor<PromotionChannelTrackingConfig> resultCaptor =
+                ArgumentCaptor.forClass(PromotionChannelTrackingConfig.class);
+        verify(mapper).updateProbeResult(resultCaptor.capture(), any(Long.class));
+        assertThat(resultCaptor.getValue().getLastProbeStatus()).isEqualTo(1);
+        assertThat(resultCaptor.getValue().getLastProbeEventName()).isEqualTo("PageView");
+        assertThat(resultCaptor.getValue().getLastProbeEventId()).startsWith("probe_");
+    }
+
+    @Test
+    void probeReturnsFailureDetailForUnsupportedPlatformWithoutCallingFacebook() {
+        PromotionChannelProbeConfigRow row = probeRow(3, false);
+        row.setTrackingConfigId(null);
+        row.setTrackingId(null);
+        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(row);
+
+        var result = service.probe(51L, new PromotionChannelProbeDTO(null));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.status()).isEqualTo("ABNORMAL");
+        assertThat(result.errorCode()).isEqualTo("UNSUPPORTED_PLATFORM");
+        assertThat(result.errorMessage()).contains("不支持");
+        assertThat(result.trackingId()).isNull();
+        assertThat(result.accessTokenConfigured()).isFalse();
+        verify(facebookCapiProbeClient, never()).probe(any());
+        verify(tokenCipher, never()).decrypt(any(), any(), any());
+        verify(mapper, never()).markProbeRunning(any(), any(Long.class), any(Long.class));
+    }
+
+    @Test
+    void probeReturnsFailureDetailWhenFacebookTrackingIsUnconfigured() {
+        PromotionChannelProbeConfigRow row = probeRow(1, false);
+        row.setTrackingId(null);
+        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(row);
+
+        var result = service.probe(51L, new PromotionChannelProbeDTO(null));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.status()).isEqualTo("ABNORMAL");
+        assertThat(result.errorCode()).isEqualTo("UNCONFIGURED");
+        assertThat(result.errorMessage()).contains("未配置 Pixel ID 或 Access Token");
+        assertThat(result.eventName()).isNull();
+        assertThat(result.eventId()).isNull();
+        verify(facebookCapiProbeClient, never()).probe(any());
+    }
+
+    @Test
+    void probePersistsSanitizedFacebookFailure() {
+        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.markProbeRunning(
+                any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
+                .thenReturn(1);
+        when(tokenCipher.decrypt(
+                any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
+                .thenReturn("secret-token");
+        when(facebookCapiProbeClient.probe(any())).thenReturn(
+                new FacebookCapiProbeClient.Result(
+                        false, "TOKEN_INVALID_OR_FORBIDDEN", "Access Token 无效或无 Pixel 权限"));
+        when(mapper.updateProbeResult(any(PromotionChannelTrackingConfig.class), any(Long.class)))
+                .thenReturn(1);
+
+        var result = service.probe(51L, new PromotionChannelProbeDTO("TEST12345"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.status()).isEqualTo("ABNORMAL");
+        assertThat(result.errorCode()).isEqualTo("TOKEN_INVALID_OR_FORBIDDEN");
+        assertThat(result.errorMessage()).doesNotContain("secret-token");
+        ArgumentCaptor<PromotionChannelTrackingConfig> resultCaptor =
+                ArgumentCaptor.forClass(PromotionChannelTrackingConfig.class);
+        verify(mapper).updateProbeResult(resultCaptor.capture(), any(Long.class));
+        assertThat(resultCaptor.getValue().getLastProbeStatus()).isEqualTo(2);
+        assertThat(resultCaptor.getValue().getLastProbeErrorCode())
+                .isEqualTo("TOKEN_INVALID_OR_FORBIDDEN");
+    }
+
+    @Test
+    void probeRejectsDuplicateRunningRequest() {
+        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.markProbeRunning(
+                any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> service.probe(51L, new PromotionChannelProbeDTO("TEST12345")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("正在探测");
+
+        verify(facebookCapiProbeClient, never()).probe(any());
+        verify(tokenCipher, never()).decrypt(any(), any(), any());
+    }
+
+    @Test
+    void probeDoesNotOverwriteResultWhenTrackingConfigurationChangesDuringRequest() {
+        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.markProbeRunning(
+                any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
+                .thenReturn(1);
+        when(tokenCipher.decrypt(
+                any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
+                .thenReturn("secret-token");
+        when(facebookCapiProbeClient.probe(any())).thenReturn(
+                new FacebookCapiProbeClient.Result(true, null, null));
+        // 更新返回 0 表示探测期间 Pixel、Token 或平台已被编辑，旧结果必须作废。
+        when(mapper.updateProbeResult(any(PromotionChannelTrackingConfig.class), any(Long.class)))
+                .thenReturn(0);
+
+        var result = service.probe(51L, new PromotionChannelProbeDTO("TEST12345"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.status()).isEqualTo("ABNORMAL");
+        assertThat(result.errorCode()).isEqualTo("CONFIG_CHANGED");
+        assertThat(result.errorMessage()).contains("配置在探测期间已变化");
     }
 
     @Test
@@ -452,6 +621,23 @@ class PromotionChannelServiceImplTest {
         row.setIsInAppOpenAllowed(1);
         row.setIsMarketingAllowed(1);
         row.setStatus(1);
+        return row;
+    }
+
+    private static PromotionChannelProbeConfigRow probeRow(int platform, boolean completeToken) {
+        PromotionChannelProbeConfigRow row = new PromotionChannelProbeConfigRow();
+        row.setChannelId(51L);
+        row.setOwnerUserId(20001L);
+        row.setPlatform(platform);
+        row.setChannelCode("a8k2m9qx");
+        row.setDomainHost("go.example.com");
+        row.setTrackingConfigId(71L);
+        row.setTrackingId("123456789012345");
+        if (completeToken) {
+            row.setAccessTokenCiphertext(new byte[]{1, 2, 3});
+            row.setEncryptionKeyId("key-v1");
+            row.setTokenFingerprint(new byte[32]);
+        }
         return row;
     }
 }

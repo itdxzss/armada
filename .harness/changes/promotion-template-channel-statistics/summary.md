@@ -2,7 +2,7 @@
 
 - 日期 / 分支：2026-07-20 / `1.0.1-snapshot-wyfBranch`
 - 需求来源：买号上量系统模板管理、渠道管理和渠道统计 V1.1 文档及渠道页面截图
-- 状态：渠道新增、分页、编辑和删除接口已实现；渠道统计和探测接口延期
+- 状态：渠道新增、分页、详情、编辑、删除和 Facebook CAPI 探测接口已实现；渠道统计延期
 
 ## 已确认业务口径
 
@@ -19,6 +19,7 @@
 - `GET /api/promotion-channels`：按目标国家、混合国家、模板、创建人、上级用户展开集合分页查询。
 - `PUT /api/promotion-channels/{id}`：编辑渠道可变字段，保持渠道码和创建信息不变；仅平台、追踪 ID 未变且密文完整时允许空 Token 复用。
 - `DELETE /api/promotion-channels/{id}`：在同一事务软删渠道和追踪配置，不级联域名及历史账号引用。
+- `POST /api/promotion-channels/probe/{id}`：使用 Meta 测试事件码发送合成 `PageView`，返回并保存脱敏探测结果。
 - 国家展示信息通过 `CountryService` 批量读取，未跨业务域直接依赖 CountryMapper。
 - 分页 `count` 和 `select` 复用同一 MyBatis 筛选 SQL，分页在数据库完成。
 
@@ -72,3 +73,14 @@
 - Compose、测试部署预检和生产安装器都会拒绝空密钥；部署脚本同时校验 Base64 解码后恰好 32 字节，并将 `.env` 权限收紧为 `0600`。
 - `key-id` 不再使用运行时默认值；更换密钥时必须同步更新版本号，避免同一标识对应不同密钥。
 - Spring 上下文回归测试先复现 `No default constructor found`，修复后 2 个定向测试通过；部署脚本语法与加密配置定向契约检查通过。
+
+## Facebook CAPI 渠道探测（2026-07-22）
+
+- 探测接口为 `POST /api/promotion-channels/probe/{id}`，请求体只传 Meta Events Manager 生成的 `testEventCode`；Pixel ID 和 Access Token 从渠道追踪配置读取。
+- 本期只对 Facebook 发起真实 CAPI 测试事件；非 Facebook、缺少 Pixel 或 Token 时返回页面可直接展示的 `ABNORMAL` 详情，不调用外部平台。
+- 出站事件固定为合成 `PageView`，只使用随机事件 ID、渠道访问地址和合成 SHA-256 `external_id`，不读取或上传真实用户信息。
+- Access Token 仅在 Service 内解密并通过 Bearer Header 发送，接口、日志和错误信息不返回明文、密文、指纹或 Meta 原始响应体。
+- 当前系统尚无可信 JWT/权限边界，因此探测默认关闭；仅在隔离测试环境显式设置 `ARMADA_PROMOTION_TRACKING_FACEBOOK_PROBE_ENABLED=true` 后启用，生产接入真实身份与探测权限前不得开启。
+- 同一渠道完成后有 30 秒数据库冷却；生产出站地址只允许 `https://graph.facebook.com` 且没有可配置的不安全旁路，HTTP 单项超时上限 30 秒、总和不超过 45 秒，Token 解密后会常量时间校验指纹。
+- 探测抢占和最终回写均校验平台、Pixel ID 与 Token 指纹，最终回写还校验本次抢占开始时间；配置发生变化或新一轮探测已接管时返回 `CONFIG_CHANGED`，旧结果不会覆盖新状态。
+- 复用 V061 的最近探测字段，不新增表、列或索引；定向 Controller、Service、Mapper、密码组件和 HTTP 适配器测试共 44 个通过。

@@ -1,6 +1,7 @@
 package com.armada.promotion.channel.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -47,5 +48,51 @@ class PromotionTokenCipherTest {
                 .doesNotContain("secret-access-token");
         assertThat(encrypted.keyId()).isEqualTo("test-key-v1");
         assertThat(encrypted.fingerprint()).hasSize(32);
+    }
+
+    @Test
+    void decryptsCiphertextWithMatchingKeyVersion() {
+        String key = Base64.getEncoder().encodeToString(
+                "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
+        PromotionTokenCipher cipher = new PromotionTokenCipher(key, "test-key-v1");
+        PromotionTokenCipher.EncryptedToken encrypted = cipher.encrypt("secret-access-token");
+
+        String plaintext = cipher.decrypt(
+                encrypted.ciphertext(), encrypted.keyId(), encrypted.fingerprint());
+
+        assertThat(plaintext).isEqualTo("secret-access-token");
+    }
+
+    @Test
+    void decryptRejectsMismatchedKeyVersionAndTamperedCiphertext() {
+        String key = Base64.getEncoder().encodeToString(
+                "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
+        PromotionTokenCipher cipher = new PromotionTokenCipher(key, "test-key-v1");
+        PromotionTokenCipher.EncryptedToken encrypted = cipher.encrypt("secret-access-token");
+
+        assertThatThrownBy(() -> cipher.decrypt(
+                encrypted.ciphertext(), "old-key", encrypted.fingerprint()))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("密钥版本");
+
+        encrypted.ciphertext()[encrypted.ciphertext().length - 1] ^= 1;
+        assertThatThrownBy(() -> cipher.decrypt(
+                encrypted.ciphertext(), encrypted.keyId(), encrypted.fingerprint()))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("解密失败");
+    }
+
+    @Test
+    void decryptRejectsCiphertextMovedToRowWithDifferentFingerprint() {
+        String key = Base64.getEncoder().encodeToString(
+                "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8));
+        PromotionTokenCipher cipher = new PromotionTokenCipher(key, "test-key-v1");
+        PromotionTokenCipher.EncryptedToken encrypted = cipher.encrypt("secret-access-token");
+        byte[] anotherRowFingerprint = cipher.encrypt("another-token").fingerprint();
+
+        assertThatThrownBy(() -> cipher.decrypt(
+                encrypted.ciphertext(), encrypted.keyId(), anotherRowFingerprint))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("指纹");
     }
 }

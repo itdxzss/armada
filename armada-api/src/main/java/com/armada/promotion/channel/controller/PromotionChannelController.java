@@ -2,8 +2,10 @@ package com.armada.promotion.channel.controller;
 
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.shared.response.ApiResponse;
@@ -63,6 +65,23 @@ public class PromotionChannelController {
     @GetMapping("/detail/{id}")
     public ApiResponse<PromotionChannelDetailVO> detail(@PathVariable Long id) {
         return ApiResponse.ok(service.detail(id));
+    }
+
+    /**
+     * 使用 Meta Test Event Code 探测渠道的 Facebook CAPI 测试事件链路。
+     *
+     * <p>前端只提交渠道 ID 和测试事件码；Pixel ID 与 Token 均由后端读取，响应只包含脱敏结果。</p>
+     *
+     * @param id 渠道 ID
+     * @param request Meta 测试事件参数；非 Facebook 或未配置渠道允许测试码为空并返回失败详情
+     * @return 成功或可供失败弹窗展示的脱敏探测详情
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在、测试码非法或已有探测执行时抛出
+     */
+    @PostMapping("/probe/{id}")
+    public ApiResponse<PromotionChannelProbeVO> probe(
+            @PathVariable Long id,
+            @RequestBody(required = false) PromotionChannelProbeDTO request) {
+        return ApiResponse.ok(service.probe(id, request));
     }
 
     /**

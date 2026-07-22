@@ -23,6 +23,18 @@ public class PromotionChannelTrackingConfig {
     private String loginRequestEventName;
     /** 登录成功上报事件名。 */
     private String loginSuccessEventName;
+    /** 最近探测状态：0探测中、1成功、2失败。 */
+    private Integer lastProbeStatus;
+    /** 最近探测事件名。 */
+    private String lastProbeEventName;
+    /** 最近探测事件 ID。 */
+    private String lastProbeEventId;
+    /** 最近探测脱敏错误码。 */
+    private String lastProbeErrorCode;
+    /** 最近探测脱敏错误摘要。 */
+    private String lastProbeErrorMessage;
+    /** 最近探测时间，epoch 毫秒。 */
+    private Long lastProbedAt;
     /** 创建人用户 ID。 */
     private Long createdBy;
     /** 最近修改人用户 ID。 */
@@ -110,6 +122,54 @@ public class PromotionChannelTrackingConfig {
 
     public void setLoginSuccessEventName(String loginSuccessEventName) {
         this.loginSuccessEventName = loginSuccessEventName;
+    }
+
+    public Integer getLastProbeStatus() {
+        return lastProbeStatus;
+    }
+
+    public void setLastProbeStatus(Integer lastProbeStatus) {
+        this.lastProbeStatus = lastProbeStatus;
+    }
+
+    public String getLastProbeEventName() {
+        return lastProbeEventName;
+    }
+
+    public void setLastProbeEventName(String lastProbeEventName) {
+        this.lastProbeEventName = lastProbeEventName;
+    }
+
+    public String getLastProbeEventId() {
+        return lastProbeEventId;
+    }
+
+    public void setLastProbeEventId(String lastProbeEventId) {
+        this.lastProbeEventId = lastProbeEventId;
+    }
+
+    public String getLastProbeErrorCode() {
+        return lastProbeErrorCode;
+    }
+
+    public void setLastProbeErrorCode(String lastProbeErrorCode) {
+        this.lastProbeErrorCode = lastProbeErrorCode;
+    }
+
+    public String getLastProbeErrorMessage() {
+        return lastProbeErrorMessage;
+    }
+
+    public void setLastProbeErrorMessage(String lastProbeErrorMessage) {
+        this.lastProbeErrorMessage = lastProbeErrorMessage;
+    }
+
+    public Long getLastProbedAt() {
+        return lastProbedAt;
+    }
+
+    public void setLastProbedAt(Long lastProbedAt) {
+        this.lastProbedAt = lastProbedAt;
     }
 
     public Long getCreatedBy() {

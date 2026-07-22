@@ -118,6 +118,75 @@
     LIMIT 1
   </select>
 
+  <!--
+    只有探测服务允许读取 Token 密文；查询仍受租户拦截器和三张表软删除条件约束，
+    该投影禁止复用于列表、详情或导出接口。
+  -->
+  <select id="selectProbeConfigByChannelId"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow">
+    SELECT c.id AS channelId,
+           c.owner_user_id AS ownerUserId,
+           c.platform,
+           c.channel_code AS channelCode,
+           d.domain_host AS domainHost,
+           tc.id AS trackingConfigId,
+           tc.tracking_id AS trackingId,
+           tc.access_token_ciphertext AS accessTokenCiphertext,
+           tc.encryption_key_id AS encryptionKeyId,
+           tc.token_fingerprint AS tokenFingerprint
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d
+      ON d.id = c.promotion_domain_id AND d.deleted_at IS NULL
+    LEFT JOIN promotion_channel_tracking_config tc
+      ON tc.channel_id = c.id AND tc.deleted_at IS NULL
+    WHERE c.id = #{id}
+      AND c.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 运行超过一分钟可重新抢占，终态需冷却30秒；兼顾异常恢复与平台调用限流。 -->
+  <update id="markProbeRunning">
+    UPDATE promotion_channel_tracking_config
+    SET last_probe_status = 0,
+        last_probe_event_name = #{row.lastProbeEventName},
+        last_probe_event_id = NULL,
+        last_probe_error_code = NULL,
+        last_probe_error_message = NULL,
+        last_probed_at = #{row.lastProbedAt},
+        updated_by = #{row.updatedBy},
+        updated_at = #{row.updatedAt}
+    WHERE channel_id = #{row.channelId}
+      AND deleted_at IS NULL
+      AND provider_type = #{row.providerType}
+      AND tracking_id = #{row.trackingId}
+      AND token_fingerprint = #{row.tokenFingerprint}
+      AND (last_probe_status IS NULL
+           OR (last_probe_status = 0
+               AND (last_probed_at IS NULL OR last_probed_at &lt;= #{staleBefore}))
+           OR (last_probe_status &lt;&gt; 0
+               AND (last_probed_at IS NULL OR last_probed_at &lt;= #{cooldownBefore})))
+  </update>
+
+  <!-- 最终结果只写脱敏错误和测试事件标识，绝不更新或返回 Token 材料。 -->
+  <update id="updateProbeResult">
+    UPDATE promotion_channel_tracking_config
+    SET last_probe_status = #{row.lastProbeStatus},
+        last_probe_event_name = #{row.lastProbeEventName},
+        last_probe_event_id = #{row.lastProbeEventId},
+        last_probe_error_code = #{row.lastProbeErrorCode},
+        last_probe_error_message = #{row.lastProbeErrorMessage},
+        last_probed_at = #{row.lastProbedAt},
+        updated_by = #{row.updatedBy},
+        updated_at = #{row.updatedAt}
+    WHERE channel_id = #{row.channelId}
+      AND deleted_at IS NULL
+      AND provider_type = #{row.providerType}
+      AND tracking_id = #{row.trackingId}
+      AND token_fingerprint = #{row.tokenFingerprint}
+      AND last_probe_status = 0
+      AND last_probed_at = #{startedAt}
+  </update>
+
   <!-- 只有平台和追踪 ID 均未变且三个密文字段完整时，空 Token 才表示沿用旧值。 -->
   <select id="countReusableTrackingToken" resultType="int">
     SELECT COUNT(*)

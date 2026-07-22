@@ -91,6 +91,30 @@ class PromotionChannelMapperSqlContractTest {
     }
 
     @Test
+    void probeSqlSelectsSensitiveConfigurationOnlyForProbeAndUsesAtomicStateUpdates() throws IOException {
+        String xml = mapperXml();
+        int probeStart = xml.indexOf("<select id=\"selectProbeConfigByChannelId\"");
+        assertThat(probeStart).isGreaterThanOrEqualTo(0);
+        String probe = xml.substring(probeStart, xml.indexOf("</select>", probeStart));
+
+        assertThat(probe).contains("c.id AS channelId");
+        assertThat(probe).contains("tc.access_token_ciphertext AS accessTokenCiphertext");
+        assertThat(probe).contains("d.deleted_at IS NULL", "c.deleted_at IS NULL", "tc.deleted_at IS NULL");
+        assertThat(probe).doesNotContain("SELECT *");
+        assertThat(xml).contains("<update id=\"markProbeRunning\">");
+        assertThat(xml).contains("last_probe_status = 0");
+        assertThat(xml).contains("last_probed_at &lt;= #{staleBefore}");
+        assertThat(xml).contains("last_probed_at &lt;= #{cooldownBefore}");
+        assertThat(xml).contains("token_fingerprint = #{row.tokenFingerprint}");
+        assertThat(xml).contains("<update id=\"updateProbeResult\">");
+        assertThat(xml).contains("last_probe_status = #{row.lastProbeStatus}");
+        assertThat(xml).contains("last_probe_error_message = #{row.lastProbeErrorMessage}");
+        assertThat(xml).contains("token_fingerprint = #{row.tokenFingerprint}");
+        assertThat(xml).contains("AND last_probe_status = 0");
+        assertThat(xml).contains("AND last_probed_at = #{startedAt}");
+    }
+
+    @Test
     void providerChangeCanClearOldTrackingCredentialsWithoutDeletingConfiguration() throws IOException {
         String xml = mapperXml();
 

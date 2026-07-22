@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -78,6 +79,47 @@ public class PromotionTokenCipher {
             return new EncryptedToken(payload, keyId, fingerprint);
         } catch (GeneralSecurityException ex) {
             throw new IllegalStateException("Access Token 加密失败", ex);
+        }
+    }
+
+    /**
+     * 解密数据库中保存的 Access Token 密文。
+     *
+     * <p>只接受当前环境密钥版本，避免用错误密钥尝试解密；认证标签校验失败时返回统一业务错误，
+     * 不向日志或接口暴露底层密码学异常。</p>
+     *
+     * @param ciphertext {@code 12字节nonce + GCM密文及认证标签}
+     * @param storedKeyId 密文入库时记录的密钥版本
+     * @param expectedFingerprint 当前配置行保存的 SHA-256 Token 指纹
+     * @return Access Token 明文，仅供本次平台调用使用
+     * @throws BusinessException 当密钥版本不匹配、密文缺失或完整性校验失败时抛出
+     */
+    public String decrypt(byte[] ciphertext, String storedKeyId, byte[] expectedFingerprint) {
+        byte[] key = decodeKey();
+        if (!StringUtils.hasText(storedKeyId) || !keyId.equals(storedKeyId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "推广平台 Token 密钥版本不匹配，请重新配置 Access Token");
+        }
+        if (ciphertext == null || ciphertext.length <= NONCE_BYTES + GCM_TAG_BITS / Byte.SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION, "推广平台 Access Token 密文不完整，请重新配置");
+        }
+        byte[] nonce = Arrays.copyOfRange(ciphertext, 0, NONCE_BYTES);
+        byte[] encrypted = Arrays.copyOfRange(ciphertext, NONCE_BYTES, ciphertext.length);
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, nonce));
+            String plaintext = new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+            byte[] actualFingerprint = MessageDigest.getInstance("SHA-256")
+                    .digest(plaintext.getBytes(StandardCharsets.UTF_8));
+            if (expectedFingerprint == null
+                    || !MessageDigest.isEqual(actualFingerprint, expectedFingerprint)) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION,
+                        "推广平台 Access Token 指纹不匹配，请重新配置");
+            }
+            return plaintext;
+        } catch (GeneralSecurityException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION, "推广平台 Access Token 解密失败，请重新配置");
         }
     }
 

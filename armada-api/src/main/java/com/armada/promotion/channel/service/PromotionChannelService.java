@@ -2,8 +2,10 @@ package com.armada.promotion.channel.service;
 
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.shared.response.PageResult;
 
@@ -34,6 +36,18 @@ public interface PromotionChannelService {
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
      */
     PromotionChannelDetailVO detail(Long id);
+
+    /**
+     * 发送 Facebook CAPI 测试事件并保存最近探测结论。
+     *
+     * <p>平台不支持或配置不完整属于可展示失败结果；只有请求本身非法时才抛业务异常。</p>
+     *
+     * @param id 当前租户内渠道 ID
+     * @param request Meta 测试事件码
+     * @return 不包含 Token 材料的探测详情
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在、测试码非法或重复探测时抛出
+     */
+    PromotionChannelProbeVO probe(Long id, PromotionChannelProbeDTO request);
 
     /**
      * 编辑当前租户内的有效渠道，保持渠道码和创建信息不变。

@@ -133,6 +133,9 @@ class MarketingAccountTreeRealtimeServiceTest {
             assertThat(group.groupLinkId()).isEqualTo(31L);
             assertThat(group.groupJid()).isEqualTo("120363031@g.us");
             assertThat(group.groupName()).isEqualTo("新群31");
+            assertThat(group.membershipStatus()).isEqualTo("KICKED_OUT");
+            assertThat(group.membershipStatusText()).isEqualTo("被踢出");
+            assertThat(group.statusUpdatedAt()).isEqualTo(2000L);
         });
     }
 
@@ -187,6 +190,8 @@ class MarketingAccountTreeRealtimeServiceTest {
         row.setGroupJid(groupJid);
         row.setGroupLinkUrl("https://chat.whatsapp.com/" + groupLinkId);
         row.setGroupName(groupName);
+        row.setMembershipStatus(3);
+        row.setStatusUpdatedAt(2000L);
         return row;
     }
 

@@ -82,6 +82,9 @@
         <result column="reason_code" property="reasonCode"/>
         <result column="reason_message" property="reasonMessage"/>
         <result column="message_id" property="messageId"/>
+        <result column="group_status" property="groupStatus"/>
+        <result column="group_status_reason" property="groupStatusReason"/>
+        <result column="group_status_checked_at" property="groupStatusCheckedAt"/>
         <result column="submitted_at" property="submittedAt"/>
         <result column="result_at" property="resultAt"/>
         <result column="attempted_at" property="attemptedAt"/>
@@ -232,21 +235,51 @@
                        NULLIF(TRIM(a.group_name), ''),
                        NULLIF(TRIM(g.group_name), ''),
                        NULLIF(TRIM(p.wa_subject), ''),
-                       NULLIF(TRIM(t.group_name), '')
+                       NULLIF(TRIM(t.group_name), ''),
+                       COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), ''))
                    ) AS groupName
             FROM marketing_task_target t
             JOIN marketing_task_send_attempt a ON a.target_id = t.id
                                               AND a.marketing_task_id = t.marketing_task_id
             LEFT JOIN group_link_preview p ON p.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
+                                          AND (a.group_jid IS NULL OR p.group_jid = a.group_jid)
             LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
             WHERE t.marketing_task_id = #{taskId}
               AND a.marketing_task_id = #{taskId}
               AND a.status IN (0, 1, 2, 3)
         ),
-        group_aggregate AS (
+        fixed_target_groups AS (
+            SELECT t.tenant_id AS tenant_id,
+                   t.account_id AS accountId,
+                   MAX(t.account_phone) AS accountPhone,
+                   COALESCE(
+                       NULLIF(TRIM(t.group_jid), ''),
+                       NULLIF(TRIM(p.group_jid), ''),
+                       CONCAT('link:', t.group_link_id),
+                       CONCAT('target:', t.id)
+                   ) AS groupKey,
+                   MAX(t.group_link_id) AS groupLinkId,
+                   MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''))) AS groupJid,
+                   MAX(COALESCE(g.link_url, t.group_link_url)) AS groupLinkUrl,
+                   MAX(COALESCE(
+                       NULLIF(TRIM(t.group_name), ''),
+                       NULLIF(TRIM(g.group_name), ''),
+                       NULLIF(TRIM(p.wa_subject), ''),
+                       NULLIF(TRIM(t.group_jid), ''),
+                       NULLIF(TRIM(p.group_jid), '')
+                   )) AS groupName
+            FROM marketing_task_target t
+            LEFT JOIN group_link g ON g.id = t.group_link_id
+            LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
+                                          AND (t.group_jid IS NULL OR p.group_jid = t.group_jid)
+            WHERE t.marketing_task_id = #{taskId}
+              AND COALESCE(t.target_scope, 1) = 1
+            GROUP BY t.tenant_id, t.account_id, groupKey
+        ),
+        attempt_dimensions AS (
             SELECT tenant_id,
                    accountId,
-                   accountPhone,
+                   MAX(accountPhone) AS accountPhone,
                    groupKey,
                    MAX(groupLinkId) AS groupLinkId,
                    MAX(groupJid) AS groupJid,
@@ -270,6 +303,7 @@
                    ) AS groupName,
                    SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount,
                    SUM(CASE WHEN attemptStatus = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
+                   SUM(CASE WHEN attemptStatus = 3 THEN 1 ELSE 0 END) AS skippedMessageCount,
                    MAX(eventAt) AS lastAttemptAt,
                    MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt,
                    NULLIF(
@@ -293,44 +327,85 @@
                        ''
                    ) AS lastReason
             FROM attempt_facts
-            GROUP BY tenant_id, accountId, accountPhone, groupKey
+            GROUP BY tenant_id, accountId, groupKey
         ),
-        latest_effective AS (
+        group_dimensions AS (
+            SELECT tenant_id, accountId, groupKey FROM fixed_target_groups
+            UNION
+            SELECT tenant_id, accountId, groupKey FROM attempt_dimensions
+        ),
+        latest_protocol AS (
             SELECT ranked.*
             FROM (
-                SELECT effective.*,
+                SELECT protocol.*,
                        ROW_NUMBER() OVER (
-                           PARTITION BY accountId, groupKey
+                           PARTITION BY tenant_id, accountId, groupKey
                            ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC
-                       ) AS effectiveRank
-                FROM attempt_facts effective
+                       ) AS protocolRank
+                FROM attempt_facts protocol
                 WHERE attemptStatus IN (1, 2)
             ) ranked
-            WHERE ranked.effectiveRank = 1
+            WHERE ranked.protocolRank = 1
+        ),
+        latest_ended AS (
+            SELECT ranked.*
+            FROM (
+                SELECT ended.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, accountId, groupKey
+                           ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC
+                       ) AS endedRank
+                FROM attempt_facts ended
+                WHERE attemptStatus IN (1, 2, 3)
+            ) ranked
+            WHERE ranked.endedRank = 1
         )
-        SELECT g.accountId,
-               g.accountPhone,
-               g.groupLinkId,
-               g.groupJid,
-               g.groupLinkUrl,
-               g.groupName,
-               e.attemptStatus AS latestAttemptStatus,
-               e.reasonCode AS reasonCode,
-               e.reasonMessage AS reasonMessage,
-               e.rawGroupStatus AS groupStatus,
-               e.groupStatusReason AS groupStatusReason,
-               g.sentMessageCount,
-               g.failedMessageCount,
-               g.lastAttemptAt,
-               g.lastSentAt,
-               g.lastReason
-        FROM group_aggregate g
-        LEFT JOIN latest_effective e
-          ON e.accountId = g.accountId
-         AND e.groupKey = g.groupKey
-        ORDER BY g.accountId ASC,
-                 g.lastAttemptAt DESC,
-                 g.groupKey ASC
+        SELECT d.accountId,
+               COALESCE(a.accountPhone, f.accountPhone) AS accountPhone,
+               COALESCE(a.groupLinkId, f.groupLinkId) AS groupLinkId,
+               COALESCE(a.groupJid, f.groupJid) AS groupJid,
+               COALESCE(a.groupLinkUrl, f.groupLinkUrl) AS groupLinkUrl,
+               COALESCE(a.groupName, f.groupName) AS groupName,
+               m.membership_status AS membershipStatus,
+               protocol.attemptStatus AS latestAttemptStatus,
+               protocol.reasonCode AS reasonCode,
+               protocol.reasonMessage AS reasonMessage,
+               protocol.rawGroupStatus AS groupStatus,
+               protocol.groupStatusReason AS groupStatusReason,
+               ended.attemptStatus AS latestExecutionStatus,
+               ended.reasonCode AS executionReasonCode,
+               ended.reasonMessage AS executionReasonMessage,
+               COALESCE(a.sentMessageCount, 0) AS sentMessageCount,
+               COALESCE(a.failedMessageCount, 0) AS failedMessageCount,
+               COALESCE(a.skippedMessageCount, 0) AS skippedMessageCount,
+               a.lastAttemptAt,
+               a.lastSentAt,
+               a.lastReason
+        FROM group_dimensions d
+        LEFT JOIN fixed_target_groups f
+          ON f.tenant_id = d.tenant_id
+         AND f.accountId = d.accountId
+         AND f.groupKey = d.groupKey
+        LEFT JOIN attempt_dimensions a
+          ON a.tenant_id = d.tenant_id
+         AND a.accountId = d.accountId
+         AND a.groupKey = d.groupKey
+        LEFT JOIN latest_protocol protocol
+          ON protocol.tenant_id = d.tenant_id
+         AND protocol.accountId = d.accountId
+         AND protocol.groupKey = d.groupKey
+        LEFT JOIN latest_ended ended
+          ON ended.tenant_id = d.tenant_id
+         AND ended.accountId = d.accountId
+         AND ended.groupKey = d.groupKey
+        LEFT JOIN account_group_membership m
+          ON m.tenant_id = d.tenant_id
+         AND m.account_id = d.accountId
+         AND m.group_jid = COALESCE(a.groupJid, f.groupJid)
+         AND m.deleted_at IS NULL
+        ORDER BY d.accountId ASC,
+                 COALESCE(a.lastAttemptAt, 0) DESC,
+                 d.groupKey ASC
     </select>
 
     <select id="selectDueSendingTasks" resultMap="MarketingTaskResultMap">
@@ -443,13 +518,15 @@
     <insert id="insertSendAttempts" useGeneratedKeys="true" keyProperty="attempts.id">
         INSERT INTO marketing_task_send_attempt
             (marketing_task_id, target_id, group_link_id, group_jid, group_name, round_no, attempt_no, is_retry, command_id,
-             status, reason_code, reason_message, message_id, submitted_at, result_at,
+             status, reason_code, reason_message, message_id,
+             group_status, group_status_reason, group_status_checked_at, submitted_at, result_at,
              attempted_at, created_at)
         VALUES
         <foreach collection="attempts" item="a" separator=",">
             (#{a.marketingTaskId}, #{a.targetId}, #{a.groupLinkId}, #{a.groupJid}, #{a.groupName},
              #{a.roundNo}, #{a.attemptNo}, #{a.retry}, #{a.commandId}, #{a.status}, #{a.reasonCode},
-             #{a.reasonMessage}, #{a.messageId}, #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt},
+             #{a.reasonMessage}, #{a.messageId}, #{a.groupStatus}, #{a.groupStatusReason},
+             #{a.groupStatusCheckedAt}, #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt},
              #{a.createdAt})
         </foreach>
     </insert>
@@ -458,18 +535,21 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_task_send_attempt
             (marketing_task_id, target_id, group_link_id, group_jid, group_name, round_no, attempt_no, is_retry, command_id,
-             status, reason_code, reason_message, message_id, submitted_at, result_at,
+             status, reason_code, reason_message, message_id,
+             group_status, group_status_reason, group_status_checked_at, submitted_at, result_at,
              attempted_at, created_at)
         VALUES
             (#{marketingTaskId}, #{targetId}, #{groupLinkId}, #{groupJid}, #{groupName}, #{roundNo},
              #{attemptNo}, #{retry}, #{commandId}, #{status}, #{reasonCode}, #{reasonMessage}, #{messageId},
+             #{groupStatus}, #{groupStatusReason}, #{groupStatusCheckedAt},
              #{submittedAt}, #{resultAt}, #{attemptedAt}, #{createdAt})
     </insert>
 
     <select id="selectSendAttemptById" resultMap="MarketingTaskSendAttemptResultMap">
         SELECT id, tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
                round_no, attempt_no, is_retry, command_id, status, reason_code, reason_message,
-               message_id, submitted_at, result_at, attempted_at, created_at
+               message_id, group_status, group_status_reason, group_status_checked_at,
+               submitted_at, result_at, attempted_at, created_at
         FROM marketing_task_send_attempt
         WHERE id = #{attemptId}
     </select>
@@ -743,18 +823,20 @@
         SELECT a.id AS accountId,
                a.ws_phone AS accountPhone,
                g.id AS groupLinkId,
-               p.group_jid AS groupJid,
+               m.group_jid AS groupJid,
                g.link_url AS groupLinkUrl,
-               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
+               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject, m.group_jid) AS groupName,
+               m.membership_status AS membershipStatus,
+               m.status_updated_at AS statusUpdatedAt
         FROM account a
         JOIN account_state s ON s.account_id = a.id
-        JOIN group_link g ON g.id = #{groupLinkId}
+        JOIN account_group_membership m ON m.account_id = a.id
+                                       AND m.group_link_id = #{groupLinkId}
+                                       AND m.deleted_at IS NULL
+        JOIN group_link g ON g.id = m.group_link_id
                          AND g.deleted_at IS NULL
-                         AND g.membership_state IN (2, 3)
-        JOIN group_link_preview p ON p.group_link_id = g.id
-        LEFT JOIN group_link_health h ON h.group_link_id = g.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
-                                           AND a.group_baseline_state = 2
+        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
+                                      AND p.group_jid = m.group_jid
         WHERE a.id = #{accountId}
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
@@ -772,14 +854,8 @@
           AND a.group_baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
-          AND p.group_jid IS NOT NULL
-          AND TRIM(p.group_jid) &lt;&gt; ''
-          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
-          AND (
-              a.group_baseline_state &lt;&gt; 2
-              OR b.id IS NULL
-              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(p.group_jid)), 0) = 0
-          )
+          AND m.group_jid IS NOT NULL
+          AND TRIM(m.group_jid) &lt;&gt; ''
         LIMIT 1
     </select>
 
@@ -814,7 +890,9 @@
                m.group_link_id AS groupLinkId,
                m.group_jid AS groupJid,
                g.link_url AS groupLinkUrl,
-               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
+               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject, m.group_jid) AS groupName,
+               m.membership_status AS membershipStatus,
+               m.status_updated_at AS statusUpdatedAt
         FROM account a
         JOIN account_group_membership m ON m.account_id = a.id
         LEFT JOIN group_link g ON g.id = m.group_link_id
@@ -860,6 +938,7 @@
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
           AND m.deleted_at IS NULL
+          AND m.membership_status IN (1, 2)
           AND m.group_jid IS NOT NULL
           AND TRIM(m.group_jid) &lt;&gt; ''
           AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
@@ -889,23 +968,9 @@
             SELECT m.account_id,
                    COUNT(*) AS groupCount
             FROM account_group_membership m
-            JOIN account aa ON aa.id = m.account_id
-                            AND aa.deleted_at IS NULL
-            JOIN group_link g ON g.id = m.group_link_id
-                             AND g.deleted_at IS NULL
-                             AND g.membership_state IN (2, 3)
-            LEFT JOIN group_link_health h ON h.group_link_id = g.id
-            LEFT JOIN account_group_baseline b ON b.account_id = aa.id
-                                               AND aa.group_baseline_state = 2
             WHERE m.deleted_at IS NULL
               AND m.group_jid IS NOT NULL
               AND TRIM(m.group_jid) &lt;&gt; ''
-              AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
-              AND (
-                  aa.group_baseline_state &lt;&gt; 2
-                  OR b.id IS NULL
-                  OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
-              )
             GROUP BY m.account_id
         ) gm ON gm.account_id = a.id
         WHERE a.account_group_id = #{groupId}
@@ -932,23 +997,9 @@
             SELECT m.account_id,
                    COUNT(*) AS groupCount
             FROM account_group_membership m
-            JOIN account aa ON aa.id = m.account_id
-                            AND aa.deleted_at IS NULL
-            JOIN group_link g ON g.id = m.group_link_id
-                             AND g.deleted_at IS NULL
-                             AND g.membership_state IN (2, 3)
-            LEFT JOIN group_link_health h ON h.group_link_id = g.id
-            LEFT JOIN account_group_baseline b ON b.account_id = aa.id
-                                               AND aa.group_baseline_state = 2
             WHERE m.deleted_at IS NULL
               AND m.group_jid IS NOT NULL
               AND TRIM(m.group_jid) &lt;&gt; ''
-              AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
-              AND (
-                  aa.group_baseline_state &lt;&gt; 2
-                  OR b.id IS NULL
-                  OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
-              )
             GROUP BY m.account_id
         ) gm ON gm.account_id = a.id
         WHERE a.id = #{accountId}

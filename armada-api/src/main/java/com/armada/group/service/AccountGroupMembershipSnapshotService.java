@@ -17,6 +17,7 @@ public interface AccountGroupMembershipSnapshotService {
      *
      * @param accountId 账号 ID
      * @param groups    已经过 baseline 过滤的可见群
+     * @param snapshotComplete 本次快照是否可用于校准缺失关系
      * @param syncAt    协议查询时间(epoch 毫秒)
      * @param eventId   协议层事件 ID,用于跨层日志关联
      * @param source    群列表同步来源
@@ -25,6 +26,7 @@ public interface AccountGroupMembershipSnapshotService {
     AccountGroupMembershipChangeSet replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
+            boolean snapshotComplete,
             long syncAt,
             String eventId,
             String source);

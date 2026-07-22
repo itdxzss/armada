@@ -3,36 +3,52 @@ package com.armada.platform.protocol.http.group;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.GroupCreateCommand;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
-import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.routing.GroupCreateBackend;
 import com.armada.platform.protocol.util.WhatsappJids;
 import java.util.List;
 
 /**
- * {@link GroupCreatePort} 的 HTTP adapter。
+ * Web/Baileys 建群能力的 HTTP adapter。
  *
  * <p>对应协议层 {@code POST /v1/groups/create};baseUrl 指向 master 时由协议层按 body.accountId
  * 路由到账号 owner worker。单账号互斥群操作由协议层 Redis group-op lock 兜底。</p>
  */
-public class HttpGroupCreateAdapter implements GroupCreatePort {
+public class HttpGroupCreateAdapter implements GroupCreateBackend {
 
     private static final String CREATE_URI = "/v1/groups/create";
 
     private final ProtocolHttpExecutor httpExecutor;
 
+    /**
+     * 创建 Web/Baileys 建群 HTTP adapter。
+     *
+     * @param httpExecutor 已绑定 Web 协议配置的 HTTP 执行器
+     */
     public HttpGroupCreateAdapter(ProtocolHttpExecutor httpExecutor) {
         this.httpExecutor = httpExecutor;
     }
 
     @Override
-    public GroupCreateResult create(String protocolAccountId, String subject, List<String> participants, boolean announceOnly) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
-        String groupSubject = requireText(subject, "subject");
-        List<String> participantJids = normalizeParticipants(participants);
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
+    }
+
+    @Override
+    public GroupCreateResult create(GroupCreateCommand command) {
+        String accountId = requireText(
+                command.account().protocolAccountId(), "protocolAccountId");
+        List<String> participantJids = normalizeParticipants(command.participants());
         CreateResponse response = httpExecutor.postTyped(
                 CREATE_URI,
-                new CreateRequest(accountId, groupSubject, participantJids, announceOnly),
+                new CreateRequest(
+                        accountId,
+                        command.subject(),
+                        participantJids,
+                        command.announceOnly()),
                 CreateResponse.class);
         ResultsResponse results = response.results() == null
                 ? new ResultsResponse(response.groupJid(), false, List.of())

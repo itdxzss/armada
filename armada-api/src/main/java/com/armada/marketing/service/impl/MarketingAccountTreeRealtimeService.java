@@ -3,6 +3,7 @@ package com.armada.marketing.service.impl;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
@@ -84,7 +85,7 @@ public class MarketingAccountTreeRealtimeService {
      * 懒加载单个账号当前库内可营销群。
      *
      * <p>本接口不校验账号分组归属。前端只会对首屏账号树里的账号触发懒加载,
-     * 后端保留租户隔离、在线、风控、禁言等账号候选条件,并复用 baseline 排除逻辑。</p>
+     * 后端保留租户隔离、在线、风控、禁言等账号候选条件，并返回该账号全部当前关系状态。</p>
      *
      * @param accountId 账号 ID
      * @return 账号节点及其可营销群
@@ -119,12 +120,17 @@ public class MarketingAccountTreeRealtimeService {
     }
 
     private static MarketingTreeGroupVO toGroupVO(MarketingTargetCandidateRow row) {
+        AccountGroupMembershipStatus membershipStatus =
+                AccountGroupMembershipStatus.fromCode(row.getMembershipStatus());
         return new MarketingTreeGroupVO(
                 row.getGroupLinkId(),
                 row.getGroupJid(),
                 row.getGroupName(),
                 row.getGroupLinkUrl(),
-                null);
+                null,
+                membershipStatus.apiValue(),
+                membershipStatus.text(),
+                row.getStatusUpdatedAt());
     }
 
     private MarketingTreeAccountVO toAccountVO(MarketingAccountTreeAccountRow account,

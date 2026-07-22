@@ -1,5 +1,9 @@
 package com.armada.marketing.scheduler;
 
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
+import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMembershipStatusSnapshot;
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
@@ -14,6 +18,7 @@ import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.service.MarketingMessageCommandFactory;
 import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
+import com.armada.marketing.service.impl.MarketingMembershipSendPolicy;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
@@ -49,6 +54,7 @@ public class MarketingRoundWorker {
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingAccountOccupancyService occupancyService;
+    private final AccountGroupMembershipStatusService membershipStatusService;
     private final MarketingMessageCommandFactory messageFactory;
     private final MessageSendPort messageSendPort;
     private final MarketingRoundSchedulerProperties properties;
@@ -59,12 +65,14 @@ public class MarketingRoundWorker {
      */
     public MarketingRoundWorker(MarketingTaskMapper taskMapper,
                                 MarketingAccountOccupancyService occupancyService,
+                                AccountGroupMembershipStatusService membershipStatusService,
                                 MarketingMessageCommandFactory messageFactory,
                                 MessageSendPort messageSendPort,
                                 MarketingRoundSchedulerProperties properties,
                                 Clock clock) {
         this.taskMapper = taskMapper;
         this.occupancyService = occupancyService;
+        this.membershipStatusService = membershipStatusService;
         this.messageFactory = messageFactory;
         this.messageSendPort = messageSendPort;
         this.properties = properties;
@@ -138,9 +146,11 @@ public class MarketingRoundWorker {
                     task.getTenantId(), task.getId(), targets.size(), nextRoundAt);
             return;
         }
+        Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses =
+                loadMembershipStatuses(resolvedTargets);
         Map<Long, MarketingAccountOccupancyOwnerRow> owners =
                 occupancyService.acquireAndLoadTaskAccounts(task, now);
-        TargetPartition partition = partitionTargets(task, resolvedTargets, owners);
+        TargetPartition partition = partitionTargets(task, resolvedTargets, owners, membershipStatuses);
         List<MarketingResolvedTarget> sendTargets = partition.sendableTargets();
         long unfinished = sendTargets.isEmpty() ? 0L : taskMapper.countUnfinishedAttempts(taskId);
         // 目标解析和积压查询可能跨过结束时间;抢占轮次前必须使用新时间再次关闸。
@@ -175,12 +185,17 @@ public class MarketingRoundWorker {
                                      long roundNo,
                                      long now,
                                      long nextRoundAt) {
-        List<MarketingTaskSendAttempt> skippedAttempts = occupiedAttempts(task, partition.occupiedTargets(), roundNo, now);
+        List<MarketingTaskSendAttempt> skippedAttempts = new ArrayList<>();
+        skippedAttempts.addAll(membershipSkippedAttempts(
+                task, partition.membershipSkippedTargets(), roundNo, now));
+        skippedAttempts.addAll(occupiedAttempts(task, partition.occupiedTargets(), roundNo, now));
         List<MarketingResolvedTarget> sendTargets = partition.sendableTargets();
         if (sendTargets.isEmpty()) {
-            insertAttempts(skippedAttempts, "营销账号占用跳过尝试");
-            log.info("营销任务本轮账号均被占用 tenantId={} taskId={} roundNo={} skipped={} nextRoundAt={}",
-                    task.getTenantId(), task.getId(), roundNo, skippedAttempts.size(), nextRoundAt);
+            insertAttempts(skippedAttempts, "营销业务跳过尝试");
+            log.info("营销任务本轮目标均跳过 tenantId={} taskId={} roundNo={} membershipSkipped={} "
+                            + "occupiedSkipped={} nextRoundAt={}",
+                    task.getTenantId(), task.getId(), roundNo, partition.membershipSkippedTargets().size(),
+                    partition.occupiedTargets().size(), nextRoundAt);
             return;
         }
 
@@ -191,8 +206,9 @@ public class MarketingRoundWorker {
             if (ex.getCode() == ErrorCode.NOT_FOUND.code()) {
                 throw ex;
             }
-            insertAttempts(skippedAttempts, "营销账号占用跳过尝试");
-            recordLocalFailedAttempts(task, sendTargets, roundNo, now, ex.getMessage());
+            insertAttempts(skippedAttempts, "营销业务跳过尝试");
+            recordLocalFailedAttempts(task, sendTargets, partition.membershipStatuses(),
+                    roundNo, now, ex.getMessage());
             log.warn("营销任务模板配置错误,本轮不下发协议命令 tenantId={} taskId={} roundNo={} "
                             + "targetCount={} reasonCode={} reason={}",
                     task.getTenantId(), task.getId(), roundNo, sendTargets.size(),
@@ -202,17 +218,18 @@ public class MarketingRoundWorker {
 
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
         for (MarketingResolvedTarget sendTarget : sendTargets) {
-            attempts.add(toAttempt(task, sendTarget, roundNo, now));
+            attempts.add(toAttempt(task, sendTarget, partition.statusOf(sendTarget), roundNo, now));
         }
         List<MarketingTaskSendAttempt> allAttempts = new ArrayList<>(skippedAttempts.size() + attempts.size());
         allAttempts.addAll(skippedAttempts);
         allAttempts.addAll(attempts);
         insertAttempts(allAttempts, "营销发送尝试");
         EnqueueSummary summary = enqueueCommands(task, sendTargets, attempts, message, now);
-        log.info("营销任务轮次发送命令已生成 tenantId={} taskId={} roundNo={} targetCount={} occupiedSkipped={} "
-                        + "sourceTargetCount={} attemptCount={} commandCount={} outboxBatches={} batchSize={} messageType={} "
-                        + "accepted={} rejected={} imageBytes={} nextRoundAt={}",
-                task.getTenantId(), task.getId(), roundNo, sendTargets.size(), skippedAttempts.size(), sourceTargetCount,
+        log.info("营销任务轮次发送命令已生成 tenantId={} taskId={} roundNo={} targetCount={} "
+                        + "membershipSkipped={} occupiedSkipped={} sourceTargetCount={} attemptCount={} commandCount={} "
+                        + "outboxBatches={} batchSize={} messageType={} accepted={} rejected={} imageBytes={} nextRoundAt={}",
+                task.getTenantId(), task.getId(), roundNo, sendTargets.size(),
+                partition.membershipSkippedTargets().size(), partition.occupiedTargets().size(), sourceTargetCount,
                 attempts.size(), summary.commandCount(), summary.batchCount(), summary.batchSize(),
                 message.messageType(), summary.acceptedCount(), summary.rejectedCount(),
                 imageBytesLength(message), nextRoundAt);
@@ -234,8 +251,8 @@ public class MarketingRoundWorker {
     /**
      * 把任务 target 解析成本轮真实要发送的群列表。
      *
-     * <p>固定群组 target 使用任务创建时保存的群快照;账号动态 target 会展开成当前账号下的 0 到多条群。
-     * 后续 attempt 和 outbox 只消费 {@link MarketingResolvedTarget},避免再关心目标来源维度。</p>
+     * <p>固定群组 target 使用任务创建时保存的群快照；账号动态 target 会展开成当前账号下的 0 到多条群。
+     * 两类目标随后统一批量读取当前关系状态，再决定发送或业务跳过。</p>
      */
     private List<MarketingResolvedTarget> resolveSendTargets(
             MarketingTask task,
@@ -254,8 +271,8 @@ public class MarketingRoundWorker {
     /**
      * 追加固定群组维度的本轮发送目标。
      *
-     * <p>固定群组语义是“用户明确选择哪些群就发哪些群”,所以发送时直接使用任务创建时保存的群快照,
-     * 不再查询账号当前 membership。</p>
+     * <p>固定群组语义是“用户明确选择哪些群”，所以先使用任务创建时保存的群快照解析真实目标；
+     * 解析完成后仍会在统一发送边界读取当前 membership，退出关系只写跳过明细。</p>
      */
     private void appendFixedGroupSendTarget(
             MarketingTaskTarget target,
@@ -303,18 +320,75 @@ public class MarketingRoundWorker {
     private static TargetPartition partitionTargets(
             MarketingTask task,
             List<MarketingResolvedTarget> resolvedTargets,
-            Map<Long, MarketingAccountOccupancyOwnerRow> owners) {
+            Map<Long, MarketingAccountOccupancyOwnerRow> owners,
+            Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses) {
         List<MarketingResolvedTarget> sendable = new ArrayList<>();
         List<OccupiedMarketingTarget> occupied = new ArrayList<>();
+        List<MembershipSkippedTarget> membershipSkipped = new ArrayList<>();
         for (MarketingResolvedTarget target : resolvedTargets) {
+            AccountGroupMembershipStatus status = membershipStatuses.getOrDefault(
+                    membershipKey(target), AccountGroupMembershipStatus.UNCONFIRMED);
+            MarketingMembershipSendPolicy.Decision decision = MarketingMembershipSendPolicy.decide(status);
+            if (!decision.sendable()) {
+                membershipSkipped.add(new MembershipSkippedTarget(target, status, decision));
+                continue;
+            }
             MarketingAccountOccupancyOwnerRow owner = owners.get(target.target().getAccountId());
             if (owner != null && task.getId().equals(owner.getMarketingTaskId())) {
                 sendable.add(target);
             } else {
-                occupied.add(new OccupiedMarketingTarget(target, owner));
+                occupied.add(new OccupiedMarketingTarget(target, owner, status));
             }
         }
-        return new TargetPartition(sendable, occupied);
+        return new TargetPartition(sendable, occupied, membershipSkipped, membershipStatuses);
+    }
+
+    /** 一次批量读取本轮所有真实账号+群目标的当前关系状态。 */
+    private Map<MembershipKey, AccountGroupMembershipStatus> loadMembershipStatuses(
+            List<MarketingResolvedTarget> targets) {
+        List<AccountGroupMembershipLookup> lookups = targets.stream()
+                .map(target -> new AccountGroupMembershipLookup(
+                        target.target().getAccountId(), target.groupJid()))
+                .distinct()
+                .toList();
+        List<AccountGroupMembershipStatusSnapshot> snapshots =
+                membershipStatusService.findCurrentStatuses(lookups);
+        Map<MembershipKey, AccountGroupMembershipStatus> statuses = new HashMap<>();
+        for (AccountGroupMembershipStatusSnapshot snapshot : snapshots) {
+            statuses.put(new MembershipKey(snapshot.accountId(), normalizeGroupJid(snapshot.groupJid())),
+                    snapshot.status());
+        }
+        return statuses;
+    }
+
+    private static MembershipKey membershipKey(MarketingResolvedTarget target) {
+        return new MembershipKey(target.target().getAccountId(), normalizeGroupJid(target.groupJid()));
+    }
+
+    private static String normalizeGroupJid(String groupJid) {
+        return groupJid == null ? null : groupJid.trim();
+    }
+
+    /** 为当前关系不可发送的真实群目标生成业务跳过明细。 */
+    private List<MarketingTaskSendAttempt> membershipSkippedAttempts(
+            MarketingTask task,
+            List<MembershipSkippedTarget> skippedTargets,
+            long roundNo,
+            long now) {
+        List<MarketingTaskSendAttempt> attempts = new ArrayList<>(skippedTargets.size());
+        for (MembershipSkippedTarget skippedTarget : skippedTargets) {
+            MarketingTaskSendAttempt attempt = toAttempt(
+                    task, skippedTarget.target(), skippedTarget.status(), roundNo, now);
+            attempt.setCommandId(null);
+            attempt.setStatus(MarketingSendAttemptStatus.SKIPPED.code());
+            attempt.setReasonCode(skippedTarget.decision().reasonCode());
+            attempt.setReasonMessage(skippedTarget.decision().reasonMessage());
+            attempt.setGroupStatusReason(skippedTarget.decision().reasonCode());
+            attempt.setSubmittedAt(null);
+            attempt.setResultAt(now);
+            attempts.add(attempt);
+        }
+        return attempts;
     }
 
     /** 为本轮仍被其它任务占用的每条实际群消息生成业务跳过明细。 */
@@ -325,7 +399,8 @@ public class MarketingRoundWorker {
             long now) {
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>(occupiedTargets.size());
         for (OccupiedMarketingTarget occupiedTarget : occupiedTargets) {
-            MarketingTaskSendAttempt attempt = toAttempt(task, occupiedTarget.target(), roundNo, now);
+            MarketingTaskSendAttempt attempt = toAttempt(
+                    task, occupiedTarget.target(), occupiedTarget.status(), roundNo, now);
             attempt.setCommandId(null);
             attempt.setStatus(MarketingSendAttemptStatus.SKIPPED.code());
             attempt.setReasonCode(REASON_ACCOUNT_OCCUPIED);
@@ -357,6 +432,7 @@ public class MarketingRoundWorker {
      */
     private MarketingTaskSendAttempt toAttempt(MarketingTask task,
                                                MarketingResolvedTarget sendTarget,
+                                               AccountGroupMembershipStatus membershipStatus,
                                                long roundNo,
                                                long now) {
         MarketingTaskSendAttempt attempt = new MarketingTaskSendAttempt();
@@ -370,6 +446,10 @@ public class MarketingRoundWorker {
         attempt.setRetry(false);
         attempt.setCommandId(messageFactory.newCommandId());
         attempt.setStatus(MarketingSendAttemptStatus.SUBMITTED.code());
+        AccountGroupMembershipStatus resolvedStatus = membershipStatus == null
+                ? AccountGroupMembershipStatus.UNCONFIRMED : membershipStatus;
+        attempt.setGroupStatus(resolvedStatus.apiValue());
+        attempt.setGroupStatusCheckedAt(now);
         attempt.setSubmittedAt(now);
         attempt.setAttemptedAt(now);
         attempt.setCreatedAt(now);
@@ -381,12 +461,19 @@ public class MarketingRoundWorker {
      */
     private void recordLocalFailedAttempts(MarketingTask task,
                                            List<MarketingResolvedTarget> sendTargets,
+                                           Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses,
                                            long roundNo,
                                            long now,
                                            String reasonMessage) {
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>(sendTargets.size());
         for (MarketingResolvedTarget sendTarget : sendTargets) {
-            MarketingTaskSendAttempt attempt = toAttempt(task, sendTarget, roundNo, now);
+            MarketingTaskSendAttempt attempt = toAttempt(
+                    task,
+                    sendTarget,
+                    membershipStatuses.getOrDefault(
+                            membershipKey(sendTarget), AccountGroupMembershipStatus.UNCONFIRMED),
+                    roundNo,
+                    now);
             attempt.setStatus(MarketingSendAttemptStatus.FAILED.code());
             attempt.setReasonCode(REASON_INVALID_TEMPLATE_CONFIG);
             attempt.setReasonMessage(reasonMessage);
@@ -530,13 +617,32 @@ public class MarketingRoundWorker {
     /** 本轮因账号当前属于其它任务而不能发送的实际群目标。 */
     private record OccupiedMarketingTarget(
             MarketingResolvedTarget target,
-            MarketingAccountOccupancyOwnerRow owner) {
+            MarketingAccountOccupancyOwnerRow owner,
+            AccountGroupMembershipStatus status) {
+    }
+
+    /** 本轮因账号群关系不可发送而跳过的真实群目标。 */
+    private record MembershipSkippedTarget(
+            MarketingResolvedTarget target,
+            AccountGroupMembershipStatus status,
+            MarketingMembershipSendPolicy.Decision decision) {
+    }
+
+    /** 账号 ID 与规范化群 JID 组成的关系状态查询键。 */
+    private record MembershipKey(Long accountId, String groupJid) {
     }
 
     /** 本轮目标按账号租约拆分后的结果。 */
     private record TargetPartition(
             List<MarketingResolvedTarget> sendableTargets,
-            List<OccupiedMarketingTarget> occupiedTargets) {
+            List<OccupiedMarketingTarget> occupiedTargets,
+            List<MembershipSkippedTarget> membershipSkippedTargets,
+            Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses) {
+
+        private AccountGroupMembershipStatus statusOf(MarketingResolvedTarget target) {
+            return membershipStatuses.getOrDefault(
+                    membershipKey(target), AccountGroupMembershipStatus.UNCONFIRMED);
+        }
     }
 
     /** 协议 outbox 写入结果摘要,用于轮次日志排查批量拆分是否符合预期。 */

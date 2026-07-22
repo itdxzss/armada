@@ -1,5 +1,12 @@
 package com.armada.marketing.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import com.armada.boot.Application;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
@@ -22,13 +29,6 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 营销任务 Controller 集成测试:覆盖创建、列表、详情三个第一阶段接口。
@@ -132,9 +132,14 @@ class MarketingTaskControllerDbTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.skippedMessageCount").value(0))
                 .andExpect(jsonPath("$.data.targets").isArray())
                 .andExpect(jsonPath("$.data.targets[0].accountPhone").value(fixture.phone()))
-                .andExpect(jsonPath("$.data.targets[0].groupJid").value(fixture.groupJid()));
+                .andExpect(jsonPath("$.data.targets[0].groupJid").value(fixture.groupJid()))
+                .andExpect(jsonPath("$.data.accountTargets[0].skippedMessageCount").value(0))
+                .andExpect(jsonPath("$.data.accountTargets[0].groups[0].membershipStatus").value("IN_GROUP"))
+                .andExpect(jsonPath("$.data.accountTargets[0].groups[0].skippedMessageCount").value(0))
+                .andExpect(jsonPath("$.data.accountTargets[0].groups[0].executionResult").doesNotExist());
     }
 
     @Test
@@ -334,9 +339,11 @@ class MarketingTaskControllerDbTest {
                 """, TEST_TENANT_ID, groupLinkId, now, now);
         jdbc.update("""
                 INSERT INTO account_group_membership
-                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+                    (tenant_id, account_id, group_link_id, group_jid,
+                     membership_status, status_source, status_updated_at,
+                     last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now, now);
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupJid);
     }
 

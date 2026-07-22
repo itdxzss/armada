@@ -7,17 +7,17 @@ import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
-import com.armada.group.model.enums.GroupLinkOrigin;
-import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
+import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,7 +31,7 @@ import org.springframework.stereotype.Service;
  *
  * <p>本类统一维护 {@code group_link}、{@code group_link_preview}、{@code group_link_health}
  * 和 {@code account_group_membership} 这些本地冗余事实。调用方传入协议回报的当前全部群,
- * 本类负责去重、更新当前关系并软删除全量回报中已不存在的关系。</p>
+ * 本类负责去重、更新当前关系，并在完整快照中把缺失关系标为“不在群”。</p>
  */
 @Service
 public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMembershipSnapshotService {
@@ -39,7 +39,6 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     private static final Logger log = LoggerFactory.getLogger(AccountGroupMembershipSnapshotServiceImpl.class);
 
     private static final String ACCOUNT_SYNC_LINK_PREFIX = "wa://group/";
-    private static final int GROUP_NAME_MAX_LENGTH = 128;
     private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int OWNER_PHONE_MAX_LENGTH = 32;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
@@ -47,6 +46,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     private final AccountGroupMembershipMapper membershipMapper;
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkHealthMapper healthMapper;
+    private final GroupLinkRegistryService groupLinkRegistryService;
 
     /**
      * 创建账号可见群关系快照写入服务。
@@ -54,19 +54,23 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
      * @param membershipMapper 账号群关系 mapper
      * @param groupLinkMapper  群链接 mapper
      * @param healthMapper     群健康状态 mapper
+     * @param groupLinkRegistryService 群组池登记服务
      */
     public AccountGroupMembershipSnapshotServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                      GroupLinkMapper groupLinkMapper,
-                                                     GroupLinkHealthMapper healthMapper) {
+                                                     GroupLinkHealthMapper healthMapper,
+                                                     GroupLinkRegistryService groupLinkRegistryService) {
         this.membershipMapper = membershipMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.healthMapper = healthMapper;
+        this.groupLinkRegistryService = groupLinkRegistryService;
     }
 
     @Override
     public AccountGroupMembershipChangeSet replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
+            boolean snapshotComplete,
             long syncAt,
             String eventId,
             String source) {
@@ -74,35 +78,62 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             throw new BusinessException(ErrorCode.VALIDATION, "账号群关系写入缺少 accountId");
         }
         long now = System.currentTimeMillis();
-        List<String> activeGroupJids = membershipMapper.selectActiveGroupJids(accountId);
-        Set<String> previousActive = activeGroupJids == null
-                ? Set.of()
-                : activeGroupJids.stream()
-                        .map(AccountGroupMembershipSnapshotServiceImpl::normalizeJid)
-                        .filter(java.util.Objects::nonNull)
-                        .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> activeGroupJids = membershipMapper.selectSnapshotEstablishedGroupJids(
+                accountId,
+                List.of(AccountGroupMembershipStatus.IN_GROUP.code(),
+                        AccountGroupMembershipStatus.UNCONFIRMED.code()));
+        Set<String> previousActive = normalizeJids(activeGroupJids);
         Map<String, AccountGroupsReportedEvent.Group> visibleGroups = normalizeVisibleGroups(groups);
         List<AccountGroupMembershipSnapshot> snapshots = new ArrayList<>();
-        List<AccountGroupMembershipSnapshot> added = new ArrayList<>();
         for (Map.Entry<String, AccountGroupsReportedEvent.Group> entry : visibleGroups.entrySet()) {
             String groupJid = entry.getKey();
             AccountGroupsReportedEvent.Group group = entry.getValue();
-            Long groupLinkId = ensureGroupLink(groupJid, group, now);
+            Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
+                    groupJid, group.subject(), now);
             persistSnapshots(groupLinkId, groupJid, group, syncAt, now);
             upsertMembership(accountId, groupLinkId, groupJid, group, syncAt, now);
             AccountGroupMembershipSnapshot snapshot = toSnapshot(groupLinkId, groupJid, group);
             snapshots.add(snapshot);
-            if (!previousActive.contains(groupJid)) {
-                added.add(snapshot);
-            }
         }
-        int deleted = membershipMapper.markMissingMembershipsDeleted(accountId, List.copyOf(visibleGroups.keySet()), now);
+        int markedMissing = 0;
+        if (snapshotComplete) {
+            markedMissing = membershipMapper.markMissingMembershipsNotInGroup(
+                    accountId,
+                    List.copyOf(visibleGroups.keySet()),
+                    AccountGroupMembershipStatus.NOT_IN_GROUP.code(),
+                    List.of(AccountGroupMembershipStatus.KICKED_OUT.code(),
+                            AccountGroupMembershipStatus.LEFT.code()),
+                    "GROUP_SNAPSHOT",
+                    syncAt,
+                    syncAt);
+        }
+        Set<String> currentSendable = snapshots.isEmpty()
+                ? Set.of()
+                : normalizeJids(membershipMapper.selectSendableGroupJids(
+                        accountId,
+                        List.of(AccountGroupMembershipStatus.IN_GROUP.code(),
+                                AccountGroupMembershipStatus.UNCONFIRMED.code())));
+        List<AccountGroupMembershipSnapshot> added = snapshots.stream()
+                .filter(snapshot -> !previousActive.contains(snapshot.groupJid()))
+                .filter(snapshot -> currentSendable.contains(snapshot.groupJid()))
+                .toList();
         log.info("账号可见群关系快照已刷新 eventId={} source={} accountId={} visibleGroups={} "
-                        + "addedGroups={} addedGroupJidSample={} visibleGroupJidSample={} deleted={} syncAt={}",
+                        + "addedGroups={} addedGroupJidSample={} visibleGroupJidSample={} snapshotComplete={} "
+                        + "markedMissing={} syncAt={}",
                 eventId, source, accountId, visibleGroups.size(), added.size(), jidSample(
                         added.stream().map(AccountGroupMembershipSnapshot::groupJid).toList()),
-                jidSample(visibleGroups.keySet()), deleted, syncAt);
+                jidSample(visibleGroups.keySet()), snapshotComplete, markedMissing, syncAt);
         return new AccountGroupMembershipChangeSet(snapshots, added);
+    }
+
+    private static Set<String> normalizeJids(List<String> groupJids) {
+        if (groupJids == null || groupJids.isEmpty()) {
+            return Set.of();
+        }
+        return groupJids.stream()
+                .map(AccountGroupMembershipSnapshotServiceImpl::normalizeJid)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
@@ -134,32 +165,6 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             }
         }
         return visible;
-    }
-
-    private Long ensureGroupLink(String groupJid, AccountGroupsReportedEvent.Group group, long now) {
-        Long groupLinkId = membershipMapper.selectActiveGroupLinkIdByGroupJid(groupJid);
-        if (groupLinkId == null) {
-            GroupLink existing = groupLinkMapper.selectAnyByUrl(accountSyncLinkUrl(groupJid));
-            if (existing == null) {
-                GroupLink row = new GroupLink();
-                row.setLinkUrl(accountSyncLinkUrl(groupJid));
-                String groupName = blankToNull(group.subject());
-                row.setGroupName(clamp(groupName == null ? groupJid : groupName, GROUP_NAME_MAX_LENGTH));
-                row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
-                row.setMembershipState(GroupMembershipState.JOINED.code());
-                row.setCreatedAt(now);
-                row.setUpdatedAt(now);
-                groupLinkMapper.insert(row);
-                groupLinkId = row.getId();
-                log.info("账号群同步发现新群入口 groupJid={} groupLinkId={} subject={}",
-                        groupJid, groupLinkId, blankToNull(group.subject()));
-            } else {
-                groupLinkId = existing.getId();
-            }
-        }
-        membershipMapper.touchGroupLinkFromAccountSync(
-                groupLinkId, clamp(blankToNull(group.subject()), GROUP_NAME_MAX_LENGTH), now);
-        return groupLinkId;
     }
 
     private void persistSnapshots(Long groupLinkId,
@@ -202,7 +207,10 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         row.setGroupLinkId(groupLinkId);
         row.setGroupJid(groupJid);
         row.setAdmin(group.admin());
-        row.setJoinedAt(now);
+        row.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
+        row.setStatusSource("GROUP_SNAPSHOT");
+        row.setStatusUpdatedAt(syncAt);
+        row.setJoinedAt(syncAt);
         row.setLastSeenAt(syncAt);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);

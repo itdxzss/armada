@@ -16,6 +16,9 @@ import com.armada.marketing.service.impl.GroupCreationMarketingRetryService;
 import com.armada.marketing.service.impl.GroupCreationMarketingWorker;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.ContactSaveCommand;
+import com.armada.platform.protocol.model.command.GroupCreateCommand;
+import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -25,7 +28,7 @@ import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
-import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -46,7 +49,6 @@ import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -79,7 +81,7 @@ class GroupCreationMarketingWorkerTest {
     @Mock
     private GroupCreatePort groupCreatePort;
     @Mock
-    private GroupParticipantPort groupParticipantPort;
+    private GroupMemberListPort groupMemberListPort;
     @Mock
     private GroupCreationMarketingRetryService retryService;
     @Mock
@@ -107,7 +109,7 @@ class GroupCreationMarketingWorkerTest {
                 messageSendPort,
                 contactPort,
                 groupCreatePort,
-                groupParticipantPort,
+                groupMemberListPort,
                 retryService,
                 accountRestrictionService,
                 new ObjectMapper(),
@@ -120,7 +122,8 @@ class GroupCreationMarketingWorkerTest {
 
         worker.processDueItems(10);
 
-        verify(groupCreatePort).create("acc_7", "活动群-1", List.of("8613900000000", "8613911111111"), true);
+        verify(groupCreatePort).create(argThat(command ->
+                matchesGroupCreateCommand(command, "acc_7")));
         ArgumentCaptor<List<MessageSendCommand>> commands = ArgumentCaptor.forClass(List.class);
         verify(messageSendPort).enqueue(commands.capture());
         assertThat(commands.getValue()).singleElement().satisfies(command -> {
@@ -154,7 +157,7 @@ class GroupCreationMarketingWorkerTest {
                 AccountLoginStateCode.ONLINE);
         android.setProtocolId("ANDROID");
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L)).thenReturn(android);
-        when(groupCreatePort.create(eq("acc_android"), eq("活动群-1"), anyList(), eq(true)))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult("120363created@g.us", false, List.of()));
 
         worker.processDueItems(10);
@@ -162,6 +165,33 @@ class GroupCreationMarketingWorkerTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSendCommand>> commands = ArgumentCaptor.forClass(List.class);
         verify(messageSendPort).enqueue(commands.capture());
+        ArgumentCaptor<GroupCreateCommand> groupCreate = ArgumentCaptor.forClass(GroupCreateCommand.class);
+        verify(groupCreatePort).create(groupCreate.capture());
+        assertThat(groupCreate.getValue().account()).isEqualTo(new ProtocolAccountRef(
+                7L,
+                ProtocolBackend.ANDROID,
+                "acc_android",
+                "919000000001"));
+        ArgumentCaptor<ContactSaveCommand> contactSaves = ArgumentCaptor.forClass(ContactSaveCommand.class);
+        verify(contactPort, timeout(500).times(2)).save(contactSaves.capture());
+        assertThat(contactSaves.getAllValues())
+                .extracting(ContactSaveCommand::account)
+                .containsOnly(new ProtocolAccountRef(
+                        7L,
+                        ProtocolBackend.ANDROID,
+                        "acc_android",
+                        "919000000001"));
+        assertThat(contactSaves.getAllValues())
+                .extracting(ContactSaveCommand::operationId)
+                .containsOnly("group-creation-marketing-item:11");
+        ArgumentCaptor<GroupMemberListQuery> memberList = ArgumentCaptor.forClass(GroupMemberListQuery.class);
+        verify(groupMemberListPort).list(memberList.capture());
+        assertThat(memberList.getValue().account()).isEqualTo(new ProtocolAccountRef(
+                7L,
+                ProtocolBackend.ANDROID,
+                "acc_android",
+                "919000000001"));
+        assertThat(memberList.getValue().operationId()).isEqualTo("group-creation-marketing-item:11");
         assertThat(commands.getValue()).singleElement().satisfies(command ->
                 assertThat(command.account()).isEqualTo(new ProtocolAccountRef(
                         7L,
@@ -212,7 +242,7 @@ class GroupCreationMarketingWorkerTest {
     @Test
     void processOnlineItemStoresSendMemberCountSnapshotBeforeMarketingSend() {
         seedSuccessfulOnlineItem();
-        when(groupParticipantPort.listParticipants("acc_7", "120363created@g.us"))
+        when(groupMemberListPort.list(any(GroupMemberListQuery.class)))
                 .thenReturn(List.of(
                         new GroupParticipantResult("8613000000000@s.whatsapp.net", "8613000000000", true, true, "superadmin"),
                         new GroupParticipantResult("8613900000000@s.whatsapp.net", "8613900000000", false, false, null),
@@ -220,7 +250,11 @@ class GroupCreationMarketingWorkerTest {
 
         worker.processDueItems(10);
 
-        verify(groupParticipantPort).listParticipants("acc_7", "120363created@g.us");
+        ArgumentCaptor<GroupMemberListQuery> query = ArgumentCaptor.forClass(GroupMemberListQuery.class);
+        verify(groupMemberListPort).list(query.capture());
+        assertThat(query.getValue().account().protocolAccountId()).isEqualTo("acc_7");
+        assertThat(query.getValue().groupJid()).isEqualTo("120363created@g.us");
+        assertThat(query.getValue().operationId()).isEqualTo("group-creation-marketing-item:11");
         verify(groupCreationMapper).markItemMarketingSending(argThat(dispatch ->
                 Long.valueOf(11L).equals(dispatch.getId())
                         && "120363created@g.us".equals(dispatch.getGroupJid())
@@ -232,7 +266,7 @@ class GroupCreationMarketingWorkerTest {
     @Test
     void processOnlineItemContinuesWhenMemberSnapshotQueryFails() {
         seedSuccessfulOnlineItem();
-        when(groupParticipantPort.listParticipants("acc_7", "120363created@g.us"))
+        when(groupMemberListPort.list(any(GroupMemberListQuery.class)))
                 .thenThrow(new IllegalStateException("participants timeout"));
 
         worker.processDueItems(10);
@@ -282,9 +316,10 @@ class GroupCreationMarketingWorkerTest {
             bothStarted.countDown();
             bothStarted.await(500, TimeUnit.MILLISECONDS);
             active.decrementAndGet();
-            String protocolAccountId = invocation.getArgument(0);
+            GroupCreateCommand command = invocation.getArgument(0);
+            String protocolAccountId = command.account().protocolAccountId();
             return new GroupCreateResult("120363" + protocolAccountId + "@g.us", false, List.of());
-        }).when(groupCreatePort).create(any(), eq("活动群-1"), anyList(), eq(true));
+        }).when(groupCreatePort).create(any(GroupCreateCommand.class));
 
         worker.processDueItems(10);
 
@@ -297,10 +332,16 @@ class GroupCreationMarketingWorkerTest {
 
         worker.processDueItems(10);
 
-        verify(contactPort, timeout(500)).saveContact("acc_7", "8613900000000", "8613900000000");
-        verify(contactPort, timeout(500)).saveContact("acc_7", "8613911111111", "8613911111111");
-        verify(groupCreatePort).create("acc_7", "活动群-1",
-                List.of("8613900000000", "8613911111111"), true);
+        ArgumentCaptor<ContactSaveCommand> commands = ArgumentCaptor.forClass(ContactSaveCommand.class);
+        verify(contactPort, timeout(500).times(2)).save(commands.capture());
+        assertThat(commands.getAllValues())
+                .extracting(ContactSaveCommand::contact)
+                .containsExactlyInAnyOrder("8613900000000", "8613911111111");
+        assertThat(commands.getAllValues())
+                .extracting(command -> command.account().protocolAccountId())
+                .containsOnly("acc_7");
+        verify(groupCreatePort).create(argThat(command ->
+                matchesGroupCreateCommand(command, "acc_7")));
     }
 
     @Test
@@ -325,11 +366,11 @@ class GroupCreationMarketingWorkerTest {
             contactSaveStarted.countDown();
             releaseContactSave.await(2, TimeUnit.SECONDS);
             return null;
-        }).when(contactPort).saveContact(eq("acc_7"), anyString(), anyString());
+        }).when(contactPort).save(any(ContactSaveCommand.class));
         doAnswer(invocation -> {
             groupCreateStarted.countDown();
             return new GroupCreateResult("120363created@g.us", false, List.of());
-        }).when(groupCreatePort).create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true));
+        }).when(groupCreatePort).create(any(GroupCreateCommand.class));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> future = executor.submit(() -> worker.processDueItems(10));
         try {
@@ -350,8 +391,8 @@ class GroupCreationMarketingWorkerTest {
 
         worker.processDueItems(10);
 
-        verify(groupCreatePort).create("acc_7", "活动群-1",
-                List.of("8613900000000", "8613911111111"), true);
+        verify(groupCreatePort).create(argThat(command ->
+                matchesGroupCreateCommand(command, "acc_7")));
         verify(groupCreationMapper).markItemMarketingSending(dispatch.capture());
         assertThat(dispatch.getValue().getParticipantResultJson())
                 .contains("\"contactSave\"")
@@ -378,8 +419,8 @@ class GroupCreationMarketingWorkerTest {
         verify(retryService).replaceClaimedItemAccountForRetry(eq(item), any(),
                 eq(GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK), eq("ACCOUNT_OFFLINE"), eq("账号离线"),
                 anyLong());
-        verify(contactPort, never()).saveContact(any(), any(), any());
-        verify(groupCreatePort, never()).create(any(), any(), anyList(), anyBoolean());
+        verify(contactPort, never()).save(any(ContactSaveCommand.class));
+        verify(groupCreatePort, never()).create(any(GroupCreateCommand.class));
     }
 
     @Test
@@ -389,7 +430,8 @@ class GroupCreationMarketingWorkerTest {
         GroupCreationMarketingAccountCandidate offlineAccount = account(
                 7L, "8613000000000", "acc_7", AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE);
         GroupCreationMarketingAccountCandidate replacementAccount = account(
-                9L, "8613999999999", "acc_9", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+                9L, "919000000009", "acc_9", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        replacementAccount.setProtocolId("ANDROID");
         MarketingTemplate template = template();
         when(groupCreationMapper.selectDueItems(anyInt(), anyLong())).thenReturn(List.of(item));
         when(groupCreationMapper.claimItem(eq(11L), eq(GroupCreationMarketingItemStatus.PENDING.code()),
@@ -398,13 +440,13 @@ class GroupCreationMarketingWorkerTest {
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L)).thenReturn(offlineAccount);
         doAnswer(invocation -> {
             item.setAccountId(9L);
-            item.setAccountPhone("8613999999999");
+            item.setAccountPhone("919000000009");
             item.setProtocolAccountId("acc_9");
             return replacementAccount;
         }).when(retryService).replaceClaimedItemAccountForRetry(eq(item), eq(task),
                 eq(GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK), eq("ACCOUNT_OFFLINE"), eq("账号离线"),
                 anyLong());
-        when(groupCreatePort.create(eq("acc_9"), eq("活动群-1"), anyList(), eq(true)))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult("120363created@g.us", false, List.of()));
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
@@ -416,12 +458,18 @@ class GroupCreationMarketingWorkerTest {
         verify(retryService).replaceClaimedItemAccountForRetry(eq(item), eq(task),
                 eq(GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK), eq("ACCOUNT_OFFLINE"), eq("账号离线"),
                 anyLong());
-        verify(groupCreatePort).create("acc_9", "活动群-1", List.of("8613900000000", "8613911111111"), true);
+        ArgumentCaptor<GroupCreateCommand> create = ArgumentCaptor.forClass(GroupCreateCommand.class);
+        verify(groupCreatePort).create(create.capture());
+        ProtocolAccountRef replacementRef = new ProtocolAccountRef(
+                9L,
+                ProtocolBackend.ANDROID,
+                "acc_9",
+                "919000000009");
+        assertThat(create.getValue().account()).isEqualTo(replacementRef);
         ArgumentCaptor<List<MessageSendCommand>> commands = ArgumentCaptor.forClass(List.class);
         verify(messageSendPort).enqueue(commands.capture());
         assertThat(commands.getValue()).singleElement().satisfies(command -> {
-            assertThat(command.account().armadaAccountId()).isEqualTo(9L);
-            assertThat(command.account().protocolAccountId()).isEqualTo("acc_9");
+            assertThat(command.account()).isEqualTo(replacementRef);
             assertThat(command.correlation().groupCreation().itemId()).isEqualTo(11L);
         });
     }
@@ -443,8 +491,8 @@ class GroupCreationMarketingWorkerTest {
         verify(retryService).replaceClaimedItemAccountForRetry(eq(item), any(),
                 eq(GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK), eq("ACCOUNT_UNUSABLE"), eq("账号不可用"),
                 anyLong());
-        verify(contactPort, never()).saveContact(any(), any(), any());
-        verify(groupCreatePort, never()).create(any(), any(), anyList(), anyBoolean());
+        verify(contactPort, never()).save(any(ContactSaveCommand.class));
+        verify(groupCreatePort, never()).create(any(GroupCreateCommand.class));
     }
 
     @Test
@@ -457,7 +505,7 @@ class GroupCreationMarketingWorkerTest {
         when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
                 .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
-        when(groupCreatePort.create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true)))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenThrow(new IllegalStateException("protocol down"));
         when(retryService.resetItemForAccountRetry(eq(item), eq(task),
                 eq(GroupCreationMarketingRetryService.STAGE_GROUP_CREATE), eq("GROUP_CREATE_FAILED"),
@@ -482,7 +530,7 @@ class GroupCreationMarketingWorkerTest {
         when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
                 .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
-        when(groupCreatePort.create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true)))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED,
                         "协议层错误 422 ACCOUNT_REACHOUT_RESTRICTED: account_reachout_restricted"));
         when(retryService.resetItemForAccountRetry(eq(item), eq(task),
@@ -513,7 +561,7 @@ class GroupCreationMarketingWorkerTest {
         when(retryService.replaceClaimedItemAccountForRetry(eq(item), eq(task),
                 eq(GroupCreationMarketingRetryService.STAGE_ACCOUNT_CHECK),
                 eq("ACCOUNT_OFFLINE"), eq("账号离线"), anyLong())).thenReturn(replacement);
-        when(groupCreatePort.create(eq("acc_8"), eq("活动群-1"), anyList(), eq(true)))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED,
                         "协议层错误 429 ACCOUNT_REACHOUT_RESTRICTED: rate-overlimit"));
         when(retryService.resetItemForAccountRetry(eq(item), eq(task),
@@ -536,7 +584,7 @@ class GroupCreationMarketingWorkerTest {
         when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
                 .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
-        when(groupCreatePort.create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true)))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.ACCOUNT_BUSY,
                         "协议层错误 429 ACCOUNT_BUSY: group operation in progress"));
         when(retryService.resetItemForAccountRetry(eq(item), eq(task),
@@ -561,7 +609,7 @@ class GroupCreationMarketingWorkerTest {
                 eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), anyLong())).thenReturn(1);
         when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L)).thenReturn(account);
-        lenient().when(groupCreatePort.create(eq("acc_7"), eq("活动群-1"), anyList(), eq(true)))
+        lenient().when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult("120363created@g.us", false, List.of()));
         when(templateMapper.selectById(18L)).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
@@ -582,6 +630,17 @@ class GroupCreationMarketingWorkerTest {
         item.setParticipantCount(2);
         item.setStatus(GroupCreationMarketingItemStatus.PENDING.code());
         return item;
+    }
+
+    private static boolean matchesGroupCreateCommand(
+            GroupCreateCommand command,
+            String protocolAccountId) {
+        return command != null
+                && protocolAccountId.equals(command.account().protocolAccountId())
+                && "活动群-1".equals(command.subject())
+                && List.of("8613900000000", "8613911111111").equals(command.participants())
+                && command.announceOnly()
+                && "group-creation-marketing-item:11".equals(command.operationId());
     }
 
     private GroupCreationMarketingTask task(Long marketingTaskId) {

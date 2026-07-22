@@ -4,6 +4,8 @@
 
   <select id="selectAccountBaselineRow" resultType="com.armada.group.model.vo.AccountGroupBaselineRow">
     SELECT a.id AS accountId,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
            a.group_baseline_state AS groupBaselineState,
            b.baseline_group_jids AS baselineGroupJidsJson,
            b.baseline_group_subjects AS baselineGroupSubjectsJson,
@@ -41,23 +43,52 @@
       AND group_baseline_state = 1
   </update>
 
-  <select id="selectActiveGroupJids" resultType="java.lang.String">
+  <select id="selectSendableGroupJids" resultType="java.lang.String">
     SELECT group_jid
     FROM account_group_membership
     WHERE account_id = #{accountId}
       AND deleted_at IS NULL
+      AND membership_status IN
+      <foreach collection="sendableStatuses" item="status" open="(" separator="," close=")">#{status}</foreach>
       AND group_jid IS NOT NULL
       AND TRIM(group_jid) &lt;&gt; ''
     ORDER BY id ASC
   </select>
 
-  <select id="selectActiveGroupLinkIdByGroupJid" resultType="long">
+  <select id="selectSnapshotEstablishedGroupJids" resultType="java.lang.String">
+    SELECT group_jid
+    FROM account_group_membership
+    WHERE account_id = #{accountId}
+      AND deleted_at IS NULL
+      AND membership_status IN
+      <foreach collection="sendableStatuses" item="status" open="(" separator="," close=")">#{status}</foreach>
+      AND COALESCE(status_source, '') &lt;&gt; 'WGP2_ADD'
+      AND group_jid IS NOT NULL
+      AND TRIM(group_jid) &lt;&gt; ''
+    ORDER BY id ASC
+  </select>
+
+  <select id="selectCurrentStatuses"
+          resultType="com.armada.group.model.vo.AccountGroupMembershipStatusRow">
+    SELECT account_id AS accountId,
+           group_jid AS groupJid,
+           membership_status AS membershipStatus,
+           status_updated_at AS statusUpdatedAt
+    FROM account_group_membership
+    WHERE deleted_at IS NULL
+      AND (account_id, group_jid) IN
+      <foreach collection="lookups" item="lookup" open="(" separator="," close=")">
+        (#{lookup.accountId}, #{lookup.groupJid})
+      </foreach>
+  </select>
+
+  <select id="selectGroupLinkIdByGroupJidIncludingDeleted" resultType="long">
     SELECT g.id
     FROM group_link_preview p
     INNER JOIN group_link g ON g.id = p.group_link_id
-    WHERE g.deleted_at IS NULL
-      AND p.group_jid = #{groupJid}
-    ORDER BY g.id ASC
+    WHERE p.group_jid = #{groupJid}
+    ORDER BY CASE WHEN g.deleted_at IS NULL THEN 0 ELSE 1 END,
+             g.id ASC
     LIMIT 1
   </select>
 
@@ -91,17 +122,142 @@
 
   <insert id="upsertMembership">
     INSERT INTO account_group_membership (
-      account_id, group_link_id, group_jid, is_admin, joined_at, last_seen_at, created_at, updated_at
+      account_id, group_link_id, group_jid, is_admin,
+      membership_status, status_source, status_updated_at,
+      joined_at, last_seen_at, created_at, updated_at
     ) VALUES (
-      #{accountId}, #{groupLinkId}, #{groupJid}, #{admin}, #{joinedAt}, #{lastSeenAt}, #{createdAt}, #{updatedAt}
+      #{accountId}, #{groupLinkId}, #{groupJid}, #{admin},
+      #{membershipStatus}, #{statusSource}, #{statusUpdatedAt},
+      #{joinedAt}, #{lastSeenAt}, #{createdAt}, #{updatedAt}
     )
     ON DUPLICATE KEY UPDATE
       group_link_id = VALUES(group_link_id),
-      is_admin = COALESCE(VALUES(is_admin), account_group_membership.is_admin),
-      joined_at = COALESCE(account_group_membership.joined_at, VALUES(joined_at)),
-      last_seen_at = VALUES(last_seen_at),
+      joined_at = CASE
+        WHEN (
+          VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
+          OR (
+            VALUES(status_updated_at) = account_group_membership.status_updated_at
+            AND CASE VALUES(status_source)
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+                &gt; CASE account_group_membership.status_source
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+          )
+        )
+        AND VALUES(membership_status) = 1
+        AND account_group_membership.membership_status IN (3, 4, 5)
+          THEN VALUES(joined_at)
+        WHEN account_group_membership.joined_at IS NULL
+             AND VALUES(membership_status) = 1
+          THEN VALUES(joined_at)
+        ELSE account_group_membership.joined_at
+      END,
+      is_admin = CASE
+        WHEN VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
+          OR (
+            VALUES(status_updated_at) = account_group_membership.status_updated_at
+            AND CASE VALUES(status_source)
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+                &gt; CASE account_group_membership.status_source
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+          )
+          THEN COALESCE(VALUES(is_admin), account_group_membership.is_admin)
+        ELSE account_group_membership.is_admin
+      END,
+      last_seen_at = CASE
+        WHEN (
+          VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
+          OR (
+            VALUES(status_updated_at) = account_group_membership.status_updated_at
+            AND CASE VALUES(status_source)
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+                &gt; CASE account_group_membership.status_source
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+          )
+        )
+             AND VALUES(membership_status) = 1
+          THEN COALESCE(VALUES(last_seen_at), account_group_membership.last_seen_at)
+        ELSE account_group_membership.last_seen_at
+      END,
+      membership_status = CASE
+        WHEN VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
+          OR (
+            VALUES(status_updated_at) = account_group_membership.status_updated_at
+            AND CASE VALUES(status_source)
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+                &gt; CASE account_group_membership.status_source
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+          )
+          THEN VALUES(membership_status)
+        ELSE account_group_membership.membership_status
+      END,
+      status_source = CASE
+        WHEN VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
+          OR (
+            VALUES(status_updated_at) = account_group_membership.status_updated_at
+            AND CASE VALUES(status_source)
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+                &gt; CASE account_group_membership.status_source
+                  WHEN 'WGP2_REMOVE' THEN 3
+                  WHEN 'WGP2_LEAVE' THEN 3
+                  WHEN 'WGP2_ADD' THEN 2
+                  WHEN 'GROUP_SNAPSHOT' THEN 1
+                  ELSE 0
+                END
+          )
+          THEN VALUES(status_source)
+        ELSE account_group_membership.status_source
+      END,
+      status_updated_at = GREATEST(
+        account_group_membership.status_updated_at,
+        VALUES(status_updated_at)
+      ),
       deleted_at = NULL,
-      updated_at = VALUES(updated_at)
+      updated_at = GREATEST(account_group_membership.updated_at, VALUES(updated_at))
   </insert>
 
   <select id="selectGroupExecutionAccount" resultType="com.armada.group.model.vo.GroupExecutionAccount">
@@ -120,18 +276,32 @@
      AND s.login_state = #{onlineLoginState}
     WHERE m.group_link_id = #{groupLinkId}
       AND m.deleted_at IS NULL
+      AND m.membership_status IN (1, 2)
     ORDER BY COALESCE(m.is_admin, 0) DESC,
              COALESCE(m.last_seen_at, 0) DESC,
              m.id ASC
     LIMIT 1
   </select>
 
-  <update id="markMissingMembershipsDeleted">
+  <update id="markMissingMembershipsNotInGroup">
     UPDATE account_group_membership
-    SET deleted_at = #{deletedAt},
-        updated_at = #{deletedAt}
+    SET membership_status = #{status},
+        status_source = #{source},
+        status_updated_at = #{statusUpdatedAt},
+        updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
       AND deleted_at IS NULL
+      AND membership_status NOT IN
+      <foreach collection="preservedStatuses" item="preservedStatus" open="(" separator="," close=")">
+        #{preservedStatus}
+      </foreach>
+      AND (
+        status_updated_at &lt; #{statusUpdatedAt}
+        OR (
+          status_updated_at = #{statusUpdatedAt}
+          AND status_source NOT IN ('WGP2_ADD', 'WGP2_REMOVE', 'WGP2_LEAVE')
+        )
+      )
     <if test="groupJids != null and groupJids.size() &gt; 0">
       AND group_jid NOT IN
       <foreach collection="groupJids" item="jid" open="(" separator="," close=")">#{jid}</foreach>

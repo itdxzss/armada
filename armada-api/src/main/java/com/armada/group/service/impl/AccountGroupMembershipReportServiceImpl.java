@@ -9,6 +9,7 @@ import com.armada.group.service.AccountGroupMembershipReportService;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -64,8 +65,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     /**
      * 应用协议层 {@code account.groups_reported} 回报事件。
      *
-     * <p>协议层返回的是账号当前全部参与群。待拍账号先保存首次 baseline,随后与其他账号一样
-     * 把本次全量回报写入 membership 快照;baseline 不再参与当前群筛选。</p>
+     * <p>待拍账号先保存首次 baseline，随后与其他账号一样把本次可见群写入 membership 快照；
+     * 只有确认完整的快照才会校准缺失关系，baseline 不再参与当前群筛选。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -82,13 +83,20 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                         event.tenantId(), event.accountId(), event.protocolAccountId(), event.eventId());
                 return;
             }
+            if (!currentProtocolBinding(baselineRow, event.protocolAccountId())) {
+                log.warn("账号群列表事件协议句柄已过期 tenantId={} accountId={} eventId={} source={}",
+                        event.tenantId(), event.accountId(), event.eventId(), event.source());
+                return;
+            }
             boolean pendingBaseline = baselineState(baselineRow) == BASELINE_PENDING;
             if (pendingBaseline) {
                 capturePendingBaseline(event, syncAt, now);
             }
+            boolean snapshotComplete = completeSnapshot(event, baselineRow);
             AccountGroupMembershipChangeSet changes = snapshotService.replaceVisibleGroups(
                     event.accountId(),
                     event.groups(),
+                    snapshotComplete,
                     syncAt,
                     event.eventId(),
                     event.source());
@@ -100,10 +108,11 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                 immediateSendService.enqueueNewGroups(event.accountId(), addedGroups, now);
             }
             log.info("账号群列表事件已回写 eventId={} source={} reportedAt={} tenantId={} accountId={} "
-                            + "protocolAccountId={} currentGroups={} addedGroups={} addedGroupJidSample={} "
-                            + "currentGroupJidSample={}",
+                            + "protocolAccountId={} currentGroups={} addedGroups={} snapshotComplete={} "
+                            + "skippedGroupCount={} addedGroupJidSample={} currentGroupJidSample={}",
                     event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
                     event.protocolAccountId(), changes.currentGroups().size(), changes.addedGroups().size(),
+                    snapshotComplete, zero(event.skippedGroupCount()),
                     jidSample(changes.addedGroups().stream().map(group -> group.groupJid()).toList()),
                     jidSample(event.groups().stream().map(AccountGroupsReportedEvent.Group::groupJid).toList()));
         } finally {
@@ -205,6 +214,29 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     private static int baselineState(AccountGroupBaselineRow baselineRow) {
         Integer state = baselineRow.getGroupBaselineState();
         return state == null ? BASELINE_PENDING : state;
+    }
+
+    private static boolean currentProtocolBinding(AccountGroupBaselineRow baselineRow,
+                                                  String eventProtocolAccountId) {
+        String current = blankToNull(baselineRow.getProtocolAccountId());
+        String reported = blankToNull(eventProtocolAccountId);
+        return current != null && current.equals(reported);
+    }
+
+    private static boolean completeSnapshot(AccountGroupsReportedEvent event,
+                                            AccountGroupBaselineRow baselineRow) {
+        boolean explicitlyComplete = Boolean.TRUE.equals(event.snapshotComplete())
+                && zero(event.skippedGroupCount()) == 0;
+        if (event.snapshotComplete() == null
+                && zero(event.skippedGroupCount()) == 0
+                && ProtocolBackend.fromProtocolId(baselineRow.getProtocolId()) == ProtocolBackend.WEB) {
+            return true;
+        }
+        return explicitlyComplete;
+    }
+
+    private static int zero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     /**

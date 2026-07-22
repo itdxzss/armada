@@ -31,11 +31,18 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
         long adminAccountId = seedAccount("923310000002", 1, now);
         long offlineAdminAccountId = seedAccount("923310000003", 2, now);
         long deletedAdminAccountId = seedAccount("923310000004", 1, now);
+        long kickedAdminAccountId = seedAccount("923310000005", 1, now);
 
         seedMembership(ordinaryAccountId, groupLinkId, false, now, null);
         seedMembership(adminAccountId, groupLinkId, true, now - 10_000, null);
         seedMembership(offlineAdminAccountId, groupLinkId, true, now + 20_000, null);
         seedMembership(deletedAdminAccountId, groupLinkId, true, now + 30_000, now + 31_000);
+        seedMembership(kickedAdminAccountId, groupLinkId, true, now + 40_000, null);
+        jdbc.update("""
+                UPDATE account_group_membership
+                SET membership_status = 3, status_source = 'TEST_KICKED', status_updated_at = ?
+                WHERE account_id = ? AND group_jid = ? AND deleted_at IS NULL
+                """, now + 40_000, kickedAdminAccountId, "120363selector@g.us");
 
         Optional<GroupExecutionAccount> selected = selector.find(groupLinkId);
 
@@ -93,10 +100,11 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
         jdbc.update("""
                 INSERT INTO account_group_membership
                     (tenant_id, account_id, group_link_id, group_jid, is_admin,
+                     membership_status, status_source, status_updated_at,
                      last_seen_at, created_at, updated_at, deleted_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?, ?)
                 """, TEST_TENANT_ID, accountId, groupLinkId, "120363selector@g.us", admin,
-                lastSeenAt, now, now, deletedAt);
+                now, lastSeenAt, now, now, deletedAt);
     }
 
     private long insertAndReturnId(String sql, SqlBinder binder) {

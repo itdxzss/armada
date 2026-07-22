@@ -2,12 +2,14 @@ package com.armada.group.mapper;
 
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
+import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
-/** 账号当前在群关系数据访问。 */
+/** 账号群关系当前状态数据访问。 */
 @Mapper
 public interface AccountGroupMembershipMapper {
 
@@ -45,20 +47,40 @@ public interface AccountGroupMembershipMapper {
                                     @Param("now") long now);
 
     /**
-     * 查询账号刷新前仍活跃的群 JID。
+     * 查询账号刷新前仍可发送的群 JID。
      *
      * @param accountId 账号 ID
-     * @return 当前活跃群 JID，按关系创建顺序排列
+     * @param sendableStatuses 可发送关系状态码
+     * @return 当前可发送群 JID，按关系创建顺序排列
      */
-    List<String> selectActiveGroupJids(@Param("accountId") Long accountId);
+    List<String> selectSendableGroupJids(@Param("accountId") Long accountId,
+                                         @Param("sendableStatuses") List<Integer> sendableStatuses);
 
     /**
-     * 按群 JID 查租户内活跃 group_link。
+     * 查询快照刷新前已经由快照或其它稳定来源确认的可发送群。
+     *
+     * <p>精确 WGP2 add 暂不算快照已建立关系，使随后首次完整快照仍能触发现有新增群即时营销。</p>
+     */
+    List<String> selectSnapshotEstablishedGroupJids(
+            @Param("accountId") Long accountId,
+            @Param("sendableStatuses") List<Integer> sendableStatuses);
+
+    /**
+     * 批量查询当前租户内账号群关系状态。
+     *
+     * @param lookups 账号 ID 与群 JID 复合键
+     * @return 当前状态行
+     */
+    List<AccountGroupMembershipStatusRow> selectCurrentStatuses(
+            @Param("lookups") List<AccountGroupMembershipLookup> lookups);
+
+    /**
+     * 按群 JID 查租户内 group_link，优先返回活跃行，必要时允许复用软删除行。
      *
      * @param groupJid WhatsApp 群 JID
      * @return group_link.id;不存在时返回 null
      */
-    Long selectActiveGroupLinkIdByGroupJid(@Param("groupJid") String groupJid);
+    Long selectGroupLinkIdByGroupJidIncludingDeleted(@Param("groupJid") String groupJid);
 
     /**
      * 同步发现已有 group_link 时更新其展示名和关系态。
@@ -118,11 +140,20 @@ public interface AccountGroupMembershipMapper {
      * 将本次回报中未出现的账号群关系标记为已不在群内。
      *
      * @param accountId 账号 ID
-     * @param groupJids 本次回报且通过 baseline 差集后的群 JID
-     * @param deletedAt 软删时间(epoch 毫秒)
+     * @param groupJids 本次完整快照中的群 JID
+     * @param status 缺失关系目标状态
+     * @param preservedStatuses 不允许被完整快照降级的精确退出状态
+     * @param source 状态来源
+     * @param statusUpdatedAt 状态事实时间(epoch 毫秒)
+     * @param updatedAt 更新时间(epoch 毫秒)
      * @return 影响行数
      */
-    int markMissingMembershipsDeleted(@Param("accountId") Long accountId,
-                                      @Param("groupJids") List<String> groupJids,
-                                      @Param("deletedAt") long deletedAt);
+    int markMissingMembershipsNotInGroup(
+            @Param("accountId") Long accountId,
+            @Param("groupJids") List<String> groupJids,
+            @Param("status") int status,
+            @Param("preservedStatuses") List<Integer> preservedStatuses,
+            @Param("source") String source,
+            @Param("statusUpdatedAt") long statusUpdatedAt,
+            @Param("updatedAt") long updatedAt);
 }

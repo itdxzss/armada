@@ -4,6 +4,7 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.service.GroupLinkRegistryService;
@@ -39,6 +40,46 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                                         AccountGroupMembershipMapper membershipMapper) {
         this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
+    }
+
+    /**
+     * 登记账号快照或精确关系事件观察到的群。
+     *
+     * <p>先按群 JID 查询活跃或软删除的群入口并优先复用，随后通过统一 touch SQL 复活入口、更新群名和群组池
+     * 关系态；仅在 JID 和内部 {@code wa://group/} 链接都没有历史记录时创建新入口。整个过程不调用协议层。</p>
+     *
+     * @param groupJid WhatsApp 群 JID，不能为空
+     * @param groupName 协议层观察到的群名称，可空
+     * @param now 本地登记或复活时间（epoch 毫秒）
+     * @return 复用、复活或新建后的 {@code group_link.id}
+     * @throws BusinessException 当群 JID 为空时抛出
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long registerAccountObservedGroup(String groupJid, String groupName, long now) {
+        String normalizedJid = normalizeRequired(groupJid, "账号群同步缺少 groupJid");
+        Long groupLinkId = membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(normalizedJid);
+        if (groupLinkId == null) {
+            String linkUrl = SELF_BUILT_LINK_PREFIX + normalizedJid;
+            GroupLink existing = groupLinkMapper.selectAnyByUrl(linkUrl);
+            if (existing == null) {
+                GroupLink row = new GroupLink();
+                row.setLinkUrl(linkUrl);
+                String normalizedName = clamp(blankToNull(groupName), 128);
+                row.setGroupName(normalizedName == null ? normalizedJid : normalizedName);
+                row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
+                row.setMembershipState(GroupMembershipState.JOINED.code());
+                row.setCreatedAt(now);
+                row.setUpdatedAt(now);
+                groupLinkMapper.insert(row);
+                groupLinkId = row.getId();
+            } else {
+                groupLinkId = existing.getId();
+            }
+        }
+        membershipMapper.touchGroupLinkFromAccountSync(
+                groupLinkId, clamp(blankToNull(groupName), 128), now);
+        return groupLinkId;
     }
 
     @Override
@@ -119,6 +160,10 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         membership.setGroupLinkId(groupLinkId);
         membership.setGroupJid(normalizedJid);
         membership.setAdmin(true);
+        membership.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
+        membership.setStatusSource("SELF_BUILT");
+        membership.setStatusUpdatedAt(now);
+        membership.setJoinedAt(now);
         membership.setLastSeenAt(now);
         membership.setCreatedAt(now);
         membership.setUpdatedAt(now);

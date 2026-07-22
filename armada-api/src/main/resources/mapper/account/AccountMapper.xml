@@ -324,6 +324,7 @@
       SELECT tenant_id, account_id, COUNT(*) AS groups_num
       FROM account_group_membership
       WHERE deleted_at IS NULL
+        AND membership_status IN (1, 2)
       GROUP BY tenant_id, account_id
     ) gm ON gm.tenant_id = a.tenant_id AND gm.account_id = a.id
     WHERE <include refid="filter"/>

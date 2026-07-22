@@ -239,6 +239,37 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
+    void createTask_fixedGroupAllowsRetainedExitedMembership() {
+        Fixture fixture = seedTakeoverFixture(
+                "fixed-kicked-membership",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                UPDATE account_group_membership
+                SET membership_status = 3,
+                    status_source = 'TEST_KICKED',
+                    status_updated_at = ?,
+                    updated_at = ?
+                WHERE account_id = ? AND group_link_id = ? AND deleted_at IS NULL
+                """, now, now, fixture.accountId(), fixture.groupLinkId());
+
+        MarketingTaskVO created = service.createTask(request(
+                "被踢群仍可选任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(), List.of(fixture.groupLinkId())))));
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(created.targetPairCount()).isEqualTo(1);
+        assertThat(detail.accountTargets()).singleElement()
+                .satisfies(account -> assertThat(account.groups()).singleElement()
+                        .satisfies(group -> assertThat(group.membershipStatus()).isEqualTo("KICKED_OUT")));
+    }
+
+    @Test
     void createTask_rejectsOfflineTakingOverAccount() {
         Fixture fixture = seedTakeoverFixture(
                 "takeover-offline",
@@ -438,6 +469,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         GroupFixture secondGroup = seedGroup("detail-rollup-second",
                 "120363099@g.us",
                 "https://chat.whatsapp.com/detail-rollup-second");
+        seedMembership(fixture.accountId(), secondGroup);
         MarketingTaskVO created = service.createTask(request(
                 "发送记录聚合任务",
                 fixture.accountGroupId(),
@@ -470,11 +502,15 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             assertThat(account.lastReason()).isEqualTo("群禁言");
             assertThat(account.groups()).hasSize(2);
             assertThat(account.groups().get(0).groupJid()).isEqualTo(secondGroup.groupJid());
-            assertThat(account.groups().get(0).groupStatus()).isEqualTo("NO_PERMISSION");
+            assertThat(account.groups().get(0).membershipStatus()).isEqualTo("IN_GROUP");
+            assertThat(account.groups().get(0).groupStatus()).isEqualTo("NORMAL");
+            assertThat(account.groups().get(0).executionResult()).isEqualTo("SUCCESS");
             assertThat(account.groups().get(0).sentMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(0).failedMessageCount()).isZero();
             assertThat(account.groups().get(1).groupJid()).isEqualTo(fixture.groupJid());
-            assertThat(account.groups().get(1).groupStatus()).isEqualTo("BANNED");
+            assertThat(account.groups().get(1).membershipStatus()).isEqualTo("IN_GROUP");
+            assertThat(account.groups().get(1).groupStatus()).isEqualTo("GROUP_BANNED");
+            assertThat(account.groups().get(1).executionResult()).isEqualTo("FAILED");
             assertThat(account.groups().get(1).sentMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(1).failedMessageCount()).isEqualTo(1);
             assertThat(account.groups().get(1).lastReason()).isEqualTo("群禁言");
@@ -482,7 +518,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
-    void getDetail_usesLatestEffectiveRoundForGroupExecutionResult() {
+    void getDetail_usesLatestEndedRoundForGroupExecutionResult() {
         Fixture fixture = seedTakeoverFixture(
                 "detail-execution-result",
                 AccountStateCode.NORMAL,
@@ -491,6 +527,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 "detail-execution-result-empty",
                 "120363188@g.us",
                 "https://chat.whatsapp.com/detail-execution-result-empty");
+        seedMembership(fixture.accountId(), secondGroup);
         MarketingTaskVO created = service.createTask(request(
                 "群执行结果任务",
                 fixture.accountGroupId(),
@@ -519,12 +556,22 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             assertThat(account.groups())
                     .filteredOn(group -> fixture.groupJid().equals(group.groupJid()))
                     .singleElement()
-                    .satisfies(group -> assertThat(group.executionResult()).isEqualTo("FAILED"));
+                    .satisfies(group -> {
+                        assertThat(group.executionResult()).isEqualTo("SKIPPED");
+                        assertThat(group.executionReason()).isEqualTo("账号被占用");
+                        assertThat(group.skippedMessageCount()).isEqualTo(1);
+                    });
             assertThat(account.groups())
                     .filteredOn(group -> secondGroup.groupJid().equals(group.groupJid()))
                     .singleElement()
-                    .satisfies(group -> assertThat(group.executionResult()).isNull());
+                    .satisfies(group -> {
+                        assertThat(group.executionResult()).isEqualTo("SKIPPED");
+                        assertThat(group.executionReason()).isEqualTo("账号被占用");
+                        assertThat(group.skippedMessageCount()).isEqualTo(1);
+                    });
+            assertThat(account.skippedMessageCount()).isEqualTo(2);
         });
+        assertThat(detail.skippedMessageCount()).isEqualTo(2);
     }
 
     @Test
@@ -577,7 +624,15 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             assertThat(account.status()).isEqualTo(STATUS_PENDING);
             assertThat(account.sentMessageCount()).isZero();
             assertThat(account.failedMessageCount()).isZero();
-            assertThat(account.groups()).isEmpty();
+            assertThat(account.skippedMessageCount()).isZero();
+            assertThat(account.groups()).singleElement().satisfies(group -> {
+                assertThat(group.groupJid()).isEqualTo(fixture.groupJid());
+                assertThat(group.membershipStatus()).isEqualTo("IN_GROUP");
+                assertThat(group.executionResult()).isNull();
+                assertThat(group.sentMessageCount()).isZero();
+                assertThat(group.failedMessageCount()).isZero();
+                assertThat(group.skippedMessageCount()).isZero();
+            });
         });
     }
 
@@ -783,15 +838,17 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
         if (withMembership) {
             jdbc.update("""
                     INSERT INTO account_group_membership
-                        (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+                        (tenant_id, account_id, group_link_id, group_jid,
+                         membership_status, status_source, status_updated_at,
+                         last_seen_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?)
+                    """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now, now);
         }
         return new Fixture(accountGroupId, templateId, accountId, phone, groupLinkId, groupUrl, groupJid);
     }
 
     private Fixture seedTakeoverFixture(String suffix, int accountState, int loginState) {
-        Fixture fixture = seedFixture(suffix, false, accountState);
+        Fixture fixture = seedFixture(suffix, true, accountState);
         jdbc.update("""
                 UPDATE account
                 SET protocol_account_id = ?,
@@ -830,6 +887,18 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 VALUES (?, ?, 1, 0, ?, ?)
                 """, TEST_TENANT_ID, groupLinkId, now, now);
         return new GroupFixture(groupLinkId, groupUrl, groupJid);
+    }
+
+    private void seedMembership(long accountId, GroupFixture group) {
+        long now = System.currentTimeMillis();
+        jdbc.update("""
+                INSERT INTO account_group_membership
+                    (tenant_id, account_id, group_link_id, group_jid,
+                     membership_status, status_source, status_updated_at,
+                     joined_at, last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, group.groupLinkId(), group.groupJid(),
+                now, now, now, now, now);
     }
 
     private void insertAttempt(long taskId,

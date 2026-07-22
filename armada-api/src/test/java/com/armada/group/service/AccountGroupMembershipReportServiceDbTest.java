@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
@@ -53,7 +54,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
     }
 
     @Test
-    void applyGroupsReported_upsertsAllCurrentMembershipsAndDeletesMissingMemberships() {
+    void applyGroupsReported_upsertsAllCurrentMembershipsAndRetainsMissingMembershipStatus() {
         long accountId = seedAccount("923300001001");
         String baselineJid = "120363baseline@g.us";
         String visibleJid = "120363visible@g.us";
@@ -62,7 +63,6 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         long staleGroupLinkId = seedExistingGroup(staleJid);
         seedMembership(accountId, staleGroupLinkId, staleJid);
 
-        long beforeSync = System.currentTimeMillis();
         service.applyGroupsReported(new AccountGroupsReportedEvent(
                 TEST_TENANT_ID,
                 accountId,
@@ -75,12 +75,12 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                                 visibleJid, "上线后新群", 88, "861300000000@s.whatsapp.net",
                                 null, true, false, "https://example.test/avatar.jpg")),
                 "evt-groups-db-1"));
-        long afterSync = System.currentTimeMillis();
-
         assertThat(countMembership(accountId, baselineJid, true)).isOne();
         assertThat(countMembership(accountId, visibleJid, true)).isOne();
-        assertThat(countMembership(accountId, staleJid, true)).isZero();
+        assertThat(countMembership(accountId, staleJid, true)).isOne();
         assertThat(countMembership(accountId, staleJid, false)).isOne();
+        assertThat(membershipStatus(accountId, staleJid))
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(baselineJson(accountId)).isEqualTo("[\"" + baselineJid + "\"]");
 
         Long groupLinkId = jdbc.queryForObject("""
@@ -104,7 +104,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         assertThat(jdbc.queryForObject("SELECT is_admin FROM account_group_membership WHERE account_id = ? "
                         + "AND group_jid = ? AND deleted_at IS NULL",
                 Boolean.class, accountId, visibleJid)).isTrue();
-        assertThat(activeJoinedAt(accountId, visibleJid)).isBetween(beforeSync, afterSync);
+        assertThat(activeJoinedAt(accountId, visibleJid)).isEqualTo(1782626401000L);
         assertThat(jdbc.queryForObject("SELECT current_count FROM group_link_health WHERE group_link_id = ?",
                 Integer.class, groupLinkId)).isEqualTo(88);
     }
@@ -148,7 +148,9 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 "evt-groups-db-3"));
 
         assertThat(countMembership(accountId, importedJid, true)).isOne();
-        assertThat(countMembership(accountId, staleJid, true)).isZero();
+        assertThat(countMembership(accountId, staleJid, true)).isOne();
+        assertThat(membershipStatus(accountId, staleJid))
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
         String firstSubjectsJson = baselineSubjectsJson(accountId);
         assertThat(firstSubjectsJson).isNotNull();
@@ -166,7 +168,9 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
 
         assertThat(baselineJson(accountId)).isEqualTo("[\"" + importedJid + "\"]");
         assertThat(baselineSubjectsJson(accountId)).isEqualTo(firstSubjectsJson);
-        assertThat(countMembership(accountId, importedJid, true)).isZero();
+        assertThat(countMembership(accountId, importedJid, true)).isOne();
+        assertThat(membershipStatus(accountId, importedJid))
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(countMembership(accountId, "120363later@g.us", true)).isOne();
 
         jdbc.update("UPDATE account SET group_baseline_state = 1 WHERE id = ?", accountId);
@@ -221,7 +225,6 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 List.of(),
                 "evt-joined-at-2"));
 
-        long beforeRejoin = System.currentTimeMillis();
         service.applyGroupsReported(new AccountGroupsReportedEvent(
                 TEST_TENANT_ID,
                 accountId,
@@ -230,9 +233,7 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                 List.of(new AccountGroupsReportedEvent.Group(
                         groupJid, "重新入群", 12, null, null, false, false, null)),
                 "evt-joined-at-3"));
-        long afterRejoin = System.currentTimeMillis();
-
-        assertThat(activeJoinedAt(accountId, groupJid)).isBetween(beforeRejoin, afterRejoin);
+        assertThat(activeJoinedAt(accountId, groupJid)).isEqualTo(1782626601000L);
     }
 
     private long seedAccount(String phone) {
@@ -301,9 +302,11 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         long now = System.currentTimeMillis();
         jdbc.update("""
                 INSERT INTO account_group_membership
-                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+                    (tenant_id, account_id, group_link_id, group_jid,
+                     membership_status, status_source, status_updated_at,
+                     last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now, now);
     }
 
     private void seedMembership(long accountId, long groupLinkId, String groupJid, long joinedAt) {
@@ -311,9 +314,10 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
         jdbc.update("""
                 INSERT INTO account_group_membership
                     (tenant_id, account_id, group_link_id, group_jid, is_admin,
+                     membership_status, status_source, status_updated_at,
                      joined_at, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, joinedAt, now, now, now);
+                VALUES (?, ?, ?, ?, 0, 1, 'TEST_FIXTURE', ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, joinedAt, now, now, now);
     }
 
     private void seedHealth(long groupLinkId, int currentCount) {
@@ -334,6 +338,16 @@ class AccountGroupMembershipReportServiceDbTest extends DbTestBase {
                   AND group_jid = ?
                   AND (? = 0 OR deleted_at IS NULL)
                 """, Integer.class, accountId, groupJid, activeOnly ? 1 : 0);
+    }
+
+    private Integer membershipStatus(long accountId, String groupJid) {
+        return jdbc.queryForObject("""
+                SELECT membership_status
+                FROM account_group_membership
+                WHERE account_id = ?
+                  AND group_jid = ?
+                  AND deleted_at IS NULL
+                """, Integer.class, accountId, groupJid);
     }
 
     private String baselineJson(long accountId) {

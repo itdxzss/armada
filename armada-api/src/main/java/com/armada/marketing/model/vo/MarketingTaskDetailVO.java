@@ -19,6 +19,7 @@ public record MarketingTaskDetailVO(
         Integer targetPairCount,
         Integer sentMessageCount,
         Integer failedMessageCount,
+        Integer skippedMessageCount,
         Integer sendPerRound,
         BigDecimal accountGroupSendIntervalSeconds,
         Integer sendIntervalSeconds,

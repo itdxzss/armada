@@ -22,6 +22,9 @@ public class MarketingTaskSendAttempt {
     private String reasonCode;
     private String reasonMessage;
     private String messageId;
+    private String groupStatus;
+    private String groupStatusReason;
+    private Long groupStatusCheckedAt;
     private Long submittedAt;
     private Long resultAt;
     private Long attemptedAt;
@@ -145,6 +148,30 @@ public class MarketingTaskSendAttempt {
 
     public void setMessageId(String messageId) {
         this.messageId = messageId;
+    }
+
+    public String getGroupStatus() {
+        return groupStatus;
+    }
+
+    public void setGroupStatus(String groupStatus) {
+        this.groupStatus = groupStatus;
+    }
+
+    public String getGroupStatusReason() {
+        return groupStatusReason;
+    }
+
+    public void setGroupStatusReason(String groupStatusReason) {
+        this.groupStatusReason = groupStatusReason;
+    }
+
+    public Long getGroupStatusCheckedAt() {
+        return groupStatusCheckedAt;
+    }
+
+    public void setGroupStatusCheckedAt(Long groupStatusCheckedAt) {
+        this.groupStatusCheckedAt = groupStatusCheckedAt;
     }
 
     public Long getSubmittedAt() {

@@ -14,6 +14,8 @@ import java.util.List;
  * @param protocolAccountId 协议账号句柄
  * @param reportedAt        协议层同步时间(epoch 毫秒)
  * @param source            群列表同步来源
+ * @param snapshotComplete  协议层是否确认快照完整
+ * @param skippedGroupCount 协议层过滤的异常群数量
  * @param workerId          产生事件的协议层 worker ID
  * @param groups            该账号当前参与的群列表
  */
@@ -24,6 +26,8 @@ public record ProtocolAccountGroupsReportedEvent(
         String protocolAccountId,
         Long reportedAt,
         String source,
+        Boolean snapshotComplete,
+        Integer skippedGroupCount,
         String workerId,
         List<Group> groups
 ) {

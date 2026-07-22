@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.service.AccountGroupMembershipReportService;
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -45,6 +46,9 @@ class AccountDynamicNewGroupImmediateMarketingDbTest extends DbTestBase {
 
     @Autowired
     private MarketingAccountOccupancyService occupancyService;
+
+    @Autowired
+    private AccountGroupMembershipStatusService membershipStatusService;
 
     @Autowired
     private MessageSendPort messageSendPort;
@@ -136,6 +140,7 @@ class AccountDynamicNewGroupImmediateMarketingDbTest extends DbTestBase {
         return new MarketingRoundWorker(
                 taskMapper,
                 occupancyService,
+                membershipStatusService,
                 new MarketingMessageCommandFactory(
                         templateMapper, templateFileMapper, new MarketingMessageComposer()),
                 messageSendPort,

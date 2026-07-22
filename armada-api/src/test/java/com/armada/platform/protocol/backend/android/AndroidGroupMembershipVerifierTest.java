@@ -65,6 +65,20 @@ class AndroidGroupMembershipVerifierTest {
     }
 
     @Test
+    void confirmsJoinedWhenAnotherParticipantHasNoPhoneIdentity() throws Exception {
+        when(client.members("919000000001", GROUP_JID))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{"Participants":[
+                          {"type":"admin"},
+                          {"phone":"919000000001","type":"participant"}
+                        ]},"Msg":"ok"}
+                        """));
+
+        assertThat(verifier().verify(account(), GROUP_JID, OPERATION_ID))
+                .isEqualTo(GroupJoinOutcome.JOINED);
+    }
+
+    @Test
     void mapsApplicationAndMalformedMemberResponsesToUnconfirmed() throws Exception {
         when(client.members("919000000001", GROUP_JID))
                 .thenReturn(envelope("""
@@ -109,7 +123,10 @@ class AndroidGroupMembershipVerifierTest {
     }
 
     private AndroidGroupMembershipVerifier verifier() {
-        return new AndroidGroupMembershipVerifier(client, new AndroidResponseDecoder());
+        return new AndroidGroupMembershipVerifier(
+                client,
+                new AndroidResponseDecoder(),
+                new AndroidGroupMemberMapper());
     }
 
     private static ProtocolAccountRef account() {

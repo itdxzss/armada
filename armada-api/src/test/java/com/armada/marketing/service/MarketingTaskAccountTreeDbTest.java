@@ -1,5 +1,8 @@
 package com.armada.marketing.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.marketing.model.vo.MarketingAccountTreeVO;
 import com.armada.marketing.model.vo.MarketingTreeGroupVO;
 import com.armada.testsupport.DbTestBase;
@@ -12,12 +15,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
  * 营销任务建任务抽屉的账号→可营销群树。
  *
- * <p>账号树首屏展示账号和库内当前可营销群数量;点击账号后只查本地账号当前在群关系,
+ * <p>账号树首屏展示账号和库内当前关系数量；点击账号后只查本地账号群关系状态，
  * 不再调用协议层实时查询。</p>
  */
 class MarketingTaskAccountTreeDbTest extends DbTestBase {
@@ -103,7 +104,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountGroups_capturedBaselineReadsOnlyDbVisibleGroups() {
+    void accountGroups_capturedBaselineShowsAllCurrentRelationshipRows() {
         long accountGroupId = seedAccountGroup("tree-captured");
         long accountId = seedAccount("923300000102", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         String oldJid = "120363captured-old@g.us";
@@ -117,8 +118,9 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
         assertThat(account).satisfies(node -> {
             assertThat(node.groupsError()).isFalse();
             assertThat(node.groups()).extracting(MarketingTreeGroupVO::groupJid)
-                    .containsExactly(newJid);
-            assertThat(node.groups()).singleElement().satisfies(group -> {
+                    .containsExactly(oldJid, newJid);
+            assertThat(node.groups()).filteredOn(group -> newJid.equals(group.groupJid())).singleElement()
+                    .satisfies(group -> {
                 assertThat(group.groupName()).isEqualTo("营销群-captured-new");
                 assertThat(group.linkUrl()).isEqualTo("https://chat.whatsapp.com/captured-new");
             });
@@ -144,7 +146,7 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     @Test
-    void accountGroups_dbFailureDoesNotClearExistingMembership() {
+    void accountGroups_groupHealthDoesNotHideCurrentRelationship() {
         long accountGroupId = seedAccountGroup("tree-failed");
         long accountId = seedAccount("923300000104", accountGroupId, BASELINE_CAPTURED, 2, 1, 1, null);
         String existingJid = "120363failed-existing@g.us";
@@ -155,9 +157,36 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
 
         assertThat(account).satisfies(node -> {
             assertThat(node.groupsError()).isFalse();
-            assertThat(node.groups()).isEmpty();
+            assertThat(node.groups()).extracting(MarketingTreeGroupVO::groupJid)
+                    .containsExactly(existingJid);
         });
         assertThat(activeMembershipJids(accountId)).containsExactly(existingJid);
+    }
+
+    @Test
+    void accountGroups_showsAllFiveMembershipStatesAndKeepsThemSelectable() {
+        long accountGroupId = seedAccountGroup("tree-membership-statuses");
+        long accountId = seedAccount(
+                "923300000106", accountGroupId, BASELINE_DISABLED, 2, 1, 1, null);
+        int index = 0;
+        for (AccountGroupMembershipStatus status : AccountGroupMembershipStatus.values()) {
+            String suffix = "membership-status-" + index;
+            String groupJid = "120363-membership-status-" + index + "@g.us";
+            seedMembership(accountId, seedGroup(suffix, groupJid, 1, 0), groupJid, status.code());
+            index++;
+        }
+
+        MarketingAccountTreeVO tree = service.accountTree(accountGroupId);
+        var account = service.accountGroups(accountId);
+
+        assertThat(tree.accounts()).singleElement().satisfies(node -> {
+            assertThat(node.groupCount()).isEqualTo(5);
+            assertThat(node.selectable()).isTrue();
+        });
+        assertThat(account.selectable()).isTrue();
+        assertThat(account.groups())
+                .extracting(MarketingTreeGroupVO::membershipStatus)
+                .containsExactly("IN_GROUP", "UNCONFIRMED", "KICKED_OUT", "LEFT", "NOT_IN_GROUP");
     }
 
     @Test
@@ -244,12 +273,19 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
     }
 
     private void seedMembership(long accountId, long groupLinkId, String groupJid) {
+        seedMembership(accountId, groupLinkId, groupJid, AccountGroupMembershipStatus.IN_GROUP.code());
+    }
+
+    private void seedMembership(long accountId, long groupLinkId, String groupJid, int membershipStatus) {
         long now = System.currentTimeMillis();
         jdbc.update("""
                 INSERT INTO account_group_membership
-                    (tenant_id, account_id, group_link_id, group_jid, last_seen_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, now, now);
+                    (tenant_id, account_id, group_link_id, group_jid,
+                     membership_status, status_source, status_updated_at,
+                     last_seen_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'TEST_FIXTURE', ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, membershipStatus,
+                now, now, now, now);
     }
 
     private List<String> activeMembershipJids(long accountId) {

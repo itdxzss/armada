@@ -2,7 +2,7 @@ package com.armada.group.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -15,6 +15,8 @@ import com.armada.group.model.vo.GroupCreateVO;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.group.service.impl.GroupOperationServiceImpl;
+import com.armada.platform.protocol.model.command.GroupCreateCommand;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.port.GroupCreatePort;
@@ -24,6 +26,7 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -47,12 +50,13 @@ class GroupOperationServiceImplTest {
     void createGroupResolvesOnlineProtocolAccountAndMapsResult() {
         Account account = new Account();
         account.setId(7L);
+        account.setProtocolId("WEB");
         account.setProtocolAccountId("acc_861111");
+        account.setWsPhone("861111");
         when(accountMapper.selectActiveById(7L)).thenReturn(account);
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
                 .thenReturn(List.of(7L));
-        when(groupCreatePort.create("acc_861111", "测试群",
-                List.of("+86 139-0000-0000", "8613911111111@s.whatsapp.net")))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult(
                         "120363create@g.us",
                         false,
@@ -71,8 +75,16 @@ class GroupOperationServiceImplTest {
         assertThat(result.partial()).isFalse();
         assertThat(result.results()).hasSize(2);
         assertThat(result.results().get(0).status()).isEqualTo("OK");
-        verify(groupCreatePort).create("acc_861111", "测试群",
-                List.of("+86 139-0000-0000", "8613911111111@s.whatsapp.net"));
+        ArgumentCaptor<GroupCreateCommand> command = ArgumentCaptor.forClass(GroupCreateCommand.class);
+        verify(groupCreatePort).create(command.capture());
+        assertThat(command.getValue().account().backend()).isEqualTo(ProtocolBackend.WEB);
+        assertThat(command.getValue().account().protocolAccountId()).isEqualTo("acc_861111");
+        assertThat(command.getValue().account().wsPhone()).isEqualTo("861111");
+        assertThat(command.getValue().subject()).isEqualTo("测试群");
+        assertThat(command.getValue().participants())
+                .containsExactly("+86 139-0000-0000", "8613911111111@s.whatsapp.net");
+        assertThat(command.getValue().announceOnly()).isFalse();
+        assertThat(command.getValue().operationId()).startsWith("group-create-api:");
     }
 
     @Test
@@ -91,38 +103,44 @@ class GroupOperationServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("操作账号未在线");
 
-        verify(groupCreatePort, never()).create(eq("acc_861111"), eq("测试群"), eq(List.of("8613900000000")));
+        verify(groupCreatePort, never()).create(any(GroupCreateCommand.class));
     }
 
     @Test
     void createGroupAllowsMoreThanFiftyParticipants() {
         Account account = new Account();
         account.setId(7L);
+        account.setProtocolId("WEB");
         account.setProtocolAccountId("acc_861111");
+        account.setWsPhone("861111");
         List<String> participants = IntStream.rangeClosed(1, 51)
                 .mapToObj(i -> "861390000%04d".formatted(i))
                 .toList();
         when(accountMapper.selectActiveById(7L)).thenReturn(account);
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
                 .thenReturn(List.of(7L));
-        when(groupCreatePort.create("acc_861111", "测试群", participants))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult("120363create@g.us", false, List.of()));
 
         GroupCreateVO result = service.createGroup(new GroupCreateDTO(7L, "测试群", participants));
 
         assertThat(result.groupJid()).isEqualTo("120363create@g.us");
-        verify(groupCreatePort).create("acc_861111", "测试群", participants);
+        ArgumentCaptor<GroupCreateCommand> command = ArgumentCaptor.forClass(GroupCreateCommand.class);
+        verify(groupCreatePort).create(command.capture());
+        assertThat(command.getValue().participants()).containsExactlyElementsOf(participants);
     }
 
     @Test
     void createGroupMapsProtocolAccountBusyToBusinessConflict() {
         Account account = new Account();
         account.setId(7L);
+        account.setProtocolId("WEB");
         account.setProtocolAccountId("acc_861111");
+        account.setWsPhone("861111");
         when(accountMapper.selectActiveById(7L)).thenReturn(account);
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
                 .thenReturn(List.of(7L));
-        when(groupCreatePort.create("acc_861111", "测试群", List.of("8613900000000")))
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenThrow(new ProtocolException(
                         ProtocolErrorCode.ACCOUNT_BUSY,
                         ProtocolException.Metadata.of(429, "ACCOUNT_BUSY", 3000L, null),
@@ -138,5 +156,30 @@ class GroupOperationServiceImplTest {
                     assertThat(ex.getMessage()).contains("账号群操作繁忙");
                     assertThat(ex.getMessage()).contains("3000");
                 });
+    }
+
+    @Test
+    void createGroupRoutesAndroidAccountUsingCurrentProtocolFacts() {
+        Account account = new Account();
+        account.setId(7L);
+        account.setProtocolId("ANDROID");
+        account.setProtocolAccountId("acc_android");
+        account.setWsPhone("919000000001");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+        when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(7L));
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
+                .thenReturn(new GroupCreateResult("120363create@g.us", false, List.of()));
+
+        service.createGroup(new GroupCreateDTO(7L, "测试群", List.of("919000000002")));
+
+        ArgumentCaptor<GroupCreateCommand> command = ArgumentCaptor.forClass(GroupCreateCommand.class);
+        verify(groupCreatePort).create(command.capture());
+        assertThat(command.getValue().account().backend()).isEqualTo(ProtocolBackend.ANDROID);
+        assertThat(command.getValue().account().protocolAccountId()).isEqualTo("acc_android");
+        assertThat(command.getValue().account().wsPhone()).isEqualTo("919000000001");
+        assertThat(command.getValue().subject()).isEqualTo("测试群");
+        assertThat(command.getValue().participants()).containsExactly("919000000002");
+        assertThat(command.getValue().announceOnly()).isFalse();
     }
 }

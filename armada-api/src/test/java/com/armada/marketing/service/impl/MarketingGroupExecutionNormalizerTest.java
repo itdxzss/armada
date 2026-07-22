@@ -86,4 +86,13 @@ class MarketingGroupExecutionNormalizerTest {
                 MarketingSendAttemptStatus.SKIPPED.code(),
                 null);
     }
+
+    @Test
+    void skippedAttemptHasIndependentExecutionResultAndReason() {
+        assertThat(MarketingGroupExecutionNormalizer.executionResult(
+                MarketingSendAttemptStatus.SKIPPED.code())).isEqualTo("SKIPPED");
+        assertThat(MarketingGroupExecutionNormalizer.executionReason(
+                MarketingSendAttemptStatus.SKIPPED.code(), "账号已主动退出群聊", "LEFT"))
+                .isEqualTo("账号已主动退出群聊");
+    }
 }

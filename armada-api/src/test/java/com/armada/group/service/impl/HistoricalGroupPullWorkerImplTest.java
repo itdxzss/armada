@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -27,6 +28,7 @@ import com.armada.group.model.enums.HistoricalGroupPullStatus;
 import com.armada.group.service.HistoricalGroupPullProtocolPorts;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.ContactSaveCommand;
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
@@ -120,7 +122,8 @@ class HistoricalGroupPullWorkerImplTest {
         when(groupJoinPort.join(any())).thenReturn(
                 new GroupJoinResult("120363target@g.us", GroupJoinOutcome.JOINED));
         doThrow(new ProtocolException(ProtocolErrorCode.NETWORK, "完整联系人保存失败"))
-                .when(contactPort).saveContact("puller-protocol", "8613900000011", "8613900000011");
+                .when(contactPort).save(argThat(command ->
+                        "8613900000011".equals(command.contact())));
         when(participantPort.updateParticipants(
                 eq("puller-protocol"), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD)))
                 .thenReturn(new GroupParticipantBatchResult(true, List.of(
@@ -141,6 +144,17 @@ class HistoricalGroupPullWorkerImplTest {
         verify(groupJoinPort, times(1)).join(joinCaptor.capture());
         assertThat(joinCaptor.getValue().inviteLinkOrCode()).isEqualTo("persisted-invite-link");
         assertThat(joinCaptor.getValue().account()).isEqualTo(puller);
+        ArgumentCaptor<ContactSaveCommand> contactCaptor = ArgumentCaptor.forClass(ContactSaveCommand.class);
+        verify(contactPort, times(3)).save(contactCaptor.capture());
+        assertThat(contactCaptor.getAllValues())
+                .extracting(ContactSaveCommand::account)
+                .containsOnly(puller);
+        assertThat(contactCaptor.getAllValues())
+                .extracting(ContactSaveCommand::operationId)
+                .containsExactlyInAnyOrder(
+                        "historical-group-pull-member:11",
+                        "historical-group-pull-member:12",
+                        "historical-group-pull-member:13");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> batchCaptor = ArgumentCaptor.forClass(List.class);
         verify(participantPort, times(2)).updateParticipants(
@@ -174,7 +188,7 @@ class HistoricalGroupPullWorkerImplTest {
         worker.execute(TENANT_ID, EXECUTION_ID);
 
         verify(groupJoinPort, never()).join(any());
-        verify(contactPort, never()).saveContact(any(), any(), any());
+        verify(contactPort, never()).save(any(ContactSaveCommand.class));
         verify(participantPort, never()).updateParticipants(any(), any(), any(), any());
         assertThat(member.getContactStatus()).isEqualTo(HistoricalGroupContactStatus.FAILED.code());
         assertThat(member.getAddStatus()).isEqualTo(HistoricalGroupAddStatus.FAILED.code());
@@ -203,7 +217,7 @@ class HistoricalGroupPullWorkerImplTest {
 
         verify(accountLookupService, times(1)).findRandomOnlineNormalWebByGroupId(301L);
         verify(groupJoinPort, times(1)).join(any());
-        verify(contactPort, never()).saveContact(any(), any(), any());
+        verify(contactPort, never()).save(any(ContactSaveCommand.class));
         verify(participantPort, never()).updateParticipants(any(), any(), any(), any());
         ArgumentCaptor<HistoricalGroupPullExecution> finishCaptor =
                 ArgumentCaptor.forClass(HistoricalGroupPullExecution.class);
@@ -257,7 +271,7 @@ class HistoricalGroupPullWorkerImplTest {
 
         verify(executionMapper, never()).assignPullerIfRunning(anyLong(), anyLong(), anyInt(), anyLong());
         verify(groupJoinPort, never()).join(any());
-        verify(contactPort, never()).saveContact(any(), any(), any());
+        verify(contactPort, never()).save(any(ContactSaveCommand.class));
         verify(participantPort, never()).updateParticipants(any(), any(), any(), any());
         ArgumentCaptor<HistoricalGroupPullExecution> finishCaptor =
                 ArgumentCaptor.forClass(HistoricalGroupPullExecution.class);

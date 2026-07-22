@@ -1,5 +1,9 @@
 package com.armada.marketing.scheduler;
 
+import com.armada.group.service.AccountGroupMembershipStatusService;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
+import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMembershipStatusSnapshot;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -40,6 +44,7 @@ import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -92,6 +97,7 @@ class MarketingRoundWorkerTest {
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
+                defaultMembershipStatusService(),
                 messageFactory(templateMapper, fileMapper),
                 messageSendPort,
                 properties,
@@ -363,6 +369,85 @@ class MarketingRoundWorkerTest {
     }
 
     @Test
+    void kickedOutMembershipCreatesSkippedAttemptWithoutProtocolCommandBeforeOccupancyReason() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        MessageSendPort outbox = acceptingMessagePort();
+        MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
+        AccountGroupMembershipStatusService membershipStatusService =
+                mock(AccountGroupMembershipStatusService.class);
+        MarketingTask task = task();
+        MarketingTaskTarget target = targets(1).get(0);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
+        when(membershipStatusService.findCurrentStatuses(List.of(
+                new AccountGroupMembershipLookup(target.getAccountId(), target.getGroupJid()))))
+                .thenReturn(List.of(new AccountGroupMembershipStatusSnapshot(
+                        target.getAccountId(), target.getGroupJid(),
+                        AccountGroupMembershipStatus.KICKED_OUT, 1_500L)));
+        when(occupancyService.acquireAndLoadTaskAccounts(any(), anyLong())).thenReturn(Map.of());
+        when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        assignAttemptIds(taskMapper, 9_700L);
+
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                occupancyService,
+                membershipStatusService,
+                mock(MarketingMessageCommandFactory.class),
+                outbox,
+                new MarketingRoundSchedulerProperties(),
+                fixedClock(2_000L));
+        worker.runRound(1L, 42L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MarketingTaskSendAttempt>> attemptsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(taskMapper).insertSendAttempts(attemptsCaptor.capture());
+        assertThat(attemptsCaptor.getValue()).singleElement().satisfies(attempt -> {
+            assertThat(attempt.getStatus()).isEqualTo(MarketingSendAttemptStatus.SKIPPED.code());
+            assertThat(attempt.getCommandId()).isNull();
+            assertThat(attempt.getReasonCode()).isEqualTo("KICKED_OUT");
+            assertThat(attempt.getReasonMessage()).isEqualTo("账号已被踢出群聊");
+            assertThat(attempt.getGroupStatus()).isEqualTo("KICKED_OUT");
+            assertThat(attempt.getGroupStatusReason()).isEqualTo("KICKED_OUT");
+            assertThat(attempt.getGroupStatusCheckedAt()).isEqualTo(2_000L);
+        });
+        verify(occupancyService, never()).occupiedAttemptMessage(any());
+        verify(outbox, never()).enqueue(any());
+    }
+
+    @Test
+    void membershipQueryFailureStopsBeforeOccupancyClaimAndProtocolCommand() {
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        MessageSendPort outbox = acceptingMessagePort();
+        MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
+        AccountGroupMembershipStatusService membershipStatusService =
+                mock(AccountGroupMembershipStatusService.class);
+        MarketingTask task = task();
+        MarketingTaskTarget target = targets(1).get(0);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
+        when(membershipStatusService.findCurrentStatuses(any()))
+                .thenThrow(new IllegalStateException("membership lookup unavailable"));
+
+        MarketingRoundWorker worker = new MarketingRoundWorker(
+                taskMapper,
+                occupancyService,
+                membershipStatusService,
+                mock(MarketingMessageCommandFactory.class),
+                outbox,
+                new MarketingRoundSchedulerProperties(),
+                fixedClock(2_000L));
+
+        assertThatThrownBy(() -> worker.runRound(1L, 42L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("membership lookup unavailable");
+
+        verify(occupancyService, never()).acquireAndLoadTaskAccounts(any(), anyLong());
+        verify(taskMapper, never()).claimDueRound(any(), anyLong(), anyLong());
+        verify(taskMapper, never()).insertSendAttempts(any());
+        verify(outbox, never()).enqueue(any());
+    }
+
+    @Test
     void fixedGroupTargetMissingSavedGroupJidPostponesWithoutAttempt() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
         MessageSendPort outbox = acceptingMessagePort();
@@ -531,6 +616,7 @@ class MarketingRoundWorkerTest {
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
+                defaultMembershipStatusService(),
                 messageFactory(templateMapper, fileMapper),
                 outbox,
                 properties,
@@ -576,6 +662,7 @@ class MarketingRoundWorkerTest {
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
+                defaultMembershipStatusService(),
                 messageFactory(templateMapper, fileMapper),
                 outbox,
                 properties,
@@ -620,6 +707,7 @@ class MarketingRoundWorkerTest {
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
+                defaultMembershipStatusService(),
                 messageFactory(templateMapper, fileMapper),
                 outbox,
                 properties,
@@ -666,6 +754,7 @@ class MarketingRoundWorkerTest {
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
+                defaultMembershipStatusService(),
                 messageFactory(templateMapper, fileMapper),
                 outbox,
                 properties,
@@ -712,6 +801,7 @@ class MarketingRoundWorkerTest {
         return new MarketingRoundWorker(
                 taskMapper,
                 occupancyService,
+                defaultMembershipStatusService(),
                 messageFactory(templateMapper, fileMapper),
                 outbox,
                 properties,
@@ -730,6 +820,12 @@ class MarketingRoundWorkerTest {
     private static MarketingAccountOccupancyService defaultOccupancyService() {
         MarketingAccountOccupancyService service = mock(MarketingAccountOccupancyService.class);
         when(service.acquireAndLoadTaskAccounts(any(), anyLong())).thenReturn(currentTaskOwners());
+        return service;
+    }
+
+    private static AccountGroupMembershipStatusService defaultMembershipStatusService() {
+        AccountGroupMembershipStatusService service = mock(AccountGroupMembershipStatusService.class);
+        when(service.findCurrentStatuses(any())).thenReturn(List.of());
         return service;
     }
 

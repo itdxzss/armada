@@ -3,23 +3,12 @@ package com.armada.platform.protocol.port;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import java.util.List;
 
 /**
- * WhatsApp 群成员实时查询与角色变更协议端口。
+ * WhatsApp 群成员变更协议端口。
  */
 public interface GroupParticipantPort {
-
-    /**
-     * 通过一个已在群内的协议账号实时读取群成员列表。
-     *
-     * @param protocolAccountId 协议层账号句柄
-     * @param groupJid          WhatsApp 群 JID
-     * @return 协议层返回的成员列表快照
-     * @throws ProtocolException 当参数缺失或协议调用失败时抛出
-     */
-    List<GroupParticipantResult> listParticipants(String protocolAccountId, String groupJid);
 
     /**
      * 使用同一个在线协议账号批量添加成员、变更成员角色或移除成员。

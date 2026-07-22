@@ -4,17 +4,22 @@ import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinResponseMapper;
+import com.armada.platform.protocol.backend.android.AndroidGroupCreateResponseMapper;
+import com.armada.platform.protocol.backend.android.AndroidGroupMemberMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupMembershipVerifier;
+import com.armada.platform.protocol.backend.android.AndroidGroupOperationErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidNativeClient;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
+import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
+import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
@@ -22,7 +27,10 @@ import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
+import com.armada.platform.protocol.routing.ContactBackend;
+import com.armada.platform.protocol.routing.GroupCreateBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
+import com.armada.platform.protocol.routing.GroupMemberListBackend;
 import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import org.junit.jupiter.api.Test;
@@ -56,6 +64,8 @@ class ProtocolConfigurationTest {
                     ProtocolMasterCommandProperties::new)
             .withBean(ProtocolAndroidCommandProperties.class,
                     ProtocolAndroidCommandProperties::new)
+            .withBean(AndroidImageAssetStore.class,
+                    () -> mock(AndroidImageAssetStore.class))
             .withUserConfiguration(ProtocolConfiguration.class);
 
     @Test
@@ -69,6 +79,9 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(AndroidResponseDecoder.class);
             assertThat(context).hasSingleBean(AndroidGroupJoinErrorMapper.class);
             assertThat(context).hasSingleBean(AndroidGroupJoinResponseMapper.class);
+            assertThat(context).hasSingleBean(AndroidGroupMemberMapper.class);
+            assertThat(context).hasSingleBean(AndroidGroupCreateResponseMapper.class);
+            assertThat(context).hasSingleBean(AndroidGroupOperationErrorMapper.class);
             assertThat(context).hasSingleBean(AndroidGroupMembershipVerifier.class);
             assertThat(context).hasSingleBean(AccountLifecyclePort.class);
             assertThat(context).hasSingleBean(AccountRuntimeStatusPort.class);
@@ -77,11 +90,18 @@ class ProtocolConfigurationTest {
                             "webAccountRuntimeStatusBackend",
                             "androidAccountRuntimeStatusBackend");
             assertThat(context).hasSingleBean(ContactPort.class);
+            assertThat(context.getBeansOfType(ContactBackend.class))
+                    .containsKeys("webContactBackend", "androidContactBackend");
             assertThat(context).hasSingleBean(GroupCreatePort.class);
+            assertThat(context.getBeansOfType(GroupCreateBackend.class))
+                    .containsKeys("webGroupCreateBackend", "androidGroupCreateBackend");
             assertThat(context).hasSingleBean(GroupJoinPort.class);
             assertThat(context.getBeansOfType(GroupJoinBackend.class))
                     .containsKeys("webGroupJoinBackend", "androidGroupJoinBackend");
             assertThat(context).hasSingleBean(GroupParticipantPort.class);
+            assertThat(context).hasSingleBean(GroupMemberListPort.class);
+            assertThat(context.getBeansOfType(GroupMemberListBackend.class))
+                    .containsKeys("webGroupMemberListBackend", "androidGroupMemberListBackend");
             assertThat(context).hasSingleBean(GroupMetadataPort.class);
             assertThat(context).hasSingleBean(GroupProfilePort.class);
             assertThat(context).hasSingleBean(GroupSettingsPort.class);

@@ -9,11 +9,15 @@ import com.armada.group.model.vo.GroupCreateVO;
 import com.armada.group.service.GroupOperationService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.GroupCreateCommand;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
@@ -38,10 +42,15 @@ public class GroupOperationServiceImpl implements GroupOperationService {
         }
         String subject = requireSubject(dto.subject());
         List<String> participants = requireParticipants(dto.participants());
-        String protocolAccountId = resolveOnlineProtocolAccountId(dto.accountId());
+        ProtocolAccountRef account = resolveOnlineProtocolAccount(dto.accountId());
         GroupCreateResult result;
         try {
-            result = groupCreatePort.create(protocolAccountId, subject, participants);
+            result = groupCreatePort.create(new GroupCreateCommand(
+                    account,
+                    subject,
+                    participants,
+                    false,
+                    "group-create-api:" + UUID.randomUUID()));
         } catch (ProtocolException ex) {
             throw translateGroupCreateProtocolException(ex);
         }
@@ -53,7 +62,7 @@ public class GroupOperationServiceImpl implements GroupOperationService {
                         .toList());
     }
 
-    private String resolveOnlineProtocolAccountId(Long accountId) {
+    private ProtocolAccountRef resolveOnlineProtocolAccount(Long accountId) {
         if (accountId == null || accountId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "操作账号 ID 不能为空");
         }
@@ -69,7 +78,15 @@ public class GroupOperationServiceImpl implements GroupOperationService {
         if (onlineIds == null || !onlineIds.contains(accountId)) {
             throw new BusinessException(ErrorCode.VALIDATION, "操作账号未在线: " + accountId);
         }
-        return protocolAccountId;
+        String wsPhone = account.getWsPhone();
+        if (wsPhone == null || wsPhone.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号未绑定登录号码: " + accountId);
+        }
+        return new ProtocolAccountRef(
+                account.getId(),
+                ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                protocolAccountId,
+                wsPhone);
     }
 
     private static RuntimeException translateGroupCreateProtocolException(ProtocolException ex) {

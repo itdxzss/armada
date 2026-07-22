@@ -5,6 +5,7 @@ import com.armada.promotion.channel.model.entity.PromotionChannel;
 import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -31,6 +32,9 @@ public interface PromotionChannelMapper {
 
     /** 按 ID 查询当前租户内未软删除的渠道，供编辑和删除做存在性校验。 */
     PromotionChannel selectActiveChannelById(@Param("id") Long id);
+
+    /** 查询当前租户内未删除渠道的编辑回显字段，不返回 Token 材料。 */
+    PromotionChannelDetailRow selectDetailById(@Param("id") Long id);
 
     /** 判断当前平台和追踪 ID 是否存在可安全复用的完整 Token 密文。 */
     int countReusableTrackingToken(

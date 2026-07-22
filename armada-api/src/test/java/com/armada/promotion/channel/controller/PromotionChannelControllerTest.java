@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.boot.web.GlobalExceptionHandler;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.shared.response.PageResult;
@@ -98,8 +99,26 @@ class PromotionChannelControllerTest {
     }
 
     @Test
+    void detailReturnsEditableFieldsWithoutTokenMaterial() throws Exception {
+        when(service.detail(51L)).thenReturn(detail());
+
+        mockMvc.perform(get("/api/promotion-channels/detail/51"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.channelName").value("印度渠道"))
+                .andExpect(jsonPath("$.data.domain").value("go.example.com"))
+                .andExpect(jsonPath("$.data.trackingId").value("pixel-123"))
+                .andExpect(jsonPath("$.data.accessTokenConfigured").value(true))
+                .andExpect(jsonPath("$.data.leadEventName").value("Lead"))
+                .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.data.accessTokenCiphertext").doesNotExist());
+
+        verify(service).detail(51L);
+    }
+
+    @Test
     void updateBindsEditableFieldsAndTikTokAliasesWithoutTenantParameter() throws Exception {
-        mockMvc.perform(put("/api/promotion-channels/51")
+        mockMvc.perform(put("/api/promotion-channels/update/51")
                         .contentType("application/json")
                         .content("""
                                 {
@@ -130,7 +149,7 @@ class PromotionChannelControllerTest {
 
     @Test
     void deleteDelegatesPathIdAndReturnsUnifiedSuccess() throws Exception {
-        mockMvc.perform(delete("/api/promotion-channels/51"))
+        mockMvc.perform(delete("/api/promotion-channels/delete/51"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
 
@@ -146,5 +165,13 @@ class PromotionChannelControllerTest {
                 "https://go.example.com/a8k2m9qx/1",
                 "IN", "IN", "印度", "+91", "flag",
                 1, true, true, 1784217600000L);
+    }
+
+    private static PromotionChannelDetailVO detail() {
+        return new PromotionChannelDetailVO(
+                51L, "印度渠道", 20001L, "IN", 11L, "go.example.com", "IN",
+                1, "pixel-123", true,
+                "Lead", "InitiateCheckout", "CompleteRegistration",
+                true, true, 1);
     }
 }

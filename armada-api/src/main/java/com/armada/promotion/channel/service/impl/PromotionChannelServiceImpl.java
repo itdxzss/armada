@@ -12,6 +12,8 @@ import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.enums.PromotionPlatform;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
@@ -146,6 +148,20 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                         countries.get(row.getPreselectedCountry())))
                 .toList();
         return PageResult.of(items, query.getPage(), query.getPageSize(), total);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public PromotionChannelDetailVO detail(Long id) {
+        requirePositive(id, "渠道");
+
+        // 单条 SQL 读取表单所需字段；Mapper 投影从类型上排除 Token 明文、密文和指纹。
+        PromotionChannelDetailRow row = mapper.selectDetailById(id);
+        if (row == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
+        }
+        return converter.toDetailVO(row);
     }
 
     /**

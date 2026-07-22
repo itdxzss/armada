@@ -3,6 +3,7 @@ package com.armada.promotion.channel.service;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.shared.response.PageResult;
 
@@ -24,6 +25,15 @@ public interface PromotionChannelService {
      * @return 渠道分页结果
      */
     PageResult<PromotionChannelVO> page(PromotionChannelQuery query);
+
+    /**
+     * 查询当前租户内有效渠道的编辑回显数据。
+     *
+     * @param id 渠道 ID
+     * @return 可直接用于编辑表单回显的数据，不包含任何 Token 材料
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
+     */
+    PromotionChannelDetailVO detail(Long id);
 
     /**
      * 编辑当前租户内的有效渠道，保持渠道码和创建信息不变。

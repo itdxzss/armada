@@ -20,6 +20,7 @@ import com.armada.promotion.channel.model.entity.PromotionChannel;
 import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
@@ -108,6 +109,42 @@ class PromotionChannelServiceImplTest {
         assertThat(result.promotionLink()).isEqualTo("https://go.example.com/a8k2m9qx");
         assertThat(result.splitLink()).isEqualTo("https://go.example.com/a8k2m9qx/1");
         assertThat(result.ownerUserId()).isEqualTo(result.creatorUserId());
+    }
+
+    @Test
+    void detailReturnsAllEditableFieldsWithoutLoadingCountryOptions() {
+        when(mapper.selectDetailById(51L)).thenReturn(detailRow());
+
+        var result = service.detail(51L);
+
+        assertThat(result.id()).isEqualTo(51L);
+        assertThat(result.channelName()).isEqualTo("印度渠道");
+        assertThat(result.ownerUserId()).isEqualTo(20001L);
+        assertThat(result.targetCountry()).isEqualTo("IN");
+        assertThat(result.landingTemplateId()).isEqualTo(11L);
+        assertThat(result.domain()).isEqualTo("go.example.com");
+        assertThat(result.preselectedCountry()).isEqualTo("IN");
+        assertThat(result.platform()).isEqualTo(1);
+        assertThat(result.trackingId()).isEqualTo("pixel-123");
+        assertThat(result.accessTokenConfigured()).isTrue();
+        assertThat(result.leadEventName()).isEqualTo("Lead");
+        assertThat(result.loginRequestEventName()).isEqualTo("InitiateCheckout");
+        assertThat(result.loginSuccessEventName()).isEqualTo("CompleteRegistration");
+        assertThat(result.inAppOpenAllowed()).isTrue();
+        assertThat(result.marketingAllowed()).isTrue();
+        assertThat(result.status()).isEqualTo(1);
+        verify(countryService, never()).optionsByValues(any());
+    }
+
+    @Test
+    void detailRejectsMissingOrDeletedChannel() {
+        when(mapper.selectDetailById(999L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.detail(999L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getCode())
+                        .isEqualTo(ErrorCode.NOT_FOUND.code()))
+                .hasMessage("渠道不存在或已删除: 999");
     }
 
     @Test
@@ -394,6 +431,27 @@ class PromotionChannelServiceImplTest {
         row.setIsInAppOpenAllowed(1);
         row.setIsMarketingAllowed(1);
         row.setCreatedAt(1784217600000L);
+        return row;
+    }
+
+    private static PromotionChannelDetailRow detailRow() {
+        PromotionChannelDetailRow row = new PromotionChannelDetailRow();
+        row.setId(51L);
+        row.setChannelName("印度渠道");
+        row.setOwnerUserId(20001L);
+        row.setTargetCountry("IN");
+        row.setLandingTemplateId(11L);
+        row.setDomain("go.example.com");
+        row.setPreselectedCountry("IN");
+        row.setPlatform(1);
+        row.setTrackingId("pixel-123");
+        row.setAccessTokenConfigured(1);
+        row.setLeadEventName("Lead");
+        row.setLoginRequestEventName("InitiateCheckout");
+        row.setLoginSuccessEventName("CompleteRegistration");
+        row.setIsInAppOpenAllowed(1);
+        row.setIsMarketingAllowed(1);
+        row.setStatus(1);
         return row;
     }
 }

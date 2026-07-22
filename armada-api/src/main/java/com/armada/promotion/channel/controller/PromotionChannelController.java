@@ -3,6 +3,7 @@ package com.armada.promotion.channel.controller;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.shared.response.ApiResponse;
@@ -17,7 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 渠道管理新增、分页、编辑和删除接口。 */
+/** 渠道管理新增、分页、详情、编辑和删除接口。 */
 @RestController
 @RequestMapping("/api/promotion-channels")
 public class PromotionChannelController {
@@ -50,6 +51,18 @@ public class PromotionChannelController {
     @GetMapping("query")
     public ApiResponse<PageResult<PromotionChannelVO>> page(@ModelAttribute PromotionChannelQuery query) {
         return ApiResponse.ok(service.page(query));
+    }
+
+    /**
+     * 查询渠道编辑回显数据。
+     *
+     * @param id 渠道 ID
+     * @return 当前租户有效渠道的可编辑字段；Access Token 只返回是否已配置
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
+     */
+    @GetMapping("/detail/{id}")
+    public ApiResponse<PromotionChannelDetailVO> detail(@PathVariable Long id) {
+        return ApiResponse.ok(service.detail(id));
     }
 
     /**

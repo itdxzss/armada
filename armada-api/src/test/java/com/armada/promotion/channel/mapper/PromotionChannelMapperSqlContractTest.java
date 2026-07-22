@@ -47,6 +47,32 @@ class PromotionChannelMapperSqlContractTest {
     }
 
     @Test
+    void detailSelectsEditableFieldsAndOnlyProjectsTokenConfiguredFlag() throws IOException {
+        String xml = mapperXml();
+        int detailStart = xml.indexOf("<select id=\"selectDetailById\"");
+        assertThat(detailStart).isGreaterThanOrEqualTo(0);
+        String detail = xml.substring(detailStart, xml.indexOf("</select>", detailStart));
+
+        assertThat(detail).contains("d.domain_host AS domain");
+        assertThat(detail).contains("tc.tracking_id AS trackingId");
+        assertThat(detail).contains("tc.lead_event_name AS leadEventName");
+        assertThat(detail).contains("access_token_ciphertext IS NOT NULL");
+        assertThat(detail).contains("AS accessTokenConfigured");
+        assertThat(detail).contains("INNER JOIN promotion_domain d");
+        assertThat(detail).contains("d.deleted_at IS NULL");
+        assertThat(detail).contains("LEFT JOIN promotion_channel_tracking_config tc");
+        assertThat(detail).contains("tc.deleted_at IS NULL");
+        assertThat(detail).contains("WHERE c.id = #{id}");
+        assertThat(detail).contains("AND c.deleted_at IS NULL");
+        assertThat(detail).contains("LIMIT 1");
+        assertThat(detail).containsOnlyOnce("tc.access_token_ciphertext");
+        assertThat(detail).containsOnlyOnce("tc.token_fingerprint");
+        assertThat(detail).containsOnlyOnce("tc.encryption_key_id");
+        assertThat(detail).doesNotContain(
+                "AS accessTokenCiphertext", "AS tokenFingerprint", "AS encryptionKeyId");
+    }
+
+    @Test
     void updateSqlPreservesTokenUnlessNewCiphertextIsProvided() throws IOException {
         String xml = mapperXml();
         int lockSelectStart = xml.indexOf("<select id=\"selectActiveChannelById\"");

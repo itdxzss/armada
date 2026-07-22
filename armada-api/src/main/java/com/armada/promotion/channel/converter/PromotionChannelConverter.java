@@ -2,6 +2,8 @@ package com.armada.promotion.channel.converter;
 
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.promotion.channel.model.enums.PromotionPlatform;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import org.mapstruct.Mapper;
@@ -10,6 +12,32 @@ import org.springframework.util.StringUtils;
 /** 渠道 Mapper 投影到接口出参的转换器。 */
 @Mapper(componentModel = "spring")
 public interface PromotionChannelConverter {
+
+    /**
+     * 把数据库编辑详情投影转换为安全出参。
+     *
+     * @param row 渠道、域名和追踪配置的编辑字段投影
+     * @return 不包含任何 Token 材料的编辑回显数据
+     */
+    default PromotionChannelDetailVO toDetailVO(PromotionChannelDetailRow row) {
+        return new PromotionChannelDetailVO(
+                row.getId(),
+                row.getChannelName(),
+                row.getOwnerUserId(),
+                row.getTargetCountry(),
+                row.getLandingTemplateId(),
+                row.getDomain(),
+                row.getPreselectedCountry(),
+                row.getPlatform(),
+                row.getTrackingId(),
+                asBoolean(row.getAccessTokenConfigured()),
+                row.getLeadEventName(),
+                row.getLoginRequestEventName(),
+                row.getLoginSuccessEventName(),
+                asBoolean(row.getIsInAppOpenAllowed()),
+                asBoolean(row.getIsMarketingAllowed()),
+                row.getStatus());
+    }
 
     /**
      * 把渠道分页投影和国家主数据组合为页面 VO。

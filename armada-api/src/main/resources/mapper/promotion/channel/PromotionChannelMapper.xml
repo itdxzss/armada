@@ -83,6 +83,41 @@
     FOR UPDATE
   </select>
 
+  <!--
+    编辑回显只投影可编辑字段；Token 三个敏感列只参与完整性判断，
+    不返回明文、密文、指纹或密钥版本。tenant_id 由租户拦截器注入。
+  -->
+  <select id="selectDetailById"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelDetailRow">
+    SELECT c.id,
+           c.channel_name AS channelName,
+           c.owner_user_id AS ownerUserId,
+           c.target_country_value AS targetCountry,
+           d.landing_template_id AS landingTemplateId,
+           d.domain_host AS domain,
+           c.preselected_country_value AS preselectedCountry,
+           c.platform,
+           tc.tracking_id AS trackingId,
+           CASE WHEN tc.access_token_ciphertext IS NOT NULL
+                     AND tc.encryption_key_id IS NOT NULL
+                     AND tc.token_fingerprint IS NOT NULL
+                THEN 1 ELSE 0 END AS accessTokenConfigured,
+           tc.lead_event_name AS leadEventName,
+           tc.login_request_event_name AS loginRequestEventName,
+           tc.login_success_event_name AS loginSuccessEventName,
+           c.is_in_app_open_allowed AS isInAppOpenAllowed,
+           c.is_marketing_allowed AS isMarketingAllowed,
+           c.status
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d
+      ON d.id = c.promotion_domain_id AND d.deleted_at IS NULL
+    LEFT JOIN promotion_channel_tracking_config tc
+      ON tc.channel_id = c.id AND tc.deleted_at IS NULL
+    WHERE c.id = #{id}
+      AND c.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
   <!-- 只有平台和追踪 ID 均未变且三个密文字段完整时，空 Token 才表示沿用旧值。 -->
   <select id="countReusableTrackingToken" resultType="int">
     SELECT COUNT(*)

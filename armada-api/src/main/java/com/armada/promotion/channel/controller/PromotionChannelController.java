@@ -62,7 +62,7 @@ public class PromotionChannelController {
      * @return 统一空成功响应
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在或参数不符合业务约束时抛出
      */
-    @PutMapping("/{id}")
+    @PutMapping("/update/{id}")
     public ApiResponse<Void> update(
             @PathVariable Long id,
             @RequestBody PromotionChannelUpdateDTO request) {
@@ -77,7 +77,7 @@ public class PromotionChannelController {
      * @return 统一空成功响应
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
      */
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/delete/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ApiResponse.ok();

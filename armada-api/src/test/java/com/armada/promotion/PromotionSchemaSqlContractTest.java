@@ -157,6 +157,21 @@ class PromotionSchemaSqlContractTest {
     }
 
     @Test
+    void domainSoftDeleteMigrationGuardsEverySchemaChangeForFailedMigrationRetry() throws IOException {
+        String sql = migrationSql(DOMAIN_SOFT_DELETE_UNIQUE_MIGRATION);
+
+        assertThat(sql).contains("information_schema.columns");
+        assertThat(sql).contains("column_name = 'is_active'");
+        assertThat(sql).contains("information_schema.statistics");
+        assertThat(sql).contains("index_name = 'uq_promotion_domain_host'");
+        assertThat(sql).contains("index_name = 'uq_promotion_domain_tenant_template'");
+        assertThat(sql).contains("index_name = 'uq_promotion_domain_active_host'");
+        assertThat(sql).contains("index_name = 'uq_promotion_domain_active_template'");
+        assertThat(sql).contains("index_name = 'idx_promotion_channel_domain_active'");
+        assertThat(sql).contains("PREPARE", "EXECUTE", "DEALLOCATE PREPARE");
+    }
+
+    @Test
     void runtimeConfigMigrationAddsBothChannelOwnedFieldsWithCompatibleDefaults() throws IOException {
         String sql = migrationSql(CHANNEL_RUNTIME_CONFIG_MIGRATION);
 

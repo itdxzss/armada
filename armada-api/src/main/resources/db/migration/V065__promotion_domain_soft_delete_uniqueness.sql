@@ -14,16 +14,83 @@ SET d.deleted_at = @promotion_domain_release_at,
 WHERE d.deleted_at IS NULL
   AND c.id IS NULL;
 
-ALTER TABLE promotion_domain
-    ADD COLUMN is_active TINYINT(1)
-        GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END) STORED
-        COMMENT '软删唯一键辅助标记:有效记录为1,已删除为NULL,例如 1',
-    DROP INDEX uq_promotion_domain_host,
-    DROP INDEX uq_promotion_domain_tenant_template,
-    ADD UNIQUE KEY uq_promotion_domain_active_host (domain_host, is_active),
-    ADD UNIQUE KEY uq_promotion_domain_active_template (tenant_id, landing_template_id, is_active);
+-- V065 可能因历史索引漂移或 MySQL DDL 中断而重试；每个结构动作必须按当前真实状态决定。
+SET @promotion_domain_is_active_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'promotion_domain'
+      AND column_name = 'is_active'
+);
+SET @promotion_domain_old_host_index_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'promotion_domain'
+      AND index_name = 'uq_promotion_domain_host'
+);
+SET @promotion_domain_old_template_index_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'promotion_domain'
+      AND index_name = 'uq_promotion_domain_tenant_template'
+);
+SET @promotion_domain_active_host_index_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'promotion_domain'
+      AND index_name = 'uq_promotion_domain_active_host'
+);
+SET @promotion_domain_active_template_index_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'promotion_domain'
+      AND index_name = 'uq_promotion_domain_active_template'
+);
+
+SET @promotion_domain_alter_clauses := CONCAT_WS(', ',
+    IF(@promotion_domain_is_active_exists = 0,
+       'ADD COLUMN is_active TINYINT(1) GENERATED ALWAYS AS (CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END) STORED COMMENT ''软删唯一键辅助标记:有效记录为1,已删除为NULL,例如 1''',
+       NULL),
+    IF(@promotion_domain_old_host_index_exists > 0,
+       'DROP INDEX uq_promotion_domain_host',
+       NULL),
+    IF(@promotion_domain_old_template_index_exists > 0,
+       'DROP INDEX uq_promotion_domain_tenant_template',
+       NULL),
+    IF(@promotion_domain_active_host_index_exists = 0,
+       'ADD UNIQUE KEY uq_promotion_domain_active_host (domain_host, is_active)',
+       NULL),
+    IF(@promotion_domain_active_template_index_exists = 0,
+       'ADD UNIQUE KEY uq_promotion_domain_active_template (tenant_id, landing_template_id, is_active)',
+       NULL)
+);
+SET @promotion_domain_alter_sql := IF(
+    @promotion_domain_alter_clauses = '',
+    'SELECT 1',
+    CONCAT('ALTER TABLE promotion_domain ', @promotion_domain_alter_clauses)
+);
+PREPARE promotion_domain_alter_stmt FROM @promotion_domain_alter_sql;
+EXECUTE promotion_domain_alter_stmt;
+DEALLOCATE PREPARE promotion_domain_alter_stmt;
 
 -- 删除最后一个渠道时按域名查询剩余有效引用，避免扫描并锁定租户下全部渠道。
-ALTER TABLE promotion_channel
-    ADD INDEX idx_promotion_channel_domain_active
-        (tenant_id, promotion_domain_id, deleted_at, id);
+SET @promotion_channel_domain_active_index_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'promotion_channel'
+      AND index_name = 'idx_promotion_channel_domain_active'
+);
+SET @promotion_channel_domain_active_index_sql := IF(
+    @promotion_channel_domain_active_index_exists = 0,
+    'ALTER TABLE promotion_channel ADD INDEX idx_promotion_channel_domain_active (tenant_id, promotion_domain_id, deleted_at, id)',
+    'SELECT 1'
+);
+PREPARE promotion_channel_domain_active_index_stmt
+    FROM @promotion_channel_domain_active_index_sql;
+EXECUTE promotion_channel_domain_active_index_stmt;
+DEALLOCATE PREPARE promotion_channel_domain_active_index_stmt;

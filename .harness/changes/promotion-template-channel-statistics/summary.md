@@ -97,3 +97,10 @@
 
 - 后续页面需求已明确主题色和底部应用下载开关由渠道管理后端持久化，替代本记录早期“主题色只由前端控制”的历史口径。
 - 当前实现与回滚说明以 `.harness/changes/promotion-channel-runtime-config/summary.md` 和 Flyway V066 为准。
+
+## V065 失败迁移重试修复（2026-07-22）
+
+- 测试库的 V064 历史记录与物理索引发生漂移，V065 无条件删除 `uq_promotion_domain_tenant_template` 时因索引不存在而失败。
+- V065 改为先读取 `information_schema`，按真实状态决定是否增加 `is_active`、删除旧索引、创建软删唯一索引和渠道域名索引。
+- 同一张表需要执行的结构动作合并为一次原子 `ALTER TABLE`，兼容首次执行、部分结构已存在以及失败记录清理后的重试。
+- 目标库仍需先执行 Flyway `repair`（或等价地仅清理 `version=065 AND success=0` 的失败历史行）再部署新 JAR；禁止删除成功迁移记录。

@@ -86,4 +86,22 @@
     SELECT COUNT(*) FROM account WHERE account_group_id = #{groupId} AND deleted_at IS NULL
   </select>
 
+  <select id="selectAccountIdsByGroupId" resultType="long">
+    SELECT id FROM account
+    WHERE account_group_id = #{groupId} AND deleted_at IS NULL
+    ORDER BY id
+  </select>
+
+  <update id="updateAccountGroup">
+    UPDATE account SET account_group_id = #{targetGroupId}, updated_at = #{updatedAt}
+    WHERE deleted_at IS NULL AND id IN
+    <foreach collection="accountIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <update id="mergeAccounts">
+    UPDATE account SET account_group_id = #{targetGroupId}, updated_at = #{updatedAt}
+    WHERE deleted_at IS NULL AND account_group_id IN
+    <foreach collection="sourceGroupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
 </mapper>

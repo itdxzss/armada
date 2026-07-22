@@ -2,6 +2,8 @@ package com.armada.account.controller;
 
 import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountGroupQuery;
+import com.armada.account.model.dto.AccountGroupMergeDTO;
+import com.armada.account.model.dto.AccountGroupSplitDTO;
 import com.armada.account.model.dto.AccountIdsDTO;
 import com.armada.account.model.vo.AccountGroupVO;
 import com.armada.account.service.AccountGroupService;
@@ -76,5 +78,19 @@ public class AccountGroupController {
     @PostMapping("/batch-delete")
     public ApiResponse<Integer> batchDelete(@RequestBody AccountIdsDTO request) {
         return ApiResponse.ok(service.batchDelete(request.ids()));
+    }
+
+    /** 执行账号分组拆分。 */
+    @PostMapping("/split")
+    public ApiResponse<Void> split(@RequestBody AccountGroupSplitDTO request) {
+        service.split(request.groupId(), request.groupCount());
+        return ApiResponse.ok();
+    }
+
+    /** 执行账号分组合并，请求顺序中的首个分组作为主分组。 */
+    @PostMapping("/merge")
+    public ApiResponse<Void> merge(@RequestBody AccountGroupMergeDTO request) {
+        service.merge(request.groupIds());
+        return ApiResponse.ok();
     }
 }

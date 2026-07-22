@@ -11,6 +11,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import java.util.HashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -192,6 +193,62 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         int n = mapper.softDeleteByIds(ids, now);
         log.info("账号分组批量删除 count={} ids={}", n, ids);
         return n;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void split(Long groupId, Integer groupCount) {
+        AccountGroup source = requireMutableGroup(groupId);
+        List<Long> accountIds = mapper.selectAccountIdsByGroupId(groupId);
+        if (accountIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "空分组不允许拆分");
+        }
+        if (groupCount == null || groupCount < 2 || groupCount > accountIds.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "拆分数量须为 2.." + accountIds.size());
+        }
+        List<Long> targetIds = new java.util.ArrayList<>(groupCount);
+        for (int i = 1; i <= groupCount; i++) {
+            targetIds.add(create(new AccountGroupDTO(source.getName() + "-" + i, source.getRemark())).id());
+        }
+        int baseSize = accountIds.size() / groupCount;
+        int remainder = accountIds.size() % groupCount;
+        int offset = 0;
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < groupCount; i++) {
+            int size = baseSize + (i < remainder ? 1 : 0);
+            mapper.updateAccountGroup(accountIds.subList(offset, offset + size), targetIds.get(i), now);
+            offset += size;
+        }
+        mapper.softDeleteByIds(List.of(groupId), now);
+        log.info("账号分组拆分完成 sourceGroupId={} targetGroupCount={} accountCount={}",
+                groupId, groupCount, accountIds.size());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void merge(List<Long> groupIds) {
+        if (groupIds == null || groupIds.size() < 2 || new HashSet<>(groupIds).size() != groupIds.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "合并至少需要两个不重复分组");
+        }
+        for (Long groupId : groupIds) {
+            requireMutableGroup(groupId);
+        }
+        Long targetGroupId = groupIds.get(0);
+        List<Long> sourceGroupIds = groupIds.subList(1, groupIds.size());
+        long now = System.currentTimeMillis();
+        int accountCount = mapper.mergeAccounts(sourceGroupIds, targetGroupId, now);
+        mapper.softDeleteByIds(sourceGroupIds, now);
+        log.info("账号分组合并完成 targetGroupId={} sourceGroupCount={} accountCount={}",
+                targetGroupId, sourceGroupIds.size(), accountCount);
+    }
+
+    private AccountGroup requireMutableGroup(Long id) {
+        AccountGroup group = requireExisting(id);
+        if (Integer.valueOf(SYSTEM_BUILTIN_YES).equals(group.getSystemBuiltin())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "系统默认分组不允许拆分或合并");
+        }
+        return group;
     }
 
     /**

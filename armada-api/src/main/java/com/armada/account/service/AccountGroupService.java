@@ -45,6 +45,21 @@ public interface AccountGroupService {
     int batchDelete(List<Long> ids);
 
     /**
+     * 将一个非系统分组的全部账号平均拆入指定数量的新分组，并删除原分组。
+     *
+     * @param groupId 原分组 ID
+     * @param groupCount 新分组数量
+     */
+    void split(Long groupId, Integer groupCount);
+
+    /**
+     * 按传入顺序合并非系统分组，首个分组保留为主分组。
+     *
+     * @param groupIds 按用户勾选顺序排列的分组 ID
+     */
+    void merge(List<Long> groupIds);
+
+    /**
      * 获取(或懒创建)系统默认分组,供导入/列表模块复用。
      *
      * @return 系统内置分组实体

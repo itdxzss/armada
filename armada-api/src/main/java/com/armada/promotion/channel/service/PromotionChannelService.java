@@ -6,6 +6,7 @@ import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.shared.response.PageResult;
 
@@ -36,6 +37,16 @@ public interface PromotionChannelService {
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
      */
     PromotionChannelDetailVO detail(Long id);
+
+    /**
+     * 按公开渠道码和请求域名读取落地页运行时配置。
+     *
+     * @param channelCode 公开推广码
+     * @param forwardedHost Nginx 传入的原始访问域名
+     * @return 页面渲染所需的最小配置
+     * @throws com.armada.shared.exception.BusinessException 当参数非法、渠道停用或域名不匹配时抛出
+     */
+    PromotionChannelRuntimeVO runtime(String channelCode, String forwardedHost);
 
     /**
      * 发送 Facebook CAPI 测试事件并保存最近探测结论。

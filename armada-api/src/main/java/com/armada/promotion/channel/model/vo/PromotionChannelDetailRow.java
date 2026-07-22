@@ -9,6 +9,8 @@ public class PromotionChannelDetailRow {
     private String targetCountry;
     private Long landingTemplateId;
     private String domain;
+    private String themeColor;
+    private Integer isAppDownloadShown;
     private String preselectedCountry;
     private Integer platform;
     private String trackingId;
@@ -32,6 +34,12 @@ public class PromotionChannelDetailRow {
     public void setLandingTemplateId(Long landingTemplateId) { this.landingTemplateId = landingTemplateId; }
     public String getDomain() { return domain; }
     public void setDomain(String domain) { this.domain = domain; }
+    public String getThemeColor() { return themeColor; }
+    public void setThemeColor(String themeColor) { this.themeColor = themeColor; }
+    public Integer getIsAppDownloadShown() { return isAppDownloadShown; }
+    public void setIsAppDownloadShown(Integer isAppDownloadShown) {
+        this.isAppDownloadShown = isAppDownloadShown;
+    }
     public String getPreselectedCountry() { return preselectedCountry; }
     public void setPreselectedCountry(String preselectedCountry) { this.preselectedCountry = preselectedCountry; }
     public Integer getPlatform() { return platform; }

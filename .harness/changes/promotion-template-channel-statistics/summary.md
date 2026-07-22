@@ -92,3 +92,8 @@
 - 新增和编辑统一通过 `resolveDomain` 校验域名与模板两侧归属；编辑无需排除当前渠道，因为校验对象是共享的模板域名映射，不是渠道记录。
 - V064 增加 `(tenant_id, landing_template_id)` 唯一键兜住并发请求；唯一键冲突后使用 `FOR UPDATE` 当前读绕过 MySQL `REPEATABLE READ` 旧快照，并返回稳定的业务错误。
 - Service、Mapper、Schema 与 Flyway 定向契约测试共 45 个通过，`mvn -DskipTests package` 成功生成后端 JAR；本地不存在 `armada-api/.env`，未连接未知数据库执行真库 DbTest。
+
+## 渠道运行时展示配置（2026-07-22 后续需求）
+
+- 后续页面需求已明确主题色和底部应用下载开关由渠道管理后端持久化，替代本记录早期“主题色只由前端控制”的历史口径。
+- 当前实现与回滚说明以 `.harness/changes/promotion-channel-runtime-config/summary.md` 和 Flyway V066 为准。

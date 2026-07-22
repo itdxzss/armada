@@ -11,6 +11,8 @@ public record PromotionChannelDetailVO(
         Long landingTemplateId,
         String domain,
         String preselectedCountry,
+        String themeColor,
+        boolean showAppDownload,
         Integer platform,
         String trackingId,
         boolean accessTokenConfigured,

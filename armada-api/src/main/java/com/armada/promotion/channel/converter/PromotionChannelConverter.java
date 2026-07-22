@@ -28,6 +28,8 @@ public interface PromotionChannelConverter {
                 row.getLandingTemplateId(),
                 row.getDomain(),
                 row.getPreselectedCountry(),
+                row.getThemeColor(),
+                asBoolean(row.getIsAppDownloadShown()),
                 row.getPlatform(),
                 row.getTrackingId(),
                 asBoolean(row.getAccessTokenConfigured()),

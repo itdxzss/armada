@@ -17,6 +17,8 @@ import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
@@ -33,6 +35,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -57,6 +60,9 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private static final String DEFAULT_LEAD_EVENT = "Lead";
     private static final String DEFAULT_LOGIN_REQUEST_EVENT = "InitiateCheckout";
     private static final String DEFAULT_LOGIN_SUCCESS_EVENT = "CompleteRegistration";
+    private static final String DEFAULT_THEME_COLOR = "#e11d48";
+    private static final Pattern THEME_COLOR_PATTERN = Pattern.compile("^#[0-9a-fA-F]{6}$");
+    private static final Pattern CHANNEL_CODE_PATTERN = Pattern.compile("^[a-z0-9]{1,32}$");
     private static final String PROBE_EVENT_NAME = "PageView";
     private static final String PROBE_STATUS_NORMAL = "NORMAL";
     private static final String PROBE_STATUS_ABNORMAL = "ABNORMAL";
@@ -194,6 +200,34 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
         return converter.toDetailVO(row);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public PromotionChannelRuntimeVO runtime(String channelCode, String forwardedHost) {
+        // 步骤1：推广码统一转小写并限制为数据库允许的公开短码字符，拒绝路径等异常输入。
+        String normalizedCode = requiredText(channelCode, "渠道推广码", 32)
+                .toLowerCase(Locale.ROOT);
+        if (!CHANNEL_CODE_PATTERN.matcher(normalizedCode).matches()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "渠道推广码格式不正确");
+        }
+
+        // 步骤2：复用渠道写入的域名规范化规则，确保 X-Forwarded-Host 与库内唯一域名同口径比较。
+        String domainHost = PromotionDomainNormalizer.normalize(forwardedHost);
+
+        // 步骤3：公共请求没有租户上下文，Mapper 通过“推广码+域名+三表租户一致”精确解析且只返回非敏感字段。
+        PromotionChannelRuntimeRow row = mapper.selectRuntimeByCodeAndHost(normalizedCode, domainHost);
+        if (row == null) {
+            // 不区分推广码、域名、状态或模板哪项不匹配，避免公开接口泄露渠道存在性。
+            throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在、已停用或访问域名不匹配");
+        }
+        return new PromotionChannelRuntimeVO(
+                row.getTemplateCode(),
+                row.getThemeColor(),
+                Integer.valueOf(1).equals(row.getIsAppDownloadShown()),
+                row.getTargetCountry(),
+                row.getPreselectedCountry());
     }
 
     /** {@inheritDoc} */
@@ -465,7 +499,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新增渠道参数不能为空");
         }
-        return validate(request, false, CHANNEL_STATUS_ENABLED);
+        return validate(request, false, CHANNEL_STATUS_ENABLED, true);
     }
 
     /**
@@ -485,6 +519,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 request.targetCountry(),
                 request.landingTemplateId(),
                 request.domain(),
+                request.themeColor(),
+                request.showAppDownload(),
                 request.preselectedCountry(),
                 request.platform(),
                 request.trackingId(),
@@ -494,14 +530,15 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 request.loginSuccessEventName(),
                 request.inAppOpenAllowed(),
                 request.marketingAllowed());
-        return validate(common, true, status);
+        return validate(common, true, status, false);
     }
 
     /** 复用新增与编辑的字段校验，并按调用场景区分 Token 留空语义。 */
     private ValidatedWrite validate(
             PromotionChannelCreateDTO request,
             boolean existingTokenMayBeKept,
-            int status) {
+            int status,
+            boolean applyRuntimeDefaults) {
         String channelName = requiredText(request.channelName(), "渠道名称", 128);
         requirePositive(request.ownerUserId(), "归属用户");
         requirePositive(request.landingTemplateId(), "绑定模板");
@@ -509,6 +546,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         String preselectedCountry = requiredText(request.preselectedCountry(), "预选区号", 16);
         PromotionPlatform platform = PromotionPlatform.require(request.platform());
         String domainHost = PromotionDomainNormalizer.normalize(request.domain());
+        String themeColor = normalizeThemeColor(request.themeColor(), applyRuntimeDefaults);
+        Boolean showAppDownload = request.showAppDownload() == null
+                ? (applyRuntimeDefaults ? Boolean.TRUE : null)
+                : request.showAppDownload();
         String trackingId = optionalText(request.trackingId(), "Pixel/追踪 ID", 128);
         String token = optionalTextByBytes(request.accessToken(), "Access Token", 3000);
         boolean hasTrackingId = StringUtils.hasText(trackingId);
@@ -534,6 +575,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 targetCountry,
                 request.landingTemplateId(),
                 domainHost,
+                themeColor,
+                showAppDownload,
                 preselectedCountry,
                 platform,
                 trackingId,
@@ -648,6 +691,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setChannelName(value.channelName());
         row.setOwnerUserId(value.ownerUserId());
         row.setPromotionDomainId(domainId);
+        row.setThemeColor(value.themeColor());
+        row.setIsAppDownloadShown(value.showAppDownload() == null
+                ? null
+                : (value.showAppDownload() ? 1 : 0));
         row.setTargetCountry(targetCountry);
         row.setPreselectedCountry(preselectedCountry);
         row.setPlatform(value.platform().code());
@@ -846,6 +893,18 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         return requiredText(value, field, maxLength);
     }
 
+    /** 校验并统一主题色；创建使用产品默认值，编辑未传时交由 SQL 保留原值。 */
+    private static String normalizeThemeColor(String value, boolean applyDefault) {
+        if (value == null) {
+            return applyDefault ? DEFAULT_THEME_COLOR : null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (!THEME_COLOR_PATTERN.matcher(normalized).matches()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "主题色必须是#开头的六位十六进制颜色");
+        }
+        return normalized;
+    }
+
     /** 按 UTF-8 字节数限制 Token，确保 AES-GCM 密文不会超过数据库列宽。 */
     private static String optionalTextByBytes(String value, String field, int maxBytes) {
         if (!StringUtils.hasText(value)) {
@@ -884,6 +943,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             String targetCountry,
             Long landingTemplateId,
             String domainHost,
+            String themeColor,
+            Boolean showAppDownload,
             String preselectedCountry,
             PromotionPlatform platform,
             String trackingId,

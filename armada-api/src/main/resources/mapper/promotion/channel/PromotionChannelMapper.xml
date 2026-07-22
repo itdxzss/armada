@@ -91,11 +91,13 @@
   <insert id="insertChannel" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO promotion_channel
       (channel_code, channel_name, owner_user_id, promotion_domain_id,
+       theme_color, is_app_download_shown,
        target_country_value, preselected_country_value, platform,
        is_in_app_open_allowed, is_marketing_allowed, status,
        created_by, updated_by, created_at, updated_at)
     VALUES
       (#{channelCode}, #{channelName}, #{ownerUserId}, #{promotionDomainId},
+       #{themeColor}, #{isAppDownloadShown},
        #{targetCountry}, #{preselectedCountry}, #{platform},
        #{isInAppOpenAllowed}, #{isMarketingAllowed}, #{status},
        #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
@@ -123,6 +125,8 @@
            channel_name AS channelName,
            owner_user_id AS ownerUserId,
            promotion_domain_id AS promotionDomainId,
+           theme_color AS themeColor,
+           is_app_download_shown AS isAppDownloadShown,
            target_country_value AS targetCountry,
            preselected_country_value AS preselectedCountry,
            platform,
@@ -152,6 +156,8 @@
            d.landing_template_id AS landingTemplateId,
            d.domain_host AS domain,
            c.preselected_country_value AS preselectedCountry,
+           c.theme_color AS themeColor,
+           c.is_app_download_shown AS isAppDownloadShown,
            c.platform,
            tc.tracking_id AS trackingId,
            CASE WHEN tc.access_token_ciphertext IS NOT NULL
@@ -171,6 +177,39 @@
       ON tc.channel_id = c.id AND tc.deleted_at IS NULL
     WHERE c.id = #{id}
       AND c.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!--
+    公共运行时查询没有租户上下文，Mapper 方法显式关闭自动租户注入；
+    SQL 必须用渠道码和域名共同定位，并校验租户启用、三张业务表 tenant_id 一致且均处于可用状态。
+    投影严格限制为落地页渲染所需的五个非敏感字段。
+  -->
+  <select id="selectRuntimeByCodeAndHost"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow">
+    SELECT t.template_code AS templateCode,
+           c.theme_color AS themeColor,
+           c.is_app_download_shown AS isAppDownloadShown,
+           c.target_country_value AS targetCountry,
+           c.preselected_country_value AS preselectedCountry
+    FROM promotion_domain d
+    INNER JOIN promotion_channel c
+      ON c.promotion_domain_id = d.id
+     AND d.tenant_id = c.tenant_id
+     AND c.status = 1
+     AND c.deleted_at IS NULL
+    INNER JOIN tenant tenant_registry
+      ON tenant_registry.id = c.tenant_id
+     AND tenant_registry.status = 1
+    INNER JOIN promotion_landing_template t
+      ON t.id = d.landing_template_id
+     AND t.tenant_id = c.tenant_id
+     AND t.status = 1
+     AND t.deleted_at IS NULL
+    WHERE c.channel_code = #{channelCode}
+      AND d.domain_host = #{domainHost}
+      AND d.is_active = 1
+      AND d.deleted_at IS NULL
     LIMIT 1
   </select>
 
@@ -262,6 +301,8 @@
     SET channel_name = #{channelName},
         owner_user_id = #{ownerUserId},
         promotion_domain_id = #{promotionDomainId},
+        theme_color = COALESCE(#{themeColor}, theme_color),
+        is_app_download_shown = COALESCE(#{isAppDownloadShown}, is_app_download_shown),
         target_country_value = #{targetCountry},
         preselected_country_value = #{preselectedCountry},
         platform = #{platform},

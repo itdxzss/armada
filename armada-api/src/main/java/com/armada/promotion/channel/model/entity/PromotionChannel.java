@@ -13,6 +13,10 @@ public class PromotionChannel {
     private Long ownerUserId;
     /** 域名绑定记录 ID，通过它间接关联落地页模板。 */
     private Long promotionDomainId;
+    /** 落地页主题色，统一保存为小写六位十六进制颜色。 */
+    private String themeColor;
+    /** 是否展示落地页底部应用下载区域：0=否、1=是。 */
+    private Integer isAppDownloadShown;
     /** 目标国家下拉 value：真实国家为 ISO2，混合国家为 MIXED。 */
     private String targetCountry;
     /** 落地页手机号输入框默认区号国家 ISO2，不允许 MIXED。 */
@@ -72,6 +76,22 @@ public class PromotionChannel {
 
     public void setPromotionDomainId(Long promotionDomainId) {
         this.promotionDomainId = promotionDomainId;
+    }
+
+    public String getThemeColor() {
+        return themeColor;
+    }
+
+    public void setThemeColor(String themeColor) {
+        this.themeColor = themeColor;
+    }
+
+    public Integer getIsAppDownloadShown() {
+        return isAppDownloadShown;
+    }
+
+    public void setIsAppDownloadShown(Integer isAppDownloadShown) {
+        this.isAppDownloadShown = isAppDownloadShown;
     }
 
     public String getTargetCountry() {

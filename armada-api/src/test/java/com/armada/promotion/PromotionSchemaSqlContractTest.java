@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 
-/** V061-V065 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
+/** V061-V066 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
 class PromotionSchemaSqlContractTest {
 
     private static final String MIGRATION =
@@ -27,6 +27,9 @@ class PromotionSchemaSqlContractTest {
 
     private static final String DOMAIN_SOFT_DELETE_UNIQUE_MIGRATION =
             "db/migration/V065__promotion_domain_soft_delete_uniqueness.sql";
+
+    private static final String CHANNEL_RUNTIME_CONFIG_MIGRATION =
+            "db/migration/V066__promotion_channel_runtime_config.sql";
 
     private static final Map<String, List<String>> TABLE_FIELDS = approvedTableFields();
 
@@ -151,6 +154,18 @@ class PromotionSchemaSqlContractTest {
                 + "(tenant_id, landing_template_id, is_active)");
         assertThat(sql).contains("INDEX idx_promotion_channel_domain_active");
         assertThat(sql).contains("(tenant_id, promotion_domain_id, deleted_at, id)");
+    }
+
+    @Test
+    void runtimeConfigMigrationAddsBothChannelOwnedFieldsWithCompatibleDefaults() throws IOException {
+        String sql = migrationSql(CHANNEL_RUNTIME_CONFIG_MIGRATION);
+
+        assertThat(sql).contains("ADD COLUMN theme_color VARCHAR(7)");
+        assertThat(sql).contains("DEFAULT ''#e11d48''");
+        assertThat(sql).contains("ADD COLUMN is_app_download_shown TINYINT(1)");
+        assertThat(sql).contains("DEFAULT 1");
+        assertThat(sql).contains("例如 #e11d48", "例如 1");
+        assertThat(sql).doesNotContain("CREATE TABLE");
     }
 
     private String migrationSql() throws IOException {

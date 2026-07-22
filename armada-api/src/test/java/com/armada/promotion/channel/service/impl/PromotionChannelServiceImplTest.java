@@ -23,6 +23,7 @@ import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
 import com.armada.promotion.channel.service.FacebookCapiProbeClient;
@@ -108,6 +109,8 @@ class PromotionChannelServiceImplTest {
         assertThat(channelCaptor.getValue().getTargetCountry()).isEqualTo("IN");
         assertThat(channelCaptor.getValue().getPreselectedCountry()).isEqualTo("IN");
         assertThat(channelCaptor.getValue().getIsMarketingAllowed()).isEqualTo(1);
+        assertThat(channelCaptor.getValue().getThemeColor()).isEqualTo("#e11d48");
+        assertThat(channelCaptor.getValue().getIsAppDownloadShown()).isEqualTo(1);
 
         ArgumentCaptor<PromotionChannelTrackingConfig> trackingCaptor =
                 ArgumentCaptor.forClass(PromotionChannelTrackingConfig.class);
@@ -141,6 +144,8 @@ class PromotionChannelServiceImplTest {
         assertThat(result.loginSuccessEventName()).isEqualTo("CompleteRegistration");
         assertThat(result.inAppOpenAllowed()).isTrue();
         assertThat(result.marketingAllowed()).isTrue();
+        assertThat(result.themeColor()).isEqualTo("#e11d48");
+        assertThat(result.showAppDownload()).isTrue();
         assertThat(result.status()).isEqualTo(1);
         verify(countryService, never()).optionsByValues(any());
     }
@@ -478,12 +483,34 @@ class PromotionChannelServiceImplTest {
         assertThat(channelCaptor.getValue().getId()).isEqualTo(51L);
         assertThat(channelCaptor.getValue().getPromotionDomainId()).isEqualTo(32L);
         assertThat(channelCaptor.getValue().getStatus()).isZero();
+        assertThat(channelCaptor.getValue().getThemeColor()).isEqualTo("#2563eb");
+        assertThat(channelCaptor.getValue().getIsAppDownloadShown()).isZero();
 
         ArgumentCaptor<PromotionChannelTrackingConfig> trackingCaptor =
                 ArgumentCaptor.forClass(PromotionChannelTrackingConfig.class);
         verify(mapper).updateTrackingConfig(trackingCaptor.capture());
         assertThat(trackingCaptor.getValue().getProviderType()).isEqualTo(2);
         assertThat(trackingCaptor.getValue().getAccessTokenCiphertext()).containsExactly(4, 5, 6);
+    }
+
+    @Test
+    void runtimeNormalizesForwardedHostAndReturnsOnlyLandingConfiguration() {
+        PromotionChannelRuntimeRow row = new PromotionChannelRuntimeRow();
+        row.setTemplateCode("DATE_V2");
+        row.setThemeColor("#e11d48");
+        row.setIsAppDownloadShown(1);
+        row.setTargetCountry("MIXED");
+        row.setPreselectedCountry("IN");
+        when(mapper.selectRuntimeByCodeAndHost("bewbmr9k", "go.example.com")).thenReturn(row);
+
+        var result = service.runtime("bewbmr9k", "GO.Example.COM.");
+
+        assertThat(result.templateCode()).isEqualTo("DATE_V2");
+        assertThat(result.themeColor()).isEqualTo("#e11d48");
+        assertThat(result.showAppDownload()).isTrue();
+        assertThat(result.targetCountry()).isEqualTo("MIXED");
+        assertThat(result.preselectedCountry()).isEqualTo("IN");
+        verify(mapper).selectRuntimeByCodeAndHost("bewbmr9k", "go.example.com");
     }
 
     @Test
@@ -498,7 +525,8 @@ class PromotionChannelServiceImplTest {
                 .thenReturn(domain(31L, 11L, "old.example.com"));
 
         PromotionChannelUpdateDTO request = new PromotionChannelUpdateDTO(
-                "更新渠道", 20002L, "IN", 11L, "new.example.com", "IN",
+                "更新渠道", 20002L, "IN", 11L, "new.example.com",
+                "#e11d48", true, "IN",
                 3, null, null, null, null, null, true, false, 1);
 
         assertThatThrownBy(() -> service.update(51L, request))
@@ -705,6 +733,7 @@ class PromotionChannelServiceImplTest {
             String token) {
         return new PromotionChannelCreateDTO(
                 "印度渠道", 20001L, targetCountry, templateId, domain,
+                "#E11D48", true,
                 preselectedCountry, platform, trackingId, token,
                 "Lead", "InitiateCheckout", "CompleteRegistration", true, true);
     }
@@ -736,7 +765,8 @@ class PromotionChannelServiceImplTest {
             Integer status) {
         boolean capiSupported = platform != null && (platform == 1 || platform == 2);
         return new PromotionChannelUpdateDTO(
-                "更新渠道", 20002L, "IN", 11L, "go.example.com", "IN",
+                "更新渠道", 20002L, "IN", 11L, "go.example.com",
+                "#2563EB", false, "IN",
                 platform, trackingId, token,
                 capiSupported ? "Lead" : null,
                 capiSupported ? "InitiateCheckout" : null,
@@ -792,6 +822,8 @@ class PromotionChannelServiceImplTest {
         row.setTargetCountry("IN");
         row.setLandingTemplateId(11L);
         row.setDomain("go.example.com");
+        row.setThemeColor("#e11d48");
+        row.setIsAppDownloadShown(1);
         row.setPreselectedCountry("IN");
         row.setPlatform(1);
         row.setTrackingId("pixel-123");
@@ -801,6 +833,8 @@ class PromotionChannelServiceImplTest {
         row.setLoginSuccessEventName("CompleteRegistration");
         row.setIsInAppOpenAllowed(1);
         row.setIsMarketingAllowed(1);
+        row.setThemeColor("#e11d48");
+        row.setIsAppDownloadShown(1);
         row.setStatus(1);
         return row;
     }

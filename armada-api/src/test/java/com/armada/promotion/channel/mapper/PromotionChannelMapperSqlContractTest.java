@@ -34,6 +34,28 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(xml).contains("c.target_country_value AS targetCountry");
         assertThat(xml).contains("c.preselected_country_value AS preselectedCountry");
         assertThat(xml).doesNotContain("#{targetCountryId}", "#{preselectedCountryId}");
+        assertThat(xml).contains("theme_color, is_app_download_shown");
+        assertThat(xml).contains("#{themeColor}, #{isAppDownloadShown}");
+    }
+
+    @Test
+    void runtimeLookupIsMinimalAndValidatesCodeHostStatusAndTenantConsistency() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectRuntimeByCodeAndHost\"");
+        assertThat(start).isGreaterThanOrEqualTo(0);
+        String runtime = xml.substring(start, xml.indexOf("</select>", start));
+
+        assertThat(runtime).contains("c.channel_code = #{channelCode}");
+        assertThat(runtime).contains("d.domain_host = #{domainHost}");
+        assertThat(runtime).contains("c.status = 1", "c.deleted_at IS NULL");
+        assertThat(runtime).contains("INNER JOIN tenant tenant_registry");
+        assertThat(runtime).contains("tenant_registry.id = c.tenant_id");
+        assertThat(runtime).contains("tenant_registry.status = 1");
+        assertThat(runtime).contains("d.tenant_id = c.tenant_id", "t.tenant_id = c.tenant_id");
+        assertThat(runtime).contains("t.template_code AS templateCode");
+        assertThat(runtime).contains("c.theme_color AS themeColor");
+        assertThat(runtime).contains("c.is_app_download_shown AS isAppDownloadShown");
+        assertThat(runtime).doesNotContain("tracking_id", "access_token", "owner_user_id");
     }
 
     @Test

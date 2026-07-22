@@ -7,7 +7,9 @@ import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -51,6 +53,17 @@ public interface PromotionChannelMapper {
 
     /** 查询当前租户内未删除渠道的编辑回显字段，不返回 Token 材料。 */
     PromotionChannelDetailRow selectDetailById(@Param("id") Long id);
+
+    /**
+     * 公开接口按渠道码和域名解析所属租户并读取最小运行时配置。
+     *
+     * <p>公开请求没有租户上下文，因此只对该只读 SQL 关闭自动租户注入；SQL 内必须显式约束
+     * 租户启用，渠道、域名和模板 tenant_id 一致，并且不得投影任何敏感字段。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    PromotionChannelRuntimeRow selectRuntimeByCodeAndHost(
+            @Param("channelCode") String channelCode,
+            @Param("domainHost") String domainHost);
 
     /** 探测专用敏感配置查询；结果只能在 Service 内使用，禁止直接返回 Controller。 */
     PromotionChannelProbeConfigRow selectProbeConfigByChannelId(@Param("id") Long id);

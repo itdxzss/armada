@@ -55,6 +55,8 @@ class PromotionChannelControllerTest {
                                   "targetCountry":"IN",
                                   "landingTemplateId":11,
                                   "domain":"go.example.com",
+                                  "themeColor":"#E11D48",
+                                  "showAppDownload":true,
                                   "preselectedCountry":"IN",
                                   "platform":1,
                                   "fbPixelId":"pixel-123",
@@ -73,6 +75,8 @@ class PromotionChannelControllerTest {
                         && "token-abc".equals(request.accessToken())
                         && "IN".equals(request.targetCountry())
                         && "IN".equals(request.preselectedCountry())
+                        && "#E11D48".equals(request.themeColor())
+                        && Boolean.TRUE.equals(request.showAppDownload())
                         && request.ownerUserId().equals(20001L)));
     }
 
@@ -108,6 +112,8 @@ class PromotionChannelControllerTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.channelName").value("印度渠道"))
                 .andExpect(jsonPath("$.data.domain").value("go.example.com"))
+                .andExpect(jsonPath("$.data.themeColor").value("#e11d48"))
+                .andExpect(jsonPath("$.data.showAppDownload").value(true))
                 .andExpect(jsonPath("$.data.trackingId").value("pixel-123"))
                 .andExpect(jsonPath("$.data.accessTokenConfigured").value(true))
                 .andExpect(jsonPath("$.data.leadEventName").value("Lead"))
@@ -155,6 +161,8 @@ class PromotionChannelControllerTest {
                                   "targetCountry":"MIXED",
                                   "landingTemplateId":11,
                                   "domain":"new.example.com",
+                                  "themeColor":"#2563EB",
+                                  "showAppDownload":false,
                                   "preselectedCountry":"IN",
                                   "platform":2,
                                   "tiktokPixelId":"pixel-new",
@@ -171,6 +179,8 @@ class PromotionChannelControllerTest {
                 org.mockito.ArgumentMatchers.argThat(request ->
                         "pixel-new".equals(request.trackingId())
                                 && "token-new".equals(request.accessToken())
+                                && "#2563EB".equals(request.themeColor())
+                                && Boolean.FALSE.equals(request.showAppDownload())
                                 && request.ownerUserId().equals(20002L)
                                 && request.status().equals(0)));
     }
@@ -198,6 +208,7 @@ class PromotionChannelControllerTest {
     private static PromotionChannelDetailVO detail() {
         return new PromotionChannelDetailVO(
                 51L, "印度渠道", 20001L, "IN", 11L, "go.example.com", "IN",
+                "#e11d48", true,
                 1, "pixel-123", true,
                 "Lead", "InitiateCheckout", "CompleteRegistration",
                 true, true, 1);

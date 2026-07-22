@@ -10,6 +10,8 @@ import com.fasterxml.jackson.annotation.JsonAlias;
  * @param targetCountry 国家下拉 value；真实国家为 ISO2（如 IN），混合国家为 MIXED
  * @param landingTemplateId 绑定的落地页模板 ID
  * @param domain 访问域名，可传纯域名或 https:// 前缀
+ * @param themeColor 落地页主题色，格式为六位十六进制颜色（如 #e11d48）
+ * @param showAppDownload 是否展示落地页底部应用下载区域
  * @param preselectedCountry 落地页手机号输入框默认区号国家 ISO2（如 IN），不允许 MIXED
  * @param platform 推广平台：1=Facebook、2=TikTok、3=快手、4=MGSKY Ads
  * @param trackingId Pixel 或其他平台追踪 ID
@@ -26,6 +28,8 @@ public record PromotionChannelCreateDTO(
         String targetCountry,
         Long landingTemplateId,
         String domain,
+        String themeColor,
+        Boolean showAppDownload,
         String preselectedCountry,
         Integer platform,
         @JsonAlias("fbPixelId") String trackingId,

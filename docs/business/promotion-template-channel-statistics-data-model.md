@@ -1,6 +1,6 @@
 # 推广模板与渠道管理数据模型及接口
 
-> 推广迁移执行链：`V061__promotion_template_channel_statistics.sql` → `V062__promotion_channel_country_values.sql` → `V063__promotion_template_visibility_and_seed.sql`
+> 推广迁移执行链：`V061__promotion_template_channel_statistics.sql` → `V062__promotion_channel_country_values.sql` → `V063__promotion_template_visibility_and_seed.sql` → `V064__promotion_template_single_domain.sql` → `V065__promotion_domain_soft_delete_uniqueness.sql` → `V066__promotion_channel_runtime_config.sql`
 > 本期范围：模板管理基础表、渠道新增、渠道分页；渠道统计表和操作日志表暂不创建。
 > 租户策略：接口不接收 `tenantId`，数据库仍由 Armada 的 MyBatis 拦截器自动完成租户隔离。
 
@@ -8,7 +8,7 @@
 
 ```mermaid
 erDiagram
-    promotion_landing_template ||--o{ promotion_domain : "模板可绑定多个域名"
+    promotion_landing_template ||--o| promotion_domain : "模板只绑定一个有效域名"
     promotion_domain ||--o{ promotion_channel : "同模板域名可创建多个渠道"
     promotion_channel ||--o| promotion_channel_tracking_config : "FB或TikTok渠道最多一份追踪配置"
     promotion_channel o|--o{ account : "账号可记录稳定渠道ID"
@@ -52,6 +52,8 @@ erDiagram
         BIGINT promotion_domain_id "域名记录ID，例如3001"
         VARCHAR16 target_country_value "ISO2或MIXED，例如IN"
         VARCHAR16 preselected_country_value "默认区号ISO2，例如IN"
+        VARCHAR7 theme_color "落地页主题色，例如#e11d48"
+        TINYINT is_app_download_shown "展示底部应用下载，例如1"
         TINYINT platform "1FB 2TikTok 3快手 4MGSKY，例如1"
         TINYINT is_in_app_open_allowed "允许应用内打开，例如1"
         TINYINT is_marketing_allowed "允许参加营销，例如1"
@@ -97,7 +99,7 @@ erDiagram
 - `promotion_channel`：保存渠道稳定身份、归属用户、国家、平台和开关。完整链接不落库，而是用域名和渠道码生成，域名规则变化时不需要批量改 URL。
 - `promotion_channel_tracking_config`：将 Pixel/CAPI 敏感配置与渠道主数据隔离。Token 只保存 AES-256-GCM 密文、密钥版本和指纹，分页永不读取或返回 Token。
 
-本期没有更新接口，因此没有增加 `revision` 乐观锁；没有软删复活唯一需求，因此没有增加 `is_active` 生成列；页面不存在主题色和状态原因输入，因此删除了 `theme_color`、`status_reason` 幻觉字段；页面存在“参加营销”，因此新增 `is_marketing_allowed`。
+初版没有增加 `revision` 乐观锁；域名表后续通过 `is_active` 生成列支持软删后重新绑定。当前渠道编辑页已经明确提供主题色和底部应用下载开关，因此由 V066 在渠道主表增加 `theme_color`、`is_app_download_shown`；`status_reason` 仍未进入需求。页面存在“参加营销”，因此保留 `is_marketing_allowed`。
 
 ## 3. 索引
 

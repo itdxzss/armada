@@ -74,6 +74,27 @@ class PromotionChannelRuntimeMapperDbTest extends DbTestBase {
                 .isEqualTo(new ColumnDefinition("tinyint", null, "1", "NO"));
     }
 
+    @Test
+    void deleteReferenceLockUsesValidMysqlSyntaxAndExplicitTenantBoundary() {
+        long now = System.currentTimeMillis();
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String channelCode = "dl" + suffix.substring(0, 6);
+        long templateId = insertTemplate(TEST_TENANT_ID, "delete_lock_" + suffix, now);
+        long domainId = insertDomain(TEST_TENANT_ID, suffix + "-delete.example.test", templateId, now);
+        insertChannel(TEST_TENANT_ID, channelCode, domainId, "#112233", 1, now);
+        Long channelId = jdbc.queryForObject(
+                "SELECT id FROM promotion_channel WHERE tenant_id = ? AND channel_code = ?",
+                Long.class,
+                TEST_TENANT_ID,
+                channelCode);
+
+        // 故意切到其他租户上下文：该锁查询只能由显式 tenantId 决定边界，不能再被租户插件改写 SQL。
+        TenantContext.set(2L);
+        assertThat(mapper.selectAnyActiveChannelIdByDomainForUpdate(TEST_TENANT_ID, domainId))
+                .isEqualTo(channelId);
+        assertThat(mapper.selectAnyActiveChannelIdByDomainForUpdate(2L, domainId)).isNull();
+    }
+
     private long insertTemplate(long tenantId, String templateCode, long now) {
         jdbc.update(
                 "INSERT INTO promotion_landing_template "

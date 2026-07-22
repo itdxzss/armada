@@ -29,6 +29,7 @@ import com.armada.promotion.channel.support.PromotionDomainNormalizer;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.tenant.TenantContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -333,6 +334,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         requirePositive(id, "渠道");
+        Long tenantId = TenantContext.get();
         // 先锁共享域名、再锁渠道，保证同一域名下多个渠道并发删除时不会形成交叉等待。
         PromotionDomain domain = mapper.selectActiveDomainByChannelIdForUpdate(id);
         PromotionChannel channel = requireActiveChannel(id);
@@ -350,7 +352,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
         // 只有不存在其他有效渠道时才释放模板—域名关系；共享该关系的其他渠道不会受影响。
         boolean domainReleased = false;
-        if (domain != null && mapper.selectAnyActiveChannelIdByDomainForUpdate(domain.getId()) == null) {
+        if (domain != null
+                && mapper.selectAnyActiveChannelIdByDomainForUpdate(tenantId, domain.getId()) == null) {
             if (mapper.softDeleteDomain(domain.getId(), channel.getOwnerUserId(), now) != 1) {
                 throw new BusinessException(ErrorCode.CONFLICT, "域名绑定状态已变化，请重试");
             }

@@ -109,8 +109,16 @@ public interface PromotionChannelMapper {
             @Param("updatedBy") Long updatedBy,
             @Param("deletedAt") long deletedAt);
 
-    /** 当前读检查域名是否仍被其他有效渠道引用。 */
-    Long selectAnyActiveChannelIdByDomainForUpdate(@Param("domainId") Long domainId);
+    /**
+     * 当前读检查同租户域名是否仍被其他有效渠道引用。
+     *
+     * <p>MyBatis-Plus 会把 {@code LIMIT ... FOR UPDATE} 重排为 MySQL 非法语序，因此该方法关闭
+     * 租户 SQL 改写，并要求调用方显式传入当前租户 ID 保持隔离。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    Long selectAnyActiveChannelIdByDomainForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("domainId") Long domainId);
 
     /** 最后一个有效渠道删除后释放域名与模板绑定，同时保留历史记录。 */
     int softDeleteDomain(

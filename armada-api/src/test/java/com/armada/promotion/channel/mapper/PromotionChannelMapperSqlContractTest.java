@@ -2,8 +2,11 @@ package com.armada.promotion.channel.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +17,8 @@ class PromotionChannelMapperSqlContractTest {
     @Test
     void pageSqlPushesAllFiltersPaginationAndUpperUserOwnerIdsToMysql() throws IOException {
         String xml = mapperXml();
+        int filterStart = xml.indexOf("<sql id=\"pageFilter\">");
+        String pageFilter = xml.substring(filterStart, xml.indexOf("</sql>", filterStart));
 
         assertThat(xml).contains("<sql id=\"pageFilter\">");
         assertThat(xml).contains("c.target_country_value = #{targetCountry}");
@@ -22,7 +27,7 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(xml).contains("c.owner_user_id = #{creatorUserId}");
         assertThat(xml).contains("collection=\"ownerUserIds\"");
         assertThat(xml).contains("LIMIT #{offset}, #{pageSize}");
-        assertThat(xml).doesNotContain("#{tenantId}", "#{tenant_id}");
+        assertThat(pageFilter).doesNotContain("#{tenantId}", "#{tenant_id}");
     }
 
     @Test
@@ -177,6 +182,26 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(xml).contains("SET deleted_at = #{deletedAt}");
         assertThat(xml).contains("WHERE id = #{id}", "WHERE channel_id = #{channelId}");
         assertThat(xml).doesNotContain("<delete", "DELETE FROM promotion_channel");
+    }
+
+    @Test
+    void deleteReferenceLockCarriesTenantIdWithoutTenantInterceptorRewrite() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectAnyActiveChannelIdByDomainForUpdate\"");
+        assertThat(start).isGreaterThanOrEqualTo(0);
+        String lockSql = xml.substring(start, xml.indexOf("</select>", start));
+
+        assertThat(lockSql).contains("AND tenant_id = #{tenantId}");
+        assertThat(lockSql).containsPattern("(?s)LIMIT 1\\s+FOR UPDATE");
+
+        Method mapperMethod = Arrays.stream(PromotionChannelMapper.class.getDeclaredMethods())
+                .filter(method -> method.getName().equals("selectAnyActiveChannelIdByDomainForUpdate"))
+                .findFirst()
+                .orElseThrow();
+        InterceptorIgnore interceptorIgnore = mapperMethod.getAnnotation(InterceptorIgnore.class);
+        assertThat(interceptorIgnore).isNotNull();
+        assertThat(interceptorIgnore.tenantLine()).isEqualTo("true");
+        assertThat(mapperMethod.getParameterCount()).isEqualTo(2);
     }
 
     private String mapperXml() throws IOException {

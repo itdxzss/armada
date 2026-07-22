@@ -30,8 +30,10 @@ import com.armada.promotion.channel.service.FacebookCapiProbeClient;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -63,6 +65,7 @@ class PromotionChannelServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        TenantContext.set(1L);
         service = new PromotionChannelServiceImpl(
                 mapper,
                 countryService,
@@ -71,6 +74,11 @@ class PromotionChannelServiceImplTest {
               tokenCipher,
               facebookCapiProbeClient,
               true);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
     }
 
     @Test
@@ -629,7 +637,7 @@ class PromotionChannelServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-        when(mapper.selectAnyActiveChannelIdByDomainForUpdate(31L)).thenReturn(null);
+        when(mapper.selectAnyActiveChannelIdByDomainForUpdate(1L, 31L)).thenReturn(null);
         when(mapper.softDeleteDomain(
                 org.mockito.ArgumentMatchers.eq(31L),
                 org.mockito.ArgumentMatchers.eq(20001L),
@@ -647,7 +655,7 @@ class PromotionChannelServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
                 org.mockito.ArgumentMatchers.anyLong());
-        order.verify(mapper).selectAnyActiveChannelIdByDomainForUpdate(31L);
+        order.verify(mapper).selectAnyActiveChannelIdByDomainForUpdate(1L, 31L);
         order.verify(mapper).softDeleteDomain(
                 org.mockito.ArgumentMatchers.eq(31L),
                 org.mockito.ArgumentMatchers.eq(20001L),
@@ -665,7 +673,7 @@ class PromotionChannelServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-        when(mapper.selectAnyActiveChannelIdByDomainForUpdate(31L)).thenReturn(52L);
+        when(mapper.selectAnyActiveChannelIdByDomainForUpdate(1L, 31L)).thenReturn(52L);
 
         service.delete(51L);
 

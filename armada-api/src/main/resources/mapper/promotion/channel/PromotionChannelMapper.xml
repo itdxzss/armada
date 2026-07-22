@@ -374,11 +374,12 @@
       AND deleted_at IS NULL
   </update>
 
-  <!-- 锁定读保证能看到并发事务最新提交结果；返回任意一个仍引用该域名的有效渠道即可。 -->
+  <!-- 显式 tenant_id 并关闭租户改写，避免拦截器把 LIMIT ... FOR UPDATE 重排成 MySQL 非法语序。 -->
   <select id="selectAnyActiveChannelIdByDomainForUpdate" resultType="long">
     SELECT id
     FROM promotion_channel
     WHERE promotion_domain_id = #{domainId}
+      AND tenant_id = #{tenantId}
       AND deleted_at IS NULL
     LIMIT 1
     FOR UPDATE

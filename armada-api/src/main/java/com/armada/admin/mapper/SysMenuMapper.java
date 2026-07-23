@@ -15,6 +15,16 @@ public interface SysMenuMapper {
 
     List<SysMenu> findAllOrdered();
 
+    int insert(SysMenu menu);
+
+    int update(SysMenu menu);
+
+    int updateStatus(@Param("id") long id, @Param("status") int status, @Param("updatedAt") long updatedAt);
+
+    long countByMenuKeyExcludingId(@Param("menuKey") String menuKey, @Param("excludeId") Long excludeId);
+
+    long countByRoutePathExcludingId(@Param("routePath") String routePath, @Param("excludeId") Long excludeId);
+
     List<SysMenu> findByIds(@Param("ids") Collection<Long> ids);
 
     List<Long> findGrantableIds();

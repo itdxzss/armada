@@ -21,6 +21,53 @@
         ORDER BY parent_id, sort_no, id
     </select>
 
+    <insert id="insert" parameterType="com.armada.admin.model.entity.SysMenu"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_menu
+            (parent_id, menu_name, menu_key, menu_type, route_path, component_path,
+             perm_key, icon, sort_no, status, created_at, created_by, updated_at, updated_by)
+        VALUES
+            (#{parentId}, #{menuName}, #{menuKey}, #{menuType}, #{routePath}, #{componentPath},
+             #{permKey}, #{icon}, #{sortNo}, #{status}, #{createdAt}, #{createdBy}, #{updatedAt}, #{updatedBy})
+    </insert>
+
+    <update id="update" parameterType="com.armada.admin.model.entity.SysMenu">
+        UPDATE sys_menu
+        SET parent_id = #{parentId},
+            menu_name = #{menuName},
+            menu_key = #{menuKey},
+            menu_type = #{menuType},
+            route_path = #{routePath},
+            component_path = #{componentPath},
+            perm_key = #{permKey},
+            icon = #{icon},
+            sort_no = #{sortNo},
+            updated_at = #{updatedAt},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE sys_menu
+        SET status = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countByMenuKeyExcludingId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_menu
+        WHERE menu_key = #{menuKey}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <select id="countByRoutePathExcludingId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_menu
+        WHERE route_path = #{routePath}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
     <select id="findByIds" resultType="com.armada.admin.model.entity.SysMenu">
         SELECT <include refid="Columns"/>
         FROM sys_menu

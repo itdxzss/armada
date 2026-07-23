@@ -37,6 +37,15 @@
         ORDER BY role_id
     </select>
 
+    <select id="findEnabledRoleIdsByUserId" resultType="long">
+        SELECT ur.role_id
+        FROM sys_user_role ur
+        JOIN sys_role role ON role.id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND role.status = 1
+        ORDER BY ur.role_id
+    </select>
+
     <delete id="deleteUserRoles">
         DELETE FROM sys_user_role
         WHERE user_id = #{userId}

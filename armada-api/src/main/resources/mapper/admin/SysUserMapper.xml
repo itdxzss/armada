@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.admin.mapper.SysUserMapper">
+
+    <sql id="Columns">
+        id, tenant_id, username, nickname, password_hash, status,
+        created_at, created_by, updated_at, updated_by
+    </sql>
+
+    <select id="findById" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByUsername" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        WHERE username = #{username}
+    </select>
+
+    <insert id="insert" parameterType="com.armada.admin.model.entity.SysUser"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_user
+            (username, nickname, password_hash, status,
+             created_at, created_by, updated_at, updated_by)
+        VALUES
+            (#{username}, #{nickname}, #{passwordHash}, #{status},
+             #{createdAt}, #{createdBy}, #{updatedAt}, #{updatedBy})
+    </insert>
+
+    <select id="findRoleIdsByUserId" resultType="long">
+        SELECT role_id
+        FROM sys_user_role
+        WHERE user_id = #{userId}
+        ORDER BY role_id
+    </select>
+
+    <delete id="deleteUserRoles">
+        DELETE FROM sys_user_role
+        WHERE user_id = #{userId}
+    </delete>
+
+    <insert id="insertUserRoles">
+        INSERT INTO sys_user_role (user_id, role_id)
+        VALUES
+        <foreach collection="roleIds" item="roleId" separator=",">
+            (#{userId}, #{roleId})
+        </foreach>
+    </insert>
+</mapper>

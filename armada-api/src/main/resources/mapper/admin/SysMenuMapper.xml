@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.admin.mapper.SysMenuMapper">
+
+    <sql id="Columns">
+        id, tenant_id, parent_id, menu_name, menu_key, menu_type,
+        route_path, component_path, perm_key, icon, sort_no, status,
+        created_at, created_by, updated_at, updated_by
+    </sql>
+
+    <select id="findById" resultType="com.armada.admin.model.entity.SysMenu">
+        SELECT <include refid="Columns"/>
+        FROM sys_menu
+        WHERE id = #{id}
+    </select>
+
+    <select id="findAllOrdered" resultType="com.armada.admin.model.entity.SysMenu">
+        SELECT <include refid="Columns"/>
+        FROM sys_menu
+        ORDER BY parent_id, sort_no, id
+    </select>
+
+    <select id="findByIds" resultType="com.armada.admin.model.entity.SysMenu">
+        SELECT <include refid="Columns"/>
+        FROM sys_menu
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY parent_id, sort_no, id
+    </select>
+
+    <select id="findGrantableIds" resultType="long">
+        SELECT id
+        FROM sys_menu
+        WHERE menu_type IN ('M', 'B')
+          AND status = 1
+        ORDER BY parent_id, sort_no, id
+    </select>
+
+    <delete id="deleteRoleMenus">
+        DELETE FROM sys_role_menu
+        WHERE role_id = #{roleId}
+    </delete>
+
+    <insert id="insertRoleMenus">
+        INSERT INTO sys_role_menu (role_id, menu_id)
+        VALUES
+        <foreach collection="menuIds" item="menuId" separator=",">
+            (#{roleId}, #{menuId})
+        </foreach>
+    </insert>
+</mapper>

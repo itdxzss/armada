@@ -126,8 +126,8 @@ class PromotionChannelServiceImplTest {
         assertThat(trackingCaptor.getValue().getAccessTokenCiphertext()).containsExactly(1, 2, 3);
         assertThat(trackingCaptor.getValue().getLeadEventName()).isEqualTo("Lead");
         assertThat(result.channelCode()).isEqualTo("a8k2m9qx");
-        assertThat(result.promotionLink()).isEqualTo("https://go.example.com/a8k2m9qx");
-        assertThat(result.splitLink()).isEqualTo("https://go.example.com/a8k2m9qx/1");
+        assertThat(result.promotionLink()).isEqualTo("http://go.example.com/a8k2m9qx");
+        assertThat(result.splitLink()).isEqualTo("http://go.example.com/a8k2m9qx/1");
         assertThat(result.ownerUserId()).isEqualTo(result.creatorUserId());
     }
 
@@ -216,7 +216,7 @@ class PromotionChannelServiceImplTest {
         verify(facebookCapiProbeClient).probe(commandCaptor.capture());
         assertThat(commandCaptor.getValue().testEventCode()).isEqualTo("TEST12345");
         assertThat(commandCaptor.getValue().eventSourceUrl())
-                .isEqualTo("https://go.example.com/a8k2m9qx");
+                .isEqualTo("http://go.example.com/a8k2m9qx");
 
         ArgumentCaptor<PromotionChannelTrackingConfig> resultCaptor =
                 ArgumentCaptor.forClass(PromotionChannelTrackingConfig.class);
@@ -463,6 +463,8 @@ class PromotionChannelServiceImplTest {
             assertThat(item.creatorUserId()).isEqualTo(20001L);
             assertThat(item.targetCountryName()).isEqualTo("印度");
             assertThat(item.preselectedPhonePrefix()).isEqualTo("+55");
+            assertThat(item.promotionLink()).isEqualTo("http://go.example.com/a8k2m9qx");
+            assertThat(item.splitLink()).isEqualTo("http://go.example.com/a8k2m9qx/1");
         });
         verify(mapper).selectPage(query);
     }

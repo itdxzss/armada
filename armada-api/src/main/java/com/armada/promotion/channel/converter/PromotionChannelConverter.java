@@ -6,6 +6,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
+import com.armada.promotion.channel.support.PromotionChannelLinkBuilder;
 import org.mapstruct.Mapper;
 import org.springframework.util.StringUtils;
 
@@ -58,7 +59,8 @@ public interface PromotionChannelConverter {
         if (row == null) {
             return null;
         }
-        String baseLink = "https://" + row.getDomainHost() + "/" + row.getChannelCode();
+        String baseLink = PromotionChannelLinkBuilder.build(
+                row.getDomainHost(), row.getChannelCode());
         return new PromotionChannelVO(
                 row.getId(),
                 row.getChannelName(),

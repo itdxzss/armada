@@ -25,6 +25,7 @@ import com.armada.promotion.channel.security.PromotionTokenCipher;
 import com.armada.promotion.channel.service.FacebookCapiProbeClient;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
+import com.armada.promotion.channel.support.PromotionChannelLinkBuilder;
 import com.armada.promotion.channel.support.PromotionDomainNormalizer;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -471,7 +472,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
     /** 渠道链接由受控域名和不可预测渠道码组成，不接受请求方传入 URL。 */
     private static String promotionLink(PromotionChannelProbeConfigRow config) {
-        return "https://" + config.getDomainHost() + "/" + config.getChannelCode();
+        return PromotionChannelLinkBuilder.build(
+                config.getDomainHost(), config.getChannelCode());
     }
 
     /** 使用合成事件 ID 生成不可逆 external_id，探测过程不读取任何真实用户 PII。 */

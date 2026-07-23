@@ -65,6 +65,9 @@ public interface MarketingTaskMapper {
     /** 到达计划结束时间后，未启动/执行中/已暂停任务进入已完成。 */
     int endExpiredTask(@Param("id") Long id, @Param("now") long now);
 
+    /** 拉群营销到期后结束主任务并进入资源释放中。 */
+    int endExpiredGroupPullTask(@Param("id") Long id, @Param("now") long now);
+
     /** 修正开始时间尚未到达却处于发送中的任务,退回等待并取消轮次调度。 */
     int deferEarlySendingTask(@Param("id") Long id, @Param("now") long now);
 
@@ -88,6 +91,19 @@ public interface MarketingTaskMapper {
 
     /** 按 ID 查询目标及账号当前协议路由事实。 */
     MarketingTaskTarget selectTargetById(@Param("targetId") Long targetId);
+
+    /** 拉群营销首次发送前确认目标营销账号仍正常在线。 */
+    int countSendableGroupPullTarget(@Param("targetId") Long targetId);
+
+    /** 拉群营销正常轮次或即时重试前确认营销分组仍由本任务持有。 */
+    int countOwnedGroupPullMarketingGroup(@Param("taskId") Long taskId);
+
+    /** 发送结果明确群封禁时同步拉群群明细状态。 */
+    int markGroupPullExecutionBannedByTargetId(@Param("targetId") Long targetId,
+                                               @Param("now") long now);
+
+    /** 批量读取拉群营销本轮账号正常在线且群正常的固定目标 ID。 */
+    List<Long> selectSendableGroupPullTargetIds(@Param("taskId") Long taskId);
 
     /** 把首次即时 attempt 原子切换为第二次提交，并替换当前 commandId。 */
     int resubmitImmediateAttempt(@Param("attemptId") Long attemptId,
@@ -146,6 +162,14 @@ public interface MarketingTaskMapper {
                                   @Param("failedDelta") int failedDelta,
                                   @Param("now") long now);
 
+    /** 释放任务时把已取消 outbox 对应的提交中 attempt 标记为业务跳过。 */
+    int markCanceledOutboxAttemptsSkipped(@Param("taskId") Long taskId,
+                                          @Param("now") long now);
+
+    /** 释放任务时把死信 outbox 对应的提交中 attempt 标记为失败。 */
+    int markDeadOutboxAttemptsFailed(@Param("taskId") Long taskId,
+                                     @Param("now") long now);
+
     /** 协议层成功结果幂等落地后,把本次 attempt 的真实群快照和计数汇总到 target 明细。 */
     int markTargetSuccessFromAttempt(@Param("targetId") Long targetId,
                                      @Param("attemptId") Long attemptId,
@@ -175,6 +199,9 @@ public interface MarketingTaskMapper {
 
     /** 删除模板时，将关联的未启动、执行中或已暂停任务按异常终止置为已完成。 */
     int completeActiveTasksByTemplateIds(@Param("templateIds") List<Long> templateIds, @Param("now") long now);
+
+    /** 统计仍在使用指定模板的活动拉群营销任务。 */
+    int countActiveGroupPullTasksByTemplateIds(@Param("templateIds") List<Long> templateIds);
 
     /** 统计指定任务里仍处于未启动、执行中或已暂停的任务数量。 */
     int countActiveByIds(@Param("ids") List<Long> ids);

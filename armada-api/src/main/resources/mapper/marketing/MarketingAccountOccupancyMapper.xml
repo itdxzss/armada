@@ -3,6 +3,59 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.marketing.mapper.MarketingAccountOccupancyMapper">
 
+    <insert id="tryOccupyTaskAccount">
+        INSERT IGNORE INTO marketing_account_occupancy
+            (account_id, marketing_task_id, occupied_at, created_at, updated_at, tenant_id)
+        SELECT a.id, mt.id, #{occupiedAt}, #{occupiedAt}, #{occupiedAt}, mt.tenant_id
+        FROM marketing_task mt
+        JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
+        JOIN account a ON a.id = #{accountId} AND a.deleted_at IS NULL
+        WHERE mt.id = #{taskId}
+          AND mt.business_type = 2
+          AND mt.status = 2
+          AND mt.deleted_at IS NULL
+          AND gp.resource_status = 2
+    </insert>
+
+    <select id="countOtherActiveOccupanciesInGroup" resultType="long">
+        SELECT COUNT(*)
+        FROM marketing_account_occupancy o
+        JOIN account a ON a.id = o.account_id
+                      AND a.deleted_at IS NULL
+        JOIN marketing_task owner_task ON owner_task.id = o.marketing_task_id
+                                      AND owner_task.deleted_at IS NULL
+        LEFT JOIN group_pull_marketing_task owner_gp
+               ON owner_gp.marketing_task_id = owner_task.id
+        WHERE a.account_group_id = #{groupId}
+          AND o.marketing_task_id != #{taskId}
+          AND (
+              (owner_task.business_type = 1 AND owner_task.status IN (1, 2, 5))
+              OR (owner_task.business_type = 2 AND owner_gp.resource_status IN (2, 3, 5))
+          )
+    </select>
+
+    <select id="selectOrdinaryTaskGroup"
+            resultType="com.armada.marketing.model.entity.MarketingTask">
+        SELECT id, tenant_id AS tenantId, business_type AS businessType,
+               account_group_id AS accountGroupId
+        FROM marketing_task
+        WHERE id = #{taskId}
+          AND business_type = 1
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="selectOrdinaryTaskGroupsByTemplateIds"
+            resultType="com.armada.marketing.model.entity.MarketingTask">
+        SELECT id, tenant_id AS tenantId, business_type AS businessType,
+               account_group_id AS accountGroupId
+        FROM marketing_task
+        WHERE business_type = 1
+          AND deleted_at IS NULL
+          AND marketing_template_id IN
+        <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id ASC
+    </select>
+
     <insert id="insertAvailableTaskAccounts">
         <!-- INSERT...SELECT 连接两张租户表，显式取 mt.tenant_id，避免拦截器追加未限定列后产生歧义。 -->
         INSERT IGNORE INTO marketing_account_occupancy
@@ -12,6 +65,7 @@
         JOIN marketing_task_target t ON t.marketing_task_id = mt.id
         WHERE mt.id = #{taskId}
           AND mt.deleted_at IS NULL
+          AND mt.business_type = 1
           AND mt.status IN (1, 2, 5)
           AND t.marketing_task_id = #{taskId}
         ORDER BY t.account_id ASC
@@ -28,8 +82,12 @@
         JOIN marketing_account_occupancy o ON o.account_id = target.account_id
         JOIN marketing_task mt ON mt.id = o.marketing_task_id
                               AND mt.deleted_at IS NULL
-                              AND mt.status IN (1, 2, 5)
+        LEFT JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
         WHERE target.marketing_task_id = #{taskId}
+          AND (
+              (mt.business_type = 1 AND mt.status IN (1, 2, 5))
+              OR (mt.business_type = 2 AND gp.resource_status IN (2, 3, 5))
+          )
         ORDER BY o.account_id ASC
     </select>
 
@@ -43,11 +101,15 @@
         FROM marketing_account_occupancy o
         JOIN marketing_task mt ON mt.id = o.marketing_task_id
                               AND mt.deleted_at IS NULL
-                              AND mt.status IN (1, 2, 5)
+        LEFT JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
         WHERE o.account_id IN
         <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
             #{accountId}
         </foreach>
+          AND (
+              (mt.business_type = 1 AND mt.status IN (1, 2, 5))
+              OR (mt.business_type = 2 AND gp.resource_status IN (2, 3, 5))
+          )
         ORDER BY o.account_id ASC
     </select>
 
@@ -56,12 +118,19 @@
         WHERE marketing_task_id = #{taskId}
     </delete>
 
+    <delete id="releaseByTaskAndAccount">
+        DELETE FROM marketing_account_occupancy
+        WHERE marketing_task_id = #{taskId}
+          AND account_id = #{accountId}
+    </delete>
+
     <delete id="releaseByTemplateIds">
         DELETE FROM marketing_account_occupancy
         WHERE marketing_task_id IN (
             SELECT mt.id
             FROM marketing_task mt
-            WHERE mt.marketing_template_id IN
+            WHERE mt.business_type = 1
+              AND mt.marketing_template_id IN
             <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
         )
     </delete>
@@ -71,8 +140,12 @@
         WHERE marketing_task_id NOT IN (
             SELECT mt.id
             FROM marketing_task mt
+            LEFT JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
             WHERE mt.deleted_at IS NULL
-              AND mt.status IN (1, 2, 5)
+              AND (
+                  (mt.business_type = 1 AND mt.status IN (1, 2, 5))
+                  OR (mt.business_type = 2 AND gp.resource_status IN (2, 3, 5))
+              )
         )
     </delete>
 

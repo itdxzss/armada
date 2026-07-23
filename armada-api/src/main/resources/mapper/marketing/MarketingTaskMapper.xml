@@ -7,6 +7,7 @@
         <id column="id" property="id"/>
         <result column="tenant_id" property="tenantId"/>
         <result column="task_name" property="taskName"/>
+        <result column="business_type" property="businessType"/>
         <result column="account_group_id" property="accountGroupId"/>
         <result column="account_group_name" property="accountGroupName"/>
         <result column="marketing_template_id" property="marketingTemplateId"/>
@@ -92,7 +93,7 @@
     </resultMap>
 
     <sql id="TaskColumns">
-        id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
+        id, tenant_id, task_name, business_type, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
         sent_message_count, failed_message_count,
         send_per_round, account_group_send_interval_ms, send_interval_seconds,
@@ -113,7 +114,8 @@
 
     <sql id="TaskFilter">
         <where>
-            deleted_at IS NULL
+            business_type = 1
+            AND deleted_at IS NULL
             <if test="q.id != null">AND id = #{q.id}</if>
             <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
             <if test="q.status != null">AND status = #{q.status}</if>
@@ -125,14 +127,14 @@
     <insert id="insertTask" parameterType="com.armada.marketing.model.entity.MarketingTask"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_task
-            (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
+            (task_name, business_type, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
              failed_message_count, send_per_round, account_group_send_interval_ms, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
              current_round_no, remark, account_group_send_at, task_start_at, task_end_at, started_at,
              next_round_at, last_round_started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
-            (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
+            (#{taskName}, #{businessType}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
              #{failedMessageCount}, #{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
@@ -437,6 +439,7 @@
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task
         WHERE deleted_at IS NULL
+          AND business_type IN (1, 2)
           AND status = 2
           AND next_round_at IS NOT NULL
           AND next_round_at &lt;= #{now}
@@ -449,6 +452,7 @@
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task
         WHERE deleted_at IS NULL
+          AND business_type = 1
           AND status = 1
           AND task_start_at IS NOT NULL
           AND task_start_at &lt;= #{now}
@@ -476,6 +480,7 @@
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
+          AND business_type = 1
           AND status = 1
           AND task_start_at IS NOT NULL
           AND task_start_at &lt;= #{now}
@@ -493,6 +498,29 @@
           AND status IN (1, 2, 5)
           AND task_end_at IS NOT NULL
           AND task_end_at &lt;= #{now}
+    </update>
+
+    <update id="endExpiredGroupPullTask">
+        UPDATE marketing_task task
+        JOIN group_pull_marketing_task pull_task
+          ON pull_task.marketing_task_id = task.id
+        SET task.status = 7,
+            task.next_round_at = NULL,
+            task.finished_at = COALESCE(task.finished_at, #{now}),
+            task.updated_at = #{now},
+            pull_task.block_reason = 0,
+            pull_task.resource_status = CASE
+                WHEN pull_task.resource_status = 1 THEN 1
+                ELSE 3
+            END,
+            pull_task.updated_at = #{now}
+        WHERE task.id = #{id}
+          AND task.deleted_at IS NULL
+          AND task.business_type = 2
+          AND task.status IN (1, 2, 5)
+          AND task.task_end_at IS NOT NULL
+          AND task.task_end_at &lt;= #{now}
+          AND pull_task.resource_status IN (1, 2)
     </update>
 
     <update id="deferEarlySendingTask">
@@ -585,6 +613,81 @@
         JOIN account a ON a.id = t.account_id
                       AND a.deleted_at IS NULL
         WHERE t.id = #{targetId}
+    </select>
+
+    <select id="countSendableGroupPullTarget" resultType="int">
+        SELECT COUNT(*)
+        FROM marketing_task_target target
+        JOIN account account_row ON account_row.id = target.account_id
+                                AND account_row.deleted_at IS NULL
+        JOIN account_state state ON state.account_id = account_row.id
+                                AND state.tenant_id = account_row.tenant_id
+        JOIN marketing_task task ON task.id = target.marketing_task_id
+                                AND task.deleted_at IS NULL
+        JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id
+        JOIN group_pull_marketing_execution execution
+          ON execution.marketing_target_id = target.id
+         AND execution.execution_status = 3
+         AND execution.group_status = 1
+        JOIN account_group account_group_row ON account_group_row.id = task.account_group_id
+        WHERE target.id = #{targetId}
+          AND target.target_scope = 1
+          AND task.business_type = 2
+          AND pull_task.resource_status = 2
+          AND account_group_row.marketing_occupancy_type = 2
+          AND account_group_row.marketing_occupancy_task_id = task.id
+          AND state.account_state = 2
+          AND state.login_state = 1
+          AND (state.risk_status IS NULL OR state.risk_status = 1)
+          AND state.mute_status IS NULL
+    </select>
+
+    <select id="countOwnedGroupPullMarketingGroup" resultType="int">
+        SELECT COUNT(*)
+        FROM marketing_task task
+        JOIN account_group account_group_row ON account_group_row.id = task.account_group_id
+        JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id
+        WHERE task.id = #{taskId}
+          AND task.business_type = 2
+          AND task.deleted_at IS NULL
+          AND pull_task.resource_status IN (2, 3)
+          AND account_group_row.marketing_occupancy_type = 2
+          AND account_group_row.marketing_occupancy_task_id = task.id
+    </select>
+
+    <update id="markGroupPullExecutionBannedByTargetId">
+        UPDATE group_pull_marketing_execution
+        SET group_status = 2,
+            updated_at = #{now}
+        WHERE marketing_target_id = #{targetId}
+          AND group_status = 1
+    </update>
+
+    <select id="selectSendableGroupPullTargetIds" resultType="long">
+        SELECT target.id
+        FROM marketing_task_target target
+        JOIN marketing_task task ON task.id = target.marketing_task_id
+                                AND task.deleted_at IS NULL
+        JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id
+        JOIN group_pull_marketing_execution execution
+          ON execution.marketing_target_id = target.id
+         AND execution.execution_status = 3
+         AND execution.group_status = 1
+        JOIN account account_row ON account_row.id = target.account_id
+                                AND account_row.deleted_at IS NULL
+        JOIN account_state state ON state.account_id = account_row.id
+                                AND state.tenant_id = account_row.tenant_id
+        JOIN account_group account_group_row ON account_group_row.id = task.account_group_id
+        WHERE task.id = #{taskId}
+          AND task.business_type = 2
+          AND pull_task.resource_status = 2
+          AND account_group_row.marketing_occupancy_type = 2
+          AND account_group_row.marketing_occupancy_task_id = task.id
+          AND state.account_state = 2
+          AND state.login_state = 1
+          AND (state.risk_status IS NULL OR state.risk_status = 1)
+          AND state.mute_status IS NULL
+        ORDER BY target.id
     </select>
 
     <update id="resubmitImmediateAttempt">
@@ -705,6 +808,32 @@
           AND deleted_at IS NULL
     </update>
 
+    <update id="markCanceledOutboxAttemptsSkipped">
+        UPDATE marketing_task_send_attempt attempt
+        JOIN protocol_command_outbox outbox_row
+          ON outbox_row.command_id = attempt.command_id
+         AND outbox_row.status = 4
+        SET attempt.status = 3,
+            attempt.reason_code = 'TASK_RELEASED',
+            attempt.reason_message = '任务已结束，发送命令已取消',
+            attempt.result_at = #{now}
+        WHERE attempt.marketing_task_id = #{taskId}
+          AND attempt.status = 0
+    </update>
+
+    <update id="markDeadOutboxAttemptsFailed">
+        UPDATE marketing_task_send_attempt attempt
+        JOIN protocol_command_outbox outbox_row
+          ON outbox_row.command_id = attempt.command_id
+         AND outbox_row.status = 3
+        SET attempt.status = 2,
+            attempt.reason_code = 'OUTBOX_DEAD',
+            attempt.reason_message = COALESCE(outbox_row.last_error, '协议命令发送失败'),
+            attempt.result_at = #{now}
+        WHERE attempt.marketing_task_id = #{taskId}
+          AND attempt.status = 0
+    </update>
+
     <update id="markTargetSuccessFromAttempt">
         UPDATE marketing_task_target t
         JOIN marketing_task_send_attempt a ON a.id = #{attemptId}
@@ -750,6 +879,7 @@
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
+          AND business_type = 1
           AND status = 1
           AND (task_start_at IS NULL OR task_start_at &lt;= #{now})
           AND (task_end_at IS NULL OR task_end_at &gt; #{now})
@@ -762,6 +892,7 @@
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
+          AND business_type = 1
           AND status = 2
     </update>
 
@@ -772,6 +903,7 @@
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
+          AND business_type = 1
           AND status = 5
           AND (task_start_at IS NULL OR task_start_at &lt;= #{now})
           AND (task_end_at IS NULL OR task_end_at &gt; #{now})
@@ -785,6 +917,7 @@
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
+          AND business_type = 1
           AND status IN (1, 2, 5)
     </update>
 
@@ -806,15 +939,27 @@
             finished_at = COALESCE(finished_at, #{now}),
             updated_at = #{now}
         WHERE deleted_at IS NULL
+          AND business_type = 1
           AND status IN (1, 2, 5)
           AND marketing_template_id IN
         <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
     </update>
 
+    <select id="countActiveGroupPullTasksByTemplateIds" resultType="int">
+        SELECT COUNT(*)
+        FROM marketing_task
+        WHERE deleted_at IS NULL
+          AND business_type = 2
+          AND status IN (1, 2, 5)
+          AND marketing_template_id IN
+        <foreach collection="templateIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
     <select id="countActiveByIds" resultType="int">
         SELECT COUNT(*)
         FROM marketing_task
         WHERE deleted_at IS NULL
+          AND business_type = 1
           AND status IN (1, 2, 5)
           AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
@@ -825,6 +970,7 @@
         SET deleted_at = #{deletedAt},
             updated_at = #{deletedAt}
         WHERE deleted_at IS NULL
+          AND business_type = 1
           AND status IN (7, 8)
           AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>

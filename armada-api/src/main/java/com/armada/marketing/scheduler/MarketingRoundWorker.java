@@ -9,6 +9,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.support.MarketingResolvedTarget;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,6 +136,13 @@ public class MarketingRoundWorker {
             log.warn("营销任务轮次跳过:没有目标 tenantId={} taskId={}", task.getTenantId(), task.getId());
             return;
         }
+        if (isGroupPull(task)) {
+            Set<Long> sendableTargetIds = Set.copyOf(
+                    taskMapper.selectSendableGroupPullTargetIds(taskId));
+            targets = targets.stream()
+                    .filter(target -> sendableTargetIds.contains(target.getId()))
+                    .toList();
+        }
         List<MarketingResolvedTarget> resolvedTargets = resolveSendTargets(task, targets);
         if (resolvedTargets.isEmpty()) {
             now = clock.millis();
@@ -148,9 +157,11 @@ public class MarketingRoundWorker {
         }
         Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses =
                 loadMembershipStatuses(resolvedTargets);
-        Map<Long, MarketingAccountOccupancyOwnerRow> owners =
-                occupancyService.acquireAndLoadTaskAccounts(task, now);
-        TargetPartition partition = partitionTargets(task, resolvedTargets, owners, membershipStatuses);
+        Map<Long, MarketingAccountOccupancyOwnerRow> owners = isGroupPull(task)
+                ? Map.of()
+                : occupancyService.acquireAndLoadTaskAccounts(task, now);
+        TargetPartition partition = partitionTargets(
+                task, resolvedTargets, owners, membershipStatuses, isGroupPull(task));
         List<MarketingResolvedTarget> sendTargets = partition.sendableTargets();
         long unfinished = sendTargets.isEmpty() ? 0L : taskMapper.countUnfinishedAttempts(taskId);
         // 目标解析和积压查询可能跨过结束时间;抢占轮次前必须使用新时间再次关闸。
@@ -240,6 +251,10 @@ public class MarketingRoundWorker {
         if (task.getTaskEndAt() == null || task.getTaskEndAt() > now) {
             return false;
         }
+        if (isGroupPull(task)) {
+            taskMapper.endExpiredGroupPullTask(task.getId(), now);
+            return true;
+        }
         int ended = taskMapper.endExpiredTask(task.getId(), now);
         int released = ended > 0 ? occupancyService.releaseTaskAccounts(task.getId()) : 0;
         log.info("营销任务轮次跳过并结束:已到任务结束时间 tenantId={} taskId={} taskEndAt={} "
@@ -321,7 +336,8 @@ public class MarketingRoundWorker {
             MarketingTask task,
             List<MarketingResolvedTarget> resolvedTargets,
             Map<Long, MarketingAccountOccupancyOwnerRow> owners,
-            Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses) {
+            Map<MembershipKey, AccountGroupMembershipStatus> membershipStatuses,
+            boolean groupPull) {
         List<MarketingResolvedTarget> sendable = new ArrayList<>();
         List<OccupiedMarketingTarget> occupied = new ArrayList<>();
         List<MembershipSkippedTarget> membershipSkipped = new ArrayList<>();
@@ -333,6 +349,10 @@ public class MarketingRoundWorker {
                 membershipSkipped.add(new MembershipSkippedTarget(target, status, decision));
                 continue;
             }
+            if (groupPull) {
+                sendable.add(target);
+                continue;
+            }
             MarketingAccountOccupancyOwnerRow owner = owners.get(target.target().getAccountId());
             if (owner != null && task.getId().equals(owner.getMarketingTaskId())) {
                 sendable.add(target);
@@ -341,6 +361,12 @@ public class MarketingRoundWorker {
             }
         }
         return new TargetPartition(sendable, occupied, membershipSkipped, membershipStatuses);
+    }
+
+    private static boolean isGroupPull(MarketingTask task) {
+        return task != null
+                && Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                        .equals(task.getBusinessType());
     }
 
     /** 一次批量读取本轮所有真实账号+群目标的当前关系状态。 */

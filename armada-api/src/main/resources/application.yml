@@ -87,6 +87,11 @@ armada:
         tls: ${ANDROID_IMAGE_REDIS_TLS:false}
         # 必须与同环境 Android Zhuan 的 redis.keyprefix 完全一致。
         key-prefix: ${ANDROID_IMAGE_REDIS_KEY_PREFIX:android-zhuan:}
+    group-create-idempotency:
+      # 建群 operationId 在 Redis 中的键前缀，用于隔离不同业务键空间。
+      key-prefix: ${GROUP_CREATE_IDEMPOTENCY_KEY_PREFIX:armada:group-create:idempotency:}
+      # 建群幂等结果保留时间；保留期内相同 operationId 不会重复创建群组。
+      ttl: ${GROUP_CREATE_IDEMPOTENCY_TTL:30d}
     command-publisher:
       send-timeout-ms: ${PROTOCOL_COMMAND_SEND_TIMEOUT_MS:10000}
       max-in-flight: ${PROTOCOL_COMMAND_MAX_IN_FLIGHT:100}

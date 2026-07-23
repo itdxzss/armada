@@ -189,7 +189,8 @@ class HistoricalGroupPullWorkerImplTest {
 
         verify(groupJoinPort, never()).join(any());
         verify(contactPort, never()).save(any(ContactSaveCommand.class));
-        verify(participantPort, never()).updateParticipants(any(), any(), any(), any());
+        verify(participantPort, never()).updateParticipants(
+                any(ProtocolAccountRef.class), any(), any(), any());
         assertThat(member.getContactStatus()).isEqualTo(HistoricalGroupContactStatus.FAILED.code());
         assertThat(member.getAddStatus()).isEqualTo(HistoricalGroupAddStatus.FAILED.code());
         ArgumentCaptor<HistoricalGroupPullExecution> finishCaptor =
@@ -218,7 +219,8 @@ class HistoricalGroupPullWorkerImplTest {
         verify(accountLookupService, times(1)).findRandomOnlineNormalWebByGroupId(301L);
         verify(groupJoinPort, times(1)).join(any());
         verify(contactPort, never()).save(any(ContactSaveCommand.class));
-        verify(participantPort, never()).updateParticipants(any(), any(), any(), any());
+        verify(participantPort, never()).updateParticipants(
+                any(ProtocolAccountRef.class), any(), any(), any());
         ArgumentCaptor<HistoricalGroupPullExecution> finishCaptor =
                 ArgumentCaptor.forClass(HistoricalGroupPullExecution.class);
         verify(executionMapper).finishIfRunning(
@@ -272,7 +274,8 @@ class HistoricalGroupPullWorkerImplTest {
         verify(executionMapper, never()).assignPullerIfRunning(anyLong(), anyLong(), anyInt(), anyLong());
         verify(groupJoinPort, never()).join(any());
         verify(contactPort, never()).save(any(ContactSaveCommand.class));
-        verify(participantPort, never()).updateParticipants(any(), any(), any(), any());
+        verify(participantPort, never()).updateParticipants(
+                any(ProtocolAccountRef.class), any(), any(), any());
         ArgumentCaptor<HistoricalGroupPullExecution> finishCaptor =
                 ArgumentCaptor.forClass(HistoricalGroupPullExecution.class);
         verify(executionMapper).finishIfRunning(

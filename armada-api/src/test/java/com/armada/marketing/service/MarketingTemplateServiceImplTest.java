@@ -272,6 +272,19 @@ class MarketingTemplateServiceImplTest {
     }
 
     @Test
+    void batchDelete_activeGroupPullTask_rejectsWithoutChangingTasksOrTemplates() {
+        when(taskMapper.countActiveGroupPullTasksByTemplateIds(List.of(1L))).thenReturn(1);
+
+        assertThatThrownBy(() -> service.batchDelete(List.of(1L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("模板正在被拉群营销任务使用，不能删除");
+
+        verify(taskMapper, never()).completeActiveTasksByTemplateIds(any(), anyLong());
+        verify(occupancyService, never()).releaseAccountsByTemplateIds(any());
+        verify(mapper, never()).softDeleteByIds(any(), anyLong());
+    }
+
+    @Test
     void clone_notFound_throws() {
         when(mapper.selectById(eq(99L))).thenReturn(null);
         assertThatThrownBy(() -> service.clone(99L))

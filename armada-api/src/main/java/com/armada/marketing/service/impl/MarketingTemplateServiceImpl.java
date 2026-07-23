@@ -167,6 +167,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         // 必须先锁模板再扫描关联任务：如果创建任务先拿到锁，本事务等待后可以看到并结束新任务；
         // 如果删除先拿到锁，创建事务会在软删除提交后查不到模板，从而整体回滚。
         List<Long> lockedTemplateIds = mapper.selectExistingIdsForUpdate(normalizedIds);
+        if (taskMapper.countActiveGroupPullTasksByTemplateIds(normalizedIds) > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "模板正在被拉群营销任务使用，不能删除");
+        }
         long now = System.currentTimeMillis();
         int completedTasks = taskMapper.completeActiveTasksByTemplateIds(normalizedIds, now);
         int releasedAccounts = occupancyService.releaseAccountsByTemplateIds(normalizedIds);

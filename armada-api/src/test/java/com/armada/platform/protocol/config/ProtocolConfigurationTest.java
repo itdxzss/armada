@@ -12,6 +12,7 @@ import com.armada.platform.protocol.backend.android.AndroidNativeClient;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.http.ProtocolHttpExecutorRegistry;
+import com.armada.platform.protocol.idempotency.GroupCreateIdempotencyStore;
 import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
@@ -66,6 +67,8 @@ class ProtocolConfigurationTest {
                     ProtocolAndroidCommandProperties::new)
             .withBean(AndroidImageAssetStore.class,
                     () -> mock(AndroidImageAssetStore.class))
+            .withBean(GroupCreateIdempotencyStore.class,
+                    () -> mock(GroupCreateIdempotencyStore.class))
             .withUserConfiguration(ProtocolConfiguration.class);
 
     @Test

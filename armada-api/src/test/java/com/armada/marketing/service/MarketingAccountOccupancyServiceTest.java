@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 import com.armada.marketing.mapper.MarketingAccountOccupancyMapper;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
+import com.armada.marketing.service.impl.MarketingGroupOccupancyService;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +29,9 @@ class MarketingAccountOccupancyServiceTest {
 
     @Mock
     private MarketingAccountOccupancyMapper mapper;
+
+    @Mock
+    private MarketingGroupOccupancyService groupOccupancyService;
 
     @InjectMocks
     private MarketingAccountOccupancyService service;
@@ -49,6 +55,8 @@ class MarketingAccountOccupancyServiceTest {
     void lockTaskAccountsOrThrow_otherOwnerRejectsWithExactTaskName() {
         MarketingTask task = task(91L, 2);
         MarketingAccountOccupancyOwnerRow other = owner(31L, 92L, "夏季营销", 3_000L);
+        when(groupOccupancyService.tryLock(41L, MarketingBusinessType.ORDINARY, 91L, 1_000L))
+                .thenReturn(true);
         when(mapper.selectOwnersByTaskAccounts(91L)).thenReturn(List.of(other));
 
         assertThatThrownBy(() -> service.lockTaskAccountsOrThrow(task, 1_000L))
@@ -60,6 +68,8 @@ class MarketingAccountOccupancyServiceTest {
     void lockTaskAccountsOrThrow_allAccountsOwnedByCurrentTaskSucceeds() {
         MarketingTask task = task(91L, 1);
         MarketingAccountOccupancyOwnerRow current = owner(31L, 91L, "当前任务", 2_000L);
+        when(groupOccupancyService.tryLock(41L, MarketingBusinessType.ORDINARY, 91L, 1_000L))
+                .thenReturn(true);
         when(mapper.selectOwnersByTaskAccounts(91L)).thenReturn(List.of(current));
 
         Map<Long, MarketingAccountOccupancyOwnerRow> owners =
@@ -73,11 +83,38 @@ class MarketingAccountOccupancyServiceTest {
     void lockTaskAccountsOrThrow_missingOwnerRejectsWholeCreation() {
         MarketingTask task = task(91L, 2);
         MarketingAccountOccupancyOwnerRow current = owner(31L, 91L, "当前任务", 2_000L);
+        when(groupOccupancyService.tryLock(41L, MarketingBusinessType.ORDINARY, 91L, 1_000L))
+                .thenReturn(true);
         when(mapper.selectOwnersByTaskAccounts(91L)).thenReturn(List.of(current));
 
         assertThatThrownBy(() -> service.lockTaskAccountsOrThrow(task, 1_000L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("营销账号锁定失败，请刷新后重试");
+    }
+
+    @Test
+    void lockTaskAccountsOrThrow_groupAlreadyOwned_rejectsBeforeAccountLock() {
+        MarketingTask task = task(91L, 1);
+
+        assertThatThrownBy(() -> service.lockTaskAccountsOrThrow(task, 1_000L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("营销分组正在被其他任务占用，请刷新后重试");
+
+        verify(mapper, never()).insertAvailableTaskAccounts(91L, 1_000L);
+    }
+
+    @Test
+    void lockTaskAccountsOrThrow_legacyOtherTaskOccupancy_rejectsWholeCreation() {
+        MarketingTask task = task(91L, 1);
+        when(groupOccupancyService.tryLock(41L, MarketingBusinessType.ORDINARY, 91L, 1_000L))
+                .thenReturn(true);
+        when(mapper.countOtherActiveOccupanciesInGroup(41L, 91L)).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.lockTaskAccountsOrThrow(task, 1_000L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("营销分组内存在被其他任务占用的账号，请先结束原任务");
+
+        verify(mapper, never()).insertAvailableTaskAccounts(91L, 1_000L);
     }
 
     @Test
@@ -112,6 +149,8 @@ class MarketingAccountOccupancyServiceTest {
         MarketingTask task = new MarketingTask();
         task.setId(taskId);
         task.setTenantId(1L);
+        task.setBusinessType(MarketingBusinessType.ORDINARY.code());
+        task.setAccountGroupId(41L);
         task.setSelectedAccountCount(selectedAccountCount);
         return task;
     }

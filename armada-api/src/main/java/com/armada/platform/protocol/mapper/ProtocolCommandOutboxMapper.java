@@ -299,6 +299,23 @@ public interface ProtocolCommandOutboxMapper {
                                      @Param("lockedStatus") int lockedStatus,
                                      @Param("pendingStatus") int pendingStatus);
 
+    /** 任务释放时仅取消尚未被 publisher 抢占的营销消息。 */
+    default int cancelPendingMarketingTaskCommands(Long marketingTaskId, long now) {
+        return cancelPendingMarketingTaskCommandsInternal(
+                marketingTaskId,
+                ProtocolCommandOutboxStatus.PENDING.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(),
+                "TASK_RELEASED",
+                now);
+    }
+
+    int cancelPendingMarketingTaskCommandsInternal(
+            @Param("marketingTaskId") Long marketingTaskId,
+            @Param("pendingStatus") int pendingStatus,
+            @Param("canceledStatus") int canceledStatus,
+            @Param("reason") String reason,
+            @Param("now") long now);
+
     /**
      * 将当前 dispatcher 持有锁的命令标记为 DEAD。
      *

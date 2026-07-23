@@ -521,6 +521,39 @@ class GroupCreationMarketingWorkerTest {
     }
 
     @Test
+    void unconfirmedGroupCreateResultFailsItemWithoutChangingAccountAndRetrying() {
+        GroupCreationMarketingItem item = item();
+        GroupCreationMarketingTask task = task(null);
+        when(groupCreationMapper.selectDueItems(anyInt(), anyLong())).thenReturn(List.of(item));
+        when(groupCreationMapper.claimItem(eq(11L), eq(GroupCreationMarketingItemStatus.PENDING.code()),
+                eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), anyLong())).thenReturn(1);
+        when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
+        when(groupCreationMapper.selectAccountCandidateByAccountId(7L))
+                .thenReturn(account(AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
+        when(groupCreatePort.create(any(GroupCreateCommand.class)))
+                .thenThrow(new ProtocolException(
+                        ProtocolErrorCode.GROUP_CREATE_RESULT_UNCONFIRMED,
+                        "建群结果无法确认"));
+        when(groupCreationMapper.markItemFailed(
+                eq(11L),
+                eq("GROUP_CREATE_RESULT_UNCONFIRMED"),
+                eq("建群结果无法确认"),
+                anyString(),
+                anyLong())).thenReturn(1);
+
+        worker.processDueItems(10);
+
+        verify(groupCreationMapper).markItemFailed(
+                eq(11L),
+                eq("GROUP_CREATE_RESULT_UNCONFIRMED"),
+                eq("建群结果无法确认"),
+                anyString(),
+                anyLong());
+        verify(retryService, never()).resetItemForAccountRetry(
+                any(), any(), anyString(), anyString(), anyString(), anyLong());
+    }
+
+    @Test
     void processRestrictedGroupCreateFailureMarksActualAccountRestrictedAndRetries() {
         GroupCreationMarketingItem item = item();
         GroupCreationMarketingTask task = task(null);

@@ -31,11 +31,21 @@ import org.springframework.util.StringUtils;
 @Service
 public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
 
+    /** 自建群在尚未取得邀请链接时使用的内部群入口前缀。 */
     private static final String SELF_BUILT_LINK_PREFIX = "wa://group/";
 
+    /** 群入口数据访问。 */
     private final GroupLinkMapper groupLinkMapper;
+
+    /** 账号在群关系及群信息快照数据访问。 */
     private final AccountGroupMembershipMapper membershipMapper;
 
+    /**
+     * 创建群组池登记服务。
+     *
+     * @param groupLinkMapper 群入口数据访问
+     * @param membershipMapper 账号在群关系及群信息快照数据访问
+     */
     public GroupLinkRegistryServiceImpl(GroupLinkMapper groupLinkMapper,
                                         AccountGroupMembershipMapper membershipMapper) {
         this.groupLinkMapper = groupLinkMapper;
@@ -82,6 +92,13 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         return groupLinkId;
     }
 
+    /**
+     * 将进群任务中的有效邀请链接登记到统一群组池。
+     *
+     * <p>该操作只维护本地群入口；无效链接由进群任务明细保留，不在此处抛错。</p>
+     *
+     * @param rawLinks 进群任务输入的候选群邀请链接
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void registerJoinTaskTargets(List<String> rawLinks) {
@@ -96,6 +113,12 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         }
     }
 
+    /**
+     * 登记或复活单个规范化邀请链接。
+     *
+     * @param url 已按统一规则规范化的群邀请链接
+     * @param now 登记时间（epoch 毫秒）
+     */
     private void registerOne(String url, long now) {
         GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
         if (existing == null) {
@@ -116,6 +139,21 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         // 已存在且活跃时故意不改:origin 是首次入池来源,membership_state 只能由后续状态回写升级。
     }
 
+    /**
+     * 登记业务流程刚创建成功的自建群及建群账号在群关系。
+     *
+     * <p>同一群 JID 重复登记时复用已有群入口，并刷新群名称、人数和建群账号管理员关系；
+     * 本方法不调用协议层，也不获取邀请链接。</p>
+     *
+     * @param groupJid WhatsApp 群 JID，不能为空
+     * @param groupName 建群成功时取得的群名称，可空
+     * @param ownerAccountId 建群账号的 Armada 账号 ID，不能为空
+     * @param ownerPhone 建群账号手机号，可空
+     * @param memberCount 建群完成时取得的群成员数，可空
+     * @param now 登记时间（epoch 毫秒）
+     * @return 复用或新建后的 {@code group_link.id}
+     * @throws BusinessException 当群 JID 或建群账号 ID 缺失时抛出
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long registerSelfBuiltGroup(String groupJid,
@@ -155,22 +193,78 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                 null,
                 now,
                 now);
+        upsertKnownMembership(groupLinkId, normalizedJid, ownerAccountId, true, "SELF_BUILT", now);
+        return groupLinkId;
+    }
+
+    /**
+     * 登记拉群流程已确认的营销账号在群关系。
+     *
+     * @param groupLinkId 统一群入口 ID，不能为空
+     * @param groupJid WhatsApp 群 JID，不能为空
+     * @param accountId 已确认进群的 Armada 账号 ID，不能为空
+     * @param admin 该账号是否已确认为群管理员
+     * @param now 关系确认时间（epoch 毫秒）
+     * @throws BusinessException 当群入口、群 JID 或账号 ID 缺失时抛出
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void registerKnownMembership(
+            Long groupLinkId,
+            String groupJid,
+            Long accountId,
+            boolean admin,
+            long now) {
+        if (groupLinkId == null || accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "登记在群关系缺少账号或群入口");
+        }
+        upsertKnownMembership(
+                groupLinkId,
+                normalizeRequired(groupJid, "登记在群关系缺少 groupJid"),
+                accountId,
+                admin,
+                "GROUP_PULL_MARKETING",
+                now);
+    }
+
+    /**
+     * 幂等写入账号已在群内的关系事实。
+     *
+     * @param groupLinkId 统一群入口 ID
+     * @param groupJid WhatsApp 群 JID
+     * @param accountId Armada 账号 ID
+     * @param admin 是否为群管理员
+     * @param source 关系事实来源
+     * @param now 关系确认时间（epoch 毫秒）
+     */
+    private void upsertKnownMembership(
+            Long groupLinkId,
+            String groupJid,
+            Long accountId,
+            boolean admin,
+            String source,
+            long now) {
         AccountGroupMembership membership = new AccountGroupMembership();
-        membership.setAccountId(ownerAccountId);
+        membership.setAccountId(accountId);
         membership.setGroupLinkId(groupLinkId);
-        membership.setGroupJid(normalizedJid);
-        membership.setAdmin(true);
+        membership.setGroupJid(groupJid);
+        membership.setAdmin(admin);
         membership.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
-        membership.setStatusSource("SELF_BUILT");
+        membership.setStatusSource(source);
         membership.setStatusUpdatedAt(now);
         membership.setJoinedAt(now);
         membership.setLastSeenAt(now);
         membership.setCreatedAt(now);
         membership.setUpdatedAt(now);
         membershipMapper.upsertMembership(membership);
-        return groupLinkId;
     }
 
+    /**
+     * 按群邀请链接统一口径清洗并稳定去重。
+     *
+     * @param rawLinks 原始候选链接
+     * @return 按首次出现顺序排列的合法规范化链接
+     */
     private static Set<String> normalize(List<String> rawLinks) {
         Set<String> urls = new LinkedHashSet<>();
         if (rawLinks == null || rawLinks.isEmpty()) {
@@ -186,6 +280,14 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         return urls;
     }
 
+    /**
+     * 清理必填文本并在缺失时抛出业务校验异常。
+     *
+     * @param value 待清理文本
+     * @param message 文本缺失时的业务提示
+     * @return 去除首尾空白后的文本
+     * @throws BusinessException 当文本为空时抛出
+     */
     private static String normalizeRequired(String value, String message) {
         String normalized = blankToNull(value);
         if (normalized == null) {
@@ -194,6 +296,12 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         return normalized;
     }
 
+    /**
+     * 将空白文本统一转换为空值。
+     *
+     * @param value 待清理文本
+     * @return 去除首尾空白后的文本；无有效内容时返回 {@code null}
+     */
     private static String blankToNull(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
@@ -201,6 +309,13 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         return value.trim();
     }
 
+    /**
+     * 按数据库列长度安全截断可选文本。
+     *
+     * @param value 待截断文本，可空
+     * @param maxLength 最大字符数
+     * @return 原文本或截断后的文本
+     */
     private static String clamp(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;

@@ -2,6 +2,7 @@ package com.armada.marketing.service.impl;
 
 import com.armada.marketing.mapper.MarketingAccountOccupancyMapper;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -20,10 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * 普通群组营销账号当前占用领域服务。
+ * 普通群组营销账号与营销分组当前占用领域服务。
  *
- * <p>占用粒度是账号，不存在分组锁。任务和目标保存后立即在同一事务内锁定全部账号，
- * 数据库唯一键保证同租户同账号只有一个普通营销任务持有。</p>
+ * <p>普通营销创建时先原子锁定整个营销分组，再锁定任务选择的全部账号；任务结束时
+ * 同一事务释放账号占用和归属自己的分组锁。</p>
  */
 @Service
 public class MarketingAccountOccupancyService {
@@ -38,14 +39,18 @@ public class MarketingAccountOccupancyService {
             .withZone(ZoneId.of("Asia/Shanghai"));
 
     private final MarketingAccountOccupancyMapper mapper;
+    private final MarketingGroupOccupancyService groupOccupancyService;
 
     /**
      * 创建账号占用领域服务。
      *
-     * @param mapper 当前占用关系 Mapper
+     * @param mapper 当前账号占用关系 Mapper
+     * @param groupOccupancyService 营销分组整组占用服务
      */
-    public MarketingAccountOccupancyService(MarketingAccountOccupancyMapper mapper) {
+    public MarketingAccountOccupancyService(MarketingAccountOccupancyMapper mapper,
+                                            MarketingGroupOccupancyService groupOccupancyService) {
         this.mapper = mapper;
+        this.groupOccupancyService = groupOccupancyService;
     }
 
     /**
@@ -87,6 +92,13 @@ public class MarketingAccountOccupancyService {
      */
     @Transactional(rollbackFor = Exception.class)
     public Map<Long, MarketingAccountOccupancyOwnerRow> lockTaskAccountsOrThrow(MarketingTask task, long now) {
+        if (!groupOccupancyService.tryLock(
+                task.getAccountGroupId(), MarketingBusinessType.ORDINARY, task.getId(), now)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "营销分组正在被其他任务占用，请刷新后重试");
+        }
+        if (hasOtherActiveOccupanciesInGroup(task.getAccountGroupId(), task.getId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "营销分组内存在被其他任务占用的账号，请先结束原任务");
+        }
         Map<Long, MarketingAccountOccupancyOwnerRow> owners = acquireAndLoadTaskAccounts(task, now);
         MarketingAccountOccupancyOwnerRow conflict = owners.values().stream()
                 .filter(owner -> !Objects.equals(task.getId(), owner.getMarketingTaskId()))
@@ -109,6 +121,29 @@ public class MarketingAccountOccupancyService {
         log.info("营销任务创建账号锁定完成 tenantId={} taskId={} lockedAccounts={}",
                 task.getTenantId(), task.getId(), owners.size());
         return owners;
+    }
+
+    /** 判断分组内是否仍存在另一个活动任务持有的账号级占用。 */
+    public boolean hasOtherActiveOccupanciesInGroup(Long groupId, Long taskId) {
+        return mapper.countOtherActiveOccupanciesInGroup(groupId, taskId) > 0;
+    }
+
+    /** 拉群营销尝试领取一个建群账号。 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean tryOccupyTaskAccount(Long taskId, Long accountId, long now) {
+        return mapper.tryOccupyTaskAccount(taskId, accountId, now) == 1;
+    }
+
+    /** 拉群营销只释放当前任务持有的指定建群账号。 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean releaseTaskAccount(Long taskId, Long accountId) {
+        return mapper.releaseByTaskAndAccount(taskId, accountId) == 1;
+    }
+
+    /** 安全释放阶段清除拉群任务仍遗留的全部建群账号占用。 */
+    @Transactional(rollbackFor = Exception.class)
+    public int releaseGroupPullResidualAccounts(Long taskId) {
+        return mapper.releaseByTaskId(taskId);
     }
 
     /**
@@ -141,15 +176,19 @@ public class MarketingAccountOccupancyService {
     }
 
     /**
-     * 释放指定普通营销任务持有的全部账号。
+     * 释放指定普通营销任务持有的全部账号及归属自己的营销分组锁。
      *
      * @param taskId 普通营销任务 ID
      * @return 实际释放账号数
      */
     @Transactional(rollbackFor = Exception.class)
     public int releaseTaskAccounts(Long taskId) {
+        MarketingTask task = mapper.selectOrdinaryTaskGroup(taskId);
         int released = mapper.releaseByTaskId(taskId);
-        log.info("营销任务账号释放完成 taskId={} released={}", taskId, released);
+        boolean groupReleased = task != null && groupOccupancyService.release(
+                task.getAccountGroupId(), MarketingBusinessType.ORDINARY, taskId, System.currentTimeMillis());
+        log.info("营销任务资源释放完成 taskId={} releasedAccounts={} releasedGroup={}",
+                taskId, released, groupReleased);
         return released;
     }
 
@@ -164,8 +203,18 @@ public class MarketingAccountOccupancyService {
         if (templateIds == null || templateIds.isEmpty()) {
             return 0;
         }
+        List<MarketingTask> tasks = mapper.selectOrdinaryTaskGroupsByTemplateIds(templateIds);
         int released = mapper.releaseByTemplateIds(templateIds);
-        log.info("营销模板删除释放任务账号 templateCount={} released={}", templateIds.size(), released);
+        long now = System.currentTimeMillis();
+        int releasedGroups = 0;
+        for (MarketingTask task : tasks) {
+            if (groupOccupancyService.release(task.getAccountGroupId(), MarketingBusinessType.ORDINARY,
+                    task.getId(), now)) {
+                releasedGroups++;
+            }
+        }
+        log.info("营销模板删除释放任务资源 templateCount={} releasedAccounts={} releasedGroups={}",
+                templateIds.size(), released, releasedGroups);
         return released;
     }
 

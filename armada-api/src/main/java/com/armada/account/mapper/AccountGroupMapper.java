@@ -124,4 +124,27 @@ public interface AccountGroupMapper {
     int mergeAccounts(@Param("sourceGroupIds") List<Long> sourceGroupIds,
                       @Param("targetGroupId") Long targetGroupId,
                       @Param("updatedAt") long updatedAt);
+
+    /**
+     * 仅在分组当前空闲时原子写入营销整组占用归属。
+     *
+     * @return 影响 1 行表示抢锁成功，0 行表示不存在或已被占用
+     */
+    int tryLockMarketingOccupancy(@Param("groupId") Long groupId,
+                                  @Param("occupancyType") int occupancyType,
+                                  @Param("taskId") Long taskId,
+                                  @Param("now") long now);
+
+    /**
+     * 仅由当前占用任务按类型和任务 ID 原子释放营销分组。
+     *
+     * @return 影响 1 行表示释放成功，0 行表示当前任务不持有该锁
+     */
+    int releaseMarketingOccupancy(@Param("groupId") Long groupId,
+                                  @Param("occupancyType") int occupancyType,
+                                  @Param("taskId") Long taskId,
+                                  @Param("now") long now);
+
+    /** 查询分组当前是否仍有任意营销占用。 */
+    int countMarketingOccupancy(@Param("groupId") Long groupId);
 }

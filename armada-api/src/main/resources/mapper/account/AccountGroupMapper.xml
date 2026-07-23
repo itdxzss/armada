@@ -104,4 +104,34 @@
     <foreach collection="sourceGroupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>
 
+  <update id="tryLockMarketingOccupancy">
+    UPDATE account_group
+    SET marketing_occupancy_type = #{occupancyType},
+        marketing_occupancy_task_id = #{taskId},
+        marketing_locked_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{groupId}
+      AND deleted_at IS NULL
+      AND marketing_occupancy_task_id IS NULL
+  </update>
+
+  <update id="releaseMarketingOccupancy">
+    UPDATE account_group
+    SET marketing_occupancy_type = NULL,
+        marketing_occupancy_task_id = NULL,
+        marketing_locked_at = NULL,
+        updated_at = #{now}
+    WHERE id = #{groupId}
+      AND marketing_occupancy_type = #{occupancyType}
+      AND marketing_occupancy_task_id = #{taskId}
+  </update>
+
+  <select id="countMarketingOccupancy" resultType="int">
+    SELECT COUNT(*)
+    FROM account_group
+    WHERE id = #{groupId}
+      AND deleted_at IS NULL
+      AND marketing_occupancy_task_id IS NOT NULL
+  </select>
+
 </mapper>

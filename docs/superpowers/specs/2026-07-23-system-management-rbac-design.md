@@ -2,7 +2,7 @@
 
 ## 1. 范围
 
-本期实现租户侧用户、角色、菜单和授权关系的数据基础，不实现登录、图片验证码、审计日志、最高控、平台菜单模板、组织架构、权限缓存和会话管理。
+本期实现租户侧用户、角色、菜单和授权关系的数据基础，并把现有前端业务菜单迁移为后端动态菜单。登录、图片验证码、审计日志、最高控、平台菜单模板、组织架构、权限缓存和会话管理不属于本期。
 
 本期创建五张表：
 
@@ -38,9 +38,10 @@
 
 ### 2.3 菜单和权限
 
-- 菜单树固定为三级：目录 `D`、菜单 `M`、按钮 `B`。
-- 目录下只能创建菜单，菜单下只能创建按钮，按钮不能有子节点。
-- 目录不对应页面；其前端父级路径由后端根据 `menu_key` 生成。
+- 节点类型为目录 `D`、菜单 `M`、按钮 `B`。
+- 目录下可以创建目录或菜单，菜单下只能创建按钮，按钮不能有子节点。
+- 可见菜单最多三级；按钮不计入可见菜单层级，因此数据库树最大深度为四级 `D → D → M → B`。这用于兼容现有“买号上量系统 → 推广管理/数据中心 → 页面”的菜单结构。
+- 目录不对应页面；目录 `route_path` 由系统生成，不在租户菜单配置页面自由填写。
 - 菜单对应真实前端页面，保存 `route_path` 和 `component_path`。
 - 按钮不保存路由或组件，只保存权限编码。
 - `component_path` 只能选择前端实际存在的页面组件，不能任意填写。
@@ -116,7 +117,7 @@ CREATE TABLE sys_menu (
     menu_name      VARCHAR(64)  NOT NULL                COMMENT '节点名称',
     menu_key       VARCHAR(64)  NOT NULL                COMMENT '节点稳定标识，租户内唯一',
     menu_type      CHAR(1)      NOT NULL                COMMENT '节点类型：D目录 M菜单 B按钮',
-    route_path     VARCHAR(128) DEFAULT NULL            COMMENT '菜单访问路由，仅M使用',
+    route_path     VARCHAR(128) DEFAULT NULL            COMMENT '目录或菜单路由，仅D/M使用；D由系统生成',
     component_path VARCHAR(128) DEFAULT NULL            COMMENT '前端组件路径，仅M使用',
     perm_key       VARCHAR(128) DEFAULT NULL            COMMENT '页面或按钮权限编码，仅M/B使用',
     icon           VARCHAR(64)  DEFAULT NULL            COMMENT '菜单图标，仅D/M使用',
@@ -129,7 +130,7 @@ CREATE TABLE sys_menu (
     PRIMARY KEY (id),
     UNIQUE KEY uq_sys_menu_tenant_key (tenant_id, menu_key),
     UNIQUE KEY uq_sys_menu_tenant_route (tenant_id, route_path),
-    UNIQUE KEY uq_sys_menu_tenant_perm (tenant_id, perm_key),
+    KEY idx_sys_menu_tenant_perm (tenant_id, perm_key),
     KEY idx_sys_menu_tenant_parent_sort (tenant_id, parent_id, sort_no),
     KEY idx_sys_menu_tenant_status (tenant_id, status)
 ) COMMENT='系统菜单与权限节点';
@@ -153,11 +154,12 @@ CREATE TABLE sys_role_menu (
 
 ## 5. 数据约束
 
-数据库唯一键保证租户内用户名、角色名称、角色编码、菜单标识、菜单路由和权限编码唯一。以下跨行、跨表规则由 Service 在事务内校验：
+数据库唯一键保证租户内用户名、角色名称、角色编码、菜单标识和菜单路由唯一。以下跨行、跨表规则由 Service 在事务内校验：
 
 - 用户、角色、菜单和关联记录必须属于同一租户。
-- `D` 只能作为根节点；`M` 的父节点必须为 `D`；`B` 的父节点必须为 `M`。
-- `D` 不允许填写 `component_path` 和 `perm_key`；`M` 必须填写 `route_path`、`component_path` 和 `perm_key`；`B` 只填写 `perm_key`。
+- 根节点必须为 `D`；`D` 的父节点可以为根或 `D`；`M` 的父节点必须为 `D`；`B` 的父节点必须为 `M`。
+- `D` 必须有系统生成的 `route_path`，不允许填写 `component_path` 和 `perm_key`；`M` 必须填写 `route_path`、`component_path` 和 `perm_key`；`B` 只填写 `perm_key`。
+- `route_path` 和 `menu_key` 在租户内唯一。`perm_key` 不要求唯一，因为现有“导入链接”和“群组列表”等不同页面可能复用同一个后端查看权限。
 - 同一父节点下按 `sort_no`、`id` 稳定排序，不要求排序值唯一。
 - `component_path` 必须存在于服务端允许的前端组件白名单中。
 - `sys_role_menu` 不允许保存 `D` 类型节点。
@@ -184,14 +186,78 @@ CREATE TABLE sys_role_menu (
 
 多个角色的权限取并集并按菜单 ID 去重。
 
-## 7. 后续但不属于本期
+## 7. 现有前端菜单迁移与初始化
+
+### 7.1 保留静态的框架路由
+
+以下路由不受租户角色控制，继续保留在前端：
+
+- 首页和欢迎页；
+- 登录页；
+- 403、404、500；
+- 重定向和加载页。
+
+pure-admin 自带的“权限管理”示例页只用于开发演示，不写入生产初始化数据。
+
+### 7.2 迁移到 `sys_menu` 的业务路由
+
+以下现有业务菜单从 `mock/asyncRoutes.ts` 和 `src/router/modules/buyer.ts` 迁入初始化 SQL：
+
+```text
+账号管理
+├─ 账号列表
+└─ 账号分组
+
+任务中心
+├─ 账号导入
+├─ 导入链接
+├─ 群组列表
+├─ 历史群管理
+├─ 拉群任务
+├─ 进群任务
+├─ 营销任务
+└─ 建群营销
+
+素材管理
+└─ 营销模版
+
+运营管理
+├─ IP 管理
+└─ IP 数据统计
+
+买号上量系统
+├─ 推广管理
+│  ├─ 模板管理（二期）
+│  └─ 渠道管理（二期）
+└─ 数据中心
+   └─ 渠道统计（二期）
+
+系统管理
+├─ 用户管理
+├─ 角色管理
+└─ 菜单管理
+```
+
+买号上量现有按钮权限作为 `B` 节点初始化，包括模板可见性、模板备注、渠道新增/编辑/检测/停用、统计编辑和导出。系统管理按钮权限按本期实际页面操作初始化。其他页面目前只有页面级 `perm_key`，不凭空补造未在前端和后端使用的按钮权限。
+
+### 7.3 初始化 SQL 原则
+
+- Flyway 建表迁移同时为每个现有启用租户初始化一套租户管理员角色和业务菜单。
+- 初始化语句使用 `tenant_id + menu_key` 查询父节点，不依赖跨环境不稳定的固定自增 ID。
+- 初始化必须可重复校验，不允许同一租户生成重复 `TENANT_ADMIN`、`menu_key` 或 `route_path`。
+- 租户管理员不初始化 `sys_role_menu`，其全部权限由服务端动态计算。
+- 本期不初始化默认管理员用户；用户种子和密码由后续真实登录接入统一处理，避免产生另一套临时身份。
+- 前端动态菜单接口从模板 `/get-async-routes` 切换到真实 `/api/tenant/me/menus`。
+- `src/router/modules/buyer.ts` 的业务路由迁入数据库后从静态模块移除，但对应 `src/views/buyer/**` 页面组件继续保留。
+
+## 8. 后续但不属于本期
 
 - 登录接入时增加或接管 `last_login_at`、验证码、Redis 会话和会话失效逻辑。
 - 登录分支原有的全平台用户名唯一约束必须改成租户内唯一；单 `role` 字段必须改成 `sys_user_role` 多角色关系；原 `display_name` 应与本设计的 `nickname` 统一。
 - 最高控落地时再设计平台菜单模板和租户功能开通关系，不在当前表中预留死字段。
 - 审计落地时统一记录用户、角色、菜单、授权和状态变更，不在当前关联表中保留历史记录。
 
-## 8. 验证重点
+## 9. 验证重点
 
 - 两个租户可以创建相同用户名、角色编码和菜单编码，同一租户内不能重复。
 - 跨租户绑定用户角色、角色菜单全部失败且不产生部分写入。
@@ -200,3 +266,5 @@ CREATE TABLE sys_role_menu (
 - 多角色权限正确合并和去重。
 - 租户管理员无需 `sys_role_menu` 即拥有全部有效权限。
 - 不能禁用最后一个有效租户管理员。
+- 初始化后的动态路由与迁移前现有业务菜单层级、地址、组件和权限一致。
+- 首页、登录和错误页继续由前端静态路由提供，pure-admin 权限示例页不进入生产菜单。

@@ -441,6 +441,26 @@ class MarketingTaskMapperSqlShapeTest {
     }
 
     @Test
+    void detailRollupPrefersEffectiveGroupEvidenceAndKeepsExecutionEvidenceIndependent()
+            throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("END AS effectiveGroupStatus")
+                .contains("effectiveGroupStatus DESC")
+                .contains("'ACCOUNT_BANNED'")
+                .contains("'GROUP_SEND_ALLOWED'")
+                .contains("ended.rawGroupStatus AS executionGroupStatus")
+                .contains("ended.groupStatusReason AS executionGroupStatusReason")
+                .doesNotContain("'ACCOUNT_OFFLINE'")
+                .doesNotContain("'STATUS_RESOLUTION_UNAVAILABLE'");
+    }
+
+    @Test
     void detailRollupKeepsTenantColumnAvailableForInterceptorGeneratedFilters() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),

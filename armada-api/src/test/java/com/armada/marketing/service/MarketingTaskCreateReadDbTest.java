@@ -6,7 +6,9 @@ import com.armada.marketing.model.LinkMode;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
 import com.armada.marketing.model.dto.MarketingSelectionDTO;
 import com.armada.marketing.model.dto.MarketingTaskQuery;
+import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.vo.MarketingTaskDetailVO;
+import com.armada.marketing.model.vo.MarketingTaskGroupStatVO;
 import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
@@ -482,12 +484,15 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 "SELECT id FROM marketing_task_target WHERE marketing_task_id = ? ORDER BY id ASC",
                 Long.class,
                 created.id());
-        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 1, 1, null, null, "NORMAL", 1000L);
-        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 2, 2, "MUTED", "群禁言", "BANNED", 2000L);
-        insertAttempt(created.id(), targetIds.get(1), secondGroup.groupLinkId(), secondGroup.groupJid(),
-                "群B", 1, 1, null, null, "NO_PERMISSION", 3000L);
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(0), fixture.groupLinkId(),
+                fixture.groupJid(), "群A", 1, 1, null, null,
+                "NORMAL", "TEST_STATUS", 1000L));
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(0), fixture.groupLinkId(),
+                fixture.groupJid(), "群A", 2, 2, "MUTED", "群禁言",
+                "BANNED", "TEST_STATUS", 2000L));
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(1), secondGroup.groupLinkId(),
+                secondGroup.groupJid(), "群B", 1, 1, null, null,
+                "NO_PERMISSION", "TEST_STATUS", 3000L));
 
         MarketingTaskDetailVO detail = service.getDetail(created.id());
 
@@ -518,6 +523,75 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
+    void getDetail_preservesLatestEffectiveGroupStatusWhenNewestAttemptIsOffline() {
+        Fixture fixture = seedTakeoverFixture(
+                "detail-effective-status",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        GroupFixture bannedGroup = seedGroup(
+                "detail-effective-status-banned",
+                "120363262@g.us",
+                "https://chat.whatsapp.com/detail-effective-status-banned");
+        GroupFixture unknownGroup = seedGroup(
+                "detail-effective-status-unknown",
+                "120363263@g.us",
+                "https://chat.whatsapp.com/detail-effective-status-unknown");
+        seedMembership(fixture.accountId(), bannedGroup);
+        seedMembership(fixture.accountId(), unknownGroup);
+
+        MarketingTaskVO created = service.createTask(request(
+                "离线保留最近有效群状态",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        List.of(fixture.groupLinkId(), bannedGroup.groupLinkId(), unknownGroup.groupLinkId())))));
+
+        long normalTargetId = jdbc.queryForObject("""
+                SELECT id FROM marketing_task_target
+                WHERE marketing_task_id = ? AND group_link_id = ?
+                """, Long.class, created.id(), fixture.groupLinkId());
+        long bannedTargetId = jdbc.queryForObject("""
+                SELECT id FROM marketing_task_target
+                WHERE marketing_task_id = ? AND group_link_id = ?
+                """, Long.class, created.id(), bannedGroup.groupLinkId());
+        long unknownTargetId = jdbc.queryForObject("""
+                SELECT id FROM marketing_task_target
+                WHERE marketing_task_id = ? AND group_link_id = ?
+                """, Long.class, created.id(), unknownGroup.groupLinkId());
+
+        insertAttempt(new SendAttemptFixture(created.id(), normalTargetId, fixture.groupLinkId(),
+                fixture.groupJid(), "正常群", 1, MarketingSendAttemptStatus.SUCCESS.code(), null, null,
+                "NORMAL", "GROUP_SEND_ALLOWED", 1000L));
+        insertAttempt(new SendAttemptFixture(created.id(), normalTargetId, fixture.groupLinkId(),
+                fixture.groupJid(), "正常群", 2, MarketingSendAttemptStatus.FAILED.code(),
+                "ACCOUNT_OFFLINE", "安卓账号当前不在线",
+                "UNCONFIRMED", "STATUS_RESOLUTION_UNAVAILABLE", 2000L));
+
+        insertAttempt(new SendAttemptFixture(created.id(), bannedTargetId, bannedGroup.groupLinkId(),
+                bannedGroup.groupJid(), "封禁群", 1, MarketingSendAttemptStatus.FAILED.code(),
+                "SEND_FAILED", "群组不可发送", "BANNED", "CHAT_SUSPENDED", 1100L));
+        insertAttempt(new SendAttemptFixture(created.id(), bannedTargetId, bannedGroup.groupLinkId(),
+                bannedGroup.groupJid(), "封禁群", 2, MarketingSendAttemptStatus.FAILED.code(),
+                "ACCOUNT_OFFLINE", "安卓账号当前不在线",
+                "UNCONFIRMED", "STATUS_RESOLUTION_UNAVAILABLE", 2100L));
+
+        insertAttempt(new SendAttemptFixture(created.id(), unknownTargetId, unknownGroup.groupLinkId(),
+                unknownGroup.groupJid(), "从未识别群", 2, MarketingSendAttemptStatus.FAILED.code(),
+                "ACCOUNT_OFFLINE", "安卓账号当前不在线",
+                "UNCONFIRMED", "STATUS_RESOLUTION_UNAVAILABLE", 2200L));
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertOfflineGroupStatus(account.groups(), fixture.groupJid(), "NORMAL");
+            assertOfflineGroupStatus(account.groups(), bannedGroup.groupJid(), "GROUP_BANNED");
+            assertOfflineGroupStatus(account.groups(), unknownGroup.groupJid(), "UNCONFIRMED");
+        });
+    }
+
+    @Test
     void getDetail_usesLatestEndedRoundForGroupExecutionResult() {
         Fixture fixture = seedTakeoverFixture(
                 "detail-execution-result",
@@ -541,14 +615,18 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 Long.class,
                 created.id());
 
-        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 1, 1, null, null, "NORMAL", 4000L);
-        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 2, 2, "SEND_FAILED", "发送失败", "NORMAL", 2000L);
-        insertAttempt(created.id(), targetIds.get(0), fixture.groupLinkId(), fixture.groupJid(),
-                "群A", 3, 3, "ACCOUNT_OCCUPIED", "账号被占用", "UNCONFIRMED", 6000L);
-        insertAttempt(created.id(), targetIds.get(1), secondGroup.groupLinkId(), secondGroup.groupJid(),
-                "群B", 1, 3, "ACCOUNT_OCCUPIED", "账号被占用", "UNCONFIRMED", 5000L);
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(0), fixture.groupLinkId(),
+                fixture.groupJid(), "群A", 1, 1, null, null,
+                "NORMAL", "TEST_STATUS", 4000L));
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(0), fixture.groupLinkId(),
+                fixture.groupJid(), "群A", 2, 2, "SEND_FAILED", "发送失败",
+                "NORMAL", "TEST_STATUS", 2000L));
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(0), fixture.groupLinkId(),
+                fixture.groupJid(), "群A", 3, 3, "ACCOUNT_OCCUPIED", "账号被占用",
+                "UNCONFIRMED", "TEST_STATUS", 6000L));
+        insertAttempt(new SendAttemptFixture(created.id(), targetIds.get(1), secondGroup.groupLinkId(),
+                secondGroup.groupJid(), "群B", 1, 3, "ACCOUNT_OCCUPIED", "账号被占用",
+                "UNCONFIRMED", "TEST_STATUS", 5000L));
 
         MarketingTaskDetailVO detail = service.getDetail(created.id());
 
@@ -594,8 +672,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 Long.class,
                 created.id());
 
-        insertAttempt(created.id(), targetId, fixture.groupLinkId(), fixture.groupJid(),
-                "动态群A", 1, 1, null, null, "NORMAL", 1000L);
+        insertAttempt(new SendAttemptFixture(created.id(), targetId, fixture.groupLinkId(),
+                fixture.groupJid(), "动态群A", 1, 1, null, null,
+                "NORMAL", "TEST_STATUS", 1000L));
 
         MarketingTaskDetailVO detail = service.getDetail(created.id());
 
@@ -901,17 +980,7 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 now, now, now, now, now);
     }
 
-    private void insertAttempt(long taskId,
-                               long targetId,
-                               long groupLinkId,
-                               String groupJid,
-                               String groupName,
-                               long roundNo,
-                               int status,
-                               String reasonCode,
-                               String reasonMessage,
-                               String groupStatus,
-                               long resultAt) {
+    private void insertAttempt(SendAttemptFixture attempt) {
         jdbc.update("""
                 INSERT INTO marketing_task_send_attempt
                     (tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
@@ -919,10 +988,25 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                      group_status, group_status_reason, group_status_checked_at,
                      submitted_at, result_at, attempted_at, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, TEST_TENANT_ID, taskId, targetId, groupLinkId, groupJid, groupName, roundNo,
-                "cmd-" + targetId + "-" + resultAt, status, reasonCode, reasonMessage,
-                groupStatus, "TEST_STATUS", resultAt - 15,
-                resultAt - 10, resultAt, resultAt - 20, resultAt - 30);
+                """, TEST_TENANT_ID, attempt.taskId(), attempt.targetId(), attempt.groupLinkId(),
+                attempt.groupJid(), attempt.groupName(), attempt.roundNo(),
+                "cmd-" + attempt.targetId() + "-" + attempt.resultAt(), attempt.status(),
+                attempt.reasonCode(), attempt.reasonMessage(), attempt.groupStatus(), attempt.groupStatusReason(),
+                attempt.resultAt() - 15, attempt.resultAt() - 10, attempt.resultAt(),
+                attempt.resultAt() - 20, attempt.resultAt() - 30);
+    }
+
+    private static void assertOfflineGroupStatus(List<MarketingTaskGroupStatVO> groups,
+                                                 String groupJid,
+                                                 String expectedGroupStatus) {
+        assertThat(groups)
+                .filteredOn(item -> groupJid.equals(item.groupJid()))
+                .singleElement()
+                .satisfies(item -> {
+                    assertThat(item.groupStatus()).isEqualTo(expectedGroupStatus);
+                    assertThat(item.executionResult()).isEqualTo("FAILED");
+                    assertThat(item.executionReason()).isEqualTo("安卓账号当前不在线");
+                });
     }
 
     private void seedBaseline(long accountId, String baselineGroupJids) {
@@ -965,5 +1049,20 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
             long groupLinkId,
             String groupUrl,
             String groupJid) {
+    }
+
+    private record SendAttemptFixture(
+            long taskId,
+            long targetId,
+            long groupLinkId,
+            String groupJid,
+            String groupName,
+            long roundNo,
+            int status,
+            String reasonCode,
+            String reasonMessage,
+            String groupStatus,
+            String groupStatusReason,
+            long resultAt) {
     }
 }

@@ -784,8 +784,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                     row.getLatestExecutionStatus(),
                     row.getExecutionReasonCode(),
                     row.getExecutionReasonMessage(),
-                    row.getGroupStatus(),
-                    row.getGroupStatusReason()).executionReason();
+                    row.getExecutionGroupStatus(),
+                    row.getExecutionGroupStatusReason()).executionReason();
         } else {
             executionReason = MarketingGroupExecutionNormalizer.executionReason(
                     row.getLatestExecutionStatus(),

@@ -114,6 +114,33 @@ class MarketingTaskServiceImplLifecycleTest {
     }
 
     @Test
+    void getDetailKeepsHistoricalGroupStatusAndLatestOfflineReasonIndependent() {
+        MarketingTaskAccountGroupStatRow group = new MarketingTaskAccountGroupStatRow();
+        group.setAccountId(31L);
+        group.setGroupJid("120363031@g.us");
+        group.setLatestAttemptStatus(MarketingSendAttemptStatus.FAILED.code());
+        group.setReasonCode("SEND_FAILED");
+        group.setReasonMessage("群组不可发送");
+        group.setGroupStatus("BANNED");
+        group.setGroupStatusReason("CHAT_SUSPENDED");
+        group.setLatestExecutionStatus(MarketingSendAttemptStatus.FAILED.code());
+        group.setExecutionReasonCode("ACCOUNT_OFFLINE");
+        group.setExecutionReasonMessage("安卓账号当前不在线");
+        group.setExecutionGroupStatus("UNCONFIRMED");
+        group.setExecutionGroupStatusReason("STATUS_RESOLUTION_UNAVAILABLE");
+        stubDetail(detailTask(), detailTarget(), group);
+
+        var detail = service.getDetail(TASK_ID);
+
+        assertThat(detail.accountTargets()).singleElement()
+                .satisfies(account -> assertThat(account.groups()).singleElement().satisfies(item -> {
+                    assertThat(item.groupStatus()).isEqualTo("GROUP_BANNED");
+                    assertThat(item.executionResult()).isEqualTo("FAILED");
+                    assertThat(item.executionReason()).isEqualTo("安卓账号当前不在线");
+                }));
+    }
+
+    @Test
     void getDetailKeepsMembershipProtocolStatusAndSkippedExecutionIndependent() {
         MarketingTask task = detailTask();
         MarketingTaskTarget target = detailTarget();

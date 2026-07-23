@@ -214,6 +214,25 @@
                    a.reason_message AS reasonMessage,
                    a.group_status AS rawGroupStatus,
                    a.group_status_reason AS groupStatusReason,
+                   CASE
+                       WHEN a.status = 1 THEN 1
+                       WHEN UPPER(TRIM(COALESCE(a.group_status, ''))) IN (
+                           'NORMAL', 'BANNED', 'NO_PERMISSION'
+                       ) THEN 1
+                       WHEN UPPER(TRIM(COALESCE(a.reason_code, ''))) IN (
+                           'ACCOUNT_BANNED',
+                           'KICKED_OUT', 'ACCOUNT_NOT_PARTICIPANT',
+                           'GROUP_BANNED', 'BANNED', 'CHAT_SUSPENDED', 'CHAT_TERMINATED',
+                           'NO_PERMISSION', 'ANNOUNCE_ONLY_NON_ADMIN'
+                       ) THEN 1
+                       WHEN UPPER(TRIM(COALESCE(a.group_status_reason, ''))) IN (
+                           'GROUP_SEND_ALLOWED',
+                           'ACCOUNT_NOT_PARTICIPANT',
+                           'CHAT_SUSPENDED', 'CHAT_TERMINATED',
+                           'ANNOUNCE_ONLY_NON_ADMIN'
+                       ) THEN 1
+                       ELSE 0
+                   END AS effectiveGroupStatus,
                    a.round_no AS roundNo,
                    a.attempt_no AS attemptNo,
                    COALESCE(a.result_at, a.attempted_at, a.created_at) AS eventAt,
@@ -334,13 +353,17 @@
             UNION
             SELECT tenant_id, accountId, groupKey FROM attempt_dimensions
         ),
+        <!-- 账号离线产生的未识别结果不能覆盖历史有效群状态；没有有效历史时仍回退最近结果。 -->
         latest_protocol AS (
             SELECT ranked.*
             FROM (
                 SELECT protocol.*,
                        ROW_NUMBER() OVER (
                            PARTITION BY tenant_id, accountId, groupKey
-                           ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC
+                           ORDER BY effectiveGroupStatus DESC,
+                                    roundNo DESC,
+                                    attemptNo DESC,
+                                    attemptId DESC
                        ) AS protocolRank
                 FROM attempt_facts protocol
                 WHERE attemptStatus IN (1, 2)
@@ -375,6 +398,8 @@
                ended.attemptStatus AS latestExecutionStatus,
                ended.reasonCode AS executionReasonCode,
                ended.reasonMessage AS executionReasonMessage,
+               ended.rawGroupStatus AS executionGroupStatus,
+               ended.groupStatusReason AS executionGroupStatusReason,
                COALESCE(a.sentMessageCount, 0) AS sentMessageCount,
                COALESCE(a.failedMessageCount, 0) AS failedMessageCount,
                COALESCE(a.skippedMessageCount, 0) AS skippedMessageCount,

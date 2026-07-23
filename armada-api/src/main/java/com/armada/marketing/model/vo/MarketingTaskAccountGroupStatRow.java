@@ -40,19 +40,19 @@ public class MarketingTaskAccountGroupStatRow {
     /** 当前账号群关系状态码。 */
     private Integer membershipStatus;
 
-    /** 最新有效发送尝试状态:1=成功,2=失败;没有有效结果时为空。 */
+    /** 最近一次有效群状态证据对应的尝试状态:1=成功,2=失败;没有发送结果时为空。 */
     private Integer latestAttemptStatus;
 
-    /** 最新有效发送尝试失败原因码。 */
+    /** 最近一次有效群状态证据对应的原因码。 */
     private String reasonCode;
 
-    /** 最新有效发送尝试失败原因描述。 */
+    /** 最近一次有效群状态证据对应的原因描述。 */
     private String reasonMessage;
 
-    /** 最新有效发送尝试携带的原始群组检测状态。 */
+    /** 最近一次有效群状态证据携带的原始群组检测状态。 */
     private String groupStatus;
 
-    /** 最新有效发送尝试携带的群组检测原因。 */
+    /** 最近一次有效群状态证据携带的群组检测原因。 */
     private String groupStatusReason;
 
     /** 最后已结束尝试状态:1成功、2失败、3跳过。 */
@@ -63,6 +63,12 @@ public class MarketingTaskAccountGroupStatRow {
 
     /** 最后已结束尝试原因描述。 */
     private String executionReasonMessage;
+
+    /** 最后已结束尝试携带的原始群组检测状态。 */
+    private String executionGroupStatus;
+
+    /** 最后已结束尝试携带的群组检测原因。 */
+    private String executionGroupStatusReason;
 
     /**
      * 该账号向该群组发送成功的历史累计次数。
@@ -320,6 +326,42 @@ public class MarketingTaskAccountGroupStatRow {
 
     public void setExecutionReasonMessage(String executionReasonMessage) {
         this.executionReasonMessage = executionReasonMessage;
+    }
+
+    /**
+     * 获取最后已结束尝试携带的原始群组检测状态。
+     *
+     * @return 原始群组检测状态
+     */
+    public String getExecutionGroupStatus() {
+        return executionGroupStatus;
+    }
+
+    /**
+     * 设置最后已结束尝试携带的原始群组检测状态。
+     *
+     * @param executionGroupStatus 原始群组检测状态
+     */
+    public void setExecutionGroupStatus(String executionGroupStatus) {
+        this.executionGroupStatus = executionGroupStatus;
+    }
+
+    /**
+     * 获取最后已结束尝试携带的群组检测原因。
+     *
+     * @return 群组检测原因
+     */
+    public String getExecutionGroupStatusReason() {
+        return executionGroupStatusReason;
+    }
+
+    /**
+     * 设置最后已结束尝试携带的群组检测原因。
+     *
+     * @param executionGroupStatusReason 群组检测原因
+     */
+    public void setExecutionGroupStatusReason(String executionGroupStatusReason) {
+        this.executionGroupStatusReason = executionGroupStatusReason;
     }
 
     /**

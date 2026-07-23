@@ -69,6 +69,20 @@ class MarketingGroupExecutionNormalizerTest {
         assertThat(result.executionReason()).isEqualTo("socket closed");
     }
 
+    @Test
+    void failedSendKeepsRecognizedNormalGroupStatusAndItsOwnFailureReason() {
+        var result = MarketingGroupExecutionNormalizer.normalize(
+                MarketingSendAttemptStatus.FAILED.code(),
+                "SEND_FAILED",
+                "socket closed",
+                "NORMAL",
+                "GROUP_SEND_ALLOWED");
+
+        assertThat(result.groupStatus()).isEqualTo("NORMAL");
+        assertThat(result.executionResult()).isEqualTo("FAILED");
+        assertThat(result.executionReason()).isEqualTo("socket closed");
+    }
+
     @ParameterizedTest
     @MethodSource("ineffectiveStatuses")
     void submittedSkippedOrMissingAttemptHasNoExecution(Integer attemptStatus) {

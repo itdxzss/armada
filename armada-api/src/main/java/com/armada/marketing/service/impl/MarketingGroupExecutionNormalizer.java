@@ -65,6 +65,9 @@ final class MarketingGroupExecutionNormalizer {
     /** 协议判定群聊仅管理员可发言且当前账号不是管理员。 */
     private static final String REASON_ANNOUNCE_ONLY_NON_ADMIN = "ANNOUNCE_ONLY_NON_ADMIN";
 
+    /** 协议已确认当前群组允许发送。 */
+    private static final String REASON_GROUP_SEND_ALLOWED = "GROUP_SEND_ALLOWED";
+
     /** 页面展示的账号封禁失败原因。 */
     private static final String MESSAGE_ACCOUNT_BANNED = "账号封禁";
 
@@ -86,7 +89,7 @@ final class MarketingGroupExecutionNormalizer {
     /**
      * 从一条最后有效发送尝试归一页面需要的三个同源字段。
      *
-     * <p>判定优先级固定为账号封禁、被踢出群聊、群组封禁、没有权限、未确认，
+     * <p>判定优先级固定为账号封禁、被踢出群聊、群组封禁、没有权限、正常、未确认，
      * 避免原始群状态和失败原因分别取自不同记录。成功尝试始终返回 {@code NORMAL/SUCCESS}
      * 且失败原因为空；非成功/失败记录返回 {@code UNCONFIRMED} 且不产生执行结果。</p>
      *
@@ -125,6 +128,10 @@ final class MarketingGroupExecutionNormalizer {
                 || matches(groupStatusReason, REASON_ANNOUNCE_ONLY_NON_ADMIN)
                 || matches(rawGroupStatus, REASON_NO_PERMISSION)) {
             return failed(STATUS_NO_PERMISSION, MESSAGE_NO_PERMISSION);
+        }
+        if (matches(rawGroupStatus, STATUS_NORMAL)
+                || matches(groupStatusReason, REASON_GROUP_SEND_ALLOWED)) {
+            return failed(STATUS_NORMAL, firstText(reasonMessage, reasonCode, MESSAGE_UNKNOWN));
         }
         String fallback = firstText(reasonMessage, reasonCode, MESSAGE_UNKNOWN);
         return failed(STATUS_UNCONFIRMED, fallback);

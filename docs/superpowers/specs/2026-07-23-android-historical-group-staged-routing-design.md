@@ -192,6 +192,11 @@ Android metadata mapper 输出：
 - 完整成员列表；
 - 成员的规范 JID、号码、管理员和群主标记。
 
+稳定 metadata 结果同时携带协议能力 `participantMutationSupported`。第一批 Web backend 返回
+`true`，Android backend 返回 `false`；详情页的成员修改门禁读取该能力，而不是依据协议枚举写
+Android 分支。这样 Android 只读详情接通后不会因为“当前账号是管理员且邀请链接可用”而误开放
+升管、降管和踢人按钮，第二批接入 Android 成员修改 backend 后再把该能力切为 `true`。
+
 Android 当前未提供的能力字段不得伪造为 `false`。未知值必须保持 `null`，避免页面把“协议未返回”误解释为“功能关闭”。
 
 ### 7.3 固定账号邀请链接端口
@@ -223,8 +228,9 @@ Android 当前未提供的能力字段不得伪造为 `false`。未知值必须�
 1. 先验证目标 JID 属于 baseline，再调用任何协议能力。
 2. 使用同一个固定操作账号分别读取 metadata 和邀请链接。
 3. 根据成员列表中的本人身份计算 `OWNER / ADMIN / MEMBER`。
-4. 结合 `announceOnly` 计算现有发言状态。
-5. 返回与 Web 相同的 `HistoricalGroupDetailVO`。
+4. 结合 `announceOnly` 与群异常状态计算现有发言状态。
+5. 结合 `participantMutationSupported`、管理员身份和邀请链接计算成员操作门禁。
+6. 返回与 Web 相同的 `HistoricalGroupDetailVO`。
 
 ### 7.5 Web/Android 等价语义
 
@@ -392,6 +398,7 @@ Android HTTP 业务失败通常仍返回 HTTP 200，所有 Android backend 必�
 - 群邀请链接 Routing backend；
 - `AndroidNativeClient` 的群列表、摘要和邀请链接方法；
 - Android 响应 mapper；
+- 稳定 metadata 的群异常状态与成员修改能力标记；
 - Spring 装配和对应测试；
 - 历史群 Service 调用统一 Port 的聚焦调整。
 
@@ -450,6 +457,7 @@ Android HTTP 业务失败通常仍返回 HTTP 200，所有 Android backend 必�
 - 管理员、成员、已退出和获取失败区段一致；
 - 群人数、禁言状态和异常状态一致；
 - 单群详情、本人角色、成员列表和邀请链接一致；
+- Android 第一批详情明确禁用成员修改，且不会调用 Web 成员变更端口；
 - 当前列表失败时均不误判退出；
 - 单群摘要失败时均不影响其他群；
 - Web 全部既有历史群测试保持通过。

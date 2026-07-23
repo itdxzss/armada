@@ -16,11 +16,11 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -154,7 +154,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
 
     private static Map<String, AccountGroupsReportedEvent.Group> normalizeVisibleGroups(
             List<AccountGroupsReportedEvent.Group> groups) {
-        Map<String, AccountGroupsReportedEvent.Group> visible = new LinkedHashMap<>();
+        Map<String, AccountGroupsReportedEvent.Group> visible = new TreeMap<>();
         if (groups == null) {
             return visible;
         }

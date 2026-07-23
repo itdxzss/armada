@@ -21,7 +21,7 @@ class GroupPullMarketingEnumTest {
         assertThat(MarketingBusinessType.GROUP_PULL.code()).isEqualTo(2);
         assertThat(GroupPullBlockReason.NONE.code()).isZero();
         assertThat(GroupPullResourceStatus.UNLOCKED.code()).isEqualTo(1);
-        assertThat(GroupPullResourceStatus.RELEASE_FAILED.code()).isEqualTo(5);
+        assertThat(GroupPullResourceStatus.RELEASED.code()).isEqualTo(4);
         assertThat(GroupPullExecutionStatus.MANUAL_REVIEW.code()).isEqualTo(7);
         assertThat(GroupPullExecutionStage.RESOURCE_PREPARATION.code()).isEqualTo(1);
         assertThat(GroupPullExecutionStage.COMPLETED.code()).isEqualTo(11);

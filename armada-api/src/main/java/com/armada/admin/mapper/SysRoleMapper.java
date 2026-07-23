@@ -12,9 +12,21 @@ public interface SysRoleMapper {
 
     Optional<SysRole> findById(@Param("id") long id);
 
+    List<SysRole> findAllOrdered();
+
     List<Long> findEnabledIds();
 
     int insert(SysRole role);
+
+    long countByNameExcludingId(@Param("roleName") String roleName, @Param("excludeId") Long excludeId);
+
+    long countByCodeExcludingId(@Param("roleCode") String roleCode, @Param("excludeId") Long excludeId);
+
+    int update(SysRole role);
+
+    int updateStatus(@Param("id") long id, @Param("status") int status, @Param("updatedAt") long updatedAt);
+
+    long countUsersByRoleId(@Param("roleId") long roleId);
 
     long countEnabledTenantAdmins();
 

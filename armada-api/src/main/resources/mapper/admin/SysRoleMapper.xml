@@ -14,6 +14,12 @@
         WHERE id = #{id}
     </select>
 
+    <select id="findAllOrdered" resultType="com.armada.admin.model.entity.SysRole">
+        SELECT <include refid="Columns"/>
+        FROM sys_role
+        ORDER BY is_system DESC, id
+    </select>
+
     <select id="findEnabledIds" resultType="long">
         SELECT id
         FROM sys_role
@@ -30,6 +36,42 @@
             (#{roleName}, #{roleCode}, #{status}, #{isSystem}, #{remark},
              #{createdAt}, #{createdBy}, #{updatedAt}, #{updatedBy})
     </insert>
+
+    <select id="countByNameExcludingId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_role
+        WHERE role_name = #{roleName}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <select id="countByCodeExcludingId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_role
+        WHERE role_code = #{roleCode}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <update id="update" parameterType="com.armada.admin.model.entity.SysRole">
+        UPDATE sys_role
+        SET role_name = #{roleName},
+            remark = #{remark},
+            updated_at = #{updatedAt},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE sys_role
+        SET status = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countUsersByRoleId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_user_role
+        WHERE role_id = #{roleId}
+    </select>
 
     <select id="countEnabledTenantAdmins" resultType="long">
         SELECT COUNT(*)

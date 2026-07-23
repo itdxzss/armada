@@ -19,7 +19,9 @@ import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
+import com.armada.platform.protocol.port.GroupLeavePort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
@@ -101,13 +103,19 @@ class ProtocolConfigurationTest {
             assertThat(context).hasSingleBean(GroupJoinPort.class);
             assertThat(context.getBeansOfType(GroupJoinBackend.class))
                     .containsKeys("webGroupJoinBackend", "androidGroupJoinBackend");
-            assertThat(context).hasSingleBean(GroupParticipantPort.class);
+            assertThat(context.getBean(GroupParticipantPort.class))
+                    .isSameAs(context.getBean("groupParticipantPort"));
+            assertThat(context.getBean(GroupInvitePort.class))
+                    .isSameAs(context.getBean("groupInvitePort"));
             assertThat(context).hasSingleBean(GroupMemberListPort.class);
             assertThat(context.getBeansOfType(GroupMemberListBackend.class))
                     .containsKeys("webGroupMemberListBackend", "androidGroupMemberListBackend");
             assertThat(context).hasSingleBean(GroupMetadataPort.class);
             assertThat(context).hasSingleBean(GroupProfilePort.class);
-            assertThat(context).hasSingleBean(GroupSettingsPort.class);
+            assertThat(context.getBean(GroupSettingsPort.class))
+                    .isSameAs(context.getBean("groupSettingsPort"));
+            assertThat(context.getBean(GroupLeavePort.class))
+                    .isSameAs(context.getBean("groupLeavePort"));
             assertThat(context).hasSingleBean(GroupPreviewPort.class);
             assertThat(context).hasSingleBean(MessageSendPort.class);
             assertThat(context.getBeansOfType(MessageSendBackend.class))

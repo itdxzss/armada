@@ -82,7 +82,7 @@ FROM tenant t
 WHERE t.status = 1;
 ```
 
-Seed only current production business menus, buyer button permissions already present in `v-auth/auths`, and the three system-management pages/buttons defined by this feature. Do not seed home/login/error/redirect routes or pure-admin permission demos.
+Seed the approved regrouped business tree: account import moves under account management; link import/group list/history move under group management; task center retains only actual tasks; operation management becomes resource management; buyer template/channel/statistics are direct children of buyer management. Preserve every page's existing `route_path` and `component_path`. Seed buyer button permissions already present in `v-auth/auths` and the three system-management pages/buttons defined by this feature. Do not seed home/login/error/redirect routes or pure-admin permission demos.
 
 - [ ] **Step 4: Write and run the true-database schema test**
 

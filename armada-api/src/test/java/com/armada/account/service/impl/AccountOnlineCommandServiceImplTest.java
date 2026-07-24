@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -44,8 +47,12 @@ import com.armada.resource.service.IpProxyAllocationRequest;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.LongStream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -53,6 +60,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 单账号自动分配代理上线命令服务单测。
@@ -93,6 +102,71 @@ class AccountOnlineCommandServiceImplTest {
     @InjectMocks
     private AccountOnlineCommandServiceImpl service;
 
+    @BeforeEach
+    void allowManualOnlineStateClaimsAndSnapshotWritesByDefault() {
+        lenient().doAnswer(invocation -> invocation.<List<Long>>getArgument(0).size())
+                .when(stateMapper).claimPendingOnline(any(), anyLong());
+        lenient().doAnswer(invocation -> invocation.<List<AccountState>>getArgument(0).size())
+                .when(stateMapper).updateProxySnapshots(any());
+    }
+
+    @Test
+    void online_pendingAccountReturnsIdempotentResultWithoutAllocatingProxyOrWritingOutbox() {
+        Account account = onlineAccount();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L))
+                .thenReturn(loginState(100L, AccountLoginStateCode.PENDING_ONLINE));
+
+        AccountOnlineVO result = service.online(100L);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.stateSource()).isEqualTo("ALREADY_PENDING");
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void online_onlineAccountReturnsIdempotentResultWithoutAllocatingProxyOrWritingOutbox() {
+        Account account = onlineAccount();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L))
+                .thenReturn(loginState(100L, AccountLoginStateCode.ONLINE));
+
+        AccountOnlineVO result = service.online(100L);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.stateSource()).isEqualTo("ALREADY_ONLINE");
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void manualOnlineEntrypointsUseReadCommittedTransactionForOptimisticProxyRetries() throws Exception {
+        assertThat(transactionalAnnotation("online", Long.class).isolation())
+                .isEqualTo(Isolation.READ_COMMITTED);
+        assertThat(transactionalAnnotation("onlineBatch", List.class).isolation())
+                .isEqualTo(Isolation.READ_COMMITTED);
+        assertThat(transactionalAnnotation("onlineBatchWithProtocolBackends", List.class).isolation())
+                .isEqualTo(Isolation.READ_COMMITTED);
+    }
+
+    @Test
+    void onlineBatch_partialPendingClaimFailsBeforeProxyAllocationOrOutbox() {
+        List<Long> ids = List.of(100L, 101L);
+        when(accountMapper.selectActiveByIds(ids))
+                .thenReturn(List.of(account(100L, "acc_100"), account(101L, "acc_101")));
+        doReturn(1).when(stateMapper).claimPendingOnline(eq(ids), anyLong());
+        when(credentialMapper.selectByAccountIds(ids)).thenReturn(List.of(
+                credential(100L, 2, "{\"creds\":{},\"keys\":{}}"),
+                credential(101L, 2, "{\"creds\":{},\"keys\":{}}")));
+
+        assertThatThrownBy(() -> service.onlineBatch(ids))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(ErrorCode.CONFLICT.code());
+                    assertThat(ex.getMessage()).contains("登录状态已变化");
+                });
+
+        verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
+    }
+
     @Test
     void online_validAccountCredentialAndAllocatedProxy_enqueuesOutboxCommandAndMapsAcceptedVo() {
         Account account = new Account();
@@ -118,7 +192,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_test_single");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         AccountOnlineVO result = service.online(100L);
 
@@ -138,7 +212,7 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.protocolBackend()).isEqualTo(ProtocolBackend.WEB);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> pendingIdsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(stateMapper).markPendingOnline(pendingIdsCaptor.capture(), anyLong());
+        verify(stateMapper).claimPendingOnline(pendingIdsCaptor.capture(), anyLong());
         assertThat(pendingIdsCaptor.getValue()).containsExactly(100L);
         verify(ipProxyService, never()).releaseOnlineAllocation(any(), any());
 
@@ -180,7 +254,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_android_single");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_android"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         service.online(100L);
 
@@ -224,7 +298,7 @@ class AccountOnlineCommandServiceImplTest {
             when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_log_single");
             when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                     .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-            when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+            lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
             service.online(100L);
 
@@ -302,7 +376,7 @@ class AccountOnlineCommandServiceImplTest {
         when(accountOnlineAttemptLogService.latestAttemptId(100L)).thenReturn("oa_previous_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         service.reonlineAfterProxyFailure(100L);
 
@@ -332,7 +406,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event");
 
@@ -373,7 +447,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         AccountBatchOnlineVO result = service.onlineBatch(List.of(100L, 101L));
 
@@ -398,7 +472,7 @@ class AccountOnlineCommandServiceImplTest {
                 .containsExactly(false, true);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> pendingIdsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(stateMapper).markPendingOnline(pendingIdsCaptor.capture(), anyLong());
+        verify(stateMapper).claimPendingOnline(pendingIdsCaptor.capture(), anyLong());
         assertThat(pendingIdsCaptor.getValue()).containsExactly(100L, 101L);
 
         verify(ipProxyService, never()).releaseOnlineAllocations(any());
@@ -420,6 +494,42 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void onlineBatch_updatesProxySnapshotsInOneHundredAccountWindows() {
+        List<Long> ids = LongStream.rangeClosed(1L, 101L).boxed().toList();
+        List<Account> accounts = ids.stream().map(id -> account(id, "acc_" + id)).toList();
+        List<AccountCredential> credentials = ids.stream()
+                .map(id -> credential(id, 2, "{\"creds\":{},\"keys\":{}}"))
+                .toList();
+        List<AccountIpRegionRow> ipRegions = ids.stream()
+                .map(id -> ipRegionRow(id, "印度"))
+                .toList();
+        List<IpProxyAccountAllocation> allocations = ids.stream()
+                .map(id -> new IpProxyAccountAllocation(id, 1_000L + id, onlineEndpoint(), "iproyal"))
+                .toList();
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(accounts);
+        when(credentialMapper.selectByAccountIds(ids)).thenReturn(credentials);
+        when(accountMapper.selectIpRegionsByAccountIds(ids, ImportResult.SUCCESS.getCode()))
+                .thenReturn(ipRegions);
+        when(ipProxyService.allocateOnlineEndpoints(any())).thenReturn(allocations);
+        AtomicInteger attemptSequence = new AtomicInteger();
+        when(onlineAttemptIdGenerator.nextId())
+                .thenAnswer(ignored -> "oa_batch_" + attemptSequence.incrementAndGet());
+        when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "batch_101",
+                        ids.stream().map(id -> "cmd_" + id).toList(),
+                        ids.size()));
+
+        AccountBatchOnlineVO result = service.onlineBatch(ids);
+
+        assertThat(result.accepted()).isEqualTo(101);
+        ArgumentCaptor<List> snapshots = ArgumentCaptor.forClass(List.class);
+        verify(stateMapper, times(2)).updateProxySnapshots(snapshots.capture());
+        assertThat(snapshots.getAllValues()).extracting(List::size).containsExactly(100, 1);
+    }
+
+    @Test
     void onlineBatch_outboxAcceptedButPendingStateUpdateFails_stillReturnsAccepted() {
         Account account = account(100L, "acc_100");
         AccountCredential credential = credential(100L, 2, "{\"creds\":{},\"keys\":{}}");
@@ -435,7 +545,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong()))
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong()))
                 .thenThrow(new RuntimeException("account_state unavailable"));
 
         AccountBatchOnlineVO result = service.onlineBatch(ids);
@@ -468,7 +578,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         service.onlineBatchWithProtocolBackends(List.of(
                 new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
@@ -525,7 +635,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_takeover_100", "oa_takeover_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_takeover", List.of("cmd_100", "cmd_101"), 2));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         AccountBatchOnlineVO result = service.takeoverBatch(List.of(100L, 101L));
 
@@ -571,7 +681,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_takeover_retry");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "offline_takeover");
 
@@ -631,7 +741,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_takeover_retry");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         AccountOnlineVO result = service.reonlineForTakeover(100L, "oa_failed", "login_replaced_takeover");
 
@@ -674,7 +784,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100", "oa_batch_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100", "cmd_101"), 2));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         AccountBatchOnlineVO result = service.onlineBatch(List.of(100L, 101L));
 
@@ -704,7 +814,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_batch_100");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_1", List.of("cmd_100"), 1));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
         service.onlineBatch(List.of(100L));
 
@@ -881,7 +991,7 @@ class AccountOnlineCommandServiceImplTest {
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_relogin_100", "oa_relogin_101");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("batch_relogin", List.of("cmd_100", "cmd_101"), 2));
-        when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
+        lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(2);
 
         AccountBatchOnlineVO result = service.reloginOnlineAccountsByProxyIds(proxyIds);
 
@@ -1002,6 +1112,18 @@ class AccountOnlineCommandServiceImplTest {
         AccountState state = state(accountId, AccountStateCode.TAKING_OVER, null);
         state.setLoginState(loginState);
         return state;
+    }
+
+    private static AccountState loginState(Long accountId, Integer loginState) {
+        AccountState state = state(accountId, AccountStateCode.NORMAL, null);
+        state.setLoginState(loginState);
+        return state;
+    }
+
+    private static Transactional transactionalAnnotation(String methodName, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Method method = AccountOnlineCommandServiceImpl.class.getMethod(methodName, parameterTypes);
+        return method.getAnnotation(Transactional.class);
     }
 
     private static AccountIpRegionRow ipRegionRow(Long accountId, String ipRegion) {

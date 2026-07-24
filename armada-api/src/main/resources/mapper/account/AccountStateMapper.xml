@@ -48,6 +48,23 @@
     </foreach>
   </update>
 
+  <!-- 用户手动上线在分配代理前原子预占；PENDING/ONLINE 或并发变化的行不会命中。 -->
+  <update id="claimPendingOnlineInternal">
+    UPDATE account_state
+    SET login_state = #{pendingLoginState},
+        last_state_sync_time = #{updatedAt},
+        state_source = #{stateSource},
+        updated_at = #{updatedAt}
+    WHERE (
+        login_state IS NULL
+        OR login_state = #{offlineLoginState}
+      )
+      AND account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+  </update>
+
   <!-- account.state_changed 普通状态:只更新登录态与同步元数据,不改 account_state 生命周期列。 -->
   <update id="updateLoginState">
     UPDATE account_state
@@ -97,14 +114,22 @@
     WHERE account_id = #{accountId}
   </update>
 
-  <!-- 上线分配代理后写展示快照;释放代理绑定时不清空这些字段。 -->
-  <update id="updateProxySnapshot">
-    UPDATE account_state
-    SET truth_ip = #{truthIp},
-        proxy_country = #{proxyCountry},
-        proxy_source = #{proxySource},
-        updated_at = #{updatedAt}
-    WHERE account_id = #{accountId}
+  <!-- 每批最多 100 个账号；派生表保持账号与多个快照字段的一一映射。 -->
+  <update id="updateProxySnapshotsInternal">
+    UPDATE account_state state_row
+    JOIN (
+    <foreach collection="rows" item="row" separator=" UNION ALL ">
+      SELECT #{row.accountId} AS account_id,
+             #{row.truthIp} AS truth_ip,
+             #{row.proxyCountry} AS proxy_country,
+             #{row.proxySource} AS proxy_source,
+             #{row.updatedAt} AS updated_at
+    </foreach>
+    ) snapshot ON snapshot.account_id = state_row.account_id
+    SET state_row.truth_ip = snapshot.truth_ip,
+        state_row.proxy_country = snapshot.proxy_country,
+        state_row.proxy_source = snapshot.proxy_source,
+        state_row.updated_at = snapshot.updated_at
   </update>
 
   <!-- ONLINE 只把未上报/待上线/解绑状态收敛为正常并清空失效时间,其它终态不受影响。 -->

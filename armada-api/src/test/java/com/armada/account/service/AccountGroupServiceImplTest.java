@@ -332,7 +332,7 @@ class AccountGroupServiceImplTest {
         AccountGroup g = new AccountGroup();
         g.setId(9L);
         g.setSystemBuiltin(0);
-        when(mapper.selectByIdsForUpdate(List.of(9L))).thenReturn(List.of(g));
+        when(mapper.selectById(9L)).thenReturn(g);
         when(mapper.countAccountsByGroupId(9L)).thenReturn(3L);
 
         assertThatThrownBy(() -> service.batchDelete(List.of(9L)))
@@ -346,7 +346,7 @@ class AccountGroupServiceImplTest {
         AccountGroup sys = new AccountGroup();
         sys.setId(1L);
         sys.setSystemBuiltin(1);
-        when(mapper.selectByIdsForUpdate(List.of(1L))).thenReturn(List.of(sys));
+        when(mapper.selectById(1L)).thenReturn(sys);
 
         assertThatThrownBy(() -> service.batchDelete(List.of(1L)))
                 .isInstanceOf(BusinessException.class)
@@ -360,7 +360,7 @@ class AccountGroupServiceImplTest {
         group.setId(8L);
         group.setSystemBuiltin(0);
         group.setMarketingOccupancyTaskId(88L);
-        when(mapper.selectByIdsForUpdate(List.of(8L))).thenReturn(List.of(group));
+        when(mapper.selectById(8L)).thenReturn(group);
 
         assertThatThrownBy(() -> service.batchDelete(List.of(8L)))
                 .isInstanceOf(BusinessException.class)
@@ -371,8 +371,6 @@ class AccountGroupServiceImplTest {
 
     @Test
     void batchDelete_notFound_throws() {
-        when(mapper.selectByIdsForUpdate(List.of(99L))).thenReturn(List.of());
-
         assertThatThrownBy(() -> service.batchDelete(List.of(99L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
@@ -387,13 +385,15 @@ class AccountGroupServiceImplTest {
         AccountGroup g2 = new AccountGroup();
         g2.setId(2L);
         g2.setSystemBuiltin(0);
-        when(mapper.selectByIdsForUpdate(List.of(1L, 2L))).thenReturn(List.of(g1, g2));
+        when(mapper.selectById(1L)).thenReturn(g1);
+        when(mapper.selectById(2L)).thenReturn(g2);
         when(mapper.countAccountsByGroupId(1L)).thenReturn(0L);
         when(mapper.countAccountsByGroupId(2L)).thenReturn(0L);
         when(mapper.softDeleteByIds(anyList(), anyLong())).thenReturn(2);
 
         int result = service.batchDelete(List.of(1L, 2L));
 
+        verify(mapper, never()).selectByIdsForUpdate(anyList());
         verify(mapper).softDeleteByIds(anyList(), anyLong());
         assertThat(result).isEqualTo(2);
     }

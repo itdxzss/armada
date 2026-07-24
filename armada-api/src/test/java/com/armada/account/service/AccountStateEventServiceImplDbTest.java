@@ -12,6 +12,7 @@ import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountImportBatchVO;
+import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
@@ -20,6 +21,7 @@ import com.armada.resource.model.entity.IpProxy;
 import com.armada.resource.model.enums.IpProxyCheckLifecycleStatus;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -239,9 +241,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         insertDefaultState(account.getId(), now);
         IpProxy proxy = newIdleProxy(now);
         ipProxyMapper.insert(proxy);
-        ipProxyMapper.markUsingAndBind(
-                proxy.getId(),
-                account.getId(),
+        ipProxyMapper.markUsingAndBindBatch(
+                List.of(new IpProxyBindTarget(proxy.getId(), account.getId())),
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 1);
@@ -267,9 +268,8 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         IpProxy replacementProxy = newIdleProxy(now + 1);
         ipProxyMapper.insert(failedProxy);
         ipProxyMapper.insert(replacementProxy);
-        ipProxyMapper.markUsingAndBind(
-                failedProxy.getId(),
-                account.getId(),
+        ipProxyMapper.markUsingAndBindBatch(
+                List.of(new IpProxyBindTarget(failedProxy.getId(), account.getId())),
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 1);

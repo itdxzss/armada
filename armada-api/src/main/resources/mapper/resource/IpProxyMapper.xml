@@ -440,57 +440,46 @@
           AND deleted_at IS NULL
     </update>
 
-    <select id="selectOneIdleByRegionPriorityForUpdate" resultType="com.armada.resource.model.entity.IpProxy">
+    <!-- 候选查询不加行锁；真正占用由后续 status=IDLE 的 CASE UPDATE 原子竞争。 -->
+    <select id="selectIdleByRegionPriority" resultType="com.armada.resource.model.entity.IpProxy">
         SELECT <include refid="Columns"/>
         FROM ip_proxy
-        WHERE tenant_id = #{tenantId}
+        WHERE tenant_id = #{query.tenantId}
           AND deleted_at IS NULL
-          AND status = #{idleStatus}
-        <if test="excludedIds != null and excludedIds.size() &gt; 0">
+          AND status = #{query.idleStatus}
+        <if test="query.excludedProxyIds != null and query.excludedProxyIds.size() &gt; 0">
           AND id NOT IN
-          <foreach collection="excludedIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+          <foreach collection="query.excludedProxyIds" item="id" open="(" separator="," close=")">#{id}</foreach>
         </if>
-        <if test="allowOtherRegionFallback == false">
+        <if test="query.allowOtherRegionFallback == false">
           <choose>
-            <when test="preferredRegion != null and preferredRegion != ''">
-              AND region IN (#{preferredRegion}, #{mixedRegion})
+            <when test="query.preferredRegion != null and query.preferredRegion != ''">
+              AND region IN (#{query.preferredRegion}, #{query.mixedRegion})
             </when>
             <otherwise>
-              AND region = #{mixedRegion}
+              AND region = #{query.mixedRegion}
             </otherwise>
           </choose>
         </if>
         ORDER BY
         <choose>
-          <when test="preferredRegion != null and preferredRegion != ''">
+          <when test="query.preferredRegion != null and query.preferredRegion != ''">
             CASE
-              WHEN region = #{preferredRegion} THEN 0
-              WHEN region = #{mixedRegion} THEN 1
+              WHEN region = #{query.preferredRegion} THEN 0
+              WHEN region = #{query.mixedRegion} THEN 1
               ELSE 2
             END
           </when>
           <otherwise>
             CASE
-              WHEN region = #{mixedRegion} THEN 0
+              WHEN region = #{query.mixedRegion} THEN 0
               ELSE 1
             END
           </otherwise>
         </choose>,
         id ASC
-        LIMIT 1
-        FOR UPDATE
+        LIMIT #{query.limit}
     </select>
-
-    <update id="markUsingAndBind">
-        UPDATE ip_proxy
-        SET status = #{usingStatus},
-            bound_account_id = #{accountId},
-            bound_at = #{boundAt},
-            updated_at = #{boundAt}
-        WHERE id = #{id}
-          AND deleted_at IS NULL
-          AND status = #{idleStatus}
-    </update>
 
     <update id="markUsingAndBindBatch">
         UPDATE ip_proxy
@@ -506,6 +495,7 @@
           AND status = #{idleStatus}
           AND id IN
         <foreach collection="targets" item="target" open="(" separator="," close=")">#{target.proxyId}</foreach>
+        ORDER BY id ASC
     </update>
 
     <update id="releaseByAccount">

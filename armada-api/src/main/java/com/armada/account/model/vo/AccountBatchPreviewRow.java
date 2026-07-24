@@ -3,7 +3,7 @@ package com.armada.account.model.vo;
 /**
  * 批量账号预估 SQL 聚合行。
  *
- * <p>四种跳过数量采用互斥口径，合计值可以直接从 matched 中扣除。</p>
+ * <p>各种跳过数量采用互斥口径，合计值可以直接从 matched 中扣除。</p>
  */
 public class AccountBatchPreviewRow {
 
@@ -11,6 +11,8 @@ public class AccountBatchPreviewRow {
     private long banned;
     private long unbound;
     private long takingOver;
+    private long alreadyPending;
+    private long alreadyOnline;
     private long missingCredential;
 
     public long getMatched() {
@@ -43,6 +45,22 @@ public class AccountBatchPreviewRow {
 
     public void setTakingOver(long takingOver) {
         this.takingOver = takingOver;
+    }
+
+    public long getAlreadyPending() {
+        return alreadyPending;
+    }
+
+    public void setAlreadyPending(long alreadyPending) {
+        this.alreadyPending = alreadyPending;
+    }
+
+    public long getAlreadyOnline() {
+        return alreadyOnline;
+    }
+
+    public void setAlreadyOnline(long alreadyOnline) {
+        this.alreadyOnline = alreadyOnline;
     }
 
     public long getMissingCredential() {

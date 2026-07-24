@@ -13,6 +13,7 @@ import com.armada.account.service.AccountGroupService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.TreeSet;
@@ -254,8 +255,8 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     /**
      * 批量软删除空闲的用户自建账号分组。
      *
-     * <p>事务内按 ID 升序锁定全部分组，再执行全量校验。任一分组不存在、属于系统、
-     * 正被营销任务占用或仍有账号时，整批操作回滚。</p>
+     * <p>先按 ID 升序读取并全量校验。最终软删除 SQL 原子校验营销占用状态；任一分组
+     * 不存在、属于系统、正被营销任务占用或仍有账号时，整批操作回滚。</p>
      *
      * @param ids 待删除分组 ID，数量范围为 1..{@value #BATCH_DELETE_MAX}
      * @return 实际软删除的分组数量
@@ -272,7 +273,14 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             throw new BusinessException(ErrorCode.VALIDATION, "分组 ID 不能为空");
         }
         List<Long> normalizedIds = List.copyOf(new TreeSet<>(ids));
-        List<AccountGroup> groups = lockExistingGroups(normalizedIds);
+        List<AccountGroup> groups = new ArrayList<>(normalizedIds.size());
+        for (Long id : normalizedIds) {
+            AccountGroup group = mapper.selectById(id);
+            if (group == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "部分分组不存在，请刷新后重试");
+            }
+            groups.add(group);
+        }
         // 全或无:先全量校验,任一不满足则整批拒删
         for (AccountGroup group : groups) {
             Long id = group.getId();

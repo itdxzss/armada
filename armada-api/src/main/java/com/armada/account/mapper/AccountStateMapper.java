@@ -83,6 +83,44 @@ public interface AccountStateMapper {
                                   @Param("updatedAt") long updatedAt);
 
     /**
+     * 用户手动上线前从未上报或离线状态原子预占为待上线。
+     *
+     * <p>该条件更新必须和代理分配、快照写入、outbox 入队处在同一外层事务中。
+     * 返回行数不足表示并发请求或登录态已变化，调用方必须整体回滚。</p>
+     *
+     * @param accountIds 本批待上线账号 ID
+     * @param updatedAt 更新时间和本地乱序水位(epoch 毫秒)
+     * @return 实际预占行数
+     */
+    default int claimPendingOnline(List<Long> accountIds, long updatedAt) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return 0;
+        }
+        return claimPendingOnlineInternal(
+                accountIds,
+                AccountLoginStateCode.OFFLINE,
+                AccountLoginStateCode.PENDING_ONLINE,
+                STATE_SOURCE_OUTBOX,
+                updatedAt);
+    }
+
+    /**
+     * 用户手动上线登录态条件预占的 SQL 实现。
+     *
+     * @param accountIds 本批待上线账号 ID
+     * @param offlineLoginState 离线登录态码
+     * @param pendingLoginState 待上线登录态码
+     * @param stateSource 状态来源
+     * @param updatedAt 更新时间和本地乱序水位(epoch 毫秒)
+     * @return 实际预占行数
+     */
+    int claimPendingOnlineInternal(@Param("accountIds") List<Long> accountIds,
+                                   @Param("offlineLoginState") int offlineLoginState,
+                                   @Param("pendingLoginState") int pendingLoginState,
+                                   @Param("stateSource") String stateSource,
+                                   @Param("updatedAt") long updatedAt);
+
+    /**
      * 更新账号登录态以及同步元数据。
      *
      * <p>用于 {@code account.state_changed} 普通 ONLINE/OFFLINE/RECONNECTING 等状态回写;
@@ -132,14 +170,28 @@ public interface AccountStateMapper {
     int updateLifecycleState(AccountState row);
 
     /**
-     * 更新账号最近一次上线分配的代理展示快照。
+     * 批量更新账号最近一次上线分配的代理展示快照。
      *
-     * <p>该快照只供账号列表展示国家、IP 来源、代理地址;不表示当前代理仍被账号占用。</p>
+     * <p>不同账号的真实出口、国家和来源均不同，底层使用 UPDATE JOIN 映射字段，
+     * 调用方按 100 条以内分片。</p>
      *
-     * @param row 包含 accountId、truthIp、proxyCountry、proxySource、updatedAt
+     * @param rows 包含 accountId、truthIp、proxyCountry、proxySource、updatedAt 的快照行
      * @return 实际更新行数
      */
-    int updateProxySnapshot(AccountState row);
+    default int updateProxySnapshots(List<AccountState> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        return updateProxySnapshotsInternal(rows);
+    }
+
+    /**
+     * 批量代理快照 UPDATE JOIN 的 SQL 实现。
+     *
+     * @param rows 账号代理展示快照行
+     * @return 实际更新行数
+     */
+    int updateProxySnapshotsInternal(@Param("rows") List<AccountState> rows);
 
     /**
      * 协议回传 ONLINE 时把可恢复的账号生命周期状态收敛为正常。

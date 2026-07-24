@@ -124,35 +124,22 @@ public interface IpProxyMapper {
     int updateDetectionResult(@Param("entity") IpProxy entity, @Param("inUseStatus") int inUseStatus);
 
     /**
-     * 按国家优先级锁定一条本租户空闲代理。
+     * 按国家优先级批量读取本租户空闲代理候选。
      *
-     * <p>排序规则由调用方传入的 {@code preferredRegion} 决定:有指定国家时优先指定国家,
-     * 其次混合池,最后其它国家;无指定国家时混合池优先,其次其它国家。这里显式传 tenantId 并关闭租户拦截器,
-     * 避免租户 SQL 改写影响 {@code LIMIT ... FOR UPDATE}。</p>
+     * <p>该查询不使用 {@code FOR UPDATE}；真正抢占由后续带 {@code status=IDLE} 条件的
+     * CASE 批量 UPDATE 完成。tenant_id 在 SQL 中显式限定，因此关闭租户拦截器。</p>
+     *
+     * @param query 租户、国家策略、固定排除集合和候选上限
+     * @return 按国家优先级和代理 ID 排序的候选行
      */
     @InterceptorIgnore(tenantLine = "true")
-    IpProxy selectOneIdleByRegionPriorityForUpdate(@Param("tenantId") Long tenantId,
-                                                   @Param("idleStatus") int idleStatus,
-                                                   @Param("preferredRegion") String preferredRegion,
-                                                   @Param("mixedRegion") String mixedRegion,
-                                                   @Param("excludedIds") List<Long> excludedIds,
-                                                   @Param("allowOtherRegionFallback") boolean allowOtherRegionFallback);
+    List<IpProxy> selectIdleByRegionPriority(@Param("query") IpProxyCandidateQuery query);
 
     /**
-     * 将已锁定的空闲代理绑定到账号并置为使用中。
+     * 使用 CASE 批量乐观抢占空闲代理。
      *
-     * <p>WHERE 中保留 status=IDLE 条件,即使调用方漏锁或并发重试也不会覆盖已被占用的代理。</p>
-     */
-    int markUsingAndBind(@Param("id") Long id,
-                         @Param("accountId") Long accountId,
-                         @Param("idleStatus") int idleStatus,
-                         @Param("usingStatus") int usingStatus,
-                         @Param("boundAt") long boundAt);
-
-    /**
-     * 批量绑定已锁定的空闲代理。
-     *
-     * <p>WHERE 保留 status=IDLE 条件兜底,调用方用返回行数确认是否全部绑定成功。</p>
+     * <p>WHERE 保留 status=IDLE 条件，调用方必须在更新后重新读取实际绑定映射，
+     * 不能只根据 JDBC 更新行数推断每个账号是否抢占成功。</p>
      */
     int markUsingAndBindBatch(@Param("targets") List<IpProxyBindTarget> targets,
                               @Param("idleStatus") int idleStatus,

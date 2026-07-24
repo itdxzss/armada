@@ -9,12 +9,14 @@
 ```bash
 tar -xzf armada-app-prod-<version>.tar.gz
 cd armada-app-prod-<version>
+umask 077
 cp .env.example .env
+chmod 600 .env
 vim .env
 ./scripts/install.sh
 ```
 
-必须替换 `.env` 里的 RDS、MSK、协议机内网地址和共享 API key。
+必须替换 `.env` 里的 RDS、MSK、协议机内网地址、共享 API key 和推广 Token AES-256 密钥。密钥使用 `openssl rand -base64 32` 生成；密钥变化时必须同时更新 `PROMOTION_TRACKING_ENCRYPTION_KEY_ID`，旧密钥按轮换计划保留，不能在每次部署时重新生成。
 
 ## Protocol Machine
 
@@ -43,6 +45,16 @@ vim .env
 ```bash
 ./scripts/logs.sh
 ```
+
+执行生产主机只读巡检（逐项输出 `PASS/WARN/FAIL/SKIP`，不自动修复）：
+
+```bash
+sudo ./scripts/inspect-production-host.sh \
+  --service docker \
+  --report "./inspection-$(hostname)-$(date +%Y%m%d-%H%M%S).tsv"
+```
+
+按机器角色补充 `--listen-port`、`--health-url`、`--cert` 和 `--backup-marker`。完整检查项、阈值与安全边界见仓库 `docs/operations/production-host-inspection.md` 或脚本 `--help`。
 
 回滚到上一个已安装版本：
 

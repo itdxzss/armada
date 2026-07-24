@@ -48,7 +48,8 @@ env_value() {
 
 validate_env() {
   [ -f "${RELEASE_DIR}/.env" ] || die "missing .env. Run: cp .env.example .env, then edit it"
-  local key value
+  chmod 600 "${RELEASE_DIR}/.env"
+  local decoded_key_bytes key promotion_key value
   for key in ${REQUIRED_ENV_KEYS:-}; do
     value="$(env_value "${key}")"
     [ -n "${value}" ] || die ".env missing required value: ${key}"
@@ -56,8 +57,18 @@ validate_env() {
       *CHANGE_ME*|*PROTOCOL_PRIVATE_IP*|*REPLACE_ME*)
         die ".env still contains placeholder for ${key}: ${value}"
         ;;
-    esac
+      esac
   done
+
+  if [ "${RELEASE_KIND}" = "armada-app" ]; then
+    # 只对 App 包验证 AES-256 密钥；协议包复用本脚本但不承载推广 Token。
+    promotion_key="$(env_value PROMOTION_TRACKING_ENCRYPTION_KEY)"
+    if ! decoded_key_bytes="$(printf '%s' "${promotion_key}" | base64 --decode 2>/dev/null | wc -c | tr -d '[:space:]')"; then
+      die "PROMOTION_TRACKING_ENCRYPTION_KEY must be valid Base64"
+    fi
+    [ "${decoded_key_bytes}" = 32 ] \
+      || die "PROMOTION_TRACKING_ENCRYPTION_KEY must decode to exactly 32 bytes"
+  fi
 }
 
 check_prerequisites() {
@@ -88,6 +99,7 @@ install_release_files() {
     rm -rf "${TARGET_RELEASE}"
     mv "${TARGET_RELEASE}.tmp" "${TARGET_RELEASE}"
   fi
+  chmod 600 "${TARGET_RELEASE}/.env"
   ln -sfn "${TARGET_RELEASE}" "${CURRENT_LINK}"
 }
 

@@ -321,6 +321,82 @@ public class IpProxyServiceImpl implements IpProxyService {
         return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public IpProxyAllocation allocatePairingEndpoint(Long pairingSessionId,
+                                                     String preferredRegion,
+                                                     boolean allowOtherRegionFallback) {
+        requirePairingSessionId(pairingSessionId);
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少租户上下文");
+        }
+        long now = System.currentTimeMillis();
+        IpProxy proxy = selectOneIdleByPriority(
+                tenantId, preferredRegion, List.of(), allowOtherRegionFallback);
+        if (proxy == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "暂无空闲代理");
+        }
+        int reserved = mapper.reserveForPairing(
+                proxy.getId(), pairingSessionId,
+                IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(), now);
+        if (reserved != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "配对代理分配冲突，请重试");
+        }
+        log.info("IP代理推广配对占用 pairingSessionId={} proxyId={} region={}",
+                pairingSessionId, proxy.getId(), proxy.getRegion());
+        return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void confirmPairingAllocation(Long pairingSessionId, Long accountId, Long proxyId) {
+        if (accountId == null || accountId <= 0 || proxyId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "配对代理转正式绑定参数不完整");
+        }
+        requirePairingSessionId(pairingSessionId);
+        int updated = mapper.confirmPairingAllocation(
+                proxyId,
+                pairingSessionId,
+                accountId,
+                IpProxyStatus.PAIRING_RESERVED.code(),
+                IpProxyStatus.IN_USE.code(),
+                System.currentTimeMillis());
+        if (updated != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "配对代理绑定已变化，请重试");
+        }
+        log.info("IP代理配对绑定转正式账号 pairingSessionId={} accountId={} proxyId={}",
+                pairingSessionId, accountId, proxyId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void releasePairingAllocation(Long pairingSessionId, Long proxyId) {
+        requirePairingSessionId(pairingSessionId);
+        if (proxyId == null || proxyId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 非法");
+        }
+        int released = mapper.releasePairingAllocation(
+                proxyId, pairingSessionId,
+                IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(),
+                System.currentTimeMillis());
+        log.info("IP代理推广配对释放 pairingSessionId={} proxyId={} released={}",
+                pairingSessionId, proxyId, released);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void releasePairingAllocationBySession(Long pairingSessionId) {
+        requirePairingSessionId(pairingSessionId);
+        int released = mapper.releasePairingAllocationBySession(
+                pairingSessionId,
+                IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(),
+                System.currentTimeMillis());
+        log.info("IP代理推广配对按会话回收 pairingSessionId={} released={}",
+                pairingSessionId, released);
+    }
+
     /**
      * 批量为账号上线分配代理端点。
      *
@@ -461,6 +537,12 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IN_USE.code(),
                 System.currentTimeMillis());
         log.info("IP代理上线补偿释放 accountId={} proxyId={} released={}", accountId, proxyId, released);
+    }
+
+    private static void requirePairingSessionId(Long pairingSessionId) {
+        if (pairingSessionId == null || pairingSessionId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "配对会话 ID 非法");
+        }
     }
 
     @Override
@@ -1026,7 +1108,8 @@ public class IpProxyServiceImpl implements IpProxyService {
         update.setWhatsappHttpStatus(null);
         update.setWhatsappCheckError(update.getLastCheckError());
         update.setUpdatedAt(now);
-        mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
+        mapper.updateDetectionResult(
+                update, IpProxyStatus.IN_USE.code(), IpProxyStatus.PAIRING_RESERVED.code());
     }
 
     /**
@@ -1081,7 +1164,8 @@ public class IpProxyServiceImpl implements IpProxyService {
             result = IpProxyCheckResult.failed(proxy.getId(), truncate(e.getMessage()), System.currentTimeMillis());
         }
         IpProxy update = toDetectionUpdate(proxy, result);
-        int updatedRows = mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
+        int updatedRows = mapper.updateDetectionResult(
+                update, IpProxyStatus.IN_USE.code(), IpProxyStatus.PAIRING_RESERVED.code());
         if (updatedRows != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "代理检测结果更新冲突: " + proxy.getId());
         }

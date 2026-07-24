@@ -1,7 +1,9 @@
 package com.armada.marketing.grouppull.controller;
 
 import com.armada.marketing.grouppull.model.dto.CreateGroupPullMarketingTaskDTO;
+import com.armada.marketing.grouppull.model.dto.GroupPullMarketingGroupQuery;
 import com.armada.marketing.grouppull.model.dto.GroupPullMarketingTaskQuery;
+import com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.service.GroupPullMarketingTaskService;
@@ -83,6 +85,24 @@ public class GroupPullMarketingTaskController {
     @GetMapping("/{id}")
     public ApiResponse<GroupPullMarketingTaskDetailVO> detail(@PathVariable Long id) {
         return ApiResponse.ok(service.detail(id));
+    }
+
+    /**
+     * 分页查询任务正式进入建群流程后的群组明细。
+     *
+     * <p>建群失败但已经冻结群名的正式执行同样保留；群人数查询失败时返回空值，
+     * 不转换成 0。</p>
+     *
+     * @param id 统一营销任务 ID
+     * @param query 分页参数
+     * @return 按执行 ID 升序排列的群组明细及总数
+     * @throws BusinessException 当拉群营销任务不存在时抛出
+     */
+    @GetMapping("/{id}/groups")
+    public ApiResponse<PageResult<GroupPullMarketingGroupVO>> groups(
+            @PathVariable Long id,
+            @ModelAttribute GroupPullMarketingGroupQuery query) {
+        return ApiResponse.ok(service.groups(id, query));
     }
 
     /**

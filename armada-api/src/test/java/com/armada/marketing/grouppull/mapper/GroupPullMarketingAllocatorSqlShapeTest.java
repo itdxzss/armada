@@ -30,7 +30,7 @@ class GroupPullMarketingAllocatorSqlShapeTest {
         String xml = resource("/mapper/marketing/MarketingAccountOccupancyMapper.xml");
 
         assertThat(xml)
-                .contains("gp.resource_status IN (2, 3, 5)")
+                .contains("gp.resource_status IN (2, 3)")
                 .contains("mt.business_type = 1")
                 .contains("mt.business_type = 2");
         assertThat(block(xml, "delete", "releaseByTemplateIds"))

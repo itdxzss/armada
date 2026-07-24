@@ -3,6 +3,7 @@ package com.armada.marketing.grouppull.service;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
+import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStage;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStatus;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.mapper.MarketingTaskMapper;
@@ -15,17 +16,42 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 单次拉群执行的幂等结果结算器。 */
+/**
+ * 单次拉群执行的幂等结果结算器。
+ *
+ * <p>统一负责最终结果、料子去向、营销额度、建群账号流转及固定营销目标创建。
+ * 执行记录必须通过条件更新首次进入终态，重复恢复不会重复累计统计或
+ * 重复创建营销目标。</p>
+ */
 @Service
 public class GroupPullMarketingFinalizer {
 
+    /** 安全日志记录器。 */
     private static final Logger log = LoggerFactory.getLogger(GroupPullMarketingFinalizer.class);
 
+    /** 新建固定营销目标的待发送状态码。 */
+    private static final int MARKETING_TARGET_PENDING_STATUS = 1;
+
+    /** 拉群任务、执行、料子及营销额度数据访问。 */
     private final GroupPullMarketingMapper mapper;
+
+    /** 公共营销目标数据访问。 */
     private final MarketingTaskMapper marketingTaskMapper;
+
+    /** 建群账号任务占用服务。 */
     private final MarketingAccountOccupancyService occupancyService;
+
+    /** 新成功群首次即时营销入口。 */
     private final MarketingNewGroupImmediateSendService immediateSendService;
 
+    /**
+     * 创建单次拉群执行结果结算器。
+     *
+     * @param mapper 拉群任务、执行、料子及营销额度数据访问
+     * @param marketingTaskMapper 公共营销目标数据访问
+     * @param occupancyService 建群账号任务占用服务
+     * @param immediateSendService 新成功群首次即时营销入口
+     */
     public GroupPullMarketingFinalizer(
             GroupPullMarketingMapper mapper,
             MarketingTaskMapper marketingTaskMapper,
@@ -37,7 +63,11 @@ public class GroupPullMarketingFinalizer {
         this.immediateSendService = immediateSendService;
     }
 
-    /** 按实际料子进群数决定最终成功或失败。 */
+    /**
+     * 在全部配置步骤完成后，按实际料子进群数决定最终成功或失败。
+     *
+     * @param executionId 单群执行 ID
+     */
     @Transactional(rollbackFor = Exception.class)
     public void finalizeAfterStages(Long executionId) {
         GroupPullMarketingExecution execution = mapper.selectExecutionByIdForUpdate(executionId);
@@ -57,7 +87,12 @@ public class GroupPullMarketingFinalizer {
                 "料子实际进群数量不足，要求" + task.getMaterialPerGroup() + "，实际" + joined);
     }
 
-    /** 正式建群后的关键步骤失败。 */
+    /**
+     * 将正式建群后的关键步骤失败结算为建群失败。
+     *
+     * @param executionId 单群执行 ID
+     * @param reason 已脱敏的业务失败原因
+     */
     @Transactional(rollbackFor = Exception.class)
     public void fail(Long executionId, String reason) {
         GroupPullMarketingExecution execution = mapper.selectExecutionByIdForUpdate(executionId);
@@ -71,7 +106,12 @@ public class GroupPullMarketingFinalizer {
                 reason);
     }
 
-    /** 尚未正式创建群组时停止当前匹配，不计建群失败。 */
+    /**
+     * 尚未正式创建群组时停止当前匹配，不计入建群失败。
+     *
+     * @param executionId 单群执行 ID
+     * @param reason 已脱敏的业务跳过原因
+     */
     @Transactional(rollbackFor = Exception.class)
     public void skipBeforeGroup(Long executionId, String reason) {
         GroupPullMarketingExecution execution = mapper.selectExecutionByIdForUpdate(executionId);
@@ -85,13 +125,25 @@ public class GroupPullMarketingFinalizer {
                 reason);
     }
 
+    /**
+     * 首次把活动执行收口到指定终态，并同步处理关联资源。
+     *
+     * @param execution 已锁定的活动执行
+     * @param task 已锁定的拉群任务配置
+     * @param outcome 最终执行结果
+     * @param reason 失败或跳过原因；成功时可空
+     */
     private void finish(
             GroupPullMarketingExecution execution,
             GroupPullMarketingTask task,
             GroupPullExecutionStatus outcome,
             String reason) {
         long now = System.currentTimeMillis();
-        if (mapper.markExecutionTerminal(execution.getId(), outcome.code(), reason, now) != 1) {
+        int terminalStage = outcome == GroupPullExecutionStatus.SUCCEEDED
+                ? GroupPullExecutionStage.COMPLETED.code()
+                : execution.getCurrentStage();
+        if (mapper.markExecutionTerminal(
+                execution.getId(), outcome.code(), terminalStage, reason, now) != 1) {
             return;
         }
 
@@ -123,8 +175,19 @@ public class GroupPullMarketingFinalizer {
                     "拉群执行结算时建群账号占用未释放 taskId={} executionId={} accountId={}",
                     execution.getTaskId(), execution.getId(), execution.getBuilderAccountId());
         }
+        log.info(
+                "拉群执行结算完成 taskId={} executionId={} outcome={}",
+                execution.getTaskId(),
+                execution.getId(),
+                outcome);
     }
 
+    /**
+     * 为成功群创建唯一固定营销目标，并交给现有营销引擎首次发送。
+     *
+     * @param execution 已成功的单群执行
+     * @param now 结算时间（epoch 毫秒）
+     */
     private void createMarketingTarget(
             GroupPullMarketingExecution execution,
             long now) {
@@ -143,7 +206,7 @@ public class GroupPullMarketingFinalizer {
                 ? "wa://group/" + execution.getGroupJid()
                 : execution.getGroupInviteUrl());
         target.setGroupName(execution.getGroupName());
-        target.setStatus(1);
+        target.setStatus(MARKETING_TARGET_PENDING_STATUS);
         target.setSentMessageCount(0);
         target.setFailedMessageCount(0);
         target.setRetryCount(0);
@@ -159,6 +222,12 @@ public class GroupPullMarketingFinalizer {
         immediateSendService.enqueueFixedTarget(execution.getTaskId(), target.getId(), now);
     }
 
+    /**
+     * 判断执行是否仍允许首次进入终态。
+     *
+     * @param execution 待结算执行
+     * @return 准备中或执行中返回 true，其他状态返回 false
+     */
     private static boolean active(GroupPullMarketingExecution execution) {
         return execution != null
                 && (Integer.valueOf(GroupPullExecutionStatus.PREPARING.code())

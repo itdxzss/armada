@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.promotion.template.mapper.PromotionTemplateMapper">
+
+  <!-- countPage/selectPage 共用口径；tenant_id 由现有租户拦截器自动注入。 -->
+  <sql id="pageFilter">
+    status = 1
+    AND deleted_at IS NULL
+  </sql>
+
+  <!-- 先统计总数，Service 在零条时短路列表查询。 -->
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM promotion_landing_template
+    WHERE <include refid="pageFilter"/>
+  </select>
+
+  <!-- 只查询截图页面需要的列，不返回 tenant_id、创建人和删除字段。 -->
+  <select id="selectPage" resultType="com.armada.promotion.template.model.vo.PromotionTemplateRow">
+    SELECT id,
+           template_code AS templateCode,
+           template_name AS templateName,
+           preview_uri AS previewUri,
+           is_subaccount_visible AS isSubaccountVisible,
+           CAST(supported_params AS CHAR) AS supportedParamsJson,
+           remark,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+    FROM promotion_landing_template
+    WHERE <include refid="pageFilter"/>
+    ORDER BY id DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+  <!-- 备注与更新时间原子更新；tenant_id 由现有租户拦截器自动注入。 -->
+  <update id="updateRemark">
+    UPDATE promotion_landing_template
+    SET remark = #{remark},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND status = 1
+      AND deleted_at IS NULL
+  </update>
+
+</mapper>

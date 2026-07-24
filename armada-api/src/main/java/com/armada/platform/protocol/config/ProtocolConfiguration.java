@@ -81,6 +81,7 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -561,6 +562,7 @@ public class ProtocolConfiguration {
     }
 
     @Bean
+    @Primary
     public GroupParticipantPort groupParticipantPort(List<GroupParticipantBackend> backends) {
         return new RoutingGroupParticipantPort(backends);
     }
@@ -585,6 +587,7 @@ public class ProtocolConfiguration {
     }
 
     @Bean
+    @Primary
     public GroupInvitePort groupInvitePort(List<GroupInviteBackend> backends) {
         return new RoutingGroupInvitePort(backends);
     }
@@ -631,6 +634,7 @@ public class ProtocolConfiguration {
     }
 
     @Bean
+    @Primary
     public GroupSettingsPort groupSettingsPort(List<GroupSettingsBackend> backends) {
         return new RoutingGroupSettingsPort(backends);
     }
@@ -649,6 +653,7 @@ public class ProtocolConfiguration {
     }
 
     @Bean
+    @Primary
     public GroupLeavePort groupLeavePort(List<GroupLeaveBackend> backends) {
         return new RoutingGroupLeavePort(backends);
     }

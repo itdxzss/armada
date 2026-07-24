@@ -37,7 +37,7 @@ public class IpProxy {
     /** 国家/分组中文展示名（「印度」「混合（不限国家）」）。 */
     private String region;
 
-    /** 状态码:1=空闲 2=使用中 3=不可用（见 {@code IpProxyStatus}）。 */
+    /** 状态码:1=空闲 2=使用中 3=不可用 4=配对占用（见 {@code IpProxyStatus}）。 */
     private Integer status;
 
     /** 当前绑定账号 ID;NULL=未绑定。 */

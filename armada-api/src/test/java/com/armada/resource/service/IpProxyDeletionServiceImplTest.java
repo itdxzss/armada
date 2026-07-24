@@ -38,10 +38,14 @@ class IpProxyDeletionServiceImplTest {
         service.batchDelete(ids);
 
         InOrder inOrder = org.mockito.Mockito.inOrder(accountOnlineCommandService, ipProxyMapper);
+        inOrder.verify(ipProxyMapper).countPairingReservationsByIds(
+                ids, com.armada.resource.model.IpProxyStatus.PAIRING_RESERVED.code());
         inOrder.verify(accountOnlineCommandService).reloginOnlineAccountsByProxyIds(ids);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> idsCaptor = ArgumentCaptor.forClass(List.class);
         inOrder.verify(ipProxyMapper).softDeleteByIds(idsCaptor.capture(), org.mockito.ArgumentMatchers.anyLong());
+        inOrder.verify(ipProxyMapper).countPairingReservationsByIds(
+                ids, com.armada.resource.model.IpProxyStatus.PAIRING_RESERVED.code());
         org.assertj.core.api.Assertions.assertThat(idsCaptor.getValue()).containsExactly(10L, 11L);
     }
 

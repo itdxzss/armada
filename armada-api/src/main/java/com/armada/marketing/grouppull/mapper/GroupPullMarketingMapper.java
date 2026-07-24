@@ -1,15 +1,17 @@
 package com.armada.marketing.grouppull.mapper;
 
+import com.armada.marketing.grouppull.model.dto.GroupPullMarketingGroupQuery;
+import com.armada.marketing.grouppull.model.dto.GroupPullMarketingTaskQuery;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecutionMaterial;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingMaterial;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
-import com.armada.marketing.grouppull.model.dto.GroupPullMarketingTaskQuery;
-import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
-import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.grouppull.model.vo.GroupPullExecutionDispatchRow;
+import com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO;
+import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
+import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
@@ -38,6 +40,25 @@ public interface GroupPullMarketingMapper {
 
     /** 查询任务配置与汇总，不展开明细。 */
     GroupPullMarketingTaskDetailVO selectTaskDetail(@Param("taskId") Long taskId);
+
+    /**
+     * 统计任务已经进入正式建群流程的执行数。
+     *
+     * @param taskId 统一营销任务 ID
+     * @return 已冻结群名的正式建群执行数
+     */
+    long countTaskGroups(@Param("taskId") Long taskId);
+
+    /**
+     * 按执行 ID 升序分页查询任务正式建群明细。
+     *
+     * @param taskId 统一营销任务 ID
+     * @param query 分页参数
+     * @return 当前页正式建群执行明细
+     */
+    List<GroupPullMarketingGroupVO> selectTaskGroups(
+            @Param("taskId") Long taskId,
+            @Param("query") GroupPullMarketingGroupQuery query);
 
     /** 锁定读取一条拉群营销公共任务，串行化生命周期操作。 */
     MarketingTask selectTaskForUpdate(@Param("taskId") Long taskId);
@@ -231,9 +252,19 @@ public interface GroupPullMarketingMapper {
     /** 锁定单次执行，保证结果只结算一次。 */
     GroupPullMarketingExecution selectExecutionByIdForUpdate(@Param("id") Long id);
 
-    /** 把活动执行条件更新为最终结果。 */
+    /**
+     * 把活动执行条件更新为最终结果，同时保存成功完成阶段或失败发生阶段。
+     *
+     * @param id 单群执行 ID
+     * @param terminalStatus 最终执行状态码
+     * @param terminalStage 最终展示阶段码；失败时保留原失败阶段
+     * @param reason 最终失败原因；成功时可空
+     * @param finishedAt 收口时间（epoch 毫秒）
+     * @return 实际更新行数
+     */
     int markExecutionTerminal(@Param("id") Long id,
                               @Param("terminalStatus") int terminalStatus,
+                              @Param("terminalStage") int terminalStage,
                               @Param("reason") String reason,
                               @Param("finishedAt") long finishedAt);
 

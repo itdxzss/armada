@@ -19,12 +19,39 @@
     )
   </insert>
 
+  <!-- 推广配对专用写入：保留通用 insert 原样，仅此入口写渠道归因。 -->
+  <insert id="insertPromotionAccount" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account (
+      ws_phone, account_type, device_os, number_source, channel_name, promotion_channel_id,
+      ownership, lease_until, account_group_id,
+      protocol_id, protocol_account_id, protocol_address,
+      priority, dispatched_at, remark,
+      created_at, updated_at, created_by
+    ) VALUES (
+      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId},
+      #{ownership}, #{leaseUntil}, #{accountGroupId},
+      #{protocolId}, #{protocolAccountId}, #{protocolAddress},
+      #{priority}, #{dispatchedAt}, #{remark},
+      #{createdAt}, #{updatedAt}, #{createdBy}
+    )
+  </insert>
+
   <!-- deleted_at IS NULL 等价于 is_active=1(虚拟列);LIMIT 1 防意外 -->
   <select id="selectActiveByWsPhone" resultType="com.armada.account.model.entity.Account">
     SELECT * FROM account
     WHERE ws_phone = #{wsPhone}
       AND deleted_at IS NULL
     LIMIT 1
+  </select>
+
+  <!-- 公开配对入口必须避免同一 WhatsApp 身份跨租户重复归属。 -->
+  <select id="existsActiveByWsPhoneAnyTenant" resultType="boolean">
+    SELECT EXISTS(
+      SELECT 1
+      FROM account
+      WHERE ws_phone = #{wsPhone}
+        AND deleted_at IS NULL
+    )
   </select>
 
   <select id="selectActiveById" resultType="com.armada.account.model.entity.Account">
@@ -149,19 +176,14 @@
   </select>
 
   <!--
-    导出所选正常账号的最小 WS 号码字段。
-    tenant_id 由租户拦截器注入；INNER JOIN 同时按 tenant_id 关联，避免状态行跨租户串联。
+    导出所选未软删除账号的最小 WS 号码字段，不关联状态表；tenant_id 由租户拦截器注入。
   -->
-  <select id="selectNormalWsPhonesByIds"
+  <select id="selectWsPhonesByIds"
           resultType="com.armada.account.model.vo.AccountWsPhoneExportRow">
     <if test="ids != null and ids.size() &gt; 0">
     SELECT a.id, a.ws_phone AS wsPhone
     FROM account a
-    INNER JOIN account_state s
-      ON s.account_id = a.id
-     AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
-      AND s.account_state = #{normalAccountState}
       AND a.id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY a.id ASC
@@ -274,6 +296,42 @@
     <if test="muteStatus != null">AND s.mute_status = #{muteStatus}</if>
     <if test="country != null and country != ''">AND COALESCE(s.proxy_country, p.region) LIKE CONCAT('%', #{country}, '%')</if>
     <if test="truthIp != null and truthIp != ''">AND s.truth_ip LIKE CONCAT('%', #{truthIp}, '%')</if>
+    <if test="resolvedOccupancyGroupIds != null and resolvedOccupancyGroupIds.size() &gt; 0">
+      AND a.account_group_id IN
+      <foreach collection="resolvedOccupancyGroupIds" item="groupId" open="(" separator="," close=")">
+        #{groupId}
+      </foreach>
+    </if>
+    <if test="callable != null">
+      <choose>
+        <when test="callable">
+          AND s.account_state = 2
+          AND s.login_state = 1
+          AND g.marketing_occupancy_task_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM marketing_account_occupancy occupancy
+            WHERE occupancy.tenant_id = a.tenant_id
+              AND occupancy.account_id = a.id
+          )
+        </when>
+        <otherwise>
+          AND (
+            s.account_state IS NULL
+            OR s.account_state != 2
+            OR s.login_state IS NULL
+            OR s.login_state != 1
+            OR g.marketing_occupancy_task_id IS NOT NULL
+            OR EXISTS (
+              SELECT 1
+              FROM marketing_account_occupancy occupancy
+              WHERE occupancy.tenant_id = a.tenant_id
+                AND occupancy.account_id = a.id
+            )
+          )
+        </otherwise>
+      </choose>
+    </if>
   </sql>
 
   <select id="countPage" resultType="long">
@@ -305,6 +363,9 @@
              ELSE 'WEB'
            END AS protocolBackend,
            a.account_group_id AS accountGroupId, g.name AS groupName,
+           g.marketing_occupancy_type AS marketingOccupancyType,
+           g.marketing_occupancy_task_id AS marketingOccupancyTaskId,
+           g.marketing_locked_at AS marketingLockedAt,
            a.ownership, a.lease_until AS leaseUntil,
            a.dispatched_at AS dispatchedAt, a.created_at AS createdAt,
            s.account_state AS accountState, s.login_state AS loginState,
@@ -457,6 +518,17 @@
     <if test="ids == null or ids.size() == 0">
     SELECT NULL AS id, NULL AS accountState, NULL AS dispatchedAt FROM DUAL WHERE 1=0
     </if>
+  </select>
+
+  <!-- 人工迁移先锁账号行，确保读取来源分组到条件更新完成期间不会被另一迁移改写。 -->
+  <select id="selectActiveByIdsForUpdate" resultType="com.armada.account.model.entity.Account">
+    SELECT id, account_group_id AS accountGroupId
+    FROM account
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id
+    FOR UPDATE
   </select>
 
   <!-- 批量迁移分组:仅更新未软删行。updatedAt 由调用方传入。ids 空时不执行 UPDATE。 -->

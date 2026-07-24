@@ -162,12 +162,30 @@ public interface MarketingTaskMapper {
                                   @Param("failedDelta") int failedDelta,
                                   @Param("now") long now);
 
-    /** 释放任务时把已取消 outbox 对应的提交中 attempt 标记为业务跳过。 */
-    int markCanceledOutboxAttemptsSkipped(@Param("taskId") Long taskId,
+    /**
+     * 释放任务时把当前租户下已取消 outbox 对应的提交中 attempt 标记为业务跳过。
+     *
+     * @param tenantId 当前租户 ID
+     * @param taskId 营销任务 ID
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际更新的发送尝试数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int markCanceledOutboxAttemptsSkipped(@Param("tenantId") Long tenantId,
+                                          @Param("taskId") Long taskId,
                                           @Param("now") long now);
 
-    /** 释放任务时把死信 outbox 对应的提交中 attempt 标记为失败。 */
-    int markDeadOutboxAttemptsFailed(@Param("taskId") Long taskId,
+    /**
+     * 释放任务时把当前租户下死信 outbox 对应的提交中 attempt 标记为失败。
+     *
+     * @param tenantId 当前租户 ID
+     * @param taskId 营销任务 ID
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际更新的发送尝试数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int markDeadOutboxAttemptsFailed(@Param("tenantId") Long tenantId,
+                                     @Param("taskId") Long taskId,
                                      @Param("now") long now);
 
     /** 协议层成功结果幂等落地后,把本次 attempt 的真实群快照和计数汇总到 target 明细。 */

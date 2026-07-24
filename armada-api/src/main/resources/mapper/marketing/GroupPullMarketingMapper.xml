@@ -145,6 +145,32 @@
         </constructor>
     </resultMap>
 
+    <resultMap id="GroupDetailResultMap"
+               type="com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO">
+        <constructor>
+            <idArg column="executionId" javaType="java.lang.Long"/>
+            <arg column="builderAccountPhone" javaType="java.lang.String"/>
+            <arg column="marketingAccountPhone" javaType="java.lang.String"/>
+            <arg column="groupName" javaType="java.lang.String"/>
+            <arg column="groupJid" javaType="java.lang.String"/>
+            <arg column="groupInviteUrl" javaType="java.lang.String"/>
+            <arg column="groupStatus" javaType="java.lang.Integer"/>
+            <arg column="materialJoinedCount" javaType="java.lang.Integer"/>
+            <arg column="groupMemberCount" javaType="java.lang.Integer"/>
+            <arg column="sentMessageCount" javaType="java.lang.Integer"/>
+            <arg column="speakPermission" javaType="java.lang.Integer"/>
+            <arg column="builderExitEnabled" javaType="java.lang.Boolean"/>
+            <arg column="builderExitStatus" javaType="java.lang.Integer"/>
+            <arg column="marketerAdminStatus" javaType="java.lang.Integer"/>
+            <arg column="executionStatus" javaType="java.lang.Integer"/>
+            <arg column="failureStage" javaType="java.lang.Integer"/>
+            <arg column="failureReason" javaType="java.lang.String"/>
+            <arg column="marketingSendStatus" javaType="java.lang.Integer"/>
+            <arg column="lastSentAt" javaType="java.lang.Long"/>
+            <arg column="groupCreatedAt" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
     <sql id="TaskColumns">
         marketing_task_id, tenant_id, builder_group_id, success_group_id, failure_group_id,
         marketing_account_group_limit, group_name_prefix, friend_retry_limit, material_per_group,
@@ -296,6 +322,60 @@
         WHERE mt.id = #{taskId}
           AND mt.business_type = 2
           AND mt.deleted_at IS NULL
+    </select>
+
+    <select id="countTaskGroups" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution
+        WHERE task_id = #{taskId}
+          AND group_name IS NOT NULL
+    </select>
+
+    <select id="selectTaskGroups" resultMap="GroupDetailResultMap">
+        SELECT execution.id AS executionId,
+               builder.ws_phone AS builderAccountPhone,
+               marketer.ws_phone AS marketingAccountPhone,
+               execution.group_name AS groupName,
+               execution.group_jid AS groupJid,
+               execution.group_invite_url AS groupInviteUrl,
+               execution.group_status AS groupStatus,
+               COALESCE((
+                   SELECT COUNT(*)
+                   FROM group_pull_marketing_execution_material relation
+                   WHERE relation.execution_id = execution.id
+                     AND relation.entry_status = 2
+               ), 0) AS materialJoinedCount,
+               execution.group_member_count AS groupMemberCount,
+               COALESCE(target.sent_message_count, 0) AS sentMessageCount,
+               pull_task.speak_permission AS speakPermission,
+               pull_task.builder_exit_enabled AS builderExitEnabled,
+               execution.builder_exit_status AS builderExitStatus,
+               execution.marketer_admin_status AS marketerAdminStatus,
+               execution.execution_status AS executionStatus,
+               execution.current_stage AS failureStage,
+               execution.failure_reason AS failureReason,
+               target.status AS marketingSendStatus,
+               target.last_sent_at AS lastSentAt,
+               execution.group_created_at AS groupCreatedAt
+        FROM group_pull_marketing_execution execution
+        JOIN group_pull_marketing_task pull_task
+          ON pull_task.marketing_task_id = execution.task_id
+         AND pull_task.tenant_id = execution.tenant_id
+        LEFT JOIN account builder
+          ON builder.id = execution.builder_account_id
+         AND builder.tenant_id = execution.tenant_id
+         AND builder.deleted_at IS NULL
+        LEFT JOIN account marketer
+          ON marketer.id = execution.marketing_account_id
+         AND marketer.tenant_id = execution.tenant_id
+         AND marketer.deleted_at IS NULL
+        LEFT JOIN marketing_task_target target
+          ON target.id = execution.marketing_target_id
+         AND target.tenant_id = execution.tenant_id
+        WHERE execution.task_id = #{taskId}
+          AND execution.group_name IS NOT NULL
+        ORDER BY execution.id ASC
+        LIMIT #{query.pageSize} OFFSET #{query.offset}
     </select>
 
     <select id="selectTaskForUpdate" resultType="com.armada.marketing.model.entity.MarketingTask">
@@ -775,7 +855,7 @@
     <update id="markExecutionTerminal">
         UPDATE group_pull_marketing_execution
         SET execution_status = #{terminalStatus},
-            current_stage = 11,
+            current_stage = #{terminalStage},
             failure_reason = CASE
                 WHEN #{reason} IS NULL OR #{reason} = '' THEN failure_reason
                 ELSE LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255)

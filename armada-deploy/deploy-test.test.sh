@@ -1039,6 +1039,35 @@ test_armada_compose_passes_android_base_url_to_backend() {
   assert_contains "${example_content}" 'PROTOCOL_ANDROID_BASE_URL=http://localhost:8000'
 }
 
+test_armada_compose_passes_promotion_token_encryption_config_to_backend() {
+  local compose_content example_content modular_chmod_line modular_required_line modular_script
+  local win_chmod_line win_required_line win_script
+  compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
+  example_content="$(cat "${SCRIPT_DIR}/.env.example")"
+  modular_script="$(cat "${SCRIPT_DIR}/lib/armada.sh")"
+  win_script="$(cat "${SCRIPT_DIR}/deploy-test-win.sh")"
+
+  assert_contains "${compose_content}" 'PROMOTION_TRACKING_ENCRYPTION_KEY: ${PROMOTION_TRACKING_ENCRYPTION_KEY:?PROMOTION_TRACKING_ENCRYPTION_KEY is required}'
+  assert_contains "${compose_content}" 'PROMOTION_TRACKING_ENCRYPTION_KEY_ID: ${PROMOTION_TRACKING_ENCRYPTION_KEY_ID:?PROMOTION_TRACKING_ENCRYPTION_KEY_ID is required}'
+  assert_contains "${example_content}" 'PROMOTION_TRACKING_ENCRYPTION_KEY=REPLACE_WITH_BASE64_32_BYTE_KEY'
+  assert_contains "${example_content}" 'PROMOTION_TRACKING_ENCRYPTION_KEY_ID=env-v1'
+  assert_contains "${modular_script}" 'DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID'
+  assert_contains "${modular_script}" 'base64 --decode'
+  assert_contains "${modular_script}" 'chmod 600 .env'
+  assert_contains "${win_script}" 'DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID'
+  assert_contains "${win_script}" 'base64 --decode'
+  assert_contains "${win_script}" 'chmod 600 .env'
+
+  modular_chmod_line="$(grep -n 'chmod 600 .env' "${SCRIPT_DIR}/lib/armada.sh" | head -1 | cut -d: -f1)"
+  modular_required_line="$(grep -n 'for key in DB_URL' "${SCRIPT_DIR}/lib/armada.sh" | head -1 | cut -d: -f1)"
+  win_chmod_line="$(grep -n 'chmod 600 .env' "${SCRIPT_DIR}/deploy-test-win.sh" | head -1 | cut -d: -f1)"
+  win_required_line="$(grep -n 'for key in DB_URL' "${SCRIPT_DIR}/deploy-test-win.sh" | head -1 | cut -d: -f1)"
+  [ "${modular_chmod_line}" -lt "${modular_required_line}" ] \
+    || fail "expected modular deploy to protect .env before validation"
+  [ "${win_chmod_line}" -lt "${win_required_line}" ] \
+    || fail "expected Windows deploy to protect .env before validation"
+}
+
 test_kafka_checker_redacts_connection_errors() {
   local checker_content
   checker_content="$(cat "${SCRIPT_DIR}/lib/kafka-check.mjs")"
@@ -1057,6 +1086,7 @@ test_kafka_checker_reports_consumer_group_state_read_only() {
   assert_not_contains "${checker_content}" "createTopics("
 }
 
+test_armada_compose_passes_promotion_token_encryption_config_to_backend
 test_assert_contains_handles_large_haystack
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload
 test_zhuan_dry_run_invokes_no_external_commands

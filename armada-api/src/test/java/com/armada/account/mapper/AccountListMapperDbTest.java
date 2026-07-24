@@ -566,4 +566,84 @@ class AccountListMapperDbTest extends DbTestBase {
         List<AccountListVoRow> rows = accountMapper.selectPage(q);
         assertThat(rows).hasSize((int) count);
     }
+
+    @Test
+    void listAccounts_projectsMarketingGroupOccupancyFacts() {
+        long now = System.currentTimeMillis();
+        Long groupId = insertGroup("占用投影分组-" + now, now);
+        Account account = insertAccountInGroup("86176" + now, groupId, now);
+        insertDefaultState(account.getId(), now);
+        assertThat(groupMapper.tryLockMarketingOccupancy(groupId, 2, 9001L, now)).isEqualTo(1);
+        AccountQuery query = new AccountQuery();
+        query.setPhone(account.getWsPhone());
+
+        AccountListVoRow row = accountMapper.selectPage(query).get(0);
+
+        assertThat(row.getMarketingOccupancyType()).isEqualTo(2);
+        assertThat(row.getMarketingOccupancyTaskId()).isEqualTo(9001L);
+        assertThat(row.getMarketingLockedAt()).isEqualTo(now);
+    }
+
+    @Test
+    void listAccounts_callableFalseIncludesAccountWithUnreportedState() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86177" + now, now);
+        insertDefaultState(account.getId(), now);
+        AccountQuery query = new AccountQuery();
+        query.setPhone(account.getWsPhone());
+        query.setCallable(false);
+
+        assertThat(accountMapper.countPage(query)).isEqualTo(1);
+        assertThat(accountMapper.selectPage(query))
+                .extracting(AccountListVoRow::getId)
+                .containsExactly(account.getId());
+    }
+
+    @Test
+    void advancedOccupancyFilterResolvesPausedTaskGroup() {
+        long now = System.currentTimeMillis();
+        Long groupId = insertGroup("暂停占用筛选分组-" + now, now);
+        long taskId = insertMarketingTask(groupId, "暂停占用任务-" + now, 2, 5, now);
+        assertThat(groupMapper.tryLockMarketingOccupancy(groupId, 2, taskId, now)).isEqualTo(1);
+        AccountQuery query = new AccountQuery();
+        query.setMarketingOccupancyType("PAUSED");
+        query.setOccupiedTaskKeyword(String.valueOf(taskId));
+        query.setOccupiedBusinessType(2);
+
+        assertThat(groupMapper.selectMarketingOccupancyGroupIds(query)).contains(groupId);
+    }
+
+    private Account insertAccountInGroup(String wsPhone, Long groupId, long now) {
+        Account account = new Account();
+        account.setWsPhone(wsPhone);
+        account.setAccountType(1);
+        account.setOwnership(1);
+        account.setAccountGroupId(groupId);
+        account.setPriority(0);
+        account.setCreatedAt(now);
+        account.setUpdatedAt(now);
+        accountMapper.insert(account);
+        return account;
+    }
+
+    private long insertMarketingTask(Long groupId,
+                                     String taskName,
+                                     int businessType,
+                                     int status,
+                                     long now) {
+        return insertAndReturnId("""
+                INSERT INTO marketing_task
+                    (tenant_id, task_name, business_type, account_group_id, account_group_name,
+                     marketing_template_id, marketing_template_name, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, '测试分组', 1, '测试模板', ?, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setString(2, taskName);
+            ps.setInt(3, businessType);
+            ps.setLong(4, groupId);
+            ps.setInt(5, status);
+            ps.setLong(6, now);
+            ps.setLong(7, now);
+        });
+    }
 }

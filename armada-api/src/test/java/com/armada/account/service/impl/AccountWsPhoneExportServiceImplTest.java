@@ -3,14 +3,12 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountWsPhoneExportDTO;
-import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountWsPhoneExportFile;
 import com.armada.account.model.vo.AccountWsPhoneExportRow;
 import com.armada.shared.exception.BusinessException;
@@ -46,8 +44,7 @@ class AccountWsPhoneExportServiceImplTest {
 
     @Test
     void exportCleansDeduplicatesAndCountsActualLines() {
-        when(accountMapper.selectNormalWsPhonesByIds(
-                List.of(3L, 1L, 2L), AccountStateCode.NORMAL))
+        when(accountMapper.selectWsPhonesByIds(List.of(3L, 1L, 2L)))
                 .thenReturn(List.of(
                         row(1L, "+60 (12) 345-6789"),
                         row(2L, "60-12-345-6789"),
@@ -60,13 +57,12 @@ class AccountWsPhoneExportServiceImplTest {
         assertThat(new String(file.bytes(), StandardCharsets.UTF_8))
                 .isEqualTo("60123456789\n001234");
         assertThat(file.exportedCount()).isEqualTo(2);
-        verify(accountMapper).selectNormalWsPhonesByIds(
-                List.of(3L, 1L, 2L), AccountStateCode.NORMAL);
+        verify(accountMapper).selectWsPhonesByIds(List.of(3L, 1L, 2L));
     }
 
     @Test
     void exportSkipsNullEmptyAndNonDigitPhones() {
-        when(accountMapper.selectNormalWsPhonesByIds(List.of(1L, 2L, 3L), AccountStateCode.NORMAL))
+        when(accountMapper.selectWsPhonesByIds(List.of(1L, 2L, 3L)))
                 .thenReturn(Arrays.asList(row(1L, null), row(2L, "  +()-  "), row(3L, "")));
 
         assertThatThrownBy(() -> service.export(
@@ -77,7 +73,7 @@ class AccountWsPhoneExportServiceImplTest {
 
     @Test
     void exportUsesFallbackAndSanitizesUnsafeFilenameCharacters() {
-        when(accountMapper.selectNormalWsPhonesByIds(List.of(1L), AccountStateCode.NORMAL))
+        when(accountMapper.selectWsPhonesByIds(List.of(1L)))
                 .thenReturn(List.of(row(1L, "8613800138000")));
 
         AccountWsPhoneExportFile fallback = service.export(
@@ -95,7 +91,7 @@ class AccountWsPhoneExportServiceImplTest {
         for (long id = 1; id <= 501; id++) {
             ids.add(id);
         }
-        when(accountMapper.selectNormalWsPhonesByIds(anyList(), eq(AccountStateCode.NORMAL)))
+        when(accountMapper.selectWsPhonesByIds(anyList()))
                 .thenAnswer(invocation -> {
                     List<Long> chunk = invocation.getArgument(0);
                     return chunk.contains(501L) ? List.of(row(501L, "8613800138000")) : List.of();
@@ -106,7 +102,7 @@ class AccountWsPhoneExportServiceImplTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> chunks = ArgumentCaptor.forClass(List.class);
         verify(accountMapper, org.mockito.Mockito.times(2))
-                .selectNormalWsPhonesByIds(chunks.capture(), eq(AccountStateCode.NORMAL));
+                .selectWsPhonesByIds(chunks.capture());
         assertThat(chunks.getAllValues()).extracting(List::size).containsExactly(500, 1);
         assertThat(file.exportedCount()).isEqualTo(1);
     }
@@ -127,7 +123,7 @@ class AccountWsPhoneExportServiceImplTest {
         assertThatThrownBy(() -> service.export(new AccountWsPhoneExportDTO(tooMany, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("单次最多导出 2000 个账号");
-        verify(accountMapper, never()).selectNormalWsPhonesByIds(anyList(), eq(AccountStateCode.NORMAL));
+        verify(accountMapper, never()).selectWsPhonesByIds(anyList());
     }
 
     @Test
@@ -136,7 +132,7 @@ class AccountWsPhoneExportServiceImplTest {
         for (long id = 1; id <= 2000; id++) {
             ids.add(id);
         }
-        when(accountMapper.selectNormalWsPhonesByIds(anyList(), eq(AccountStateCode.NORMAL)))
+        when(accountMapper.selectWsPhonesByIds(anyList()))
                 .thenAnswer(invocation -> {
                     List<Long> chunk = invocation.getArgument(0);
                     return chunk.contains(2000L) ? List.of(row(2000L, "8613800138000")) : List.of();
@@ -146,12 +142,12 @@ class AccountWsPhoneExportServiceImplTest {
 
         assertThat(file.exportedCount()).isEqualTo(1);
         verify(accountMapper, org.mockito.Mockito.times(4))
-                .selectNormalWsPhonesByIds(anyList(), eq(AccountStateCode.NORMAL));
+                .selectWsPhonesByIds(anyList());
     }
 
     @Test
     void exportConvertsDataAccessFailureToStableBusinessError() {
-        when(accountMapper.selectNormalWsPhonesByIds(List.of(1L), AccountStateCode.NORMAL))
+        when(accountMapper.selectWsPhonesByIds(List.of(1L)))
                 .thenThrow(new IllegalStateException("database details"));
 
         assertThatThrownBy(() -> service.export(new AccountWsPhoneExportDTO(List.of(1L), null)))

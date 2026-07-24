@@ -17,6 +17,7 @@ import com.armada.admin.model.entity.SysUser;
 import com.armada.admin.model.vo.UserVO;
 import com.armada.admin.service.impl.UserManagementServiceImpl;
 import com.armada.shared.exception.BusinessException;
+import com.armada.platform.auth.service.SessionService;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -37,13 +38,16 @@ class UserManagementServiceImplTest {
     @Mock
     private SysRoleMapper roleMapper;
 
+    @Mock
+    private SessionService sessionService;
+
     private PasswordEncoder passwordEncoder;
     private UserManagementServiceImpl service;
 
     @BeforeEach
     void setUp() {
         passwordEncoder = PasswordEncoderFactories.createDelegatingPasswordEncoder();
-        service = new UserManagementServiceImpl(userMapper, roleMapper, passwordEncoder);
+        service = new UserManagementServiceImpl(userMapper, roleMapper, passwordEncoder, sessionService);
     }
 
     @Test

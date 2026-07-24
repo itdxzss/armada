@@ -8,6 +8,7 @@ import com.armada.admin.model.vo.UserVO;
 import com.armada.admin.service.UserManagementService;
 import com.armada.shared.response.ApiResponse;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,32 +30,38 @@ public class UserManagementController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('tenant:system-user:view')")
     public ApiResponse<List<UserVO>> list() {
         return ApiResponse.ok(service.list());
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('tenant:system-user:view')")
     public ApiResponse<UserVO> get(@PathVariable long id) {
         return ApiResponse.ok(service.get(id));
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('tenant:system-user:create')")
     public ApiResponse<UserVO> create(@RequestBody UserCreateDTO request) {
         return ApiResponse.ok(service.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('tenant:system-user:edit')")
     public ApiResponse<UserVO> update(@PathVariable long id, @RequestBody UserUpdateDTO request) {
         return ApiResponse.ok(service.update(id, request));
     }
 
     @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAuthority('tenant:system-user:reset-password')")
     public ApiResponse<Void> resetPassword(@PathVariable long id, @RequestBody PasswordResetDTO request) {
         service.resetPassword(id, request == null ? null : request.newPassword());
         return ApiResponse.ok();
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAuthority('tenant:system-user:status')")
     public ApiResponse<Void> changeStatus(@PathVariable long id, @RequestBody StatusUpdateDTO request) {
         service.changeStatus(id, request == null ? null : request.status());
         return ApiResponse.ok();

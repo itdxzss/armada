@@ -1,0 +1,2 @@
+-- 正式迁移见 armada-api/src/main/resources/db/migration/V072__default_tenant_admin_user.sql。
+-- 本变更不新增表，仅初始化默认租户管理员用户及用户角色关系。

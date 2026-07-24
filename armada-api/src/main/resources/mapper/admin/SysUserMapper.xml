@@ -20,6 +20,14 @@
         WHERE username = #{username}
     </select>
 
+    <select id="findForLogin" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        WHERE tenant_id = #{tenantId}
+          AND username = #{username}
+        LIMIT 1
+    </select>
+
     <select id="findAllOrdered" resultType="com.armada.admin.model.entity.SysUser">
         SELECT <include refid="Columns"/>
         FROM sys_user
@@ -78,6 +86,15 @@
         WHERE ur.user_id = #{userId}
           AND role.status = 1
         ORDER BY ur.role_id
+    </select>
+
+    <select id="findEnabledRoleCodesByUserId" resultType="string">
+        SELECT role.role_code
+        FROM sys_user_role ur
+        JOIN sys_role role ON role.id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND role.status = 1
+        ORDER BY role.id
     </select>
 
     <select id="hasRoleCode" resultType="boolean">

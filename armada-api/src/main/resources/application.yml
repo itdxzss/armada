@@ -175,6 +175,14 @@ armada:
     enabled: ${ACCOUNT_GROUP_SYNC_ENABLED:false}
     fixed-delay-ms: ${ACCOUNT_GROUP_SYNC_FIXED_DELAY_MS:180000}
     batch-size: ${ACCOUNT_GROUP_SYNC_BATCH_SIZE:500}
-  # 先测阶段统一登录密码(临时垫片,JWT 接上后删除);可用环境变量 DEV_LOGIN_PASSWORD 覆盖。
-  dev-login:
-    password: ${DEV_LOGIN_PASSWORD:armada123}
+  auth:
+    default-tenant-id: ${AUTH_DEFAULT_TENANT_ID:1}
+    captcha-ttl: ${AUTH_CAPTCHA_TTL:2m}
+    session-idle-timeout: ${AUTH_SESSION_IDLE_TIMEOUT:30m}
+    session-max-lifetime: ${AUTH_SESSION_MAX_LIFETIME:24h}
+    redis:
+      address: ${AUTH_REDIS_ADDRESS:${ANDROID_IMAGE_REDIS_ADDRESSES:localhost:6379}}
+      username: ${AUTH_REDIS_USERNAME:${ANDROID_IMAGE_REDIS_USERNAME:}}
+      password: ${AUTH_REDIS_PASSWORD:${ANDROID_IMAGE_REDIS_PASSWORD:}}
+      database: ${AUTH_REDIS_DATABASE:0}
+      tls: ${AUTH_REDIS_TLS:false}

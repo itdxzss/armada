@@ -9,6 +9,7 @@ import com.armada.admin.model.entity.SysUser;
 import com.armada.admin.model.enums.SystemStatus;
 import com.armada.admin.model.vo.UserVO;
 import com.armada.admin.service.UserManagementService;
+import com.armada.platform.auth.service.SessionService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.HashSet;
@@ -32,14 +33,17 @@ public class UserManagementServiceImpl implements UserManagementService {
     private final SysUserMapper userMapper;
     private final SysRoleMapper roleMapper;
     private final PasswordEncoder passwordEncoder;
+    private final SessionService sessionService;
 
     public UserManagementServiceImpl(
             SysUserMapper userMapper,
             SysRoleMapper roleMapper,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            SessionService sessionService) {
         this.userMapper = userMapper;
         this.roleMapper = roleMapper;
         this.passwordEncoder = passwordEncoder;
+        this.sessionService = sessionService;
     }
 
     @Override
@@ -102,6 +106,7 @@ public class UserManagementServiceImpl implements UserManagementService {
         requireUser(id);
         String normalizedPassword = password(newPassword);
         userMapper.updatePasswordHash(id, passwordEncoder.encode(normalizedPassword), System.currentTimeMillis());
+        sessionService.invalidateUser(id);
         log.info("重置系统用户密码成功: userId={}", id);
     }
 
@@ -118,6 +123,9 @@ public class UserManagementServiceImpl implements UserManagementService {
             throw new BusinessException(ErrorCode.CONFLICT, "不能禁用最后一个启用的租户管理员");
         }
         userMapper.updateStatus(id, normalizedStatus, System.currentTimeMillis());
+        if (normalizedStatus == SystemStatus.DISABLED.code()) {
+            sessionService.invalidateUser(id);
+        }
         log.info("变更系统用户状态成功: userId={}, status={}", id, normalizedStatus);
     }
 

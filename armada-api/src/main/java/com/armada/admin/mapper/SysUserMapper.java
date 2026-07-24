@@ -1,6 +1,7 @@
 package com.armada.admin.mapper;
 
 import com.armada.admin.model.entity.SysUser;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import java.util.Optional;
 import org.apache.ibatis.annotations.Mapper;
@@ -13,6 +14,12 @@ public interface SysUserMapper {
     Optional<SysUser> findById(@Param("id") long id);
 
     Optional<SysUser> findByUsername(@Param("username") String username);
+
+    /** 登录前按服务端确定的租户和完整用户名精确查询，禁止用于列表。 */
+    @InterceptorIgnore(tenantLine = "true")
+    Optional<SysUser> findForLogin(
+            @Param("tenantId") long tenantId,
+            @Param("username") String username);
 
     List<SysUser> findAllOrdered();
 
@@ -32,6 +39,8 @@ public interface SysUserMapper {
     List<Long> findRoleIdsByUserId(@Param("userId") long userId);
 
     List<Long> findEnabledRoleIdsByUserId(@Param("userId") long userId);
+
+    List<String> findEnabledRoleCodesByUserId(@Param("userId") long userId);
 
     boolean hasRoleCode(@Param("userId") long userId, @Param("roleCode") String roleCode);
 

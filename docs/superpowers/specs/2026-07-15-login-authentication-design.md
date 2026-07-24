@@ -2,7 +2,7 @@
 
 - 日期：2026-07-15
 - 范围：`armada/armada-api` 登录、认证、租户身份注入与基础角色
-- 状态：已完成方案确认，待用户复核书面规格
+- 状态：已被 `2026-07-25-login-authentication-rbac-design.md` 取代；仅保留历史决策背景
 - 取代：`docs/superpowers/specs/2026-06-24-armada-tenant-login-foundation-design.md` 中的临时登录与请求头租户身份方案
 
 ## 1. 背景

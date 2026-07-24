@@ -7,6 +7,7 @@ import com.armada.admin.model.vo.MenuTreeVO;
 import com.armada.admin.service.MenuManagementService;
 import com.armada.shared.response.ApiResponse;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,21 +29,25 @@ public class MenuManagementController {
     }
 
     @GetMapping("/tree")
+    @PreAuthorize("hasAuthority('tenant:system-menu:view')")
     public ApiResponse<List<MenuTreeVO>> tree() {
         return ApiResponse.ok(service.tree());
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('tenant:system-menu:create')")
     public ApiResponse<MenuTreeVO> create(@RequestBody MenuCreateDTO request) {
         return ApiResponse.ok(service.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('tenant:system-menu:edit')")
     public ApiResponse<MenuTreeVO> update(@PathVariable long id, @RequestBody MenuUpdateDTO request) {
         return ApiResponse.ok(service.update(id, request));
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAuthority('tenant:system-menu:status')")
     public ApiResponse<Void> changeStatus(@PathVariable long id, @RequestBody StatusUpdateDTO request) {
         service.changeStatus(id, request == null ? null : request.status());
         return ApiResponse.ok();

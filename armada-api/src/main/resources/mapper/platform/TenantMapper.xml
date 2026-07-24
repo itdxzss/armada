@@ -12,4 +12,11 @@
         WHERE tenant_code = #{code} AND status = 1
         LIMIT 1
     </select>
+
+    <select id="selectActiveById" resultType="com.armada.platform.tenant.model.entity.Tenant">
+        SELECT id, tenant_code, name, status, created_at, updated_at
+        FROM tenant
+        WHERE id = #{id} AND status = 1
+        LIMIT 1
+    </select>
 </mapper>

@@ -14,6 +14,8 @@ public interface SysRoleMapper {
 
     List<SysRole> findAllOrdered();
 
+    List<SysRole> findByIds(@Param("ids") List<Long> ids);
+
     List<Long> findEnabledIds();
 
     int insert(SysRole role);

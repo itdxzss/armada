@@ -14,11 +14,28 @@ public interface SysUserMapper {
 
     Optional<SysUser> findByUsername(@Param("username") String username);
 
+    List<SysUser> findAllOrdered();
+
     int insert(SysUser user);
+
+    long countByUsername(@Param("username") String username);
+
+    int updateProfile(SysUser user);
+
+    int updatePasswordHash(
+            @Param("id") long id,
+            @Param("passwordHash") String passwordHash,
+            @Param("updatedAt") long updatedAt);
+
+    int updateStatus(@Param("id") long id, @Param("status") int status, @Param("updatedAt") long updatedAt);
 
     List<Long> findRoleIdsByUserId(@Param("userId") long userId);
 
     List<Long> findEnabledRoleIdsByUserId(@Param("userId") long userId);
+
+    boolean hasRoleCode(@Param("userId") long userId, @Param("roleCode") String roleCode);
+
+    long countEnabledUsersByRoleCode(@Param("roleCode") String roleCode);
 
     int deleteUserRoles(@Param("userId") long userId);
 

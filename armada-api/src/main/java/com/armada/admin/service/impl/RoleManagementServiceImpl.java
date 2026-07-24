@@ -17,6 +17,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class RoleManagementServiceImpl implements RoleManagementService {
 
+    private static final Logger log = LoggerFactory.getLogger(RoleManagementServiceImpl.class);
     private static final String TENANT_ADMIN = "TENANT_ADMIN";
 
     private final SysRoleMapper roleMapper;
@@ -57,6 +60,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
         role.setCreatedAt(now);
         role.setUpdatedAt(now);
         roleMapper.insert(role);
+        log.info("创建系统角色成功: roleId={}, roleCode={}", role.getId(), role.getRoleCode());
         return toVO(role);
     }
 
@@ -72,6 +76,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
         role.setRemark(remark);
         role.setUpdatedAt(System.currentTimeMillis());
         roleMapper.update(role);
+        log.info("修改系统角色成功: roleId={}", id);
         return toVO(role);
     }
 
@@ -84,6 +89,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
             throw new BusinessException(ErrorCode.CONFLICT, "系统内置角色不能禁用");
         }
         roleMapper.updateStatus(id, normalizedStatus, System.currentTimeMillis());
+        log.info("变更系统角色状态成功: roleId={}, status={}", id, normalizedStatus);
     }
 
     @Override
@@ -129,6 +135,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
             }
         }
         menuMapper.replaceRoleMenus(id, normalized);
+        log.info("更新系统角色权限成功: roleId={}, permissionNodeCount={}", id, normalized.size());
     }
 
     private boolean effective(SysMenu menu, Map<Long, SysMenu> byId, Set<Long> visited) {

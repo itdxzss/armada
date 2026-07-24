@@ -20,6 +20,16 @@
         ORDER BY is_system DESC, id
     </select>
 
+    <select id="findByIds" resultType="com.armada.admin.model.entity.SysRole">
+        SELECT <include refid="Columns"/>
+        FROM sys_role
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY id
+    </select>
+
     <select id="findEnabledIds" resultType="long">
         SELECT id
         FROM sys_role

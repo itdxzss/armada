@@ -69,6 +69,12 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
+        <!-- 系统用户密码仅做单向 BCrypt 哈希；完整登录安全链由后续登录分支接入。 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
         <!-- 对象转换:MapStruct(无 Lombok,无处理器顺序坑) -->
         <dependency>
             <groupId>org.mapstruct</groupId>

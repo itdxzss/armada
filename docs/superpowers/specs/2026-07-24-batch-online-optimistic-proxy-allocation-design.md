@@ -123,6 +123,37 @@ Mapper 不只依赖 JDBC 更新行数判断成功映射；每轮 UPDATE 后按�
 - 保留批次汇总日志：请求数、状态跳过数、候选数、CAS 成功数、冲突数、重试轮次、分配耗时、快照更新数和 outbox 受理数。
 - 单账号异常和最终未分配账号可以记录 ID；日志不得包含凭据正文、代理用户名或密码。
 
+## Kafka Outbox 成功回写
+
+协议命令仍按每账号一条 Kafka Record 发送，应用层最大在途窗口保持 100。Publisher 在整批开始时
+一次性批量准备上线凭据和代理，避免为了窗口回写重复查询；每个窗口内的 Kafka Future 全部收敛后，
+立即把该窗口结果交给 Dispatcher，再开始下一窗口。
+
+Dispatcher 对窗口内成功结果执行一次批量状态更新：
+
+```sql
+UPDATE protocol_command_outbox
+SET status = :sentStatus,
+    sent_at = :sentAt,
+    last_error = NULL,
+    updated_at = :sentAt
+WHERE command_id IN (:commandIds)
+  AND status = :lockedStatus
+  AND locked_by = :lockedBy
+  AND locked_at = :lockedAt
+  AND deleted_at IS NULL;
+```
+
+- 正常 afterCommit 主路径和兜底扫描路径都使用 `command_id` 批量回写，因此不依赖内存行是否带数据库主键。
+- `locked_by + locked_at` 继续校验当前发送锁，旧 Dispatcher 不能误更新后来重新抢占的行。
+- 每个窗口最多 100 条成功记录，把 1000 条全成功命令从 1000 次单行 UPDATE/提交降为 10 次批量 UPDATE/提交。
+- 窗口内失败结果仍逐条更新 RETRY 或 DEAD，因为失败通常稀少，且错误原因、重试时间可能不同。
+- 批量回写命中数小于成功结果数时记录批次级告警，不恢复成逐账号 INFO 日志。
+- 某窗口已获得 Kafka ACK、但数据库批量回写抛异常时，停止发送后续窗口；已 ACK 行保持 LOCKED，等待现有锁过期恢复。
+  Outbox 仍是至少一次投递语义，协议消费端必须继续按 `commandId` 幂等。
+
+Dispatcher 执行器保持单线程，不在本次增加并发，也不增加账号生命周期版本号。
+
 ## 事务与失败语义
 
 - 用户手动上线的状态预占、旧代理释放、新代理 CAS、快照更新和 outbox 插入处于同一 Spring 事务。
@@ -157,6 +188,8 @@ Mapper 不只依赖 JDBC 更新行数判断成功映射；每轮 UPDATE 后按�
 - 代理按国家分组、每 100 条生成一轮 CASE CAS，并只重试冲突映射。
 - 三轮无进展、代理不足和 CAS 映射不一致时抛出明确业务异常。
 - 快照一次批量更新且不再逐账号调用 Mapper。
+- Publisher 在一个 Kafka 窗口 ACK 完成后回调 Dispatcher，再提交下一窗口，同时整批凭据和代理只批量准备一次。
+- Dispatcher 对每个窗口的成功结果只调用一次 `markSentBatch`；混合失败窗口仍逐条回写 RETRY/DEAD。
 - 日志测试不依赖每账号 INFO 文本。
 
 ### 真库 DbTest
@@ -167,10 +200,12 @@ Mapper 不只依赖 JDBC 更新行数判断成功映射；每轮 UPDATE 后按�
 - READ_COMMITTED 下重试能看到已提交冲突，并且本事务已抢占代理不会再次成为候选。
 - 代理不足或后续异常时旧绑定、PENDING 状态和新绑定全部回滚。
 - 批量代理快照字段与账号映射准确，租户隔离有效。
+- Outbox 批量 SENT 更新只命中同一 `locked_by + locked_at` 的 LOCKED 行，重复或过期锁更新命中 0 行。
 
 ## 性能验收
 
 代码级验收首先确认代理分配 SQL 数量按“区域组数 + 每 100 条一个 CAS 批次 + 有界冲突重试”增长，不再按账号执行一条锁定查询和一条快照更新。
+同时确认 1000 条 Kafka 全成功命令只执行约 10 次 Outbox SENT UPDATE，不再逐账号提交 1000 次。
 
 perf2 部署后使用相同约 1000 账号范围对比：
 

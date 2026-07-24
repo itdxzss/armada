@@ -1,5 +1,7 @@
 package com.armada.account.mapper;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
+import com.armada.account.model.AccountProxyFailedRecoveryCandidate;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
@@ -121,6 +123,55 @@ public interface AccountStateMapper {
                                    @Param("updatedAt") long updatedAt);
 
     /**
+     * 批量更新账号控制面期望登录状态。
+     *
+     * <p>该字段只由显式上线/下线命令修改，协议状态事件和自动恢复不得覆盖。</p>
+     *
+     * @param accountIds 账号 ID 列表
+     * @param desiredLoginState 期望登录状态码
+     * @param updatedAt 更新时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    default int updateDesiredLoginState(List<Long> accountIds, int desiredLoginState, long updatedAt) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return 0;
+        }
+        return updateDesiredLoginStateInternal(accountIds, desiredLoginState, updatedAt);
+    }
+
+    int updateDesiredLoginStateInternal(@Param("accountIds") List<Long> accountIds,
+                                        @Param("desiredLoginState") int desiredLoginState,
+                                        @Param("updatedAt") long updatedAt);
+
+    /**
+     * C 事务开始时原子抢占 PROXY_FAILED 恢复资格。
+     *
+     * <p>只有仍处于 OFFLINE/PROXY_FAILED 的账号能从离线变为待上线；抢占、代理分配、快照和 outbox
+     * 处在同一事务，任一步失败都会整体回滚，恢复为可继续补偿的 PROXY_FAILED。</p>
+     */
+    default int claimProxyFailedReonline(Long accountId, long updatedAt) {
+        if (accountId == null) {
+            return 0;
+        }
+        return claimProxyFailedReonlineInternal(
+                accountId,
+                AccountLoginStateCode.OFFLINE,
+                AccountLoginStateCode.PENDING_ONLINE,
+                AccountLoginStateCode.OFFLINE,
+                "PROXY_FAILED",
+                STATE_SOURCE_OUTBOX,
+                updatedAt);
+    }
+
+    int claimProxyFailedReonlineInternal(@Param("accountId") Long accountId,
+                                         @Param("offlineLoginState") int offlineLoginState,
+                                         @Param("pendingLoginState") int pendingLoginState,
+                                         @Param("desiredOfflineState") int desiredOfflineState,
+                                         @Param("expectedStateSource") String expectedStateSource,
+                                         @Param("targetStateSource") String targetStateSource,
+                                         @Param("updatedAt") long updatedAt);
+
+    /**
      * 更新账号登录态以及同步元数据。
      *
      * <p>用于 {@code account.state_changed} 普通 ONLINE/OFFLINE/RECONNECTING 等状态回写;
@@ -228,4 +279,17 @@ public interface AccountStateMapper {
      * @return 实际更新行数
      */
     int updateBlockReason(AccountState row);
+
+    /**
+     * 跨租户扫描仍处于 OFFLINE/PROXY_FAILED 且超过即时恢复宽限期的账号。
+     *
+     * <p>只读账号和状态事实，不加行锁；多实例重复扫描由 C 事务的条件 UPDATE 去重。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountProxyFailedRecoveryCandidate> selectProxyFailedRecoveryCandidates(
+            @Param("offlineLoginState") int offlineLoginState,
+            @Param("stateSource") String stateSource,
+            @Param("desiredOfflineState") int desiredOfflineState,
+            @Param("eligibleBefore") long eligibleBefore,
+            @Param("limit") int limit);
 }

@@ -52,16 +52,18 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         IpProxy indiaIdleA = insertProxy(india, marker, IpProxyStatus.IDLE.code(), now);
         insertProxy(india, marker, IpProxyStatus.IDLE.code(), now + 1);
         IpProxy indiaUsing = insertProxy(india, marker, IpProxyStatus.IDLE.code(), now + 2);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(indiaUsing.getId(), 9001L)),
+        mapper.markUsingAndBind(
+                indiaUsing.getId(),
+                9001L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 20);
         insertProxy(india, marker, IpProxyStatus.UNAVAILABLE.code(), now + 3);
 
         IpProxy pakistanUsing = insertProxy(pakistan, marker, IpProxyStatus.IDLE.code(), now + 4);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(pakistanUsing.getId(), 9002L)),
+        mapper.markUsingAndBind(
+                pakistanUsing.getId(),
+                9002L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 21);
@@ -169,14 +171,16 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
         String region = "印度-detail-search-" + now;
         insertCountry("XD", region, now);
         IpProxy matched = insertProxy(region, marker, IpProxyStatus.IDLE.code(), now);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(matched.getId(), 99001L)),
+        mapper.markUsingAndBind(
+                matched.getId(),
+                99001L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 10);
         IpProxy otherAccount = insertProxy(region, marker, IpProxyStatus.IDLE.code(), now + 1);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(otherAccount.getId(), 88001L)),
+        mapper.markUsingAndBind(
+                otherAccount.getId(),
+                88001L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 11);

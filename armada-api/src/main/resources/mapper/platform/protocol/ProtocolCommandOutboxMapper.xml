@@ -159,6 +159,22 @@
       AND outbox_row.status = #{pendingStatus}
   </update>
 
+  <!-- 显式下线只取消尚未被 publisher 抢占的旧上线命令，LOCKED/SENT 保持原有保序语义。 -->
+  <update id="cancelPendingAccountOnlineCommandsInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{canceledStatus},
+        last_error = 'MANUAL_OFFLINE',
+        updated_at = #{now}
+    WHERE aggregate_type = #{aggregateType}
+      AND aggregate_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+      AND command_type = #{onlineCommandType}
+      AND status = #{pendingStatus}
+      AND deleted_at IS NULL
+  </update>
+
   <!-- 当前锁确认不可恢复失败时进入 DEAD,不再被 PENDING 扫描捞起。 -->
   <update id="markDeadInternal">
     UPDATE protocol_command_outbox

@@ -12,13 +12,11 @@ import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountImportBatchVO;
-import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.ProxyOwnership;
 import com.armada.resource.model.ProxyProtocol;
 import com.armada.resource.model.entity.IpProxy;
-import com.armada.resource.model.enums.IpProxyCheckLifecycleStatus;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
@@ -241,8 +239,9 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
         insertDefaultState(account.getId(), now);
         IpProxy proxy = newIdleProxy(now);
         ipProxyMapper.insert(proxy);
-        ipProxyMapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(proxy.getId(), account.getId())),
+        ipProxyMapper.markUsingAndBind(
+                proxy.getId(),
+                account.getId(),
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 1);
@@ -259,17 +258,16 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
     }
 
     @Test
-    void applyStateChanged_proxyFailed_marksBoundIpUnavailableAndPendingReonline() {
+    void applyStateChanged_proxyFailedCommitsOfflineMarkerWithoutMutatingProxy() {
         long now = System.currentTimeMillis();
         String wsPhone = "86189" + (now % 10_000_000L);
         importOneAccount(wsPhone);
         Account account = accountMapper.selectActiveByWsPhone(wsPhone);
         IpProxy failedProxy = newIdleProxy(now);
-        IpProxy replacementProxy = newIdleProxy(now + 1);
         ipProxyMapper.insert(failedProxy);
-        ipProxyMapper.insert(replacementProxy);
-        ipProxyMapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(failedProxy.getId(), account.getId())),
+        ipProxyMapper.markUsingAndBind(
+                failedProxy.getId(),
+                account.getId(),
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 1);
@@ -278,19 +276,11 @@ class AccountStateEventServiceImplDbTest extends DbTestBase {
                 now + 2_000L, "PROXY_FAILED", null));
 
         AccountState state = stateMapper.selectByAccountId(account.getId());
-        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
-        assertThat(state.getStateSource()).isEqualTo(AccountStateMapper.STATE_SOURCE_OUTBOX);
-        IpProxy unavailable = ipProxyMapper.selectActiveById(failedProxy.getId());
-        assertThat(unavailable.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(unavailable.getBoundAccountId()).isNull();
-        assertThat(unavailable.getBoundAt()).isNull();
-        assertThat(unavailable.getCheckFailCount()).isEqualTo(1);
-        assertThat(unavailable.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(unavailable.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(unavailable.getLastCheckError()).contains("PROXY_FAILED");
-        IpProxy replacement = ipProxyMapper.selectActiveById(replacementProxy.getId());
-        assertThat(replacement.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
-        assertThat(replacement.getBoundAccountId()).isEqualTo(account.getId());
+        assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(state.getStateSource()).isEqualTo("PROXY_FAILED");
+        IpProxy stillBound = ipProxyMapper.selectActiveById(failedProxy.getId());
+        assertThat(stillBound.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
+        assertThat(stillBound.getBoundAccountId()).isEqualTo(account.getId());
     }
 
     @Test

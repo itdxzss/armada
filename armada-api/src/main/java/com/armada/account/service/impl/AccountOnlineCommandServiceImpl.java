@@ -43,7 +43,6 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -68,6 +67,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private static final String TAKEOVER_SELECTION_MESSAGE = "当前所选账号存在非被抢登状态，请重新选择";
     private static final String TAKING_OVER_ONLINE_MESSAGE = "账号抢登中，请先离线";
     private static final String TAKEOVER_SKIPPED_SOURCE = "TAKEOVER_SKIPPED";
+    private static final String PROXY_FAILED_REONLINE_SKIPPED_SOURCE = "PROXY_FAILED_REONLINE_SKIPPED";
     private static final String ALREADY_PENDING_SOURCE = "ALREADY_PENDING";
     private static final String ALREADY_ONLINE_SOURCE = "ALREADY_ONLINE";
     private static final int PROXY_SNAPSHOT_BATCH_SIZE = 100;
@@ -122,19 +122,30 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * 不输出凭据 JSON、代理账号密码等敏感内容。</p>
      */
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED, rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO online(Long accountId) {
-        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE, null);
+        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE, null, null);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO reonlineAfterProxyFailure(Long accountId) {
         return reonlineAfterProxyFailure(accountId, null);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId) {
-        return onlineWithSource(accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId);
+        return reonlineAfterProxyFailure(accountId, failedOnlineAttemptId, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AccountOnlineVO reonlineAfterProxyFailure(Long accountId,
+                                                     String failedOnlineAttemptId,
+                                                     Long failedProxyId) {
+        return onlineWithSource(
+                accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId, failedProxyId);
     }
 
     /**
@@ -144,12 +155,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * 后续是否真的在线仍由协议层状态事件回填。</p>
      */
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED, rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO takeoverBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         loadAccounts(ids);
         validateTakeoverStates(ids);
         long now = System.currentTimeMillis();
+        updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, now);
         int updated = stateMapper.markTakingOverByAccountIds(
                 ids,
                 AccountStateCode.LOGIN_REPLACED,
@@ -185,18 +197,26 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             log.info("抢登续上线跳过:账号处于短窗口冷却 accountId={} source={}", accountId, source);
             return skippedTakeoverVO(accountId);
         }
-        return onlineWithSource(accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId);
+        return onlineWithSource(
+                accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId, null);
     }
 
     private static boolean shouldApplyTakeoverCooldown(String source) {
         return !SOURCE_LOGIN_REPLACED_TAKEOVER.equals(source);
     }
 
-    private AccountOnlineVO onlineWithSource(Long accountId, String source, String failedOnlineAttemptId) {
+    private AccountOnlineVO onlineWithSource(Long accountId,
+                                             String source,
+                                             String failedOnlineAttemptId,
+                                             Long failedProxyId) {
         log.info("账号上线开始 accountId={}", accountId);
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
         Account account = loadAccount(accountId);
+        if (SOURCE_MANUAL_ONLINE.equals(source)) {
+            updateDesiredLoginStateOrThrow(
+                    List.of(account.getId()), AccountLoginStateCode.ONLINE, System.currentTimeMillis());
+        }
         Optional<AccountOnlineVO> idempotentResult = manualOnlineIdempotentResult(account, source);
         if (idempotentResult.isPresent()) {
             return idempotentResult.get();
@@ -209,9 +229,14 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
         // 用户手动上线先把 OFFLINE/未上报状态原子预占为 PENDING；并发请求更新不到行时不能释放旧代理。
         claimManualOnline(List.of(account.getId()), source);
+        if (!claimProxyFailedReonline(account.getId(), source)) {
+            log.info("账号代理失败重上线跳过,状态已变化 accountId={} failedProxyId={}",
+                    account.getId(), failedProxyId);
+            return skippedOnlineVO(account, PROXY_FAILED_REONLINE_SKIPPED_SOURCE);
+        }
 
         // 2. resource 服务先释放该账号旧 IP,再按国家偏好乐观抢占一条空闲代理。
-        IpProxyAllocation allocation = ipProxyService.allocateOnlineEndpoint(allocationRequest);
+        IpProxyAllocation allocation = allocateOnlineEndpoint(allocationRequest, source, failedProxyId);
 
         ProtocolCommandOutboxEnqueueResult enqueueResult;
         try {
@@ -258,10 +283,11 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * 日志只记录账号数、代理 ID、状态汇总和耗时,不打印凭据或代理密码。</p>
      */
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED, rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO onlineBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         log.info("账号批量上线开始 requested={}", ids.size());
+        updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, System.currentTimeMillis());
 
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
                 ids,
@@ -275,12 +301,13 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     }
 
     @Override
-    @Transactional(isolation = Isolation.READ_COMMITTED, rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO onlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts) {
         List<AccountLifecycleCommandItem> items = normalizeLifecycleCommandItems(accounts);
         List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
         Map<Long, ProtocolBackend> protocolBackendByAccountId = protocolBackendByAccountId(items);
         log.info("账号批量上线开始 requested={} protocolBackendFromRequest=true", ids.size());
+        updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, System.currentTimeMillis());
 
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
                 ids,
@@ -335,6 +362,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * 本方法只保证下线命令进入 outbox,最终登录状态和代理释放以后续 Kafka 回写链路为准。</p>
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO offlineBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         log.info("账号批量下线开始 requested={}", ids.size());
@@ -343,6 +371,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO offlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts) {
         List<AccountLifecycleCommandItem> items = normalizeLifecycleCommandItems(accounts);
         List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
@@ -353,6 +382,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private AccountBatchOnlineVO offlineBatch(List<Long> ids,
                                               Map<Long, ProtocolBackend> protocolBackendByAccountId) {
         Map<Long, Account> accountsById = loadAccounts(ids);
+        updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.OFFLINE, System.currentTimeMillis());
+        int canceledOnlineCommands = protocolCommandOutboxService.cancelPendingAccountOnlineCommands(ids);
         List<PreparedOfflineCommand> prepared = new ArrayList<>(ids.size());
         for (Long accountId : ids) {
             Account account = accountsById.get(accountId);
@@ -369,9 +400,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 prepared.stream().map(PreparedOfflineCommand::command).toList());
         AccountBatchOnlineVO vo = toOutboxOfflineBatchVO(ids.size(), prepared, enqueueResult);
         log.info("账号批量下线 outbox 已受理 requested={} submitted={} accepted={} error={} elapsedMs={} "
-                        + "batchId={} commandIds={}",
+                        + "canceledOnlineCommands={} batchId={} commandIds={}",
                 vo.requested(), vo.submitted(), vo.accepted(), vo.error(), vo.elapsedMs(),
-                enqueueResult.batchId(), enqueueResult.commandIds().size());
+                canceledOnlineCommands, enqueueResult.batchId(), enqueueResult.commandIds().size());
         return vo;
     }
 
@@ -499,6 +530,34 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     ErrorCode.CONFLICT,
                     "账号登录状态已变化，请刷新后重试: expected=" + accountIds.size() + " updated=" + updated);
         }
+    }
+
+    private boolean claimProxyFailedReonline(Long accountId, String source) {
+        if (!SOURCE_PROXY_FAILED_REONLINE.equals(source)) {
+            return true;
+        }
+        return stateMapper.claimProxyFailedReonline(accountId, System.currentTimeMillis()) == 1;
+    }
+
+    private void updateDesiredLoginStateOrThrow(List<Long> accountIds, int desiredLoginState, long updatedAt) {
+        int updated = stateMapper.updateDesiredLoginState(accountIds, desiredLoginState, updatedAt);
+        if (updated != accountIds.size()) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "账号期望登录状态更新数量不一致: expected=" + accountIds.size() + " updated=" + updated);
+        }
+    }
+
+    private IpProxyAllocation allocateOnlineEndpoint(IpProxyAllocationRequest request,
+                                                      String source,
+                                                      Long failedProxyId) {
+        if (!SOURCE_PROXY_FAILED_REONLINE.equals(source) || failedProxyId == null) {
+            return ipProxyService.allocateOnlineEndpoint(request);
+        }
+        IpProxyAccountAllocation allocation = ipProxyService.allocateOnlineEndpointsExcludingProxyIds(
+                List.of(request), List.of(failedProxyId)).get(0);
+        return new IpProxyAllocation(
+                allocation.proxyId(), allocation.endpoint(), allocation.proxySource());
     }
 
     private static boolean isManualOnlineSource(String source) {
@@ -805,7 +864,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * 不能再执行无条件回写覆盖并发下线的新状态。</p>
      */
     private void markPendingAfterEnqueueForSystemSource(List<Long> accountIds, String source) {
-        if (!isManualOnlineSource(source)) {
+        if (!isManualOnlineSource(source) && !SOURCE_PROXY_FAILED_REONLINE.equals(source)) {
             markPendingOnline(accountIds);
         }
     }

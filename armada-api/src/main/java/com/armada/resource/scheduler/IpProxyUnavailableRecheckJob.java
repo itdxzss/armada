@@ -13,8 +13,8 @@ import org.springframework.stereotype.Component;
 /**
  * 不可用 IP 定时重检任务。
  *
- * <p>协议层上报 PROXY_FAILED 后,armada 会把账号当前绑定 IP 标记为不可用。
- * 本任务负责周期性重检这些 IP,检测成功后复用 IP 管理检测落库逻辑恢复为空闲。</p>
+ * <p>真实代理检测失败会把 IP 标记为不可用。本任务周期性重检这些 IP，检测成功后恢复为空闲；
+ * 协议 PROXY_FAILED 不再把代理置为不可用，也不进入这条链路。</p>
  */
 @Component
 @EnableConfigurationProperties(IpProxyUnavailableRecheckJobProperties.class)

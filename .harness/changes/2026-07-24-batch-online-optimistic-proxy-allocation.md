@@ -60,3 +60,15 @@
 
 - 异步批任务 `202 + operationId` 可作为后续架构演进，本次不实现。
 - worker 级 PROXY_FAILED 根因分析不属于本次数据库慢路径优化。
+
+## 后续修正：默认事务与 PROXY_FAILED 恢复
+
+- 状态: 仅在本地 `1.0.1-snapshot` 修改，未 commit、未部署；由用户负责测试环境验收。
+- 删除上线和代理分配入口显式 `READ_COMMITTED`，继续使用数据库默认事务隔离级别。
+- 代理上线分配不再使用 CASE 批量抢占，改为候选普通 SELECT + 单行
+  `UPDATE ... WHERE id = ? AND status = IDLE`；返回 0 立即尝试下一候选。
+- PROXY_FAILED 拆成独立 A/B/C：A 提交 OFFLINE/PROXY_FAILED；B 按事件的
+  `accountId + proxyId` 精确释放旧代理回 IDLE；C 条件抢占恢复资格后换 IP、更新快照并写 outbox。
+- 协议 PROXY_FAILED 不再把 IP 标记为 UNAVAILABLE。B/C 异常不向 Kafka 状态消费冒泡；
+  C 回滚后由 5 秒周期扫描持续补偿，账号上线、人工停止或进入终态后自动退出扫描。
+- 安卓协议自救逻辑不在本次修改范围。

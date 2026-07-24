@@ -116,8 +116,9 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(selected).isNotNull();
         assertThat(selected.getId()).isEqualTo(proxy.getId());
 
-        int marked = mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(selected.getId(), 501L)),
+        int marked = mapper.markUsingAndBind(
+                selected.getId(),
+                501L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 1);
@@ -143,83 +144,13 @@ class IpProxyMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void markBoundProxyUnavailableByAccount_marksCurrentBindingUnavailableAndClearsBinding() {
-        long now = System.currentTimeMillis();
-        IpProxy proxy = newIdleProxy(now);
-        mapper.insert(proxy);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(proxy.getId(), 501L)),
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now + 1);
-
-        IpProxy update = new IpProxy();
-        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
-        update.setLastSampleCheckAt(now + 2);
-        update.setLastCheckError("PROXY_FAILED");
-        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappHttpStatus(null);
-        update.setWhatsappCheckError("PROXY_FAILED");
-        update.setUpdatedAt(now + 3);
-
-        int marked = mapper.markBoundProxyUnavailableByAccount(
-                501L,
-                IpProxyStatus.IN_USE.code(),
-                now + 2,
-                update);
-
-        assertThat(marked).isEqualTo(1);
-        IpProxy unavailable = mapper.selectActiveById(proxy.getId());
-        assertThat(unavailable.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(unavailable.getBoundAccountId()).isNull();
-        assertThat(unavailable.getBoundAt()).isNull();
-        assertThat(unavailable.getCheckFailCount()).isEqualTo(1);
-        assertThat(unavailable.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(unavailable.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(unavailable.getLastCheckError()).isEqualTo("PROXY_FAILED");
-    }
-
-    @Test
-    void markBoundProxyUnavailableByAccount_ignoresBindingsCreatedAfterEvent() {
-        long now = System.currentTimeMillis();
-        IpProxy proxy = newIdleProxy(now);
-        mapper.insert(proxy);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(proxy.getId(), 501L)),
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now + 10);
-
-        IpProxy update = new IpProxy();
-        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
-        update.setLastSampleCheckAt(now + 2);
-        update.setLastCheckError("PROXY_FAILED");
-        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckError("PROXY_FAILED");
-        update.setUpdatedAt(now + 3);
-
-        int marked = mapper.markBoundProxyUnavailableByAccount(
-                501L,
-                IpProxyStatus.IN_USE.code(),
-                now + 2,
-                update);
-
-        assertThat(marked).isZero();
-        IpProxy stillBound = mapper.selectActiveById(proxy.getId());
-        assertThat(stillBound.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
-        assertThat(stillBound.getBoundAccountId()).isEqualTo(501L);
-        assertThat(stillBound.getBoundAt()).isEqualTo(now + 10);
-    }
-
-    @Test
     void releaseOnlineAllocation_releasesOnlyMatchingProxyAndAccount() {
         long now = System.currentTimeMillis();
         IpProxy proxy = newIdleProxy(now);
         mapper.insert(proxy);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(proxy.getId(), 501L)),
+        mapper.markUsingAndBind(
+                proxy.getId(),
+                501L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 1);
@@ -265,11 +196,12 @@ class IpProxyMapperDbTest extends DbTestBase {
                 new IpProxyBindTarget(selectedA.getId(), 701L),
                 new IpProxyBindTarget(selectedB.getId(), 702L));
 
-        int marked = mapper.markUsingAndBindBatch(
-                targets,
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now + 2);
+        int marked = mapper.markUsingAndBind(
+                targets.get(0).proxyId(), targets.get(0).accountId(),
+                IpProxyStatus.IDLE.code(), IpProxyStatus.IN_USE.code(), now + 2)
+                + mapper.markUsingAndBind(
+                targets.get(1).proxyId(), targets.get(1).accountId(),
+                IpProxyStatus.IDLE.code(), IpProxyStatus.IN_USE.code(), now + 2);
         assertThat(marked).isEqualTo(2);
 
         IpProxy boundA = mapper.selectActiveById(targets.get(0).proxyId());
@@ -361,8 +293,9 @@ class IpProxyMapperDbTest extends DbTestBase {
         IpProxy idle = newIdleProxy(now + 1);
         mapper.insert(bound);
         mapper.insert(idle);
-        mapper.markUsingAndBindBatch(
-                List.of(new IpProxyBindTarget(bound.getId(), 801L)),
+        mapper.markUsingAndBind(
+                bound.getId(),
+                801L,
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 now + 2);

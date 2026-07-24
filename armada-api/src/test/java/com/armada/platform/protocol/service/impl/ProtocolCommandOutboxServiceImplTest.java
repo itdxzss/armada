@@ -2,7 +2,9 @@ package com.armada.platform.protocol.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -646,6 +648,29 @@ class ProtocolCommandOutboxServiceImplTest {
                 .extracting("code")
                 .isEqualTo(ErrorCode.CONFLICT.code());
         verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+    }
+
+    @Test
+    void cancelPendingAccountOnlineCommands_cancelsOnlyPendingAccountOnlineRows() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        when(mapper.cancelPendingAccountOnlineCommandsInternal(
+                eq(List.of(100L, 101L)),
+                eq("ACCOUNT"),
+                eq("account.online.requested"),
+                eq(ProtocolCommandOutboxStatus.PENDING.code()),
+                eq(ProtocolCommandOutboxStatus.CANCELED.code()),
+                anyLong())).thenReturn(2);
+
+        int canceled = service.cancelPendingAccountOnlineCommands(List.of(100L, 101L));
+
+        assertThat(canceled).isEqualTo(2);
+        verify(mapper).cancelPendingAccountOnlineCommandsInternal(
+                eq(List.of(100L, 101L)),
+                eq("ACCOUNT"),
+                eq("account.online.requested"),
+                eq(ProtocolCommandOutboxStatus.PENDING.code()),
+                eq(ProtocolCommandOutboxStatus.CANCELED.code()),
+                anyLong());
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {

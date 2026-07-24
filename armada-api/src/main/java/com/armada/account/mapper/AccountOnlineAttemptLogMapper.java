@@ -19,6 +19,10 @@ public interface AccountOnlineAttemptLogMapper {
 
     String selectLatestAttemptIdByAccountId(@Param("accountId") Long accountId);
 
+    AccountOnlineAttemptLog selectLatestProxyFailureByAccountId(
+            @Param("accountId") Long accountId,
+            @Param("proxyFailedState") String proxyFailedState);
+
     /**
      * 删除当前 TenantContext 租户内早于 cutoff 的诊断日志。
      */

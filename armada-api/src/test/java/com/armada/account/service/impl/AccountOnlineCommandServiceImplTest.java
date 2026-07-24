@@ -3,10 +3,12 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -57,6 +59,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -105,6 +108,8 @@ class AccountOnlineCommandServiceImplTest {
     @BeforeEach
     void allowManualOnlineStateClaimsAndSnapshotWritesByDefault() {
         lenient().doAnswer(invocation -> invocation.<List<Long>>getArgument(0).size())
+                .when(stateMapper).updateDesiredLoginState(any(), anyInt(), anyLong());
+        lenient().doAnswer(invocation -> invocation.<List<Long>>getArgument(0).size())
                 .when(stateMapper).claimPendingOnline(any(), anyLong());
         lenient().doAnswer(invocation -> invocation.<List<AccountState>>getArgument(0).size())
                 .when(stateMapper).updateProxySnapshots(any());
@@ -135,17 +140,28 @@ class AccountOnlineCommandServiceImplTest {
 
         assertThat(result.accepted()).isFalse();
         assertThat(result.stateSource()).isEqualTo("ALREADY_ONLINE");
+        verify(stateMapper).updateDesiredLoginState(
+                eq(List.of(100L)), eq(AccountLoginStateCode.ONLINE), anyLong());
         verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
     }
 
     @Test
-    void manualOnlineEntrypointsUseReadCommittedTransactionForOptimisticProxyRetries() throws Exception {
+    void onlineEntrypointsUseDefaultTransactionIsolation() throws Exception {
         assertThat(transactionalAnnotation("online", Long.class).isolation())
-                .isEqualTo(Isolation.READ_COMMITTED);
+                .isEqualTo(Isolation.DEFAULT);
+        assertThat(transactionalAnnotation("takeoverBatch", List.class).isolation())
+                .isEqualTo(Isolation.DEFAULT);
         assertThat(transactionalAnnotation("onlineBatch", List.class).isolation())
-                .isEqualTo(Isolation.READ_COMMITTED);
+                .isEqualTo(Isolation.DEFAULT);
         assertThat(transactionalAnnotation("onlineBatchWithProtocolBackends", List.class).isolation())
-                .isEqualTo(Isolation.READ_COMMITTED);
+                .isEqualTo(Isolation.DEFAULT);
+        assertThat(transactionalAnnotation(
+                "reonlineAfterProxyFailure", Long.class, String.class, Long.class).isolation())
+                .isEqualTo(Isolation.DEFAULT);
+        assertThat(transactionalAnnotation("offlineBatch", List.class).isolation())
+                .isEqualTo(Isolation.DEFAULT);
+        assertThat(transactionalAnnotation("offlineBatchWithProtocolBackends", List.class).isolation())
+                .isEqualTo(Isolation.DEFAULT);
     }
 
     @Test
@@ -370,6 +386,7 @@ class AccountOnlineCommandServiceImplTest {
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(stateMapper.claimProxyFailedReonline(eq(100L), anyLong())).thenReturn(1);
         when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
                 .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
@@ -401,14 +418,16 @@ class AccountOnlineCommandServiceImplTest {
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
-        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
-                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(stateMapper.claimProxyFailedReonline(eq(100L), anyLong())).thenReturn(1);
+        when(ipProxyService.allocateOnlineEndpointsExcludingProxyIds(
+                List.of(new IpProxyAllocationRequest(100L, "印度", true)), List.of(6L)))
+                .thenReturn(List.of(new IpProxyAccountAllocation(100L, 7L, endpoint, "iproyal")));
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
         lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
-        service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event");
+        service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event", 6L);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
@@ -417,6 +436,27 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.previousOnlineAttemptId()).isEqualTo("oa_failed_from_state_event");
         assertThat(command.source()).isEqualTo("proxy_failed_reonline");
         verify(accountOnlineAttemptLogService, never()).latestAttemptId(any());
+        verify(stateMapper, never()).updateDesiredLoginState(any(), anyInt(), anyLong());
+        verify(ipProxyService).allocateOnlineEndpointsExcludingProxyIds(
+                List.of(new IpProxyAllocationRequest(100L, "印度", true)), List.of(6L));
+        verify(stateMapper, never()).markPendingOnline(any(), anyLong());
+    }
+
+    @Test
+    void reonlineAfterProxyFailure_stateNoLongerEligibleSkipsBeforeProxyAllocation() {
+        Account account = onlineAccount();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(credentialMapper.selectByAccountId(100L)).thenReturn(onlineCredential());
+        when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
+                .thenReturn(List.of(ipRegionRow(100L, "印度")));
+        when(stateMapper.claimProxyFailedReonline(eq(100L), anyLong())).thenReturn(0);
+
+        AccountOnlineVO result = service.reonlineAfterProxyFailure(100L, "oa_failed_1", 6L);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.stateSource()).isEqualTo("PROXY_FAILED_REONLINE_SKIPPED");
+        verify(stateMapper, never()).updateDesiredLoginState(any(), anyInt(), anyLong());
+        verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
     }
 
     @Test
@@ -838,7 +878,12 @@ class AccountOnlineCommandServiceImplTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ProtocolOfflineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(protocolCommandOutboxService).enqueueOfflineCommands(commandsCaptor.capture());
+        InOrder lifecycleOrder = inOrder(stateMapper, protocolCommandOutboxService);
+        lifecycleOrder.verify(stateMapper).updateDesiredLoginState(
+                eq(List.of(100L, 101L)), eq(AccountLoginStateCode.OFFLINE), anyLong());
+        lifecycleOrder.verify(protocolCommandOutboxService)
+                .cancelPendingAccountOnlineCommands(List.of(100L, 101L));
+        lifecycleOrder.verify(protocolCommandOutboxService).enqueueOfflineCommands(commandsCaptor.capture());
         List<ProtocolOfflineCommandRequest> commands = commandsCaptor.getValue();
         assertThat(commands).hasSize(2);
         assertThat(commands).extracting(ProtocolOfflineCommandRequest::accountId)

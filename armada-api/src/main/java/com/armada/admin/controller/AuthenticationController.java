@@ -38,26 +38,46 @@ public class AuthenticationController {
         this.sessionService = sessionService;
     }
 
-    /** 生成一次性图片验证码，禁止浏览器和代理缓存。 */
+    /**
+     * 生成一次性图片验证码，并禁止浏览器和代理缓存验证码响应。
+     *
+     * @param response HTTP 响应，用于写入禁用缓存的响应头
+     * @return 验证码标识、Base64 图片和有效秒数
+     */
     @GetMapping("/api/public/auth/captcha")
     public ApiResponse<CaptchaChallenge> captcha(HttpServletResponse response) {
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         return ApiResponse.ok(captchaService.create());
     }
 
-    /** 校验用户名、密码和验证码并创建 Redis 单会话。 */
+    /**
+     * 校验用户名、密码和验证码，并创建 Redis 单用户单会话。
+     *
+     * @param request 登录账号、密码和一次性验证码
+     * @return Token、过期信息和当前身份
+     */
     @PostMapping("/api/public/auth/login")
     public ApiResponse<UserLoginVO> login(@RequestBody UserLoginDTO request) {
         return ApiResponse.ok(authenticationService.login(request));
     }
 
-    /** 返回服务端认证上下文中的当前用户和租户。 */
+    /**
+     * 返回服务端认证上下文中的当前用户、租户、角色和权限。
+     *
+     * @param principal Token 过滤器建立的可信身份
+     * @return 当前登录身份
+     */
     @GetMapping("/api/auth/me")
     public ApiResponse<CurrentAuthVO> current(@AuthenticationPrincipal AuthPrincipal principal) {
         return ApiResponse.ok(authenticationService.current(principal));
     }
 
-    /** 删除当前 Bearer Token 对应的服务端会话。 */
+    /**
+     * 删除当前 Bearer Token 对应的服务端会话。
+     *
+     * @param authorization 当前请求的 Authorization 头
+     * @return 空成功响应
+     */
     @PostMapping("/api/auth/logout")
     public ApiResponse<Void> logout(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
         sessionService.logout(rawToken(authorization));

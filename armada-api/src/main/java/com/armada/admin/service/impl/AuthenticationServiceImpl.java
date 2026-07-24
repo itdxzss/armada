@@ -24,7 +24,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-/** 默认租户阶段的用户名密码验证码登录实现。 */
+/**
+ * 默认租户阶段的用户名、密码和图片验证码登录实现。
+ *
+ * <p>登录失败时，对客户端统一返回相同错误，避免暴露用户是否存在；服务端日志只记录脱敏用户名和失败原因，
+ * 不记录密码、验证码或 Token。</p>
+ */
 @Service
 public class AuthenticationServiceImpl implements AuthenticationService {
 
@@ -60,9 +65,17 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         SysUser user = candidate.orElse(null);
         String storedHash = user == null ? dummyPasswordHash : user.getPasswordHash();
         boolean passwordMatches = passwordEncoder.matches(password, storedHash);
-        if (user == null || !passwordMatches
-                || user.getStatus() == null || user.getStatus() != SystemStatus.ENABLED.code()) {
-            log.warn("login.reject username={}", mask(username));
+        if (user == null) {
+            log.warn("login.reject reason=user_not_found username={}", mask(username));
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
+        }
+        if (!passwordMatches) {
+            log.warn("login.reject reason=password_mismatch username={}", mask(username));
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
+        }
+        if (user.getStatus() == null || user.getStatus() != SystemStatus.ENABLED.code()) {
+            log.warn("login.reject reason=user_disabled userId={} tenantId={}",
+                    user.getId(), user.getTenantId());
             throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
         long tenantId = user.getTenantId();
@@ -70,8 +83,10 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         AuthPrincipal principal;
         TenantContext.set(tenantId);
         try {
-            principal = identityService.load(user.getId(), tenantId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.LOGIN_FAILED));
+            principal = identityService.load(user.getId(), tenantId).orElseThrow(() -> {
+                log.warn("login.reject reason=identity_invalid userId={} tenantId={}", user.getId(), tenantId);
+                return new BusinessException(ErrorCode.LOGIN_FAILED);
+            });
         } finally {
             TenantContext.clear();
         }

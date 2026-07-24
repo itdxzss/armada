@@ -15,6 +15,8 @@ import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
 import javax.imageio.ImageIO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RedisCaptchaService implements CaptchaService {
 
+    private static final Logger log = LoggerFactory.getLogger(RedisCaptchaService.class);
     private static final String KEY_PREFIX = "auth:captcha:";
     private static final String CHARACTERS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int CODE_LENGTH = 4;
@@ -46,6 +49,7 @@ public class RedisCaptchaService implements CaptchaService {
         String answer = randomAnswer();
         try {
             redis.opsForValue().set(KEY_PREFIX + captchaId, answer, properties.getCaptchaTtl());
+            log.debug("auth.captcha.create.ok ttlSeconds={}", properties.getCaptchaTtl().toSeconds());
             return new CaptchaChallenge(
                     captchaId,
                     "data:image/png;base64," + Base64.getEncoder().encodeToString(render(answer)),
@@ -58,11 +62,20 @@ public class RedisCaptchaService implements CaptchaService {
     @Override
     public boolean consume(String captchaId, String answer) {
         if (captchaId == null || captchaId.isBlank() || answer == null || answer.isBlank()) {
+            log.debug("auth.captcha.consume.reject reason=missing_input");
             return false;
         }
         try {
             String expected = redis.opsForValue().getAndDelete(KEY_PREFIX + captchaId.trim());
-            return expected != null && expected.equals(answer.trim().toUpperCase(Locale.ROOT));
+            if (expected == null) {
+                log.debug("auth.captcha.consume.reject reason=missing_or_expired");
+                return false;
+            }
+            boolean matches = expected.equals(answer.trim().toUpperCase(Locale.ROOT));
+            if (!matches) {
+                log.debug("auth.captcha.consume.reject reason=answer_mismatch");
+            }
+            return matches;
         } catch (RuntimeException ex) {
             throw new AuthInfrastructureException("验证码服务不可用", ex);
         }

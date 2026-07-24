@@ -62,10 +62,12 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         try {
             Optional<AuthSession> session = sessionService.resolve(token);
             if (session.isEmpty()) {
+                log.debug("auth.token.reject reason=missing_or_expired method={} path={}",
+                        request.getMethod(), request.getRequestURI());
                 filterChain.doFilter(request, response);
                 return;
             }
-            authenticate(session.get());
+            authenticate(session.get(), request);
             filterChain.doFilter(request, response);
         } catch (AuthInfrastructureException ex) {
             log.error("认证基础设施不可用: method={}, path={}", request.getMethod(), request.getRequestURI(), ex);
@@ -77,10 +79,12 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private void authenticate(AuthSession session) {
+    private void authenticate(AuthSession session, HttpServletRequest request) {
         TenantContext.set(session.tenantId());
         Optional<AuthPrincipal> principal = identityService.load(session.userId(), session.tenantId());
         if (principal.isEmpty()) {
+            log.warn("auth.token.reject reason=identity_invalid userId={} tenantId={} method={} path={}",
+                    session.userId(), session.tenantId(), request.getMethod(), request.getRequestURI());
             sessionService.invalidateUser(session.userId());
             TenantContext.clear();
             return;
@@ -91,6 +95,9 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         identity.permissions().forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(identity, null, authorities));
+        log.debug("auth.token.accept userId={} tenantId={} authorityCount={} method={} path={}",
+                identity.userId(), identity.tenantId(), authorities.size(),
+                request.getMethod(), request.getRequestURI());
     }
 
     private static String bearerToken(String authorization) {

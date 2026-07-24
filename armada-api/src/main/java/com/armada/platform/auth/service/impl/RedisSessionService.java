@@ -16,6 +16,8 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -25,6 +27,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RedisSessionService implements SessionService {
 
+    private static final Logger log = LoggerFactory.getLogger(RedisSessionService.class);
     private static final String SESSION_PREFIX = "auth:session:";
     private static final String USER_PREFIX = "auth:user-session:";
     private static final int TOKEN_BYTES = 32;
@@ -85,6 +88,8 @@ public class RedisSessionService implements SessionService {
             if (!Long.valueOf(1L).equals(created)) {
                 throw new AuthInfrastructureException("登录会话创建失败", null);
             }
+            log.info("auth.session.create.ok userId={} tenantId={} idleTimeoutSeconds={} absoluteExpiresAt={}",
+                    userId, tenantId, properties.getSessionIdleTimeout().toSeconds(), absoluteExpiresAt);
             return new CreatedSession(
                     token, properties.getSessionIdleTimeout().toSeconds(), absoluteExpiresAt);
         } catch (RuntimeException ex) {
@@ -101,11 +106,14 @@ public class RedisSessionService implements SessionService {
         try {
             String value = redis.opsForValue().get(sessionKey(tokenHash));
             if (value == null) {
+                log.debug("auth.session.resolve.reject reason=missing_or_expired");
                 return Optional.empty();
             }
             AuthSession stored = objectMapper.readValue(value, AuthSession.class);
             long now = clock.millis();
             if (now >= stored.absoluteExpiresAt()) {
+                log.debug("auth.session.resolve.reject reason=absolute_expired userId={} tenantId={}",
+                        stored.userId(), stored.tenantId());
                 logout(rawToken);
                 return Optional.empty();
             }
@@ -114,7 +122,12 @@ public class RedisSessionService implements SessionService {
             Long result = redis.execute(RENEW_SCRIPT,
                     List.of(sessionKey(tokenHash), userKey(stored.userId())), tokenHash,
                     json(renewed), String.valueOf(ttl(now, stored.absoluteExpiresAt()).toMillis()));
-            return Long.valueOf(1L).equals(result) ? Optional.of(renewed) : Optional.empty();
+            if (!Long.valueOf(1L).equals(result)) {
+                log.debug("auth.session.resolve.reject reason=session_replaced userId={} tenantId={}",
+                        stored.userId(), stored.tenantId());
+                return Optional.empty();
+            }
+            return Optional.of(renewed);
         } catch (JsonProcessingException | RuntimeException ex) {
             throw unavailable(ex);
         }
@@ -134,6 +147,7 @@ public class RedisSessionService implements SessionService {
             AuthSession session = objectMapper.readValue(value, AuthSession.class);
             redis.execute(LOGOUT_SCRIPT,
                     List.of(sessionKey(tokenHash), userKey(session.userId())), tokenHash);
+            log.info("auth.session.logout.ok userId={} tenantId={}", session.userId(), session.tenantId());
         } catch (JsonProcessingException | RuntimeException ex) {
             throw unavailable(ex);
         }
@@ -146,6 +160,7 @@ public class RedisSessionService implements SessionService {
             if (tokenHash != null) {
                 redis.delete(sessionKey(tokenHash));
             }
+            log.info("auth.session.invalidate userId={} hadSession={}", userId, tokenHash != null);
         } catch (RuntimeException ex) {
             throw unavailable(ex);
         }

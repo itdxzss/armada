@@ -28,6 +28,10 @@ public class UserManagementServiceImpl implements UserManagementService {
 
     private static final Logger log = LoggerFactory.getLogger(UserManagementServiceImpl.class);
     private static final Pattern USERNAME_PATTERN = Pattern.compile("[A-Za-z0-9._-]+");
+    private static final Pattern PASSWORD_PATTERN = Pattern.compile(
+            "^(?![A-Za-z]+$)(?![0-9]+$)(?![^A-Za-z0-9]+$)[\\x21-\\x7E]{8,18}$");
+    private static final String PASSWORD_RULE_MESSAGE =
+            "密码须为8至18位，且由字母、数字、符号中的至少两类组成";
     private static final String TENANT_ADMIN = "TENANT_ADMIN";
 
     private final SysUserMapper userMapper;
@@ -198,8 +202,8 @@ public class UserManagementServiceImpl implements UserManagementService {
     }
 
     private static String password(String value) {
-        if (value == null || value.length() < 8 || value.length() > 64) {
-            throw new BusinessException(ErrorCode.VALIDATION, "密码长度必须为8至64个字符");
+        if (value == null || !PASSWORD_PATTERN.matcher(value).matches()) {
+            throw new BusinessException(ErrorCode.VALIDATION, PASSWORD_RULE_MESSAGE);
         }
         return value;
     }

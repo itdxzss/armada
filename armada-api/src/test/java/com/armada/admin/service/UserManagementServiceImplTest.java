@@ -56,7 +56,7 @@ class UserManagementServiceImplTest {
 
         assertThatThrownBy(() -> service.create(request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("8至64");
+                .hasMessageContaining("8至18");
 
         verify(userMapper, never()).insert(any());
     }

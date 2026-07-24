@@ -46,6 +46,16 @@ vim .env
 ./scripts/logs.sh
 ```
 
+执行生产主机只读巡检（逐项输出 `PASS/WARN/FAIL/SKIP`，不自动修复）：
+
+```bash
+sudo ./scripts/inspect-production-host.sh \
+  --service docker \
+  --report "./inspection-$(hostname)-$(date +%Y%m%d-%H%M%S).tsv"
+```
+
+按机器角色补充 `--listen-port`、`--health-url`、`--cert` 和 `--backup-marker`。完整检查项、阈值与安全边界见仓库 `docs/operations/production-host-inspection.md` 或脚本 `--help`。
+
 回滚到上一个已安装版本：
 
 ```bash

@@ -154,6 +154,7 @@ require_common_files() {
   [ -f "${SCRIPT_DIR}/prod/scripts/rollback.sh" ] || die "missing prod rollback script"
   [ -f "${SCRIPT_DIR}/prod/scripts/status.sh" ] || die "missing prod status script"
   [ -f "${SCRIPT_DIR}/prod/scripts/logs.sh" ] || die "missing prod logs script"
+  [ -f "${SCRIPT_DIR}/prod/scripts/inspect-production-host.sh" ] || die "missing production host inspection script"
   [ -f "${SCRIPT_DIR}/prod/README-prod.md" ] || die "missing prod README"
 }
 
@@ -246,6 +247,7 @@ copy_common_release_files() {
   cp "${SCRIPT_DIR}/prod/scripts/rollback.sh" "${release_dir}/scripts/rollback.sh"
   cp "${SCRIPT_DIR}/prod/scripts/status.sh" "${release_dir}/scripts/status.sh"
   cp "${SCRIPT_DIR}/prod/scripts/logs.sh" "${release_dir}/scripts/logs.sh"
+  cp "${SCRIPT_DIR}/prod/scripts/inspect-production-host.sh" "${release_dir}/scripts/inspect-production-host.sh"
   cp "${SCRIPT_DIR}/prod/README-prod.md" "${release_dir}/README-prod.md"
   chmod +x "${release_dir}/scripts/"*.sh
 }

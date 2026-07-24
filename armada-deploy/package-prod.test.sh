@@ -115,9 +115,13 @@ test_runtime_scripts_are_offline_only() {
     assert_executable "${PROD_DIR}/scripts/${script}"
     assert_file_not_contains_regex "${PROD_DIR}/scripts/${script}" '(^|[[:space:]])(ssh|rsync|scp|git[[:space:]]+clone|curl[[:space:]]+https?://)'
   done
+  assert_file "${PROD_DIR}/scripts/inspect-production-host.sh"
+  assert_file_not_contains_regex "${PROD_DIR}/scripts/inspect-production-host.sh" '(^|[[:space:]])(ssh|rsync|scp|git[[:space:]]+clone|curl[[:space:]]+https?://)'
   assert_file_contains "${PROD_DIR}/scripts/install.sh" "docker load -i"
   assert_file_contains "${PROD_DIR}/scripts/install.sh" "docker compose"
   assert_file_contains "${PROD_DIR}/README-prod.md" "生产机器不需要访问外网"
+  assert_file_contains "${PROD_DIR}/scripts/inspect-production-host.sh" "PASS/WARN/FAIL/SKIP"
+  assert_file_not_contains_regex "${PROD_DIR}/scripts/inspect-production-host.sh" 'sysctl[[:space:]]+-w|systemctl[[:space:]]+(start|stop|restart|enable|disable)'
 }
 
 test_help_and_dry_run_contract

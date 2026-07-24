@@ -13,8 +13,9 @@
 - [x] 对齐 perf2 超时时间线和同步慢路径。
 - [x] 确认代理采用 `CASE WHEN + WHERE status=IDLE` 的批量乐观抢占，每次 100 条。
 - [x] 固化跨前后端设计与事务失败语义。
-- [ ] 用户审阅并确认设计文档。
-- [ ] 编写 TDD 实施计划。
+- [x] 用户审阅并确认设计文档。
+- [x] 编写 Outbox 批量 SENT 回写 TDD 实施计划。
+- [ ] 实现 Kafka ACK 窗口完成后批量回写 Outbox SENT。
 - [ ] 实现 Web 超时提示和批量上线 30 秒冷却。
 - [ ] 实现 PENDING_ONLINE/ONLINE 预估、执行和命令服务防重。
 - [ ] 实现代理 CASE CAS、冲突重试、批量快照和批次日志。

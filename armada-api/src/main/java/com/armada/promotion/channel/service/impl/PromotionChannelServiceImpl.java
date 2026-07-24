@@ -17,6 +17,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
@@ -230,6 +231,25 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 Integer.valueOf(1).equals(row.getIsAppDownloadShown()),
                 row.getTargetCountry(),
                 row.getPreselectedCountry());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public PromotionChannelPairingContextRow resolvePairingContext(String channelCode, String forwardedHost) {
+        String normalizedCode = channelCode == null
+                ? ""
+                : channelCode.trim().toLowerCase(Locale.ROOT);
+        if (!CHANNEL_CODE_PATTERN.matcher(normalizedCode).matches()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "推广渠道不存在或已停用");
+        }
+        String normalizedHost = PromotionDomainNormalizer.normalize(forwardedHost);
+        PromotionChannelPairingContextRow context =
+                mapper.selectPairingContextByCodeAndHost(normalizedCode, normalizedHost);
+        if (context == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "推广渠道不存在或已停用");
+        }
+        return context;
     }
 
     /** {@inheritDoc} */

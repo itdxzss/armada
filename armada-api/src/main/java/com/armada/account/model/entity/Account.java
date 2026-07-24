@@ -31,6 +31,9 @@ public class Account {
     /** 推广渠道名。 */
     private String channelName;
 
+    /** 推广渠道 ID(落地页配对登录时记录归因渠道)。 */
+    private Long promotionChannelId;
+
     /** 归属:1 自有 2 平台 3 租借。 */
     private Integer ownership;
 
@@ -124,6 +127,14 @@ public class Account {
 
     public void setChannelName(String channelName) {
         this.channelName = channelName;
+    }
+
+    public Long getPromotionChannelId() {
+        return promotionChannelId;
+    }
+
+    public void setPromotionChannelId(Long promotionChannelId) {
+        this.promotionChannelId = promotionChannelId;
     }
 
     public Integer getOwnership() {

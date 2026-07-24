@@ -101,6 +101,47 @@ public interface IpProxyService {
     IpProxyAllocation allocateOnlineEndpoint(IpProxyAllocationRequest request);
 
     /**
+     * 为推广配对会话临时占用代理。
+     *
+     * <p>复用空闲代理选择算法，但通过专用配对状态和会话归属字段占用，
+     * 不写入只允许正式账号 ID 的 bound_account_id。</p>
+     *
+     * @param pairingSessionId 配对会话主键，必须为正数
+     * @param preferredRegion  渠道预选代理国家
+     * @param allowOtherRegionFallback 指定国家无库存时是否允许其它国家
+     * @return 本次配对固定使用的代理
+     */
+    IpProxyAllocation allocatePairingEndpoint(Long pairingSessionId,
+                                               String preferredRegion,
+                                               boolean allowOtherRegionFallback);
+
+    /**
+     * 将临时配对绑定原子转换为正式账号绑定。
+     *
+     * @param pairingSessionId 配对会话主键
+     * @param accountId 配对成功后的正式账号主键
+     * @param proxyId 本次配对占用的代理主键
+     */
+    void confirmPairingAllocation(Long pairingSessionId, Long accountId, Long proxyId);
+
+    /**
+     * 配对失败或过期时按会话与代理双重条件精确释放临时绑定。
+     *
+     * @param pairingSessionId 配对会话主键
+     * @param proxyId 本次配对占用的代理主键
+     */
+    void releasePairingAllocation(Long pairingSessionId, Long proxyId);
+
+    /**
+     * 按配对会话归属字段回收代理。
+     *
+     * <p>用于代理已分配但进程在会话回填 proxy_id 前中断的补偿场景；不存在绑定时幂等返回。</p>
+     *
+     * @param pairingSessionId 配对会话主键
+     */
+    void releasePairingAllocationBySession(Long pairingSessionId);
+
+    /**
      * 为一批账号上线分配空闲代理。
      *
      * <p>本方法在一个本地短事务中完成:批量释放这些账号旧绑定、按每个账号的国家偏好锁定同等数量 IDLE 代理、

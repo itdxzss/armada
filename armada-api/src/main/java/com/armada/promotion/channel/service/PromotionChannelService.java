@@ -6,6 +6,7 @@ import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.shared.response.PageResult;
@@ -47,6 +48,18 @@ public interface PromotionChannelService {
      * @throws com.armada.shared.exception.BusinessException 当参数非法、渠道停用或域名不匹配时抛出
      */
     PromotionChannelRuntimeVO runtime(String channelCode, String forwardedHost);
+
+    /**
+     * 按公开渠道码和访问域名解析配对所需的可信渠道上下文。
+     *
+     * <p>该方法是 pairing 域读取渠道数据的 Service 边界；不会返回追踪 Token 等敏感配置。</p>
+     *
+     * @param channelCode 公开推广码
+     * @param forwardedHost 边缘代理传入的原始访问域名
+     * @return 渠道所属租户、归属用户和代理地区等最小上下文
+     * @throws com.armada.shared.exception.BusinessException 当渠道不存在、停用或域名不匹配时抛出
+     */
+    PromotionChannelPairingContextRow resolvePairingContext(String channelCode, String forwardedHost);
 
     /**
      * 发送 Facebook CAPI 测试事件并保存最近探测结论。

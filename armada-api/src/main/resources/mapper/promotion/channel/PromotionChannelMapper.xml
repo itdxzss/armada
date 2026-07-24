@@ -213,6 +213,39 @@
     LIMIT 1
   </select>
 
+  <!-- 配对入口只投影可信上下文；国家 ISO2 在 SQL 中转换为现有代理池使用的中文地区名。 -->
+  <select id="selectPairingContextByCodeAndHost"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow">
+    SELECT c.tenant_id AS tenantId,
+           c.id AS channelId,
+           c.channel_name AS channelName,
+           c.owner_user_id AS ownerUserId,
+           country.name_zh AS preferredProxyRegion
+    FROM promotion_domain d
+    INNER JOIN promotion_channel c
+      ON c.promotion_domain_id = d.id
+     AND c.tenant_id = d.tenant_id
+     AND c.status = 1
+     AND c.deleted_at IS NULL
+    INNER JOIN tenant tenant_registry
+      ON tenant_registry.id = c.tenant_id
+     AND tenant_registry.status = 1
+    INNER JOIN promotion_landing_template t
+      ON t.id = d.landing_template_id
+     AND t.tenant_id = c.tenant_id
+     AND t.status = 1
+     AND t.deleted_at IS NULL
+    LEFT JOIN country
+      ON country.iso2 = c.preselected_country_value
+     AND country.is_enabled = 1
+     AND country.deleted_at IS NULL
+    WHERE c.channel_code = #{channelCode}
+      AND d.domain_host = #{domainHost}
+      AND d.is_active = 1
+      AND d.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
   <!--
     只有探测服务允许读取 Token 密文；查询仍受租户拦截器和三张表软删除条件约束，
     该投影禁止复用于列表、详情或导出接口。

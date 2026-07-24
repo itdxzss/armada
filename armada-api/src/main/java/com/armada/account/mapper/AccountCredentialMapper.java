@@ -25,6 +25,16 @@ public interface AccountCredentialMapper {
     int insert(AccountCredential row);
 
     /**
+     * 插入推广配对产生的协议凭据和本次代理会话快照。
+     *
+     * <p>该入口与普通账号导入的通用 insert 隔离，避免新增字段改变存量写入路径。</p>
+     *
+     * @param row 推广配对凭据（不得输出 creds_json 明文）
+     * @return 插入行数（正常为 1）
+     */
+    int insertPromotionCredential(AccountCredential row);
+
+    /**
      * 按 account_id 查活跃凭据行(deleted_at IS NULL)。
      *
      * <p>导入/上线场景使用;查协议层下发 creds_json 喂给协议层 connect 接口。</p>

@@ -30,10 +30,28 @@ public interface AccountMapper {
     int insert(Account row);
 
     /**
+     * 插入由推广配对创建的账号，并写入渠道归因字段。
+     *
+     * <p>该入口只供推广配对落库使用，避免修改普通导入、后台创建等存量账号的通用 insert SQL。</p>
+     *
+     * @param row 已完成校验的推广配对账号
+     * @return 插入行数（正常为 1）
+     */
+    int insertPromotionAccount(Account row);
+
+    /**
      * 按 WA 号查未软删账号(is_active 虚拟列为 1 即 deleted_at IS NULL)。
      * 导入查重/回填场景使用。
      */
     Account selectActiveByWsPhone(@Param("wsPhone") String wsPhone);
+
+    /**
+     * 跨租户判断手机号是否已归属任一活跃账号。
+     *
+     * <p>仅供公开推广配对入口做全局身份归属保护；显式绕过租户插件，禁止用于普通账号列表查询。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    boolean existsActiveByWsPhoneAnyTenant(@Param("wsPhone") String wsPhone);
 
     /**
      * 按 ID 查未软删账号。

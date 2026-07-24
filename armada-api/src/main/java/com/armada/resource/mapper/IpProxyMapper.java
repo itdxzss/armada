@@ -118,10 +118,13 @@ public interface IpProxyMapper {
      * <p>调用方在 entity 中传入本次检测状态、时间、出口详情、失败次数和失败原因。</p>
      *
      * @param entity 包含检测结果的代理实体
-     * @param inUseStatus 正在使用状态码;SQL 必须保留该状态,避免检测覆盖占用关系
+     * @param inUseStatus 正在使用状态码;SQL 必须保留该状态,避免检测覆盖正式账号占用关系
+     * @param pairingStatus 配对占用状态码;SQL 必须保留该状态,避免检测覆盖临时会话占用关系
      * @return 更新行数
      */
-    int updateDetectionResult(@Param("entity") IpProxy entity, @Param("inUseStatus") int inUseStatus);
+    int updateDetectionResult(@Param("entity") IpProxy entity,
+                              @Param("inUseStatus") int inUseStatus,
+                              @Param("pairingStatus") int pairingStatus);
 
     /**
      * 按国家优先级锁定一条本租户空闲代理。
@@ -198,6 +201,38 @@ public interface IpProxyMapper {
                                 @Param("idleStatus") int idleStatus,
                                 @Param("usingStatus") int usingStatus,
                                 @Param("updatedAt") long updatedAt);
+
+    /** 将已锁定的空闲代理标记为推广配对专用占用。 */
+    int reserveForPairing(@Param("proxyId") Long proxyId,
+                          @Param("pairingSessionId") Long pairingSessionId,
+                          @Param("idleStatus") int idleStatus,
+                          @Param("pairingStatus") int pairingStatus,
+                          @Param("reservedAt") long reservedAt);
+
+    /** 把推广配对占用原子转换成正式账号绑定。 */
+    int confirmPairingAllocation(@Param("proxyId") Long proxyId,
+                                 @Param("pairingSessionId") Long pairingSessionId,
+                                 @Param("accountId") Long accountId,
+                                 @Param("pairingStatus") int pairingStatus,
+                                 @Param("usingStatus") int usingStatus,
+                                 @Param("updatedAt") long updatedAt);
+
+    /** 按代理和会话双重条件释放推广配对占用。 */
+    int releasePairingAllocation(@Param("proxyId") Long proxyId,
+                                 @Param("pairingSessionId") Long pairingSessionId,
+                                 @Param("idleStatus") int idleStatus,
+                                 @Param("pairingStatus") int pairingStatus,
+                                 @Param("updatedAt") long updatedAt);
+
+    /** 按会话释放推广配对占用，供代理尚未回填会话表时补偿。 */
+    int releasePairingAllocationBySession(@Param("pairingSessionId") Long pairingSessionId,
+                                          @Param("idleStatus") int idleStatus,
+                                          @Param("pairingStatus") int pairingStatus,
+                                          @Param("updatedAt") long updatedAt);
+
+    /** 统计待删除代理中仍处于推广配对占用的数量。 */
+    long countPairingReservationsByIds(@Param("ids") List<Long> ids,
+                                       @Param("pairingStatus") int pairingStatus);
 
     /**
      * 批量精确释放账号上线本次分配的代理。

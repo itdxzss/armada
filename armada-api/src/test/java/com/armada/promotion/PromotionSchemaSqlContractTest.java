@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 
-/** V061-V066 推广模板与渠道管理迁移的数据库无关 SQL 合同测试。 */
+/** V061-V069 推广模板、渠道与公共配对会话迁移的数据库无关 SQL 合同测试。 */
 class PromotionSchemaSqlContractTest {
 
     private static final String MIGRATION =
@@ -30,6 +30,15 @@ class PromotionSchemaSqlContractTest {
 
     private static final String CHANNEL_RUNTIME_CONFIG_MIGRATION =
             "db/migration/V066__promotion_channel_runtime_config.sql";
+
+    private static final String PAIRING_ACCOUNT_INDEX_MIGRATION =
+            "db/migration/V067__promotion_pairing_account_phone_index.sql";
+
+    private static final String PAIRING_IP_RESERVATION_MIGRATION =
+            "db/migration/V068__promotion_pairing_ip_reservation.sql";
+
+    private static final String PAIRING_SESSION_MIGRATION =
+            "db/migration/V069__promotion_pairing_session.sql";
 
     private static final Map<String, List<String>> TABLE_FIELDS = approvedTableFields();
 
@@ -181,6 +190,28 @@ class PromotionSchemaSqlContractTest {
         assertThat(sql).contains("DEFAULT 1");
         assertThat(sql).contains("例如 #e11d48", "例如 1");
         assertThat(sql).doesNotContain("CREATE TABLE");
+    }
+
+    @Test
+    void pairingSessionMigrationKeepsSecretsOutAndDefinesLifecycleGuards() throws IOException {
+        String sql = migrationSql(PAIRING_SESSION_MIGRATION);
+
+        assertThat(sql).contains("CREATE TABLE promotion_pairing_session (");
+        assertThat(sql).contains("session_token_hash CHAR(64)");
+        assertThat(sql).doesNotContain("session_token VARCHAR", "credential_json", "access_token");
+        assertThat(sql).contains("status IN (1, 2, 3)");
+        assertThat(sql).contains("UNIQUE KEY uq_promotion_pairing_active_account");
+        assertThat(sql).doesNotContain("uq_promotion_pairing_owned_account");
+        assertThat(sql).contains("KEY idx_promotion_pairing_expiry_scan (status, expires_at, id)");
+
+        assertThat(migrationSql(PAIRING_ACCOUNT_INDEX_MIGRATION))
+                .contains("CREATE INDEX idx_account_ws_phone_active ON account (ws_phone, is_active)")
+                .doesNotContain("ALTER TABLE", "CREATE TABLE");
+        assertThat(migrationSql(PAIRING_IP_RESERVATION_MIGRATION))
+                .contains("ADD COLUMN pairing_session_id BIGINT")
+                .contains("ADD UNIQUE KEY uq_ip_proxy_pairing_session")
+                .contains("4=配对占用")
+                .doesNotContain("CREATE INDEX", "CREATE TABLE");
     }
 
     private String migrationSql() throws IOException {

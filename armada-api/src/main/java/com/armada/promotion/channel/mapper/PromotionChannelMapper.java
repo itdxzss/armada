@@ -7,6 +7,7 @@ import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
@@ -62,6 +63,16 @@ public interface PromotionChannelMapper {
      */
     @InterceptorIgnore(tenantLine = "true")
     PromotionChannelRuntimeRow selectRuntimeByCodeAndHost(
+            @Param("channelCode") String channelCode,
+            @Param("domainHost") String domainHost);
+
+    /**
+     * 公开配对入口按渠道码和受信任转发域名解析租户、渠道与代理地区。
+     *
+     * <p>公开请求没有租户上下文，因此关闭自动租户注入；SQL 内显式校验租户、渠道、域名和模板均有效。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    PromotionChannelPairingContextRow selectPairingContextByCodeAndHost(
             @Param("channelCode") String channelCode,
             @Param("domainHost") String domainHost);
 

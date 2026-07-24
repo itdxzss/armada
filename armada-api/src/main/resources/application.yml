@@ -41,6 +41,11 @@ armada:
       # Base64 编码的 32 字节 AES-256 密钥；无 Token 的渠道不依赖该配置。
       encryption-key: ${PROMOTION_TRACKING_ENCRYPTION_KEY:}
       encryption-key-id: ${PROMOTION_TRACKING_ENCRYPTION_KEY_ID:}
+    pairing:
+      expiry-scan:
+        enabled: ${PROMOTION_PAIRING_EXPIRY_SCAN_ENABLED:true}
+        fixed-delay-ms: ${PROMOTION_PAIRING_EXPIRY_SCAN_FIXED_DELAY_MS:30000}
+        batch-size: ${PROMOTION_PAIRING_EXPIRY_SCAN_BATCH_SIZE:100}
   # 进群专用调度线程只做到期扫描和 outbox 入队；batch-size 是单轮上限，不是账号并行上限。
   task:
     join-dispatcher:
@@ -120,6 +125,9 @@ armada:
         retry-interval-ms: ${PROTOCOL_ACCOUNT_EVENTS_RETRY_INTERVAL_MS:1000}
         max-retry-attempts: ${PROTOCOL_ACCOUNT_EVENTS_MAX_RETRY_ATTEMPTS:3}
         dead-letter-topic-suffix: ${PROTOCOL_ACCOUNT_EVENTS_DLT_SUFFIX:.DLT}
+      pairing-events:
+        topic: ${PROTOCOL_PAIRING_EVENTS_TOPIC:protocol.pairing.events.v1}
+        group-id: ${PROTOCOL_PAIRING_EVENTS_GROUP_ID:armada-api-pairing-events}
       group-events:
         topic: ${PROTOCOL_GROUP_EVENTS_TOPIC:protocol.group.events.v1}
         group-id: ${PROTOCOL_GROUP_EVENTS_GROUP_ID:armada-api-group-events}

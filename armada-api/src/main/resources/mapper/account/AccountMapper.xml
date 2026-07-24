@@ -19,12 +19,39 @@
     )
   </insert>
 
+  <!-- 推广配对专用写入：保留通用 insert 原样，仅此入口写渠道归因。 -->
+  <insert id="insertPromotionAccount" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account (
+      ws_phone, account_type, device_os, number_source, channel_name, promotion_channel_id,
+      ownership, lease_until, account_group_id,
+      protocol_id, protocol_account_id, protocol_address,
+      priority, dispatched_at, remark,
+      created_at, updated_at, created_by
+    ) VALUES (
+      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId},
+      #{ownership}, #{leaseUntil}, #{accountGroupId},
+      #{protocolId}, #{protocolAccountId}, #{protocolAddress},
+      #{priority}, #{dispatchedAt}, #{remark},
+      #{createdAt}, #{updatedAt}, #{createdBy}
+    )
+  </insert>
+
   <!-- deleted_at IS NULL 等价于 is_active=1(虚拟列);LIMIT 1 防意外 -->
   <select id="selectActiveByWsPhone" resultType="com.armada.account.model.entity.Account">
     SELECT * FROM account
     WHERE ws_phone = #{wsPhone}
       AND deleted_at IS NULL
     LIMIT 1
+  </select>
+
+  <!-- 公开配对入口必须避免同一 WhatsApp 身份跨租户重复归属。 -->
+  <select id="existsActiveByWsPhoneAnyTenant" resultType="boolean">
+    SELECT EXISTS(
+      SELECT 1
+      FROM account
+      WHERE ws_phone = #{wsPhone}
+        AND deleted_at IS NULL
+    )
   </select>
 
   <select id="selectActiveById" resultType="com.armada.account.model.entity.Account">

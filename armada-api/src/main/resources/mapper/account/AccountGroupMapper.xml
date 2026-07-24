@@ -14,7 +14,11 @@
   </select>
 
   <select id="selectPage" resultType="com.armada.account.model.vo.AccountGroupVoRow">
-    SELECT g.id, g.name, g.remark, g.system_builtin AS systemBuiltin,
+    SELECT g.id, g.name, g.remark,
+           g.marketing_occupancy_type AS marketingOccupancyType,
+           g.marketing_occupancy_task_id AS marketingOccupancyTaskId,
+           g.marketing_locked_at AS marketingLockedAt,
+           g.system_builtin AS systemBuiltin,
            (SELECT COUNT(*) FROM account a WHERE a.account_group_id = g.id AND a.deleted_at IS NULL) AS accountCount,
            (SELECT COUNT(*)
               FROM account a
@@ -43,6 +47,158 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <!--
+    账号分页完成后按当前页去重任务 ID 一次补齐派生标签所需状态，避免逐账号查询。
+    拉群扩展使用 tenant_id 双键关联，防止异常数据跨租户串联。
+  -->
+  <select id="selectMarketingOccupancyTasksByIds"
+          resultType="com.armada.account.model.vo.AccountMarketingOccupancyTaskRow">
+    <if test="taskIds != null and taskIds.size() &gt; 0">
+    SELECT task.id AS taskId,
+           task.status AS taskStatus,
+           pull_task.resource_status AS resourceStatus,
+           CASE
+             WHEN pull_task.resource_status = 3 THEN 'RELEASING'
+             WHEN task.status = 5 THEN 'PAUSED'
+             ELSE NULL
+           END AS occupancyOverrideType
+    FROM marketing_task task
+    LEFT JOIN group_pull_marketing_task pull_task
+      ON pull_task.marketing_task_id = task.id
+     AND pull_task.tenant_id = task.tenant_id
+    WHERE task.deleted_at IS NULL
+      AND task.id IN
+    <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">#{taskId}</foreach>
+    </if>
+    <if test="taskIds == null or taskIds.size() == 0">
+    SELECT task.id AS taskId,
+           task.status AS taskStatus,
+           NULL AS resourceStatus,
+           NULL AS occupancyOverrideType
+    FROM marketing_task task
+    WHERE 1 = 0
+    </if>
+  </select>
+
+  <!--
+    营销高级筛选单独解析分组 ID，账号 count/select 最终只按 account_group_id 过滤。
+    状态优先级与 AccountServiceImpl 展示规则一致：释放中优先于暂停，二者覆盖基础业务类型。
+  -->
+  <select id="selectMarketingOccupancyGroupIds" resultType="long">
+    SELECT g.id
+    FROM account_group g
+    LEFT JOIN marketing_task task
+      ON task.id = g.marketing_occupancy_task_id
+     AND task.tenant_id = g.tenant_id
+     AND task.deleted_at IS NULL
+    LEFT JOIN group_pull_marketing_task pull_task
+      ON pull_task.marketing_task_id = task.id
+     AND pull_task.tenant_id = task.tenant_id
+    WHERE g.deleted_at IS NULL
+    <if test="marketingOccupancyType != null and marketingOccupancyType != ''">
+      <choose>
+        <when test='marketingOccupancyType == "FREE"'>
+          AND g.marketing_occupancy_task_id IS NULL
+        </when>
+        <when test='marketingOccupancyType == "PAUSED"'>
+          AND g.marketing_occupancy_task_id IS NOT NULL
+          AND task.status = 5
+          AND (pull_task.resource_status IS NULL OR pull_task.resource_status != 3)
+        </when>
+        <when test='marketingOccupancyType == "RELEASING"'>
+          AND g.marketing_occupancy_task_id IS NOT NULL
+          AND pull_task.resource_status = 3
+        </when>
+        <when test='marketingOccupancyType == "SIMPLE_MARKETING"'>
+          AND g.marketing_occupancy_type = 1
+          AND (task.status IS NULL OR task.status != 5)
+        </when>
+        <when test='marketingOccupancyType == "GROUP_PULL_MARKETING"'>
+          AND g.marketing_occupancy_type = 2
+          AND (task.status IS NULL OR task.status != 5)
+          AND (pull_task.resource_status IS NULL OR pull_task.resource_status != 3)
+        </when>
+        <when test='marketingOccupancyType == "GROUP_PULL_MODE_2"'>
+          AND g.marketing_occupancy_type = 3
+          AND (task.status IS NULL OR task.status != 5)
+        </when>
+        <when test='marketingOccupancyType == "GROUP_PULL_MODE_3"'>
+          AND g.marketing_occupancy_type = 4
+          AND (task.status IS NULL OR task.status != 5)
+        </when>
+        <when test='marketingOccupancyType == "OTHER_MARKETING"'>
+          AND g.marketing_occupancy_type = 5
+          AND (task.status IS NULL OR task.status != 5)
+        </when>
+        <otherwise>
+          AND 1 = 0
+        </otherwise>
+      </choose>
+    </if>
+    <if test="occupiedTaskKeyword != null and occupiedTaskKeyword != ''">
+      AND g.marketing_occupancy_task_id IS NOT NULL
+      AND (
+        CAST(g.marketing_occupancy_task_id AS CHAR) LIKE CONCAT('%', #{occupiedTaskKeyword}, '%')
+        OR task.task_name LIKE CONCAT('%', #{occupiedTaskKeyword}, '%')
+      )
+    </if>
+    <if test="occupiedBusinessType != null">
+      AND g.marketing_occupancy_task_id IS NOT NULL
+      AND task.business_type = #{occupiedBusinessType}
+    </if>
+    ORDER BY g.id
+  </select>
+
+  <!--
+    点击分组名称时才加载任务名称和账号统计。LEFT JOIN 保留“锁仍在但任务行异常缺失”的事实，
+    由 Service 返回锁字段并记录告警，不能把该分组伪装成空闲。
+  -->
+  <select id="selectMarketingOccupancyByGroupId"
+          resultType="com.armada.account.model.vo.AccountMarketingOccupancyTaskRow">
+    SELECT g.id AS groupId,
+           g.marketing_occupancy_type AS occupancyType,
+           g.marketing_occupancy_task_id AS taskId,
+           g.marketing_locked_at AS lockedAt,
+           task.business_type AS taskBusinessType,
+           task.task_name AS taskName,
+           task.status AS taskStatus,
+           pull_task.resource_status AS resourceStatus,
+           CASE
+             WHEN pull_task.resource_status = 3 THEN 'RELEASING'
+             WHEN task.status = 5 THEN 'PAUSED'
+             ELSE NULL
+           END AS occupancyOverrideType,
+           CASE
+             WHEN task.business_type = 2
+               THEN COALESCE(pull_task.marketing_account_total_count, 0)
+             ELSE COALESCE(task.selected_account_count, 0)
+           END AS marketingAccountTotalCount,
+           CASE
+             WHEN task.business_type = 2 THEN (
+               SELECT COUNT(*)
+               FROM group_pull_marketing_account_stat pull_used
+               WHERE pull_used.tenant_id = g.tenant_id
+                 AND pull_used.task_id = task.id
+             )
+             ELSE (
+               SELECT COUNT(*)
+               FROM marketing_account_occupancy ordinary_used
+               WHERE ordinary_used.tenant_id = g.tenant_id
+                 AND ordinary_used.marketing_task_id = task.id
+             )
+           END AS marketingAccountUsedCount
+    FROM account_group g
+    LEFT JOIN marketing_task task
+      ON task.id = g.marketing_occupancy_task_id
+     AND task.tenant_id = g.tenant_id
+     AND task.deleted_at IS NULL
+    LEFT JOIN group_pull_marketing_task pull_task
+      ON pull_task.marketing_task_id = task.id
+     AND pull_task.tenant_id = task.tenant_id
+    WHERE g.id = #{groupId}
+      AND g.deleted_at IS NULL
+  </select>
+
   <select id="selectActiveByName" resultType="com.armada.account.model.entity.AccountGroup">
     SELECT * FROM account_group WHERE name = #{name} AND deleted_at IS NULL LIMIT 1
   </select>
@@ -53,6 +209,26 @@
 
   <select id="selectById" resultType="com.armada.account.model.entity.AccountGroup">
     SELECT * FROM account_group WHERE id = #{id} AND deleted_at IS NULL
+  </select>
+
+  <!-- 与任务启动使用同一分组行锁，按主键升序获取以降低多分组并发迁移死锁风险。 -->
+  <select id="selectByIdsForUpdate" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT *
+    FROM account_group
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">#{groupId}</foreach>
+    ORDER BY id
+    FOR UPDATE
+  </select>
+
+  <!-- 建群账号分组不做持久化整组锁；资源锁定及释放期间只禁止人工迁出。 -->
+  <select id="countActiveBuilderGroupReferences" resultType="int">
+    SELECT COUNT(*)
+    FROM group_pull_marketing_task
+    WHERE builder_group_id IN
+    <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">#{groupId}</foreach>
+      AND resource_status IN (2, 3)
   </select>
 
   <select id="selectSystemBuiltin" resultType="com.armada.account.model.entity.AccountGroup">
@@ -78,7 +254,9 @@
   <!-- deletedAt 由调用方传入(System.currentTimeMillis()),不用 NOW() -->
   <update id="softDeleteByIds">
     UPDATE account_group SET deleted_at = #{deletedAt}
-    WHERE deleted_at IS NULL AND id IN
+    WHERE deleted_at IS NULL
+      AND marketing_occupancy_task_id IS NULL
+      AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 
@@ -103,5 +281,35 @@
     WHERE deleted_at IS NULL AND account_group_id IN
     <foreach collection="sourceGroupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>
+
+  <update id="tryLockMarketingOccupancy">
+    UPDATE account_group
+    SET marketing_occupancy_type = #{occupancyType},
+        marketing_occupancy_task_id = #{taskId},
+        marketing_locked_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{groupId}
+      AND deleted_at IS NULL
+      AND marketing_occupancy_task_id IS NULL
+  </update>
+
+  <update id="releaseMarketingOccupancy">
+    UPDATE account_group
+    SET marketing_occupancy_type = NULL,
+        marketing_occupancy_task_id = NULL,
+        marketing_locked_at = NULL,
+        updated_at = #{now}
+    WHERE id = #{groupId}
+      AND marketing_occupancy_type = #{occupancyType}
+      AND marketing_occupancy_task_id = #{taskId}
+  </update>
+
+  <select id="countMarketingOccupancy" resultType="int">
+    SELECT COUNT(*)
+    FROM account_group
+    WHERE id = #{groupId}
+      AND deleted_at IS NULL
+      AND marketing_occupancy_task_id IS NOT NULL
+  </select>
 
 </mapper>

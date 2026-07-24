@@ -7,6 +7,7 @@ import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.support.MarketingResolvedTarget;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -24,6 +25,7 @@ import org.springframework.util.StringUtils;
 @Component
 public class MarketingMessageCommandFactory {
     private static final String SOURCE_MARKETING_TASK = "marketing_task";
+    private static final String SOURCE_GROUP_PULL_MARKETING = "group_pull_marketing";
     private static final int DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS = 500;
 
     private final MarketingTemplateMapper templateMapper;
@@ -87,7 +89,7 @@ public class MarketingMessageCommandFactory {
                 payload(message),
                 new MessageSendCommand.MessageCorrelation(
                         task.getTenantId(),
-                        SOURCE_MARKETING_TASK,
+                        source(task),
                         new MessageSendCommand.MarketingCorrelation(
                                 task.getId(), target.getId(), attempt.getId(), attempt.getRoundNo()),
                         null,
@@ -113,10 +115,23 @@ public class MarketingMessageCommandFactory {
      * @return 正数毫秒间隔，无效配置兜底为 500 毫秒
      */
     public int accountGroupSendIntervalMs(MarketingTask task) {
+        if (task != null
+                && Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                        .equals(task.getBusinessType())) {
+            return 0;
+        }
         Integer configured = task.getAccountGroupSendIntervalMs();
         return configured == null || configured < 1
                 ? DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS
                 : configured;
+    }
+
+    private static String source(MarketingTask task) {
+        return task != null
+                && Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                        .equals(task.getBusinessType())
+                ? SOURCE_GROUP_PULL_MARKETING
+                : SOURCE_MARKETING_TASK;
     }
 
     /**

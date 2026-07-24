@@ -1,0 +1,1081 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper">
+
+    <resultMap id="TaskResultMap"
+               type="com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask">
+        <id column="marketing_task_id" property="marketingTaskId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="builder_group_id" property="builderGroupId"/>
+        <result column="success_group_id" property="successGroupId"/>
+        <result column="failure_group_id" property="failureGroupId"/>
+        <result column="marketing_account_group_limit" property="marketingAccountGroupLimit"/>
+        <result column="group_name_prefix" property="groupNamePrefix"/>
+        <result column="friend_retry_limit" property="friendRetryLimit"/>
+        <result column="material_per_group" property="materialPerGroup"/>
+        <result column="speak_permission" property="speakPermission"/>
+        <result column="builder_exit_enabled" property="builderExitEnabled"/>
+        <result column="block_reason" property="blockReason"/>
+        <result column="resource_status" property="resourceStatus"/>
+        <result column="marketing_account_total_count" property="marketingAccountTotalCount"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="ExecutionResultMap"
+               type="com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="task_id" property="taskId"/>
+        <result column="builder_account_id" property="builderAccountId"/>
+        <result column="marketing_account_id" property="marketingAccountId"/>
+        <result column="group_name" property="groupName"/>
+        <result column="group_jid" property="groupJid"/>
+        <result column="group_link_id" property="groupLinkId"/>
+        <result column="group_invite_url" property="groupInviteUrl"/>
+        <result column="execution_status" property="executionStatus"/>
+        <result column="current_stage" property="currentStage"/>
+        <result column="stage_retry_count" property="stageRetryCount"/>
+        <result column="next_execute_at" property="nextExecuteAt"/>
+        <result column="group_status" property="groupStatus"/>
+        <result column="group_member_count" property="groupMemberCount"/>
+        <result column="marketer_admin_status" property="marketerAdminStatus"/>
+        <result column="builder_exit_status" property="builderExitStatus"/>
+        <result column="marketing_target_id" property="marketingTargetId"/>
+        <result column="failure_reason" property="failureReason"/>
+        <result column="group_created_at" property="groupCreatedAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="released_at" property="releasedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="active_builder_account_id" property="activeBuilderAccountId"/>
+    </resultMap>
+
+    <resultMap id="MaterialResultMap"
+               type="com.armada.marketing.grouppull.model.entity.GroupPullMarketingMaterial">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="task_id" property="taskId"/>
+        <result column="line_no" property="lineNo"/>
+        <result column="phone" property="phone"/>
+        <result column="status" property="status"/>
+        <result column="current_execution_id" property="currentExecutionId"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="ExecutionMaterialResultMap"
+               type="com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecutionMaterial">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="execution_id" property="executionId"/>
+        <result column="material_id" property="materialId"/>
+        <result column="material_phone" property="materialPhone"/>
+        <result column="allocation_no" property="allocationNo"/>
+        <result column="friend_status" property="friendStatus"/>
+        <result column="friend_failure_reason" property="friendFailureReason"/>
+        <result column="entry_status" property="entryStatus"/>
+        <result column="entry_failure_reason" property="entryFailureReason"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="AccountStatResultMap"
+               type="com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat">
+        <id column="id" property="id"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="task_id" property="taskId"/>
+        <result column="account_id" property="accountId"/>
+        <result column="reserved_group_count" property="reservedGroupCount"/>
+        <result column="joined_group_count" property="joinedGroupCount"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="TaskSummaryResultMap"
+               type="com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO">
+        <constructor>
+            <idArg column="id" javaType="java.lang.Long"/>
+            <arg column="taskName" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.Integer"/>
+            <arg column="blockReason" javaType="java.lang.Integer"/>
+            <arg column="resourceStatus" javaType="java.lang.Integer"/>
+            <arg column="totalDataCount" javaType="java.lang.Integer"/>
+            <arg column="completedDataCount" javaType="java.lang.Integer"/>
+            <arg column="successGroupCount" javaType="java.lang.Integer"/>
+            <arg column="failedGroupCount" javaType="java.lang.Integer"/>
+            <arg column="marketingAccountTotalCount" javaType="java.lang.Integer"/>
+            <arg column="usedMarketingAccountCount" javaType="java.lang.Integer"/>
+            <arg column="createdAt" javaType="java.lang.Long"/>
+            <arg column="taskEndAt" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="TaskDetailResultMap"
+               type="com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO">
+        <constructor>
+            <idArg column="id" javaType="java.lang.Long"/>
+            <arg column="taskName" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.Integer"/>
+            <arg column="blockReason" javaType="java.lang.Integer"/>
+            <arg column="resourceStatus" javaType="java.lang.Integer"/>
+            <arg column="builderGroupId" javaType="java.lang.Long"/>
+            <arg column="successGroupId" javaType="java.lang.Long"/>
+            <arg column="failureGroupId" javaType="java.lang.Long"/>
+            <arg column="marketingGroupId" javaType="java.lang.Long"/>
+            <arg column="marketingAccountGroupLimit" javaType="java.lang.Integer"/>
+            <arg column="marketingTemplateId" javaType="java.lang.Long"/>
+            <arg column="sendIntervalSeconds" javaType="java.lang.Integer"/>
+            <arg column="groupNamePrefix" javaType="java.lang.String"/>
+            <arg column="friendRetryLimit" javaType="java.lang.Integer"/>
+            <arg column="materialPerGroup" javaType="java.lang.Integer"/>
+            <arg column="speakPermission" javaType="java.lang.Integer"/>
+            <arg column="builderExitEnabled" javaType="java.lang.Boolean"/>
+            <arg column="remark" javaType="java.lang.String"/>
+            <arg column="taskEndAt" javaType="java.lang.Long"/>
+            <arg column="totalDataCount" javaType="java.lang.Integer"/>
+            <arg column="completedDataCount" javaType="java.lang.Integer"/>
+            <arg column="successGroupCount" javaType="java.lang.Integer"/>
+            <arg column="failedGroupCount" javaType="java.lang.Integer"/>
+            <arg column="marketingAccountTotalCount" javaType="java.lang.Integer"/>
+            <arg column="usedMarketingAccountCount" javaType="java.lang.Integer"/>
+            <arg column="createdAt" javaType="java.lang.Long"/>
+            <arg column="updatedAt" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="GroupDetailResultMap"
+               type="com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO">
+        <constructor>
+            <idArg column="executionId" javaType="java.lang.Long"/>
+            <arg column="builderAccountPhone" javaType="java.lang.String"/>
+            <arg column="marketingAccountPhone" javaType="java.lang.String"/>
+            <arg column="groupName" javaType="java.lang.String"/>
+            <arg column="groupJid" javaType="java.lang.String"/>
+            <arg column="groupInviteUrl" javaType="java.lang.String"/>
+            <arg column="groupStatus" javaType="java.lang.Integer"/>
+            <arg column="materialJoinedCount" javaType="java.lang.Integer"/>
+            <arg column="groupMemberCount" javaType="java.lang.Integer"/>
+            <arg column="sentMessageCount" javaType="java.lang.Integer"/>
+            <arg column="speakPermission" javaType="java.lang.Integer"/>
+            <arg column="builderExitEnabled" javaType="java.lang.Boolean"/>
+            <arg column="builderExitStatus" javaType="java.lang.Integer"/>
+            <arg column="marketerAdminStatus" javaType="java.lang.Integer"/>
+            <arg column="executionStatus" javaType="java.lang.Integer"/>
+            <arg column="failureStage" javaType="java.lang.Integer"/>
+            <arg column="failureReason" javaType="java.lang.String"/>
+            <arg column="marketingSendStatus" javaType="java.lang.Integer"/>
+            <arg column="lastSentAt" javaType="java.lang.Long"/>
+            <arg column="groupCreatedAt" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="TaskColumns">
+        marketing_task_id, tenant_id, builder_group_id, success_group_id, failure_group_id,
+        marketing_account_group_limit, group_name_prefix, friend_retry_limit, material_per_group,
+        speak_permission, builder_exit_enabled, block_reason, resource_status,
+        marketing_account_total_count, created_at, updated_at
+    </sql>
+
+    <sql id="ExecutionColumns">
+        id, tenant_id, task_id, builder_account_id, marketing_account_id, group_name, group_jid,
+        group_link_id, group_invite_url, execution_status, current_stage, stage_retry_count,
+        next_execute_at, group_status, group_member_count, marketer_admin_status,
+        builder_exit_status, marketing_target_id, failure_reason, group_created_at, finished_at,
+        released_at, created_at, updated_at, active_builder_account_id
+    </sql>
+
+    <sql id="ExecutionMaterialColumns">
+        id, tenant_id, execution_id, material_id, allocation_no, friend_status,
+        friend_failure_reason, entry_status, entry_failure_reason, created_at, updated_at
+    </sql>
+
+    <sql id="TaskListFilter">
+        mt.deleted_at IS NULL
+        AND mt.business_type = 2
+        <if test="q.id != null">AND mt.id = #{q.id}</if>
+        <if test="q.keyword != null and q.keyword != ''">
+            AND mt.task_name LIKE CONCAT('%', #{q.keyword}, '%')
+        </if>
+        <if test="q.status != null">AND mt.status = #{q.status}</if>
+        <if test="q.blockReason != null">AND gp.block_reason = #{q.blockReason}</if>
+        <if test="q.resourceStatus != null">AND gp.resource_status = #{q.resourceStatus}</if>
+    </sql>
+
+    <sql id="TaskSummaryColumns">
+        mt.id AS id,
+        mt.task_name AS taskName,
+        mt.status AS status,
+        gp.block_reason AS blockReason,
+        gp.resource_status AS resourceStatus,
+        COALESCE(material_stat.totalDataCount, 0) AS totalDataCount,
+        COALESCE(material_stat.completedDataCount, 0) AS completedDataCount,
+        COALESCE(execution_stat.successGroupCount, 0) AS successGroupCount,
+        COALESCE(execution_stat.failedGroupCount, 0) AS failedGroupCount,
+        COALESCE(gp.marketing_account_total_count, 0) AS marketingAccountTotalCount,
+        COALESCE(account_stat.usedMarketingAccountCount, 0) AS usedMarketingAccountCount,
+        mt.created_at AS createdAt,
+        mt.task_end_at AS taskEndAt
+    </sql>
+
+    <sql id="TaskSummaryJoins">
+        LEFT JOIN (
+            SELECT task_id,
+                   COUNT(*) AS totalDataCount,
+                   SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS completedDataCount
+            FROM group_pull_marketing_material
+            GROUP BY task_id
+        ) material_stat ON material_stat.task_id = mt.id
+        LEFT JOIN (
+            SELECT task_id,
+                   SUM(CASE WHEN execution_status = 3 THEN 1 ELSE 0 END) AS successGroupCount,
+                   SUM(CASE WHEN execution_status = 4 AND group_name IS NOT NULL THEN 1 ELSE 0 END)
+                       AS failedGroupCount
+            FROM group_pull_marketing_execution
+            GROUP BY task_id
+        ) execution_stat ON execution_stat.task_id = mt.id
+        LEFT JOIN (
+            SELECT task_id, COUNT(*) AS usedMarketingAccountCount
+            FROM group_pull_marketing_account_stat
+            GROUP BY task_id
+        ) account_stat ON account_stat.task_id = mt.id
+    </sql>
+
+    <insert id="insertTask">
+        INSERT INTO group_pull_marketing_task
+            (marketing_task_id, builder_group_id, success_group_id, failure_group_id,
+             marketing_account_group_limit, group_name_prefix, friend_retry_limit,
+             material_per_group, speak_permission, builder_exit_enabled, block_reason,
+             resource_status, marketing_account_total_count, created_at, updated_at)
+        VALUES
+            (#{marketingTaskId}, #{builderGroupId}, #{successGroupId}, #{failureGroupId},
+             #{marketingAccountGroupLimit}, #{groupNamePrefix}, #{friendRetryLimit},
+             #{materialPerGroup}, #{speakPermission}, #{builderExitEnabled}, #{blockReason},
+             #{resourceStatus}, #{marketingAccountTotalCount}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <insert id="insertMaterials">
+        INSERT INTO group_pull_marketing_material
+            (task_id, line_no, phone, status, current_execution_id, created_at, updated_at)
+        VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (#{row.taskId}, #{row.lineNo}, #{row.phone}, #{row.status},
+             #{row.currentExecutionId}, #{row.createdAt}, #{row.updatedAt})
+        </foreach>
+    </insert>
+
+    <select id="selectTaskById" resultMap="TaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM group_pull_marketing_task
+        WHERE marketing_task_id = #{taskId}
+    </select>
+
+    <select id="countTasks" resultType="long">
+        SELECT COUNT(*)
+        FROM marketing_task mt
+        JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
+        WHERE <include refid="TaskListFilter"/>
+    </select>
+
+    <select id="selectTasks" resultMap="TaskSummaryResultMap">
+        SELECT <include refid="TaskSummaryColumns"/>
+        FROM marketing_task mt
+        JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
+        <include refid="TaskSummaryJoins"/>
+        WHERE <include refid="TaskListFilter"/>
+        ORDER BY mt.id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="selectTaskDetail" resultMap="TaskDetailResultMap">
+        SELECT mt.id AS id,
+               mt.task_name AS taskName,
+               mt.status AS status,
+               gp.block_reason AS blockReason,
+               gp.resource_status AS resourceStatus,
+               gp.builder_group_id AS builderGroupId,
+               gp.success_group_id AS successGroupId,
+               gp.failure_group_id AS failureGroupId,
+               mt.account_group_id AS marketingGroupId,
+               gp.marketing_account_group_limit AS marketingAccountGroupLimit,
+               mt.marketing_template_id AS marketingTemplateId,
+               mt.send_interval_seconds AS sendIntervalSeconds,
+               gp.group_name_prefix AS groupNamePrefix,
+               gp.friend_retry_limit AS friendRetryLimit,
+               gp.material_per_group AS materialPerGroup,
+               gp.speak_permission AS speakPermission,
+               gp.builder_exit_enabled AS builderExitEnabled,
+               mt.remark AS remark,
+               mt.task_end_at AS taskEndAt,
+               COALESCE(material_stat.totalDataCount, 0) AS totalDataCount,
+               COALESCE(material_stat.completedDataCount, 0) AS completedDataCount,
+               COALESCE(execution_stat.successGroupCount, 0) AS successGroupCount,
+               COALESCE(execution_stat.failedGroupCount, 0) AS failedGroupCount,
+               COALESCE(gp.marketing_account_total_count, 0) AS marketingAccountTotalCount,
+               COALESCE(account_stat.usedMarketingAccountCount, 0) AS usedMarketingAccountCount,
+               mt.created_at AS createdAt,
+               mt.updated_at AS updatedAt
+        FROM marketing_task mt
+        JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
+        <include refid="TaskSummaryJoins"/>
+        WHERE mt.id = #{taskId}
+          AND mt.business_type = 2
+          AND mt.deleted_at IS NULL
+    </select>
+
+    <select id="countTaskGroups" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution
+        WHERE task_id = #{taskId}
+          AND group_name IS NOT NULL
+    </select>
+
+    <select id="selectTaskGroups" resultMap="GroupDetailResultMap">
+        SELECT execution.id AS executionId,
+               builder.ws_phone AS builderAccountPhone,
+               marketer.ws_phone AS marketingAccountPhone,
+               execution.group_name AS groupName,
+               execution.group_jid AS groupJid,
+               execution.group_invite_url AS groupInviteUrl,
+               execution.group_status AS groupStatus,
+               COALESCE((
+                   SELECT COUNT(*)
+                   FROM group_pull_marketing_execution_material relation
+                   WHERE relation.execution_id = execution.id
+                     AND relation.entry_status = 2
+               ), 0) AS materialJoinedCount,
+               execution.group_member_count AS groupMemberCount,
+               COALESCE(target.sent_message_count, 0) AS sentMessageCount,
+               pull_task.speak_permission AS speakPermission,
+               pull_task.builder_exit_enabled AS builderExitEnabled,
+               execution.builder_exit_status AS builderExitStatus,
+               execution.marketer_admin_status AS marketerAdminStatus,
+               execution.execution_status AS executionStatus,
+               execution.current_stage AS failureStage,
+               execution.failure_reason AS failureReason,
+               target.status AS marketingSendStatus,
+               target.last_sent_at AS lastSentAt,
+               execution.group_created_at AS groupCreatedAt
+        FROM group_pull_marketing_execution execution
+        JOIN group_pull_marketing_task pull_task
+          ON pull_task.marketing_task_id = execution.task_id
+         AND pull_task.tenant_id = execution.tenant_id
+        LEFT JOIN account builder
+          ON builder.id = execution.builder_account_id
+         AND builder.tenant_id = execution.tenant_id
+         AND builder.deleted_at IS NULL
+        LEFT JOIN account marketer
+          ON marketer.id = execution.marketing_account_id
+         AND marketer.tenant_id = execution.tenant_id
+         AND marketer.deleted_at IS NULL
+        LEFT JOIN marketing_task_target target
+          ON target.id = execution.marketing_target_id
+         AND target.tenant_id = execution.tenant_id
+        WHERE execution.task_id = #{taskId}
+          AND execution.group_name IS NOT NULL
+        ORDER BY execution.id ASC
+        LIMIT #{query.pageSize} OFFSET #{query.offset}
+    </select>
+
+    <select id="selectTaskForUpdate" resultType="com.armada.marketing.model.entity.MarketingTask">
+        SELECT id,
+               tenant_id AS tenantId,
+               business_type AS businessType,
+               account_group_id AS accountGroupId,
+               status,
+               task_end_at AS taskEndAt
+        FROM marketing_task
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <update id="startTask">
+        UPDATE marketing_task
+        SET status = 2,
+            started_at = COALESCE(started_at, #{now}),
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+          AND status = 1
+          AND task_end_at &gt; #{now}
+    </update>
+
+    <update id="markResourcesLocked">
+        UPDATE group_pull_marketing_task
+        SET block_reason = 0,
+            resource_status = 2,
+            marketing_account_total_count = #{marketingAccountTotalCount},
+            updated_at = #{now}
+        WHERE marketing_task_id = #{taskId}
+          AND resource_status = 1
+    </update>
+
+    <update id="pauseTask">
+        UPDATE marketing_task
+        SET status = 5,
+            next_round_at = NULL,
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+          AND status = 2
+    </update>
+
+    <update id="resumeTask">
+        UPDATE marketing_task
+        SET status = 2,
+            next_round_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+          AND status = 5
+    </update>
+
+    <update id="requestRelease">
+        UPDATE marketing_task
+        SET status = 8,
+            next_round_at = NULL,
+            finished_at = COALESCE(finished_at, #{now}),
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+          AND status IN (2, 5)
+    </update>
+
+    <update id="markResourceReleasing">
+        UPDATE group_pull_marketing_task
+        SET block_reason = 0,
+            resource_status = 3,
+            updated_at = #{now}
+        WHERE marketing_task_id = #{taskId}
+          AND resource_status = 2
+    </update>
+
+    <update id="updateBlockReason">
+        UPDATE group_pull_marketing_task
+        SET block_reason = #{blockReason},
+            updated_at = #{now}
+        WHERE marketing_task_id = #{taskId}
+          AND resource_status = 2
+    </update>
+
+    <select id="countAvailableMaterials" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_material
+        WHERE task_id = #{taskId}
+          AND status = 1
+    </select>
+
+    <update id="softDeletePendingTask">
+        UPDATE marketing_task
+        SET deleted_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+          AND status = 1
+    </update>
+
+    <delete id="deleteTaskMaterials">
+        DELETE FROM group_pull_marketing_material
+        WHERE task_id = #{taskId}
+    </delete>
+
+    <delete id="deleteTaskExtension">
+        DELETE FROM group_pull_marketing_task
+        WHERE marketing_task_id = #{taskId}
+    </delete>
+
+    <select id="selectTaskByIdForUpdate" resultMap="TaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM group_pull_marketing_task
+        WHERE marketing_task_id = #{taskId}
+        FOR UPDATE
+    </select>
+
+    <select id="countInflightExecutions" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution
+        WHERE task_id = #{taskId}
+          AND execution_status IN (1, 2)
+    </select>
+
+    <select id="selectBuilderCandidateForUpdate"
+            resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS wsPhone,
+               a.protocol_id AS protocolId,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+        JOIN account_group source_group ON source_group.id = a.account_group_id
+                                       AND source_group.deleted_at IS NULL
+        LEFT JOIN marketing_account_occupancy occupancy ON occupancy.account_id = a.id
+        WHERE a.deleted_at IS NULL
+          AND a.account_group_id = #{builderGroupId}
+          AND s.account_state = 2
+          AND s.login_state = 1
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) != ''
+          AND source_group.marketing_occupancy_task_id IS NULL
+          AND occupancy.account_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM group_pull_marketing_execution own_execution
+              WHERE own_execution.task_id = #{taskId}
+                AND own_execution.builder_account_id = a.id
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM group_pull_marketing_execution active_execution
+              WHERE active_execution.active_builder_account_id = a.id
+          )
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="selectMarketerCandidateForUpdate"
+            resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS wsPhone,
+               a.protocol_id AS protocolId,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+        JOIN account_group marketing_group ON marketing_group.id = a.account_group_id
+                                          AND marketing_group.deleted_at IS NULL
+        LEFT JOIN group_pull_marketing_account_stat stat
+               ON stat.task_id = #{taskId} AND stat.account_id = a.id
+        WHERE a.deleted_at IS NULL
+          AND a.account_group_id = #{marketingGroupId}
+          AND s.account_state = 2
+          AND s.login_state = 1
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) != ''
+          AND marketing_group.marketing_occupancy_type = 2
+          AND marketing_group.marketing_occupancy_task_id = #{taskId}
+          AND COALESCE(stat.reserved_group_count, 0) + COALESCE(stat.joined_group_count, 0) &lt; #{limit}
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="selectAvailableMaterialsForUpdate" resultMap="MaterialResultMap">
+        SELECT id, tenant_id, task_id, line_no, phone, status, current_execution_id,
+               created_at, updated_at
+        FROM group_pull_marketing_material
+        WHERE task_id = #{taskId}
+          AND status = 1
+        ORDER BY line_no ASC
+        LIMIT #{limit}
+        FOR UPDATE
+    </select>
+
+    <update id="reserveMaterials">
+        UPDATE group_pull_marketing_material
+        SET status = 2,
+            current_execution_id = #{executionId},
+            updated_at = #{now}
+        WHERE status = 1
+          AND id IN
+          <foreach collection="ids" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+    </update>
+
+    <insert id="insertExecution" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO group_pull_marketing_execution
+            (task_id, builder_account_id, marketing_account_id, group_name, group_jid,
+             group_link_id, group_invite_url, execution_status, current_stage, stage_retry_count,
+             next_execute_at, group_status, group_member_count, marketer_admin_status,
+             builder_exit_status, marketing_target_id, failure_reason, group_created_at,
+             finished_at, released_at, created_at, updated_at)
+        VALUES
+            (#{taskId}, #{builderAccountId}, #{marketingAccountId}, #{groupName}, #{groupJid},
+             #{groupLinkId}, #{groupInviteUrl}, #{executionStatus}, #{currentStage},
+             #{stageRetryCount}, #{nextExecuteAt}, #{groupStatus}, #{groupMemberCount},
+             #{marketerAdminStatus}, #{builderExitStatus}, #{marketingTargetId},
+             #{failureReason}, #{groupCreatedAt}, #{finishedAt}, #{releasedAt},
+             #{createdAt}, #{updatedAt})
+    </insert>
+
+    <insert id="insertExecutionMaterials">
+        INSERT INTO group_pull_marketing_execution_material
+            (execution_id, material_id, allocation_no, friend_status, friend_failure_reason,
+             entry_status, entry_failure_reason, created_at, updated_at)
+        VALUES
+        <foreach collection="rows" item="row" separator=",">
+            (#{row.executionId}, #{row.materialId}, #{row.allocationNo}, #{row.friendStatus},
+             #{row.friendFailureReason}, #{row.entryStatus}, #{row.entryFailureReason},
+             #{row.createdAt}, #{row.updatedAt})
+        </foreach>
+    </insert>
+
+    <select id="selectExecutionById" resultMap="ExecutionResultMap">
+        SELECT <include refid="ExecutionColumns"/>
+        FROM group_pull_marketing_execution
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectExecutionMaterials" resultMap="ExecutionMaterialResultMap">
+        SELECT em.id, em.tenant_id, em.execution_id, em.material_id,
+               material.phone AS material_phone,
+               em.allocation_no, em.friend_status, em.friend_failure_reason,
+               em.entry_status, em.entry_failure_reason, em.created_at, em.updated_at
+        FROM group_pull_marketing_execution_material em
+        JOIN group_pull_marketing_material material ON material.id = em.material_id
+        WHERE em.execution_id = #{executionId}
+        ORDER BY em.allocation_no ASC
+    </select>
+
+    <select id="selectAccountStatForUpdate" resultMap="AccountStatResultMap">
+        SELECT id, tenant_id, task_id, account_id, reserved_group_count, joined_group_count,
+               created_at, updated_at
+        FROM group_pull_marketing_account_stat
+        WHERE task_id = #{taskId}
+          AND account_id = #{accountId}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertAccountStat" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO group_pull_marketing_account_stat
+            (task_id, account_id, reserved_group_count, joined_group_count, created_at, updated_at)
+        VALUES
+            (#{taskId}, #{accountId}, #{reservedGroupCount}, #{joinedGroupCount},
+             #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="reserveMarketingQuota">
+        UPDATE group_pull_marketing_account_stat
+        SET reserved_group_count = reserved_group_count + 1,
+            updated_at = #{now}
+        WHERE task_id = #{taskId}
+          AND account_id = #{accountId}
+          AND reserved_group_count + joined_group_count &lt; #{limit}
+    </update>
+
+    <update id="confirmMarketingQuota">
+        UPDATE group_pull_marketing_account_stat
+        SET reserved_group_count = reserved_group_count - 1,
+            joined_group_count = joined_group_count + 1,
+            updated_at = #{now}
+        WHERE task_id = #{taskId}
+          AND account_id = #{accountId}
+          AND reserved_group_count &gt; 0
+    </update>
+
+    <update id="cancelMarketingQuota">
+        UPDATE group_pull_marketing_account_stat
+        SET reserved_group_count = reserved_group_count - 1,
+            updated_at = #{now}
+        WHERE task_id = #{taskId}
+          AND account_id = #{accountId}
+          AND reserved_group_count &gt; 0
+    </update>
+
+    <select id="selectAccountRef"
+            resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS wsPhone,
+               a.protocol_id AS protocolId,
+               a.protocol_account_id AS protocolAccountId,
+               s.account_state AS accountState,
+               s.login_state AS loginState
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+        WHERE a.id = #{accountId}
+          AND a.deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <update id="tryLeaseExecution">
+        UPDATE group_pull_marketing_execution
+        SET next_execute_at = #{leaseUntil},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status = #{executionStatus}
+          AND current_stage = #{expectedStage}
+          AND next_execute_at &lt;= #{now}
+    </update>
+
+    <update id="delayExecution">
+        UPDATE group_pull_marketing_execution
+        SET next_execute_at = #{nextExecuteAt},
+            failure_reason = CASE
+                WHEN #{reason} IS NULL OR #{reason} = '' THEN failure_reason
+                ELSE LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255)
+            END,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status = #{executionStatus}
+          AND current_stage = #{expectedStage}
+    </update>
+
+    <update id="advanceExecutionStage">
+        UPDATE group_pull_marketing_execution
+        SET execution_status = #{nextExecutionStatus},
+            current_stage = #{nextStage},
+            stage_retry_count = 0,
+            next_execute_at = #{nextExecuteAt},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status = #{executionStatus}
+          AND current_stage = #{expectedStage}
+    </update>
+
+    <select id="countNamedExecutions" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution
+        WHERE task_id = #{taskId}
+          AND group_name IS NOT NULL
+    </select>
+
+    <update id="saveGroupNameIfAbsent">
+        UPDATE group_pull_marketing_execution
+        SET group_name = #{groupName},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND group_name IS NULL
+          AND execution_status IN (1, 2)
+          AND current_stage = 3
+    </update>
+
+    <update id="markGroupCreated">
+        UPDATE group_pull_marketing_execution
+        SET group_jid = #{groupJid},
+            group_status = 1,
+            group_created_at = #{createdAt},
+            execution_status = 2,
+            current_stage = #{nextStage},
+            stage_retry_count = 0,
+            next_execute_at = #{createdAt},
+            updated_at = #{createdAt}
+        WHERE id = #{id}
+          AND execution_status IN (1, 2)
+          AND current_stage = #{expectedStage}
+          AND group_jid IS NULL
+    </update>
+
+    <update id="markExecutionManualReview">
+        UPDATE group_pull_marketing_execution
+        SET execution_status = 7,
+            failure_reason = LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255),
+            next_execute_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status IN (1, 2)
+          AND current_stage = #{expectedStage}
+    </update>
+
+    <update id="updateMaterialFriendResult">
+        UPDATE group_pull_marketing_execution_material
+        SET friend_status = #{status},
+            friend_failure_reason = #{reason},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND friend_status = 1
+    </update>
+
+    <update id="updateMaterialEntryResult">
+        UPDATE group_pull_marketing_execution_material
+        SET entry_status = #{status},
+            entry_failure_reason = #{reason},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND entry_status != 2
+    </update>
+
+    <update id="updateMarketerAdminStatus">
+        UPDATE group_pull_marketing_execution
+        SET marketer_admin_status = #{status},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status IN (1, 2)
+    </update>
+
+    <update id="updateBuilderExitStatus">
+        UPDATE group_pull_marketing_execution
+        SET builder_exit_status = #{status},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status IN (1, 2)
+    </update>
+
+    <update id="saveGroupInfo">
+        UPDATE group_pull_marketing_execution
+        SET group_link_id = #{groupLinkId},
+            group_invite_url = #{inviteUrl},
+            group_member_count = #{memberCount},
+            failure_reason = CASE
+                WHEN #{reason} IS NULL OR #{reason} = '' THEN failure_reason
+                ELSE LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255)
+            END,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status = 2
+          AND current_stage = 8
+    </update>
+
+    <update id="appendExecutionFailureReason">
+        UPDATE group_pull_marketing_execution
+        SET failure_reason = LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255),
+            updated_at = #{now}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countSuccessfulMaterialEntries" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution_material
+        WHERE execution_id = #{executionId}
+          AND entry_status = 2
+    </select>
+
+    <select id="selectExecutionByIdForUpdate" resultMap="ExecutionResultMap">
+        SELECT <include refid="ExecutionColumns"/>
+        FROM group_pull_marketing_execution
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <update id="markExecutionTerminal">
+        UPDATE group_pull_marketing_execution
+        SET execution_status = #{terminalStatus},
+            current_stage = #{terminalStage},
+            failure_reason = CASE
+                WHEN #{reason} IS NULL OR #{reason} = '' THEN failure_reason
+                ELSE LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255)
+            END,
+            finished_at = #{finishedAt},
+            next_execute_at = #{finishedAt},
+            updated_at = #{finishedAt}
+        WHERE id = #{id}
+          AND execution_status IN (1, 2)
+    </update>
+
+    <update id="completeSuccessfulMaterials">
+        UPDATE group_pull_marketing_material material
+        JOIN group_pull_marketing_execution_material relation
+          ON relation.material_id = material.id
+         AND relation.execution_id = #{executionId}
+         AND relation.entry_status = 2
+        SET material.status = 3,
+            material.current_execution_id = #{executionId},
+            material.updated_at = #{now}
+        WHERE material.status = 2
+          AND material.current_execution_id = #{executionId}
+    </update>
+
+    <update id="completeFailedJoinedMaterials">
+        UPDATE group_pull_marketing_material material
+        JOIN group_pull_marketing_execution_material relation
+          ON relation.material_id = material.id
+         AND relation.execution_id = #{executionId}
+         AND relation.entry_status = 2
+        SET material.status = 4,
+            material.current_execution_id = #{executionId},
+            material.updated_at = #{now}
+        WHERE material.status = 2
+          AND material.current_execution_id = #{executionId}
+    </update>
+
+    <update id="releaseUnjoinedMaterials">
+        UPDATE group_pull_marketing_material material
+        JOIN group_pull_marketing_execution_material relation
+          ON relation.material_id = material.id
+         AND relation.execution_id = #{executionId}
+         AND relation.entry_status != 2
+        SET material.status = 1,
+            material.current_execution_id = NULL,
+            material.updated_at = #{now}
+        WHERE material.status = 2
+          AND material.current_execution_id = #{executionId}
+    </update>
+
+    <update id="moveBuilderAccount">
+        UPDATE account account_row
+        JOIN account_group target_group ON target_group.id = #{targetGroupId}
+                                       AND target_group.deleted_at IS NULL
+        SET account_row.account_group_id = target_group.id,
+            account_row.updated_at = #{now}
+        WHERE account_row.id = #{accountId}
+          AND account_row.deleted_at IS NULL
+          AND account_row.account_group_id != target_group.id
+          AND target_group.marketing_occupancy_task_id IS NULL
+    </update>
+
+    <update id="markExecutionReleased">
+        UPDATE group_pull_marketing_execution
+        SET released_at = COALESCE(released_at, #{now}),
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND released_at IS NULL
+    </update>
+
+    <update id="markGroupBanned">
+        UPDATE group_pull_marketing_execution
+        SET group_status = 2,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND group_jid IS NOT NULL
+          AND group_status = 1
+    </update>
+
+    <update id="bindMarketingTarget">
+        UPDATE group_pull_marketing_execution
+        SET marketing_target_id = #{targetId},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status = 3
+          AND marketing_target_id IS NULL
+    </update>
+
+    <update id="initializeMarketingRound">
+        UPDATE marketing_task
+        SET next_round_at = CASE
+                WHEN status = 5 THEN #{now}
+                ELSE #{now} + send_interval_seconds * 1000
+            END,
+            updated_at = #{now}
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND status IN (2, 5)
+          AND next_round_at IS NULL
+    </update>
+
+    <select id="selectAllocatableTaskDispatches"
+            resultType="com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow">
+        SELECT task.tenant_id AS tenantId,
+               task.id AS taskId
+        FROM marketing_task task
+        JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id
+        WHERE task.deleted_at IS NULL
+          AND task.business_type = 2
+          AND task.status = 2
+          AND task.task_end_at &gt; #{now}
+          AND pull_task.resource_status = 2
+          AND pull_task.block_reason IN (0, 1, 2, 3)
+        ORDER BY task.id
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectDueExecutionDispatches"
+            resultType="com.armada.marketing.grouppull.model.vo.GroupPullExecutionDispatchRow">
+        SELECT execution.tenant_id AS tenantId,
+               execution.id AS executionId
+        FROM group_pull_marketing_execution execution
+        JOIN marketing_task task ON task.id = execution.task_id
+                                AND task.tenant_id = execution.tenant_id
+        JOIN group_pull_marketing_task pull_task
+          ON pull_task.marketing_task_id = task.id
+        WHERE task.deleted_at IS NULL
+          AND task.business_type = 2
+          AND execution.execution_status IN (1, 2)
+          AND execution.next_execute_at &lt;= #{now}
+          AND (
+              (
+                  pull_task.resource_status = 2
+                  AND task.status = 2
+                  AND pull_task.block_reason IN (0, 1, 2, 3)
+              )
+              OR (
+                  execution.group_name IS NOT NULL
+                  AND (
+                      (pull_task.resource_status = 2
+                       AND (task.status = 5 OR pull_task.block_reason IN (4, 5)))
+                      OR pull_task.resource_status = 3
+                  )
+              )
+          )
+        ORDER BY execution.next_execute_at, execution.id
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectReleasingTaskDispatches"
+            resultType="com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow">
+        SELECT task.tenant_id AS tenantId,
+               task.id AS taskId
+        FROM marketing_task task
+        JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id
+        WHERE task.deleted_at IS NULL
+          AND task.business_type = 2
+          AND task.status IN (7, 8)
+          AND pull_task.resource_status = 3
+        ORDER BY task.id
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectCancelableExecutionsForUpdate" resultMap="ExecutionResultMap">
+        SELECT <include refid="ExecutionColumns"/>
+        FROM group_pull_marketing_execution
+        WHERE task_id = #{taskId}
+          AND group_name IS NULL
+          AND execution_status IN (1, 2)
+        ORDER BY id
+        FOR UPDATE
+    </select>
+
+    <update id="cancelPreGroupExecution">
+        UPDATE group_pull_marketing_execution
+        SET execution_status = 6,
+            current_stage = 11,
+            failure_reason = LEFT(
+                    CONCAT_WS(';', NULLIF(failure_reason, ''), '任务结束，准备流程已取消'),
+                    255),
+            finished_at = #{now},
+            next_execute_at = #{now},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND group_name IS NULL
+          AND execution_status IN (1, 2)
+    </update>
+
+    <update id="releaseExecutionMaterials">
+        UPDATE group_pull_marketing_material
+        SET status = 1,
+            current_execution_id = NULL,
+            updated_at = #{now}
+        WHERE current_execution_id = #{executionId}
+          AND status = 2
+    </update>
+
+    <select id="countActiveFormalExecutions" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution
+        WHERE task_id = #{taskId}
+          AND group_name IS NOT NULL
+          AND execution_status IN (1, 2)
+    </select>
+
+    <update id="markTaskExecutionsReleased">
+        UPDATE group_pull_marketing_execution
+        SET released_at = COALESCE(released_at, #{now}),
+            updated_at = #{now}
+        WHERE task_id = #{taskId}
+          AND released_at IS NULL
+    </update>
+
+    <update id="markResourceReleased">
+        UPDATE group_pull_marketing_task
+        SET block_reason = 0,
+            resource_status = 4,
+            updated_at = #{now}
+        WHERE marketing_task_id = #{taskId}
+          AND resource_status = 3
+    </update>
+
+</mapper>

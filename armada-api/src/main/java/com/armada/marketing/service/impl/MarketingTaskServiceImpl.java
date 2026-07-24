@@ -15,6 +15,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
@@ -440,7 +441,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private MarketingTask requireTask(Long id) {
         MarketingTask task = taskMapper.selectTaskById(id);
-        if (task == null) {
+        if (task == null || (task.getBusinessType() != null
+                && !Integer.valueOf(MarketingBusinessType.ORDINARY.code()).equals(task.getBusinessType()))) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销任务不存在: " + id);
         }
         return task;
@@ -582,6 +584,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         MarketingTaskStatus status = initialStatus(request, taskStartAt, taskEndAt, now);
         MarketingTask task = new MarketingTask();
         task.setTaskName(request.taskName().trim());
+        task.setBusinessType(MarketingBusinessType.ORDINARY.code());
         task.setAccountGroupId(request.accountGroupId());
         task.setAccountGroupName(snapshotName(request.accountGroupName(), "账号分组-" + request.accountGroupId()));
         task.setMarketingTemplateId(template.getId());
@@ -784,8 +787,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                     row.getLatestExecutionStatus(),
                     row.getExecutionReasonCode(),
                     row.getExecutionReasonMessage(),
-                    row.getGroupStatus(),
-                    row.getGroupStatusReason()).executionReason();
+                    row.getExecutionGroupStatus(),
+                    row.getExecutionGroupStatusReason()).executionReason();
         } else {
             executionReason = MarketingGroupExecutionNormalizer.executionReason(
                     row.getLatestExecutionStatus(),

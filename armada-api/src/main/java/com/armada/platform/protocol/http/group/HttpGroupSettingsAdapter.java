@@ -3,7 +3,9 @@ package com.armada.platform.protocol.http.group;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
-import com.armada.platform.protocol.port.GroupSettingsPort;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.routing.GroupSettingsBackend;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +19,7 @@ import org.slf4j.LoggerFactory;
  * <p>当前协议版本没有公开“通过链接邀请”的独立写能力，该设置会直接抛出
  * {@link ProtocolErrorCode#GROUP_CAPABILITY_UNSUPPORTED}，禁止映射到添加成员或入群审批接口。</p>
  */
-public class HttpGroupSettingsAdapter implements GroupSettingsPort {
+public class HttpGroupSettingsAdapter implements GroupSettingsBackend {
 
     /** 当前适配器的低层协议调用日志记录器。 */
     private static final Logger log = LoggerFactory.getLogger(HttpGroupSettingsAdapter.class);
@@ -94,6 +96,11 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
         this.httpExecutor = httpExecutor;
     }
 
+    @Override
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
+    }
+
     /**
      * 修改 WhatsApp 群限时消息周期。
      *
@@ -107,7 +114,7 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      */
     @Override
     public void setEphemeralDuration(
-            String protocolAccountId,
+            ProtocolAccountRef account,
             String groupJid,
             int durationSeconds) {
         String mode = switch (durationSeconds) {
@@ -119,7 +126,7 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
                     ProtocolErrorCode.BAD_REQUEST,
                     "不支持的群限时消息秒数: " + durationSeconds);
         };
-        postMode(protocolAccountId, groupJid, EPHEMERAL_PATH, mode);
+        postMode(account, groupJid, EPHEMERAL_PATH, mode);
     }
 
     /**
@@ -135,8 +142,8 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      */
     @Override
     public void setEditGroupSettingsAllowed(
-            String protocolAccountId, String groupJid, boolean enabled) {
-        postMode(protocolAccountId, groupJid, EDIT_GROUP_SETTINGS_PATH,
+            ProtocolAccountRef account, String groupJid, boolean enabled) {
+        postMode(account, groupJid, EDIT_GROUP_SETTINGS_PATH,
                 enabled ? MODE_UNLOCKED : MODE_LOCKED);
     }
 
@@ -153,8 +160,8 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      */
     @Override
     public void setSendMessagesAllowed(
-            String protocolAccountId, String groupJid, boolean enabled) {
-        postMode(protocolAccountId, groupJid, SEND_MESSAGES_PATH,
+            ProtocolAccountRef account, String groupJid, boolean enabled) {
+        postMode(account, groupJid, SEND_MESSAGES_PATH,
                 enabled ? MODE_NOT_ANNOUNCEMENT : MODE_ANNOUNCEMENT);
     }
 
@@ -171,8 +178,8 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      */
     @Override
     public void setAddMembersAllowed(
-            String protocolAccountId, String groupJid, boolean enabled) {
-        postMode(protocolAccountId, groupJid, ADD_MEMBERS_PATH,
+            ProtocolAccountRef account, String groupJid, boolean enabled) {
+        postMode(account, groupJid, ADD_MEMBERS_PATH,
                 enabled ? MODE_ALL_MEMBER_ADD : MODE_ADMIN_ADD);
     }
 
@@ -189,7 +196,7 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      */
     @Override
     public void setInviteViaLinkAllowed(
-            String protocolAccountId, String groupJid, boolean enabled) {
+            ProtocolAccountRef account, String groupJid, boolean enabled) {
         throw new ProtocolException(
                 ProtocolErrorCode.GROUP_CAPABILITY_UNSUPPORTED,
                 "当前协议版本未暴露通过链接邀请权限");
@@ -207,8 +214,8 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      */
     @Override
     public void setJoinApprovalEnabled(
-            String protocolAccountId, String groupJid, boolean enabled) {
-        postMode(protocolAccountId, groupJid, JOIN_APPROVAL_PATH,
+            ProtocolAccountRef account, String groupJid, boolean enabled) {
+        postMode(account, groupJid, JOIN_APPROVAL_PATH,
                 enabled ? MODE_ON : MODE_OFF);
     }
 
@@ -223,11 +230,11 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
      * @param mode              协议层固定 mode
      */
     private void postMode(
-            String protocolAccountId,
+            ProtocolAccountRef account,
             String groupJid,
             String suffix,
             String mode) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         log.debug("调用协议层修改群设置 settingPath={} mode={}", suffix, mode);
         httpExecutor.postVoid(
@@ -250,6 +257,13 @@ public class HttpGroupSettingsAdapter implements GroupSettingsPort {
                     "协议层 group settings 参数缺失 " + fieldName);
         }
         return value.trim();
+    }
+
+    private static String requireAccountId(ProtocolAccountRef account) {
+        if (account == null) {
+            throw new ProtocolException(ProtocolErrorCode.BAD_REQUEST, "协议层操作账号不能为空");
+        }
+        return requireText(account.protocolAccountId(), "protocolAccountId");
     }
 
     private record ModeRequest(String accountId, String mode) {

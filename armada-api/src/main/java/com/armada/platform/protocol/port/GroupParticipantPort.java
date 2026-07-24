@@ -2,6 +2,7 @@ package com.armada.platform.protocol.port;
 
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import java.util.List;
 
@@ -9,6 +10,19 @@ import java.util.List;
  * WhatsApp 群成员变更协议端口。
  */
 public interface GroupParticipantPort {
+
+    /** 兼容存量 Web 调用；新业务应传完整账号引用。 */
+    default GroupParticipantBatchResult updateParticipants(
+            String protocolAccountId,
+            String groupJid,
+            List<String> participants,
+            GroupParticipantAction action) {
+        return updateParticipants(
+                ProtocolAccountRef.legacyWeb(protocolAccountId),
+                groupJid,
+                participants,
+                action);
+    }
 
     /**
      * 使用同一个在线协议账号批量添加成员、变更成员角色或移除成员。
@@ -28,7 +42,7 @@ public interface GroupParticipantPort {
      * @throws ProtocolException 当参数缺失、执行账号无权限、协议超时或协议调用失败时抛出
      */
     GroupParticipantBatchResult updateParticipants(
-            String protocolAccountId,
+            ProtocolAccountRef account,
             String groupJid,
             List<String> participants,
             GroupParticipantAction action);

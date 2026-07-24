@@ -15,6 +15,8 @@ import com.armada.marketing.model.support.GroupCreateRestrictionClassifier;
 import com.armada.marketing.model.support.GroupCreationMarketingItemMarketingDispatch;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.MarketingMessageComposer;
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ContactSaveCommand;
 import com.armada.platform.protocol.model.command.GroupCreateCommand;
 import com.armada.platform.protocol.model.command.GroupMemberListQuery;
@@ -283,6 +285,20 @@ public class GroupCreationMarketingWorker {
                     operationId));
         } catch (RuntimeException ex) {
             String reason = readableMessage(ex);
+            if (isUnconfirmedGroupCreate(ex)) {
+                transactionOperations.executeWithoutResult(status -> {
+                    int failed = groupCreationMapper.markItemFailed(
+                            item.getId(),
+                            ProtocolErrorCode.GROUP_CREATE_RESULT_UNCONFIRMED.name(),
+                            reason,
+                            protocolFailureJson(contactSaveSummary, reason),
+                            System.currentTimeMillis());
+                    if (failed == 0) {
+                        log.warn("未确认建群结果收口时执行项状态已变化 itemId={}", item.getId());
+                    }
+                });
+                return;
+            }
             Optional<String> restrictedReason = GroupCreateRestrictionClassifier.restrictedReason(ex);
             long failedAt = System.currentTimeMillis();
             transactionOperations.executeWithoutResult(status -> {
@@ -566,6 +582,12 @@ public class GroupCreationMarketingWorker {
 
     private static String readableMessage(RuntimeException ex) {
         return StringUtils.hasText(ex.getMessage()) ? ex.getMessage() : ex.getClass().getSimpleName();
+    }
+
+    private static boolean isUnconfirmedGroupCreate(RuntimeException exception) {
+        return exception instanceof ProtocolException protocolException
+                && protocolException.errorCode()
+                == ProtocolErrorCode.GROUP_CREATE_RESULT_UNCONFIRMED;
     }
 
     private static String newCommandId() {

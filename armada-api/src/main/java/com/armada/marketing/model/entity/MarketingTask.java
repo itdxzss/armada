@@ -1,43 +1,116 @@
 package com.armada.marketing.model.entity;
 
 /**
- * 营销任务主表实体,映射 marketing_task。
+ * 营销任务公共主表实体，映射 {@code marketing_task}。
+ *
+ * <p>普通营销和拉群营销共用该实体，通过 {@code businessType} 隔离菜单和生命周期；
+ * 拉群营销特有配置不在本实体重复保存。</p>
  */
 public class MarketingTask {
 
+    /** 统一营销任务主键。 */
     private Long id;
+
+    /** 数据所属租户 ID。 */
     private Long tenantId;
+
+    /** 任务名称。 */
     private String taskName;
+
+    /** 业务类型：1=普通营销，2=拉群营销。 */
+    private Integer businessType;
+
+    /** 执行营销发送的账号分组 ID。 */
     private Long accountGroupId;
+
+    /** 创建任务时的营销账号分组名称快照。 */
     private String accountGroupName;
+
+    /** 营销模板 ID。 */
     private Long marketingTemplateId;
+
+    /** 创建任务时的营销模板名称快照。 */
     private String marketingTemplateName;
+
+    /** 任务主状态码，见 {@code MarketingTaskStatus}。 */
     private Integer status;
+
+    /** 创建任务时选中的去重营销账号数量。 */
     private Integer selectedAccountCount;
+
+    /** 任务累计成功触达的去重群数量。 */
     private Integer targetGroupCount;
+
+    /** 账号与群组组合形成的执行目标行数。 */
     private Integer targetPairCount;
+
+    /** 任务累计发送成功消息数。 */
     private Integer sentMessageCount;
+
+    /** 任务累计发送失败消息数。 */
     private Integer failedMessageCount;
+
+    /** 每个营销轮次发送的消息条数。 */
     private Integer sendPerRound;
+
+    /** 同一营销账号下相邻群组命令的发送间隔（毫秒）。 */
     private Integer accountGroupSendIntervalMs;
+
+    /** 相邻营销轮次之间的间隔（秒）。 */
     private Integer sendIntervalSeconds;
+
+    /** 发送前是否校验营销账号在线。 */
     private Boolean onlineCheckEnabled;
+
+    /** 发送时是否跳过状态异常的群。 */
     private Boolean abnormalGroupSkipped;
+
+    /** 单次发送失败后是否允许自动重试。 */
     private Boolean autoRetryEnabled;
+
+    /** 单条消息允许的最大重试次数。 */
     private Integer retryLimit;
+
+    /** 已成功抢占生成的最新正常营销轮次号。 */
     private Long currentRoundNo;
+
+    /** 任务备注。 */
     private String remark;
+
+    /** 账号动态群目标的群加入时间筛选下界（epoch 毫秒）。 */
     private Long accountGroupSendAt;
+
+    /** 任务计划开始时间（epoch 毫秒）。 */
     private Long taskStartAt;
+
+    /** 任务计划结束时间（epoch 毫秒）。 */
     private Long taskEndAt;
+
+    /** 任务实际首次启动时间（epoch 毫秒）。 */
     private Long startedAt;
+
+    /** 下一轮应生成时间（epoch 毫秒）。 */
     private Long nextRoundAt;
+
+    /** 最近一次正常营销轮次开始生成时间（epoch 毫秒）。 */
     private Long lastRoundStartedAt;
+
+    /** 最近一条消息发送成功时间（epoch 毫秒）。 */
     private Long lastSentAt;
+
+    /** 任务进入完成或关闭终态的时间（epoch 毫秒）。 */
     private Long finishedAt;
+
+    /** 创建任务的用户 ID。 */
     private Long createdBy;
+
+    /** 创建时间（epoch 毫秒）。 */
     private Long createdAt;
+
+    /** 最近更新时间（epoch 毫秒）。 */
     private Long updatedAt;
+
+    /** 软删除时间（epoch 毫秒）；为空表示未删除。 */
     private Long deletedAt;
 
     public Long getId() {
@@ -62,6 +135,14 @@ public class MarketingTask {
 
     public void setTaskName(String taskName) {
         this.taskName = taskName;
+    }
+
+    public Integer getBusinessType() {
+        return businessType;
+    }
+
+    public void setBusinessType(Integer businessType) {
+        this.businessType = businessType;
     }
 
     public Long getAccountGroupId() {

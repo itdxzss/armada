@@ -10,6 +10,15 @@ public class AccountGroupVoRow {
     private Long id;
     private String name;
     private String remark;
+
+    /** 分组持久化营销占用类型；为空表示空闲。 */
+    private Integer marketingOccupancyType;
+
+    /** 当前占用营销任务 ID；为空表示空闲。 */
+    private Long marketingOccupancyTaskId;
+
+    /** 营销分组锁定时间(epoch 毫秒)。 */
+    private Long marketingLockedAt;
     private Integer systemBuiltin;
     private long accountCount;
     private long onlineCount;
@@ -41,6 +50,30 @@ public class AccountGroupVoRow {
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public Integer getMarketingOccupancyType() {
+        return marketingOccupancyType;
+    }
+
+    public void setMarketingOccupancyType(Integer marketingOccupancyType) {
+        this.marketingOccupancyType = marketingOccupancyType;
+    }
+
+    public Long getMarketingOccupancyTaskId() {
+        return marketingOccupancyTaskId;
+    }
+
+    public void setMarketingOccupancyTaskId(Long marketingOccupancyTaskId) {
+        this.marketingOccupancyTaskId = marketingOccupancyTaskId;
+    }
+
+    public Long getMarketingLockedAt() {
+        return marketingLockedAt;
+    }
+
+    public void setMarketingLockedAt(Long marketingLockedAt) {
+        this.marketingLockedAt = marketingLockedAt;
     }
 
     public Integer getSystemBuiltin() {

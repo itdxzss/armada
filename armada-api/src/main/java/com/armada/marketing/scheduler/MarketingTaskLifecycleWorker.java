@@ -2,6 +2,7 @@ package com.armada.marketing.scheduler;
 
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -60,6 +61,19 @@ public class MarketingTaskLifecycleWorker {
         TenantContext.set(tenantId);
         try {
             long now = System.currentTimeMillis();
+            MarketingTask task = taskMapper.selectTaskById(taskId);
+            if (task != null
+                    && Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                            .equals(task.getBusinessType())) {
+                int updated = taskMapper.endExpiredGroupPullTask(taskId, now);
+                log.info(
+                        "拉群营销任务到期进入资源释放 tenantId={} taskId={} finishedAt={} updated={}",
+                        tenantId,
+                        taskId,
+                        now,
+                        updated);
+                return;
+            }
             int updated = taskMapper.endExpiredTask(taskId, now);
             if (updated > 0) {
                 int released = occupancyService.releaseTaskAccounts(taskId);

@@ -6,6 +6,9 @@ package com.armada.account.model.vo;
  * @param id           分组 ID
  * @param name         分组名称
  * @param remark       备注
+ * @param marketingOccupancyType 当前营销整组占用类型；为空表示空闲
+ * @param marketingOccupancyTaskId 当前占用营销任务 ID；为空表示空闲
+ * @param marketingLockedAt 营销分组锁定时间(epoch 毫秒)
  * @param systemBuiltin 是否系统内置:1=是,0=否
  * @param accountCount  分组下账号总数
  * @param onlineCount   在线账号数(login_state=1)
@@ -19,6 +22,9 @@ public record AccountGroupVO(
         Long id,
         String name,
         String remark,
+        Integer marketingOccupancyType,
+        Long marketingOccupancyTaskId,
+        Long marketingLockedAt,
         Integer systemBuiltin,
         long accountCount,
         long onlineCount,

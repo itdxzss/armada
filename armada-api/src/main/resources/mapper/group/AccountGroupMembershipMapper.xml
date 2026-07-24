@@ -262,7 +262,9 @@
 
   <select id="selectGroupExecutionAccount" resultType="com.armada.group.model.vo.GroupExecutionAccount">
     SELECT a.id AS accountId,
-           a.protocol_account_id AS protocolAccountId
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           a.ws_phone AS wsPhone
     FROM account_group_membership m
     INNER JOIN account a
       ON a.tenant_id = m.tenant_id
@@ -270,6 +272,8 @@
      AND a.deleted_at IS NULL
      AND a.protocol_account_id IS NOT NULL
      AND a.protocol_account_id != ''
+     AND a.ws_phone IS NOT NULL
+     AND a.ws_phone != ''
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id

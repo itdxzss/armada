@@ -325,7 +325,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         int expectedSeconds = dto.mode().seconds();
         try {
             protocolPorts.settings().setEphemeralDuration(
-                    account.protocolAccountId(), target.groupJid(), expectedSeconds);
+                    account.protocolRef(), target.groupJid(), expectedSeconds);
         } catch (ProtocolException ex) {
             if (ex.errorCode() != ProtocolErrorCode.TIMEOUT) {
                 log.warn("限时消息设置失败 groupLinkId={} accountId={} mode={} code={}",
@@ -471,7 +471,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             try {
                 GroupParticipantBatchResult protocolResult =
                         protocolPorts.participants().updateParticipants(
-                                account.protocolAccountId(),
+                                account.protocolRef(),
                                 target.groupJid(),
                                 actionable,
                                 action);
@@ -883,18 +883,17 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupExecutionAccount account,
             String groupJid,
             GroupSettingCommandDTO dto) {
-        String accountId = account.protocolAccountId();
         switch (dto.key()) {
             case EDIT_GROUP_SETTINGS -> protocolPorts.settings().setEditGroupSettingsAllowed(
-                    accountId, groupJid, dto.enabled());
+                    account.protocolRef(), groupJid, dto.enabled());
             case SEND_MESSAGES -> protocolPorts.settings().setSendMessagesAllowed(
-                    accountId, groupJid, dto.enabled());
+                    account.protocolRef(), groupJid, dto.enabled());
             case ADD_MEMBERS -> protocolPorts.settings().setAddMembersAllowed(
-                    accountId, groupJid, dto.enabled());
+                    account.protocolRef(), groupJid, dto.enabled());
             case INVITE_VIA_LINK -> protocolPorts.settings().setInviteViaLinkAllowed(
-                    accountId, groupJid, dto.enabled());
+                    account.protocolRef(), groupJid, dto.enabled());
             case ADMIN_APPROVE_NEW_MEMBERS -> protocolPorts.settings().setJoinApprovalEnabled(
-                    accountId, groupJid, dto.enabled());
+                    account.protocolRef(), groupJid, dto.enabled());
         }
     }
 

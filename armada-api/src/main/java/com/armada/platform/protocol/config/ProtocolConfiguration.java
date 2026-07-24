@@ -13,6 +13,10 @@ import com.armada.platform.protocol.backend.android.AndroidNativeClient;
 import com.armada.platform.protocol.backend.android.AndroidNativeContactAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupCreateAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupJoinAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeGroupParticipantAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeGroupSettingsAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeGroupInviteAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeGroupLeaveAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupMemberListAdapter;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.backend.android.AndroidMessageSendBackend;
@@ -27,12 +31,15 @@ import com.armada.platform.protocol.http.account.HttpAccountParticipatingGroupAd
 import com.armada.platform.protocol.http.contact.HttpContactAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupCreateAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupInviteAdapter;
+import com.armada.platform.protocol.http.group.HttpGroupLeaveAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupMemberListAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupMetadataAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupParticipantAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupProfileAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupSettingsAdapter;
 import com.armada.platform.protocol.http.group.HttpGroupPreviewAdapter;
+import com.armada.platform.protocol.idempotency.GroupCreateIdempotencyStore;
+import com.armada.platform.protocol.idempotency.IdempotentGroupCreatePort;
 import com.armada.platform.protocol.media.AndroidImageAssetStore;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
@@ -41,6 +48,7 @@ import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupInvitePort;
+import com.armada.platform.protocol.port.GroupLeavePort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupMetadataPort;
@@ -53,18 +61,27 @@ import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import com.armada.platform.protocol.routing.ContactBackend;
 import com.armada.platform.protocol.routing.GroupCreateBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
+import com.armada.platform.protocol.routing.GroupParticipantBackend;
+import com.armada.platform.protocol.routing.GroupSettingsBackend;
+import com.armada.platform.protocol.routing.GroupInviteBackend;
+import com.armada.platform.protocol.routing.GroupLeaveBackend;
 import com.armada.platform.protocol.routing.GroupMemberListBackend;
 import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.routing.RoutingAccountRuntimeStatusPort;
 import com.armada.platform.protocol.routing.RoutingContactPort;
 import com.armada.platform.protocol.routing.RoutingGroupCreatePort;
 import com.armada.platform.protocol.routing.RoutingGroupJoinPort;
+import com.armada.platform.protocol.routing.RoutingGroupParticipantPort;
+import com.armada.platform.protocol.routing.RoutingGroupSettingsPort;
+import com.armada.platform.protocol.routing.RoutingGroupInvitePort;
+import com.armada.platform.protocol.routing.RoutingGroupLeavePort;
 import com.armada.platform.protocol.routing.RoutingGroupMemberListPort;
 import com.armada.platform.protocol.routing.RoutingMessageSendPort;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -435,11 +452,14 @@ public class ProtocolConfiguration {
      * 注册统一建群端口，由路由实现根据账号协议后端选择具体 backend。
      *
      * @param backends Spring 收集的所有建群 backend
-     * @return 后端感知的统一建群端口
+     * @param store 建群严格幂等存储
+     * @return 后端感知且严格幂等的统一建群端口
      */
     @Bean
-    public GroupCreatePort groupCreatePort(List<GroupCreateBackend> backends) {
-        return new RoutingGroupCreatePort(backends);
+    public GroupCreatePort groupCreatePort(
+            List<GroupCreateBackend> backends,
+            GroupCreateIdempotencyStore store) {
+        return new IdempotentGroupCreatePort(new RoutingGroupCreatePort(backends), store);
     }
 
     /**
@@ -529,8 +549,22 @@ public class ProtocolConfiguration {
      * @return 群成员查询端口 HTTP 实现
      */
     @Bean
-    public GroupParticipantPort groupParticipantPort(ProtocolHttpExecutor protocolHttpExecutor) {
-        return new HttpGroupParticipantAdapter(protocolHttpExecutor);
+    public GroupParticipantBackend webGroupParticipantBackend(ProtocolHttpExecutorRegistry registry) {
+        return new HttpGroupParticipantAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    @Bean
+    public GroupParticipantBackend androidGroupParticipantBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper) {
+        return new AndroidNativeGroupParticipantAdapter(client, decoder, errorMapper);
+    }
+
+    @Bean
+    @Primary
+    public GroupParticipantPort groupParticipantPort(List<GroupParticipantBackend> backends) {
+        return new RoutingGroupParticipantPort(backends);
     }
 
     /**
@@ -540,8 +574,22 @@ public class ProtocolConfiguration {
      * @return 群邀请链接查询端口 HTTP 实现
      */
     @Bean
-    public GroupInvitePort groupInvitePort(ProtocolHttpExecutor protocolHttpExecutor) {
-        return new HttpGroupInviteAdapter(protocolHttpExecutor);
+    public GroupInviteBackend webGroupInviteBackend(ProtocolHttpExecutorRegistry registry) {
+        return new HttpGroupInviteAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    @Bean
+    public GroupInviteBackend androidGroupInviteBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper) {
+        return new AndroidNativeGroupInviteAdapter(client, decoder, errorMapper);
+    }
+
+    @Bean
+    @Primary
+    public GroupInvitePort groupInvitePort(List<GroupInviteBackend> backends) {
+        return new RoutingGroupInvitePort(backends);
     }
 
     /**
@@ -573,8 +621,41 @@ public class ProtocolConfiguration {
      * @return 群设置 HTTP 实现
      */
     @Bean
-    public GroupSettingsPort groupSettingsPort(ProtocolHttpExecutor protocolHttpExecutor) {
-        return new HttpGroupSettingsAdapter(protocolHttpExecutor);
+    public GroupSettingsBackend webGroupSettingsBackend(ProtocolHttpExecutorRegistry registry) {
+        return new HttpGroupSettingsAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    @Bean
+    public GroupSettingsBackend androidGroupSettingsBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper) {
+        return new AndroidNativeGroupSettingsAdapter(client, decoder, errorMapper);
+    }
+
+    @Bean
+    @Primary
+    public GroupSettingsPort groupSettingsPort(List<GroupSettingsBackend> backends) {
+        return new RoutingGroupSettingsPort(backends);
+    }
+
+    @Bean
+    public GroupLeaveBackend webGroupLeaveBackend(ProtocolHttpExecutorRegistry registry) {
+        return new HttpGroupLeaveAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    @Bean
+    public GroupLeaveBackend androidGroupLeaveBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper) {
+        return new AndroidNativeGroupLeaveAdapter(client, decoder, errorMapper);
+    }
+
+    @Bean
+    @Primary
+    public GroupLeavePort groupLeavePort(List<GroupLeaveBackend> backends) {
+        return new RoutingGroupLeavePort(backends);
     }
 
     /**

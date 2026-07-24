@@ -15,6 +15,8 @@ x-protocol-common-env: &protocol-common-env
   KAFKA_PASSWORD: ${KAFKA_PASSWORD:-}
   KAFKA_SASL_MECHANISM: ${KAFKA_SASL_MECHANISM:-scram-sha-512}
   KAFKA_TOPIC_ACCOUNT: ${KAFKA_TOPIC_ACCOUNT:-protocol.account.events.v1}
+  KAFKA_TOPIC_ACCOUNT_STATE: ${KAFKA_TOPIC_ACCOUNT_STATE:-protocol.account.state.events.v1}
+  KAFKA_TOPIC_ACCOUNT_GROUP_SYNC: ${KAFKA_TOPIC_ACCOUNT_GROUP_SYNC:-protocol.account.group-sync.events.v1}
   KAFKA_TOPIC_OWNER: ${KAFKA_TOPIC_OWNER:-protocol.owner.events.v1}
   KAFKA_TOPIC_MESSAGE: ${KAFKA_TOPIC_MESSAGE:-protocol.message.events.v1}
   KAFKA_TOPIC_GROUP: ${KAFKA_TOPIC_GROUP:-protocol.group.events.v1}

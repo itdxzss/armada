@@ -69,4 +69,23 @@ public interface AndroidNativeClient {
             String wsPhone,
             String groupJid,
             boolean membersCanSend);
+
+    /** 使用 Android 原生接口批量添加群成员。 */
+    AndroidResponseEnvelope addGroupMembers(
+            String wsPhone,
+            String groupJid,
+            List<String> participants);
+
+    /** 使用 Android 原生接口设置或取消群管理员。 */
+    AndroidResponseEnvelope setGroupAdmin(
+            String wsPhone,
+            String groupJid,
+            String participant,
+            boolean enabled);
+
+    /** 使用 Android 原生接口获取群邀请链接。 */
+    AndroidResponseEnvelope groupInvite(String wsPhone, String groupJid);
+
+    /** 使用 Android 原生接口退出群组。 */
+    AndroidResponseEnvelope leaveGroup(String wsPhone, String groupJid);
 }

@@ -82,7 +82,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
 
         org.assertj.core.api.Assertions.assertThat(result.currentGroups())
                 .extracting(AccountGroupMembershipSnapshot::groupJid)
-                .containsExactly("120363old@g.us", "120363new@g.us");
+                .containsExactly("120363new@g.us", "120363old@g.us");
         org.assertj.core.api.Assertions.assertThat(result.addedGroups())
                 .extracting(AccountGroupMembershipSnapshot::groupJid)
                 .containsExactly("120363new@g.us");

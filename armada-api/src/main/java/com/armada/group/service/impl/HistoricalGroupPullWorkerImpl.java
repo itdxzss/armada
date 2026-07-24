@@ -28,7 +28,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** 历史群一次性拉人 worker 实现。 */
+/**
+ * 历史群一次性拉人 worker 实现。
+ *
+ * <p>Worker 在指定租户上下文内选择 Web 拉手账号，先加入目标群，再逐个预存联系人并按配置分批加人；
+ * 每个阶段都把协议结果落入执行明细，最终由终态汇总器统一收口。</p>
+ */
 @Service
 public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker {
 
@@ -115,6 +120,14 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         }
     }
 
+    /**
+     * 在已建立的租户上下文中执行完整拉人流程。
+     *
+     * <p>只有运行中的执行可以继续；拉手选择和进群属于前置步骤，失败时会统一终结全部未完成成员。</p>
+     *
+     * @param tenantId 执行所属租户 ID
+     * @param executionId 已认领的执行 ID
+     */
     private void executeInTenant(Long tenantId, Long executionId) {
         HistoricalGroupPullExecution execution = executionMapper.selectByTenantAndId(tenantId, executionId);
         if (execution == null || execution.getPullStatus() != HistoricalGroupPullStatus.RUNNING.code()) {
@@ -153,10 +166,18 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
             return;
         }
         processContacts(puller, members);
-        processAddBatches(execution, puller.protocolAccountId(), members);
+        processAddBatches(execution, puller, members);
         finalizer.finish(executionId, null, null, null);
     }
 
+    /**
+     * 使用选定拉手加入目标历史群。
+     *
+     * @param execution 当前拉人执行
+     * @param puller 已选定的 Web 拉手协议账号
+     * @param members 当前执行的全部成员明细
+     * @return 协议确认已进群时返回 {@code true}；否则完成前置失败收口并返回 {@code false}
+     */
     private boolean joinTargetGroup(
             HistoricalGroupPullExecution execution,
             ProtocolAccountRef puller,
@@ -185,6 +206,14 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         return false;
     }
 
+    /**
+     * 为仍待处理的料子号码逐个预存联系人并记录真实结果。
+     *
+     * <p>联系人保存失败不阻止后续成员 ADD，两个结果维度分别落库。</p>
+     *
+     * @param puller 执行联系人保存的拉手协议账号
+     * @param members 当前执行的全部成员明细
+     */
     private void processContacts(ProtocolAccountRef puller, List<HistoricalGroupPullMember> members) {
         for (HistoricalGroupPullMember member : members) {
             if (member.getContactStatus() != HistoricalGroupContactStatus.PENDING.code()) {
@@ -206,9 +235,16 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         }
     }
 
+    /**
+     * 按执行配置把待加成员稳定切分为多个协议批次。
+     *
+     * @param execution 当前拉人执行，提供目标群及单批数量
+     * @param puller 执行成员操作的拉手协议账号
+     * @param members 当前执行的全部成员明细
+     */
     private void processAddBatches(
             HistoricalGroupPullExecution execution,
-            String protocolAccountId,
+            ProtocolAccountRef puller,
             List<HistoricalGroupPullMember> members) {
         List<HistoricalGroupPullMember> pending = members.stream()
                 .filter(member -> member.getAddStatus() == HistoricalGroupAddStatus.PENDING.code())
@@ -217,13 +253,20 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         for (int start = 0; start < pending.size(); start += batchSize) {
             List<HistoricalGroupPullMember> batch =
                     pending.subList(start, Math.min(start + batchSize, pending.size()));
-            addBatch(execution, protocolAccountId, batch);
+            addBatch(execution, puller, batch);
         }
     }
 
+    /**
+     * 下发一个成员 ADD 批次并把批次级异常转换为逐成员失败。
+     *
+     * @param execution 当前拉人执行
+     * @param puller 执行成员操作的拉手协议账号
+     * @param batch 本次待添加的成员明细
+     */
     private void addBatch(
             HistoricalGroupPullExecution execution,
-            String protocolAccountId,
+            ProtocolAccountRef puller,
             List<HistoricalGroupPullMember> batch) {
         List<String> participantJids = batch.stream()
                 .map(HistoricalGroupPullWorkerImpl::participantJid)
@@ -231,7 +274,7 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         GroupParticipantBatchResult result;
         try {
             result = protocolPorts.participants().updateParticipants(
-                    protocolAccountId,
+                    puller,
                     execution.getGroupJid(),
                     participantJids,
                     GroupParticipantAction.ADD);
@@ -245,6 +288,14 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         applyAddResults(batch, result);
     }
 
+    /**
+     * 将协议逐成员 ADD 结果按 JID 对齐到本地成员明细。
+     *
+     * <p>协议未返回某个成员结果时按失败处理，避免把批次外层成功误判为全部成员成功。</p>
+     *
+     * @param batch 本次下发的成员明细
+     * @param result 协议返回的逐成员结果
+     */
     private void applyAddResults(
             List<HistoricalGroupPullMember> batch,
             GroupParticipantBatchResult result) {
@@ -267,6 +318,14 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         }
     }
 
+    /**
+     * 收口拉手选择或进群阶段失败，冻结全部尚未完成的成员结果。
+     *
+     * @param executionId 当前执行 ID
+     * @param members 当前执行的全部成员明细
+     * @param failureStage 失败阶段
+     * @param failure 已裁剪的失败快照
+     */
     private void finishFrontFailure(
             Long executionId,
             List<HistoricalGroupPullMember> members,
@@ -280,6 +339,13 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
                 failure.code(), failure.message());
     }
 
+    /**
+     * 仅在联系人状态仍为待处理时写入最终结果。
+     *
+     * @param memberId 成员明细 ID
+     * @param status 联系人保存终态
+     * @param failure 失败快照；成功时为空
+     */
     private void updateContact(
             Long memberId,
             HistoricalGroupContactStatus status,
@@ -293,6 +359,13 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
                 System.currentTimeMillis());
     }
 
+    /**
+     * 仅在加人状态仍为待处理时写入最终结果。
+     *
+     * @param memberId 成员明细 ID
+     * @param status 成员 ADD 终态
+     * @param failure 失败快照；成功时为空
+     */
     private void updateAdd(Long memberId, HistoricalGroupAddStatus status, Failure failure) {
         memberMapper.updateAddResultIfPending(
                 memberId,
@@ -303,6 +376,12 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
                 System.currentTimeMillis());
     }
 
+    /**
+     * 将协议逐成员结果转换为按规范化 JID 首次命中的映射。
+     *
+     * @param result 协议批量成员操作结果，可空
+     * @return JID 到逐成员结果的稳定映射
+     */
     private static Map<String, GroupParticipantBatchResult.Item> resultsByJid(
             GroupParticipantBatchResult result) {
         Map<String, GroupParticipantBatchResult.Item> byJid = new LinkedHashMap<>();
@@ -317,6 +396,12 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         return byJid;
     }
 
+    /**
+     * 将协议异常或未知运行时异常转换为可持久化失败快照。
+     *
+     * @param ex 协议调用抛出的运行时异常
+     * @return 包含稳定错误码和消息的失败快照
+     */
     private static Failure failureOf(RuntimeException ex) {
         if (ex instanceof ProtocolException protocolException) {
             String code = protocolException.protocolCode()
@@ -326,10 +411,22 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         return new Failure("UNEXPECTED_ERROR", ex.getMessage());
     }
 
+    /**
+     * 将成员手机号转换为 WhatsApp 用户 JID。
+     *
+     * @param member 成员明细
+     * @return WhatsApp 用户 JID
+     */
     private static String participantJid(HistoricalGroupPullMember member) {
         return WhatsappJids.userJid(member.getPhone());
     }
 
+    /**
+     * 按顺序选择第一个非空文本作为错误信息。
+     *
+     * @param values 候选文本
+     * @return 第一个有效文本；全部为空时返回统一协议失败提示
+     */
     private static String firstText(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {
@@ -339,15 +436,33 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         return "协议层调用失败";
     }
 
+    /**
+     * 清理可选文本。
+     *
+     * @param value 待清理文本
+     * @return 去除首尾空白后的文本；无有效内容时返回 {@code null}
+     */
     private static String trimToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
+    /**
+     * 按数据库列限制截断错误文本。
+     *
+     * @param value 原始错误文本
+     * @param maxChars 最大字符数
+     * @return 非空且不超过限制的错误文本
+     */
     private static String truncate(String value, int maxChars) {
         String normalized = firstText(value);
         return normalized.length() <= maxChars ? normalized : normalized.substring(0, maxChars);
     }
 
+    /**
+     * 恢复线程进入 worker 前的租户上下文，防止线程复用造成租户串扰。
+     *
+     * @param previousTenantId worker 执行前的租户 ID；为空表示原线程没有租户上下文
+     */
     private static void restoreTenant(Long previousTenantId) {
         if (previousTenantId == null) {
             TenantContext.clear();

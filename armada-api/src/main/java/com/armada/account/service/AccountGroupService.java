@@ -4,6 +4,7 @@ import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountGroupQuery;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.vo.AccountGroupVO;
+import com.armada.account.model.vo.AccountGroupMarketingOccupancyVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
 
@@ -19,6 +20,14 @@ public interface AccountGroupService {
      * @return 分页结果
      */
     PageResult<AccountGroupVO> list(AccountGroupQuery query);
+
+    /**
+     * 查询分组当前营销整组占用详情。
+     *
+     * @param groupId 分组 ID
+     * @return 当前占用详情；空闲分组返回 FREE
+     */
+    AccountGroupMarketingOccupancyVO marketingOccupancy(Long groupId);
 
     /**
      * 新建分组;同名软删分组自动复活。

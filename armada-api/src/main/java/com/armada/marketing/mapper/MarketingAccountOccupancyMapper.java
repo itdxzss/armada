@@ -1,15 +1,35 @@
 package com.armada.marketing.mapper;
 
+import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * 普通群组营销账号当前占用关系数据访问。
+ * 营销任务账号当前占用关系数据访问。
  */
 @Mapper
 public interface MarketingAccountOccupancyMapper {
+
+    /** 拉群营销按任务和账号尝试领取一个建群账号。 */
+    int tryOccupyTaskAccount(@Param("taskId") Long taskId,
+                             @Param("accountId") Long accountId,
+                             @Param("occupiedAt") long occupiedAt);
+
+    /**
+     * 统计一个账号分组内仍被其他活动营销任务占用的账号。
+     *
+     * <p>用于整组锁上线时拦截旧任务遗留的账号级占用；新任务自己的占用不计入。</p>
+     */
+    long countOtherActiveOccupanciesInGroup(@Param("groupId") Long groupId,
+                                            @Param("taskId") Long taskId);
+
+    /** 查询普通营销任务的分组归属，供任务结束时按 owner 条件解锁。 */
+    MarketingTask selectOrdinaryTaskGroup(@Param("taskId") Long taskId);
+
+    /** 查询引用指定模板的普通营销任务分组归属，供模板删除时解锁。 */
+    List<MarketingTask> selectOrdinaryTaskGroupsByTemplateIds(@Param("templateIds") List<Long> templateIds);
 
     /**
      * 为未启动、执行中或已暂停的普通营销任务补齐当前空闲账号。
@@ -48,6 +68,10 @@ public interface MarketingAccountOccupancyMapper {
      * @return 实际释放账号数
      */
     int releaseByTaskId(@Param("taskId") Long taskId);
+
+    /** 只释放当前任务持有的指定账号。 */
+    int releaseByTaskAndAccount(@Param("taskId") Long taskId,
+                                @Param("accountId") Long accountId);
 
     /**
      * 释放引用指定模板的普通营销任务账号租约。

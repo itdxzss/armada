@@ -3,9 +3,11 @@ package com.armada.platform.protocol.http.group;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
-import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.routing.GroupParticipantBackend;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,7 +15,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Web/Baileys 群成员变更能力的 HTTP adapter。
  */
-public class HttpGroupParticipantAdapter implements GroupParticipantPort {
+public class HttpGroupParticipantAdapter implements GroupParticipantBackend {
 
     /** 当前适配器的低层协议调用日志记录器。 */
     private static final Logger log = LoggerFactory.getLogger(HttpGroupParticipantAdapter.class);
@@ -53,12 +55,17 @@ public class HttpGroupParticipantAdapter implements GroupParticipantPort {
      * @throws ProtocolException 当参数无效或协议请求失败时抛出
      */
     @Override
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
+    }
+
+    @Override
     public GroupParticipantBatchResult updateParticipants(
-            String protocolAccountId,
+            ProtocolAccountRef account,
             String groupJid,
             List<String> participants,
             GroupParticipantAction action) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         if (participants == null || participants.isEmpty() || action == null) {
             throw new ProtocolException(
@@ -90,6 +97,13 @@ public class HttpGroupParticipantAdapter implements GroupParticipantPort {
             throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "协议层 group participants 参数缺失 " + fieldName);
         }
         return value;
+    }
+
+    private static String requireAccountId(ProtocolAccountRef account) {
+        if (account == null) {
+            throw new ProtocolException(ProtocolErrorCode.BAD_REQUEST, "协议层操作账号不能为空");
+        }
+        return requireText(account.protocolAccountId(), "protocolAccountId");
     }
 
     private record BatchRequest(

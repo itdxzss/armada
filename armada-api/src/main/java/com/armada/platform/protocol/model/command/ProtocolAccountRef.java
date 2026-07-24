@@ -16,6 +16,8 @@ public record ProtocolAccountRef(
         String protocolAccountId,
         String wsPhone
 ) {
+    private static final long LEGACY_WEB_ACCOUNT_ID = 0L;
+
     public ProtocolAccountRef {
         if (armadaAccountId == null) {
             throw new IllegalArgumentException("armadaAccountId 不能为空");
@@ -23,6 +25,19 @@ public record ProtocolAccountRef(
         backend = backend == null ? ProtocolBackend.WEB : backend;
         protocolAccountId = requireText(protocolAccountId, "protocolAccountId");
         wsPhone = requireText(wsPhone, "wsPhone");
+    }
+
+    /**
+     * 兼容尚未持有 Armada 账号主键和 Android 手机号的存量 Web 调用。
+     *
+     * <p>新增业务不得使用此方法，应从账号表构造完整引用。</p>
+     */
+    public static ProtocolAccountRef legacyWeb(String protocolAccountId) {
+        return new ProtocolAccountRef(
+                LEGACY_WEB_ACCOUNT_ID,
+                ProtocolBackend.WEB,
+                protocolAccountId,
+                protocolAccountId);
     }
 
     private static String requireText(String value, String field) {

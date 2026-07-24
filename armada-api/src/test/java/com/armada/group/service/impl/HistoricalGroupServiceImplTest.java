@@ -179,7 +179,8 @@ class HistoricalGroupServiceImplTest {
                 List.of("8613800000099@s.whatsapp.net"))))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("写前邀请链接完整失败原因");
-        verify(participantPort, never()).updateParticipants(any(), any(), anyList(), any());
+        verify(participantPort, never()).updateParticipants(
+                any(ProtocolAccountRef.class), any(), anyList(), any());
     }
 
     @Test
@@ -274,7 +275,8 @@ class HistoricalGroupServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getCode())
                 .isEqualTo(ErrorCode.GROUP_PERMISSION_DENIED.code());
-        verify(participantPort, never()).updateParticipants(any(), any(), anyList(), any());
+        verify(participantPort, never()).updateParticipants(
+                any(ProtocolAccountRef.class), any(), anyList(), any());
 
         stubBaseline(27L, "[\"baseline@g.us\"]", null);
         HistoricalGroupParticipantActionDTO outsideRequest = new HistoricalGroupParticipantActionDTO(

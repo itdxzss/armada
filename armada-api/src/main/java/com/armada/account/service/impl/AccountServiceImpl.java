@@ -171,10 +171,11 @@ public class AccountServiceImpl implements AccountService {
      */
     private String resolveOccupancyType(AccountListVoRow row,
                                         Map<Long, AccountMarketingOccupancyTaskRow> tasksById) {
-        AccountMarketingOccupancyTaskRow task = tasksById.get(row.getMarketingOccupancyTaskId());
+        Long taskId = row.getMarketingOccupancyTaskId();
+        AccountMarketingOccupancyTaskRow task = taskId == null ? null : tasksById.get(taskId);
         String overrideType = task == null ? null : task.getOccupancyOverrideType();
         return AccountMarketingOccupancyType.resolve(
-                row.getMarketingOccupancyTaskId(),
+                taskId,
                 row.getMarketingOccupancyType(),
                 overrideType).name();
     }

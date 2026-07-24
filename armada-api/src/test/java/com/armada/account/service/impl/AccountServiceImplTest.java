@@ -61,6 +61,21 @@ class AccountServiceImplTest {
     }
 
     @Test
+    void listAccountsTreatsAccountWithoutOccupancyTaskAsFree() {
+        AccountQuery query = new AccountQuery();
+        AccountListVoRow row = new AccountListVoRow();
+        row.setId(1L);
+        when(accountMapper.countPage(query)).thenReturn(1L);
+        when(accountMapper.selectPage(query)).thenReturn(List.of(row));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        service.listAccounts(query);
+
+        verify(accountGroupMapper, never()).selectMarketingOccupancyTasksByIds(anyList());
+        verify(accountConverter).toAccountListVO(row, "FREE");
+    }
+
+    @Test
     void listAccountsResolvesAdvancedOccupancyFilterBeforeAccountPage() {
         AccountQuery query = new AccountQuery();
         query.setMarketingOccupancyType("GROUP_PULL_MARKETING");

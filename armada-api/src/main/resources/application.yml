@@ -8,6 +8,8 @@ spring:
     username: ${DB_USER:root}
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -118,9 +120,15 @@ armada:
         group-join-topic: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:protocol.android.group-join.commands.v1}
       master-commands:
         topic: ${PROTOCOL_MASTER_COMMANDS_TOPIC:${PROTOCOL_COMMANDS_TOPIC:protocol.master.commands.v1}}
-      account-events:
-        topic: ${PROTOCOL_ACCOUNT_EVENTS_TOPIC:protocol.account.events.v1}
-        group-id: ${PROTOCOL_ACCOUNT_EVENTS_GROUP_ID:armada-api-account-events}
+      account-state-events:
+        topic: ${PROTOCOL_ACCOUNT_STATE_EVENTS_TOPIC:protocol.account.state.events.v1}
+        group-id: ${PROTOCOL_ACCOUNT_STATE_EVENTS_GROUP_ID:armada-api-account-state-events}
+        concurrency: ${PROTOCOL_ACCOUNT_STATE_EVENTS_CONCURRENCY:4}
+      account-group-sync-events:
+        topic: ${PROTOCOL_ACCOUNT_GROUP_SYNC_EVENTS_TOPIC:protocol.account.group-sync.events.v1}
+        group-id: ${PROTOCOL_ACCOUNT_GROUP_SYNC_EVENTS_GROUP_ID:armada-api-account-group-sync-events}
+        concurrency: ${PROTOCOL_ACCOUNT_GROUP_SYNC_EVENTS_CONCURRENCY:4}
+      account-event-errors:
         retry-interval-ms: ${PROTOCOL_ACCOUNT_EVENTS_RETRY_INTERVAL_MS:1000}
         max-retry-attempts: ${PROTOCOL_ACCOUNT_EVENTS_MAX_RETRY_ATTEMPTS:3}
         dead-letter-topic-suffix: ${PROTOCOL_ACCOUNT_EVENTS_DLT_SUFFIX:.DLT}

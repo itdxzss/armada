@@ -24,7 +24,9 @@ class ProtocolKafkaConfigurationTest {
             assertThat(context).hasSingleBean(ProtocolMasterCommandProperties.class);
             assertThat(context).hasSingleBean(ProtocolCommandPublisherProperties.class);
             assertThat(context).hasSingleBean(ProtocolCommandDispatcherProperties.class);
-            assertThat(context).hasSingleBean(ProtocolAccountEventConsumerProperties.class);
+            assertThat(context).hasSingleBean(ProtocolAccountStateEventConsumerProperties.class);
+            assertThat(context).hasSingleBean(ProtocolAccountGroupSyncEventConsumerProperties.class);
+            assertThat(context).hasSingleBean(ProtocolAccountEventErrorProperties.class);
             assertThat(context).hasSingleBean(ProtocolGroupEventConsumerProperties.class);
             assertThat(context).doesNotHaveBean(CommonErrorHandler.class);
             assertThat(context.getBean(ProtocolAccountCommandProperties.class).getTopic())
@@ -39,8 +41,16 @@ class ProtocolKafkaConfigurationTest {
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
             assertThat(context.getBean(ProtocolMasterCommandProperties.class).getTopic())
                     .isEqualTo(ProtocolMasterCommandProperties.DEFAULT_TOPIC);
-            assertThat(context.getBean(ProtocolAccountEventConsumerProperties.class).getTopic())
-                    .isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_TOPIC);
+            ProtocolAccountStateEventConsumerProperties stateProperties =
+                    context.getBean(ProtocolAccountStateEventConsumerProperties.class);
+            assertThat(stateProperties.getTopic())
+                    .isEqualTo(ProtocolAccountStateEventConsumerProperties.DEFAULT_TOPIC);
+            assertThat(stateProperties.getConcurrency()).isEqualTo(4);
+            ProtocolAccountGroupSyncEventConsumerProperties groupSyncProperties =
+                    context.getBean(ProtocolAccountGroupSyncEventConsumerProperties.class);
+            assertThat(groupSyncProperties.getTopic())
+                    .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_TOPIC);
+            assertThat(groupSyncProperties.getConcurrency()).isEqualTo(4);
             assertThat(context.getBean(ProtocolGroupEventConsumerProperties.class).getTopic())
                     .isEqualTo(ProtocolGroupEventConsumerProperties.DEFAULT_TOPIC);
             assertThat(context).hasBean("protocolCommandDispatchExecutor");
@@ -62,20 +72,33 @@ class ProtocolKafkaConfigurationTest {
     void bindsAccountEventConsumerRetryAndDeadLetterProperties() {
         contextRunner
                 .withPropertyValues(
-                        "armada.protocol.kafka.account-events.topic=protocol.account.events.test",
-                        "armada.protocol.kafka.account-events.group-id=armada-api-account-events-test",
-                        "armada.protocol.kafka.account-events.retry-interval-ms=250",
-                        "armada.protocol.kafka.account-events.max-retry-attempts=5",
-                        "armada.protocol.kafka.account-events.dead-letter-topic-suffix=.dead")
+                        "armada.protocol.kafka.account-state-events.topic=protocol.account.state.events.test",
+                        "armada.protocol.kafka.account-state-events.group-id=armada-api-account-state-events-test",
+                        "armada.protocol.kafka.account-state-events.concurrency=6",
+                        "armada.protocol.kafka.account-group-sync-events.topic=protocol.account.group-sync.events.test",
+                        "armada.protocol.kafka.account-group-sync-events.group-id=armada-api-account-group-sync-events-test",
+                        "armada.protocol.kafka.account-group-sync-events.concurrency=3",
+                        "armada.protocol.kafka.account-event-errors.retry-interval-ms=250",
+                        "armada.protocol.kafka.account-event-errors.max-retry-attempts=5",
+                        "armada.protocol.kafka.account-event-errors.dead-letter-topic-suffix=.dead")
                 .run(context -> {
-                    ProtocolAccountEventConsumerProperties properties =
-                            context.getBean(ProtocolAccountEventConsumerProperties.class);
+                    ProtocolAccountStateEventConsumerProperties stateProperties =
+                            context.getBean(ProtocolAccountStateEventConsumerProperties.class);
+                    ProtocolAccountGroupSyncEventConsumerProperties groupSyncProperties =
+                            context.getBean(ProtocolAccountGroupSyncEventConsumerProperties.class);
+                    ProtocolAccountEventErrorProperties errorProperties =
+                            context.getBean(ProtocolAccountEventErrorProperties.class);
 
-                    assertThat(properties.getTopic()).isEqualTo("protocol.account.events.test");
-                    assertThat(properties.getGroupId()).isEqualTo("armada-api-account-events-test");
-                    assertThat(properties.getRetryIntervalMs()).isEqualTo(250L);
-                    assertThat(properties.getMaxRetryAttempts()).isEqualTo(5L);
-                    assertThat(properties.getDeadLetterTopicSuffix()).isEqualTo(".dead");
+                    assertThat(stateProperties.getTopic()).isEqualTo("protocol.account.state.events.test");
+                    assertThat(stateProperties.getGroupId()).isEqualTo("armada-api-account-state-events-test");
+                    assertThat(stateProperties.getConcurrency()).isEqualTo(6);
+                    assertThat(groupSyncProperties.getTopic()).isEqualTo("protocol.account.group-sync.events.test");
+                    assertThat(groupSyncProperties.getGroupId())
+                            .isEqualTo("armada-api-account-group-sync-events-test");
+                    assertThat(groupSyncProperties.getConcurrency()).isEqualTo(3);
+                    assertThat(errorProperties.getRetryIntervalMs()).isEqualTo(250L);
+                    assertThat(errorProperties.getMaxRetryAttempts()).isEqualTo(5L);
+                    assertThat(errorProperties.getDeadLetterTopicSuffix()).isEqualTo(".dead");
                 });
     }
 }

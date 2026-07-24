@@ -29,8 +29,9 @@ import org.springframework.stereotype.Service;
 public class RedisSessionService implements SessionService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisSessionService.class);
-    private static final String SESSION_PREFIX = "auth:session:";
-    private static final String USER_PREFIX = "auth:user-session:";
+    // Redis Cluster 的 Lua 脚本要求所有 KEYS 位于同一槽位；相同 hash tag 保证会话双键同槽。
+    private static final String SESSION_PREFIX = "auth:{login-session}:session:";
+    private static final String USER_PREFIX = "auth:{login-session}:user:";
     private static final int TOKEN_BYTES = 32;
     private static final DefaultRedisScript<Long> CREATE_SCRIPT = new DefaultRedisScript<>("""
             local old = redis.call('GET', KEYS[2])

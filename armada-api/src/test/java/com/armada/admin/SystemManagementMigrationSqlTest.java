@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class SystemManagementMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V062__system_management_rbac.sql");
+            "src/main/resources/db/migration/V071__system_management_rbac.sql");
 
     @Test
     void migrationCreatesMinimalTenantRbacSchema() throws IOException {

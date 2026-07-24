@@ -10,7 +10,7 @@
 
 ## 已完成
 
-- Flyway `V062` 创建 `sys_user`、`sys_role`、`sys_menu`、`sys_user_role`、`sys_role_menu`，并初始化现有业务菜单和租户管理员角色。
+- Flyway `V071` 创建 `sys_user`、`sys_role`、`sys_menu`、`sys_user_role`、`sys_role_menu`，并初始化现有业务菜单和租户管理员角色。
 - 用户管理：列表、详情、新增、修改昵称/角色、启停、重置密码；用户名租户内唯一且不可修改。
 - 角色管理：新增、修改、启停、菜单授权；系统内置 `TENANT_ADMIN` 不允许修改或禁用，并动态拥有全部有效权限。
 - 菜单管理：D/M/B 树、父子类型校验、最多三级可见层级、组件白名单、状态继承和多角色权限并集。
@@ -40,7 +40,7 @@
 
 - 后端提交：`07d59ea`、`1067fc0`、`d33b13a`、`4d5d44e`、`46d5217`。
 - 前端提交：`83c2031`。
-- Flyway 启动时自动执行 `V062__system_management_rbac.sql`；执行前按环境规范备份并核对当前 Flyway 版本。
+- Flyway 启动时自动执行 `V071__system_management_rbac.sql`；执行前按环境规范备份并核对当前 Flyway 版本。
 
 ## 遗留 / 跟进
 

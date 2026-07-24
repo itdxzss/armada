@@ -1,4 +1,4 @@
--- 租户内系统管理：用户、角色、菜单及其关联关系。
+-- V071 租户内系统管理：用户、角色、菜单及其关联关系。
 
 CREATE TABLE IF NOT EXISTS sys_user (
     id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',

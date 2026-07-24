@@ -24,7 +24,7 @@
 ### Task 1: Flyway Schema and Existing-Menu Seed
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V062__system_management_rbac.sql`
+- Create: `armada-api/src/main/resources/db/migration/V071__system_management_rbac.sql`
 - Create: `armada-api/src/test/java/com/armada/admin/SystemManagementMigrationSqlTest.java`
 - Create: `armada-api/src/test/java/com/armada/admin/SystemManagementSchemaDbTest.java`
 - Modify: `.harness/wiki/数据模型.md` by rerunning `.harness/wiki/gen_datamodel.py` after the migration is verified
@@ -38,7 +38,7 @@
 ```java
 @Test
 void migrationDefinesMinimalRbacSchemaAndSeedsExistingMenus() throws Exception {
-    String sql = Files.readString(Path.of("src/main/resources/db/migration/V062__system_management_rbac.sql"));
+    String sql = Files.readString(Path.of("src/main/resources/db/migration/V071__system_management_rbac.sql"));
     assertThat(sql).contains("CREATE TABLE sys_user", "CREATE TABLE sys_role", "CREATE TABLE sys_menu");
     assertThat(sql).contains("CREATE TABLE sys_user_role", "CREATE TABLE sys_role_menu");
     assertThat(sql).contains("TENANT_ADMIN", "AccountIndex", "BuyerChannel", "SystemUser");
@@ -54,7 +54,7 @@ Run:
 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home mvn -Dtest=SystemManagementMigrationSqlTest test
 ```
 
-Expected: FAIL because `V062__system_management_rbac.sql` does not exist.
+Expected: FAIL because `V071__system_management_rbac.sql` does not exist.
 
 - [ ] **Step 3: Add the five tables and deterministic seed SQL**
 
@@ -102,7 +102,7 @@ Run the repository `dbtest.sh` command for this class. Expected: PASS against th
 - [ ] **Step 5: Refresh schema documentation and commit**
 
 ```bash
-git add armada-api/src/main/resources/db/migration/V062__system_management_rbac.sql \
+git add armada-api/src/main/resources/db/migration/V071__system_management_rbac.sql \
         armada-api/src/test/java/com/armada/admin/SystemManagementMigrationSqlTest.java \
         armada-api/src/test/java/com/armada/admin/SystemManagementSchemaDbTest.java \
         .harness/wiki/数据模型.md

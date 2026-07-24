@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.connection.RedisClusterConfiguration;
 import org.springframework.data.redis.connection.RedisNode;
 import org.springframework.data.redis.connection.RedisPassword;
@@ -32,6 +33,7 @@ public class AndroidImageRedisConfiguration {
      * @return 支持 standalone、cluster、ACL 和 TLS 的连接工厂
      */
     @Bean("androidImageRedisConnectionFactory")
+    @Primary
     public LettuceConnectionFactory androidImageRedisConnectionFactory(
             AndroidImageRedisProperties properties) {
         LettuceClientConfiguration.LettuceClientConfigurationBuilder client =

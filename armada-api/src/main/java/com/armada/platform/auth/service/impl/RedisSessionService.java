@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -59,6 +60,7 @@ public class RedisSessionService implements SessionService {
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
+    @Autowired
     public RedisSessionService(
             @Qualifier("authRedisTemplate") StringRedisTemplate redis,
             ObjectMapper objectMapper,

@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-23 至 2026-07-24 / `feature/system-management-rbac` / `.worktrees/system-management-rbac`
 - 需求来源: 租户管理员版系统管理 PRD及逐项确认结论
-- 状态: 开发完成，待真实登录分支联调
+- 状态: 已部署第一套测试环境，待真实登录分支联调
 
 ## 目标
 
@@ -41,6 +41,8 @@
 - 后端提交：`07d59ea`、`1067fc0`、`d33b13a`、`4d5d44e`、`46d5217`。
 - 前端提交：`83c2031`。
 - Flyway 启动时自动执行 `V071__system_management_rbac.sql`；执行前按环境规范备份并核对当前 Flyway 版本。
+- 2026-07-24 已部署 `test1`：后端 `59b350a`、前端 `191add6`，后端和前端健康检查均通过。
+- 第一环境数据库核验：Flyway `071/system management rbac/success=1`，5 张 RBAC 表齐全，2 个启用租户各初始化 1 个 `TENANT_ADMIN`，共初始化 90 个菜单节点。
 
 ## 遗留 / 跟进
 

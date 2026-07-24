@@ -812,12 +812,14 @@
         UPDATE marketing_task_send_attempt attempt
         JOIN protocol_command_outbox outbox_row
           ON outbox_row.command_id = attempt.command_id
+         AND outbox_row.tenant_id = #{tenantId}
          AND outbox_row.status = 4
         SET attempt.status = 3,
             attempt.reason_code = 'TASK_RELEASED',
             attempt.reason_message = '任务已结束，发送命令已取消',
             attempt.result_at = #{now}
         WHERE attempt.marketing_task_id = #{taskId}
+          AND attempt.tenant_id = #{tenantId}
           AND attempt.status = 0
     </update>
 
@@ -825,12 +827,14 @@
         UPDATE marketing_task_send_attempt attempt
         JOIN protocol_command_outbox outbox_row
           ON outbox_row.command_id = attempt.command_id
+         AND outbox_row.tenant_id = #{tenantId}
          AND outbox_row.status = 3
         SET attempt.status = 2,
             attempt.reason_code = 'OUTBOX_DEAD',
             attempt.reason_message = COALESCE(outbox_row.last_error, '协议命令发送失败'),
             attempt.result_at = #{now}
         WHERE attempt.marketing_task_id = #{taskId}
+          AND attempt.tenant_id = #{tenantId}
           AND attempt.status = 0
     </update>
 

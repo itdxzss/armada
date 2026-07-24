@@ -37,5 +37,7 @@ class GroupPullMarketingEnumTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> GroupPullResourceStatus.fromCode(99))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> GroupPullResourceStatus.fromCode(5))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

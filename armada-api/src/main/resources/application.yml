@@ -36,6 +36,10 @@ server:
   port: 8080
 
 armada:
+  group-pull-marketing:
+    scheduler:
+      # 拉群营销资源分配、到期建群和安全释放三个扫描阶段的固定延迟（毫秒）。
+      fixed-delay-ms: ${GROUP_PULL_MARKETING_SCHEDULER_FIXED_DELAY_MS:1000}
   # 进群专用调度线程只做到期扫描和 outbox 入队；batch-size 是单轮上限，不是账号并行上限。
   task:
     join-dispatcher:

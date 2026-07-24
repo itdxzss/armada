@@ -39,6 +39,15 @@ public class AccountListVoRow {
     /** 分组名称(LEFT JOIN account_group,分组软删时为 null)。 */
     private String groupName;
 
+    /** 分组持久化营销占用类型；为空表示分组空闲。 */
+    private Integer marketingOccupancyType;
+
+    /** 当前占用营销任务 ID；为空表示分组空闲。 */
+    private Long marketingOccupancyTaskId;
+
+    /** 当前营销分组锁定时间(epoch 毫秒)。 */
+    private Long marketingLockedAt;
+
     /** 归属:1自有 2平台 3租借。 */
     private Integer ownership;
 
@@ -181,6 +190,30 @@ public class AccountListVoRow {
 
     public void setGroupName(String groupName) {
         this.groupName = groupName;
+    }
+
+    public Integer getMarketingOccupancyType() {
+        return marketingOccupancyType;
+    }
+
+    public void setMarketingOccupancyType(Integer marketingOccupancyType) {
+        this.marketingOccupancyType = marketingOccupancyType;
+    }
+
+    public Long getMarketingOccupancyTaskId() {
+        return marketingOccupancyTaskId;
+    }
+
+    public void setMarketingOccupancyTaskId(Long marketingOccupancyTaskId) {
+        this.marketingOccupancyTaskId = marketingOccupancyTaskId;
+    }
+
+    public Long getMarketingLockedAt() {
+        return marketingLockedAt;
+    }
+
+    public void setMarketingLockedAt(Long marketingLockedAt) {
+        this.marketingLockedAt = marketingLockedAt;
     }
 
     public Integer getOwnership() {

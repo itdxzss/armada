@@ -19,9 +19,9 @@ package com.armada.marketing.grouppull.model.vo;
  * @param marketingTemplateId 营销模板 ID
  * @param sendIntervalSeconds 相邻营销轮次的发送间隔（秒）
  * @param groupNamePrefix 群名前缀，可空
- * @param friendRetryLimit 建群账号与营销账号互加好友的最大尝试次数
+ * @param friendRetryLimit 建群账号与营销账号互加失败后的重试次数，不包含首次
  * @param materialPerGroup 单群抽取料子数量
- * @param speakPermission 群发言权限码：0=不操作，1=禁言，2=不禁言
+ * @param speakPermission 群发言权限码：1=不操作，2=禁言，3=不禁言
  * @param builderExitEnabled 建群完成后建群账号是否退出群组
  * @param remark 任务备注，可空
  * @param taskEndAt 任务计划结束时间（epoch 毫秒）

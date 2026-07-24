@@ -42,6 +42,15 @@ public record AccountListVO(
         /** 分组名称(LEFT JOIN account_group,分组软删时为 null)。 */
         String groupName,
 
+        /** 营销占用展示类型；值为 FREE、各业务类型、PAUSED 或 RELEASING。 */
+        String marketingOccupancyType,
+
+        /** 当前占用营销任务 ID；空闲时为 null。 */
+        Long marketingOccupancyTaskId,
+
+        /** 当前营销分组锁定时间(epoch 毫秒)；空闲时为 null。 */
+        Long marketingLockedAt,
+
         /** 归属:1自有 2平台 3租借。 */
         Integer ownership,
 

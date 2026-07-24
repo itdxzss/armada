@@ -65,14 +65,8 @@ public interface AccountConverter {
     @Mapping(target = "avatarUrl", expression = "java(null)")
     @Mapping(target = "friendsNum", constant = "0")
     @Mapping(target = "hyperlinkSentCount", constant = "0")
-    @Mapping(target = "country", source = "proxyCountry")
-    AccountListVO toAccountListVO(AccountListVoRow row);
+    @Mapping(target = "country", source = "row.proxyCountry")
+    @Mapping(target = "marketingOccupancyType", source = "displayOccupancyType")
+    AccountListVO toAccountListVO(AccountListVoRow row, String displayOccupancyType);
 
-    /**
-     * 账号列表投影行批量 → 列表出参 VO 列表。
-     *
-     * @param rows Mapper 列表查询投影列表
-     * @return 账号列表出参 VO 列表
-     */
-    List<AccountListVO> toAccountListVOList(List<AccountListVoRow> rows);
 }

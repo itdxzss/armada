@@ -42,7 +42,7 @@ class AccountConverterTest {
         row.setProxyCountry("印度");
         row.setIpSource("iproyal");
 
-        AccountListVO vo = converter.toAccountListVO(row);
+        AccountListVO vo = converter.toAccountListVO(row, "FREE");
 
         assertThat(vo.country()).isEqualTo("印度");
         assertThat(vo.ipSource()).isEqualTo("iproyal");
@@ -53,7 +53,7 @@ class AccountConverterTest {
         AccountListVoRow row = new AccountListVoRow();
         row.setGroupsNum(3);
 
-        AccountListVO vo = converter.toAccountListVO(row);
+        AccountListVO vo = converter.toAccountListVO(row, "FREE");
 
         assertThat(vo.friendsNum()).isZero();
         assertThat(vo.groupsNum()).isEqualTo(3);

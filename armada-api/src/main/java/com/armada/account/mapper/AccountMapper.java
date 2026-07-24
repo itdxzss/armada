@@ -255,6 +255,14 @@ public interface AccountMapper {
     List<AccountDeleteGateRow> selectStatesByIds(@Param("ids") List<Long> ids);
 
     /**
+     * 人工迁移前按账号 ID 升序锁定有效账号并读取当前分组。
+     *
+     * @param ids 去重后的账号 ID
+     * @return 当前租户有效账号，按 ID 升序
+     */
+    List<Account> selectActiveByIdsForUpdate(@Param("ids") List<Long> ids);
+
+    /**
      * 批量迁移分组:UPDATE account SET account_group_id=#{accountGroupId}, updated_at=#{updatedAt}。
      * 仅更新未软删行。
      *

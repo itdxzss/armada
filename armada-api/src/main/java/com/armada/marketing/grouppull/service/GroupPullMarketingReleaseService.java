@@ -15,18 +15,43 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 拉群任务结束后的安全资源释放。 */
+/**
+ * 拉群营销任务结束后的安全资源释放服务。
+ *
+ * <p>尚未正式建群的执行可以直接取消并归还预留；已经冻结群名、
+ * 进入正式建群流程的执行必须先完成收口。营销发送侧只取消尚未被 publisher
+ * 抢占的 PENDING 命令，LOCKED/SENT 命令等待最终回执后再释放账号与分组。</p>
+ */
 @Service
 public class GroupPullMarketingReleaseService {
 
+    /** 安全日志记录器。 */
     private static final Logger log = LoggerFactory.getLogger(GroupPullMarketingReleaseService.class);
 
+    /** 拉群任务、执行和料子数据访问。 */
     private final GroupPullMarketingMapper mapper;
+
+    /** 统一营销发送尝试数据访问。 */
     private final MarketingTaskMapper marketingTaskMapper;
+
+    /** 协议命令 outbox 数据访问。 */
     private final ProtocolCommandOutboxMapper outboxMapper;
+
+    /** 建群账号任务占用服务。 */
     private final MarketingAccountOccupancyService accountOccupancyService;
+
+    /** 营销分组整组占用服务。 */
     private final MarketingGroupOccupancyService groupOccupancyService;
 
+    /**
+     * 创建拉群营销安全释放服务。
+     *
+     * @param mapper 拉群任务、执行和料子数据访问
+     * @param marketingTaskMapper 统一营销发送尝试数据访问
+     * @param outboxMapper 协议命令 outbox 数据访问
+     * @param accountOccupancyService 建群账号任务占用服务
+     * @param groupOccupancyService 营销分组整组占用服务
+     */
     public GroupPullMarketingReleaseService(
             GroupPullMarketingMapper mapper,
             MarketingTaskMapper marketingTaskMapper,
@@ -43,6 +68,7 @@ public class GroupPullMarketingReleaseService {
     /**
      * 尝试完成一次安全释放。
      *
+     * @param taskId 统一营销任务 ID
      * @return 已全部释放时返回 true；仍有正式建群或已发消息在途时返回 false
      */
     @Transactional(rollbackFor = Exception.class)
@@ -55,19 +81,39 @@ public class GroupPullMarketingReleaseService {
             return false;
         }
         long now = System.currentTimeMillis();
-        cancelPreGroupExecutions(taskId, now);
-        if (mapper.countActiveFormalExecutions(taskId) > 0) {
+        int canceledExecutions = cancelPreGroupExecutions(taskId, now);
+        long activeFormalExecutions = mapper.countActiveFormalExecutions(taskId);
+        if (activeFormalExecutions > 0) {
+            log.debug(
+                    "拉群营销等待正式建群执行收口 tenantId={} taskId={} canceledPreparations={} "
+                            + "activeFormalExecutions={}",
+                    task.getTenantId(),
+                    taskId,
+                    canceledExecutions,
+                    activeFormalExecutions);
             return false;
         }
 
-        outboxMapper.cancelPendingMarketingTaskCommands(taskId, now);
-        marketingTaskMapper.markCanceledOutboxAttemptsSkipped(taskId, now);
-        marketingTaskMapper.markDeadOutboxAttemptsFailed(taskId, now);
-        if (marketingTaskMapper.countUnfinishedAttempts(taskId) > 0) {
+        int canceledCommands = outboxMapper.cancelPendingMarketingTaskCommands(task.getTenantId(), taskId, now);
+        int skippedAttempts = marketingTaskMapper.markCanceledOutboxAttemptsSkipped(
+                task.getTenantId(), taskId, now);
+        int failedAttempts = marketingTaskMapper.markDeadOutboxAttemptsFailed(
+                task.getTenantId(), taskId, now);
+        long unfinishedAttempts = marketingTaskMapper.countUnfinishedAttempts(taskId);
+        if (unfinishedAttempts > 0) {
+            log.debug(
+                    "拉群营销等待发送回执 tenantId={} taskId={} canceledCommands={} skippedAttempts={} "
+                            + "failedAttempts={} unfinishedAttempts={}",
+                    task.getTenantId(),
+                    taskId,
+                    canceledCommands,
+                    skippedAttempts,
+                    failedAttempts,
+                    unfinishedAttempts);
             return false;
         }
 
-        accountOccupancyService.releaseGroupPullResidualAccounts(taskId);
+        int releasedAccounts = accountOccupancyService.releaseGroupPullResidualAccounts(taskId);
         mapper.markTaskExecutionsReleased(taskId, now);
         boolean groupReleased = groupOccupancyService.release(
                 task.getAccountGroupId(), MarketingBusinessType.GROUP_PULL, taskId, now);
@@ -79,13 +125,30 @@ public class GroupPullMarketingReleaseService {
             return false;
         }
         if (mapper.markResourceReleased(taskId, now) != 1) {
+            log.warn(
+                    "拉群营销资源状态未能更新为已释放 tenantId={} taskId={}",
+                    task.getTenantId(),
+                    taskId);
             return false;
         }
-        log.info("拉群营销资源释放完成 taskId={} groupId={}", taskId, task.getAccountGroupId());
+        log.info(
+                "拉群营销资源释放完成 tenantId={} taskId={} groupId={} releasedAccounts={}",
+                task.getTenantId(),
+                taskId,
+                task.getAccountGroupId(),
+                releasedAccounts);
         return true;
     }
 
-    private void cancelPreGroupExecutions(Long taskId, long now) {
+    /**
+     * 取消尚未冻结群名的准备执行，并归还其料子、营销额度和建群账号占用。
+     *
+     * @param taskId 统一营销任务 ID
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际取消的准备执行数
+     */
+    private int cancelPreGroupExecutions(Long taskId, long now) {
+        int canceled = 0;
         for (GroupPullMarketingExecution execution
                 : mapper.selectCancelableExecutionsForUpdate(taskId)) {
             if (mapper.cancelPreGroupExecution(execution.getId(), now) != 1) {
@@ -96,6 +159,8 @@ public class GroupPullMarketingReleaseService {
             accountOccupancyService.releaseTaskAccount(
                     taskId, execution.getBuilderAccountId());
             mapper.markExecutionReleased(execution.getId(), now);
+            canceled++;
         }
+        return canceled;
     }
 }

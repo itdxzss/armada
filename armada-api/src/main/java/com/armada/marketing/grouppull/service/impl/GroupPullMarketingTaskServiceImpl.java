@@ -5,6 +5,7 @@ import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.dto.CreateGroupPullMarketingTaskDTO;
+import com.armada.marketing.grouppull.model.dto.GroupPullMarketingGroupQuery;
 import com.armada.marketing.grouppull.model.dto.GroupPullMarketingTaskQuery;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingMaterial;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
@@ -12,6 +13,7 @@ import com.armada.marketing.grouppull.model.enums.GroupPullBlockReason;
 import com.armada.marketing.grouppull.model.enums.GroupPullMaterialStatus;
 import com.armada.marketing.grouppull.model.enums.GroupPullResourceStatus;
 import com.armada.marketing.grouppull.model.enums.GroupPullSpeakPermission;
+import com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.service.GroupPullMarketingMaterialParser;
@@ -29,6 +31,8 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,7 +58,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     /** 默认营销轮次间隔（秒）。 */
     private static final int DEFAULT_SEND_INTERVAL_SECONDS = 30;
 
-    /** 建群账号与营销账号互加好友的默认最大尝试次数。 */
+    /** 建群账号与营销账号互加失败后的默认重试次数，不包含首次。 */
     private static final int DEFAULT_FRIEND_RETRY_LIMIT = 3;
 
     /** 每个群默认抽取的料子数量。 */
@@ -192,6 +196,32 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     }
 
     /**
+     * 分页查询任务正式进入建群流程后的群组明细。
+     *
+     * <p>只返回已经冻结群名的正式建群执行，创建群组失败但已经进入正式流程的记录
+     * 不会被过滤。群人数、营销发送状态等字段保持数据库真实空值。</p>
+     *
+     * @param taskId 统一营销任务 ID
+     * @param query 分页参数；为空时使用统一默认分页
+     * @return 按执行 ID 升序排列的群组明细及总数
+     * @throws BusinessException 当拉群营销任务不存在时抛出
+     */
+    @Override
+    public PageResult<GroupPullMarketingGroupVO> groups(
+            Long taskId,
+            GroupPullMarketingGroupQuery query) {
+        requireExtension(taskId);
+        GroupPullMarketingGroupQuery normalized = query == null
+                ? new GroupPullMarketingGroupQuery()
+                : query;
+        long total = mapper.countTaskGroups(taskId);
+        List<GroupPullMarketingGroupVO> rows = total == 0
+                ? List.of()
+                : mapper.selectTaskGroups(taskId, normalized);
+        return PageResult.of(rows, normalized.getPage(), normalized.getPageSize(), total);
+    }
+
+    /**
      * 启动待启动任务并在同一事务内原子锁定整个营销分组。
      *
      * <p>启动前重新校验结束时间、建群账号、营销账号和上线前遗留账号占用；任一条件不满足时事务回滚，
@@ -213,6 +243,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
             throw new BusinessException(ErrorCode.CONFLICT, "任务已到结束时间，不能启动");
         }
         GroupPullMarketingTask extension = requireExtension(id);
+        lockTaskAccountGroups(task.getAccountGroupId(), extension.getBuilderGroupId());
         if (!groupOccupancyService.tryLock(
                 task.getAccountGroupId(), MarketingBusinessType.GROUP_PULL, id, now)) {
             throw new BusinessException(ErrorCode.CONFLICT, "营销分组正在被其他任务占用");
@@ -231,6 +262,22 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         log.info("拉群营销任务已启动 taskId={} marketingGroupId={} marketingAccounts={}",
                 id, task.getAccountGroupId(), marketingAccountTotalCount);
         return requireDetail(id);
+    }
+
+    /**
+     * 按分组 ID 升序短暂锁定启动涉及的建群分组和营销分组。
+     *
+     * <p>该行锁只存在于启动事务内，用于和人工迁移串行，不表示建群账号分组被持久化占用。</p>
+     *
+     * @param marketingGroupId 营销账号分组 ID
+     * @param builderGroupId 建群账号分组 ID
+     */
+    private void lockTaskAccountGroups(Long marketingGroupId, Long builderGroupId) {
+        Set<Long> groupIds = new TreeSet<>(List.of(marketingGroupId, builderGroupId));
+        List<AccountGroup> groups = accountGroupMapper.selectByIdsForUpdate(List.copyOf(groupIds));
+        if (groups.size() != groupIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "建群账号分组或营销分组不存在");
+        }
     }
 
     /**

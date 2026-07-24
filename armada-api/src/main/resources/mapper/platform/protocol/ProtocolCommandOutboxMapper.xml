@@ -159,10 +159,12 @@
     UPDATE protocol_command_outbox outbox_row
     JOIN marketing_task_send_attempt attempt
       ON attempt.command_id = outbox_row.command_id
+     AND attempt.tenant_id = #{tenantId}
     SET outbox_row.status = #{canceledStatus},
-        outbox_row.last_error = #{reason},
+        outbox_row.last_error = 'TASK_RELEASED',
         outbox_row.updated_at = #{now}
     WHERE attempt.marketing_task_id = #{marketingTaskId}
+      AND outbox_row.tenant_id = #{tenantId}
       AND attempt.status = 0
       AND outbox_row.deleted_at IS NULL
       AND outbox_row.status = #{pendingStatus}

@@ -30,7 +30,7 @@
           AND o.marketing_task_id != #{taskId}
           AND (
               (owner_task.business_type = 1 AND owner_task.status IN (1, 2, 5))
-              OR (owner_task.business_type = 2 AND owner_gp.resource_status IN (2, 3, 5))
+              OR (owner_task.business_type = 2 AND owner_gp.resource_status IN (2, 3))
           )
     </select>
 
@@ -86,7 +86,7 @@
         WHERE target.marketing_task_id = #{taskId}
           AND (
               (mt.business_type = 1 AND mt.status IN (1, 2, 5))
-              OR (mt.business_type = 2 AND gp.resource_status IN (2, 3, 5))
+              OR (mt.business_type = 2 AND gp.resource_status IN (2, 3))
           )
         ORDER BY o.account_id ASC
     </select>
@@ -108,7 +108,7 @@
         </foreach>
           AND (
               (mt.business_type = 1 AND mt.status IN (1, 2, 5))
-              OR (mt.business_type = 2 AND gp.resource_status IN (2, 3, 5))
+              OR (mt.business_type = 2 AND gp.resource_status IN (2, 3))
           )
         ORDER BY o.account_id ASC
     </select>
@@ -144,7 +144,7 @@
             WHERE mt.deleted_at IS NULL
               AND (
                   (mt.business_type = 1 AND mt.status IN (1, 2, 5))
-                  OR (mt.business_type = 2 AND gp.resource_status IN (2, 3, 5))
+                  OR (mt.business_type = 2 AND gp.resource_status IN (2, 3))
               )
         )
     </delete>

@@ -121,7 +121,7 @@ CREATE TABLE group_pull_marketing_task (
     speak_permission TINYINT NOT NULL DEFAULT 1 COMMENT '发言权限:1不操作 2禁言 3不禁言',
     builder_exit_enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '建群账号是否退出:0否 1是',
     block_reason TINYINT NOT NULL DEFAULT 0 COMMENT '阻塞原因:0无 1建群账号 2营销账号 3料子 4系统异常 5人工处理',
-    resource_status TINYINT NOT NULL DEFAULT 1 COMMENT '资源状态:1未锁定 2已锁定 3释放中 4已释放 5释放失败',
+    resource_status TINYINT NOT NULL DEFAULT 1 COMMENT '资源状态:1未锁定 2已锁定 3释放中 4已释放',
     marketing_account_total_count INT DEFAULT NULL COMMENT '启动锁组时营销账号总数',
     created_at BIGINT NOT NULL COMMENT '创建时间(epoch毫秒)',
     updated_at BIGINT NOT NULL COMMENT '更新时间(epoch毫秒)',
@@ -666,7 +666,7 @@ git commit -m "feat: add group pull marketing lifecycle"
 
 - [ ] **Step 1: 写并发分配失败测试**
 
-测试必须验证：单任务最多 5 条在途；同一建群账号不能被普通营销、另一拉群任务或其他复用账号占用表的任务同时领取；建群账号所在分组已经被任一营销任务整组锁定时不领取；营销账号复用账号列表当前默认 `created_at DESC` 顺序；`reserved+joined` 达上限后换下一个；料子不足完整一组时不插执行；任一步不足事务无半占用。占用清理回归还要断言拉群任务主状态已经是完成/手动结束但资源为 2、3 或 5 时不清建群账号，资源为 4 后才允许清残留；按模板释放只处理普通营销，普通营销原有 1、2、5 保留规则不变。
+测试必须验证：单任务最多 5 条在途；同一建群账号不能被普通营销、另一拉群任务或其他复用账号占用表的任务同时领取；建群账号所在分组已经被任一营销任务整组锁定时不领取；营销账号复用账号列表当前默认 `created_at DESC` 顺序；`reserved+joined` 达上限后换下一个；料子不足完整一组时不插执行；任一步不足事务无半占用。占用清理回归还要断言拉群任务主状态已经是完成/手动结束但资源为 2 或 3 时不清建群账号，资源为 4 后才允许清残留；按模板释放只处理普通营销，普通营销原有 1、2、5 保留规则不变。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -687,7 +687,7 @@ Expected: FAIL。
 
 资源不足返回明确枚举 `WAIT_BUILDER/WAIT_MARKETER/WAIT_MATERIAL`，外层用独立短事务更新扩展表 `block_reason`。成功分配清除旧阻塞原因。建群账号占用插入或执行表唯一键冲突时重新开启一次分配事务选择下一账号，不吞掉其他约束异常。新增 `releaseByTaskAndAccount(taskId, accountId)`，只允许释放当前任务自己的账号占用；建群前跳过、成功、失败和释放流程都调用该方法，任务安全释放时再用既有 `releaseByTaskId` 清理异常残留。
 
-同步把 `selectOwnersByTaskAccounts`、`selectOwnersByAccountIds` 和 `deleteStale` 共用的有效 owner 条件按业务类型分流：普通营销继续以主状态 `1/2/5` 为有效；拉群营销只要扩展资源状态为 `2/3/5` 就必须返回并保留，即使主状态已经是 `7/8`，避免安全收口期间提前释放或出现唯一键被占但查不到 owner。资源状态 4 后才可作为残留删除。现有 `releaseByTemplateIds` 固定只删除 `business_type=1` 普通营销占用，不能因模板删除绕过拉群安全释放。Mapper JavaDoc 从“普通营销账号占用”调整为“营销任务账号占用”；不增加占用类型字段，也不新建占用表。
+同步把 `selectOwnersByTaskAccounts`、`selectOwnersByAccountIds` 和 `deleteStale` 共用的有效 owner 条件按业务类型分流：普通营销继续以主状态 `1/2/5` 为有效；拉群营销只要扩展资源状态为 `2/3` 就必须返回并保留，即使主状态已经是 `7/8`，避免安全收口期间提前释放或出现唯一键被占但查不到 owner。资源状态 4 后才可作为残留删除。现有 `releaseByTemplateIds` 固定只删除 `business_type=1` 普通营销占用，不能因模板删除绕过拉群安全释放。Mapper JavaDoc 从“普通营销账号占用”调整为“营销任务账号占用”；不增加占用类型字段，也不新建占用表。
 
 - [ ] **Step 4: 实现营销额度的三种变更**
 
@@ -960,7 +960,7 @@ git commit -m "feat: connect group pull tasks to marketing rounds"
 
 - [ ] **Step 1: 写释放边界失败测试**
 
-覆盖：待启动到期直接 `7/0/1`；执行中到期先 `7/0/3`；暂停时未正式建群的准备记录保持原地且不推进、已正式建群记录继续收口；结束/释放时正式建群执行继续收口、准备中执行取消并归还 reservation；仍为 PENDING 的营销 outbox 被取消且对应 attempt 标记跳过；DEAD outbox 对应 attempt 标记失败；已 LOCKED 或 SENT 的当前消息不强行撤回并等待结果；没有在途执行/发送后条件清组锁并写资源 4；条件解锁未命中写资源 5。
+覆盖：待启动到期直接 `7/0/1`；执行中到期先 `7/0/3`；暂停时未正式建群的准备记录保持原地且不推进、已正式建群记录继续收口；结束/释放时正式建群执行继续收口、准备中执行取消并归还 reservation；仍为 PENDING 的营销 outbox 被取消且对应 attempt 标记跳过；DEAD outbox 对应 attempt 标记失败；已 LOCKED 或 SENT 的当前消息不强行撤回并等待结果；没有在途执行/发送后条件清组锁并写资源 4；条件解锁未命中时保留资源 3 并记录错误日志。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -986,7 +986,7 @@ Expected: FAIL。
 
 - [ ] **Step 5: 实现释放完成判定**
 
-释放事务按顺序：取消 `group_name IS NULL` 的准备记录并归还料子/营销 reserved/建群账号；确认不存在 `group_name IS NOT NULL AND execution_status IN (1,2)`；按本任务 attempt 的 `command_id` 条件取消仍为 `protocol_command_outbox.status=PENDING` 的消息并把对应 attempt 标记为 `SKIPPED`；把已为 `DEAD` 但 attempt 仍为 `SUBMITTED` 的消息标记 `FAILED` 并保留 outbox 错误；对已 `LOCKED/SENT` 且 attempt 仍为 `SUBMITTED` 的消息等待现有结果回调；确认不再存在本任务 `marketing_task_send_attempt.status=SUBMITTED` 后，按执行记录释放所有未释放 builder，并调用 `releaseByTaskId` 清除本任务可能遗留的账号级占用，再以分组 ID+类型2+任务 ID 条件解锁。全部完成写资源 4；数据库异常或归属不一致写资源 5 并保留锁。
+释放事务按顺序：取消 `group_name IS NULL` 的准备记录并归还料子/营销 reserved/建群账号；确认不存在 `group_name IS NOT NULL AND execution_status IN (1,2)`；按本任务 attempt 的 `command_id` 条件取消仍为 `protocol_command_outbox.status=PENDING` 的消息并把对应 attempt 标记为 `SKIPPED`；把已为 `DEAD` 但 attempt 仍为 `SUBMITTED` 的消息标记 `FAILED` 并保留 outbox 错误；对已 `LOCKED/SENT` 且 attempt 仍为 `SUBMITTED` 的消息等待现有结果回调；确认不再存在本任务 `marketing_task_send_attempt.status=SUBMITTED` 后，按执行记录释放所有未释放 builder，并调用 `releaseByTaskId` 清除本任务可能遗留的账号级占用，再以分组 ID+类型2+任务 ID 条件解锁。全部完成写资源 4；数据库异常或归属不一致时保留资源 3 和现有锁并记录错误日志，由技术人员处理。
 
 取消 SQL 必须同时带 tenant、commandId 和 `status=PENDING` 条件，不能取消其它任务或 publisher 已抢占的消息。释放流程不得删除 attempt/outbox 历史。
 

@@ -299,21 +299,42 @@ public interface ProtocolCommandOutboxMapper {
                                      @Param("lockedStatus") int lockedStatus,
                                      @Param("pendingStatus") int pendingStatus);
 
-    /** 任务释放时仅取消尚未被 publisher 抢占的营销消息。 */
-    default int cancelPendingMarketingTaskCommands(Long marketingTaskId, long now) {
+    /**
+     * 任务释放时，仅取消当前租户下尚未被 publisher 抢占的营销消息。
+     *
+     * @param tenantId 当前租户 ID
+     * @param marketingTaskId 营销任务 ID
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际取消的命令数
+     */
+    default int cancelPendingMarketingTaskCommands(Long tenantId, Long marketingTaskId, long now) {
         return cancelPendingMarketingTaskCommandsInternal(
+                tenantId,
                 marketingTaskId,
                 ProtocolCommandOutboxStatus.PENDING.code(),
                 ProtocolCommandOutboxStatus.CANCELED.code(),
-                "TASK_RELEASED",
                 now);
     }
 
+    /**
+     * 按租户和任务取消 PENDING 营销命令的底层联表更新。
+     *
+     * <p>联表更新关闭租户插件并在 SQL 中显式约束两张表的 tenant_id，
+     * 避免释放操作跨租户命中。</p>
+     *
+     * @param tenantId 当前租户 ID
+     * @param marketingTaskId 营销任务 ID
+     * @param pendingStatus PENDING 状态码
+     * @param canceledStatus CANCELED 状态码
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际取消的命令数
+     */
+    @InterceptorIgnore(tenantLine = "true")
     int cancelPendingMarketingTaskCommandsInternal(
+            @Param("tenantId") Long tenantId,
             @Param("marketingTaskId") Long marketingTaskId,
             @Param("pendingStatus") int pendingStatus,
             @Param("canceledStatus") int canceledStatus,
-            @Param("reason") String reason,
             @Param("now") long now);
 
     /**

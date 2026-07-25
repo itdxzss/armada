@@ -210,6 +210,9 @@ class RemoteMonitorManagerTest(unittest.TestCase):
         while len([event for event in events if event.kind == "sample"]) < 2 and time.time() < deadline:
             events.append(streams.events.get(timeout=1))
         self.assertEqual(2, len([event for event in events if event.kind == "sample"]))
+        self.assertTrue(
+            all(event.received_monotonic is not None for event in events if event.kind == "sample")
+        )
         manager.close()
         self.assertTrue(all(process.terminated for process in popen.processes))
 
@@ -249,6 +252,23 @@ class RemoteMonitorManagerTest(unittest.TestCase):
             manager.close()
 
         self.assertFalse(built.path.parent.exists())
+
+    def test_unconfirmed_monitor_process_termination_is_reported(self) -> None:
+        class StuckProcess:
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired("ssh", timeout)
+
+            def kill(self):
+                pass
+
+        manager = RemoteMonitorManager(self.profile, min_free_gib=5, runner=FakeRunner())
+        manager._processes["zhuan"] = StuckProcess()
+
+        with self.assertRaisesRegex(RemoteError, "^remote_cleanup$"):
+            manager.close()
 
 
 if __name__ == "__main__":

@@ -8,7 +8,8 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Dict, Mapping, Optional, Protocol, Sequence
 
@@ -108,6 +109,7 @@ class RemoteMonitorManager:
         runner: Optional[ProcessRunner] = None,
         popen_factory=None,
         queue_size: int = 4096,
+        monotonic=time.monotonic,
     ) -> None:
         if profile.env_id != "perf2" or min_free_gib <= 0 or queue_size < 2:
             raise RemoteError("remote_options")
@@ -122,6 +124,7 @@ class RemoteMonitorManager:
         self._threads = []
         self._closing = threading.Event()
         self._overflow_published = False
+        self._monotonic = monotonic
 
     def build(self, zhuan_repo: Path) -> BuiltMonitor:
         repo = zhuan_repo.resolve()
@@ -238,7 +241,7 @@ class RemoteMonitorManager:
                     process.kill()
                     process.wait(timeout=2)
                 except (subprocess.TimeoutExpired, OSError):
-                    pass
+                    cleanup_failed = True
         for node, remote_dir in tuple(self._remote_dirs.items()):
             ssh_profile = self.profile.armada if node == "armada" else self.profile.zhuan
             try:
@@ -372,6 +375,8 @@ class RemoteMonitorManager:
             pass
 
     def _publish(self, event: MonitorEvent) -> None:
+        if event.received_monotonic is None:
+            event = replace(event, received_monotonic=self._monotonic())
         try:
             self.events.put_nowait(event)
         except queue.Full:
@@ -381,7 +386,12 @@ class RemoteMonitorManager:
             try:
                 self.events.get_nowait()
                 self.events.put_nowait(
-                    MonitorEvent(node=event.node, kind="failure", error_class="sample_overflow")
+                    MonitorEvent(
+                        node=event.node,
+                        kind="failure",
+                        error_class="sample_overflow",
+                        received_monotonic=self._monotonic(),
+                    )
                 )
             except queue.Empty:
                 pass

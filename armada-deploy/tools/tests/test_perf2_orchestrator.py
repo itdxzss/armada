@@ -37,6 +37,7 @@ def monitor_event(
     valid=True,
     resource_valid=None,
     kafka_valid=None,
+    received_monotonic=None,
 ):
     resource_valid = valid if resource_valid is None else resource_valid
     kafka_valid = valid if kafka_valid is None else kafka_valid
@@ -65,7 +66,13 @@ def monitor_event(
             "valid": kafka_valid,
             "errorClass": None if kafka_valid else "metadata",
         }
-    return MonitorEvent(node=node, kind="sample", line=json.dumps(value).encode("utf-8") + b"\n")
+    received = float(second) if received_monotonic is None else received_monotonic
+    return MonitorEvent(
+        node=node,
+        kind="sample",
+        line=json.dumps(value).encode("utf-8") + b"\n",
+        received_monotonic=received,
+    )
 
 
 class FakeRemoteManager:
@@ -102,11 +109,18 @@ class FakeRemoteManager:
 
 
 class FakeTaskAPI:
-    def __init__(self, inventories, calls, resume_finished_second=1.5):
+    def __init__(
+        self,
+        inventories,
+        calls,
+        resume_finished_second=1.5,
+        resume_finished_monotonic=1.5,
+    ):
         self.inventories = list(inventories)
         self.calls = calls
         self.resume_calls = 0
         self.resume_finished_second = resume_finished_second
+        self.resume_finished_monotonic = resume_finished_monotonic
 
     def list_paused(self):
         self.calls.append("list_paused")
@@ -118,7 +132,17 @@ class FakeTaskAPI:
         now = datetime(2026, 7, 25, 2, 0, tzinfo=UTC) + timedelta(
             seconds=self.resume_finished_second
         )
-        return tuple(ResumeOutcome(value.id, now, now, "success", 200) for value in snapshot)
+        return tuple(
+            ResumeOutcome(
+                value.id,
+                now,
+                now,
+                "success",
+                200,
+                finished_monotonic=self.resume_finished_monotonic,
+            )
+            for value in snapshot
+        )
 
     def reconcile(self, snapshot, concurrency):
         self.calls.append("reconcile")
@@ -198,17 +222,18 @@ class OrchestratorTest(unittest.TestCase):
     def test_pre_resume_backlog_cannot_satisfy_post_resume_zero_window(self) -> None:
         calls = []
         snapshot = (task(1),)
-        api = FakeTaskAPI((snapshot, snapshot), calls, resume_finished_second=4.5)
+        api = FakeTaskAPI(
+            (snapshot, snapshot), calls, resume_finished_monotonic=4.5
+        )
         remote = FakeRemoteManager(
             self._events(
                 (0, 0, 0),
                 (1, 0, 0),
                 (2, 0, 0),
-                (3, 0, 0),
+                (3, 10, 5),
                 (4, 0, 0),
-                (5, 10, 5),
+                (5, 0, 0),
                 (6, 0, 0),
-                (7, 0, 0),
             ),
             calls,
         )
@@ -219,6 +244,37 @@ class OrchestratorTest(unittest.TestCase):
         summary = self._read("summary.json")
         self.assertEqual(10, summary["maxLag"])
         self.assertEqual("observed_backlog_drained", summary["capacityConclusion"])
+
+    def test_remote_clock_skew_cannot_shorten_post_resume_zero_window(self) -> None:
+        calls = []
+        snapshot = (task(1),)
+        api = FakeTaskAPI(
+            (snapshot, snapshot), calls, resume_finished_monotonic=4.5
+        )
+        events = self._events((0, 0, 0), (1, 0, 0))
+        for second, received, lag, produced in (
+            (5, 3.0, 0, 0),
+            (6, 4.0, 0, 0),
+            (7, 5.0, 7, 3),
+            (8, 6.0, 0, 0),
+            (9, 7.0, 0, 0),
+        ):
+            events.extend(
+                (
+                    monitor_event(
+                        "zhuan", second, lag=lag, produced=produced,
+                        consumed=produced, received_monotonic=received,
+                    ),
+                    monitor_event(
+                        "armada", second, received_monotonic=received,
+                    ),
+                )
+            )
+        remote = FakeRemoteManager(events, calls)
+        orchestrator = self._orchestrator(api, remote, execute=True, expected_count=1)
+
+        self.assertEqual(0, orchestrator.run())
+        self.assertEqual(7, self._read("summary.json")["maxLag"])
 
     def test_transient_invalid_post_resume_samples_continue_observation(self) -> None:
         for name, invalid_events, expected_field in (

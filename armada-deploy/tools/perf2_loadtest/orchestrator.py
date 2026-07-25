@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import re
 import secrets
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from pathlib import Path
@@ -126,12 +127,24 @@ class Orchestrator:
 
             if self.options.execute:
                 outcomes = self._resume_guarded(snapshot, preflight, baseline[-1])
-                if len(outcomes) != len(snapshot):
+                completion_times = [outcome.finished_monotonic for outcome in outcomes]
+                if (
+                    len(outcomes) != len(snapshot)
+                    or any(
+                        value is None
+                        or isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or value < 0
+                        or not math.isfinite(value)
+                        for value in completion_times
+                    )
+                ):
                     raise OrchestratorError("resume_outcomes")
-                resume_completed_at = max(outcome.finished_at for outcome in outcomes)
+                resume_completed_monotonic = max(completion_times)
                 self.state = RunState.DRAINING
                 post_samples = self._collect_until_idle(
-                    streams.events, resume_completed_at=resume_completed_at
+                    streams.events,
+                    resume_completed_monotonic=resume_completed_monotonic,
                 )
                 samples.extend(post_samples)
                 reconciled = tuple(
@@ -216,17 +229,21 @@ class Orchestrator:
         return tuple(samples)
 
     def _collect_until_idle(
-        self, events: queue.Queue, *, resume_completed_at: datetime
+        self, events: queue.Queue, *, resume_completed_monotonic: float
     ) -> Tuple[MergedSample, ...]:
         deadline = self._monotonic() + self.options.timeout_seconds
         window = ZeroWindow(self.options.zero_window_seconds)
         samples: List[MergedSample] = []
         while True:
             sample = self._next_merged(events, deadline, baseline=False)
-            if sample.at <= resume_completed_at:
-                continue
             samples.append(sample)
-            if window.observe(sample, resumes_complete=True):
+            if window.observe(
+                sample,
+                resumes_complete=(
+                    sample.received_monotonic is not None
+                    and sample.received_monotonic > resume_completed_monotonic
+                ),
+            ):
                 return tuple(samples)
 
     def _next_merged(self, events: queue.Queue, deadline: float, *, baseline: bool) -> MergedSample:
@@ -249,6 +266,18 @@ class Orchestrator:
                     self._invalid_kafka_samples += 1
                 self._invalid_resource_samples += 1
                 raise OrchestratorError("invalid_monitor_sample") from error
+            received = event.received_monotonic
+            if (
+                received is None
+                or isinstance(received, bool)
+                or not isinstance(received, (int, float))
+                or received < 0
+                or not math.isfinite(received)
+            ):
+                raise OrchestratorError("monitor_clock")
+            monitor_sample = replace(
+                monitor_sample, received_monotonic=float(received)
+            )
             invalid = False
             if not monitor_sample.resource.valid:
                 self._invalid_resource_samples += 1

@@ -67,6 +67,7 @@ class ResumeOutcome:
     finished_at: datetime
     result: str
     http_status: Optional[int]
+    finished_monotonic: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ class MonitorSample:
     node: str
     kafka: Optional[KafkaMetrics]
     resource: ResourceMetrics
+    received_monotonic: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,7 @@ class MergedSample:
     kafka: KafkaMetrics
     armada_resource: ResourceMetrics
     zhuan_resource: ResourceMetrics
+    received_monotonic: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -142,3 +145,4 @@ class MonitorEvent:
     kind: str
     line: Optional[bytes] = None
     error_class: Optional[str] = None
+    received_monotonic: Optional[float] = None

@@ -119,7 +119,11 @@ class ResumeAndReconcileTest(unittest.TestCase):
 
         transport = RecordingTransport(handler)
         api = TaskAPI(
-            "http://armada.example", "demo", transport=transport, now=lambda: datetime.now(timezone.utc)
+            "http://armada.example",
+            "demo",
+            transport=transport,
+            now=lambda: datetime.now(timezone.utc),
+            monotonic=lambda: 123.0,
         )
         snapshot = tuple(self._snapshot(task_id) for task_id in (3, 1, 2))
 
@@ -127,6 +131,7 @@ class ResumeAndReconcileTest(unittest.TestCase):
 
         self.assertEqual((3, 1, 2), tuple(outcome.task_id for outcome in outcomes))
         self.assertTrue(all(outcome.result == "success" for outcome in outcomes))
+        self.assertTrue(all(outcome.finished_monotonic == 123.0 for outcome in outcomes))
         urls = [call[1] for call in transport.calls]
         self.assertEqual(3, len(urls))
         for task_id in (1, 2, 3):

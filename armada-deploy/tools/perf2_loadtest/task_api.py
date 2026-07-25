@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -59,6 +60,7 @@ class TaskAPI:
         transport: Optional[HTTPTransport] = None,
         timeout: float = 10.0,
         now: Optional[Callable[[], datetime]] = None,
+        monotonic: Optional[Callable[[], float]] = None,
     ) -> None:
         parsed = urlparse(base_url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -70,6 +72,7 @@ class TaskAPI:
         self._transport = transport or UrllibTransport()
         self._timeout = timeout
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self._monotonic = monotonic or time.monotonic
 
     def list_paused(self) -> Tuple[TaskSnapshot, ...]:
         url = self._url("/api/marketing-tasks", {"status": 5, "page": 1, "pageSize": 1000})
@@ -123,6 +126,7 @@ class TaskAPI:
                 finished_at=self._utc_now(),
                 result=result,
                 http_status=status,
+                finished_monotonic=self._monotonic(),
             )
 
         with ThreadPoolExecutor(max_workers=min(concurrency, len(frozen))) as executor:

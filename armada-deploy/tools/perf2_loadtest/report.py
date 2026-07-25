@@ -109,6 +109,11 @@ def merge_samples(first: MonitorSample, second: MonitorSample) -> MergedSample:
         kafka=zhuan.kafka,
         armada_resource=armada.resource,
         zhuan_resource=zhuan.resource,
+        received_monotonic=(
+            min(first.received_monotonic, second.received_monotonic)
+            if first.received_monotonic is not None and second.received_monotonic is not None
+            else None
+        ),
     )
 
 

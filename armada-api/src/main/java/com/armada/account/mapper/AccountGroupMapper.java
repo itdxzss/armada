@@ -87,7 +87,17 @@ public interface AccountGroupMapper {
     AccountGroup selectById(@Param("id") Long id);
 
     /**
-     * 按 ID 升序锁定人工迁移涉及的来源分组和目标分组。
+     * 按 ID 升序读取人工迁移涉及的来源分组和目标分组。
+     *
+     * <p>该查询只用于前置业务提示，不承担并发互斥；最终状态由账号条件更新复核。</p>
+     *
+     * @param groupIds 去重并升序排列的分组 ID
+     * @return 当前活跃分组行
+     */
+    List<AccountGroup> selectByIds(@Param("groupIds") List<Long> groupIds);
+
+    /**
+     * 按 ID 升序锁定任务启动或分组结构变更涉及的分组。
      *
      * @param groupIds 去重并升序排列的分组 ID
      * @return 当前活跃分组行

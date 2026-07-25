@@ -2,8 +2,11 @@ package com.armada.account.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -105,8 +108,8 @@ class AccountServiceImplTest {
     @Test
     void migrateGroupRejectsMovingOutOfActiveBuilderGroup() {
         Account account = account(1L, 10L);
-        when(accountMapper.selectActiveByIdsForUpdate(List.of(1L))).thenReturn(List.of(account));
-        when(accountGroupMapper.selectByIdsForUpdate(List.of(10L, 20L)))
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account));
+        when(accountGroupMapper.selectByIds(List.of(10L, 20L)))
                 .thenReturn(List.of(group(10L, null), group(20L, null)));
         when(accountGroupMapper.countActiveBuilderGroupReferences(List.of(10L))).thenReturn(1);
         AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
@@ -115,29 +118,30 @@ class AccountServiceImplTest {
                 .isInstanceOf(com.armada.shared.exception.BusinessException.class)
                 .hasMessageContaining("建群账号分组");
 
-        verify(accountMapper, never()).migrateGroup(anyList(), anyLong(), anyLong());
+        verify(accountMapper, never()).migrateGroupIfAvailable(anyList(), any(), anyLong(), anyLong());
     }
 
     @Test
     void migrateGroupAllowsMovingIntoActiveBuilderGroup() {
         Account account = account(1L, 10L);
-        when(accountMapper.selectActiveByIdsForUpdate(List.of(1L))).thenReturn(List.of(account));
-        when(accountGroupMapper.selectByIdsForUpdate(List.of(10L, 20L)))
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account));
+        when(accountGroupMapper.selectByIds(List.of(10L, 20L)))
                 .thenReturn(List.of(group(10L, null), group(20L, null)));
         when(accountGroupMapper.countActiveBuilderGroupReferences(List.of(10L))).thenReturn(0);
-        when(accountMapper.migrateGroup(anyList(), anyLong(), anyLong())).thenReturn(1);
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong()))
+                .thenReturn(1);
         AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
 
         service.migrateGroup(List.of(1L), 20L);
 
-        verify(accountMapper).migrateGroup(anyList(), anyLong(), anyLong());
+        verify(accountMapper).migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong());
     }
 
     @Test
     void migrateGroupRejectsMarketingLockedSourceOrTarget() {
         Account sourceLockedAccount = account(1L, 10L);
-        when(accountMapper.selectActiveByIdsForUpdate(List.of(1L))).thenReturn(List.of(sourceLockedAccount));
-        when(accountGroupMapper.selectByIdsForUpdate(List.of(10L, 20L)))
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(sourceLockedAccount));
+        when(accountGroupMapper.selectByIds(List.of(10L, 20L)))
                 .thenReturn(List.of(group(10L, 81L), group(20L, null)));
         AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
 
@@ -146,12 +150,62 @@ class AccountServiceImplTest {
                 .hasMessageContaining("营销任务占用");
 
         Account freeAccount = account(2L, 30L);
-        when(accountMapper.selectActiveByIdsForUpdate(List.of(2L))).thenReturn(List.of(freeAccount));
-        when(accountGroupMapper.selectByIdsForUpdate(List.of(20L, 30L)))
+        when(accountMapper.selectActiveByIds(List.of(2L))).thenReturn(List.of(freeAccount));
+        when(accountGroupMapper.selectByIds(List.of(20L, 30L)))
                 .thenReturn(List.of(group(20L, 82L), group(30L, null)));
         assertThatThrownBy(() -> service.migrateGroup(List.of(2L), 20L))
                 .isInstanceOf(com.armada.shared.exception.BusinessException.class)
                 .hasMessageContaining("营销任务占用");
+    }
+
+    @Test
+    void migrateGroupUpdatesEachOriginalSourceWithItsOwnCondition() {
+        when(accountMapper.selectActiveByIds(List.of(1L, 2L, 3L)))
+                .thenReturn(List.of(account(1L, 10L), account(2L, 11L), account(3L, 20L)));
+        when(accountGroupMapper.selectByIds(List.of(10L, 11L, 20L)))
+                .thenReturn(List.of(group(10L, null), group(11L, null), group(20L, null)));
+        when(accountGroupMapper.countActiveBuilderGroupReferences(List.of(10L, 11L))).thenReturn(0);
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong()))
+                .thenReturn(1);
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(2L)), eq(11L), eq(20L), anyLong()))
+                .thenReturn(1);
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        service.migrateGroup(List.of(1L, 2L, 3L), 20L);
+
+        verify(accountMapper).migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong());
+        verify(accountMapper).migrateGroupIfAvailable(eq(List.of(2L)), eq(11L), eq(20L), anyLong());
+    }
+
+    @Test
+    void migrateGroupRejectsWhenAnyConditionalUpdateMisses() {
+        when(accountMapper.selectActiveByIds(List.of(1L, 2L)))
+                .thenReturn(List.of(account(1L, 10L), account(2L, 11L)));
+        when(accountGroupMapper.selectByIds(List.of(10L, 11L, 20L)))
+                .thenReturn(List.of(group(10L, null), group(11L, null), group(20L, null)));
+        when(accountGroupMapper.countActiveBuilderGroupReferences(List.of(10L, 11L))).thenReturn(0);
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong()))
+                .thenReturn(1);
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(2L)), eq(11L), eq(20L), anyLong()))
+                .thenReturn(0);
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        assertThatThrownBy(() -> service.migrateGroup(List.of(1L, 2L), 20L))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("状态已变化");
+    }
+
+    @Test
+    void migrateGroupConditionallyMovesUnassignedAccount() {
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account(1L, null)));
+        when(accountGroupMapper.selectByIds(List.of(20L))).thenReturn(List.of(group(20L, null)));
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(1L)), isNull(), eq(20L), anyLong()))
+                .thenReturn(1);
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        service.migrateGroup(List.of(1L), 20L);
+
+        verify(accountMapper).migrateGroupIfAvailable(eq(List.of(1L)), isNull(), eq(20L), anyLong());
     }
 
     @Test

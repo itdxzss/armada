@@ -63,8 +63,8 @@ class SystemManagementSchemaDbTest extends DbTestBase {
                 "TaskGroupCreationMarketing");
         assertThat(queryInt(
                 "SELECT COUNT(*) FROM sys_menu WHERE tenant_id=1"
-                        + " AND menu_key='GroupManagement' AND status=0"))
-                .isEqualTo(1);
+                        + " AND menu_key='GroupManagement'"))
+                .isZero();
         assertThat(queryInt(
                 "SELECT COUNT(*) FROM sys_menu WHERE tenant_id=1"
                         + " AND menu_key='ResourceManagement' AND menu_name='运营管理'"))

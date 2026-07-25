@@ -24,6 +24,17 @@ public interface GroupLinkMapper {
     GroupLink selectAnyByUrl(@Param("url") String url);
 
     /**
+     * 按 URL 当前读群入口（含软删记录）。
+     *
+     * <p>用于唯一键 upsert 后解析最终 ID；RR 快照读可能看不到等待期间由其它事务提交的行，
+     * 当前读可读取最新已提交版本。调用方必须处于写事务内。</p>
+     *
+     * @param url 归一化链接
+     * @return 找到则返回并锁定实体，否则 null
+     */
+    GroupLink selectAnyByUrlForUpdate(@Param("url") String url);
+
+    /**
      * 插入新群链接(id/tenant_id 由库或拦截器注入,时间由调用方传入)。
      *
      * @param row 群链接实体

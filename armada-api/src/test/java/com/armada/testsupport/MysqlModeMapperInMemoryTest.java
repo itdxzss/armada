@@ -6,8 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupLinkHealth;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.marketing.mapper.MarketingTaskMapper;
@@ -63,19 +68,18 @@ class MysqlModeMapperInMemoryTest {
 
     @Autowired
     private DataSource dataSource;
-
     @Autowired
     private JdbcTemplate jdbcTemplate;
-
     @Autowired
     private TransactionTemplate transactionTemplate;
-
     @Autowired
     private AccountGroupMapper accountGroupMapper;
-
     @Autowired
     private GroupLinkMapper groupLinkMapper;
-
+    @Autowired
+    private AccountGroupMembershipMapper membershipMapper;
+    @Autowired
+    private GroupLinkHealthMapper healthMapper;
     @Autowired
     private MarketingTaskMapper marketingTaskMapper;
 
@@ -127,7 +131,7 @@ class MysqlModeMapperInMemoryTest {
                     "wa://group/120363existing@g.us", "新群名", 2_000L);
 
             int affected = groupLinkMapper.upsertAccountObservedGroup(observed, "新群名");
-            GroupLink stored = groupLinkMapper.selectAnyByUrl(observed.getLinkUrl());
+            GroupLink stored = groupLinkMapper.selectAnyByUrlForUpdate(observed.getLinkUrl());
 
             assertThat(affected).isPositive();
             return stored;
@@ -217,6 +221,45 @@ class MysqlModeMapperInMemoryTest {
             start.countDown();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void groupSnapshotExistingReadsAndUpdatesExecuteWithTenantBoundary() throws SQLException {
+        insertGroupSnapshotFixtures();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(membershipMapper.selectExistingPreviewGroupLinkIds(List.of(21L, 22L)))
+                    .containsExactly(21L);
+            assertThat(healthMapper.selectExistingGroupLinkIds(List.of(21L, 22L)))
+                    .containsExactly(21L);
+            assertThat(membershipMapper.selectExistingActiveGroupJids(
+                    501L, List.of("current@g.us", "other@g.us")))
+                    .containsExactly("current@g.us");
+
+            assertThat(membershipMapper.updatePreviewFromAccountSync(previewUpdate())).isEqualTo(1);
+            assertThat(healthMapper.updateFromAccountGroupSync(healthUpdate())).isEqualTo(1);
+            assertThat(membershipMapper.updateActiveMembership(membershipUpdate())).isEqualTo(1);
+        });
+
+        assertThat(queryOne("SELECT wa_subject, member_size, updated_at "
+                + "FROM group_link_preview WHERE tenant_id = 7 AND group_link_id = 21"))
+                .containsEntry("wa_subject", "新群名")
+                .containsEntry("member_size", 128)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(queryOne("SELECT current_count, updated_at "
+                + "FROM group_link_health WHERE tenant_id = 7 AND group_link_id = 21"))
+                .containsEntry("current_count", 128)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(queryOne("SELECT membership_status, status_source, status_updated_at, updated_at "
+                + "FROM account_group_membership WHERE tenant_id = 7 AND account_id = 501"))
+                .containsEntry("membership_status", 1)
+                .containsEntry("status_source", "GROUP_SNAPSHOT")
+                .containsEntry("status_updated_at", 2_000L)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(queryOne("SELECT wa_subject, updated_at "
+                + "FROM group_link_preview WHERE tenant_id = 8 AND group_link_id = 22"))
+                .containsEntry("wa_subject", "其他租户旧群名")
+                .containsEntry("updated_at", 1L);
     }
 
     @Test
@@ -398,7 +441,48 @@ class MysqlModeMapperInMemoryTest {
                     tenant_id BIGINT NOT NULL,
                     group_link_id BIGINT NOT NULL,
                     group_jid VARCHAR(64),
-                    wa_subject VARCHAR(255)
+                    wa_subject VARCHAR(255),
+                    member_size INT,
+                    owner_phone VARCHAR(32),
+                    announce_only BOOLEAN,
+                    avatar_url VARCHAR(512),
+                    last_preview_at BIGINT,
+                    created_at BIGINT,
+                    updated_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_link_health (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    health_status TINYINT,
+                    is_banned BOOLEAN,
+                    current_count INT,
+                    last_check_at BIGINT,
+                    last_health_error VARCHAR(64),
+                    health_failure_count INT,
+                    created_at BIGINT,
+                    updated_at BIGINT,
+                    CONSTRAINT uq_group_link_health UNIQUE (tenant_id, group_link_id)
+                )
+                """,
+                """
+                CREATE TABLE account_group_membership (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL,
+                    is_admin BOOLEAN,
+                    membership_status TINYINT NOT NULL,
+                    status_source VARCHAR(64),
+                    status_updated_at BIGINT NOT NULL,
+                    joined_at BIGINT,
+                    last_seen_at BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    deleted_at BIGINT
                 )
                 """,
                 """
@@ -479,6 +563,73 @@ class MysqlModeMapperInMemoryTest {
                 """);
     }
 
+    private void insertGroupSnapshotFixtures() throws SQLException {
+        executeSql(
+                """
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, wa_subject, member_size,
+                  last_preview_at, created_at, updated_at
+                ) VALUES
+                  (7, 21, 'current@g.us', '旧群名', 64, 1, 1, 1),
+                  (8, 22, 'other@g.us', '其他租户旧群名', 64, 1, 1, 1)
+                """,
+                """
+                INSERT INTO group_link_health (
+                  tenant_id, group_link_id, health_status, is_banned, current_count,
+                  last_check_at, health_failure_count, created_at, updated_at
+                ) VALUES
+                  (7, 21, 1, FALSE, 64, 1, 0, 1, 1),
+                  (8, 22, 1, FALSE, 64, 1, 0, 1, 1)
+                """,
+                """
+                INSERT INTO account_group_membership (
+                  tenant_id, account_id, group_link_id, group_jid, is_admin,
+                  membership_status, status_source, status_updated_at,
+                  joined_at, last_seen_at, created_at, updated_at
+                ) VALUES
+                  (7, 501, 21, 'current@g.us', FALSE, 5, 'LEGACY_MIGRATION', 1, 1, 1, 1, 1),
+                  (8, 501, 22, 'other@g.us', FALSE, 5, 'LEGACY_MIGRATION', 1, 1, 1, 1, 1)
+                """);
+    }
+
+    private GroupLinkPreview previewUpdate() {
+        GroupLinkPreview row = new GroupLinkPreview();
+        row.setGroupLinkId(21L);
+        row.setGroupJid("current@g.us");
+        row.setWaSubject("新群名");
+        row.setMemberSize(128);
+        row.setLastPreviewAt(2_000L);
+        row.setUpdatedAt(2_000L);
+        return row;
+    }
+
+    private GroupLinkHealth healthUpdate() {
+        GroupLinkHealth row = new GroupLinkHealth();
+        row.setGroupLinkId(21L);
+        row.setHealthStatus(1);
+        row.setBanned(false);
+        row.setCurrentCount(128);
+        row.setLastCheckAt(2_000L);
+        row.setHealthFailureCount(0);
+        row.setUpdatedAt(2_000L);
+        return row;
+    }
+
+    private AccountGroupMembership membershipUpdate() {
+        AccountGroupMembership row = new AccountGroupMembership();
+        row.setAccountId(501L);
+        row.setGroupLinkId(21L);
+        row.setGroupJid("current@g.us");
+        row.setAdmin(true);
+        row.setMembershipStatus(1);
+        row.setStatusSource("GROUP_SNAPSHOT");
+        row.setStatusUpdatedAt(2_000L);
+        row.setJoinedAt(2_000L);
+        row.setLastSeenAt(2_000L);
+        row.setUpdatedAt(2_000L);
+        return row;
+    }
+
     private Long upsertAfterStart(String linkUrl,
                                   long now,
                                   CountDownLatch ready,
@@ -492,7 +643,7 @@ class MysqlModeMapperInMemoryTest {
             return transactionTemplate.execute(status -> {
                 GroupLink row = observedGroup(linkUrl, "并发观察群", now);
                 groupLinkMapper.upsertAccountObservedGroup(row, row.getGroupName());
-                GroupLink resolved = groupLinkMapper.selectAnyByUrl(linkUrl);
+                GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(linkUrl);
                 return resolved.getId();
             });
         } finally {
@@ -610,6 +761,8 @@ class MysqlModeMapperInMemoryTest {
             factoryBean.setMapperLocations(
                     new ClassPathResource("mapper/account/AccountGroupMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
+                    new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupLinkHealthMapper.xml"),
                     new ClassPathResource("mapper/marketing/MarketingTaskMapper.xml"));
             return factoryBean.getObject();
         }
@@ -627,6 +780,16 @@ class MysqlModeMapperInMemoryTest {
         @Bean
         GroupLinkMapper groupLinkMapper(SqlSessionTemplate sqlSessionTemplate) {
             return sqlSessionTemplate.getMapper(GroupLinkMapper.class);
+        }
+
+        @Bean
+        AccountGroupMembershipMapper membershipMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(AccountGroupMembershipMapper.class);
+        }
+
+        @Bean
+        GroupLinkHealthMapper healthMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(GroupLinkHealthMapper.class);
         }
 
         @Bean

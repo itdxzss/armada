@@ -22,6 +22,9 @@ public class AccountState {
     /** 登录状态:1在线 2离线 3待上线;NULL=未上报/未发起上线。 */
     private Integer loginState;
 
+    /** 期望登录状态:1在线 2离线;NULL=历史未建立显式意图。 */
+    private Integer desiredLoginState;
+
     /** 风控状态:1未风控 2风控中 3待解除;NULL=未上报。 */
     private Integer riskStatus;
 
@@ -108,6 +111,14 @@ public class AccountState {
 
     public void setLoginState(Integer loginState) {
         this.loginState = loginState;
+    }
+
+    public Integer getDesiredLoginState() {
+        return desiredLoginState;
+    }
+
+    public void setDesiredLoginState(Integer desiredLoginState) {
+        this.desiredLoginState = desiredLoginState;
     }
 
     public Integer getRiskStatus() {

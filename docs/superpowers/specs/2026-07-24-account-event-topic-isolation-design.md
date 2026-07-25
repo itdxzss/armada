@@ -23,6 +23,11 @@
 | `protocol.account.state.events.v1` | `account.state_changed`、`account.offline_diagnosed` | `armada-api-account-state-events` | 4 |
 | `protocol.account.group-sync.events.v1` | `account.groups_reported`、`account.group_membership_changed` | `armada-api-account-group-sync-events` | 4 |
 
+Topic 和 consumer group 还必须按部署环境隔离。perf2 使用
+`armada.perf.protocol.account.{state,group-sync}.events.v1` 与
+`armada-perf-api-account-{state,group-sync}-events`；禁止两套环境以同一 consumer group
+共同消费同一状态 Topic，否则分区会被两套数据库瓜分，导致 ONLINE/OFFLINE 回写随机丢失。
+
 所有事件继续使用协议账号 ID 作为 Kafka key，同一账号在单个 Topic 内保持分区顺序。两个 Topic 之间不保证顺序；群同步写库不得依赖 Armada 已先消费 ONLINE。
 
 Web 协议的其他 `account.*` 遥测事件继续写入 `protocol.account.events.v1`，Armada 不再订阅该 Topic。原有 `protocol.group.events.v1`、消息事件和 owner 事件路由保持不变。

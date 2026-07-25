@@ -124,6 +124,38 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void cancelPendingAccountOnlineCommands_preservesOfflineLockedAndOtherAccountRows() {
+        long now = System.currentTimeMillis();
+        long targetAccountId = 5201L;
+        ProtocolCommandOutbox pendingOnline = pendingCommand(
+                "cancel-online-" + now, "batch-cancel-" + now, targetAccountId, now);
+        ProtocolCommandOutbox pendingOffline = pendingCommand(
+                "keep-offline-" + now, "batch-cancel-" + now, targetAccountId, now);
+        pendingOffline.setCommandType("account.offline.requested");
+        ProtocolCommandOutbox lockedOnline = pendingCommand(
+                "keep-locked-" + now, "batch-cancel-" + now, targetAccountId, now);
+        ProtocolCommandOutbox otherAccountOnline = pendingCommand(
+                "keep-other-" + now, "batch-cancel-" + now, 5202L, now);
+        assertThat(mapper.batchInsertPending(List.of(
+                pendingOnline, pendingOffline, lockedOnline, otherAccountOnline))).isEqualTo(4);
+
+        Long pendingOnlineId = insertedId(pendingOnline.getCommandId(), now);
+        Long pendingOfflineId = insertedId(pendingOffline.getCommandId(), now);
+        Long lockedOnlineId = insertedId(lockedOnline.getCommandId(), now);
+        Long otherAccountOnlineId = insertedId(otherAccountOnline.getCommandId(), now);
+        assertThat(mapper.markLocked(List.of(lockedOnlineId), "publisher-cancel-test", now + 1)).isEqualTo(1);
+
+        int canceled = outboxService.cancelPendingAccountOnlineCommands(List.of(targetAccountId));
+
+        assertThat(canceled).isEqualTo(1);
+        assertThat(state(pendingOnlineId).status()).isEqualTo(ProtocolCommandOutboxStatus.CANCELED.code());
+        assertThat(state(pendingOnlineId).lastError()).isEqualTo("MANUAL_OFFLINE");
+        assertThat(state(pendingOfflineId).status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(state(lockedOnlineId).status()).isEqualTo(ProtocolCommandOutboxStatus.LOCKED.code());
+        assertThat(state(otherAccountOnlineId).status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+    }
+
+    @Test
     void lockAndSentTransitions_requireExpectedPreviousStatus() {
         long now = System.currentTimeMillis();
         ProtocolCommandOutbox row = pendingCommand("sent-" + now, null, 2001L, now);

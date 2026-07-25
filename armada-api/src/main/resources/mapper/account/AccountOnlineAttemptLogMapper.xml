@@ -47,6 +47,17 @@
     LIMIT 1
   </select>
 
+  <select id="selectLatestProxyFailureByAccountId"
+          resultType="com.armada.account.model.entity.AccountOnlineAttemptLog">
+    SELECT <include refid="Columns"/>
+    FROM account_online_attempt_log
+    WHERE account_id = #{accountId}
+      AND to_state = #{proxyFailedState}
+      AND proxy_id IS NOT NULL
+    ORDER BY occurred_at DESC, id DESC
+    LIMIT 1
+  </select>
+
   <!-- 当前 TenantContext 租户内清理;tenant_id 由租户拦截器注入。 -->
   <delete id="deleteBefore">
     DELETE FROM account_online_attempt_log

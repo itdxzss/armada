@@ -222,6 +222,16 @@ class AccountOnlineAttemptLogServiceImplTest {
         verify(mapper).selectLatestAttemptIdByAccountId(9L);
     }
 
+    @Test
+    void latestProxyFailure_returnsAttemptAndProxyFromLatestProxyFailedDiagnosis() {
+        when(mapper.selectLatestProxyFailureByAccountId(9L, "PROXY_FAILED")).thenReturn(row());
+
+        var result = service.latestProxyFailure(9L);
+
+        assertThat(result.onlineAttemptId()).isEqualTo("oa_1");
+        assertThat(result.proxyId()).isEqualTo(4035L);
+    }
+
     private static AccountOfflineDiagnosedEvent event(Long tenantId) {
         return event(tenantId, "reason", "{\"wsOpen\":false}");
     }

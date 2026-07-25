@@ -162,6 +162,7 @@ public class ProtocolAccountEventConsumer {
                 integer(data, "rawCode"),
                 text(data, "source"),
                 text(data, "onlineAttemptId"),
+                longValue(data, "proxyId"),
                 text(envelope, "workerId"));
     }
 

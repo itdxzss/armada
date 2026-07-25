@@ -1,6 +1,5 @@
 package com.armada.resource.service.impl;
 
-import com.armada.resource.mapper.IpProxyBindTarget;
 import com.armada.resource.mapper.IpProxyCandidateQuery;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
@@ -9,7 +8,6 @@ import com.armada.resource.service.IpProxyAllocationRequest;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -17,15 +15,15 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 使用普通候选查询和条件批量 UPDATE 抢占上线代理。
+ * 使用普通候选查询和单行条件 UPDATE 抢占上线代理。
  *
- * <p>该类只负责代理竞争算法，不开启事务。调用方必须在 READ_COMMITTED 事务中先释放旧绑定，
- * 再调用本类；这样重试查询既能看到其它事务已提交的抢占，也能排除本事务已经置为 IN_USE 的代理。</p>
+ * <p>该类只负责代理竞争算法，不开启事务。候选 SELECT 允许读到并发旧快照，真正归属以
+ * {@code UPDATE ... WHERE status=IDLE} 返回行数为准；抢占失败后直接尝试下一候选，
+ * 因此不依赖调用方修改默认事务隔离级别。</p>
  */
 final class IpProxyOptimisticAllocator {
 
-    static final int CAS_BATCH_SIZE = 100;
-    static final int MAX_CLAIM_ROUNDS = 3;
+    static final int CANDIDATE_BATCH_SIZE = 100;
 
     private final IpProxyMapper mapper;
 
@@ -53,8 +51,8 @@ final class IpProxyOptimisticAllocator {
         Map<Long, IpProxy> allocatedByAccountId = new LinkedHashMap<>();
         AllocationStats stats = new AllocationStats();
         for (List<IpProxyAllocationRequest> group : groups.values()) {
-            for (int start = 0; start < group.size(); start += CAS_BATCH_SIZE) {
-                int end = Math.min(start + CAS_BATCH_SIZE, group.size());
+            for (int start = 0; start < group.size(); start += CANDIDATE_BATCH_SIZE) {
+                int end = Math.min(start + CANDIDATE_BATCH_SIZE, group.size());
                 claimChunk(tenantId, group.subList(start, end), excludedProxyIds,
                         boundAt, mixedRegion, allocatedByAccountId, stats);
             }
@@ -90,82 +88,74 @@ final class IpProxyOptimisticAllocator {
                             Map<Long, IpProxy> allocatedByAccountId,
                             AllocationStats stats) {
         List<IpProxyAllocationRequest> pending = new ArrayList<>(chunk);
-        for (int round = 1; round <= MAX_CLAIM_ROUNDS && !pending.isEmpty(); round++) {
-            if (round > 1) {
-                stats.retryRounds++;
-            }
-            List<ProxyClaim> claims = queryClaims(
-                    tenantId, pending, excludedProxyIds, mixedRegion, stats);
-            if (claims.isEmpty()) {
+        Set<Long> attemptedProxyIds = new LinkedHashSet<>();
+        int candidateRound = 0;
+        while (!pending.isEmpty()) {
+            List<IpProxy> candidates = queryCandidates(
+                    tenantId, pending.get(0), excludedProxyIds, attemptedProxyIds, mixedRegion, stats);
+            if (candidates.isEmpty()) {
                 throw insufficientProxy(chunk.size(), chunk.size() - pending.size());
             }
-            List<IpProxyBindTarget> targets = claims.stream()
-                    .map(claim -> new IpProxyBindTarget(claim.proxy().getId(), claim.request().accountId()))
-                    .sorted(Comparator.comparing(IpProxyBindTarget::proxyId))
-                    .toList();
-            stats.casUpdatedRows += mapper.markUsingAndBindBatch(
-                    targets,
+            if (candidateRound++ > 0) {
+                stats.retryRounds++;
+            }
+            claimCandidates(pending, candidates, attemptedProxyIds, boundAt, allocatedByAccountId, stats);
+        }
+    }
+
+    private List<IpProxy> queryCandidates(Long tenantId,
+                                          IpProxyAllocationRequest request,
+                                          List<Long> excludedProxyIds,
+                                          Set<Long> attemptedProxyIds,
+                                          String mixedRegion,
+                                          AllocationStats stats) {
+        Set<Long> queryExclusions = new LinkedHashSet<>(excludedProxyIds);
+        queryExclusions.addAll(attemptedProxyIds);
+        List<IpProxy> candidates = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                tenantId,
+                IpProxyStatus.IDLE.code(),
+                request.preferredRegion(),
+                mixedRegion,
+                List.copyOf(queryExclusions),
+                request.allowOtherRegionFallback(),
+                CANDIDATE_BATCH_SIZE));
+        stats.candidateQueries++;
+        return candidates.stream()
+                .filter(candidate -> candidate.getId() != null)
+                .filter(candidate -> !attemptedProxyIds.contains(candidate.getId()))
+                .toList();
+    }
+
+    private void claimCandidates(List<IpProxyAllocationRequest> pending,
+                                 List<IpProxy> candidates,
+                                 Set<Long> attemptedProxyIds,
+                                 long boundAt,
+                                 Map<Long, IpProxy> allocatedByAccountId,
+                                 AllocationStats stats) {
+        for (IpProxy candidate : candidates) {
+            if (pending.isEmpty()) {
+                return;
+            }
+            attemptedProxyIds.add(candidate.getId());
+            IpProxyAllocationRequest request = pending.get(0);
+            int updated = mapper.markUsingAndBind(
+                    candidate.getId(),
+                    request.accountId(),
                     IpProxyStatus.IDLE.code(),
                     IpProxyStatus.IN_USE.code(),
                     boundAt);
             stats.casStatements++;
-            int verified = verifyClaims(claims, allocatedByAccountId);
-            stats.conflicts += claims.size() - verified;
-            // 本轮全部被并发请求抢占时也继续重查空闲池，让账号换一个候选代理。
-            // 不把冲突 ID 追加进 NOT IN；READ_COMMITTED 下下一轮会自然看不到已提交的 IN_USE 行。
-            Set<Long> completedAccountIds = new LinkedHashSet<>(allocatedByAccountId.keySet());
-            pending.removeIf(request -> completedAccountIds.contains(request.accountId()));
-        }
-        if (!pending.isEmpty()) {
-            throw new BusinessException(
-                    ErrorCode.CONFLICT,
-                    "代理分配冲突重试耗尽: pending=" + pending.size());
-        }
-    }
-
-    private List<ProxyClaim> queryClaims(Long tenantId,
-                                         List<IpProxyAllocationRequest> pending,
-                                         List<Long> excludedProxyIds,
-                                         String mixedRegion,
-                                         AllocationStats stats) {
-        IpProxyAllocationRequest first = pending.get(0);
-        List<IpProxy> candidates = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
-                tenantId,
-                IpProxyStatus.IDLE.code(),
-                first.preferredRegion(),
-                mixedRegion,
-                excludedProxyIds,
-                first.allowOtherRegionFallback(),
-                pending.size()));
-        stats.candidateQueries++;
-        int claimCount = Math.min(pending.size(), candidates.size());
-        List<ProxyClaim> claims = new ArrayList<>(claimCount);
-        for (int index = 0; index < claimCount; index++) {
-            claims.add(new ProxyClaim(pending.get(index), candidates.get(index)));
-        }
-        return claims;
-    }
-
-    private int verifyClaims(List<ProxyClaim> claims, Map<Long, IpProxy> allocatedByAccountId) {
-        List<Long> proxyIds = claims.stream()
-                .map(claim -> claim.proxy().getId())
-                .sorted()
-                .toList();
-        Map<Long, IpProxy> actualByProxyId = new LinkedHashMap<>();
-        for (IpProxy actual : mapper.selectActiveByIds(proxyIds)) {
-            actualByProxyId.put(actual.getId(), actual);
-        }
-        int verified = 0;
-        for (ProxyClaim claim : claims) {
-            IpProxy actual = actualByProxyId.get(claim.proxy().getId());
-            if (actual != null
-                    && Integer.valueOf(IpProxyStatus.IN_USE.code()).equals(actual.getStatus())
-                    && claim.request().accountId().equals(actual.getBoundAccountId())) {
-                allocatedByAccountId.put(claim.request().accountId(), actual);
-                verified++;
+            stats.casUpdatedRows += updated;
+            if (updated == 1) {
+                candidate.setStatus(IpProxyStatus.IN_USE.code());
+                candidate.setBoundAccountId(request.accountId());
+                candidate.setBoundAt(boundAt);
+                allocatedByAccountId.put(request.accountId(), candidate);
+                pending.remove(0);
+            } else {
+                stats.conflicts++;
             }
         }
-        return verified;
     }
 
     private BusinessException insufficientProxy(int requested, int allocated) {
@@ -182,7 +172,7 @@ final class IpProxyOptimisticAllocator {
      *
      * @param proxies 按请求顺序排列的代理
      * @param candidateQueries 候选查询次数
-     * @param casStatements CASE UPDATE 次数
+     * @param casStatements 单行条件 UPDATE 次数
      * @param casUpdatedRows JDBC 报告的更新总行数
      * @param conflicts UPDATE 后映射不符合预期的数量
      * @param retryRounds 首轮之后的重试轮数
@@ -198,9 +188,6 @@ final class IpProxyOptimisticAllocator {
     }
 
     private record AllocationStrategy(String preferredRegion, boolean allowOtherRegionFallback) {
-    }
-
-    private record ProxyClaim(IpProxyAllocationRequest request, IpProxy proxy) {
     }
 
     private static final class AllocationStats {

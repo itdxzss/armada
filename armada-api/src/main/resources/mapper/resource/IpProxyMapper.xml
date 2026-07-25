@@ -440,7 +440,7 @@
           AND deleted_at IS NULL
     </update>
 
-    <!-- 候选查询不加行锁；真正占用由后续 status=IDLE 的 CASE UPDATE 原子竞争。 -->
+    <!-- 候选查询不加行锁；真正占用由后续 status=IDLE 的单行 UPDATE 原子竞争。 -->
     <select id="selectIdleByRegionPriority" resultType="com.armada.resource.model.entity.IpProxy">
         SELECT <include refid="Columns"/>
         FROM ip_proxy
@@ -481,21 +481,15 @@
         LIMIT #{query.limit}
     </select>
 
-    <update id="markUsingAndBindBatch">
+    <update id="markUsingAndBind">
         UPDATE ip_proxy
         SET status = #{usingStatus},
-            bound_account_id = CASE id
-            <foreach collection="targets" item="target">
-                WHEN #{target.proxyId} THEN #{target.accountId}
-            </foreach>
-            END,
+            bound_account_id = #{accountId},
             bound_at = #{boundAt},
             updated_at = #{boundAt}
-        WHERE deleted_at IS NULL
+        WHERE id = #{id}
+          AND deleted_at IS NULL
           AND status = #{idleStatus}
-          AND id IN
-        <foreach collection="targets" item="target" open="(" separator="," close=")">#{target.proxyId}</foreach>
-        ORDER BY id ASC
     </update>
 
     <update id="releaseByAccount">
@@ -507,31 +501,6 @@
         WHERE bound_account_id = #{accountId}
           AND deleted_at IS NULL
           AND status = #{usingStatus}
-    </update>
-
-    <update id="markBoundProxyUnavailableByAccount">
-        UPDATE ip_proxy
-        SET status = #{entity.status},
-            bound_account_id = NULL,
-            bound_at = NULL,
-            last_sample_check_at = #{entity.lastSampleCheckAt},
-            detected_country_code = NULL,
-            outbound_ip = NULL,
-            detected_location = NULL,
-            detected_isp = NULL,
-            detected_latitude = NULL,
-            detected_longitude = NULL,
-            check_fail_count = COALESCE(check_fail_count, 0) + 1,
-            last_check_error = #{entity.lastCheckError},
-            check_status = #{entity.checkStatus},
-            whatsapp_check_status = #{entity.whatsappCheckStatus},
-            whatsapp_http_status = #{entity.whatsappHttpStatus},
-            whatsapp_check_error = #{entity.whatsappCheckError},
-            updated_at = #{entity.updatedAt}
-        WHERE bound_account_id = #{accountId}
-          AND deleted_at IS NULL
-          AND status = #{usingStatus}
-          AND (bound_at IS NULL OR bound_at &lt;= #{maxBoundAt})
     </update>
 
     <update id="releaseByAccounts">

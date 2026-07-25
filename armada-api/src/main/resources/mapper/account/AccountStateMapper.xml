@@ -65,6 +65,30 @@
     </foreach>
   </update>
 
+  <!-- 显式控制面命令更新期望状态；协议实际状态回写不触碰该列。 -->
+  <update id="updateDesiredLoginStateInternal">
+    UPDATE account_state
+    SET desired_login_state = #{desiredLoginState},
+        updated_at = #{updatedAt}
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+  </update>
+
+  <!-- C 事务条件抢占：失败回滚后仍保持 OFFLINE/PROXY_FAILED，供下一轮继续恢复。 -->
+  <update id="claimProxyFailedReonlineInternal">
+    UPDATE account_state
+    SET login_state = #{pendingLoginState},
+        last_state_sync_time = #{updatedAt},
+        state_source = #{targetStateSource},
+        updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+      AND login_state = #{offlineLoginState}
+      AND state_source = #{expectedStateSource}
+      AND (desired_login_state IS NULL OR desired_login_state != #{desiredOfflineState})
+  </update>
+
   <!-- account.state_changed 普通状态:只更新登录态与同步元数据,不改 account_state 生命周期列。 -->
   <update id="updateLoginState">
     UPDATE account_state
@@ -154,5 +178,23 @@
         updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
   </update>
+
+  <!-- 无锁跨租户扫描；账号若已上线、被手动下线或进入终态，state_source/login_state 条件会自动停止补偿。 -->
+  <select id="selectProxyFailedRecoveryCandidates"
+          resultType="com.armada.account.model.AccountProxyFailedRecoveryCandidate">
+    SELECT s.tenant_id AS tenantId,
+           s.account_id AS accountId
+    FROM account_state s
+    INNER JOIN account a
+      ON a.id = s.account_id
+     AND a.tenant_id = s.tenant_id
+     AND a.deleted_at IS NULL
+    WHERE s.login_state = #{offlineLoginState}
+      AND s.state_source = #{stateSource}
+      AND (s.desired_login_state IS NULL OR s.desired_login_state != #{desiredOfflineState})
+      AND s.last_state_sync_time &lt;= #{eligibleBefore}
+    ORDER BY s.last_state_sync_time ASC, s.id ASC
+    LIMIT #{limit}
+  </select>
 
 </mapper>

@@ -37,6 +37,18 @@ public interface ProtocolCommandOutboxService {
     ProtocolCommandOutboxEnqueueResult enqueueOfflineCommands(List<ProtocolOfflineCommandRequest> commands);
 
     /**
+     * 取消当前租户下尚未发布的账号上线命令。
+     *
+     * <p>显式下线调用该方法阻止旧 PENDING 上线命令在下线之后才发布；LOCKED/SENT 命令保持原状，
+     * 依赖同账号 Kafka key 保序由更新的下线命令收口。</p>
+     *
+     * @param accountIds 显式下线的账号 ID，最多 1000 个
+     * @return 实际取消的 PENDING 上线命令数
+     * @throws BusinessException 账号 ID 非法或超过批量上限时抛出
+     */
+    int cancelPendingAccountOnlineCommands(List<Long> accountIds);
+
+    /**
      * 批量写入群链接健康检查 outbox 命令。
      *
      * @param commands 待 enqueue 的群健康检查命令,最多 500 条

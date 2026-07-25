@@ -5,6 +5,7 @@ import com.armada.account.model.entity.AccountOnlineAttemptLog;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.service.AccountOfflineDiagnosedEvent;
 import com.armada.account.service.AccountOnlineAttemptLogService;
+import com.armada.account.service.AccountProxyFailureContext;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -89,6 +90,18 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
     @Override
     public String latestAttemptId(Long accountId) {
         return mapper.selectLatestAttemptIdByAccountId(accountId);
+    }
+
+    @Override
+    public AccountProxyFailureContext latestProxyFailure(Long accountId) {
+        if (accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
+        }
+        AccountOnlineAttemptLog row = mapper.selectLatestProxyFailureByAccountId(accountId, "PROXY_FAILED");
+        if (row == null) {
+            return null;
+        }
+        return new AccountProxyFailureContext(row.getOnlineAttemptId(), row.getProxyId());
     }
 
     private static int normalizeLimit(int limit) {

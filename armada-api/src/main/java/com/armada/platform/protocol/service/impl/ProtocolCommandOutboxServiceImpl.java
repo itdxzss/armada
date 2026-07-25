@@ -177,6 +177,28 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     }
 
     /**
+     * 取消显式下线账号尚未发布的旧上线命令。
+     */
+    @Override
+    public int cancelPendingAccountOnlineCommands(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return 0;
+        }
+        if (accountIds.size() > MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH
+                || accountIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "待取消的账号上线命令 ID 非法或超过 " + MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH + " 条");
+        }
+        return mapper.cancelPendingAccountOnlineCommandsInternal(
+                accountIds,
+                AGGREGATE_TYPE_ACCOUNT,
+                COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED,
+                ProtocolCommandOutboxStatus.PENDING.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(),
+                System.currentTimeMillis());
+    }
+
+    /**
      * 批量写入群链接健康检查 outbox 命令。
      *
      * <p>单条命令不生成 batch_id;多条命令共享一个 batch_id,便于单轮巡检排查。</p>

@@ -334,6 +334,25 @@ public interface ProtocolCommandOutboxMapper {
             @Param("now") long now);
 
     /**
+     * 取消当前租户指定账号尚未发布的上线命令。
+     *
+     * @param accountIds 账号 ID 列表
+     * @param aggregateType 账号聚合类型
+     * @param onlineCommandType 账号上线命令类型
+     * @param pendingStatus PENDING 状态码
+     * @param canceledStatus CANCELED 状态码
+     * @param now 当前时间(epoch 毫秒)
+     * @return 实际取消行数
+     */
+    int cancelPendingAccountOnlineCommandsInternal(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("aggregateType") String aggregateType,
+            @Param("onlineCommandType") String onlineCommandType,
+            @Param("pendingStatus") int pendingStatus,
+            @Param("canceledStatus") int canceledStatus,
+            @Param("now") long now);
+
+    /**
      * 将当前 dispatcher 持有锁的命令标记为 DEAD。
      *
      * @param lockedRow 包含 id 或 command_id,以及 locked_by/locked_at 的锁上下文

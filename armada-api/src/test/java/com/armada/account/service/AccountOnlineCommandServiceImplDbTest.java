@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountCredentialMapper;
 import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.AccountProxyFailedRecoveryCandidate;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
@@ -61,6 +62,8 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         long now = System.currentTimeMillis();
         Account first = insertAccount("86180" + (now % 10_000_000L), now);
         Account second = insertAccount("86181" + (now % 10_000_000L), now);
+        insertDefaultState(first.getId(), now);
+        insertDefaultState(second.getId(), now);
 
         AccountBatchOnlineVO result = service.offlineBatch(List.of(first.getId(), second.getId()));
 
@@ -102,6 +105,10 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
                 .doesNotContain("password")
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
+        assertThat(stateMapper.selectByAccountId(first.getId()).getDesiredLoginState())
+                .isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(stateMapper.selectByAccountId(second.getId()).getDesiredLoginState())
+                .isEqualTo(AccountLoginStateCode.OFFLINE);
     }
 
     @Test
@@ -117,6 +124,7 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         assertThat(result.accepted()).isEqualTo(1);
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
+        assertThat(state.getDesiredLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
         assertThat(state.getStateSource()).isEqualTo("OUTBOX");
         assertThat(state.getLastStateSyncTime()).isNotNull();
         assertThat(state.getProxyCountry()).isEqualTo("印度");
@@ -144,11 +152,61 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         AccountState state = stateMapper.selectByAccountId(account.getId());
         assertThat(state.getAccountState()).isEqualTo(AccountStateCode.TAKING_OVER);
         assertThat(state.getLoginState()).isEqualTo(AccountLoginStateCode.PENDING_ONLINE);
+        assertThat(state.getDesiredLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
         Map<String, Object> payload = objectMapper.readValue(selectOnlineOutboxPayload(account.getId()), new TypeReference<>() {
         });
         assertThat(payload)
                 .containsEntry("protocolAccountId", account.getProtocolAccountId())
                 .containsEntry("source", "login_replaced_takeover");
+    }
+
+    @Test
+    void proxyFailedRecovery_desiredOfflineBlocksButOnlineAndLegacyUnknownRemainEligible() {
+        long now = System.currentTimeMillis();
+        Account account = insertAccount("86184" + (now % 10_000_000L), now);
+        insertDefaultState(account.getId(), now);
+
+        setProxyFailedState(account.getId(), AccountLoginStateCode.OFFLINE, 1L, now);
+        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 1)).isZero();
+        assertThat(recoveryCandidateIds(now + 10_000L)).doesNotContain(account.getId());
+
+        setProxyFailedState(account.getId(), AccountLoginStateCode.ONLINE, 1L, now + 2);
+        assertThat(recoveryCandidateIds(now + 10_000L)).contains(account.getId());
+        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 3)).isEqualTo(1);
+
+        setProxyFailedState(account.getId(), null, 1L, now + 4);
+        assertThat(recoveryCandidateIds(now + 10_000L)).contains(account.getId());
+        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 5)).isEqualTo(1);
+    }
+
+    private void setProxyFailedState(Long accountId,
+                                     Integer desiredLoginState,
+                                     long lastStateSyncTime,
+                                     long updatedAt) {
+        jdbc.update("""
+                UPDATE account_state
+                SET login_state = ?, desired_login_state = ?, state_source = ?,
+                    last_state_sync_time = ?, updated_at = ?
+                WHERE account_id = ?
+                """,
+                AccountLoginStateCode.OFFLINE,
+                desiredLoginState,
+                "PROXY_FAILED",
+                lastStateSyncTime,
+                updatedAt,
+                accountId);
+    }
+
+    private List<Long> recoveryCandidateIds(long eligibleBefore) {
+        return stateMapper.selectProxyFailedRecoveryCandidates(
+                        AccountLoginStateCode.OFFLINE,
+                        "PROXY_FAILED",
+                        AccountLoginStateCode.OFFLINE,
+                        eligibleBefore,
+                        1_000)
+                .stream()
+                .map(AccountProxyFailedRecoveryCandidate::accountId)
+                .toList();
     }
 
     private Account insertAccount(String wsPhone, long now) {

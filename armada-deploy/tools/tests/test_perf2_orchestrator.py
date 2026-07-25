@@ -184,6 +184,29 @@ class OrchestratorTest(unittest.TestCase):
         self.assertEqual(2, summary["snapshotTaskCount"])
         self.assertFalse(summary["incomplete"])
 
+    def test_baseline_warmup_gap_restarts_full_candidate_window(self) -> None:
+        calls = []
+        snapshot = (task(1),)
+        api = FakeTaskAPI((snapshot, snapshot), calls)
+        remote = FakeRemoteManager(
+            self._events((0, 0, 0), (2, 0, 0), (3, 0, 0), (4, 0, 0)),
+            calls,
+        )
+        orchestrator = self._orchestrator(
+            api,
+            remote,
+            execute=False,
+            baseline_seconds=3,
+        )
+
+        self.assertEqual(0, orchestrator.run())
+
+        with (orchestrator.run_dir / "samples.csv").open(encoding="utf-8") as samples:
+            rows = samples.read().splitlines()
+        self.assertEqual(4, len(rows))
+        self.assertIn("02:00:02Z", rows[1])
+        self.assertIn("02:00:04Z", rows[3])
+
     def test_execute_runs_guarded_resume_then_waits_for_zero_window(self) -> None:
         calls = []
         snapshot = (task(1), task(2))
@@ -396,7 +419,15 @@ class OrchestratorTest(unittest.TestCase):
         self.assertIn("reconcile", calls)
         self.assertTrue((orchestrator.run_dir / "task-snapshot.json").is_file())
 
-    def _orchestrator(self, api, remote, *, execute, expected_count=None):
+    def _orchestrator(
+        self,
+        api,
+        remote,
+        *,
+        execute,
+        expected_count=None,
+        baseline_seconds=2,
+    ):
         run_id = "20260725T020000Z-%08x" % (0xDEADBEEF + self.run_counter)
         self.run_counter += 1
         options = RunOptions(
@@ -405,7 +436,7 @@ class OrchestratorTest(unittest.TestCase):
             execute=execute,
             expected_count=expected_count,
             resume_concurrency=4,
-            baseline_seconds=2,
+            baseline_seconds=baseline_seconds,
             zero_window_seconds=2,
             timeout_seconds=5,
             min_free_gib=5,

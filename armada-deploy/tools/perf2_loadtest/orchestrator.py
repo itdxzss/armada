@@ -224,7 +224,9 @@ class Orchestrator:
         while len(samples) < self.options.baseline_seconds:
             sample = self._next_merged(events, deadline, baseline=True)
             if samples and sample.at - samples[-1].at != timedelta(seconds=1):
-                raise OrchestratorError("baseline_gap")
+                samples = [sample]
+                self._log("baseline_candidate_reset")
+                continue
             samples.append(sample)
         return tuple(samples)
 

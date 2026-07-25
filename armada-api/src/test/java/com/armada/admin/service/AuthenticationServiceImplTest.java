@@ -74,7 +74,7 @@ class AuthenticationServiceImplTest {
     }
 
     @Test
-    void loginUsesSameErrorForWrongPasswordAndDisabledUser() {
+    void loginUsesGenericErrorForWrongPassword() {
         UserLoginDTO request = new UserLoginDTO("admin", "wrong-password", "captcha-2", "EFGH");
         SysUser user = enabledUser(passwordEncoder.encode("armada123"));
         when(captchaService.consume("captcha-2", "EFGH")).thenReturn(true);
@@ -82,7 +82,21 @@ class AuthenticationServiceImplTest {
 
         assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("用户名或密码错误");
+                .hasMessage("账号或密码错误");
+        verify(sessionService, never()).create(7L, 1L);
+    }
+
+    @Test
+    void loginExplainsDisabledAccountAfterPasswordMatches() {
+        UserLoginDTO request = new UserLoginDTO("admin", "armada123", "captcha-3", "IJKL");
+        SysUser user = enabledUser(passwordEncoder.encode("armada123"));
+        user.setStatus(0);
+        when(captchaService.consume("captcha-3", "IJKL")).thenReturn(true);
+        when(identityService.findLoginUser("admin")).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.login(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号已禁用，请联系管理员");
         verify(sessionService, never()).create(7L, 1L);
     }
 

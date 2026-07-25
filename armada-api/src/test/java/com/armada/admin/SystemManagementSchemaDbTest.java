@@ -69,6 +69,11 @@ class SystemManagementSchemaDbTest extends DbTestBase {
                 "SELECT COUNT(*) FROM sys_menu WHERE tenant_id=1"
                         + " AND menu_key='ResourceManagement' AND menu_name='运营管理'"))
                 .isEqualTo(1);
+        assertThat(queryInt(
+                "SELECT COUNT(*) FROM sys_menu WHERE tenant_id=1"
+                        + " AND menu_key='TaskGroupLinkImports'"
+                        + " AND perm_key='tenant:group_link_import:view'"))
+                .isEqualTo(1);
     }
 
     private List<String> columnNames(String tableName) {

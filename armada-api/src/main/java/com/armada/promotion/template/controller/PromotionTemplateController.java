@@ -6,6 +6,7 @@ import com.armada.promotion.template.model.vo.PromotionTemplateVO;
 import com.armada.promotion.template.service.PromotionTemplateService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** 模板管理分页与备注修改接口。 */
 @RestController
 @RequestMapping("/api/promotion-templates")
+@PreAuthorize("hasAuthority('tenant:buyer-template:view')")
 public class PromotionTemplateController {
 
     private final PromotionTemplateService service;
@@ -32,6 +34,7 @@ public class PromotionTemplateController {
      * @return 模板统一分页结果
      */
     @GetMapping("/query")
+    @PreAuthorize("hasAnyAuthority('tenant:buyer-template:view', 'tenant:buyer-channel:view')")
     public ApiResponse<PageResult<PromotionTemplateVO>> page(@ModelAttribute PromotionTemplateQuery query) {
         return ApiResponse.ok(service.page(query));
     }
@@ -44,6 +47,7 @@ public class PromotionTemplateController {
      * @return 统一空成功响应；页面可重新分页查询最新备注和更新时间
      */
     @PatchMapping("/{id}/remark")
+    @PreAuthorize("hasAuthority('tenant:buyer-template:remark')")
     public ApiResponse<Void> updateRemark(
             @PathVariable Long id,
             @RequestBody PromotionTemplateRemarkUpdateDTO request) {

@@ -8,6 +8,7 @@ import com.armada.group.model.vo.HistoricalGroupParticipantActionVO;
 import com.armada.group.service.HistoricalGroupService;
 import com.armada.shared.response.ApiResponse;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/historical-groups")
+@PreAuthorize("hasAuthority('tenant:historical_group:view')")
 public class HistoricalGroupController {
 
     private final HistoricalGroupService historicalGroupService;

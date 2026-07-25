@@ -43,6 +43,12 @@ WHERE child.menu_key IN (
     'TaskGroupCreationMarketing'
 );
 
+-- “导入链接”和“群组列表”是两个独立菜单，权限编码必须可独立授权。
+UPDATE sys_menu
+SET perm_key = 'tenant:group_link_import:view',
+    updated_at = @task_menu_now
+WHERE menu_key = 'TaskGroupLinkImports';
+
 -- 子菜单已迁回任务中心，停用后来拆出的空“群组管理”目录，不物理删除。
 UPDATE sys_menu
 SET status = 0,

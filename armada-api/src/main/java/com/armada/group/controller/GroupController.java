@@ -4,6 +4,7 @@ import com.armada.group.model.dto.GroupCreateDTO;
 import com.armada.group.model.vo.GroupCreateVO;
 import com.armada.group.service.GroupOperationService;
 import com.armada.shared.response.ApiResponse;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/groups")
+@PreAuthorize("hasAuthority('tenant:group_link:view')")
 public class GroupController {
 
     private final GroupOperationService groupOperationService;

@@ -7,6 +7,7 @@ import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/marketing-templates")
+@PreAuthorize("hasAuthority('tenant:marketing_template:view')")
 public class MarketingTemplateController {
 
     private final MarketingTemplateService service;
@@ -36,6 +38,9 @@ public class MarketingTemplateController {
      * @return 当前页模板及总数
      */
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('tenant:marketing_template:view', 'tenant:historical_group:view', "
+            + "'tenant:marketing_task:view', 'tenant:group_pull_marketing:view', "
+            + "'tenant:group_creation_marketing:view')")
     public ApiResponse<PageResult<MarketingTemplateVO>> list(@ModelAttribute MarketingTemplateQuery query) {
         return ApiResponse.ok(service.list(query));
     }

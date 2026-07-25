@@ -7,6 +7,7 @@ import com.armada.group.model.vo.GroupLinkLabelVO;
 import com.armada.group.service.GroupLinkLabelService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/group-link-labels")
+@PreAuthorize("hasAuthority('tenant:group_link_import:view')")
 public class GroupLinkLabelController {
 
     private final GroupLinkLabelService service;
@@ -38,6 +40,7 @@ public class GroupLinkLabelController {
      * @return 分页分组列表
      */
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('tenant:group_link_import:view', 'tenant:pull_task:view')")
     public ApiResponse<PageResult<GroupLinkLabelVO>> list(@ModelAttribute GroupLinkLabelQuery query) {
         return ApiResponse.ok(service.list(query));
     }

@@ -48,3 +48,9 @@ UPDATE sys_menu
 SET status = 0,
     updated_at = @task_menu_now
 WHERE menu_key = 'GroupManagement';
+
+-- 保留原菜单标识和路由，仅恢复一级目录的运营展示名称。
+UPDATE sys_menu
+SET menu_name = '运营管理',
+    updated_at = @task_menu_now
+WHERE menu_key = 'ResourceManagement';

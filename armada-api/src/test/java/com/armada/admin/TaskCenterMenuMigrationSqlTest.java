@@ -27,6 +27,7 @@ class TaskCenterMenuMigrationSqlTest {
                 "WHEN 'TaskGroupCreationMarketing' THEN 90");
         assertThat(sql).contains("SET child.parent_id = task_center.id", "task/group-pull-marketing/index");
         assertThat(sql).contains("WHERE menu_key = 'GroupManagement'");
+        assertThat(sql).contains("SET menu_name = '运营管理'", "WHERE menu_key = 'ResourceManagement'");
         assertThat(sql.toUpperCase()).doesNotContain("DELETE FROM SYS_MENU");
     }
 }

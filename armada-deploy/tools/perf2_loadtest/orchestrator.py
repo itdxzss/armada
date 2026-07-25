@@ -32,6 +32,7 @@ from .report import (
     parse_monitor_line,
     write_samples_csv,
 )
+from .remote import RemoteError
 
 
 class OrchestratorError(RuntimeError):
@@ -158,6 +159,9 @@ class Orchestrator:
         except OrchestratorError as error:
             failure_class = str(error)
             timed_out = failure_class == "monitor_timeout"
+            self._log(failure_class)
+        except RemoteError as error:
+            failure_class = str(error)
             self._log(failure_class)
         except ReportError as error:
             failure_class = str(error)

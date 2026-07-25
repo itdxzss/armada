@@ -18,6 +18,7 @@ from perf2_loadtest.model import (
     TaskSnapshot,
 )
 from perf2_loadtest.orchestrator import Orchestrator, RunState
+from perf2_loadtest.remote import RemoteError
 
 
 UTC = timezone.utc
@@ -98,7 +99,7 @@ class FakeRemoteManager:
     def upload_and_check(self, built, run_id):
         self.calls.append("upload_check")
         if self.fail_upload:
-            raise RuntimeError("live kafka identity mismatch")
+            raise RemoteError("monitor_upload")
 
     def start(self):
         self.calls.append("start")
@@ -398,6 +399,7 @@ class OrchestratorTest(unittest.TestCase):
         self.assertEqual(1, orchestrator.run())
         self.assertEqual(0, api.resume_calls)
         self.assertNotIn("resume", calls)
+        self.assertEqual("monitor_upload", self._read("summary.json")["failureClass"])
 
     def test_stream_failure_after_resume_reconciles_and_marks_incomplete(self) -> None:
         calls = []

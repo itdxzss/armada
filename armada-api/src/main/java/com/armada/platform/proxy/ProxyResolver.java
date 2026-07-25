@@ -12,13 +12,13 @@ import java.util.regex.Pattern;
  * 运行时代理解析器。
  *
  * <p>本组件只负责把代理端点字段解析成协议层 online 需要的 {@link ProxyDescriptor}:
- * 协议码转 wire 字符串、拼完整代理 URL、从 password 中提取 sticky sessionId。
+ * 协议码转 wire 字符串、拼完整代理 URL、从用户名或密码中提取 sticky sessionId。
  * 代理行分配、绑定、回收和数据库状态流转不在这里做。</p>
  */
 @Component
 public class ProxyResolver {
 
-    private static final Pattern SESSION_PATTERN = Pattern.compile("_session-([A-Za-z0-9]+)");
+    private static final Pattern SESSION_PATTERN = Pattern.compile("(?:_|-)session-([A-Za-z0-9]+)");
     private static final int MIN_PORT = 1;
     private static final int MAX_PORT = 65_535;
     private static final String WIRE_HTTP = "http";
@@ -41,7 +41,7 @@ public class ProxyResolver {
         ProxyCredentials credentials = requireCredentials(endpoint.credentials());
         String username = requireText(credentials.username(), "代理用户名不能为空");
         String password = requireText(credentials.password(), "代理密码不能为空");
-        String sessionId = parseSession(password);
+        String sessionId = parseSession(username, password);
         String country = requireText(endpoint.country(), "代理国家不能为空");
         String url = protocol + "://" + username + ":" + password + "@" + host + ":" + port;
         return new ProxyDescriptor(protocol, url, sessionId, country);
@@ -55,12 +55,16 @@ public class ProxyResolver {
         };
     }
 
-    private static String parseSession(String password) {
-        Matcher matcher = SESSION_PATTERN.matcher(password);
-        if (!matcher.find()) {
-            throw validation("代理密码缺少 sticky session");
+    private static String parseSession(String username, String password) {
+        Matcher passwordMatcher = SESSION_PATTERN.matcher(password);
+        if (passwordMatcher.find()) {
+            return passwordMatcher.group(1);
         }
-        return matcher.group(1);
+        Matcher usernameMatcher = SESSION_PATTERN.matcher(username);
+        if (usernameMatcher.find()) {
+            return usernameMatcher.group(1);
+        }
+        throw validation("代理用户名和密码均缺少 sticky session");
     }
 
     private static ProxyCredentials requireCredentials(ProxyCredentials credentials) {

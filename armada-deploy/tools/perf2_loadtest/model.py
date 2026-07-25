@@ -74,3 +74,43 @@ class ReconciledTask:
     task_id: int
     final_status: Optional[int]
     classification: str
+
+
+@dataclass(frozen=True)
+class KafkaMetrics:
+    latest_offset: int
+    committed_offset: int
+    lag: int
+    produced_per_second: float
+    consumed_per_second: float
+    valid: bool
+    error_class: Optional[str]
+
+
+@dataclass(frozen=True)
+class ResourceMetrics:
+    host_cpu_percent: float
+    host_memory_used_bytes: int
+    host_memory_percent: float
+    container_cpu_percent: float
+    container_memory_bytes: int
+    container_memory_percent: float
+    valid: bool
+    error_class: Optional[str]
+
+
+@dataclass(frozen=True)
+class MonitorSample:
+    at: datetime
+    second: datetime
+    node: str
+    kafka: Optional[KafkaMetrics]
+    resource: ResourceMetrics
+
+
+@dataclass(frozen=True)
+class MergedSample:
+    at: datetime
+    kafka: KafkaMetrics
+    armada_resource: ResourceMetrics
+    zhuan_resource: ResourceMetrics

@@ -237,9 +237,10 @@ public class AccountServiceImpl implements AccountService {
     /**
      * 将指定账号人工迁移到目标分组。
      *
-     * <p>事务内先按主键锁定账号及涉及的分组，再校验营销整组锁和活动建群任务引用。
-     * 营销分组禁止迁入、迁出；活动建群账号分组允许迁入但禁止迁出。任务成功或失败后的
-     * 系统自动转组不经过本人工入口。</p>
+     * <p>先读取账号原始来源和分组占用快照以返回明确业务提示，再按原始来源分组执行条件更新。
+     * 条件更新原子复核账号仍在原分组、来源和目标营销锁均为空，且来源没有资源锁定或释放中的
+     * 拉群任务；任一来源组更新数量不完整即抛冲突并回滚整批。活动建群账号分组允许迁入但
+     * 禁止迁出，任务成功或失败后的系统自动转组不经过本人工入口。</p>
      *
      * @param ids 待迁移账号 ID；重复 ID 会去重
      * @param accountGroupId 目标分组 ID
@@ -262,7 +263,7 @@ public class AccountServiceImpl implements AccountService {
             uniqueIds.add(id);
         }
         List<Long> normalizedIds = List.copyOf(uniqueIds);
-        List<Account> accounts = accountMapper.selectActiveByIdsForUpdate(normalizedIds);
+        List<Account> accounts = accountMapper.selectActiveByIds(normalizedIds);
         if (accounts.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号不存在或已删除，请刷新后重试");
         }
@@ -274,7 +275,7 @@ public class AccountServiceImpl implements AccountService {
                 .filter(java.util.Objects::nonNull)
                 .forEach(involvedGroupIds::add);
         Map<Long, AccountGroup> groupsById = accountGroupMapper
-                .selectByIdsForUpdate(List.copyOf(involvedGroupIds)).stream()
+                .selectByIds(List.copyOf(involvedGroupIds)).stream()
                 .collect(Collectors.toMap(AccountGroup::getId, Function.identity()));
         AccountGroup targetGroup = groupsById.get(accountGroupId);
         if (targetGroup == null) {
@@ -303,10 +304,26 @@ public class AccountServiceImpl implements AccountService {
             throw new BusinessException(ErrorCode.CONFLICT, "建群账号分组正在执行任务，不允许迁出账号");
         }
 
+        Map<Long, List<Long>> accountIdsBySourceGroup = new LinkedHashMap<>();
+        for (Account account : accounts) {
+            if (!accountGroupId.equals(account.getAccountGroupId())) {
+                accountIdsBySourceGroup.computeIfAbsent(
+                        account.getAccountGroupId(), ignored -> new java.util.ArrayList<>()).add(account.getId());
+            }
+        }
+        List<Long> orderedSourceGroupIds = accountIdsBySourceGroup.keySet().stream()
+                .sorted(java.util.Comparator.nullsFirst(Long::compareTo))
+                .toList();
         long now = System.currentTimeMillis();
-        int updated = accountMapper.migrateGroup(normalizedIds, accountGroupId, now);
-        if (updated != normalizedIds.size()) {
-            throw new BusinessException(ErrorCode.CONFLICT, "账号分组状态已变化，请刷新后重试");
+        int updated = 0;
+        for (Long sourceGroupId : orderedSourceGroupIds) {
+            List<Long> sourceAccountIds = accountIdsBySourceGroup.get(sourceGroupId);
+            int sourceUpdated = accountMapper.migrateGroupIfAvailable(
+                    sourceAccountIds, sourceGroupId, accountGroupId, now);
+            if (sourceUpdated != sourceAccountIds.size()) {
+                throw new BusinessException(ErrorCode.CONFLICT, "账号分组状态已变化，请刷新后重试");
+            }
+            updated += sourceUpdated;
         }
         log.info("账号批量迁移分组 groupId={} count={} ids={}", accountGroupId, updated, normalizedIds);
     }

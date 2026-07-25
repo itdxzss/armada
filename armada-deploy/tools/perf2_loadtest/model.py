@@ -114,3 +114,31 @@ class MergedSample:
     kafka: KafkaMetrics
     armada_resource: ResourceMetrics
     zhuan_resource: ResourceMetrics
+
+
+@dataclass(frozen=True)
+class BuiltMonitor:
+    path: Path
+    sha256: str
+
+
+@dataclass(frozen=True)
+class NodePreflight:
+    architecture: str
+    container_healthy: bool
+    free_bytes: int
+    docker_stats_available: bool
+
+
+@dataclass(frozen=True)
+class PreflightEvidence:
+    armada: NodePreflight
+    zhuan: NodePreflight
+
+
+@dataclass(frozen=True)
+class MonitorEvent:
+    node: str
+    kind: str
+    line: Optional[bytes] = None
+    error_class: Optional[str] = None

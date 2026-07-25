@@ -7,6 +7,11 @@
     SELECT * FROM group_link WHERE link_url = #{url} LIMIT 1
   </select>
 
+  <!-- RR 下 upsert 后必须使用当前读，否则既有 read view 可能看不到等待期间提交的唯一键行。 -->
+  <select id="selectAnyByUrlForUpdate" resultType="com.armada.group.model.entity.GroupLink">
+    SELECT * FROM group_link WHERE link_url = #{url} FOR UPDATE
+  </select>
+
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, origin, membership_state, remark,
       created_at, updated_at, created_by)

@@ -80,7 +80,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             groupLinkMapper.upsertAccountObservedGroup(row, normalizedName);
-            GroupLink resolved = groupLinkMapper.selectAnyByUrl(row.getLinkUrl());
+            GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(row.getLinkUrl());
             if (resolved == null || resolved.getId() == null) {
                 throw new BusinessException(ErrorCode.CONFLICT, "账号群入口登记失败");
             }

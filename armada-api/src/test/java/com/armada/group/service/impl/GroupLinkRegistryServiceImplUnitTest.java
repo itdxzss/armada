@@ -8,8 +8,11 @@ import static org.mockito.Mockito.when;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -34,5 +37,36 @@ class GroupLinkRegistryServiceImplUnitTest {
         assertThat(result).isEqualTo(88L);
         verify(membershipMapper).touchGroupLinkFromAccountSync(88L, "测试群", 1000L);
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
+    }
+
+    @Test
+    void registerAccountObservedGroupAtomicallyCreatesOrReusesDerivedLink() {
+        GroupLinkRegistryServiceImpl service =
+                new GroupLinkRegistryServiceImpl(groupLinkMapper, membershipMapper);
+        when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363002@g.us"))
+                .thenReturn(null);
+        org.mockito.Mockito.doReturn(1).when(groupLinkMapper).upsertAccountObservedGroup(
+                org.mockito.ArgumentMatchers.any(GroupLink.class),
+                org.mockito.ArgumentMatchers.eq("新群"));
+        GroupLink resolved = new GroupLink();
+        resolved.setId(99L);
+        when(groupLinkMapper.selectAnyByUrl("wa://group/120363002@g.us")).thenReturn(resolved);
+
+        Long result = service.registerAccountObservedGroup("120363002@g.us", "新群", 2000L);
+
+        assertThat(result).isEqualTo(99L);
+        ArgumentCaptor<GroupLink> rowCaptor = ArgumentCaptor.forClass(GroupLink.class);
+        verify(groupLinkMapper).upsertAccountObservedGroup(rowCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq("新群"));
+        assertThat(rowCaptor.getValue().getLinkUrl()).isEqualTo("wa://group/120363002@g.us");
+        assertThat(rowCaptor.getValue().getGroupName()).isEqualTo("新群");
+        assertThat(rowCaptor.getValue().getOrigin()).isEqualTo(GroupLinkOrigin.ACCOUNT_SYNC.code());
+        assertThat(rowCaptor.getValue().getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
+        verify(groupLinkMapper).selectAnyByUrl("wa://group/120363002@g.us");
+        verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
+        verify(membershipMapper, never()).touchGroupLinkFromAccountSync(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong());
     }
 }

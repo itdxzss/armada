@@ -55,8 +55,9 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     /**
      * 登记账号快照或精确关系事件观察到的群。
      *
-     * <p>先按群 JID 查询活跃或软删除的群入口并优先复用，随后通过统一 touch SQL 复活入口、更新群名和群组池
-     * 关系态；仅在 JID 和内部 {@code wa://group/} 链接都没有历史记录时创建新入口。整个过程不调用协议层。</p>
+     * <p>先按群 JID 查询活跃或软删除的群入口并优先复用；未命中时通过内部
+     * {@code wa://group/} 链接唯一键原子登记。两条路径都保留首次来源和导入归属，只复活入口、
+     * 更新群名和群组池关系态。整个过程不调用协议层。</p>
      *
      * @param groupJid WhatsApp 群 JID，不能为空
      * @param groupName 协议层观察到的群名称，可空
@@ -68,27 +69,25 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     @Transactional(rollbackFor = Exception.class)
     public Long registerAccountObservedGroup(String groupJid, String groupName, long now) {
         String normalizedJid = normalizeRequired(groupJid, "账号群同步缺少 groupJid");
+        String normalizedName = clamp(blankToNull(groupName), 128);
         Long groupLinkId = membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(normalizedJid);
         if (groupLinkId == null) {
-            String linkUrl = SELF_BUILT_LINK_PREFIX + normalizedJid;
-            GroupLink existing = groupLinkMapper.selectAnyByUrl(linkUrl);
-            if (existing == null) {
-                GroupLink row = new GroupLink();
-                row.setLinkUrl(linkUrl);
-                String normalizedName = clamp(blankToNull(groupName), 128);
-                row.setGroupName(normalizedName == null ? normalizedJid : normalizedName);
-                row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
-                row.setMembershipState(GroupMembershipState.JOINED.code());
-                row.setCreatedAt(now);
-                row.setUpdatedAt(now);
-                groupLinkMapper.insert(row);
-                groupLinkId = row.getId();
-            } else {
-                groupLinkId = existing.getId();
+            GroupLink row = new GroupLink();
+            row.setLinkUrl(SELF_BUILT_LINK_PREFIX + normalizedJid);
+            row.setGroupName(normalizedName == null ? normalizedJid : normalizedName);
+            row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
+            row.setMembershipState(GroupMembershipState.JOINED.code());
+            row.setCreatedAt(now);
+            row.setUpdatedAt(now);
+            groupLinkMapper.upsertAccountObservedGroup(row, normalizedName);
+            GroupLink resolved = groupLinkMapper.selectAnyByUrl(row.getLinkUrl());
+            if (resolved == null || resolved.getId() == null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "账号群入口登记失败");
             }
+            return resolved.getId();
         }
         membershipMapper.touchGroupLinkFromAccountSync(
-                groupLinkId, clamp(blankToNull(groupName), 128), now);
+                groupLinkId, normalizedName, now);
         return groupLinkId;
     }
 

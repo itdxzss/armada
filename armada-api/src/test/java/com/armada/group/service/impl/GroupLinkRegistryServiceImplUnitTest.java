@@ -50,7 +50,8 @@ class GroupLinkRegistryServiceImplUnitTest {
                 org.mockito.ArgumentMatchers.eq("新群"));
         GroupLink resolved = new GroupLink();
         resolved.setId(99L);
-        when(groupLinkMapper.selectAnyByUrl("wa://group/120363002@g.us")).thenReturn(resolved);
+        when(groupLinkMapper.selectAnyByUrlForUpdate("wa://group/120363002@g.us"))
+                .thenReturn(resolved);
 
         Long result = service.registerAccountObservedGroup("120363002@g.us", "新群", 2000L);
 
@@ -62,7 +63,7 @@ class GroupLinkRegistryServiceImplUnitTest {
         assertThat(rowCaptor.getValue().getGroupName()).isEqualTo("新群");
         assertThat(rowCaptor.getValue().getOrigin()).isEqualTo(GroupLinkOrigin.ACCOUNT_SYNC.code());
         assertThat(rowCaptor.getValue().getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
-        verify(groupLinkMapper).selectAnyByUrl("wa://group/120363002@g.us");
+        verify(groupLinkMapper).selectAnyByUrlForUpdate("wa://group/120363002@g.us");
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
         verify(membershipMapper, never()).touchGroupLinkFromAccountSync(
                 org.mockito.ArgumentMatchers.anyLong(),

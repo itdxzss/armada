@@ -86,6 +86,12 @@ case "$1" in /home/*/.armada-perf-tools/*) ;; *) exit 64 ;; esac
 umask 077
 mkdir -p -- "$1"
 """
+_CHMOD_SCRIPT = b"""#!/usr/bin/env bash
+# CHMOD_MONITOR
+set -euo pipefail
+case "$1" in /home/*/.armada-perf-tools/*/perf-monitor) ;; *) exit 64 ;; esac
+chmod 700 -- "$1"
+"""
 _CLEANUP_SCRIPT = b"""#!/usr/bin/env bash
 set -euo pipefail
 case "$1" in /home/*/.armada-perf-tools/[0-9]*Z-[0-9a-f]*) ;; *) exit 64 ;; esac
@@ -172,6 +178,13 @@ class RemoteMonitorManager:
                 self._scp_argv(ssh_profile) + [str(built.path), target],
                 timeout=60,
                 error_class="monitor_upload",
+            )
+            self._run(
+                self._ssh_argv(ssh_profile)
+                + ["bash", "-s", "--", str(remote_dir / _REMOTE_BINARY)],
+                input=_CHMOD_SCRIPT,
+                timeout=20,
+                error_class="monitor_chmod",
             )
             check = self._run(
                 self._monitor_argv(node, ssh_profile, check=True),

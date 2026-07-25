@@ -91,11 +91,12 @@ class ProfileParserTest(unittest.TestCase):
 
     def test_loads_and_validates_perf2_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            workspace = Path(directory)
+            root = workspace / "armada"
             (root / "armada-deploy/envs").mkdir(parents=True)
-            (root / "keys").mkdir()
-            (root / "keys/armada.pem").write_text("armada-secret", encoding="utf-8")
-            (root / "keys/zhuan.pem").write_text("zhuan-secret", encoding="utf-8")
+            (workspace / "keys").mkdir()
+            (workspace / "keys/armada.pem").write_text("armada-secret", encoding="utf-8")
+            (workspace / "keys/zhuan.pem").write_text("zhuan-secret", encoding="utf-8")
             (root / "armada-deploy/envs/perf2.conf").write_text(
                 self._valid_profile(), encoding="utf-8"
             )
@@ -140,11 +141,12 @@ class ProfileParserTest(unittest.TestCase):
         }
         for name, (old, new) in replacements.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
+                workspace = Path(directory)
+                root = workspace / "armada"
                 (root / "armada-deploy/envs").mkdir(parents=True)
-                (root / "keys").mkdir()
-                (root / "keys/armada.pem").touch()
-                (root / "keys/zhuan.pem").touch()
+                (workspace / "keys").mkdir()
+                (workspace / "keys/armada.pem").touch()
+                (workspace / "keys/zhuan.pem").touch()
                 profile = self._valid_profile().replace(old, new)
                 (root / "armada-deploy/envs/perf2.conf").write_text(profile, encoding="utf-8")
                 with self.assertRaises(ConfigError):

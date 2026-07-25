@@ -181,6 +181,14 @@ class RemoteMonitorManagerTest(unittest.TestCase):
         scp_calls = [call for call in runner.calls if call["argv"] and call["argv"][0] == "scp"]
         self.assertEqual(2, len(scp_calls))
         self.assertTrue(all(run_id in " ".join(call["argv"]) for call in scp_calls))
+        chmod_calls = [
+            call for call in runner.calls
+            if call["argv"]
+            and call["argv"][0] == "ssh"
+            and call["input"]
+            and b"CHMOD_MONITOR" in call["input"]
+        ]
+        self.assertEqual(2, len(chmod_calls))
         self.assertEqual(2, len(popen.calls))
         armada_command = next(argv for argv, _ in popen.calls if "armada" in argv)
         zhuan_command = next(argv for argv, _ in popen.calls if "zhuan" in argv)

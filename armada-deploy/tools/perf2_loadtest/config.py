@@ -125,8 +125,9 @@ def load_perf2_profile(repo_root: Path, env: str) -> Perf2Profile:
     values = parse_profile_assignments(root / "armada-deploy" / "envs" / "perf2.conf")
     if values.get("ENV_ID") != "perf2":
         raise ConfigError("environment_contract")
-    armada = _ssh_profile(values, root, "ARMADA")
-    zhuan = _ssh_profile(values, root, "ZHUAN")
+    workspace_root = root.parent
+    armada = _ssh_profile(values, workspace_root, "ARMADA")
+    zhuan = _ssh_profile(values, workspace_root, "ZHUAN")
     public_url = _required(values, "PROFILE_ARMADA_PUBLIC_URL")
     parsed_url = urlparse(public_url)
     if parsed_url.scheme not in ("http", "https") or not parsed_url.hostname or parsed_url.username or parsed_url.password:
@@ -148,7 +149,7 @@ def load_perf2_profile(repo_root: Path, env: str) -> Perf2Profile:
     )
 
 
-def _ssh_profile(values: Mapping[str, str], root: Path, label: str) -> SSHProfile:
+def _ssh_profile(values: Mapping[str, str], workspace_root: Path, label: str) -> SSHProfile:
     prefix = "PROFILE_%s_" % label
     host = _required(values, prefix + "HOST")
     user = _required(values, prefix + "USER")
@@ -158,8 +159,8 @@ def _ssh_profile(values: Mapping[str, str], root: Path, label: str) -> SSHProfil
     if relative_key.is_absolute():
         raise ConfigError("ssh_key")
     try:
-        key_path = (root / relative_key).resolve(strict=True)
-        key_path.relative_to(root)
+        key_path = (workspace_root / relative_key).resolve(strict=True)
+        key_path.relative_to(workspace_root)
     except (OSError, ValueError) as error:
         raise ConfigError("ssh_key") from error
     if not key_path.is_file():

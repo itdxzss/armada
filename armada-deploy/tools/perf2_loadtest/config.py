@@ -60,7 +60,7 @@ def parse_args(argv: Sequence[str]) -> RunOptions:
     parser.add_argument("--min-free-gib", type=int, default=5)
     try:
         values = parser.parse_args(list(argv))
-    except (argparse.ArgumentError, SystemExit) as error:
+    except argparse.ArgumentError as error:
         raise ConfigError("invalid_arguments") from error
     if not _TENANT_RE.fullmatch(values.tenant):
         raise ConfigError("invalid_arguments")

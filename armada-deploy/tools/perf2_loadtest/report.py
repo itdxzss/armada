@@ -159,6 +159,7 @@ def build_summary(
     timed_out: bool,
     interrupted: bool,
     zero_window_seconds: int = 60,
+    require_resumed: bool = True,
 ) -> Mapping[str, object]:
     if invalid_kafka_samples < 0 or invalid_resource_samples < 0:
         raise ReportError("invalid_count")
@@ -185,7 +186,7 @@ def build_summary(
         or interrupted
         or invalid_kafka_samples
         or invalid_resource_samples
-        or not all_resumed
+        or require_resumed and not all_resumed
     )
     return {
         "snapshotTaskCount": len(snapshot),

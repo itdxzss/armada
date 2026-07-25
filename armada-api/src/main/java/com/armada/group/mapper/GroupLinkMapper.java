@@ -32,6 +32,19 @@ public interface GroupLinkMapper {
     int insert(GroupLink row);
 
     /**
+     * 原子登记账号同步观察到的内部群入口。
+     *
+     * <p>租户内 URL 唯一键承担并发互斥；命中既有行时保留首次来源、导入归属和自建群关系态，
+     * 只执行账号同步原有的复活、群名和已入群状态更新。</p>
+     *
+     * @param row               新建分支的群入口字段；调用方写后按 URL 查询最终行 ID
+     * @param observedGroupName 协议观察到的群名；空值不覆盖既有群名
+     * @return MySQL 影响行数
+     */
+    int upsertAccountObservedGroup(@Param("row") GroupLink row,
+                                   @Param("observedGroupName") String observedGroupName);
+
+    /**
      * 复活软删链接并归到目标分组:复活(deleted_at=NULL) + 改归属分组 + 更新来源批次 + COALESCE 群名(空不覆盖)。
      *
      * @param id        群链接 ID

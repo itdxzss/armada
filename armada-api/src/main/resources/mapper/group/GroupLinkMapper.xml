@@ -15,6 +15,21 @@
       #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
 
+  <!-- 账号首次观察群入口使用租户内 URL 唯一键原子登记；最终 ID 由调用方写后按 URL 读取。 -->
+  <insert id="upsertAccountObservedGroup">
+    INSERT INTO group_link (
+      link_url, group_name, origin, membership_state, created_at, updated_at
+    ) VALUES (
+      #{row.linkUrl}, #{row.groupName}, #{row.origin}, #{row.membershipState},
+      #{row.createdAt}, #{row.updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      deleted_at = NULL,
+      group_name = COALESCE(NULLIF(TRIM(#{observedGroupName}), ''), group_name),
+      membership_state = CASE WHEN membership_state = 3 THEN 3 ELSE 2 END,
+      updated_at = #{row.updatedAt}
+  </insert>
+
   <!-- 复活软删链接 + 归到本分组 + 更新来源批次/群名(群名空不覆盖) -->
   <update id="adoptToLabel">
     UPDATE group_link

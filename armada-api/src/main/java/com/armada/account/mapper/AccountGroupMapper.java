@@ -5,12 +5,16 @@ import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.vo.AccountGroupVoRow;
 import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * 账号分组数据访问。tenant_id 由租户行隔离拦截器自动注入,SQL 不手写 tenant_id 过滤。
+ * 账号分组数据访问。默认由租户行隔离拦截器注入 tenant_id；必须绕过拦截器的锁查询自行显式限定租户。
  */
 @Mapper
 public interface AccountGroupMapper {
@@ -99,10 +103,31 @@ public interface AccountGroupMapper {
     /**
      * 按 ID 升序锁定任务启动或分组结构变更涉及的分组。
      *
+     * <p>调用方不传 tenantId；本方法从当前 {@link TenantContext} 取租户并委托给显式租户 SQL，
+     * 避免租户拦截器把 MySQL 的 {@code ORDER BY ... FOR UPDATE} 尾句重写为非法顺序。</p>
+     *
      * @param groupIds 去重并升序排列的分组 ID
      * @return 当前活跃分组行
+     * @throws BusinessException 当前线程缺少租户上下文时抛出
      */
-    List<AccountGroup> selectByIdsForUpdate(@Param("groupIds") List<Long> groupIds);
+    default List<AccountGroup> selectByIdsForUpdate(List<Long> groupIds) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectByTenantAndIdsForUpdate(tenantId, groupIds);
+    }
+
+    /**
+     * 按显式租户和 ID 升序执行锁行查询，仅供 {@link #selectByIdsForUpdate(List)} 委托。
+     *
+     * @param tenantId 当前线程租户 ID
+     * @param groupIds 去重并升序排列的分组 ID
+     * @return 当前租户内的活跃分组行
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountGroup> selectByTenantAndIdsForUpdate(@Param("tenantId") Long tenantId,
+                                                     @Param("groupIds") List<Long> groupIds);
 
     /**
      * 统计仍处于资源锁定或释放中的拉群任务对建群账号分组的引用数。

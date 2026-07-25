@@ -154,6 +154,33 @@ class GroupLinkMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void accountObservedUpsertReturnsExistingIdAndPreservesImportOwnership() {
+        GroupLinkLabel label = insertLabel("账号同步原子登记分组");
+        GroupLinkImportBatch batch = insertBatch(label.getId(), "account-sync-upsert.txt");
+        GroupLink existing = buildLink(
+                "wa://group/120363atomic-upsert@g.us", label.getId(), batch.getId());
+        existing.setOrigin(GroupLinkOrigin.IMPORT.code());
+        existing.setMembershipState(GroupMembershipState.TARGET.code());
+        mapper.insert(existing);
+        mapper.softDeleteByIds(List.of(existing.getId()), System.currentTimeMillis());
+
+        GroupLink observed = buildLink(existing.getLinkUrl(), null, null);
+        observed.setGroupName("账号同步群名");
+        observed.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
+        observed.setMembershipState(GroupMembershipState.JOINED.code());
+        mapper.upsertAccountObservedGroup(observed, "账号同步群名");
+
+        GroupLink after = mapper.selectAnyByUrl(existing.getLinkUrl());
+        assertThat(after.getId()).isEqualTo(existing.getId());
+        assertThat(after.getDeletedAt()).isNull();
+        assertThat(after.getLabelId()).isEqualTo(label.getId());
+        assertThat(after.getImportBatchId()).isEqualTo(batch.getId());
+        assertThat(after.getOrigin()).isEqualTo(GroupLinkOrigin.IMPORT.code());
+        assertThat(after.getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
+        assertThat(after.getGroupName()).isEqualTo("账号同步群名");
+    }
+
+    @Test
     void selectActiveByIds_returnsOnlyActiveLinks() {
         GroupLinkLabel label = insertLabel("批量按ID查询分组");
         GroupLinkImportBatch batch = insertBatch(label.getId(), "select-active-by-ids.txt");

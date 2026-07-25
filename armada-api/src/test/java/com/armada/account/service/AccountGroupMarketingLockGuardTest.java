@@ -2,9 +2,13 @@ package com.armada.account.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.account.mapper.AccountGroupMapper;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import net.sf.jsqlparser.expression.LongValue;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +56,24 @@ class AccountGroupMarketingLockGuardTest {
                 .contains("target_group.tenant_id = a.tenant_id")
                 .contains("active_task.tenant_id = a.tenant_id")
                 .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    void lockedGroupReadUsesExplicitTenantAndKeepsValidMysqlClauseOrder() throws Exception {
+        String groupXml = resource("/mapper/account/AccountGroupMapper.xml");
+        String lockSql = selectBlock(groupXml, "selectByTenantAndIdsForUpdate");
+
+        assertThat(lockSql)
+                .contains("WHERE tenant_id = #{tenantId}")
+                .contains("ORDER BY id")
+                .contains("FOR UPDATE");
+        assertThat(lockSql.indexOf("ORDER BY id")).isLessThan(lockSql.indexOf("FOR UPDATE"));
+
+        Method method = AccountGroupMapper.class.getMethod(
+                "selectByTenantAndIdsForUpdate", Long.class, List.class);
+        InterceptorIgnore annotation = method.getAnnotation(InterceptorIgnore.class);
+        assertThat(annotation).isNotNull();
+        assertThat(annotation.tenantLine()).isEqualTo("true");
     }
 
     private String resource(String path) throws IOException {

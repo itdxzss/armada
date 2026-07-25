@@ -99,6 +99,30 @@ class AccountGroupMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectByIdsForUpdate_executesValidSqlAndKeepsCurrentTenantBoundary() {
+        long now = System.currentTimeMillis();
+        AccountGroup currentTenantGroup = build("锁查询当前租户-" + now, 0, now);
+        mapper.insert(currentTenantGroup);
+        String otherTenantName = "锁查询其他租户-" + now;
+        jdbc.update("""
+                INSERT INTO account_group
+                    (tenant_id, name, remark, system_builtin, created_at, updated_at)
+                VALUES (?, ?, 'other', 0, ?, ?)
+                """, TEST_TENANT_ID + 1, otherTenantName, now, now);
+        Long otherTenantGroupId = jdbc.queryForObject(
+                "SELECT id FROM account_group WHERE tenant_id = ? AND name = ?",
+                Long.class,
+                TEST_TENANT_ID + 1,
+                otherTenantName);
+
+        List<AccountGroup> groups = mapper.selectByIdsForUpdate(
+                List.of(currentTenantGroup.getId(), otherTenantGroupId));
+
+        assertThat(groups).extracting(AccountGroup::getId)
+                .containsExactly(currentTenantGroup.getId());
+    }
+
+    @Test
     void selectPage_ordersSystemBuiltinFirst_thenCreatedAtDesc() {
         AccountGroup system = build("排序系统默认分组", 1, 1_700_000_000_000L);
         AccountGroup older = build("排序普通旧分组", 0, 1_700_000_000_100L);

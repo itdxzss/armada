@@ -207,6 +207,21 @@ class OrchestratorTest(unittest.TestCase):
         self.assertIn("02:00:02Z", rows[1])
         self.assertIn("02:00:04Z", rows[3])
 
+    def test_report_failures_keep_their_stable_diagnostic_class(self) -> None:
+        calls = []
+        snapshot = (task(1),)
+        api = FakeTaskAPI((snapshot,), calls)
+        events = [
+            monitor_event("zhuan", 0),
+            monitor_event("armada", 0),
+            monitor_event("zhuan", 0),
+        ]
+        remote = FakeRemoteManager(events, calls)
+        orchestrator = self._orchestrator(api, remote, execute=False)
+
+        self.assertEqual(1, orchestrator.run())
+        self.assertEqual("duplicate_sample", self._read("summary.json")["failureClass"])
+
     def test_execute_runs_guarded_resume_then_waits_for_zero_window(self) -> None:
         calls = []
         snapshot = (task(1), task(2))

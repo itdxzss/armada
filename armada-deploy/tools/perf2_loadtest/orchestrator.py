@@ -159,7 +159,10 @@ class Orchestrator:
             failure_class = str(error)
             timed_out = failure_class == "monitor_timeout"
             self._log(failure_class)
-        except (ReportError, RuntimeError, OSError, ValueError, queue.Empty):
+        except ReportError as error:
+            failure_class = str(error)
+            self._log(failure_class)
+        except (RuntimeError, OSError, ValueError, queue.Empty):
             failure_class = "orchestration_failed"
             self._log(failure_class)
         finally:

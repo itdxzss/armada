@@ -39,6 +39,34 @@ class SystemManagementSchemaDbTest extends DbTestBase {
                 .isZero();
     }
 
+    @Test
+    void keepsOriginalMenusUnderTaskCenter() {
+        assertThat(jdbc.queryForList("""
+                SELECT child.menu_key
+                FROM sys_menu child
+                JOIN sys_menu parent
+                  ON parent.tenant_id = child.tenant_id
+                 AND parent.id = child.parent_id
+                WHERE child.tenant_id = 1
+                  AND parent.menu_key = 'TaskCenter'
+                  AND child.status = 1
+                ORDER BY child.sort_no, child.id
+                """, String.class)).containsExactly(
+                "AccountImport",
+                "TaskGroupLinkImports",
+                "GroupList",
+                "HistoricalGroupManagement",
+                "TaskPull",
+                "TaskJoin",
+                "TaskGroupMarketing",
+                "TaskGroupPullMarketing",
+                "TaskGroupCreationMarketing");
+        assertThat(queryInt(
+                "SELECT COUNT(*) FROM sys_menu WHERE tenant_id=1"
+                        + " AND menu_key='GroupManagement' AND status=0"))
+                .isEqualTo(1);
+    }
+
     private List<String> columnNames(String tableName) {
         return jdbc.queryForList(
                 "SELECT column_name FROM information_schema.columns"

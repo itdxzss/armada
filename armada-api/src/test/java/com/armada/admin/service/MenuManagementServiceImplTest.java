@@ -1,6 +1,7 @@
 package com.armada.admin.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -86,6 +87,20 @@ class MenuManagementServiceImplTest {
         assertThatThrownBy(() -> service.create(request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("组件路径不在允许范围");
+    }
+
+    @Test
+    void createAcceptsGroupPullMarketingComponent() {
+        SysMenu taskCenter = menu(1L, 0L, "D", 1, "TaskCenter");
+        when(menuMapper.findById(1L)).thenReturn(Optional.of(taskCenter));
+
+        MenuCreateDTO request = new MenuCreateDTO(
+                1L, "拉群营销", "TaskGroupPullMarketing", "M",
+                "/task/group-pull-marketing", "task/group-pull-marketing/index",
+                "tenant:group_pull_marketing:view", null, 80);
+
+        assertThatCode(() -> service.create(request)).doesNotThrowAnyException();
+        verify(menuMapper).insert(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

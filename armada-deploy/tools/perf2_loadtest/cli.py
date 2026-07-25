@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import signal
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,8 @@ _SAFE_SUMMARY_FIELDS = (
     "observedPeakProducedPerSecond",
     "observedPeakConsumedPerSecond",
     "maxLag",
+    "maxLagAt",
+    "capacityConclusion",
     "allSnapshotTasksResumed",
     "incomplete",
     "failureClass",
@@ -66,7 +69,8 @@ def run(
             zhuan_repo=dependencies.repo_root.parent / "whatsapp-server-feature-android-zhuan",
             profile=profile,
         )
-        exit_code = orchestrator.run()
+        with _controlled_termination():
+            exit_code = orchestrator.run()
     except Exception:
         stderr.write("setup_failed\n")
         return 1
@@ -92,6 +96,23 @@ def real_dependencies() -> CLIDependencies:
         ),
         orchestrator_factory=Orchestrator,
     )
+
+
+@contextlib.contextmanager
+def _controlled_termination():
+    signals = (signal.SIGINT, signal.SIGTERM)
+    previous = {signum: signal.getsignal(signum) for signum in signals}
+
+    def interrupt(_signum, _frame):
+        raise KeyboardInterrupt
+
+    try:
+        for signum in signals:
+            signal.signal(signum, interrupt)
+        yield
+    finally:
+        for signum in signals:
+            signal.signal(signum, previous[signum])
 
 
 def main() -> int:

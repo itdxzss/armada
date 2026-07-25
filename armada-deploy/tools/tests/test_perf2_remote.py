@@ -195,6 +195,14 @@ class RemoteMonitorManagerTest(unittest.TestCase):
         self.assertIn("-no-kafka", armada_command)
         self.assertNotIn("-no-kafka", zhuan_command)
         self.assertIn("-expected-partitions", zhuan_command)
+        self.assertEqual(
+            self.profile.topic,
+            zhuan_command[zhuan_command.index("-expected-topic") + 1],
+        )
+        self.assertEqual(
+            self.profile.group_id,
+            zhuan_command[zhuan_command.index("-expected-group") + 1],
+        )
         self.assertIn("deploy/configs/prod_configs.toml", " ".join(zhuan_command))
 
         events = []
@@ -223,6 +231,24 @@ class RemoteMonitorManagerTest(unittest.TestCase):
         with self.assertRaises(RemoteError) as raised:
             manager.preflight()
         self.assertEqual("remote_preflight", str(raised.exception))
+
+    def test_cleanup_failure_is_reported_after_local_cleanup(self) -> None:
+        class CleanupFailingRunner(FakeRunner):
+            def run(self, argv, **kwargs):
+                cleanup = kwargs.get("input")
+                if argv and argv[0] == "ssh" and cleanup and b"rm -rf" in cleanup:
+                    return subprocess.CompletedProcess(argv, 1, b"", b"secret remote detail")
+                return super().run(argv, **kwargs)
+
+        runner = CleanupFailingRunner()
+        manager = RemoteMonitorManager(self.profile, min_free_gib=5, runner=runner)
+        built = manager.build(self.zhuan_repo)
+        manager.upload_and_check(built, "20260725T020000Z-deadbeef")
+
+        with self.assertRaisesRegex(RemoteError, "^remote_cleanup$"):
+            manager.close()
+
+        self.assertFalse(built.path.parent.exists())
 
 
 if __name__ == "__main__":

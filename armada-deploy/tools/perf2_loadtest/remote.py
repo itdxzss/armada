@@ -224,6 +224,7 @@ class RemoteMonitorManager:
 
     def close(self) -> None:
         self._closing.set()
+        cleanup_failed = False
         for process in self._processes.values():
             try:
                 process.terminate()
@@ -248,11 +249,13 @@ class RemoteMonitorManager:
                     error_class="remote_cleanup",
                 )
             except RemoteError:
-                pass
+                cleanup_failed = True
         self._remote_dirs.clear()
         if self._local_temp is not None and self._local_temp.is_dir():
             shutil.rmtree(self._local_temp)
             self._local_temp = None
+        if cleanup_failed:
+            raise RemoteError("remote_cleanup")
 
     def _preflight_node(self, node: str, ssh_profile: SSHProfile) -> NodePreflight:
         result = self._run(
@@ -307,6 +310,10 @@ class RemoteMonitorManager:
                     str(self.profile.zhuan.remote_dir / "deploy/configs/prod_configs.toml"),
                     "-expected-partitions",
                     str(self.profile.expected_partitions),
+                    "-expected-topic",
+                    self.profile.topic,
+                    "-expected-group",
+                    self.profile.group_id,
                 ]
             )
         if check:

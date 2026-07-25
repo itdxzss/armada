@@ -1,6 +1,8 @@
 import io
+import signal
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -78,6 +80,50 @@ class CLITest(unittest.TestCase):
         stdout, stderr = io.StringIO(), io.StringIO()
         self.assertEqual(1, run(["--env", "perf2"], stdout, stderr, dependencies))
         self.assertEqual("setup_failed\n", stderr.getvalue())
+
+    def test_sigterm_is_installed_as_controlled_interrupt_and_restored(self) -> None:
+        installed = {}
+        restored = []
+
+        class FakeOrchestrator:
+            run_dir = Path("/safe/results/run")
+            last_summary = {"incomplete": True, "failureClass": "interrupted"}
+
+            def run(self):
+                try:
+                    installed[signal.SIGTERM](signal.SIGTERM, None)
+                except KeyboardInterrupt:
+                    return 1
+                self.fail("SIGTERM handler did not interrupt")
+
+        fake_profile = SimpleNamespace(env_id="perf2", public_url="http://private-host")
+        dependencies = CLIDependencies(
+            repo_root=Path("/repo"),
+            load_profile=lambda *_: fake_profile,
+            task_api_factory=lambda *_: object(),
+            remote_factory=lambda *_: object(),
+            orchestrator_factory=lambda **_: FakeOrchestrator(),
+        )
+
+        def fake_signal(signum, handler):
+            if handler in ("old-int", "old-term"):
+                restored.append((signum, handler))
+            else:
+                installed[signum] = handler
+
+        with mock.patch("perf2_loadtest.cli.signal.getsignal") as get_signal, mock.patch(
+            "perf2_loadtest.cli.signal.signal", side_effect=fake_signal
+        ):
+            get_signal.side_effect = lambda signum: (
+                "old-int" if signum == signal.SIGINT else "old-term"
+            )
+            exit_code = run(["--env", "perf2"], io.StringIO(), io.StringIO(), dependencies)
+
+        self.assertEqual(1, exit_code)
+        self.assertEqual(
+            [(signal.SIGINT, "old-int"), (signal.SIGTERM, "old-term")],
+            restored,
+        )
 
 
 if __name__ == "__main__":

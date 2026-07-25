@@ -48,10 +48,17 @@ class _SafeArgumentParser(argparse.ArgumentParser):
 
 
 def parse_args(argv: Sequence[str]) -> RunOptions:
-    parser = _SafeArgumentParser(prog="perf2-marketing-load-test")
+    parser = _SafeArgumentParser(
+        prog="perf2-marketing-load-test",
+        description="Default mode is a read-only dry-run for perf2.",
+    )
     parser.add_argument("--env", default="perf2", choices=("perf2",))
     parser.add_argument("--tenant", default="demo")
-    parser.add_argument("--execute", action="store_true")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="state-changing: resume the frozen paused-task snapshot",
+    )
     parser.add_argument("--expected-count", type=int)
     parser.add_argument("--resume-concurrency", type=int, default=10)
     parser.add_argument("--baseline-seconds", type=int, default=30)

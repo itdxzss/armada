@@ -126,8 +126,13 @@ class Orchestrator:
 
             if self.options.execute:
                 outcomes = self._resume_guarded(snapshot, preflight, baseline[-1])
+                if len(outcomes) != len(snapshot):
+                    raise OrchestratorError("resume_outcomes")
+                resume_completed_at = max(outcome.finished_at for outcome in outcomes)
                 self.state = RunState.DRAINING
-                post_samples = self._collect_until_idle(streams.events)
+                post_samples = self._collect_until_idle(
+                    streams.events, resume_completed_at=resume_completed_at
+                )
                 samples.extend(post_samples)
                 reconciled = tuple(
                     self.task_api.reconcile(snapshot, self.options.resume_concurrency)
@@ -210,12 +215,16 @@ class Orchestrator:
             samples.append(sample)
         return tuple(samples)
 
-    def _collect_until_idle(self, events: queue.Queue) -> Tuple[MergedSample, ...]:
+    def _collect_until_idle(
+        self, events: queue.Queue, *, resume_completed_at: datetime
+    ) -> Tuple[MergedSample, ...]:
         deadline = self._monotonic() + self.options.timeout_seconds
         window = ZeroWindow(self.options.zero_window_seconds)
         samples: List[MergedSample] = []
         while True:
             sample = self._next_merged(events, deadline, baseline=False)
+            if sample.at <= resume_completed_at:
+                continue
             samples.append(sample)
             if window.observe(sample, resumes_complete=True):
                 return tuple(samples)
@@ -249,8 +258,8 @@ class Orchestrator:
             ):
                 self._invalid_kafka_samples += 1
                 invalid = True
-            if invalid:
-                raise OrchestratorError("invalid_baseline_sample" if baseline else "invalid_monitor_sample")
+            if invalid and baseline:
+                raise OrchestratorError("invalid_baseline_sample")
             merged = self._aligner.add(monitor_sample)
             if merged is not None:
                 return merged

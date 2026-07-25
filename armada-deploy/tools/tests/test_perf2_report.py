@@ -71,11 +71,11 @@ class MonitorParsingTest(unittest.TestCase):
         value["kafka"] = {"valid": False, "errorClass": "metadata"}
         sample = parse_monitor_line(json.dumps(value).encode("utf-8"), "zhuan")
         self.assertFalse(sample.kafka.valid)
-        with self.assertRaises(ReportError):
-            merge_samples(
-                parse_monitor_line(self._line("armada", value["at"], kafka=False), "armada"),
-                sample,
-            )
+        merged = merge_samples(
+            parse_monitor_line(self._line("armada", value["at"], kafka=False), "armada"),
+            sample,
+        )
+        self.assertFalse(merged.kafka.valid)
 
     @staticmethod
     def _line(node, at, kafka):
@@ -154,6 +154,7 @@ class ReportMathTest(unittest.TestCase):
         self.assertEqual(20, summary["observedPeakProducedPerSecond"])
         self.assertEqual(15, summary["observedPeakConsumedPerSecond"])
         self.assertEqual(20, summary["maxLag"])
+        self.assertEqual("2026-07-25T02:00:02Z", summary["maxLagAt"])
         self.assertEqual(2, summary["lagDrainSeconds"])
         self.assertEqual(10, summary["drainPeakConsumedPerSecond"])
         self.assertEqual("observed_backlog_drained", summary["capacityConclusion"])
@@ -174,6 +175,26 @@ class ReportMathTest(unittest.TestCase):
             interrupted=False,
         )
         self.assertEqual("observed_lower_bound", summary["capacityConclusion"])
+
+    def test_empty_and_undrained_data_do_not_claim_observed_capacity(self) -> None:
+        empty = build_summary(
+            (), (), (), (), invalid_kafka_samples=0, invalid_resource_samples=0,
+            timed_out=True, interrupted=False, require_resumed=False,
+        )
+        self.assertIsNone(empty["topicProducedMessages"])
+        self.assertIsNone(empty["maxLag"])
+        self.assertIsNone(empty["maxLagAt"])
+        self.assertEqual("insufficient_data", empty["capacityConclusion"])
+
+        undrained = build_summary(
+            (self._sample(0, lag=5), self._sample(1, lag=5)),
+            (), (), (), invalid_kafka_samples=0, invalid_resource_samples=0,
+            timed_out=True, interrupted=False, require_resumed=False,
+        )
+        self.assertEqual(5, undrained["maxLag"])
+        self.assertEqual("2026-07-25T02:00:00Z", undrained["maxLagAt"])
+        self.assertIsNone(undrained["lagDrainSeconds"])
+        self.assertEqual("observed_backlog_not_drained", undrained["capacityConclusion"])
 
     def test_invalid_or_unreconciled_run_is_incomplete(self) -> None:
         task = self._task(1)
@@ -212,6 +233,22 @@ class ReportMathTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             for forbidden in ("task", "broker", "payload", "message"):
                 self.assertNotIn(forbidden, text.lower())
+
+    def test_invalid_resource_fields_are_blank_without_dropping_kafka(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "samples.csv"
+            sample = self._sample(0, latest=10, committed=9, lag=1)
+            sample = replace(
+                sample,
+                armada_resource=replace(
+                    sample.armada_resource, valid=False, error_class="docker_stats"
+                ),
+            )
+            write_samples_csv(path, (sample,))
+            row = list(csv.reader(io.StringIO(path.read_text(encoding="utf-8"))))[1]
+            self.assertEqual(["10", "9", "1"], row[1:4])
+            self.assertEqual(["", "", "", "", "", ""], row[6:12])
+            self.assertNotEqual(["", "", "", "", "", ""], row[12:18])
 
     @staticmethod
     def _sample(second, latest=0, committed=0, lag=0, produced=0, consumed=0):

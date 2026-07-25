@@ -102,12 +102,7 @@ def merge_samples(first: MonitorSample, second: MonitorSample) -> MergedSample:
         raise ReportError("sample_alignment")
     armada = by_node["armada"]
     zhuan = by_node["zhuan"]
-    if (
-        zhuan.kafka is None
-        or not zhuan.kafka.valid
-        or not armada.resource.valid
-        or not zhuan.resource.valid
-    ):
+    if zhuan.kafka is None:
         raise ReportError("invalid_sample")
     return MergedSample(
         at=first.second,
@@ -126,7 +121,12 @@ class ZeroWindow:
         self._last_second: Optional[datetime] = None
 
     def observe(self, sample: MergedSample, resumes_complete: bool) -> bool:
-        if not resumes_complete or sample.kafka.lag != 0 or sample.kafka.produced_per_second != 0:
+        if (
+            not resumes_complete
+            or not sample.kafka.valid
+            or sample.kafka.lag != 0
+            or sample.kafka.produced_per_second != 0
+        ):
             self._reset()
             return False
         if self._last_second is None or sample.at - self._last_second == timedelta(seconds=1):
@@ -165,19 +165,33 @@ def build_summary(
         raise ReportError("invalid_count")
     ordered = sorted(samples, key=lambda sample: sample.at)
     _validate_merged_order(ordered)
-    peak_produced = _maximum([sample.kafka.produced_per_second for sample in ordered])
-    peak_consumed = _maximum([sample.kafka.consumed_per_second for sample in ordered])
-    max_lag = int(_maximum([sample.kafka.lag for sample in ordered]) or 0)
-    topic_delta = 0
-    if len(ordered) >= 2:
-        topic_delta = max(0, ordered[-1].kafka.latest_offset - ordered[0].kafka.latest_offset)
+    valid_kafka = [sample for sample in ordered if sample.kafka.valid]
+    peak_produced = _maximum([sample.kafka.produced_per_second for sample in valid_kafka])
+    peak_consumed = _maximum([sample.kafka.consumed_per_second for sample in valid_kafka])
+    max_lag_value = _maximum([sample.kafka.lag for sample in valid_kafka])
+    max_lag = int(max_lag_value) if max_lag_value is not None else None
+    max_lag_at = None
+    if max_lag is not None:
+        max_lag_at = _format_utc(
+            next(sample.at for sample in valid_kafka if sample.kafka.lag == max_lag)
+        )
+    topic_delta = None
+    if len(valid_kafka) >= 2:
+        topic_delta = max(
+            0,
+            valid_kafka[-1].kafka.latest_offset - valid_kafka[0].kafka.latest_offset,
+        )
     drain_values = [
         sample.kafka.consumed_per_second
-        for sample in ordered
+        for sample in valid_kafka
         if sample.kafka.lag > 0 and sample.kafka.produced_per_second == 0
     ]
     drain_peak = _maximum(drain_values)
-    drain_seconds = _lag_drain_seconds(ordered, max_lag, zero_window_seconds)
+    drain_seconds = (
+        _lag_drain_seconds(ordered, max_lag, zero_window_seconds)
+        if max_lag is not None
+        else None
+    )
     snapshot_ids = {task.id for task in snapshot}
     sending_ids = {task.task_id for task in reconciled if task.classification == "sending"}
     all_resumed = snapshot_ids == sending_ids and len(reconciled) == len(snapshot)
@@ -197,9 +211,10 @@ def build_summary(
         "observedPeakProducedPerSecond": _round_optional(peak_produced),
         "observedPeakConsumedPerSecond": _round_optional(peak_consumed),
         "maxLag": max_lag,
+        "maxLagAt": max_lag_at,
         "lagDrainSeconds": drain_seconds,
         "drainPeakConsumedPerSecond": _round_optional(drain_peak),
-        "capacityConclusion": "observed_lower_bound" if max_lag == 0 else "observed_backlog_drained",
+        "capacityConclusion": _capacity_conclusion(max_lag, drain_seconds),
         "resources": {
             "armada": _resource_summary([sample.armada_resource for sample in ordered]),
             "zhuan": _resource_summary([sample.zhuan_resource for sample in ordered]),
@@ -219,28 +234,15 @@ def write_samples_csv(path: Path, samples: Sequence[MergedSample]) -> None:
         writer = csv.writer(output)
         writer.writerow(CSV_HEADER)
         for sample in sorted(samples, key=lambda value: value.at):
-            armada = sample.armada_resource
-            zhuan = sample.zhuan_resource
+            kafka = _kafka_csv_fields(sample.kafka)
+            armada = _resource_csv_fields(sample.armada_resource)
+            zhuan = _resource_csv_fields(sample.zhuan_resource)
             writer.writerow(
                 (
                     _format_utc(sample.at),
-                    sample.kafka.latest_offset,
-                    sample.kafka.committed_offset,
-                    sample.kafka.lag,
-                    sample.kafka.produced_per_second,
-                    sample.kafka.consumed_per_second,
-                    armada.host_cpu_percent,
-                    armada.host_memory_used_bytes,
-                    armada.host_memory_percent,
-                    armada.container_cpu_percent,
-                    armada.container_memory_bytes,
-                    armada.container_memory_percent,
-                    zhuan.host_cpu_percent,
-                    zhuan.host_memory_used_bytes,
-                    zhuan.host_memory_percent,
-                    zhuan.container_cpu_percent,
-                    zhuan.container_memory_bytes,
-                    zhuan.container_memory_percent,
+                    *kafka,
+                    *armada,
+                    *zhuan,
                 )
             )
 
@@ -358,7 +360,11 @@ def _lag_drain_seconds(samples: Sequence[MergedSample], max_lag: int, required: 
     start: Optional[datetime] = None
     previous: Optional[datetime] = None
     for sample in samples[max_index + 1 :]:
-        idle = sample.kafka.lag == 0 and sample.kafka.produced_per_second == 0
+        idle = (
+            sample.kafka.valid
+            and sample.kafka.lag == 0
+            and sample.kafka.produced_per_second == 0
+        )
         consecutive = previous is None or sample.at - previous == timedelta(seconds=1)
         if idle and consecutive:
             if count == 0:
@@ -377,6 +383,7 @@ def _lag_drain_seconds(samples: Sequence[MergedSample], max_lag: int, required: 
 
 
 def _resource_summary(resources: Sequence[ResourceMetrics]) -> Mapping[str, object]:
+    resources = [value for value in resources if value.valid]
     fields = {
         "hostCpuPercent": [value.host_cpu_percent for value in resources],
         "hostMemoryUsedBytes": [value.host_memory_used_bytes for value in resources],
@@ -389,6 +396,41 @@ def _resource_summary(resources: Sequence[ResourceMetrics]) -> Mapping[str, obje
         name: {"max": _round_optional(_maximum(values)), "p95": _round_optional(nearest_rank_p95(values))}
         for name, values in fields.items()
     }
+
+
+def _capacity_conclusion(max_lag: Optional[int], drain_seconds: Optional[int]) -> str:
+    if max_lag is None:
+        return "insufficient_data"
+    if max_lag == 0:
+        return "observed_lower_bound"
+    if drain_seconds is not None:
+        return "observed_backlog_drained"
+    return "observed_backlog_not_drained"
+
+
+def _kafka_csv_fields(value: KafkaMetrics) -> Tuple[object, ...]:
+    if not value.valid:
+        return (None,) * 5
+    return (
+        value.latest_offset,
+        value.committed_offset,
+        value.lag,
+        value.produced_per_second,
+        value.consumed_per_second,
+    )
+
+
+def _resource_csv_fields(value: ResourceMetrics) -> Tuple[object, ...]:
+    if not value.valid:
+        return (None,) * 6
+    return (
+        value.host_cpu_percent,
+        value.host_memory_used_bytes,
+        value.host_memory_percent,
+        value.container_cpu_percent,
+        value.container_memory_bytes,
+        value.container_memory_percent,
+    )
 
 
 def _outcome_counts(outcomes: Sequence[ResumeOutcome]) -> Mapping[str, int]:

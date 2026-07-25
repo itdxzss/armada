@@ -1,3 +1,5 @@
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +24,14 @@ class RunOptionsTest(unittest.TestCase):
         self.assertEqual(60, options.zero_window_seconds)
         self.assertEqual(1800, options.timeout_seconds)
         self.assertEqual(5, options.min_free_gib)
+
+    def test_help_labels_default_and_state_changing_modes(self) -> None:
+        output = io.StringIO()
+        with self.assertRaises(SystemExit) as raised, contextlib.redirect_stdout(output):
+            parse_args(["--help"])
+        self.assertEqual(0, raised.exception.code)
+        self.assertIn("dry-run", output.getvalue())
+        self.assertIn("state-changing", output.getvalue())
 
     def test_execute_requires_positive_expected_count(self) -> None:
         for argv in (

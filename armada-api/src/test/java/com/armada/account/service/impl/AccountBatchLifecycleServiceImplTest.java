@@ -13,6 +13,7 @@ import com.armada.account.model.dto.AccountBatchPreviewDTO;
 import com.armada.account.model.dto.AccountBatchQueryDTO;
 import com.armada.account.model.dto.AccountBatchTargetQuery;
 import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountBatchOperation;
 import com.armada.account.model.enums.AccountBatchScope;
@@ -68,26 +69,30 @@ class AccountBatchLifecycleServiceImplTest {
     }
 
     @Test
-    void onlineByIdsSkipsBlockedAndMissingCredentialButKeepsNormalAccount() {
-        List<Long> ids = List.of(1L, 2L, 3L, 4L, 5L);
+    void onlineByIdsSkipsBlockedMissingCredentialAndAlreadyOnlineStatesButKeepsOfflineAccount() {
+        List<Long> ids = List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L);
         when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(List.of(
                 target(1L, AccountStateCode.BANNED, true),
                 target(2L, AccountStateCode.UNBOUND, true),
                 target(3L, AccountStateCode.TAKING_OVER, true),
                 target(4L, AccountStateCode.NORMAL, false),
-                target(5L, AccountStateCode.NORMAL, true)));
-        when(commandService.onlineBatch(List.of(5L))).thenReturn(accepted(List.of(5L)));
+                target(5L, AccountStateCode.NORMAL, AccountLoginStateCode.PENDING_ONLINE, true),
+                target(6L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, true),
+                target(7L, AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, true)));
+        when(commandService.onlineBatch(List.of(7L))).thenReturn(accepted(List.of(7L)));
 
         AccountBatchCommandResultVO result = service.onlineByIds(ids);
 
-        verify(commandService).onlineBatch(List.of(5L));
-        assertThat(result.skipped()).isEqualTo(4);
+        verify(commandService).onlineBatch(List.of(7L));
+        assertThat(result.skipped()).isEqualTo(6);
         assertThat(result.accepted()).isEqualTo(1);
         assertThat(result.skipReasons())
                 .containsEntry("BANNED", 1)
                 .containsEntry("UNBOUND", 1)
                 .containsEntry("TAKING_OVER", 1)
-                .containsEntry("MISSING_CREDENTIAL", 1);
+                .containsEntry("MISSING_CREDENTIAL", 1)
+                .containsEntry("ALREADY_PENDING", 1)
+                .containsEntry("ALREADY_ONLINE", 1);
     }
 
     @Test
@@ -147,7 +152,7 @@ class AccountBatchLifecycleServiceImplTest {
     @Test
     void previewOnlineByQueryReturnsMatchedExecutableAndExclusiveSkipCounts() {
         when(accountMapper.previewBatchTargetsByQuery(any(AccountQuery.class)))
-                .thenReturn(previewRow(1_256, 20, 10, 6, 20));
+                .thenReturn(previewRow(1_256, 20, 10, 6, 30, 40, 20));
 
         AccountBatchPreviewVO result = service.preview(new AccountBatchPreviewDTO(
                 AccountBatchOperation.ONLINE,
@@ -156,12 +161,14 @@ class AccountBatchLifecycleServiceImplTest {
                 emptyQuery()));
 
         assertThat(result.matched()).isEqualTo(1_256);
-        assertThat(result.skipped()).isEqualTo(56);
-        assertThat(result.executable()).isEqualTo(1_200);
+        assertThat(result.skipped()).isEqualTo(126);
+        assertThat(result.executable()).isEqualTo(1_130);
         assertThat(result.skipReasons())
                 .containsEntry("BANNED", 20L)
                 .containsEntry("UNBOUND", 10L)
                 .containsEntry("TAKING_OVER", 6L)
+                .containsEntry("ALREADY_PENDING", 30L)
+                .containsEntry("ALREADY_ONLINE", 40L)
                 .containsEntry("MISSING_CREDENTIAL", 20L);
     }
 
@@ -235,19 +242,41 @@ class AccountBatchLifecycleServiceImplTest {
             long unbound,
             long takingOver,
             long missingCredential) {
+        return previewRow(matched, banned, unbound, takingOver, 0, 0, missingCredential);
+    }
+
+    private static AccountBatchPreviewRow previewRow(
+            long matched,
+            long banned,
+            long unbound,
+            long takingOver,
+            long alreadyPending,
+            long alreadyOnline,
+            long missingCredential) {
         AccountBatchPreviewRow row = new AccountBatchPreviewRow();
         row.setMatched(matched);
         row.setBanned(banned);
         row.setUnbound(unbound);
         row.setTakingOver(takingOver);
+        row.setAlreadyPending(alreadyPending);
+        row.setAlreadyOnline(alreadyOnline);
         row.setMissingCredential(missingCredential);
         return row;
     }
 
     private static AccountBatchTargetRow target(Long id, Integer state, boolean credentialPresent) {
+        return target(id, state, null, credentialPresent);
+    }
+
+    private static AccountBatchTargetRow target(
+            Long id,
+            Integer state,
+            Integer loginState,
+            boolean credentialPresent) {
         AccountBatchTargetRow row = new AccountBatchTargetRow();
         row.setId(id);
         row.setAccountState(state);
+        row.setLoginState(loginState);
         row.setCredentialPresent(credentialPresent);
         return row;
     }

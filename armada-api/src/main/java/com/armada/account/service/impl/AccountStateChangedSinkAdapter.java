@@ -1,5 +1,6 @@
 package com.armada.account.service.impl;
 
+import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
@@ -16,14 +17,18 @@ import org.springframework.stereotype.Service;
 public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChangedSink {
 
     private final AccountStateEventService service;
+    private final ProxyFailedRecoveryCoordinator recoveryCoordinator;
 
     /**
      * 创建账号状态变更 adapter。
      *
-     * @param service 账号状态事件落库服务
+     * @param service             账号状态事件落库服务
+     * @param recoveryCoordinator 状态提交后的代理失败恢复编排器
      */
-    public AccountStateChangedSinkAdapter(AccountStateEventService service) {
+    public AccountStateChangedSinkAdapter(AccountStateEventService service,
+                                          ProxyFailedRecoveryCoordinator recoveryCoordinator) {
         this.service = service;
+        this.recoveryCoordinator = recoveryCoordinator;
     }
 
     /**
@@ -33,7 +38,7 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
      */
     @Override
     public void handleStateChanged(ProtocolAccountStateChangedEvent event) {
-        service.applyStateChanged(new AccountStateChangedEvent(
+        boolean applied = service.applyStateChanged(new AccountStateChangedEvent(
                 event.tenantId(),
                 event.accountId(),
                 event.protocolAccountId(),
@@ -44,5 +49,14 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
                 event.rawCode(),
                 event.source(),
                 event.onlineAttemptId()));
+        if (applied && isProxyFailed(event)) {
+            recoveryCoordinator.recover(
+                    event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId());
+        }
+    }
+
+    private static boolean isProxyFailed(ProtocolAccountStateChangedEvent event) {
+        return "PROXY_FAILED".equalsIgnoreCase(event.to())
+                || "PROXY_FAILED".equalsIgnoreCase(event.semantic());
     }
 }

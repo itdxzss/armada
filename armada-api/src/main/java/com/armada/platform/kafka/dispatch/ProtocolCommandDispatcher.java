@@ -178,44 +178,62 @@ public class ProtocolCommandDispatcher {
     }
 
     private RowDispatchCounts sendLockedRows(List<ProtocolCommandOutbox> rows) {
-        int sent = 0;
-        int retried = 0;
-        int dead = 0;
-        for (ProtocolCommandPublishOutcome outcome : publisher.publishBatch(rows)) {
-            ProtocolCommandOutbox row = outcome.row();
-            RuntimeException error = outcome.error();
-            if (error == null) {
-                sent += markSent(row);
-            } else if (error instanceof BusinessException ex) {
-                log.warn("协议命令 outbox payload 不可发送 commandId={} batchId={} accountId={} error={}",
-                        row.getCommandId(), row.getBatchId(), row.getAggregateId(), safeError(ex));
-                dead += markDead(row, ex);
-            } else {
-                if (shouldMarkDead(row)) {
-                    log.warn("协议命令 outbox 发送失败且重试耗尽 commandId={} batchId={} accountId={} retryCount={} error={}",
-                            row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getRetryCount(),
-                            safeError(error));
-                    dead += markDead(row, error);
-                } else {
-                    log.warn("协议命令 outbox 发送失败等待重试 commandId={} batchId={} accountId={} retryCount={} "
-                                    + "retryDelayMs={} error={}",
-                            row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getRetryCount(),
-                            retryDelayMs(), safeError(error));
-                    retried += markRetry(row, error);
-                }
-            }
-        }
-        return new RowDispatchCounts(sent, retried, dead);
+        RowDispatchAccumulator accumulator = new RowDispatchAccumulator();
+        publisher.publishBatchByWindow(rows, outcomes -> dispatchWindow(outcomes, accumulator));
+        return accumulator.toCounts();
     }
 
-    private int markSent(ProtocolCommandOutbox row) {
+    private void dispatchWindow(List<ProtocolCommandPublishOutcome> outcomes,
+                                RowDispatchAccumulator accumulator) {
+        List<ProtocolCommandOutbox> succeededRows = outcomes.stream()
+                .filter(ProtocolCommandPublishOutcome::succeeded)
+                .map(ProtocolCommandPublishOutcome::row)
+                .toList();
+        accumulator.sent += markSentBatch(succeededRows);
+        for (ProtocolCommandPublishOutcome outcome : outcomes) {
+            if (!outcome.succeeded()) {
+                dispatchFailure(outcome, accumulator);
+            }
+        }
+    }
+
+    private void dispatchFailure(ProtocolCommandPublishOutcome outcome,
+                                 RowDispatchAccumulator accumulator) {
+        ProtocolCommandOutbox row = outcome.row();
+        RuntimeException error = outcome.error();
+        if (error instanceof BusinessException ex) {
+            log.warn("协议命令 outbox payload 不可发送 commandId={} batchId={} accountId={} error={}",
+                    row.getCommandId(), row.getBatchId(), row.getAggregateId(), safeError(ex));
+            accumulator.dead += markDead(row, ex);
+            return;
+        }
+        if (shouldMarkDead(row)) {
+            log.warn("协议命令 outbox 发送失败且重试耗尽 commandId={} batchId={} accountId={} retryCount={} error={}",
+                    row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getRetryCount(),
+                    safeError(error));
+            accumulator.dead += markDead(row, error);
+            return;
+        }
+        log.warn("协议命令 outbox 发送失败等待重试 commandId={} batchId={} accountId={} retryCount={} "
+                        + "retryDelayMs={} error={}",
+                row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getRetryCount(),
+                retryDelayMs(), safeError(error));
+        accumulator.retried += markRetry(row, error);
+    }
+
+    private int markSentBatch(List<ProtocolCommandOutbox> rows) {
+        if (rows.isEmpty()) {
+            return 0;
+        }
         long now = now();
-        int updated = mapper.markSent(row, now);
-        if (updated == 0) {
-            log.warn("协议命令 outbox SENT 回写未命中 commandId={} batchId={} accountId={} rowId={} "
-                            + "lockedBy={} lockedAt={}",
-                    row.getCommandId(), row.getBatchId(), row.getAggregateId(), row.getId(),
-                    row.getLockedBy(), row.getLockedAt());
+        int updated = mapper.markSentBatch(rows, now);
+        if (updated != rows.size()) {
+            ProtocolCommandOutbox first = rows.get(0);
+            ProtocolCommandOutbox last = rows.get(rows.size() - 1);
+            log.warn("协议命令 outbox SENT 批量回写未全量命中 requested={} updated={} firstCommandId={} "
+                            + "lastCommandId={} lockedBy={} lockedAt={}",
+                    rows.size(), updated, first.getCommandId(), last.getCommandId(),
+                    first.getLockedBy(), first.getLockedAt());
         }
         return updated;
     }
@@ -316,5 +334,16 @@ public class ProtocolCommandDispatcher {
     }
 
     private record RowDispatchCounts(int sent, int retried, int dead) {
+    }
+
+    private static final class RowDispatchAccumulator {
+
+        private int sent;
+        private int retried;
+        private int dead;
+
+        private RowDispatchCounts toCounts() {
+            return new RowDispatchCounts(sent, retried, dead);
+        }
     }
 }

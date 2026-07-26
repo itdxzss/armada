@@ -3,8 +3,8 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -21,7 +21,6 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -159,7 +158,7 @@ class AccountStateEventServiceImplTest {
     }
 
     @Test
-    void applyStateChanged_proxyFailedMarksBoundIpUnavailableBeforeSideEffects() {
+    void applyStateChanged_proxyFailedOnlyPersistsStateAndDoesNotMutateProxy() {
         Account account = new Account();
         account.setId(100L);
         account.setProtocolAccountId("acc_8613800138000");
@@ -188,11 +187,9 @@ class AccountStateEventServiceImplTest {
 
         service.applyStateChanged(event);
 
-        InOrder inOrder = inOrder(stateMapper, ipProxyService, sideEffect);
-        inOrder.verify(stateMapper).updateLoginState(any(AccountState.class));
-        inOrder.verify(ipProxyService).markBoundProxyUnavailableByAccount(100L, 2_000L, "PROXY_FAILED");
-        inOrder.verify(sideEffect).afterStateChanged(eq(account), eq(event), eq(2_000L));
-        verify(ipProxyService, never()).releaseByAccount(100L);
+        verify(stateMapper).updateLoginState(any(AccountState.class));
+        verify(sideEffect).afterStateChanged(eq(account), eq(event), eq(2_000L));
+        verifyNoInteractions(ipProxyService);
     }
 
     private AccountStateEventServiceImpl service() {
@@ -239,7 +236,7 @@ class AccountStateEventServiceImplTest {
     }
 
     @Test
-    void applyStateChanged_proxyFailedSemanticMarksBoundIpUnavailableBeforeSideEffects() {
+    void applyStateChanged_proxyFailedSemanticOnlyPersistsStateAndDoesNotMutateProxy() {
         Account account = new Account();
         account.setId(100L);
         account.setProtocolAccountId("acc_8613800138000");
@@ -268,10 +265,8 @@ class AccountStateEventServiceImplTest {
 
         service.applyStateChanged(event);
 
-        InOrder inOrder = inOrder(stateMapper, ipProxyService, sideEffect);
-        inOrder.verify(stateMapper).updateLoginState(any(AccountState.class));
-        inOrder.verify(ipProxyService).markBoundProxyUnavailableByAccount(100L, 2_000L, "PROXY_FAILED");
-        inOrder.verify(sideEffect).afterStateChanged(eq(account), eq(event), eq(2_000L));
-        verify(ipProxyService, never()).releaseByAccount(100L);
+        verify(stateMapper).updateLoginState(any(AccountState.class));
+        verify(sideEffect).afterStateChanged(eq(account), eq(event), eq(2_000L));
+        verifyNoInteractions(ipProxyService);
     }
 }

@@ -190,59 +190,55 @@ public interface ProtocolCommandOutboxMapper {
                                                                  @Param("lockedAt") long lockedAt);
 
     /**
-     * 将当前 dispatcher 持有锁的命令标记为 SENT。
+     * 将同一发送窗口内、由当前 Dispatcher 持锁的命令批量标记为 SENT。
      *
-     * <p>状态回写必须同时校验 locked_by 和 locked_at。这样旧发送线程在锁过期释放、又被
-     * 其他实例重新抢占后,不能把新锁对应的行误标成 SENT。</p>
+     * <p>正常 afterCommit 主路径的内存行可能没有数据库主键，因此统一按全局唯一 command_id 更新。
+     * 所有行必须属于同一组 locked_by 和 locked_at；任一行缺少锁上下文或锁不一致时不执行 SQL，
+     * 防止旧发送线程误更新后来重新抢占的命令。</p>
      *
-     * @param lockedRow 包含 id 或 command_id,以及 locked_by/locked_at 的锁上下文
-     * @param sentAt    Kafka producer ack 成功时间(epoch 毫秒),也作为 updated_at
+     * @param lockedRows 同一发送窗口内 Kafka ACK 成功的 outbox 行
+     * @param sentAt Kafka producer ACK 收敛时间(epoch 毫秒)，也作为 updated_at
      * @return 实际更新行数
      */
-    default int markSent(ProtocolCommandOutbox lockedRow, long sentAt) {
-        if (!hasLockContext(lockedRow)) {
+    default int markSentBatch(List<ProtocolCommandOutbox> lockedRows, long sentAt) {
+        if (lockedRows == null || lockedRows.isEmpty()) {
             return 0;
         }
-        ProtocolCommandOutbox row = stateUpdateRow(lockedRow);
-        row.setSentAt(sentAt);
-        row.setUpdatedAt(sentAt);
-        if (row.getId() != null) {
-            return markSentInternal(
-                    row,
-                    ProtocolCommandOutboxStatus.LOCKED.code(),
-                    ProtocolCommandOutboxStatus.SENT.code());
+        ProtocolCommandOutbox first = lockedRows.get(0);
+        if (!hasCommandLockContext(first)) {
+            return 0;
         }
-        return markSentByCommandIdInternal(
-                row,
+        boolean sameLock = lockedRows.stream().allMatch(row ->
+                hasCommandLockContext(row)
+                        && first.getLockedBy().equals(row.getLockedBy())
+                        && first.getLockedAt().equals(row.getLockedAt()));
+        if (!sameLock) {
+            return 0;
+        }
+        ProtocolCommandOutbox state = stateUpdateRow(first);
+        state.setSentAt(sentAt);
+        state.setUpdatedAt(sentAt);
+        return markSentBatchByCommandIdsInternal(
+                lockedRows.stream().map(ProtocolCommandOutbox::getCommandId).toList(),
+                state,
                 ProtocolCommandOutboxStatus.LOCKED.code(),
                 ProtocolCommandOutboxStatus.SENT.code());
     }
 
     /**
-     * 将 LOCKED 命令标记为 SENT 的底层 SQL 映射。
+     * 按 command_id 批量标记 SENT 的底层 SQL 映射。
      *
-     * @param row          包含 id/lockedBy/lockedAt/sentAt/updatedAt 的状态更新载体
+     * @param commandIds 当前发送窗口内 ACK 成功的 command_id
+     * @param row 包含 lockedBy/lockedAt/sentAt/updatedAt 的状态更新载体
      * @param lockedStatus LOCKED 状态码
-     * @param sentStatus   SENT 状态码
+     * @param sentStatus SENT 状态码
      * @return 实际更新行数
      */
     @InterceptorIgnore(tenantLine = "true")
-    int markSentInternal(@Param("row") ProtocolCommandOutbox row,
-                         @Param("lockedStatus") int lockedStatus,
-                         @Param("sentStatus") int sentStatus);
-
-    /**
-     * 按 command_id 标记 SENT 的底层 SQL 映射。
-     *
-     * @param row          包含 commandId/lockedBy/lockedAt/sentAt/updatedAt 的状态更新载体
-     * @param lockedStatus LOCKED 状态码
-     * @param sentStatus   SENT 状态码
-     * @return 实际更新行数
-     */
-    @InterceptorIgnore(tenantLine = "true")
-    int markSentByCommandIdInternal(@Param("row") ProtocolCommandOutbox row,
-                                    @Param("lockedStatus") int lockedStatus,
-                                    @Param("sentStatus") int sentStatus);
+    int markSentBatchByCommandIdsInternal(@Param("commandIds") List<String> commandIds,
+                                          @Param("row") ProtocolCommandOutbox row,
+                                          @Param("lockedStatus") int lockedStatus,
+                                          @Param("sentStatus") int sentStatus);
 
     /**
      * 将当前 dispatcher 持有锁的命令释放回 PENDING 等待后续重试。
@@ -333,6 +329,25 @@ public interface ProtocolCommandOutboxMapper {
     int cancelPendingMarketingTaskCommandsInternal(
             @Param("tenantId") Long tenantId,
             @Param("marketingTaskId") Long marketingTaskId,
+            @Param("pendingStatus") int pendingStatus,
+            @Param("canceledStatus") int canceledStatus,
+            @Param("now") long now);
+
+    /**
+     * 取消当前租户指定账号尚未发布的上线命令。
+     *
+     * @param accountIds 账号 ID 列表
+     * @param aggregateType 账号聚合类型
+     * @param onlineCommandType 账号上线命令类型
+     * @param pendingStatus PENDING 状态码
+     * @param canceledStatus CANCELED 状态码
+     * @param now 当前时间(epoch 毫秒)
+     * @return 实际取消行数
+     */
+    int cancelPendingAccountOnlineCommandsInternal(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("aggregateType") String aggregateType,
+            @Param("onlineCommandType") String onlineCommandType,
             @Param("pendingStatus") int pendingStatus,
             @Param("canceledStatus") int canceledStatus,
             @Param("now") long now);
@@ -435,6 +450,10 @@ public interface ProtocolCommandOutboxMapper {
             return false;
         }
         return row.getId() != null || (row.getCommandId() != null && !row.getCommandId().isBlank());
+    }
+
+    private static boolean hasCommandLockContext(ProtocolCommandOutbox row) {
+        return hasLockContext(row) && row.getCommandId() != null && !row.getCommandId().isBlank();
     }
 
     private static ProtocolCommandOutbox stateUpdateRow(ProtocolCommandOutbox lockedRow) {

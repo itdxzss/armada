@@ -211,11 +211,22 @@
     SELECT * FROM account_group WHERE id = #{id} AND deleted_at IS NULL
   </select>
 
-  <!-- 与任务启动使用同一分组行锁，按主键升序获取以降低多分组并发迁移死锁风险。 -->
-  <select id="selectByIdsForUpdate" resultType="com.armada.account.model.entity.AccountGroup">
+  <!-- 人工迁移前置提示使用普通快照读，最终并发状态由账号条件更新复核。 -->
+  <select id="selectByIds" resultType="com.armada.account.model.entity.AccountGroup">
     SELECT *
     FROM account_group
     WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">#{groupId}</foreach>
+    ORDER BY id
+  </select>
+
+  <!-- 显式 tenant_id + InterceptorIgnore，避免租户插件破坏 ORDER BY ... FOR UPDATE 的 MySQL 尾句。 -->
+  <select id="selectByTenantAndIdsForUpdate" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT *
+    FROM account_group
+    WHERE tenant_id = #{tenantId}
+      AND deleted_at IS NULL
       AND id IN
     <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">#{groupId}</foreach>
     ORDER BY id

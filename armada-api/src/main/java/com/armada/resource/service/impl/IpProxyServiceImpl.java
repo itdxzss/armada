@@ -56,9 +56,9 @@ import org.springframework.util.StringUtils;
 /**
  * IP 代理池业务实现。
  *
- * <p>普通 CRUD 的租户隔离由 MyBatis 租户拦截器透明完成；上线分配的 {@code FOR UPDATE} 查询显式传 tenantId,
- * 避免租户 SQL 改写影响锁行语义。导入复用 {@link LineImporter} 逐行骨架，仅提供「解析校验 / 去重键 / 落库」
- * 三段差异；新行的 status/ownership 用枚举码（禁魔法值）。</p>
+ * <p>普通 CRUD 的租户隔离由 MyBatis 租户拦截器透明完成；上线分配使用普通候选查询和
+ * {@code status=IDLE} 条件批量 UPDATE 乐观抢占。导入复用 {@link LineImporter} 逐行骨架，
+ * 仅提供「解析校验 / 去重键 / 落库」三段差异；新行的 status/ownership 用枚举码（禁魔法值）。</p>
  */
 @Service
 public class IpProxyServiceImpl implements IpProxyService {
@@ -84,6 +84,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     private static final int ERROR_MAX_LENGTH = 512;
 
     private final IpProxyMapper mapper;
+    private final IpProxyOptimisticAllocator optimisticAllocator;
     private final IpProxyConverter converter;
     private final CountryService countryService;
     private final IpProxyDetector detector;
@@ -95,6 +96,7 @@ public class IpProxyServiceImpl implements IpProxyService {
                               IpProxyDetector detector,
                               @Qualifier("ipProxyCheckExecutor") Executor ipProxyCheckExecutor) {
         this.mapper = mapper;
+        this.optimisticAllocator = new IpProxyOptimisticAllocator(mapper);
         this.converter = converter;
         this.countryService = countryService;
         this.detector = detector;
@@ -265,7 +267,7 @@ public class IpProxyServiceImpl implements IpProxyService {
     /**
      * 为单个账号上线预占代理。
      * <p>
-     * 先释放该账号在本地代理池中的旧绑定,再按「导入国家 -> 混合 -> 其它国家」优先级锁定空闲代理并绑定账号。
+     * 先释放该账号在本地代理池中的旧绑定，再按「导入国家 -> 混合 -> 其它国家」优先级条件抢占空闲代理。
      * 这里不调用协议层、不等待上线结果回写,只维护本地代理池的占用关系。
      *
      * @param request 账号 ID 与导入国家偏好
@@ -276,49 +278,10 @@ public class IpProxyServiceImpl implements IpProxyService {
     @Transactional(rollbackFor = Exception.class)
     public IpProxyAllocation allocateOnlineEndpoint(IpProxyAllocationRequest request) {
         IpProxyAllocationRequest normalized = normalizeAllocationRequest(request);
-
-        // 锁行查询会显式写 tenant_id 并关闭租户拦截器,所以这里必须先拿到租户上下文。
-        Long tenantId = TenantContext.get();
-        if (tenantId == null) {
-            throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少租户上下文");
-        }
-
-        long now = System.currentTimeMillis();
-
-        // 先释放该账号旧绑定,再按国家优先级从空闲池选一条。
-        // 这一步和后面的锁行/绑定处在同一个短事务内,只保护本地代理占用关系。
-        int released = releaseCurrentBinding(normalized.accountId(), now);
-
-        // 按「指定国家 → 混合 → 其它国家」锁定一条本租户空闲代理,防止两个账号并发拿到同一行。
-        // 这里不等待协议层上线结果;HTTP /online 后续是否成功由 Kafka 异步回填。
-        IpProxy proxy = selectOneIdleByPriority(
-                tenantId,
-                normalized.preferredRegion(),
-                List.of(),
-                normalized.allowOtherRegionFallback());
-        if (proxy == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "暂无空闲代理");
-        }
-
-        // 标记使用中时再带 status=IDLE 条件兜底;如果更新不到 1 行,说明并发状态已变化,让调用方重试。
-        int marked = mapper.markUsingAndBind(
-                proxy.getId(),
-                normalized.accountId(),
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now);
-        if (marked != 1) {
-            throw new BusinessException(ErrorCode.CONFLICT, "代理分配冲突,请重试");
-        }
-
-        proxy.setStatus(IpProxyStatus.IN_USE.code());
-        proxy.setBoundAccountId(normalized.accountId());
-        proxy.setBoundAt(now);
-
-        // 只记录定位需要的代理 ID 和地区,不打印 username/password。
-        log.info("IP代理上线分配 accountId={} preferredRegion={} released={} proxyId={} region={}",
-                normalized.accountId(), normalized.preferredRegion(), released, proxy.getId(), proxy.getRegion());
-        return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
+        List<IpProxyAccountAllocation> allocations = allocateOnlineEndpoints(List.of(normalized), List.of());
+        IpProxyAccountAllocation allocation = allocations.get(0);
+        return new IpProxyAllocation(
+                allocation.proxyId(), allocation.endpoint(), allocation.proxySource());
     }
 
     @Override
@@ -401,10 +364,10 @@ public class IpProxyServiceImpl implements IpProxyService {
      * 批量为账号上线分配代理端点。
      *
      * <p>这是批量上线的本地 DB 临界区,只负责代理池占用关系,不调用协议层、也不等待 Kafka 回填。
-     * 方法会先释放这些账号原有的 IN_USE 绑定,再按每个账号的国家偏好逐条锁定 IDLE 代理行,
-     * 最后批量置为 IN_USE 并绑定到对应账号。</p>
+     * 方法会先释放这些账号原有的 IN_USE 绑定，再按每个账号的国家偏好用单行条件 UPDATE
+     * 将 IDLE 代理置为 IN_USE 并绑定到对应账号。</p>
      *
-     * <p>整个方法处在一个短事务内:如果空闲代理不足、批量绑定行数不匹配或发生其它异常,
+     * <p>整个方法处在一个短事务内:如果空闲代理不足、条件抢占失败或发生其它异常,
      * 前面的释放旧绑定也会一起回滚,避免账号丢失原代理绑定。返回结果按入参账号顺序排列,
      * account 域后续用其中的 endpoint 调协议层 batch online,用 proxyId/accountId 做失败补偿释放。</p>
      *
@@ -421,7 +384,7 @@ public class IpProxyServiceImpl implements IpProxyService {
      * 为一批账号重新分配代理,并排除指定代理 ID。
      *
      * <p>删除 IP 前的在线账号重登会先释放账号旧绑定,因此旧 IP 会重新变成 IDLE。
-     * 本方法在锁定空闲代理时明确排除待删 IP,保证重登命令使用的是其它可用代理。</p>
+     * 本方法在抢占空闲代理时明确排除待删 IP，保证重登命令使用的是其它可用代理。</p>
      *
      * @param requests         需要重新分配代理的账号分配请求
      * @param excludedProxyIds 本次分配禁止选中的代理 ID
@@ -439,7 +402,7 @@ public class IpProxyServiceImpl implements IpProxyService {
      * 批量分配代理的共享实现。
      *
      * <p>两个 public 入口都走这里:普通批量上线不排除旧 IP,删除 IP 前重登会传入待删代理 ID。
-     * 方法在一个事务中完成释放旧绑定、逐个锁定空闲代理、批量绑定新代理;任何一步失败都会回滚,
+     * 方法在默认事务隔离级别下完成释放旧绑定、普通候选查询和单行条件 UPDATE 抢占；任何一步失败都会回滚，
      * 避免账号代理绑定被释放后没有重新分配。</p>
      */
     private List<IpProxyAccountAllocation> allocateOnlineEndpoints(
@@ -452,6 +415,7 @@ public class IpProxyServiceImpl implements IpProxyService {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少租户上下文");
         }
 
+        long startedAt = System.nanoTime();
         long now = System.currentTimeMillis();
 
         // 批量上线先释放这些账号旧绑定,再按账号顺序和国家优先级分配 IP。
@@ -462,43 +426,20 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IN_USE.code(),
                 now);
 
-        // 按账号顺序逐个锁定最合适的代理。每次排除待删 IP 和本批已选 IP,避免重复选中同一行。
-        List<Long> selectedProxyIds = new ArrayList<>(excludedProxyIds);
-        List<IpProxy> proxies = new ArrayList<>(normalized.size());
-        for (IpProxyAllocationRequest item : normalized) {
-            IpProxy proxy = selectOneIdleByPriority(
-                    tenantId,
-                    item.preferredRegion(),
-                    selectedProxyIds,
-                    item.allowOtherRegionFallback());
-            if (proxy == null) {
-                throw new BusinessException(ErrorCode.VALIDATION,
-                        "暂无足够空闲代理: requested=" + normalized.size() + " available=" + proxies.size());
-            }
-            proxies.add(proxy);
-            selectedProxyIds.add(proxy.getId());
-        }
-
-        List<IpProxyBindTarget> targets = new ArrayList<>(ids.size());
+        IpProxyOptimisticAllocator.Result claimResult = optimisticAllocator.allocate(
+                tenantId, normalized, excludedProxyIds, now, MIXED_REGION);
         List<IpProxyAccountAllocation> allocations = new ArrayList<>(ids.size());
         for (int i = 0; i < ids.size(); i++) {
             Long accountId = ids.get(i);
-            IpProxy proxy = proxies.get(i);
-            targets.add(new IpProxyBindTarget(proxy.getId(), accountId));
+            IpProxy proxy = claimResult.proxies().get(i);
             allocations.add(new IpProxyAccountAllocation(accountId, proxy.getId(), toEndpoint(proxy), proxy.getSource()));
         }
 
-        int marked = mapper.markUsingAndBindBatch(
-                targets,
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now);
-        if (marked != ids.size()) {
-            throw new BusinessException(ErrorCode.CONFLICT, "代理批量分配冲突,请重试");
-        }
-
-        log.info("IP代理批量上线分配 requested={} released={} allocated={} excluded={}",
-                ids.size(), released, allocations.size(), excludedProxyIds.size());
+        log.info("IP代理批量上线分配 requested={} released={} allocated={} excluded={} candidateQueries={} "
+                        + "casStatements={} casUpdatedRows={} conflicts={} retryRounds={} elapsedMs={}",
+                ids.size(), released, allocations.size(), excludedProxyIds.size(), claimResult.candidateQueries(),
+                claimResult.casStatements(), claimResult.casUpdatedRows(), claimResult.conflicts(),
+                claimResult.retryRounds(), elapsedMs(startedAt));
         return allocations;
     }
 
@@ -523,6 +464,16 @@ public class IpProxyServiceImpl implements IpProxyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void releaseOnlineAllocation(Long accountId, Long proxyId) {
+        releaseExactBinding(accountId, proxyId, "IP代理上线补偿释放");
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void releaseFailedProxyBinding(Long accountId, Long proxyId) {
+        releaseExactBinding(accountId, proxyId, "IP代理失败绑定释放");
+    }
+
+    private void releaseExactBinding(Long accountId, Long proxyId, String logAction) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
         }
@@ -536,7 +487,7 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 System.currentTimeMillis());
-        log.info("IP代理上线补偿释放 accountId={} proxyId={} released={}", accountId, proxyId, released);
+        log.info("{} accountId={} proxyId={} released={}", logAction, accountId, proxyId, released);
     }
 
     private static void requirePairingSessionId(Long pairingSessionId) {
@@ -565,33 +516,6 @@ public class IpProxyServiceImpl implements IpProxyService {
         }
         int released = releaseCurrentBinding(accountId, System.currentTimeMillis());
         log.info("IP代理账号绑定释放 accountId={} released={}", accountId, released);
-    }
-
-    /**
-     * 将账号当前绑定的代理标记为不可用。
-     *
-     * <p>协议层明确上报 {@code PROXY_FAILED} 时,该代理不能直接回到空闲池。SQL 会同时按
-     * bound_account_id、IN_USE 状态和 bound_at 时间保护匹配,避免迟到事件误伤该账号后续新 IP。</p>
-     *
-     * @param accountId 账号主键
-     * @param occurredAt 协议事件发生时间
-     * @param reason 上游失败原因
-     */
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void markBoundProxyUnavailableByAccount(Long accountId, long occurredAt, String reason) {
-        if (accountId == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
-        }
-        long eventAt = occurredAt <= 0 ? System.currentTimeMillis() : occurredAt;
-        IpProxy update = protocolFailureUpdate(eventAt, reason);
-        int marked = mapper.markBoundProxyUnavailableByAccount(
-                accountId,
-                IpProxyStatus.IN_USE.code(),
-                eventAt,
-                update);
-        log.info("IP代理协议失败标记不可用 accountId={} marked={} occurredAt={} reason={}",
-                accountId, marked, eventAt, update.getLastCheckError());
     }
 
     /**
@@ -646,28 +570,6 @@ public class IpProxyServiceImpl implements IpProxyService {
     }
 
     /**
-     * 按国家优先级锁定一条本租户空闲代理。
-     *
-     * <p>实际排序规则在 Mapper SQL 中实现:指定国家优先,其次混合池,最后其它国家。
-     * {@code excludedProxyIds} 用于批量分配和删除 IP 前重登,避免同一批次重复选中或选中待删代理。</p>
-     */
-    private IpProxy selectOneIdleByPriority(Long tenantId,
-                                            String preferredRegion,
-                                            List<Long> excludedProxyIds,
-                                            boolean allowOtherRegionFallback) {
-        List<Long> excludedSnapshot = excludedProxyIds == null || excludedProxyIds.isEmpty()
-                ? List.of()
-                : List.copyOf(excludedProxyIds);
-        return mapper.selectOneIdleByRegionPriorityForUpdate(
-                tenantId,
-                IpProxyStatus.IDLE.code(),
-                preferredRegion,
-                MIXED_REGION,
-                excludedSnapshot,
-                allowOtherRegionFallback);
-    }
-
-    /**
      * 释放账号当前占用的代理。
      *
      * <p>只把该账号当前 {@code IN_USE} 绑定释放回 {@code IDLE},用于上线前重分配和离线后的正常释放。
@@ -679,23 +581,6 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IDLE.code(),
                 IpProxyStatus.IN_USE.code(),
                 updatedAt);
-    }
-
-    private IpProxy protocolFailureUpdate(long occurredAt, String reason) {
-        String message = StringUtils.hasText(reason)
-                ? "协议层上报当前代理不可用: " + reason
-                : "协议层上报当前代理不可用";
-        String truncated = truncate(message);
-        IpProxy update = new IpProxy();
-        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
-        update.setLastSampleCheckAt(occurredAt);
-        update.setLastCheckError(truncated);
-        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappHttpStatus(null);
-        update.setWhatsappCheckError(truncated);
-        update.setUpdatedAt(System.currentTimeMillis());
-        return update;
     }
 
     /**
@@ -759,7 +644,7 @@ public class IpProxyServiceImpl implements IpProxyService {
      * 归一化需要排除的代理 ID 列表。
      *
      * <p>空列表表示不排除任何代理;非空时拒绝 null 并按首次出现顺序去重。
-     * 该列表会参与 {@code FOR UPDATE} 查询,用于确保删除 IP 前重登不会重新选中待删代理。</p>
+     * 该固定列表会参与普通候选查询,用于确保删除 IP 前重登不会重新选中待删代理。</p>
      */
     private static List<Long> normalizeProxyIds(List<Long> proxyIds) {
         if (proxyIds == null || proxyIds.isEmpty()) {

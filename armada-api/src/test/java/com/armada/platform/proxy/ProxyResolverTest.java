@@ -46,6 +46,22 @@ class ProxyResolverTest {
     }
 
     @Test
+    void resolveExtractsStickySessionFromUsernameWhenPasswordHasNone() {
+        ProxyEndpoint endpoint = new ProxyEndpoint(
+                ProxyEndpoint.PROTOCOL_SOCKS5,
+                "proxy.example.com",
+                1080,
+                new ProxyCredentials("user-country-in-session-Grass123", "plain-password"),
+                "IN");
+
+        ProxyDescriptor descriptor = resolver.resolve(endpoint);
+
+        assertThat(descriptor.sessionId()).isEqualTo("Grass123");
+        assertThat(descriptor.url())
+                .isEqualTo("socks5://user-country-in-session-Grass123:plain-password@proxy.example.com:1080");
+    }
+
+    @Test
     void resolveRejectsPasswordWithoutStickySession() {
         ProxyEndpoint endpoint = new ProxyEndpoint(
                 ProxyEndpoint.PROTOCOL_SOCKS5,

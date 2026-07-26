@@ -16,7 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 /**
  * IP 代理 Mapper 真库测试。
  *
- * <p>覆盖账号上线需要的活跃代理读取、空闲代理锁定、绑定和释放 XML,
+ * <p>覆盖账号上线需要的活跃代理读取、普通候选查询、乐观批量绑定和释放 XML,
  * 确保 MyBatis XML 和租户拦截器能真实执行。</p>
  */
 class IpProxyMapperDbTest extends DbTestBase {
@@ -111,13 +111,9 @@ class IpProxyMapperDbTest extends DbTestBase {
         IpProxy proxy = newIdleProxy(now);
         mapper.insert(proxy);
 
-        IpProxy selected = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                proxy.getRegion(),
-                MIXED_REGION,
-                List.of(),
-                true);
+        IpProxy selected = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                TEST_TENANT_ID, IpProxyStatus.IDLE.code(), proxy.getRegion(), MIXED_REGION,
+                List.of(), true, 1)).get(0);
         assertThat(selected).isNotNull();
         assertThat(selected.getId()).isEqualTo(proxy.getId());
 
@@ -146,79 +142,6 @@ class IpProxyMapperDbTest extends DbTestBase {
         assertThat(idle.getBoundAccountId()).isNull();
         assertThat(idle.getBoundAt()).isNull();
         assertThat(idle.getUpdatedAt()).isEqualTo(now + 2);
-    }
-
-    @Test
-    void markBoundProxyUnavailableByAccount_marksCurrentBindingUnavailableAndClearsBinding() {
-        long now = System.currentTimeMillis();
-        IpProxy proxy = newIdleProxy(now);
-        mapper.insert(proxy);
-        mapper.markUsingAndBind(
-                proxy.getId(),
-                501L,
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now + 1);
-
-        IpProxy update = new IpProxy();
-        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
-        update.setLastSampleCheckAt(now + 2);
-        update.setLastCheckError("PROXY_FAILED");
-        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappHttpStatus(null);
-        update.setWhatsappCheckError("PROXY_FAILED");
-        update.setUpdatedAt(now + 3);
-
-        int marked = mapper.markBoundProxyUnavailableByAccount(
-                501L,
-                IpProxyStatus.IN_USE.code(),
-                now + 2,
-                update);
-
-        assertThat(marked).isEqualTo(1);
-        IpProxy unavailable = mapper.selectActiveById(proxy.getId());
-        assertThat(unavailable.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
-        assertThat(unavailable.getBoundAccountId()).isNull();
-        assertThat(unavailable.getBoundAt()).isNull();
-        assertThat(unavailable.getCheckFailCount()).isEqualTo(1);
-        assertThat(unavailable.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(unavailable.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
-        assertThat(unavailable.getLastCheckError()).isEqualTo("PROXY_FAILED");
-    }
-
-    @Test
-    void markBoundProxyUnavailableByAccount_ignoresBindingsCreatedAfterEvent() {
-        long now = System.currentTimeMillis();
-        IpProxy proxy = newIdleProxy(now);
-        mapper.insert(proxy);
-        mapper.markUsingAndBind(
-                proxy.getId(),
-                501L,
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now + 10);
-
-        IpProxy update = new IpProxy();
-        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
-        update.setLastSampleCheckAt(now + 2);
-        update.setLastCheckError("PROXY_FAILED");
-        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
-        update.setWhatsappCheckError("PROXY_FAILED");
-        update.setUpdatedAt(now + 3);
-
-        int marked = mapper.markBoundProxyUnavailableByAccount(
-                501L,
-                IpProxyStatus.IN_USE.code(),
-                now + 2,
-                update);
-
-        assertThat(marked).isZero();
-        IpProxy stillBound = mapper.selectActiveById(proxy.getId());
-        assertThat(stillBound.getStatus()).isEqualTo(IpProxyStatus.IN_USE.code());
-        assertThat(stillBound.getBoundAccountId()).isEqualTo(501L);
-        assertThat(stillBound.getBoundAt()).isEqualTo(now + 10);
     }
 
     @Test
@@ -265,29 +188,21 @@ class IpProxyMapperDbTest extends DbTestBase {
         mapper.insert(proxyA);
         mapper.insert(proxyB);
 
-        IpProxy selectedA = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                proxyA.getRegion(),
-                MIXED_REGION,
-                List.of(),
-                true);
-        IpProxy selectedB = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                proxyB.getRegion(),
-                MIXED_REGION,
-                List.of(selectedA.getId()),
-                true);
+        List<IpProxy> selected = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                TEST_TENANT_ID, IpProxyStatus.IDLE.code(), proxyA.getRegion(), MIXED_REGION,
+                List.of(), true, 2));
+        IpProxy selectedA = selected.get(0);
+        IpProxy selectedB = selected.get(1);
         List<IpProxyBindTarget> targets = List.of(
                 new IpProxyBindTarget(selectedA.getId(), 701L),
                 new IpProxyBindTarget(selectedB.getId(), 702L));
 
-        int marked = mapper.markUsingAndBindBatch(
-                targets,
-                IpProxyStatus.IDLE.code(),
-                IpProxyStatus.IN_USE.code(),
-                now + 2);
+        int marked = mapper.markUsingAndBind(
+                targets.get(0).proxyId(), targets.get(0).accountId(),
+                IpProxyStatus.IDLE.code(), IpProxyStatus.IN_USE.code(), now + 2)
+                + mapper.markUsingAndBind(
+                targets.get(1).proxyId(), targets.get(1).accountId(),
+                IpProxyStatus.IDLE.code(), IpProxyStatus.IN_USE.code(), now + 2);
         assertThat(marked).isEqualTo(2);
 
         IpProxy boundA = mapper.selectActiveById(targets.get(0).proxyId());
@@ -318,26 +233,22 @@ class IpProxyMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void selectOneIdleByRegionPriorityForUpdate_skipsExcludedProxyIds() {
+    void selectIdleByRegionPriority_skipsFixedExcludedProxyIds() {
         long now = System.currentTimeMillis();
         IpProxy excluded = newIdleProxy(now);
         IpProxy candidate = newIdleProxy(now + 1);
         mapper.insert(excluded);
         mapper.insert(candidate);
 
-        IpProxy selected = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                excluded.getRegion(),
-                MIXED_REGION,
-                List.of(excluded.getId()),
-                true);
+        IpProxy selected = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                TEST_TENANT_ID, IpProxyStatus.IDLE.code(), excluded.getRegion(), MIXED_REGION,
+                List.of(excluded.getId()), true, 1)).get(0);
 
         assertThat(selected.getId()).isEqualTo(candidate.getId());
     }
 
     @Test
-    void selectOneIdleByRegionPriorityForUpdate_prefersRequestedRegionThenMixedThenOther() {
+    void selectIdleByRegionPriority_prefersRequestedRegionThenMixedThenOther() {
         long now = System.currentTimeMillis();
         String preferredRegion = "优先国家-" + now;
         IpProxy other = newIdleProxy(now);
@@ -350,42 +261,30 @@ class IpProxyMapperDbTest extends DbTestBase {
         mapper.insert(mixed);
         mapper.insert(preferred);
 
-        IpProxy selected = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                preferredRegion,
-                MIXED_REGION,
-                List.of(),
-                true);
+        IpProxy selected = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                TEST_TENANT_ID, IpProxyStatus.IDLE.code(), preferredRegion, MIXED_REGION,
+                List.of(), true, 1)).get(0);
         assertThat(selected.getId()).isEqualTo(preferred.getId());
 
-        IpProxy fallback = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                preferredRegion,
-                MIXED_REGION,
-                List.of(preferred.getId()),
-                true);
+        IpProxy fallback = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                TEST_TENANT_ID, IpProxyStatus.IDLE.code(), preferredRegion, MIXED_REGION,
+                List.of(preferred.getId()), true, 1)).get(0);
         assertThat(fallback.getRegion()).isEqualTo(MIXED_REGION);
     }
 
     @Test
-    void selectOneIdleByRegionPriorityForUpdate_strictModeDoesNotFallbackToOtherRegion() {
+    void selectIdleByRegionPriority_strictModeDoesNotFallbackToOtherRegion() {
         long now = System.currentTimeMillis();
         String preferredRegion = "strict-优先国家-" + now;
         IpProxy other = newIdleProxy(now);
         other.setRegion("strict-其它国家-" + now);
         mapper.insert(other);
 
-        IpProxy selected = mapper.selectOneIdleByRegionPriorityForUpdate(
-                TEST_TENANT_ID,
-                IpProxyStatus.IDLE.code(),
-                preferredRegion,
-                MIXED_REGION,
-                List.of(),
-                false);
+        List<IpProxy> selected = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                TEST_TENANT_ID, IpProxyStatus.IDLE.code(), preferredRegion, MIXED_REGION,
+                List.of(), false, 1));
 
-        assertThat(selected).isNull();
+        assertThat(selected).isEmpty();
     }
 
     @Test

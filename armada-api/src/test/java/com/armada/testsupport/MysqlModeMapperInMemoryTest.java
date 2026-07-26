@@ -1,0 +1,800 @@
+package com.armada.testsupport;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.armada.account.mapper.AccountGroupMapper;
+import com.armada.account.model.entity.AccountGroup;
+import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupLinkHealth;
+import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.shared.tenant.TenantContext;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import javax.sql.DataSource;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.h2.jdbcx.JdbcDataSource;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/**
+ * 使用 H2 MySQL 模式执行本次变更的真实 Mapper XML。
+ *
+ * <p>该测试只提供无外部依赖的快速 SQL/映射/租户拦截器回归，不能替代真实 MySQL 的锁与方言 DbTest。</p>
+ */
+@SpringJUnitConfig(MysqlModeMapperInMemoryTest.TestMyBatisPlusConfig.class)
+@TestExecutionListeners(
+        listeners = DependencyInjectionTestExecutionListener.class,
+        inheritListeners = false)
+class MysqlModeMapperInMemoryTest {
+
+    private static final long CURRENT_TENANT_ID = 7L;
+
+    @Autowired
+    private DataSource dataSource;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+    @Autowired
+    private AccountGroupMapper accountGroupMapper;
+    @Autowired
+    private GroupLinkMapper groupLinkMapper;
+    @Autowired
+    private AccountGroupMembershipMapper membershipMapper;
+    @Autowired
+    private GroupLinkHealthMapper healthMapper;
+    @Autowired
+    private MarketingTaskMapper marketingTaskMapper;
+
+    @BeforeEach
+    void setUp() throws SQLException {
+        executeSql("DROP ALL OBJECTS");
+        createSchema();
+        TenantContext.set(CURRENT_TENANT_ID);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void accountGroupLockQueryExecutesAndKeepsTenantBoundary() throws SQLException {
+        executeSql(
+                "INSERT INTO account_group (id, tenant_id, name, deleted_at) VALUES (11, 7, 'current', NULL)",
+                "INSERT INTO account_group (id, tenant_id, name, deleted_at) VALUES (12, 8, 'other', NULL)");
+
+        List<AccountGroup> groups = transactionTemplate.execute(status -> {
+            List<AccountGroup> lockedGroups = accountGroupMapper.selectByIdsForUpdate(List.of(11L, 12L));
+            status.setRollbackOnly();
+            return lockedGroups;
+        });
+
+        assertThat(groups).isNotNull();
+        assertThat(groups).extracting(AccountGroup::getId).containsExactly(11L);
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                AccountGroupMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void accountObservedUpsertReturnsExistingIdAndPreservesOwnership() throws SQLException {
+        executeSql("""
+                INSERT INTO group_link
+                    (id, tenant_id, link_url, group_name, label_id, import_batch_id,
+                     origin, membership_state, deleted_at, created_at, updated_at)
+                VALUES
+                    (21, 7, 'wa://group/120363existing@g.us', '旧群名', 31, 41,
+                     1, 3, 1000, 900, 900),
+                    (23, 8, 'wa://group/120363existing@g.us', '其他租户群名', 33, 43,
+                     2, 1, NULL, 902, 902)
+                """);
+
+        GroupLink resolved = transactionTemplate.execute(status -> {
+            GroupLink observed = observedGroup(
+                    "wa://group/120363existing@g.us", "新群名", 2_000L);
+
+            int affected = groupLinkMapper.upsertAccountObservedGroup(observed, "新群名");
+            GroupLink stored = groupLinkMapper.selectAnyByUrlForUpdate(observed.getLinkUrl());
+
+            assertThat(affected).isPositive();
+            return stored;
+        });
+        assertThat(resolved).isNotNull();
+        assertThat(resolved.getId()).isEqualTo(21L);
+
+        Map<String, Object> row = queryOne("""
+                SELECT id, tenant_id, group_name, label_id, import_batch_id,
+                       origin, membership_state, deleted_at, created_at, updated_at
+                FROM group_link
+                WHERE id = 21
+                """);
+        assertThat(row)
+                .containsEntry("id", 21L)
+                .containsEntry("tenant_id", CURRENT_TENANT_ID)
+                .containsEntry("group_name", "新群名")
+                .containsEntry("label_id", 31L)
+                .containsEntry("import_batch_id", 41L)
+                .containsEntry("origin", 1)
+                .containsEntry("membership_state", 3)
+                .containsEntry("created_at", 900L)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(row.get("deleted_at")).isNull();
+        assertThat(queryOne("""
+                SELECT group_name, label_id, import_batch_id, origin, membership_state, updated_at
+                FROM group_link
+                WHERE id = 23
+                """))
+                .containsEntry("group_name", "其他租户群名")
+                .containsEntry("label_id", 33L)
+                .containsEntry("import_batch_id", 43L)
+                .containsEntry("origin", 2)
+                .containsEntry("membership_state", 1)
+                .containsEntry("updated_at", 902L);
+
+        executeSql("""
+                INSERT INTO group_link
+                    (id, tenant_id, link_url, group_name, label_id, import_batch_id,
+                     origin, membership_state, deleted_at, created_at, updated_at)
+                VALUES
+                    (22, 7, 'wa://group/120363joined@g.us', '保留群名', 32, 42,
+                     2, 1, NULL, 901, 901)
+                """);
+        transactionTemplate.executeWithoutResult(status -> {
+            GroupLink observed = observedGroup(
+                    "wa://group/120363joined@g.us", "120363joined@g.us", 2_001L);
+
+            groupLinkMapper.upsertAccountObservedGroup(observed, null);
+        });
+        Map<String, Object> joined = queryOne("""
+                SELECT group_name, label_id, import_batch_id, origin, membership_state, updated_at
+                FROM group_link
+                WHERE id = 22
+                """);
+        assertThat(joined)
+                .containsEntry("group_name", "保留群名")
+                .containsEntry("label_id", 32L)
+                .containsEntry("import_batch_id", 42L)
+                .containsEntry("origin", 2)
+                .containsEntry("membership_state", 2)
+                .containsEntry("updated_at", 2_001L);
+    }
+
+    @Test
+    void concurrentAccountObservedUpsertCreatesOneRowAndReturnsOneId() throws Exception {
+        String linkUrl = "wa://group/120363concurrent@g.us";
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try {
+            Future<Long> first = executor.submit(() -> upsertAfterStart(linkUrl, 3_000L, ready, start));
+            Future<Long> second = executor.submit(() -> upsertAfterStart(linkUrl, 3_001L, ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            Long firstId = first.get(10, TimeUnit.SECONDS);
+            Long secondId = second.get(10, TimeUnit.SECONDS);
+            assertThat(firstId).isEqualTo(secondId);
+            assertThat(queryLong("""
+                    SELECT COUNT(*)
+                    FROM group_link
+                    WHERE tenant_id = 7 AND link_url = 'wa://group/120363concurrent@g.us'
+                    """)).isEqualTo(1L);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void groupSnapshotExistingReadsAndUpdatesExecuteWithTenantBoundary() throws SQLException {
+        insertGroupSnapshotFixtures();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(membershipMapper.selectExistingPreviewGroupLinkIds(List.of(21L, 22L)))
+                    .containsExactly(21L);
+            assertThat(healthMapper.selectExistingGroupLinkIds(List.of(21L, 22L)))
+                    .containsExactly(21L);
+            assertThat(membershipMapper.selectExistingActiveGroupJids(
+                    501L, List.of("current@g.us", "other@g.us")))
+                    .containsExactly("current@g.us");
+
+            assertThat(membershipMapper.updatePreviewFromAccountSync(previewUpdate())).isEqualTo(1);
+            assertThat(healthMapper.updateFromAccountGroupSync(healthUpdate())).isEqualTo(1);
+            assertThat(membershipMapper.updateActiveMembership(membershipUpdate())).isEqualTo(1);
+        });
+
+        assertThat(queryOne("SELECT wa_subject, member_size, updated_at "
+                + "FROM group_link_preview WHERE tenant_id = 7 AND group_link_id = 21"))
+                .containsEntry("wa_subject", "新群名")
+                .containsEntry("member_size", 128)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(queryOne("SELECT current_count, updated_at "
+                + "FROM group_link_health WHERE tenant_id = 7 AND group_link_id = 21"))
+                .containsEntry("current_count", 128)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(queryOne("SELECT membership_status, status_source, status_updated_at, updated_at "
+                + "FROM account_group_membership WHERE tenant_id = 7 AND account_id = 501"))
+                .containsEntry("membership_status", 1)
+                .containsEntry("status_source", "GROUP_SNAPSHOT")
+                .containsEntry("status_updated_at", 2_000L)
+                .containsEntry("updated_at", 2_000L);
+        assertThat(queryOne("SELECT wa_subject, updated_at "
+                + "FROM group_link_preview WHERE tenant_id = 8 AND group_link_id = 22"))
+                .containsEntry("wa_subject", "其他租户旧群名")
+                .containsEntry("updated_at", 1L);
+    }
+
+    @Test
+    void marketingResultSnapshotKeepsSuccessFailureAndTenantSemantics() throws SQLException {
+        insertMarketingFixtures();
+
+        int[] affected = transactionTemplate.execute(status -> new int[]{
+                marketingTaskMapper.markTargetSuccessFromAttempt(501L, 9_001L, 2_000L),
+                marketingTaskMapper.markTargetFailedFromAttempt(
+                        502L, 9_002L, "SEND_FAILED", null, 3_000L),
+                marketingTaskMapper.markTargetSuccessFromAttempt(504L, 9_004L, 2_500L),
+                marketingTaskMapper.markTargetFailedFromAttempt(
+                        505L, 9_005L, null, null, 3_500L),
+                marketingTaskMapper.markTargetSuccessFromAttempt(503L, 9_003L, 4_000L)
+        });
+        assertThat(affected).containsExactly(1, 1, 1, 1, 0);
+
+        Map<String, Object> success = queryTarget(501L);
+        assertThat(success)
+                .containsEntry("group_link_id", 101L)
+                .containsEntry("group_jid", "120363success@g.us")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/success")
+                .containsEntry("group_name", "attempt-success")
+                .containsEntry("status", 5)
+                .containsEntry("sent_message_count", 3)
+                .containsEntry("failed_message_count", 1)
+                .containsEntry("last_attempt_at", 2_000L)
+                .containsEntry("last_sent_at", 2_000L)
+                .containsEntry("last_reason", "old failure")
+                .containsEntry("updated_at", 2_000L);
+
+        Map<String, Object> failed = queryTarget(502L);
+        assertThat(failed)
+                .containsEntry("group_link_id", 102L)
+                .containsEntry("group_jid", "120363failed@g.us")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/failed")
+                .containsEntry("group_name", "link-failed")
+                .containsEntry("status", 5)
+                .containsEntry("sent_message_count", 1)
+                .containsEntry("failed_message_count", 3)
+                .containsEntry("last_attempt_at", 3_000L)
+                .containsEntry("last_sent_at", 800L)
+                .containsEntry("last_reason", "SEND_FAILED")
+                .containsEntry("updated_at", 3_000L);
+
+        Map<String, Object> cleanSuccess = queryTarget(504L);
+        assertThat(cleanSuccess)
+                .containsEntry("group_link_id", 104L)
+                .containsEntry("group_jid", "target-clean-success@g.us")
+                .containsEntry("group_link_url", "target-clean-success-url")
+                .containsEntry("group_name", "target-clean-success")
+                .containsEntry("status", 3)
+                .containsEntry("sent_message_count", 1)
+                .containsEntry("failed_message_count", 0)
+                .containsEntry("last_attempt_at", 2_500L)
+                .containsEntry("last_sent_at", 2_500L)
+                .containsEntry("updated_at", 2_500L);
+        assertThat(cleanSuccess.get("last_reason")).isNull();
+
+        Map<String, Object> cleanFailure = queryTarget(505L);
+        assertThat(cleanFailure)
+                .containsEntry("group_link_id", 105L)
+                .containsEntry("group_jid", "target-clean-failed@g.us")
+                .containsEntry("group_link_url", "target-clean-failed-url")
+                .containsEntry("group_name", "target-clean-failed")
+                .containsEntry("status", 4)
+                .containsEntry("sent_message_count", 0)
+                .containsEntry("failed_message_count", 1)
+                .containsEntry("last_attempt_at", 3_500L)
+                .containsEntry("last_reason", "发送失败")
+                .containsEntry("updated_at", 3_500L);
+        assertThat(cleanFailure.get("last_sent_at")).isNull();
+
+        Map<String, Object> otherTenant = queryTarget(503L);
+        assertThat(otherTenant)
+                .containsEntry("status", 1)
+                .containsEntry("sent_message_count", 0)
+                .containsEntry("updated_at", 900L);
+    }
+
+    @Test
+    void marketingResultUpdateWaitsForTargetLockAndKeepsLatestSnapshot() throws Exception {
+        insertMarketingFixtures();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch lockAcquired = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+        CountDownLatch contenderStarted = new CountDownLatch(1);
+
+        try {
+            Future<?> holder = executor.submit(() -> {
+                TenantContext.set(CURRENT_TENANT_ID);
+                try {
+                    transactionTemplate.executeWithoutResult(status -> {
+                        assertThat(marketingTaskMapper.selectTargetForResultUpdate(504L).getId())
+                                .isEqualTo(504L);
+                        jdbcTemplate.update("""
+                        UPDATE marketing_task_target
+                        SET group_link_id = 204,
+                            group_jid = 'latest@g.us',
+                            group_link_url = 'latest-url',
+                            group_name = 'latest-name',
+                            updated_at = 2_400
+                        WHERE id = 504
+                        """);
+                        lockAcquired.countDown();
+                        await(releaseLock, "持锁事务未在限定时间内收到释放信号");
+                    });
+                } finally {
+                    TenantContext.clear();
+                }
+            });
+
+            Future<Integer> contender = executor.submit(() -> {
+                TenantContext.set(CURRENT_TENANT_ID);
+                try {
+                    await(lockAcquired, "持锁事务未在限定时间内获得目标行锁");
+                    contenderStarted.countDown();
+                    return transactionTemplate.execute(status -> marketingTaskMapper
+                            .markTargetSuccessFromAttempt(504L, 9_004L, 2_500L));
+                } finally {
+                    TenantContext.clear();
+                }
+            });
+
+            assertThat(contenderStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> contender.get(300, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            releaseLock.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            assertThat(contender.get(5, TimeUnit.SECONDS)).isEqualTo(1);
+        } finally {
+            releaseLock.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(queryTarget(504L))
+                .containsEntry("group_link_id", 204L)
+                .containsEntry("group_jid", "latest@g.us")
+                .containsEntry("group_link_url", "latest-url")
+                .containsEntry("group_name", "latest-name")
+                .containsEntry("status", 3)
+                .containsEntry("sent_message_count", 1)
+                .containsEntry("failed_message_count", 0)
+                .containsEntry("last_attempt_at", 2_500L)
+                .containsEntry("last_sent_at", 2_500L)
+                .containsEntry("updated_at", 2_500L);
+    }
+
+    private void createSchema() throws SQLException {
+        executeSql(
+                """
+                CREATE TABLE account_group (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    name VARCHAR(100),
+                    deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_link (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    link_url VARCHAR(255) NOT NULL,
+                    group_name VARCHAR(128),
+                    label_id BIGINT,
+                    import_batch_id BIGINT,
+                    origin TINYINT NOT NULL,
+                    membership_state TINYINT NOT NULL,
+                    deleted_at BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT uq_group_link_url UNIQUE (tenant_id, link_url)
+                )
+                """,
+                """
+                CREATE TABLE group_link_preview (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(64),
+                    wa_subject VARCHAR(255),
+                    member_size INT,
+                    owner_phone VARCHAR(32),
+                    announce_only BOOLEAN,
+                    avatar_url VARCHAR(512),
+                    last_preview_at BIGINT,
+                    created_at BIGINT,
+                    updated_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_link_health (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    health_status TINYINT,
+                    is_banned BOOLEAN,
+                    current_count INT,
+                    last_check_at BIGINT,
+                    last_health_error VARCHAR(64),
+                    health_failure_count INT,
+                    created_at BIGINT,
+                    updated_at BIGINT,
+                    CONSTRAINT uq_group_link_health UNIQUE (tenant_id, group_link_id)
+                )
+                """,
+                """
+                CREATE TABLE account_group_membership (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL,
+                    is_admin BOOLEAN,
+                    membership_status TINYINT NOT NULL,
+                    status_source VARCHAR(64),
+                    status_updated_at BIGINT NOT NULL,
+                    joined_at BIGINT,
+                    last_seen_at BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE marketing_task_target (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT,
+                    group_jid VARCHAR(64),
+                    group_link_url VARCHAR(255),
+                    group_name VARCHAR(255),
+                    status TINYINT NOT NULL,
+                    sent_message_count INT NOT NULL,
+                    failed_message_count INT NOT NULL,
+                    last_attempt_at BIGINT,
+                    last_sent_at BIGINT,
+                    last_reason VARCHAR(500),
+                    updated_at BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE marketing_task_send_attempt (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    target_id BIGINT NOT NULL,
+                    group_link_id BIGINT,
+                    group_jid VARCHAR(64),
+                    group_name VARCHAR(255)
+                )
+                """);
+    }
+
+    private void insertMarketingFixtures() throws SQLException {
+        executeSql(
+                """
+                INSERT INTO group_link
+                    (id, tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
+                VALUES
+                    (99, 8, 'https://chat.whatsapp.com/cross-tenant', 'cross-tenant', 5, 2, 1, 1),
+                    (101, 7, 'https://chat.whatsapp.com/success', 'link-success', 5, 2, 1, 1),
+                    (102, 7, 'https://chat.whatsapp.com/failed', 'link-failed', 5, 2, 1, 1),
+                    (103, 8, 'https://chat.whatsapp.com/other', 'link-other', 5, 2, 1, 1)
+                """,
+                """
+                INSERT INTO group_link_preview
+                    (tenant_id, group_link_id, group_jid, wa_subject)
+                VALUES
+                    (8, 99, '120363success@g.us', 'cross-tenant-preview'),
+                    (7, 101, '120363success@g.us', 'preview-success'),
+                    (7, 101, '120363failed@g.us', 'preview-failed'),
+                    (8, 103, '120363other@g.us', 'preview-other')
+                """,
+                """
+                INSERT INTO marketing_task_target
+                    (id, tenant_id, group_link_id, group_jid, group_link_url, group_name,
+                     status, sent_message_count, failed_message_count,
+                     last_attempt_at, last_sent_at, last_reason, updated_at)
+                VALUES
+                    (501, 7, NULL, 'target-success@g.us', 'target-success-url', 'target-success',
+                     2, 2, 1, 700, 700, 'old failure', 700),
+                    (502, 7, NULL, 'target-failed@g.us', 'target-failed-url', 'target-failed',
+                     2, 1, 2, 800, 800, 'old reason', 800),
+                    (504, 7, 104, 'target-clean-success@g.us', 'target-clean-success-url', 'target-clean-success',
+                     2, 0, 0, NULL, NULL, 'stale reason', 850),
+                    (505, 7, 105, 'target-clean-failed@g.us', 'target-clean-failed-url', 'target-clean-failed',
+                     2, 0, 0, NULL, NULL, NULL, 860),
+                    (503, 8, NULL, 'target-other@g.us', 'target-other-url', 'target-other',
+                     1, 0, 0, NULL, NULL, NULL, 900)
+                """,
+                """
+                INSERT INTO marketing_task_send_attempt
+                    (id, tenant_id, target_id, group_link_id, group_jid, group_name)
+                VALUES
+                    (9001, 7, 501, NULL, '120363success@g.us', 'attempt-success'),
+                    (9002, 7, 502, 102, '120363failed@g.us', ''),
+                    (9004, 7, 504, NULL, NULL, NULL),
+                    (9005, 7, 505, NULL, NULL, NULL),
+                    (9003, 8, 503, 103, '120363other@g.us', 'attempt-other')
+                """);
+    }
+
+    private void insertGroupSnapshotFixtures() throws SQLException {
+        executeSql(
+                """
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, wa_subject, member_size,
+                  last_preview_at, created_at, updated_at
+                ) VALUES
+                  (7, 21, 'current@g.us', '旧群名', 64, 1, 1, 1),
+                  (8, 22, 'other@g.us', '其他租户旧群名', 64, 1, 1, 1)
+                """,
+                """
+                INSERT INTO group_link_health (
+                  tenant_id, group_link_id, health_status, is_banned, current_count,
+                  last_check_at, health_failure_count, created_at, updated_at
+                ) VALUES
+                  (7, 21, 1, FALSE, 64, 1, 0, 1, 1),
+                  (8, 22, 1, FALSE, 64, 1, 0, 1, 1)
+                """,
+                """
+                INSERT INTO account_group_membership (
+                  tenant_id, account_id, group_link_id, group_jid, is_admin,
+                  membership_status, status_source, status_updated_at,
+                  joined_at, last_seen_at, created_at, updated_at
+                ) VALUES
+                  (7, 501, 21, 'current@g.us', FALSE, 5, 'LEGACY_MIGRATION', 1, 1, 1, 1, 1),
+                  (8, 501, 22, 'other@g.us', FALSE, 5, 'LEGACY_MIGRATION', 1, 1, 1, 1, 1)
+                """);
+    }
+
+    private GroupLinkPreview previewUpdate() {
+        GroupLinkPreview row = new GroupLinkPreview();
+        row.setGroupLinkId(21L);
+        row.setGroupJid("current@g.us");
+        row.setWaSubject("新群名");
+        row.setMemberSize(128);
+        row.setLastPreviewAt(2_000L);
+        row.setUpdatedAt(2_000L);
+        return row;
+    }
+
+    private GroupLinkHealth healthUpdate() {
+        GroupLinkHealth row = new GroupLinkHealth();
+        row.setGroupLinkId(21L);
+        row.setHealthStatus(1);
+        row.setBanned(false);
+        row.setCurrentCount(128);
+        row.setLastCheckAt(2_000L);
+        row.setHealthFailureCount(0);
+        row.setUpdatedAt(2_000L);
+        return row;
+    }
+
+    private AccountGroupMembership membershipUpdate() {
+        AccountGroupMembership row = new AccountGroupMembership();
+        row.setAccountId(501L);
+        row.setGroupLinkId(21L);
+        row.setGroupJid("current@g.us");
+        row.setAdmin(true);
+        row.setMembershipStatus(1);
+        row.setStatusSource("GROUP_SNAPSHOT");
+        row.setStatusUpdatedAt(2_000L);
+        row.setJoinedAt(2_000L);
+        row.setLastSeenAt(2_000L);
+        row.setUpdatedAt(2_000L);
+        return row;
+    }
+
+    private Long upsertAfterStart(String linkUrl,
+                                  long now,
+                                  CountDownLatch ready,
+                                  CountDownLatch start) throws Exception {
+        TenantContext.set(CURRENT_TENANT_ID);
+        try {
+            ready.countDown();
+            if (!start.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("内存库并发 upsert 未在限定时间内开始");
+            }
+            return transactionTemplate.execute(status -> {
+                GroupLink row = observedGroup(linkUrl, "并发观察群", now);
+                groupLinkMapper.upsertAccountObservedGroup(row, row.getGroupName());
+                GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(linkUrl);
+                return resolved.getId();
+            });
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private void await(CountDownLatch latch, String timeoutMessage) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(timeoutMessage);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待事务并发信号时被中断", ex);
+        }
+    }
+
+    private GroupLink observedGroup(String linkUrl, String groupName, long now) {
+        GroupLink row = new GroupLink();
+        row.setLinkUrl(linkUrl);
+        row.setGroupName(groupName);
+        row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
+        row.setMembershipState(GroupMembershipState.JOINED.code());
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    private Map<String, Object> queryTarget(long targetId) throws SQLException {
+        return queryOne("""
+                SELECT group_link_id, group_jid, group_link_url, group_name,
+                       status, sent_message_count, failed_message_count,
+                       last_attempt_at, last_sent_at, last_reason, updated_at
+                FROM marketing_task_target
+                WHERE id = %d
+                """.formatted(targetId));
+    }
+
+    private Map<String, Object> queryOne(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(sql)) {
+            assertThat(result.next()).isTrue();
+            java.util.LinkedHashMap<String, Object> row = new java.util.LinkedHashMap<>();
+            for (int i = 1; i <= result.getMetaData().getColumnCount(); i++) {
+                row.put(result.getMetaData().getColumnLabel(i), result.getObject(i));
+            }
+            assertThat(result.next()).isFalse();
+            return row;
+        }
+    }
+
+    private long queryLong(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(sql)) {
+            assertThat(result.next()).isTrue();
+            return result.getLong(1);
+        }
+    }
+
+    private void executeSql(String... statements) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            for (String sql : statements) {
+                statement.execute(sql);
+            }
+        }
+    }
+
+    /**
+     * 本测试专用的 MyBatis-Plus 配置：使用 H2 数据源，但复用生产租户插件和真实 Mapper XML。
+     */
+    @Configuration(proxyBeanMethods = false)
+    @Import(MyBatisConfig.class)
+    static class TestMyBatisPlusConfig {
+
+        @Bean
+        DataSource dataSource() {
+            JdbcDataSource h2 = new JdbcDataSource();
+            h2.setURL("jdbc:h2:mem:armada_mysql_mode_mapper_test"
+                    + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000");
+            h2.setUser("sa");
+            h2.setPassword("");
+            return h2;
+        }
+
+        @Bean
+        PlatformTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
+        }
+
+        @Bean
+        TransactionTemplate transactionTemplate(PlatformTransactionManager transactionManager) {
+            return new TransactionTemplate(transactionManager);
+        }
+
+        @Bean
+        JdbcTemplate jdbcTemplate(DataSource dataSource) {
+            return new JdbcTemplate(dataSource);
+        }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(DataSource dataSource,
+                                            MybatisPlusInterceptor mybatisPlusInterceptor) throws Exception {
+            MybatisConfiguration configuration = new MybatisConfiguration();
+            configuration.setMapUnderscoreToCamelCase(true);
+            configuration.setUseGeneratedKeys(true);
+
+            MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
+            factoryBean.setDataSource(dataSource);
+            factoryBean.setConfiguration(configuration);
+            factoryBean.setPlugins(mybatisPlusInterceptor);
+            factoryBean.setMapperLocations(
+                    new ClassPathResource("mapper/account/AccountGroupMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
+                    new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupLinkHealthMapper.xml"),
+                    new ClassPathResource("mapper/marketing/MarketingTaskMapper.xml"));
+            return factoryBean.getObject();
+        }
+
+        @Bean
+        SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory sqlSessionFactory) {
+            return new SqlSessionTemplate(sqlSessionFactory);
+        }
+
+        @Bean
+        AccountGroupMapper accountGroupMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(AccountGroupMapper.class);
+        }
+
+        @Bean
+        GroupLinkMapper groupLinkMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(GroupLinkMapper.class);
+        }
+
+        @Bean
+        AccountGroupMembershipMapper membershipMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(AccountGroupMembershipMapper.class);
+        }
+
+        @Bean
+        GroupLinkHealthMapper healthMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(GroupLinkHealthMapper.class);
+        }
+
+        @Bean
+        MarketingTaskMapper marketingTaskMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(MarketingTaskMapper.class);
+        }
+    }
+}

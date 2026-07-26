@@ -6,6 +6,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.support.MarketingSendAttemptResult;
+import com.armada.marketing.model.support.MarketingTargetResultSnapshot;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
@@ -188,17 +189,60 @@ public interface MarketingTaskMapper {
                                      @Param("taskId") Long taskId,
                                      @Param("now") long now);
 
-    /** 协议层成功结果幂等落地后,把本次 attempt 的真实群快照和计数汇总到 target 明细。 */
-    int markTargetSuccessFromAttempt(@Param("targetId") Long targetId,
-                                     @Param("attemptId") Long attemptId,
-                                     @Param("resultAt") long resultAt);
+    /**
+     * 协议层成功结果幂等落地后，把本次 attempt 的真实群快照和计数汇总到 target 明细。
+     *
+     * <p>先锁定 target 行，再通过普通查询解析共享群元数据，最后执行 target 单表更新；
+     * 调用签名和字段优先级保持不变。</p>
+     */
+    default int markTargetSuccessFromAttempt(Long targetId, Long attemptId, long resultAt) {
+        MarketingTaskTarget target = selectTargetForResultUpdate(targetId);
+        if (target == null) {
+            return 0;
+        }
+        MarketingTargetResultSnapshot snapshot = selectTargetResultSnapshot(target, attemptId);
+        return snapshot == null ? 0 : updateTargetSuccessFromSnapshot(targetId, snapshot, resultAt);
+    }
 
-    /** 协议层失败结果幂等落地后,把本次 attempt 的真实群快照、失败计数和原因汇总到 target 明细。 */
-    int markTargetFailedFromAttempt(@Param("targetId") Long targetId,
-                                    @Param("attemptId") Long attemptId,
-                                    @Param("reasonCode") String reasonCode,
-                                    @Param("reasonMessage") String reasonMessage,
-                                    @Param("resultAt") long resultAt);
+    /**
+     * 协议层失败结果幂等落地后，把本次 attempt 的真实群快照、失败计数和原因汇总到 target 明细。
+     *
+     * <p>先锁定 target 行，再通过普通查询解析共享群元数据，最后执行 target 单表更新；
+     * 调用签名和字段优先级保持不变。</p>
+     */
+    default int markTargetFailedFromAttempt(Long targetId,
+                                            Long attemptId,
+                                            String reasonCode,
+                                            String reasonMessage,
+                                            long resultAt) {
+        MarketingTaskTarget target = selectTargetForResultUpdate(targetId);
+        if (target == null) {
+            return 0;
+        }
+        MarketingTargetResultSnapshot snapshot = selectTargetResultSnapshot(target, attemptId);
+        return snapshot == null
+                ? 0
+                : updateTargetFailedFromSnapshot(targetId, snapshot, reasonCode, reasonMessage, resultAt);
+    }
+
+    /** 单表锁定并读取待回填 target，防止锁前快照覆盖并发结果。 */
+    MarketingTaskTarget selectTargetForResultUpdate(@Param("targetId") Long targetId);
+
+    /** 按已锁定 target 与 attempt 绑定关系读取结果回填群快照；普通查询不锁共享群表。 */
+    MarketingTargetResultSnapshot selectTargetResultSnapshot(@Param("target") MarketingTaskTarget target,
+                                                              @Param("attemptId") Long attemptId);
+
+    /** 使用已解析快照单表更新成功 target。 */
+    int updateTargetSuccessFromSnapshot(@Param("targetId") Long targetId,
+                                        @Param("snapshot") MarketingTargetResultSnapshot snapshot,
+                                        @Param("resultAt") long resultAt);
+
+    /** 使用已解析快照单表更新失败 target。 */
+    int updateTargetFailedFromSnapshot(@Param("targetId") Long targetId,
+                                       @Param("snapshot") MarketingTargetResultSnapshot snapshot,
+                                       @Param("reasonCode") String reasonCode,
+                                       @Param("reasonMessage") String reasonMessage,
+                                       @Param("resultAt") long resultAt);
 
     /** 在计划执行窗口内将未启动任务切换为执行中。 */
     int startPendingTask(@Param("id") Long id, @Param("now") long now);

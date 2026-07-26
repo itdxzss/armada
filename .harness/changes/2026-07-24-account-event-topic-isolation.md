@@ -15,6 +15,8 @@
 ## 关键设计决策
 
 - 新 Topic：`protocol.account.state.events.v1`、`protocol.account.group-sync.events.v1`。
+- 各部署环境必须使用独立 Topic 和 consumer group；perf2 使用 `armada.perf` 前缀，避免不同数据库的
+  Armada 实例瓜分同一状态事件分区。
 - 两个 Topic 均 12 分区、总消费并发均为 4。
 - Web 其他账号遥测事件继续写旧 `protocol.account.events.v1`，Armada 不再订阅。
 - perf2 一次性切换，旧积压直接废弃，通过协议重启重建当前状态。
@@ -70,3 +72,21 @@
   按 1 秒 × 3 次重试耗尽后进入 DLT；稳定窗口内未继续增长。未擅自重放或回退。
 - Android 远端 Compose v5.1.2 与 buildx 0.12.1 不兼容（要求 buildx >=0.17）；
   本次未升级系统插件，使用 Docker 25 legacy builder 按同一 Dockerfile 完成镜像构建。
+
+## perf2 环境隔离修正（2026-07-25）
+
+- 修正原因：perf2 与另一套环境误用同一个状态 Topic/consumer group，12 个分区被
+  `172.31.5.135` 与 `172.31.13.65` 瓜分，导致状态事件随机写入错误环境。
+- perf2 三端已一次性切换到 `armada.perf.protocol.account.state.events.v1` 与
+  `armada.perf.protocol.account.group-sync.events.v1`；consumer group 分别为
+  `armada-perf-api-account-state-events` 与 `armada-perf-api-account-group-sync-events`。
+- 验证新组均为 4 个 consumer、接管 12 个分区且仅来自 `172.31.5.135`；旧状态组仅剩
+  `172.31.13.65`，不再包含 perf2。
+- 重建前状态快照保存在远端
+  `/home/app/armada-deploy/rollback/account-state.pre-rebuild-20260725.tsv`，共 1128 行。
+- 按 `desired_login_state` 重建：明确离线账号已自然收敛，无需修正；986 个目标在线且
+  卡在 PENDING 的账号重置为 `OFFLINE/PROXY_FAILED`，由持续补偿调度器重新上线。
+- 重建后状态事件能正确回传并消费；中间阶段大量 PENDING 的直接原因已收敛为 Android
+  `proxy_connect` 失败（rawCode 302），不再是 Kafka 命令积压或跨环境误消费。用户随后再次
+  批量下线，最终 1128 个显式目标账号均为 `desired=OFFLINE/login=OFFLINE`。
+- 未自动回退，未修改旧 Topic offset，未提交本地代码。

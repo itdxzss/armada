@@ -92,6 +92,16 @@
     LIMIT 1
   </select>
 
+  <select id="selectExistingPreviewGroupLinkIds" resultType="long">
+    SELECT group_link_id
+    FROM group_link_preview
+    WHERE group_link_id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+    ORDER BY group_link_id ASC
+  </select>
+
   <update id="touchGroupLinkFromAccountSync">
     UPDATE group_link
     SET deleted_at = NULL,
@@ -119,6 +129,19 @@
       last_preview_at = VALUES(last_preview_at),
       updated_at = VALUES(updated_at)
   </insert>
+
+  <update id="updatePreviewFromAccountSync">
+    UPDATE group_link_preview
+    SET group_jid = #{groupJid},
+        wa_subject = COALESCE(NULLIF(TRIM(#{waSubject}), ''), wa_subject),
+        member_size = COALESCE(#{memberSize}, member_size),
+        owner_phone = COALESCE(NULLIF(TRIM(#{ownerPhone}), ''), owner_phone),
+        announce_only = COALESCE(#{announceOnly}, announce_only),
+        avatar_url = COALESCE(NULLIF(TRIM(#{avatarUrl}), ''), avatar_url),
+        last_preview_at = #{lastPreviewAt},
+        updated_at = #{updatedAt}
+    WHERE group_link_id = #{groupLinkId}
+  </update>
 
   <insert id="upsertMembership">
     INSERT INTO account_group_membership (
@@ -260,6 +283,82 @@
       updated_at = GREATEST(account_group_membership.updated_at, VALUES(updated_at))
   </insert>
 
+  <select id="selectExistingActiveGroupJids" resultType="java.lang.String">
+    SELECT group_jid
+    FROM account_group_membership
+    WHERE account_id = #{accountId}
+      AND deleted_at IS NULL
+      AND group_jid IN
+      <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+        #{groupJid}
+      </foreach>
+    ORDER BY group_jid ASC
+  </select>
+
+  <sql id="incomingMembershipStatusWinsForUpdate">
+    (
+      #{statusUpdatedAt} &gt; status_updated_at
+      OR (
+        #{statusUpdatedAt} = status_updated_at
+        AND CASE #{statusSource}
+              WHEN 'WGP2_REMOVE' THEN 3
+              WHEN 'WGP2_LEAVE' THEN 3
+              WHEN 'WGP2_ADD' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+            &gt; CASE status_source
+              WHEN 'WGP2_REMOVE' THEN 3
+              WHEN 'WGP2_LEAVE' THEN 3
+              WHEN 'WGP2_ADD' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+      )
+    )
+  </sql>
+
+  <update id="updateActiveMembership">
+    UPDATE account_group_membership
+    SET group_link_id = #{groupLinkId},
+        joined_at = CASE
+          WHEN <include refid="incomingMembershipStatusWinsForUpdate"/>
+               AND #{membershipStatus} = 1
+               AND membership_status IN (3, 4, 5)
+            THEN #{joinedAt}
+          WHEN joined_at IS NULL AND #{membershipStatus} = 1
+            THEN #{joinedAt}
+          ELSE joined_at
+        END,
+        is_admin = CASE
+          WHEN <include refid="incomingMembershipStatusWinsForUpdate"/>
+            THEN COALESCE(#{admin}, is_admin)
+          ELSE is_admin
+        END,
+        last_seen_at = CASE
+          WHEN <include refid="incomingMembershipStatusWinsForUpdate"/>
+               AND #{membershipStatus} = 1
+            THEN COALESCE(#{lastSeenAt}, last_seen_at)
+          ELSE last_seen_at
+        END,
+        membership_status = CASE
+          WHEN <include refid="incomingMembershipStatusWinsForUpdate"/>
+            THEN #{membershipStatus}
+          ELSE membership_status
+        END,
+        status_source = CASE
+          WHEN <include refid="incomingMembershipStatusWinsForUpdate"/>
+            THEN #{statusSource}
+          ELSE status_source
+        END,
+        status_updated_at = GREATEST(status_updated_at, #{statusUpdatedAt}),
+        deleted_at = NULL,
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE account_id = #{accountId}
+      AND group_jid = #{groupJid}
+      AND deleted_at IS NULL
+  </update>
+
   <select id="selectGroupExecutionAccount" resultType="com.armada.group.model.vo.GroupExecutionAccount">
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
@@ -287,12 +386,9 @@
     LIMIT 1
   </select>
 
-  <update id="markMissingMembershipsNotInGroup">
-    UPDATE account_group_membership
-    SET membership_status = #{status},
-        status_source = #{source},
-        status_updated_at = #{statusUpdatedAt},
-        updated_at = #{updatedAt}
+  <select id="selectMissingMembershipIds" resultType="long">
+    SELECT id
+    FROM account_group_membership
     WHERE account_id = #{accountId}
       AND deleted_at IS NULL
       AND membership_status NOT IN
@@ -310,6 +406,30 @@
       AND group_jid NOT IN
       <foreach collection="groupJids" item="jid" open="(" separator="," close=")">#{jid}</foreach>
     </if>
+    ORDER BY id ASC
+  </select>
+
+  <update id="markMembershipsNotInGroupByIds">
+    UPDATE account_group_membership
+    SET membership_status = #{row.membershipStatus},
+        status_source = #{row.statusSource},
+        status_updated_at = #{row.statusUpdatedAt},
+        updated_at = #{row.updatedAt}
+    WHERE id IN
+      <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+      AND deleted_at IS NULL
+      AND membership_status NOT IN
+      <foreach collection="preservedStatuses" item="preservedStatus" open="(" separator="," close=")">
+        #{preservedStatus}
+      </foreach>
+      AND (
+        status_updated_at &lt; #{row.statusUpdatedAt}
+        OR (
+          status_updated_at = #{row.statusUpdatedAt}
+          AND status_source NOT IN ('WGP2_ADD', 'WGP2_REMOVE', 'WGP2_LEAVE')
+        )
+      )
+    ORDER BY id ASC
   </update>
 
 </mapper>

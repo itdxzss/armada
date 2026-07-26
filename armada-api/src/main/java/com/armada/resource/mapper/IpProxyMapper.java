@@ -127,40 +127,35 @@ public interface IpProxyMapper {
                               @Param("pairingStatus") int pairingStatus);
 
     /**
-     * 按国家优先级锁定一条本租户空闲代理。
+     * 按国家优先级批量读取本租户空闲代理候选。
      *
-     * <p>排序规则由调用方传入的 {@code preferredRegion} 决定:有指定国家时优先指定国家,
-     * 其次混合池,最后其它国家;无指定国家时混合池优先,其次其它国家。这里显式传 tenantId 并关闭租户拦截器,
-     * 避免租户 SQL 改写影响 {@code LIMIT ... FOR UPDATE}。</p>
+     * <p>该查询不使用 {@code FOR UPDATE}；真正抢占由后续带 {@code status=IDLE} 条件的
+     * 单行 UPDATE 完成。tenant_id 在 SQL 中显式限定，因此关闭租户拦截器。</p>
+     *
+     * @param query 租户、国家策略、固定排除集合和候选上限
+     * @return 按国家优先级和代理 ID 排序的候选行
      */
     @InterceptorIgnore(tenantLine = "true")
-    IpProxy selectOneIdleByRegionPriorityForUpdate(@Param("tenantId") Long tenantId,
-                                                   @Param("idleStatus") int idleStatus,
-                                                   @Param("preferredRegion") String preferredRegion,
-                                                   @Param("mixedRegion") String mixedRegion,
-                                                   @Param("excludedIds") List<Long> excludedIds,
-                                                   @Param("allowOtherRegionFallback") boolean allowOtherRegionFallback);
+    List<IpProxy> selectIdleByRegionPriority(@Param("query") IpProxyCandidateQuery query);
 
     /**
-     * 将已锁定的空闲代理绑定到账号并置为使用中。
+     * 按代理 ID 条件抢占一条空闲代理。
      *
-     * <p>WHERE 中保留 status=IDLE 条件,即使调用方漏锁或并发重试也不会覆盖已被占用的代理。</p>
+     * <p>{@code status=IDLE} 是并发 CAS 条件；返回 0 表示候选已被其它事务占用，
+     * 调用方必须继续尝试下一候选。</p>
+     *
+     * @param id 代理主键
+     * @param accountId 绑定账号主键
+     * @param idleStatus 空闲状态码
+     * @param usingStatus 使用中状态码
+     * @param boundAt 绑定时间
+     * @return 1=抢占成功，0=候选已不再空闲
      */
     int markUsingAndBind(@Param("id") Long id,
                          @Param("accountId") Long accountId,
                          @Param("idleStatus") int idleStatus,
                          @Param("usingStatus") int usingStatus,
                          @Param("boundAt") long boundAt);
-
-    /**
-     * 批量绑定已锁定的空闲代理。
-     *
-     * <p>WHERE 保留 status=IDLE 条件兜底,调用方用返回行数确认是否全部绑定成功。</p>
-     */
-    int markUsingAndBindBatch(@Param("targets") List<IpProxyBindTarget> targets,
-                              @Param("idleStatus") int idleStatus,
-                              @Param("usingStatus") int usingStatus,
-                              @Param("boundAt") long boundAt);
 
     /**
      * 释放指定账号当前占用的代理回空闲池。
@@ -171,17 +166,6 @@ public interface IpProxyMapper {
                           @Param("idleStatus") int idleStatus,
                           @Param("usingStatus") int usingStatus,
                           @Param("updatedAt") long updatedAt);
-
-    /**
-     * 将账号当前绑定代理置为不可用并解绑。
-     *
-     * <p>仅匹配仍处于 IN_USE 且绑定时间不晚于协议事件时间的当前绑定,避免迟到事件误伤新分配 IP。
-     * 失败详情由 entity 承载,检测失败次数在 SQL 中原子递增。</p>
-     */
-    int markBoundProxyUnavailableByAccount(@Param("accountId") Long accountId,
-                                           @Param("usingStatus") int usingStatus,
-                                           @Param("maxBoundAt") long maxBoundAt,
-                                           @Param("entity") IpProxy entity);
 
     /**
      * 批量释放指定账号当前占用的代理回空闲池。

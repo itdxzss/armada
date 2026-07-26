@@ -22,7 +22,7 @@
 Codex 可从 `.agents/skills/` 自动发现以下 Armada 技能，任务匹配时必须使用：
 
 - `request-analysis`：新功能、需求对账、影响分析。
-- `unit-test-write`：Java 单测、真库 DbTest、Mapper/SQL/Flyway 测试。
+- `unit-test-write`：Java 单测、H2 内存数据库、Mapper/SQL/Flyway 测试。
 - `unit-test-ci`：测试与质量门禁选择、验证结果判读。
 - `expert-reviewer`：合并或部署前的后端专家评审。
 - `deploy-verify`：部署前检查、目标环境确认和部署后验证。
@@ -31,12 +31,13 @@ Codex 可从 `.agents/skills/` 自动发现以下 Armada 技能，任务匹配�
 
 ```bash
 cd armada-api && mvn test
-cd armada-api && ./dbtest.sh '<TestClass#method>'
+cd armada-api && mvn -Dtest='<TestClass#method>' test
 bash armada-deploy/deploy-test.test.sh
 bash armada-deploy/package-prod.test.sh
 ```
 
-只运行与改动相称的验证，但没有真实输出不得声称通过。DbTest 缺少本地 `.env` 或目标数据库未确认时，明确报告未执行。
+只运行与改动相称的验证，但没有真实输出不得声称通过。数据访问测试默认使用 test scope 的 H2
+内存数据库和测试专属 MyBatis-Plus 配置，不要求连接真实数据库；真库 DbTest 仅作可选补充验证，执行前仍须确认目标环境。
 
 ## 红线
 

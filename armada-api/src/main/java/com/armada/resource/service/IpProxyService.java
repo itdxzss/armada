@@ -92,7 +92,7 @@ public interface IpProxyService {
      *
      * <p>本方法是 resource 域暴露给 account 域的跨域边界:account 域只能拿到
      * {@link IpProxyAllocation} 结果,看不到 resource mapper/entity。方法内部短事务会先释放该账号旧绑定,
-     * 再按「指定国家 → 混合 → 其它国家」优先级锁定一条本租户 IDLE 代理并置为 IN_USE。</p>
+     * 再按「指定国家 → 混合 → 其它国家」优先级条件抢占一条本租户 IDLE 代理并置为 IN_USE。</p>
      *
      * @param request 账号主键与导入时选择的 IP 国家
      * @return 协议上线编排可使用的代理分配结果
@@ -144,8 +144,8 @@ public interface IpProxyService {
     /**
      * 为一批账号上线分配空闲代理。
      *
-     * <p>本方法在一个本地短事务中完成:批量释放这些账号旧绑定、按每个账号的国家偏好锁定同等数量 IDLE 代理、
-     * 再批量绑定为 IN_USE。事务不包含协议 HTTP 调用,只保护本地代理池占用关系。</p>
+     * <p>本方法在一个本地短事务中完成:批量释放这些账号旧绑定，再按每个账号的国家偏好逐条条件抢占
+     * IDLE 代理。事务不包含协议 HTTP 调用，只保护本地代理池占用关系。</p>
      *
      * @param requests 账号分配请求列表,不可为空、账号不可重复
      * @return 与 requests 顺序一致的代理分配结果
@@ -191,6 +191,16 @@ public interface IpProxyService {
     void releaseOnlineAllocation(Long accountId, Long proxyId);
 
     /**
+     * 精确释放协议本次判定失败的旧代理绑定。
+     *
+     * <p>只命中 {@code proxyId + accountId + IN_USE}，不把代理标记为不可用；未命中按幂等成功处理。</p>
+     *
+     * @param accountId 账号主键
+     * @param proxyId   协议状态事件携带的失败代理主键
+     */
+    void releaseFailedProxyBinding(Long accountId, Long proxyId);
+
+    /**
      * 批量释放账号上线过程中本次分配的代理。
      *
      * <p>每个释放项同时匹配账号 ID 和代理 ID,避免旧请求失败时误释放同账号后续新分配的代理。</p>
@@ -210,18 +220,5 @@ public interface IpProxyService {
      * @throws BusinessException 当账号 ID 为空时抛出
      */
     void releaseByAccount(Long accountId);
-
-    /**
-     * 将账号当前绑定代理标记为不可用并解绑。
-     *
-     * <p>用于协议层上报 {@code PROXY_FAILED}:旧代理不再回到空闲池,而是等待后台重检恢复。
-     * 只处理事件发生时已经绑定的当前代理;没有命中绑定时视为幂等跳过。</p>
-     *
-     * @param accountId 账号主键
-     * @param occurredAt 协议事件发生时间(epoch毫秒)
-     * @param reason 上游失败原因
-     * @throws BusinessException 当账号 ID 为空时抛出
-     */
-    void markBoundProxyUnavailableByAccount(Long accountId, long occurredAt, String reason);
 
 }

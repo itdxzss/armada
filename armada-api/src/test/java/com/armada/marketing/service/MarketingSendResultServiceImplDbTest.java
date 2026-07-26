@@ -122,6 +122,25 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                 "SELECT failed_message_count FROM marketing_task WHERE id = ?",
                 Integer.class,
                 fixture.taskId())).isEqualTo(1);
+
+        Map<String, Object> target = jdbc.queryForMap("""
+                SELECT group_link_id, group_jid, group_link_url, group_name,
+                       status, sent_message_count, failed_message_count,
+                       last_attempt_at, last_sent_at, last_reason
+                FROM marketing_task_target
+                WHERE id = ?
+                """, fixture.targetId());
+        assertThat(target.get("group_link_id")).isNotNull();
+        assertThat(target.get("group_jid")).isEqualTo(fixture.groupJid());
+        assertThat(target.get("group_link_url"))
+                .isEqualTo("https://chat.whatsapp.com/sendresult-" + now);
+        assertThat(target.get("group_name")).isEqualTo("发送结果群");
+        assertThat(target.get("status")).isEqualTo(4);
+        assertThat(target.get("sent_message_count")).isEqualTo(0);
+        assertThat(target.get("failed_message_count")).isEqualTo(1);
+        assertThat(target.get("last_attempt_at")).isEqualTo(now + 3_000);
+        assertThat(target.get("last_sent_at")).isNull();
+        assertThat(target.get("last_reason")).isEqualTo("rate limited");
     }
 
     @Test

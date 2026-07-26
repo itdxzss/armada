@@ -117,7 +117,7 @@ public class BuyerChannelStatsService {
 
     private List<ChannelMeta> channels(Query query, long tenantId) {
         StringBuilder sql = new StringBuilder("SELECT c.id,c.channel_name,c.channel_code,c.target_country_value," +
-                "COALESCE(country.name_zh,CASE WHEN c.target_country_value='MIXED' THEN '混合' ELSE c.target_country_value END)," +
+                "country.name_zh," +
                 "t.id,t.template_name FROM promotion_channel c " +
                 "JOIN promotion_domain d ON d.id=c.promotion_domain_id AND d.tenant_id=c.tenant_id AND d.deleted_at IS NULL " +
                 "JOIN promotion_landing_template t ON t.id=d.landing_template_id AND t.tenant_id=c.tenant_id AND t.deleted_at IS NULL " +
@@ -144,9 +144,15 @@ public class BuyerChannelStatsService {
             return List.of();
         }
         sql.append(" ORDER BY c.id DESC");
-        return jdbc.query(sql.toString(), (rs, n) -> new ChannelMeta(
-                rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4),
-                rs.getString(5), rs.getLong(6), rs.getString(7)), args.toArray());
+        return jdbc.query(sql.toString(), (rs, n) -> {
+            String countryCode = rs.getString(4);
+            String countryName = rs.getString(5);
+            if (!text(countryName)) {
+                countryName = "MIXED".equals(countryCode) ? "混合" : countryCode;
+            }
+            return new ChannelMeta(rs.getLong(1), rs.getString(2), rs.getString(3), countryCode,
+                    countryName, rs.getLong(6), rs.getString(7));
+        }, args.toArray());
     }
 
     private ChannelMeta requireChannel(long channelId, long tenantId) {

@@ -89,6 +89,18 @@ public class ProtocolHttpExecutor {
     }
 
     /**
+     * 获取包含凭据等敏感字段的响应；解析失败时异常中不附带响应体预览。
+     *
+     * <p>这是增量入口，普通协议调用继续使用 {@link #getTyped(String, Class, Object...)}，
+     * 不改变现有诊断行为。</p>
+     */
+    public <T> T getSensitiveTyped(String uriTemplate, Class<T> responseType, Object... uriVariables) {
+        return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
+                .exchange((request, response) -> readSensitiveTyped(
+                        request.getURI(), response, responseType), true));
+    }
+
+    /**
      * 发起 POST 请求并反序列化 2xx 响应体。
      *
      * @param uri          相对或绝对 URI
@@ -201,6 +213,38 @@ public class ProtocolHttpExecutor {
                             + " bodyPreview=" + preview(body),
                     ex);
         }
+    }
+
+    private <T> T readSensitiveTyped(
+            URI uri, ClientHttpResponse response, Class<T> responseType) throws IOException {
+        ensureSensitiveSuccess(response);
+        String body = readBody(uri, response);
+        try {
+            return MAPPER.readValue(body, responseType);
+        } catch (Exception ex) {
+            throw ProtocolException.unknown(
+                    "协议层敏感响应反序列化失败 uri=" + uri
+                            + " type=" + responseType.getSimpleName(),
+                    ex);
+        }
+    }
+
+    /**
+     * 校验敏感读取请求的 HTTP 状态，不读取或转发错误响应体。
+     *
+     * <p>凭据导出接口的成功体和错误体都可能包含账号密钥；这里只保留状态码，
+     * 防止协议 message、details 或原始 body 进入异常日志。</p>
+     */
+    private static void ensureSensitiveSuccess(ClientHttpResponse response) throws IOException {
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return;
+        }
+        int httpStatus = response.getStatusCode().value();
+        throw new ProtocolException(
+                mapErrorCode(null, httpStatus),
+                ProtocolException.Metadata.of(httpStatus, null, null, null, null),
+                "协议层敏感请求失败，HTTP 状态=" + httpStatus,
+                null);
     }
 
     /**

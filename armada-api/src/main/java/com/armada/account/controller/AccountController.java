@@ -32,6 +32,7 @@ import java.util.List;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,6 +49,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/accounts")
+@PreAuthorize("hasAuthority('tenant:account:view')")
 public class AccountController {
 
     private final AccountService accountService;
@@ -81,12 +83,13 @@ public class AccountController {
      * @return 分页账号列表
      */
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('tenant:account:view', 'tenant:historical_group:view', 'tenant:join_task:view')")
     public ApiResponse<PageResult<AccountListVO>> list(@ModelAttribute AccountQuery query) {
         return ApiResponse.ok(accountService.listAccounts(query));
     }
 
     /**
-     * 导出前端勾选且账号状态正常的 WS 号码。
+     * 导出前端勾选且未软删除账号的 WS 号码，不限制账号状态。
      *
      * <p>成功直接返回 UTF-8 TXT 文件；业务失败由全局异常处理器返回统一 JSON，避免生成空文件。</p>
      *

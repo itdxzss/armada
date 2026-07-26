@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class GroupPullMarketingMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V061__group_pull_marketing.sql");
+            "src/main/resources/db/migration/V070__group_pull_marketing.sql");
 
     @Test
     void migrationDefinesOnlyConfirmedGroupPullFacts() throws IOException {

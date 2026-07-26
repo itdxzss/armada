@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper">
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_pairing_session
+      (promotion_channel_id, channel_name, owner_user_id, session_token_hash, phone, protocol_account_id, status,
+       expires_at, created_at, updated_at)
+    VALUES
+      (#{promotionChannelId}, #{channelName}, #{ownerUserId}, #{sessionTokenHash}, #{phone}, #{protocolAccountId}, #{status},
+       #{expiresAt}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <sql id="columns">
+    id, tenant_id AS tenantId, promotion_channel_id AS promotionChannelId,
+    channel_name AS channelName, owner_user_id AS ownerUserId,
+    session_token_hash AS sessionTokenHash, phone, protocol_account_id AS protocolAccountId,
+    pairing_id AS pairingId, pairing_code AS pairingCode, status, proxy_id AS proxyId,
+    proxy_session_id AS proxySessionId, proxy_region AS proxyRegion, proxy_source AS proxySource,
+    account_id AS accountId, expires_at AS expiresAt,
+    error_code AS errorCode, error_message AS errorMessage, completed_at AS completedAt,
+    created_at AS createdAt, updated_at AS updatedAt
+  </sql>
+
+  <select id="selectByTokenHash" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
+    SELECT <include refid="columns"/> FROM promotion_pairing_session
+    WHERE session_token_hash = #{tokenHash}
+    LIMIT 1
+  </select>
+
+  <select id="selectActiveByProtocolAccountId" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
+    SELECT <include refid="columns"/> FROM promotion_pairing_session
+    WHERE active_protocol_account_id = #{protocolAccountId}
+    LIMIT 1
+  </select>
+
+  <select id="selectByIdForUpdate" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
+    SELECT <include refid="columns"/> FROM promotion_pairing_session
+    WHERE id = #{id} AND tenant_id = #{tenantId}
+    FOR UPDATE
+  </select>
+
+  <select id="selectExpiredActive" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
+    SELECT <include refid="columns"/> FROM promotion_pairing_session
+    WHERE status IN (1, 2, 3)
+      AND expires_at &lt;= #{now}
+    ORDER BY expires_at, id
+    LIMIT #{limit}
+  </select>
+
+  <update id="attachProxy">
+    UPDATE promotion_pairing_session
+    SET proxy_id = #{proxyId}, proxy_session_id = #{proxySessionId},
+        proxy_region = #{proxyRegion}, proxy_source = #{proxySource}, updated_at = #{updatedAt}
+    WHERE id = #{id} AND tenant_id = #{tenantId} AND status = 1 AND proxy_id IS NULL
+  </update>
+
+  <update id="markAccepted">
+    UPDATE promotion_pairing_session
+    SET pairing_id = #{pairingId}, expires_at = #{expiresAt}, updated_at = #{updatedAt}
+    WHERE id = #{id} AND tenant_id = #{tenantId} AND status IN (1, 2)
+  </update>
+
+  <update id="markCodeGenerated">
+    UPDATE promotion_pairing_session
+    SET pairing_code = #{pairingCode}, status = 2, expires_at = #{expiresAt}, updated_at = #{updatedAt}
+    WHERE id = #{id} AND tenant_id = #{tenantId}
+      AND protocol_account_id = #{protocolAccountId} AND status IN (1, 2)
+  </update>
+
+  <update id="claimFinalizing">
+    UPDATE promotion_pairing_session
+    SET status = 3, pairing_code = NULL, updated_at = #{updatedAt}
+    WHERE id = #{id} AND tenant_id = #{tenantId} AND status IN (1, 2)
+  </update>
+
+  <update id="markSucceeded">
+    UPDATE promotion_pairing_session
+    SET status = 4, pairing_code = NULL, account_id = #{accountId}, completed_at = #{completedAt}, updated_at = #{completedAt}
+    WHERE id = #{id} AND tenant_id = #{tenantId} AND status = 3
+  </update>
+
+  <update id="markTerminal">
+    UPDATE promotion_pairing_session
+    SET status = #{status}, pairing_code = NULL, error_code = #{errorCode},
+        error_message = #{errorMessage}, completed_at = #{completedAt}, updated_at = #{completedAt}
+    WHERE id = #{id} AND tenant_id = #{tenantId} AND status IN (1, 2, 3)
+  </update>
+</mapper>

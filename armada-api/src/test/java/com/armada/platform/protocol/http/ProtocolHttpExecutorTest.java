@@ -99,6 +99,28 @@ class ProtocolHttpExecutorTest {
     }
 
     @Test
+    void sensitiveErrorNeverIncludesProtocolMessageOrBody() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ProtocolHttpExecutor executor = new ProtocolHttpExecutor(builder.build());
+        String secret = "private-baileys-credential";
+
+        server.expect(requestTo("http://protocol.internal/v1/accounts/acc_001/export/baileys-json"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"" + secret + "\",\"details\":{\"creds\":\"" + secret + "\"}}"));
+
+        assertThatThrownBy(() -> executor.getSensitiveTyped(
+                "/v1/accounts/{accountId}/export/baileys-json", PingResponse.class, "acc_001"))
+                .isInstanceOfSatisfying(ProtocolException.class, ex -> {
+                    assertThat(ex.httpStatus()).isEqualTo(502);
+                    assertThat(ex.getMessage()).doesNotContain(secret, "creds", "details");
+                });
+        server.verify();
+    }
+
+    @Test
     void mapsAccountReachoutRestrictedProtocolCode() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

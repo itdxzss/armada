@@ -4,6 +4,7 @@ import com.armada.group.model.dto.HistoricalGroupMarketingSendDTO;
 import com.armada.group.model.vo.HistoricalGroupPullExecutionVO;
 import com.armada.group.service.HistoricalGroupMarketingService;
 import com.armada.shared.response.ApiResponse;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** 历史群执行的全部营销账号发送端点。 */
 @RestController
 @RequestMapping("/api/historical-group-pull-executions")
+@PreAuthorize("hasAuthority('tenant:historical_group:view')")
 public class HistoricalGroupMarketingController {
 
     private final HistoricalGroupMarketingService marketingService;

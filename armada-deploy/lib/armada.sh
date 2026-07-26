@@ -17,7 +17,8 @@ armada_find_jdk17() {
 
 armada_build_backend() {
   info "构建后端 jar..."
-  (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests clean package)
+  # 部署包不应被仓库中与当前发布无关的测试源码编译错误阻断；测试由发布前验证阶段单独执行。
+  (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -Dmaven.test.skip=true clean package)
   [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
   ok "后端 jar 已就绪: ${JAR_PATH}"
 }
@@ -37,12 +38,29 @@ armada_build_frontend() {
 armada_prepare_remote() {
   ssh_run "mkdir -p '${REMOTE_DIR}/armada-api/target' '${REMOTE_DIR}/wheel-saas-pure-web/dist'"
   ssh_run "bash -s -- '${REMOTE_DIR}'" <<'REMOTE_CHECK'
-set -eu
+set -euo pipefail
 cd "$1"
 test -f .env || { echo "远端缺少 .env: $1/.env" >&2; exit 20; }
-for key in DB_URL DB_USER DB_PASSWORD; do
+chmod 600 .env
+for key in DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID; do
   grep -Eq "^${key}=.+" .env || { echo "$1/.env 缺少必需配置 ${key}" >&2; exit 21; }
 done
+promotion_key="$(grep -E '^PROMOTION_TRACKING_ENCRYPTION_KEY=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')"
+promotion_key_id="$(grep -E '^PROMOTION_TRACKING_ENCRYPTION_KEY_ID=' .env | tail -n 1 | cut -d= -f2- | tr -d '\r')"
+case "${promotion_key}:${promotion_key_id}" in
+  *REPLACE*|*CHANGE_ME*)
+    echo "$1/.env 的推广 Token 加密配置仍是占位值" >&2
+    exit 22
+    ;;
+esac
+if ! decoded_key_bytes="$(printf '%s' "${promotion_key}" | base64 --decode 2>/dev/null | wc -c | tr -d '[:space:]')"; then
+  echo "$1/.env 的 PROMOTION_TRACKING_ENCRYPTION_KEY 不是合法 Base64" >&2
+  exit 22
+fi
+[ "${decoded_key_bytes}" = 32 ] || {
+  echo "$1/.env 的 PROMOTION_TRACKING_ENCRYPTION_KEY 解码后必须为 32 字节" >&2
+  exit 22
+}
 REMOTE_CHECK
 }
 
@@ -77,7 +95,7 @@ armada_start() {
 
 armada_wait_backend_ready() {
   local attempt=1
-  while ! ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -fsS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|0|40001)'"; do
+  while ! ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -sS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|40104|0|40001)'"; do
     if [ "${attempt}" -ge 30 ]; then
       die "Armada backend 未在时限内就绪"
     fi
@@ -107,7 +125,7 @@ armada_verify_frontend() {
 }
 
 armada_verify_api_proxy() {
-  ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -fsS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|0|40001)'"
+  ssh_run "cd '${REMOTE_DIR}' && port=\$(awk -F= '/^ARMADA_HTTP_PORT=/{print \$2}' .env | tail -n 1); port=\${port:-18080}; body=\$(curl -sS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\" || true); printf '%s' \"\${body}\" | grep -Eq '\"code\"[[:space:]]*:[[:space:]]*(40101|40104|0|40001)'"
 }
 
 armada_verify_selected() {

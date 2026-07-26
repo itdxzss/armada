@@ -72,7 +72,8 @@ class IpProxyMapperDbTest extends DbTestBase {
         update.setLastCheckError(null);
         update.setUpdatedAt(now + 11);
 
-        int updated = mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
+        int updated = mapper.updateDetectionResult(
+                update, IpProxyStatus.IN_USE.code(), IpProxyStatus.PAIRING_RESERVED.code());
 
         assertThat(updated).isEqualTo(1);
         IpProxy found = mapper.selectActiveById(proxy.getId());
@@ -405,7 +406,8 @@ class IpProxyMapperDbTest extends DbTestBase {
         update.setWhatsappHttpStatus(null);
         update.setWhatsappCheckError("检测失败");
         update.setUpdatedAt(checkedAt);
-        mapper.updateDetectionResult(update, IpProxyStatus.IN_USE.code());
+        mapper.updateDetectionResult(
+                update, IpProxyStatus.IN_USE.code(), IpProxyStatus.PAIRING_RESERVED.code());
     }
 
     private static IpProxyDedupTuple tuple(IpProxy proxy) {

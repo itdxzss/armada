@@ -2,3 +2,4 @@
 *.java text
 *.xml  text
 *.sql  text
+*.sh   text eol=lf

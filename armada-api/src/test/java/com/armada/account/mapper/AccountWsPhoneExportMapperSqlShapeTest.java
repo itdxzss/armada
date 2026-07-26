@@ -22,8 +22,8 @@ class AccountWsPhoneExportMapperSqlShapeTest {
     private static final String EMPTY_IDS = "ids == null or ids.size() == 0";
 
     @Test
-    void exportQueryKeepsTenantSafeNormalAccountShape() throws Exception {
-        Element select = selectElement("selectNormalWsPhonesByIds");
+    void exportQueryDoesNotFilterByAccountState() throws Exception {
+        Element select = selectElement("selectWsPhonesByIds");
         Element nonEmpty = branch(select, NON_EMPTY_IDS);
         String sql = normalizedSql(nonEmpty);
 
@@ -32,10 +32,7 @@ class AccountWsPhoneExportMapperSqlShapeTest {
         assertThat(sql).isEqualTo(
                 "SELECT a.id, a.ws_phone AS wsPhone "
                         + "FROM account a "
-                        + "INNER JOIN account_state s "
-                        + "ON s.account_id = a.id AND s.tenant_id = a.tenant_id "
                         + "WHERE a.deleted_at IS NULL "
-                        + "AND s.account_state = #{normalAccountState} "
                         + "AND a.id IN #{id} "
                         + "ORDER BY a.id ASC");
 
@@ -47,12 +44,14 @@ class AccountWsPhoneExportMapperSqlShapeTest {
         assertThat(foreach.getAttribute("open")).isEqualTo("(");
         assertThat(foreach.getAttribute("separator")).isEqualTo(",");
         assertThat(foreach.getAttribute("close")).isEqualTo(")");
-        assertThat(sql).doesNotContain("#{tenantId}", "#{tenant_id}");
+        assertThat(sql).doesNotContain(
+                "account_state", "accountState", "normalAccountState",
+                "#{tenantId}", "#{tenant_id}");
     }
 
     @Test
     void exportQueryUsesAccountBasedZeroRowFallbackForEmptyIds() throws Exception {
-        Element select = selectElement("selectNormalWsPhonesByIds");
+        Element select = selectElement("selectWsPhonesByIds");
         Element empty = branch(select, EMPTY_IDS);
         String sql = normalizedSql(empty);
 

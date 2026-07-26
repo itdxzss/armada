@@ -18,6 +18,15 @@ public class AccountGroup {
     /** 备注。 */
     private String remark;
 
+    /** 当前营销整组占用类型；为空表示没有营销任务占用。 */
+    private Integer marketingOccupancyType;
+
+    /** 当前占用该分组的营销任务 ID。 */
+    private Long marketingOccupancyTaskId;
+
+    /** 当前营销任务成功锁定分组的时间，epoch 毫秒。 */
+    private Long marketingLockedAt;
+
     /** 是否系统内置:1=是,0=否。系统内置分组不可删除。 */
     private Integer systemBuiltin;
 
@@ -63,6 +72,30 @@ public class AccountGroup {
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public Integer getMarketingOccupancyType() {
+        return marketingOccupancyType;
+    }
+
+    public void setMarketingOccupancyType(Integer marketingOccupancyType) {
+        this.marketingOccupancyType = marketingOccupancyType;
+    }
+
+    public Long getMarketingOccupancyTaskId() {
+        return marketingOccupancyTaskId;
+    }
+
+    public void setMarketingOccupancyTaskId(Long marketingOccupancyTaskId) {
+        this.marketingOccupancyTaskId = marketingOccupancyTaskId;
+    }
+
+    public Long getMarketingLockedAt() {
+        return marketingLockedAt;
+    }
+
+    public void setMarketingLockedAt(Long marketingLockedAt) {
+        this.marketingLockedAt = marketingLockedAt;
     }
 
     public Integer getSystemBuiltin() {

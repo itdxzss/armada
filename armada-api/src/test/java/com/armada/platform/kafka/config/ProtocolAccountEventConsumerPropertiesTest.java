@@ -31,29 +31,50 @@ class ProtocolAccountEventConsumerPropertiesTest {
     @Test
     void applicationYamlExposesAccountEventConsumerDefaults() {
         applicationYamlContextRunner.run(context -> {
-            assertThat(context.getEnvironment().containsProperty("armada.protocol.kafka.account-events.topic"))
+            assertThat(context.getEnvironment().containsProperty("armada.protocol.kafka.account-state-events.topic"))
                     .isTrue();
-            assertThat(context.getEnvironment().containsProperty("armada.protocol.kafka.account-events.group-id"))
-                    .isTrue();
-            assertThat(context.getEnvironment().containsProperty("armada.protocol.kafka.account-events.retry-interval-ms"))
+            assertThat(context.getEnvironment().containsProperty("armada.protocol.kafka.account-state-events.group-id"))
                     .isTrue();
             assertThat(context.getEnvironment()
-                    .containsProperty("armada.protocol.kafka.account-events.max-retry-attempts"))
+                    .containsProperty("armada.protocol.kafka.account-state-events.concurrency"))
                     .isTrue();
             assertThat(context.getEnvironment()
-                    .containsProperty("armada.protocol.kafka.account-events.dead-letter-topic-suffix"))
+                    .containsProperty("armada.protocol.kafka.account-group-sync-events.topic"))
+                    .isTrue();
+            assertThat(context.getEnvironment()
+                    .containsProperty("armada.protocol.kafka.account-group-sync-events.group-id"))
+                    .isTrue();
+            assertThat(context.getEnvironment()
+                    .containsProperty("armada.protocol.kafka.account-group-sync-events.concurrency"))
+                    .isTrue();
+            assertThat(context.getEnvironment()
+                    .containsProperty("armada.protocol.kafka.account-event-errors.retry-interval-ms"))
                     .isTrue();
 
-            ProtocolAccountEventConsumerProperties properties =
-                    context.getBean(ProtocolAccountEventConsumerProperties.class);
-            assertThat(properties.getTopic()).isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_TOPIC);
-            assertThat(properties.getGroupId()).isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_GROUP_ID);
-            assertThat(properties.getRetryIntervalMs())
-                    .isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_RETRY_INTERVAL_MS);
-            assertThat(properties.getMaxRetryAttempts())
-                    .isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_MAX_RETRY_ATTEMPTS);
-            assertThat(properties.getDeadLetterTopicSuffix())
-                    .isEqualTo(ProtocolAccountEventConsumerProperties.DEFAULT_DEAD_LETTER_TOPIC_SUFFIX);
+            ProtocolAccountStateEventConsumerProperties stateProperties =
+                    context.getBean(ProtocolAccountStateEventConsumerProperties.class);
+            ProtocolAccountGroupSyncEventConsumerProperties groupSyncProperties =
+                    context.getBean(ProtocolAccountGroupSyncEventConsumerProperties.class);
+            ProtocolAccountEventErrorProperties errorProperties =
+                    context.getBean(ProtocolAccountEventErrorProperties.class);
+            assertThat(stateProperties.getTopic())
+                    .isEqualTo(ProtocolAccountStateEventConsumerProperties.DEFAULT_TOPIC);
+            assertThat(stateProperties.getGroupId())
+                    .isEqualTo(ProtocolAccountStateEventConsumerProperties.DEFAULT_GROUP_ID);
+            assertThat(stateProperties.getConcurrency())
+                    .isEqualTo(ProtocolAccountStateEventConsumerProperties.DEFAULT_CONCURRENCY);
+            assertThat(groupSyncProperties.getTopic())
+                    .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_TOPIC);
+            assertThat(groupSyncProperties.getGroupId())
+                    .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_GROUP_ID);
+            assertThat(groupSyncProperties.getConcurrency())
+                    .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_CONCURRENCY);
+            assertThat(errorProperties.getRetryIntervalMs())
+                    .isEqualTo(ProtocolAccountEventErrorProperties.DEFAULT_RETRY_INTERVAL_MS);
+            assertThat(errorProperties.getMaxRetryAttempts())
+                    .isEqualTo(ProtocolAccountEventErrorProperties.DEFAULT_MAX_RETRY_ATTEMPTS);
+            assertThat(errorProperties.getDeadLetterTopicSuffix())
+                    .isEqualTo(ProtocolAccountEventErrorProperties.DEFAULT_DEAD_LETTER_TOPIC_SUFFIX);
         });
     }
 
@@ -74,7 +95,11 @@ class ProtocolAccountEventConsumerPropertiesTest {
         });
     }
 
-    @EnableConfigurationProperties(ProtocolAccountEventConsumerProperties.class)
+    @EnableConfigurationProperties({
+            ProtocolAccountStateEventConsumerProperties.class,
+            ProtocolAccountGroupSyncEventConsumerProperties.class,
+            ProtocolAccountEventErrorProperties.class
+    })
     static class TestConfig {
     }
 }

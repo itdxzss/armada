@@ -124,6 +124,38 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void cancelPendingAccountOnlineCommands_preservesOfflineLockedAndOtherAccountRows() {
+        long now = System.currentTimeMillis();
+        long targetAccountId = 5201L;
+        ProtocolCommandOutbox pendingOnline = pendingCommand(
+                "cancel-online-" + now, "batch-cancel-" + now, targetAccountId, now);
+        ProtocolCommandOutbox pendingOffline = pendingCommand(
+                "keep-offline-" + now, "batch-cancel-" + now, targetAccountId, now);
+        pendingOffline.setCommandType("account.offline.requested");
+        ProtocolCommandOutbox lockedOnline = pendingCommand(
+                "keep-locked-" + now, "batch-cancel-" + now, targetAccountId, now);
+        ProtocolCommandOutbox otherAccountOnline = pendingCommand(
+                "keep-other-" + now, "batch-cancel-" + now, 5202L, now);
+        assertThat(mapper.batchInsertPending(List.of(
+                pendingOnline, pendingOffline, lockedOnline, otherAccountOnline))).isEqualTo(4);
+
+        Long pendingOnlineId = insertedId(pendingOnline.getCommandId(), now);
+        Long pendingOfflineId = insertedId(pendingOffline.getCommandId(), now);
+        Long lockedOnlineId = insertedId(lockedOnline.getCommandId(), now);
+        Long otherAccountOnlineId = insertedId(otherAccountOnline.getCommandId(), now);
+        assertThat(mapper.markLocked(List.of(lockedOnlineId), "publisher-cancel-test", now + 1)).isEqualTo(1);
+
+        int canceled = outboxService.cancelPendingAccountOnlineCommands(List.of(targetAccountId));
+
+        assertThat(canceled).isEqualTo(1);
+        assertThat(state(pendingOnlineId).status()).isEqualTo(ProtocolCommandOutboxStatus.CANCELED.code());
+        assertThat(state(pendingOnlineId).lastError()).isEqualTo("MANUAL_OFFLINE");
+        assertThat(state(pendingOfflineId).status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(state(lockedOnlineId).status()).isEqualTo(ProtocolCommandOutboxStatus.LOCKED.code());
+        assertThat(state(otherAccountOnlineId).status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+    }
+
+    @Test
     void lockAndSentTransitions_requireExpectedPreviousStatus() {
         long now = System.currentTimeMillis();
         ProtocolCommandOutbox row = pendingCommand("sent-" + now, null, 2001L, now);
@@ -140,9 +172,12 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(lockedState.lockedBy()).isEqualTo("publisher-a");
         assertThat(lockedState.lockedAt()).isEqualTo(now + 1);
 
-        int staleLockSent = mapper.markSent(lockedRow(id, row.getCommandId(), "publisher-a", now + 2), now + 3);
-        int sent = mapper.markSent(lockedRow(id, row.getCommandId(), "publisher-a", now + 1), now + 3);
-        int sentAgain = mapper.markSent(lockedRow(id, row.getCommandId(), "publisher-a", now + 1), now + 4);
+        int staleLockSent = mapper.markSentBatch(
+                List.of(lockedRow(id, row.getCommandId(), "publisher-a", now + 2)), now + 3);
+        int sent = mapper.markSentBatch(
+                List.of(lockedRow(id, row.getCommandId(), "publisher-a", now + 1)), now + 3);
+        int sentAgain = mapper.markSentBatch(
+                List.of(lockedRow(id, row.getCommandId(), "publisher-a", now + 1)), now + 4);
 
         assertThat(staleLockSent).isZero();
         assertThat(sent).isEqualTo(1);
@@ -152,6 +187,37 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(sentState.sentAt()).isEqualTo(now + 3);
         assertThat(sentState.updatedAt()).isEqualTo(now + 3);
         assertThat(sentState.lastError()).isNull();
+    }
+
+    @Test
+    void markSentBatch_updatesOnlyRowsHeldBySameLockContext() {
+        long now = System.currentTimeMillis();
+        ProtocolCommandOutbox first = pendingCommand("batch-sent-1-" + now, null, 3601L, now);
+        ProtocolCommandOutbox second = pendingCommand("batch-sent-2-" + now, null, 3602L, now);
+        ProtocolCommandOutbox third = pendingCommand("batch-sent-3-" + now, null, 3603L, now);
+        mapper.batchInsertPending(List.of(first, second, third));
+        List<Long> ids = List.of(
+                insertedId(first.getCommandId(), now),
+                insertedId(second.getCommandId(), now),
+                insertedId(third.getCommandId(), now));
+        long lockedAt = now + 1;
+        assertThat(mapper.markLocked(ids, "publisher-batch", lockedAt)).isEqualTo(3);
+
+        int stale = mapper.markSentBatch(List.of(
+                lockedRow(ids.get(0), first.getCommandId(), "publisher-batch", lockedAt + 1),
+                lockedRow(ids.get(1), second.getCommandId(), "publisher-batch", lockedAt + 1)), now + 2);
+        int updated = mapper.markSentBatch(List.of(
+                lockedRow(ids.get(0), first.getCommandId(), "publisher-batch", lockedAt),
+                lockedRow(ids.get(1), second.getCommandId(), "publisher-batch", lockedAt)), now + 3);
+
+        assertThat(stale).isZero();
+        assertThat(updated).isEqualTo(2);
+        assertThat(state(ids.get(0)).status()).isEqualTo(ProtocolCommandOutboxStatus.SENT.code());
+        assertThat(state(ids.get(1)).status()).isEqualTo(ProtocolCommandOutboxStatus.SENT.code());
+        assertThat(state(ids.get(2)).status()).isEqualTo(ProtocolCommandOutboxStatus.LOCKED.code());
+        assertThat(mapper.markSentBatch(List.of(
+                lockedRow(ids.get(0), first.getCommandId(), "publisher-batch", lockedAt),
+                lockedRow(ids.get(1), second.getCommandId(), "publisher-batch", lockedAt)), now + 4)).isZero();
     }
 
     @Test
@@ -225,12 +291,10 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         List<String> commandIds = List.of(sent.getCommandId(), retry.getCommandId(), dead.getCommandId());
 
         int locked = mapper.markLockedByCommandIds(commandIds, "publisher-direct", lockedAt);
-        int wrongPublisherSent = mapper.markSent(
-                lockedRow(null, sent.getCommandId(), "publisher-other", lockedAt),
-                now + 2);
-        int staleLockSent = mapper.markSent(
-                lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt + 1),
-                now + 2);
+        int wrongPublisherSent = mapper.markSentBatch(List.of(
+                lockedRow(null, sent.getCommandId(), "publisher-other", lockedAt)), now + 2);
+        int staleLockSent = mapper.markSentBatch(List.of(
+                lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt + 1)), now + 2);
         List<ProtocolCommandOutbox> lockedRows = mapper.selectLockedByCommandIds(
                 commandIds, "publisher-direct", lockedAt);
 
@@ -240,9 +304,8 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(lockedRows).extracting(ProtocolCommandOutbox::getCommandId)
                 .containsExactly(sent.getCommandId(), retry.getCommandId(), dead.getCommandId());
 
-        int sentMarked = mapper.markSent(
-                lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt),
-                now + 3);
+        int sentMarked = mapper.markSentBatch(List.of(
+                lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt)), now + 3);
         int retried = mapper.markRetry(
                 lockedRow(null, retry.getCommandId(), "publisher-direct", lockedAt),
                 now + 30_000,

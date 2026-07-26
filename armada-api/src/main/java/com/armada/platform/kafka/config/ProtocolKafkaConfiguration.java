@@ -34,7 +34,9 @@ import org.springframework.util.backoff.FixedBackOff;
         ProtocolMasterCommandProperties.class,
         ProtocolCommandPublisherProperties.class,
         ProtocolCommandDispatcherProperties.class,
-        ProtocolAccountEventConsumerProperties.class,
+        ProtocolAccountStateEventConsumerProperties.class,
+        ProtocolAccountGroupSyncEventConsumerProperties.class,
+        ProtocolAccountEventErrorProperties.class,
         ProtocolGroupEventConsumerProperties.class,
         ProtocolMessageEventConsumerProperties.class
 })
@@ -61,11 +63,11 @@ public class ProtocolKafkaConfiguration {
     @Profile("kafka")
     public CommonErrorHandler protocolAccountEventConsumerErrorHandler(
             ObjectProvider<KafkaTemplate<Object, Object>> kafkaTemplateProvider,
-            ProtocolAccountEventConsumerProperties properties) {
+            ProtocolAccountEventErrorProperties properties) {
         long retryIntervalMs = nonNegativeOrDefault(properties.getRetryIntervalMs(),
-                ProtocolAccountEventConsumerProperties.DEFAULT_RETRY_INTERVAL_MS);
+                ProtocolAccountEventErrorProperties.DEFAULT_RETRY_INTERVAL_MS);
         long maxRetryAttempts = nonNegativeOrDefault(properties.getMaxRetryAttempts(),
-                ProtocolAccountEventConsumerProperties.DEFAULT_MAX_RETRY_ATTEMPTS);
+                ProtocolAccountEventErrorProperties.DEFAULT_MAX_RETRY_ATTEMPTS);
         FixedBackOff backOff = new FixedBackOff(retryIntervalMs, maxRetryAttempts);
 
         KafkaTemplate<Object, Object> kafkaTemplate = kafkaTemplateProvider.getIfAvailable();
@@ -77,7 +79,7 @@ public class ProtocolKafkaConfiguration {
                     retryIntervalMs, maxRetryAttempts);
         } else {
             String deadLetterTopicSuffix = textOrDefault(properties.getDeadLetterTopicSuffix(),
-                    ProtocolAccountEventConsumerProperties.DEFAULT_DEAD_LETTER_TOPIC_SUFFIX);
+                    ProtocolAccountEventErrorProperties.DEFAULT_DEAD_LETTER_TOPIC_SUFFIX);
             DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
                     (record, exception) -> new TopicPartition(record.topic() + deadLetterTopicSuffix,
                             record.partition()));

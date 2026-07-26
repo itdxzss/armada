@@ -5,13 +5,18 @@ import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountGroupQuery;
 import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.model.enums.AccountMarketingOccupancyType;
 import com.armada.account.model.vo.AccountGroupVO;
+import com.armada.account.model.vo.AccountGroupMarketingOccupancyVO;
+import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
 import com.armada.account.service.AccountGroupService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
-import java.util.List;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.TreeSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -20,14 +25,18 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * 账号分组业务实现。
+ * 账号分组菜单业务实现。
  *
- * <p>租户隔离由 MyBatis 租户拦截器透明完成,本类不手写 tenant_id。</p>
- * <p>时间字段为 BIGINT epoch 毫秒,insert/update 时由调用方显式传入,无需回查。</p>
+ * <p>负责分组分页、营销占用详情、分组增删改及拆分合并。涉及分组结构变化的操作
+ * 会在事务内锁定目标分组，避免与营销任务启动抢锁并发冲突。</p>
+ *
+ * <p>租户隔离由 MyBatis 租户拦截器统一处理，本类不接收或拼接 {@code tenant_id}；
+ * 时间字段统一由业务层写入 epoch 毫秒。</p>
  */
 @Service
 public class AccountGroupServiceImpl implements AccountGroupService {
 
+    /** 账号分组业务日志。 */
     private static final Logger log = LoggerFactory.getLogger(AccountGroupServiceImpl.class);
 
     /** 批量删除上限:防止一次删除过多造成锁竞争。 */
@@ -45,19 +54,31 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     /** account_group.remark 字段长度。 */
     private static final int MAX_REMARK_LENGTH = 255;
 
+    /** 账号分组及营销占用数据访问。 */
     private final AccountGroupMapper mapper;
+
+    /** 账号分组查询投影转换器。 */
     private final AccountConverter converter;
 
+    /**
+     * 创建账号分组业务服务。
+     *
+     * @param mapper 账号分组及营销占用数据访问
+     * @param converter 账号分组查询投影转换器
+     */
     public AccountGroupServiceImpl(AccountGroupMapper mapper, AccountConverter converter) {
         this.mapper = mapper;
         this.converter = converter;
     }
 
     /**
-     * {@inheritDoc}
+     * 分页查询当前租户的账号分组。
      *
-     * <p>实现要点:list 开头懒创建系统默认分组;先取总数,为 0 时直接返回空页省掉一次必然空结果的列表查询;
-     * 分页与筛选全部由 Mapper 的 SQL 下推,不在内存里裁剪。</p>
+     * <p>首次查询时保证系统默认分组已经创建。分页、筛选和账号统计全部由 SQL 完成；
+     * 总数为零时不再执行列表查询。</p>
+     *
+     * @param query 分组名称筛选及分页参数
+     * @return 当前页账号分组及总数
      */
     @Override
     public PageResult<AccountGroupVO> list(AccountGroupQuery query) {
@@ -71,10 +92,72 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     }
 
     /**
-     * {@inheritDoc}
+     * 查询指定账号分组当前的营销整组占用详情。
      *
-     * <p>实现要点:① 名称非空;② 活跃重名拒绝;③ 命中同名软删分组则复活并更新;
-     * ④ 否则插入新行。时间字段 BIGINT 由调用方 set,无需回查。</p>
+     * <p>接口只在用户点击分组名称时加载任务名称和账号调用统计。若锁记录仍存在但
+     * 任务数据异常缺失，则保留锁归属字段并记录告警，不把分组展示为空闲。</p>
+     *
+     * @param groupId 账号分组 ID
+     * @return 占用类型、任务信息、资源状态及营销账号调用统计
+     * @throws BusinessException 当分组不存在或已删除时抛出
+     */
+    @Override
+    public AccountGroupMarketingOccupancyVO marketingOccupancy(Long groupId) {
+        AccountMarketingOccupancyTaskRow row = mapper.selectMarketingOccupancyByGroupId(groupId);
+        if (row == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + groupId);
+        }
+        if (row.getTaskId() != null && row.getTaskBusinessType() == null) {
+            log.warn("账号分组营销占用归属任务缺失 groupId={} taskId={} occupancyType={}",
+                    groupId, row.getTaskId(), row.getOccupancyType());
+        }
+        return new AccountGroupMarketingOccupancyVO(
+                row.getGroupId(),
+                resolveOccupancyType(row),
+                row.getTaskBusinessType(),
+                row.getTaskId(),
+                row.getTaskName(),
+                row.getTaskStatus(),
+                row.getResourceStatus(),
+                row.getLockedAt(),
+                valueOrZero(row.getMarketingAccountTotalCount()),
+                valueOrZero(row.getMarketingAccountUsedCount()));
+    }
+
+    /**
+     * 按 Mapper 覆盖状态和持久化业务类型派生前端占用标签。
+     *
+     * <p>释放中优先于暂停，两者均优先于基础营销业务类型。</p>
+     *
+     * @param row 分组占用及任务状态投影
+     * @return 前端占用类型 key
+     */
+    private String resolveOccupancyType(AccountMarketingOccupancyTaskRow row) {
+        return AccountMarketingOccupancyType.resolve(
+                row.getTaskId(),
+                row.getOccupancyType(),
+                row.getOccupancyOverrideType()).name();
+    }
+
+    /**
+     * 将 Mapper 可空聚合值转换为稳定的接口计数。
+     *
+     * @param value Mapper 聚合结果
+     * @return 原始计数；值为空时返回零
+     */
+    private int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    /**
+     * 创建账号分组，或复活同名的软删除分组。
+     *
+     * <p>活跃分组不允许重名；命中同名软删除记录时沿用原分组 ID 和创建时间，
+     * 恢复记录后更新名称及备注。</p>
+     *
+     * @param dto 分组名称和备注
+     * @return 新建或复活后的分组信息
+     * @throws BusinessException 当名称为空、备注超长或活跃分组重名时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -102,6 +185,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                     deleted.getId(),
                     dto.name(),
                     dto.remark(),
+                    null,
+                    null,
+                    null,
                     0,
                     0L,
                     0L,
@@ -120,6 +206,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                     row.getId(),
                     dto.name(),
                     dto.remark(),
+                    null,
+                    null,
+                    null,
                     0,
                     0L,
                     0L,
@@ -133,9 +222,11 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     }
 
     /**
-     * {@inheritDoc}
+     * 修改用户自建账号分组的名称和备注。
      *
-     * <p>实现要点:名称非空;分组存在;系统内置分组不可改名;重名校验排除自身。</p>
+     * @param id 待修改分组 ID
+     * @param dto 新的分组名称和备注
+     * @throws BusinessException 当分组不存在、名称非法、名称重复或目标是系统分组时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -162,10 +253,14 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     }
 
     /**
-     * {@inheritDoc}
+     * 批量软删除空闲的用户自建账号分组。
      *
-     * <p>实现要点:ids 数量须 1..{@value #BATCH_DELETE_MAX};逐个校验非系统组且组内无账号(全或无闸门),
-     * 全部通过才调 softDeleteByIds,任一不满足整批抛 VALIDATION。</p>
+     * <p>先按 ID 升序读取并全量校验。最终软删除 SQL 原子校验营销占用状态；任一分组
+     * 不存在、属于系统、正被营销任务占用或仍有账号时，整批操作回滚。</p>
+     *
+     * @param ids 待删除分组 ID，数量范围为 1..{@value #BATCH_DELETE_MAX}
+     * @return 实际软删除的分组数量
+     * @throws BusinessException 当参数或任一分组不满足删除条件时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -174,14 +269,26 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "ids 数量须为 1.." + BATCH_DELETE_MAX);
         }
-        // 全或无:先全量校验,任一不满足则整批拒删
-        for (Long id : ids) {
+        if (ids.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "分组 ID 不能为空");
+        }
+        List<Long> normalizedIds = List.copyOf(new TreeSet<>(ids));
+        List<AccountGroup> groups = new ArrayList<>(normalizedIds.size());
+        for (Long id : normalizedIds) {
             AccountGroup group = mapper.selectById(id);
             if (group == null) {
-                throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);
+                throw new BusinessException(ErrorCode.NOT_FOUND, "部分分组不存在，请刷新后重试");
             }
+            groups.add(group);
+        }
+        // 全或无:先全量校验,任一不满足则整批拒删
+        for (AccountGroup group : groups) {
+            Long id = group.getId();
             if (Integer.valueOf(SYSTEM_BUILTIN_YES).equals(group.getSystemBuiltin())) {
                 throw new BusinessException(ErrorCode.VALIDATION, "系统默认分组不允许删除");
+            }
+            if (group.getMarketingOccupancyTaskId() != null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "分组正被营销任务占用，不允许删除");
             }
             long count = mapper.countAccountsByGroupId(id);
             if (count > 0) {
@@ -190,15 +297,31 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             }
         }
         long now = System.currentTimeMillis();
-        int n = mapper.softDeleteByIds(ids, now);
-        log.info("账号分组批量删除 count={} ids={}", n, ids);
+        int n = mapper.softDeleteByIds(normalizedIds, now);
+        if (n != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分组占用状态已变化，请刷新后重试");
+        }
+        log.info("账号分组批量删除 count={} ids={}", n, normalizedIds);
         return n;
     }
 
+    /**
+     * 将一个未被营销任务占用的账号分组平均拆成指定数量的新分组。
+     *
+     * <p>事务内先锁定来源分组，防止任务启动与拆分并发修改同一分组；
+     * 账号迁移和来源分组软删除必须全部成功，否则整体回滚。</p>
+     *
+     * @param groupId 来源分组 ID
+     * @param groupCount 目标分组数量
+     * @throws BusinessException 当分组不存在、为空、正被占用或拆分数量非法时抛出
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void split(Long groupId, Integer groupCount) {
-        AccountGroup source = requireMutableGroup(groupId);
+        if (groupId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "分组 ID 不能为空");
+        }
+        AccountGroup source = lockMutableGroups(List.of(groupId)).get(0);
         List<Long> accountIds = mapper.selectAccountIdsByGroupId(groupId);
         if (accountIds.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "空分组不允许拆分");
@@ -220,41 +343,93 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             mapper.updateAccountGroup(accountIds.subList(offset, offset + size), targetIds.get(i), now);
             offset += size;
         }
-        mapper.softDeleteByIds(List.of(groupId), now);
+        if (mapper.softDeleteByIds(List.of(groupId), now) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分组占用状态已变化，请刷新后重试");
+        }
         log.info("账号分组拆分完成 sourceGroupId={} targetGroupCount={} accountCount={}",
                 groupId, groupCount, accountIds.size());
     }
 
+    /**
+     * 将多个未被营销任务占用的账号分组合并到请求中的首个分组。
+     *
+     * <p>事务内按 ID 升序锁定全部相关分组；账号迁移和来源分组软删除
+     * 必须全部成功，否则整体回滚。</p>
+     *
+     * @param groupIds 待合并分组 ID，首个 ID 为目标分组
+     * @throws BusinessException 当分组不存在、重复、包含系统分组或正被占用时抛出
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void merge(List<Long> groupIds) {
-        if (groupIds == null || groupIds.size() < 2 || new HashSet<>(groupIds).size() != groupIds.size()) {
+        if (groupIds == null
+                || groupIds.size() < 2
+                || groupIds.stream().anyMatch(java.util.Objects::isNull)
+                || new HashSet<>(groupIds).size() != groupIds.size()) {
             throw new BusinessException(ErrorCode.VALIDATION, "合并至少需要两个不重复分组");
         }
-        for (Long groupId : groupIds) {
-            requireMutableGroup(groupId);
-        }
+        lockMutableGroups(groupIds);
         Long targetGroupId = groupIds.get(0);
         List<Long> sourceGroupIds = groupIds.subList(1, groupIds.size());
         long now = System.currentTimeMillis();
         int accountCount = mapper.mergeAccounts(sourceGroupIds, targetGroupId, now);
-        mapper.softDeleteByIds(sourceGroupIds, now);
+        if (mapper.softDeleteByIds(sourceGroupIds, now) != sourceGroupIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分组占用状态已变化，请刷新后重试");
+        }
         log.info("账号分组合并完成 targetGroupId={} sourceGroupCount={} accountCount={}",
                 targetGroupId, sourceGroupIds.size(), accountCount);
     }
 
-    private AccountGroup requireMutableGroup(Long id) {
-        AccountGroup group = requireExisting(id);
+    /**
+     * 校验分组是否允许拆分或合并。
+     *
+     * @param group 已在当前事务内锁定的分组
+     * @throws BusinessException 当分组是系统分组或正被营销任务占用时抛出
+     */
+    private void requireMutableGroup(AccountGroup group) {
         if (Integer.valueOf(SYSTEM_BUILTIN_YES).equals(group.getSystemBuiltin())) {
             throw new BusinessException(ErrorCode.VALIDATION, "系统默认分组不允许拆分或合并");
         }
-        return group;
+        if (group.getMarketingOccupancyTaskId() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "分组正被营销任务占用，不允许拆分或合并");
+        }
     }
 
     /**
-     * {@inheritDoc}
+     * 锁定并校验一组拆分、合并目标均允许结构变更。
      *
-     * <p>实现要点:用 mapper.selectById 查活跃分组;为 null 则抛 NOT_FOUND;否则直接返回。</p>
+     * @param groupIds 待锁定分组 ID
+     * @return 按主键升序锁定的分组
+     * @throws BusinessException 当分组不存在或不允许结构变更时抛出
+     */
+    private List<AccountGroup> lockMutableGroups(List<Long> groupIds) {
+        List<AccountGroup> groups = lockExistingGroups(groupIds);
+        groups.forEach(this::requireMutableGroup);
+        return groups;
+    }
+
+    /**
+     * 按主键升序锁定分组，并保证请求中的每个分组都存在。
+     *
+     * @param groupIds 待锁定分组 ID
+     * @return 按主键升序锁定的分组
+     * @throws BusinessException 当任一分组不存在或已删除时抛出
+     */
+    private List<AccountGroup> lockExistingGroups(List<Long> groupIds) {
+        List<Long> sortedIds = List.copyOf(new TreeSet<>(groupIds));
+        List<AccountGroup> groups = mapper.selectByIdsForUpdate(sortedIds);
+        if (groups.size() != sortedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分分组不存在，请刷新后重试");
+        }
+        return groups;
+    }
+
+    /**
+     * 获取指定活跃分组，供账号导入等业务执行前置校验。
+     *
+     * @param id 分组 ID
+     * @return 对应的活跃分组实体
+     * @throws BusinessException 当分组不存在或已删除时抛出
      */
     @Override
     public AccountGroup requireExisting(Long id) {
@@ -266,10 +441,11 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     }
 
     /**
-     * {@inheritDoc}
+     * 获取当前租户的系统默认分组，不存在时幂等创建。
      *
-     * <p>实现要点:查 system_builtin=1 的分组;不存在则 insert 一条;
-     * 并发场景撞 uq_tenant_name 唯一键时捕获 DuplicateKeyException 并重查。</p>
+     * <p>并发创建命中租户内名称唯一键时，当前事务重新查询已经由其他请求创建的分组。</p>
+     *
+     * @return 当前租户的系统默认分组
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -296,6 +472,12 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         return row;
     }
 
+    /**
+     * 校验账号分组名称和备注长度。
+     *
+     * @param dto 待校验分组信息
+     * @throws BusinessException 当名称为空或备注超过数据库字段长度时抛出
+     */
     private static void validatePayload(AccountGroupDTO dto) {
         if (!StringUtils.hasText(dto.name())) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
@@ -306,6 +488,12 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         }
     }
 
+    /**
+     * 按 Unicode 码点统计字符数量，避免代理对被重复计数。
+     *
+     * @param value 待统计文本
+     * @return Unicode 字符数量
+     */
     private static int charCount(String value) {
         return value.codePointCount(0, value.length());
     }

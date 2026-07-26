@@ -4,15 +4,16 @@ import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
-import com.armada.platform.protocol.port.GroupInvitePort;
+import com.armada.platform.protocol.routing.GroupInviteBackend;
 
 /**
  * {@link GroupInvitePort} 的 HTTP 适配器。
  *
  * <p>固定操作账号通过 query 参数交给协议层 master 路由到持有该账号 socket 的 worker。</p>
  */
-public class HttpGroupInviteAdapter implements GroupInvitePort {
+public class HttpGroupInviteAdapter implements GroupInviteBackend {
 
     private static final String INVITE_CODE_URI_TEMPLATE =
             "/v1/groups/{groupJid}/invite-code?accountId={accountId}";
@@ -36,6 +37,11 @@ public class HttpGroupInviteAdapter implements GroupInvitePort {
      * @return 群邀请码与完整邀请链接
      * @throws ProtocolException 当参数缺失、协议未返回邀请链接或协议调用失败时抛出
      */
+    @Override
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
+    }
+
     @Override
     public GroupInviteResult getInvite(ProtocolAccountRef account, String groupJid) {
         String accountId = requireAccountId(account);

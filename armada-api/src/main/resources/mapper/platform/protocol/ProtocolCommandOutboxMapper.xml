@@ -93,32 +93,21 @@
     ORDER BY id ASC
   </select>
 
-  <!-- 只有当前 dispatcher 持有的 LOCKED 行能确认发送成功;清空旧错误,保留锁字段作为发送实例审计。 -->
-  <update id="markSentInternal">
+  <!-- 一个 Kafka ACK 窗口只做一次 SENT 回写；锁上下文避免旧 dispatcher 覆盖重新抢占的行。 -->
+  <update id="markSentBatchByCommandIdsInternal">
     UPDATE protocol_command_outbox
     SET status = #{sentStatus},
         sent_at = #{row.sentAt},
         last_error = NULL,
         updated_at = #{row.updatedAt}
-    WHERE id = #{row.id}
-      AND deleted_at IS NULL
+    WHERE deleted_at IS NULL
       AND status = #{lockedStatus}
       AND locked_by = #{row.lockedBy}
       AND locked_at = #{row.lockedAt}
-  </update>
-
-  <!-- afterCommit 主路径的成功回写:按 command_id + locked_by + locked_at 确认只更新当前这把锁。 -->
-  <update id="markSentByCommandIdInternal">
-    UPDATE protocol_command_outbox
-    SET status = #{sentStatus},
-        sent_at = #{row.sentAt},
-        last_error = NULL,
-        updated_at = #{row.updatedAt}
-    WHERE command_id = #{row.commandId}
-      AND deleted_at IS NULL
-      AND status = #{lockedStatus}
-      AND locked_by = #{row.lockedBy}
-      AND locked_at = #{row.lockedAt}
+      AND command_id IN
+    <foreach collection="commandIds" item="commandId" open="(" separator="," close=")">
+      #{commandId}
+    </foreach>
   </update>
 
   <!-- 当前锁临时失败才释放回 PENDING:递增 retry_count,清理锁字段,等待 next_retry_at 再次扫描。 -->
@@ -153,6 +142,37 @@
       AND status = #{lockedStatus}
       AND locked_by = #{row.lockedBy}
       AND locked_at = #{row.lockedAt}
+  </update>
+
+  <update id="cancelPendingMarketingTaskCommandsInternal">
+    UPDATE protocol_command_outbox outbox_row
+    JOIN marketing_task_send_attempt attempt
+      ON attempt.command_id = outbox_row.command_id
+     AND attempt.tenant_id = #{tenantId}
+    SET outbox_row.status = #{canceledStatus},
+        outbox_row.last_error = 'TASK_RELEASED',
+        outbox_row.updated_at = #{now}
+    WHERE attempt.marketing_task_id = #{marketingTaskId}
+      AND outbox_row.tenant_id = #{tenantId}
+      AND attempt.status = 0
+      AND outbox_row.deleted_at IS NULL
+      AND outbox_row.status = #{pendingStatus}
+  </update>
+
+  <!-- 显式下线只取消尚未被 publisher 抢占的旧上线命令，LOCKED/SENT 保持原有保序语义。 -->
+  <update id="cancelPendingAccountOnlineCommandsInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{canceledStatus},
+        last_error = 'MANUAL_OFFLINE',
+        updated_at = #{now}
+    WHERE aggregate_type = #{aggregateType}
+      AND aggregate_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+      AND command_type = #{onlineCommandType}
+      AND status = #{pendingStatus}
+      AND deleted_at IS NULL
   </update>
 
   <!-- 当前锁确认不可恢复失败时进入 DEAD,不再被 PENDING 扫描捞起。 -->

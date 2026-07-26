@@ -192,8 +192,10 @@ class MarketingTaskMapperSqlShapeTest {
 
         String markAttemptSuccessSql = updateBlock(xml, "markAttemptSuccess");
         String markAttemptFailedSql = updateBlock(xml, "markAttemptFailed");
-        String markTargetSuccessSql = updateBlock(xml, "markTargetSuccessFromAttempt");
-        String markTargetFailedSql = updateBlock(xml, "markTargetFailedFromAttempt");
+        String targetLockSql = selectBlock(xml, "selectTargetForResultUpdate");
+        String targetSnapshotSql = selectBlock(xml, "selectTargetResultSnapshot");
+        String markTargetSuccessSql = updateBlock(xml, "updateTargetSuccessFromSnapshot");
+        String markTargetFailedSql = updateBlock(xml, "updateTargetFailedFromSnapshot");
 
         assertThat(markAttemptSuccessSql)
                 .contains("group_jid = COALESCE(NULLIF(TRIM(group_jid), ''), NULLIF(TRIM(#{groupJid}), ''))")
@@ -207,18 +209,61 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("group_status_reason = #{groupStatusReason}")
                 .contains("group_status_checked_at = #{groupStatusCheckedAt}")
                 .contains("AND command_id = #{commandId}");
+        assertThat(targetLockSql)
+                .contains("FROM marketing_task_target")
+                .contains("WHERE id = #{targetId}")
+                .contains("FOR UPDATE")
+                .doesNotContain("JOIN");
+        assertThat(targetSnapshotSql.replaceAll("\\s+", " "))
+                .contains("FROM marketing_task_send_attempt a")
+                .contains("LEFT JOIN group_link_preview p")
+                .contains("LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, #{target.groupLinkId})")
+                .contains("COALESCE(a.group_link_id, p.group_link_id, #{target.groupLinkId})")
+                .contains("COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, #{target.groupName})")
+                .doesNotContain("FOR UPDATE");
         assertThat(markTargetSuccessSql)
-                .contains("LEFT JOIN group_link_preview p")
-                .contains("LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")
-                .contains("COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")
-                .contains("t.group_link_url = COALESCE(g.link_url, t.group_link_url)")
-                .contains("COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name)");
+                .contains("UPDATE marketing_task_target")
+                .contains("group_link_id = COALESCE(#{snapshot.groupLinkId}, group_link_id)")
+                .contains("group_link_url = COALESCE(#{snapshot.groupLinkUrl}, group_link_url)")
+                .doesNotContain("JOIN marketing_task_send_attempt")
+                .doesNotContain("group_link_preview")
+                .doesNotContain("group_link g");
         assertThat(markTargetFailedSql)
-                .contains("LEFT JOIN group_link_preview p")
-                .contains("LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")
-                .contains("COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)")
-                .contains("t.group_link_url = COALESCE(g.link_url, t.group_link_url)")
-                .contains("COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''), p.wa_subject, t.group_name)");
+                .contains("UPDATE marketing_task_target")
+                .contains("group_link_id = COALESCE(#{snapshot.groupLinkId}, group_link_id)")
+                .contains("group_link_url = COALESCE(#{snapshot.groupLinkUrl}, group_link_url)")
+                .doesNotContain("JOIN marketing_task_send_attempt")
+                .doesNotContain("group_link_preview")
+                .doesNotContain("group_link g");
+    }
+
+    @Test
+    void tenantInterceptorParsesTargetLockAndNonLockingSnapshot() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String targetLockSql = sqlBody(selectBlock(xml, "selectTargetForResultUpdate"))
+                .replace("#{targetId}", "501");
+        String snapshotSql = sqlBody(selectBlock(xml, "selectTargetResultSnapshot"))
+                .replace("#{attemptId}", "9001")
+                .replace("#{target.id}", "501")
+                .replace("#{target.groupLinkId}", "101")
+                .replace("#{target.groupJid}", "'120363001@g.us'")
+                .replace("#{target.groupLinkUrl}", "'https://chat.whatsapp.com/example'")
+                .replace("#{target.groupName}", "'测试群'");
+        TenantLineInnerInterceptor interceptor = new TenantLineInnerInterceptor(() -> new LongValue(7L));
+
+        String parsedTargetLockSql = interceptor.parserSingle(targetLockSql, null);
+        String parsedSql = interceptor.parserSingle(snapshotSql, null);
+
+        assertThat(parsedTargetLockSql)
+                .contains("tenant_id = 7")
+                .contains("FOR UPDATE");
+        assertThat(parsedSql)
+                .contains("a.tenant_id = 7")
+                .contains("p.tenant_id = 7")
+                .contains("g.tenant_id = 7")
+                .doesNotContain("FOR UPDATE");
     }
 
     @Test
@@ -438,6 +483,26 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount")
                 .contains("SUM(CASE WHEN attemptStatus = 3 THEN 1 ELSE 0 END) AS skippedMessageCount")
                 .contains("MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt");
+    }
+
+    @Test
+    void detailRollupPrefersEffectiveGroupEvidenceAndKeepsExecutionEvidenceIndependent()
+            throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("END AS effectiveGroupStatus")
+                .contains("effectiveGroupStatus DESC")
+                .contains("'ACCOUNT_BANNED'")
+                .contains("'GROUP_SEND_ALLOWED'")
+                .contains("ended.rawGroupStatus AS executionGroupStatus")
+                .contains("ended.groupStatusReason AS executionGroupStatusReason")
+                .doesNotContain("'ACCOUNT_OFFLINE'")
+                .doesNotContain("'STATUS_RESOLUTION_UNAVAILABLE'");
     }
 
     @Test

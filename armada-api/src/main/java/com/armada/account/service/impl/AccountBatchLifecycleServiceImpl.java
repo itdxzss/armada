@@ -5,6 +5,7 @@ import com.armada.account.model.dto.AccountBatchPreviewDTO;
 import com.armada.account.model.dto.AccountBatchQueryDTO;
 import com.armada.account.model.dto.AccountBatchTargetQuery;
 import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountBatchOperation;
 import com.armada.account.model.enums.AccountBatchScope;
@@ -121,8 +122,8 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     /**
      * 对明确选择的账号执行批量登录编排。
      *
-     * <p>封禁、解绑、抢登中和缺凭据账号在 Armada 内跳过；登录态不参与跳过，在线账号仍会进入
-     * 协议命令，由协议层执行现有幂等判断。最多接收 2,000 个 ID，内部按 500 个账号分片。</p>
+     * <p>封禁、解绑、抢登中、缺凭据、已待上线/VERIFYING 和已在线账号在 Armada 内跳过，
+     * 避免相同上线请求重复分配代理及请求协议层。最多接收 2,000 个 ID，内部按 500 个账号分片。</p>
      *
      * @param ids 当前租户明确选择的账号 ID
      * @return 所有登录内部批次的受理、跳过和失败汇总
@@ -189,6 +190,8 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         putPositive(skipReasons, AccountBatchSkipReason.BANNED, row.getBanned());
         putPositive(skipReasons, AccountBatchSkipReason.UNBOUND, row.getUnbound());
         putPositive(skipReasons, AccountBatchSkipReason.TAKING_OVER, row.getTakingOver());
+        putPositive(skipReasons, AccountBatchSkipReason.ALREADY_PENDING, row.getAlreadyPending());
+        putPositive(skipReasons, AccountBatchSkipReason.ALREADY_ONLINE, row.getAlreadyOnline());
         putPositive(skipReasons, AccountBatchSkipReason.MISSING_CREDENTIAL, row.getMissingCredential());
         long skipped = skipReasons.values().stream().mapToLong(Long::longValue).sum();
         long executable = Math.max(0L, row.getMatched() - skipped);
@@ -348,6 +351,12 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         }
         if (Integer.valueOf(AccountStateCode.TAKING_OVER).equals(accountState)) {
             return AccountBatchSkipReason.TAKING_OVER;
+        }
+        if (Integer.valueOf(AccountLoginStateCode.PENDING_ONLINE).equals(target.getLoginState())) {
+            return AccountBatchSkipReason.ALREADY_PENDING;
+        }
+        if (Integer.valueOf(AccountLoginStateCode.ONLINE).equals(target.getLoginState())) {
+            return AccountBatchSkipReason.ALREADY_ONLINE;
         }
         if (!target.isCredentialPresent()) {
             return AccountBatchSkipReason.MISSING_CREDENTIAL;

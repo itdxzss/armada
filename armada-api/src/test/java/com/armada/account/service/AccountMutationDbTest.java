@@ -139,13 +139,13 @@ class AccountMutationDbTest extends DbTestBase {
 
     // ──────────────────────────── 迁移分组 ────────────────────────────
 
-    /**
-     * migrateGroup:将两条账号迁移到目标分组,account.account_group_id 应更新。
-     */
+    /** 将已有分组和未分组的两条账号迁移到目标分组。 */
     @Test
     void migrateGroup_updatesAccountGroupId() {
         Long id1 = importOneAccount("8613800138030");
         Long id2 = importOneAccount("8613800138031");
+        jdbcTemplate.update("UPDATE account SET account_group_id = NULL WHERE id = ? AND tenant_id = ?",
+                id2, TEST_TENANT_ID);
 
         AccountGroup targetGroup = insertGroup("测试迁移目标分组");
 
@@ -166,6 +166,69 @@ class AccountMutationDbTest extends DbTestBase {
         assertThat(updatedAt1).isNotNull().isGreaterThanOrEqualTo(beforeMigrate);
     }
 
+    /** 条件迁移遇到来源分组营销占用时必须影响 0 行，账号仍留在原分组。 */
+    @Test
+    void conditionalMigrateGroup_rejectsMarketingOccupiedSource() {
+        Long accountId = importOneAccount("8613800138032");
+        AccountGroup sourceGroup = insertGroup("营销占用来源分组");
+        AccountGroup targetGroup = insertGroup("营销占用迁移目标分组");
+        jdbcTemplate.update("UPDATE account SET account_group_id = ? WHERE id = ? AND tenant_id = ?",
+                sourceGroup.getId(), accountId, TEST_TENANT_ID);
+        assertThat(accountGroupMapper.tryLockMarketingOccupancy(
+                sourceGroup.getId(), 2, Long.MAX_VALUE - sourceGroup.getId(), System.currentTimeMillis()))
+                .isEqualTo(1);
+
+        int updated = accountMapper.migrateGroupIfAvailable(
+                List.of(accountId), sourceGroup.getId(), targetGroup.getId(), System.currentTimeMillis());
+
+        assertThat(updated).isZero();
+        assertThat(currentGroupId(accountId)).isEqualTo(sourceGroup.getId());
+    }
+
+    /** 条件迁移遇到目标分组营销占用时必须影响 0 行，账号仍留在原分组。 */
+    @Test
+    void conditionalMigrateGroup_rejectsMarketingOccupiedTarget() {
+        Long accountId = importOneAccount("8613800138034");
+        AccountGroup sourceGroup = insertGroup("目标占用迁移来源分组");
+        AccountGroup targetGroup = insertGroup("营销占用目标分组");
+        jdbcTemplate.update("UPDATE account SET account_group_id = ? WHERE id = ? AND tenant_id = ?",
+                sourceGroup.getId(), accountId, TEST_TENANT_ID);
+        assertThat(accountGroupMapper.tryLockMarketingOccupancy(
+                targetGroup.getId(), 2, Long.MAX_VALUE - targetGroup.getId(), System.currentTimeMillis()))
+                .isEqualTo(1);
+
+        int updated = accountMapper.migrateGroupIfAvailable(
+                List.of(accountId), sourceGroup.getId(), targetGroup.getId(), System.currentTimeMillis());
+
+        assertThat(updated).isZero();
+        assertThat(currentGroupId(accountId)).isEqualTo(sourceGroup.getId());
+    }
+
+    /** 条件迁移遇到资源锁定中的建群任务来源组时必须影响 0 行。 */
+    @Test
+    void conditionalMigrateGroup_rejectsActiveBuilderSource() {
+        Long accountId = importOneAccount("8613800138033");
+        AccountGroup sourceGroup = insertGroup("活动建群来源分组");
+        AccountGroup targetGroup = insertGroup("活动建群迁移目标分组");
+        jdbcTemplate.update("UPDATE account SET account_group_id = ? WHERE id = ? AND tenant_id = ?",
+                sourceGroup.getId(), accountId, TEST_TENANT_ID);
+        long now = System.currentTimeMillis();
+        jdbcTemplate.update("""
+                INSERT INTO group_pull_marketing_task
+                    (marketing_task_id, tenant_id, builder_group_id,
+                     marketing_account_group_limit, friend_retry_limit, material_per_group,
+                     speak_permission, builder_exit_enabled, block_reason, resource_status,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, 10, 3, 3, 1, 1, 0, 2, ?, ?)
+                """, Long.MAX_VALUE - sourceGroup.getId(), TEST_TENANT_ID, sourceGroup.getId(), now, now);
+
+        int updated = accountMapper.migrateGroupIfAvailable(
+                List.of(accountId), sourceGroup.getId(), targetGroup.getId(), now);
+
+        assertThat(updated).isZero();
+        assertThat(currentGroupId(accountId)).isEqualTo(sourceGroup.getId());
+    }
+
     // ──────────────────────────── 迁移分组:目标不存在 ────────────────────────────
 
     /**
@@ -179,5 +242,14 @@ class AccountMutationDbTest extends DbTestBase {
                 .hasMessageContaining("目标分组不存在")
                 .extracting(e -> ((BusinessException) e).getCode())
                 .isEqualTo(ErrorCode.NOT_FOUND.code());
+    }
+
+    /** 查询账号当前分组 ID。 */
+    private Long currentGroupId(Long accountId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT account_group_id FROM account WHERE id = ? AND tenant_id = ?",
+                Long.class,
+                accountId,
+                TEST_TENANT_ID);
     }
 }

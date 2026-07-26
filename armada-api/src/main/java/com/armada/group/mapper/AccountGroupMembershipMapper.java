@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
@@ -83,6 +84,17 @@ public interface AccountGroupMembershipMapper {
     Long selectGroupLinkIdByGroupJidIncludingDeleted(@Param("groupJid") String groupJid);
 
     /**
+     * 批量查询已存在的群资料主键。
+     *
+     * <p>使用普通一致性读区分存量行与新增行，避免在 RR 下先对不存在的唯一键执行 UPDATE
+     * 并持有 gap/supremum 锁。</p>
+     *
+     * @param groupLinkIds 群入口 ID
+     * @return 已存在的群入口 ID
+     */
+    List<Long> selectExistingPreviewGroupLinkIds(@Param("groupLinkIds") List<Long> groupLinkIds);
+
+    /**
      * 同步发现已有 group_link 时更新其展示名和关系态。
      *
      * @param groupLinkId 群入口 ID
@@ -119,12 +131,41 @@ public interface AccountGroupMembershipMapper {
                                      @Param("now") long now);
 
     /**
+     * 更新账号群同步已存在的群资料，避免存量行进入自增 INSERT 候选锁路径。
+     *
+     * @param row 群资料行
+     * @return 影响行数；不存在时返回 0，由调用方执行原子 upsert 兜底
+     */
+    int updatePreviewFromAccountSync(GroupLinkPreview row);
+
+    /**
      * upsert 当前账号在群关系。
      *
      * @param row 关系行
      * @return 影响行数
      */
     int upsertMembership(AccountGroupMembership row);
+
+    /**
+     * 批量查询账号当前未软删除的群关系。
+     *
+     * <p>该查询为普通一致性读，不获取不存在键的 gap 锁。状态不是筛选条件，确保退出态等存量行
+     * 仍通过与通用 upsert 等价的更新规则合并。</p>
+     *
+     * @param accountId 账号 ID
+     * @param groupJids 群 JID
+     * @return 已存在的群 JID
+     */
+    List<String> selectExistingActiveGroupJids(@Param("accountId") Long accountId,
+                                                @Param("groupJids") List<String> groupJids);
+
+    /**
+     * 按与 {@link #upsertMembership(AccountGroupMembership)} 相同的状态优先级更新当前关系。
+     *
+     * @param row 关系行
+     * @return 影响行数；当前活跃关系不存在时返回 0，由调用方执行原子 upsert 兜底
+     */
+    int updateActiveMembership(AccountGroupMembership row);
 
     /**
      * 选择一个当前在线且在群内的账号,用于实时查询该群成员列表。
@@ -137,23 +178,30 @@ public interface AccountGroupMembershipMapper {
                                                        @Param("onlineLoginState") int onlineLoginState);
 
     /**
-     * 将本次回报中未出现的账号群关系标记为已不在群内。
+     * 普通一致性读选出本次完整快照中缺失的账号群关系 ID。
      *
      * @param accountId 账号 ID
      * @param groupJids 本次完整快照中的群 JID
-     * @param status 缺失关系目标状态
      * @param preservedStatuses 不允许被完整快照降级的精确退出状态
-     * @param source 状态来源
      * @param statusUpdatedAt 状态事实时间(epoch 毫秒)
-     * @param updatedAt 更新时间(epoch 毫秒)
-     * @return 影响行数
+     * @return 缺失关系 ID，按主键升序
      */
-    int markMissingMembershipsNotInGroup(
+    List<Long> selectMissingMembershipIds(
             @Param("accountId") Long accountId,
             @Param("groupJids") List<String> groupJids,
-            @Param("status") int status,
             @Param("preservedStatuses") List<Integer> preservedStatuses,
-            @Param("source") String source,
-            @Param("statusUpdatedAt") long statusUpdatedAt,
-            @Param("updatedAt") long updatedAt);
+            @Param("statusUpdatedAt") long statusUpdatedAt);
+
+    /**
+     * 按主键定点更新完整快照中缺失的账号群关系，并再次校验状态时序。
+     *
+     * @param ids 缺失关系 ID，调用方按主键升序传入
+     * @param row 缺失关系目标状态与时间
+     * @param preservedStatuses 不允许被完整快照降级的精确退出状态
+     * @return 影响行数
+     */
+    int markMembershipsNotInGroupByIds(
+            @Param("ids") List<Long> ids,
+            @Param("row") AccountGroupMembership row,
+            @Param("preservedStatuses") List<Integer> preservedStatuses);
 }

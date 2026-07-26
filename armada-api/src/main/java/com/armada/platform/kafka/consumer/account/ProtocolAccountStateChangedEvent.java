@@ -17,6 +17,7 @@ package com.armada.platform.kafka.consumer.account;
  * @param rawCode           协议层断线原始码,可空
  * @param source            触发本次状态变更的命令来源,用于区分用户下线和协议普通离线
  * @param onlineAttemptId   当前状态事件关联的上线尝试 ID,旧协议事件可为空
+ * @param proxyId           本次状态事件关联的代理 ID,旧协议事件可为空
  * @param workerId          产生事件的协议层 worker ID
  */
 public record ProtocolAccountStateChangedEvent(
@@ -31,5 +32,6 @@ public record ProtocolAccountStateChangedEvent(
         Integer rawCode,
         String source,
         String onlineAttemptId,
+        Long proxyId,
         String workerId) {
 }

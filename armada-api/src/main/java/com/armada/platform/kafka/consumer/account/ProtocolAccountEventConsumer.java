@@ -18,11 +18,8 @@ import org.springframework.stereotype.Component;
 /**
  * 协议账号事件 Kafka consumer。
  *
- * <p>当前接入 {@code account.state_changed}, {@code account.groups_reported},
- * {@code account.group_membership_changed}
- * 和 {@code account.offline_diagnosed}。
- * 其它账号事件先记录并跳过,
- * 防止一次性引入过多回写规则。</p>
+ * <p>状态和群同步事件使用独立 listener、topic 与 consumer group。类内继续复用既有
+ * envelope 解析，避免两个入口产生不同的字段校验口径。</p>
  */
 @Component
 @Profile("kafka")
@@ -78,12 +75,12 @@ public class ProtocolAccountEventConsumer {
      * @param rawMessage Kafka message value
      */
     @KafkaListener(
-            topics = "${armada.protocol.kafka.account-events.topic:protocol.account.events.v1}",
-            groupId = "${armada.protocol.kafka.account-events.group-id:armada-api-account-events}")
-    public void onMessage(String rawMessage) {
+            topics = "${armada.protocol.kafka.account-state-events.topic:protocol.account.state.events.v1}",
+            groupId = "${armada.protocol.kafka.account-state-events.group-id:armada-api-account-state-events}",
+            concurrency = "${armada.protocol.kafka.account-state-events.concurrency:4}")
+    public void onStateMessage(String rawMessage) {
         JsonNode envelope = readEnvelope(rawMessage);
         String eventType = text(envelope, "event");
-        String eventId = text(envelope, "eventId");
         if (EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
             ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
             log.info("协议账号状态事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
@@ -94,6 +91,31 @@ public class ProtocolAccountEventConsumer {
             stateChangedSink.handleStateChanged(event);
             return;
         }
+        if (EVENT_ACCOUNT_OFFLINE_DIAGNOSED.equals(eventType)) {
+            ProtocolAccountOfflineDiagnosedEvent event = toOfflineDiagnosedEvent(envelope);
+            log.info("协议账号离线诊断事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
+                            + "attemptId={} diagnosisCode={} rawCode={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.onlineAttemptId(), event.diagnosisCode(), event.rawCode(), event.workerId());
+            offlineDiagnosedSink.handleOfflineDiagnosed(event);
+            return;
+        }
+        throw new BusinessException(ErrorCode.VALIDATION,
+                "协议账号状态 Topic 收到非法事件类型: " + String.valueOf(eventType));
+    }
+
+    /**
+     * 消费账号群快照与本人群关系变化事件。
+     *
+     * @param rawMessage Kafka message value
+     */
+    @KafkaListener(
+            topics = "${armada.protocol.kafka.account-group-sync-events.topic:protocol.account.group-sync.events.v1}",
+            groupId = "${armada.protocol.kafka.account-group-sync-events.group-id:armada-api-account-group-sync-events}",
+            concurrency = "${armada.protocol.kafka.account-group-sync-events.concurrency:4}")
+    public void onGroupSyncMessage(String rawMessage) {
+        JsonNode envelope = readEnvelope(rawMessage);
+        String eventType = text(envelope, "event");
         if (EVENT_ACCOUNT_GROUPS_REPORTED.equals(eventType)) {
             ProtocolAccountGroupsReportedEvent event = toGroupsReportedEvent(envelope);
             log.info("协议账号群列表事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
@@ -111,17 +133,8 @@ public class ProtocolAccountEventConsumer {
             membershipChangedSink.handleMembershipChanged(event);
             return;
         }
-        if (EVENT_ACCOUNT_OFFLINE_DIAGNOSED.equals(eventType)) {
-            ProtocolAccountOfflineDiagnosedEvent event = toOfflineDiagnosedEvent(envelope);
-            log.info("协议账号离线诊断事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
-                            + "attemptId={} diagnosisCode={} rawCode={} workerId={}",
-                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
-                    event.onlineAttemptId(), event.diagnosisCode(), event.rawCode(), event.workerId());
-            offlineDiagnosedSink.handleOfflineDiagnosed(event);
-            return;
-        }
-        log.warn("协议账号事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
-                eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
+        throw new BusinessException(ErrorCode.VALIDATION,
+                "协议账号群同步 Topic 收到非法事件类型: " + String.valueOf(eventType));
     }
 
     private JsonNode readEnvelope(String rawMessage) {
@@ -149,6 +162,7 @@ public class ProtocolAccountEventConsumer {
                 integer(data, "rawCode"),
                 text(data, "source"),
                 text(data, "onlineAttemptId"),
+                longValue(data, "proxyId"),
                 text(envelope, "workerId"));
     }
 

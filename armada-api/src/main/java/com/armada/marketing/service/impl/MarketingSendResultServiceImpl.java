@@ -12,6 +12,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Objects;
+import java.util.Locale;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,6 +32,9 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
     private static final Logger log = LoggerFactory.getLogger(MarketingSendResultServiceImpl.class);
     private static final String SOURCE_MARKETING_TASK = "marketing_task";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
+    private static final String SOURCE_GROUP_PULL_MARKETING = "group_pull_marketing";
+    private static final Set<String> BANNED_GROUP_CODES = Set.of(
+            "GROUP_BANNED", "BANNED", "CHAT_SUSPENDED", "CHAT_TERMINATED");
 
     private final MarketingTaskMapper taskMapper;
     private final GroupCreationMarketingTaskMapper groupCreationMapper;
@@ -52,6 +57,7 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
         return event != null
                 && (event.source() == null
                 || SOURCE_MARKETING_TASK.equals(event.source())
+                || SOURCE_GROUP_PULL_MARKETING.equals(event.source())
                 || SOURCE_GROUP_CREATION_MARKETING.equals(event.source()));
     }
 
@@ -96,6 +102,9 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
                 } else {
                     groupCreationMapper.markItemFailedByMarketingAttemptId(event.attemptId(),
                             event.reasonCode(), event.reasonMessage(), resultAt);
+                }
+                if (isGroupPullMarketing(event) && reportsBannedGroup(event)) {
+                    taskMapper.markGroupPullExecutionBannedByTargetId(event.targetId(), resultAt);
                 }
                 log.info("营销发送结果已回写 tenantId={} taskId={} targetId={} attemptId={} roundNo={} "
                                 + "commandId={} protocolAccountId={} groupJid={} success={} messageId={} "
@@ -215,6 +224,21 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
 
     private static boolean isGroupCreationMarketing(ProtocolMessageSendResultReportedEvent event) {
         return event != null && SOURCE_GROUP_CREATION_MARKETING.equals(event.source());
+    }
+
+    private static boolean isGroupPullMarketing(ProtocolMessageSendResultReportedEvent event) {
+        return event != null && SOURCE_GROUP_PULL_MARKETING.equals(event.source());
+    }
+
+    private static boolean reportsBannedGroup(ProtocolMessageSendResultReportedEvent event) {
+        return bannedCode(event.reasonCode())
+                || bannedCode(event.groupStatus())
+                || bannedCode(event.groupStatusReason());
+    }
+
+    private static boolean bannedCode(String value) {
+        return value != null
+                && BANNED_GROUP_CODES.contains(value.trim().toUpperCase(Locale.ROOT));
     }
 
     private static MarketingSendAttemptResult attemptResult(

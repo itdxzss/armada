@@ -1,6 +1,7 @@
 package com.armada.account.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import java.util.List;
 
 /**
  * 账号列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -47,6 +48,25 @@ public class AccountQuery extends PageQuery {
 
     /** 真实出口 IP(可选,模糊匹配状态回写 IP 或当前绑定代理地址)。 */
     private String truthIp;
+
+    /**
+     * 营销占用展示类型：FREE、各营销业务类型、PAUSED 或 RELEASING。
+     */
+    private String marketingOccupancyType;
+
+    /** 占用任务 ID 或任务名称关键词。 */
+    private String occupiedTaskKeyword;
+
+    /** 占用任务业务类型：1单纯营销，2拉群营销。 */
+    private Integer occupiedBusinessType;
+
+    /** 可调用状态：true 可调用，false 不可调用。 */
+    private Boolean callable;
+
+    /**
+     * Service 根据营销高级筛选预先解析的分组 ID；不直接采信接口绑定值。
+     */
+    private List<Long> resolvedOccupancyGroupIds;
 
     public String getKeyword() {
         return keyword;
@@ -150,5 +170,45 @@ public class AccountQuery extends PageQuery {
 
     public void setTruthIp(String truthIp) {
         this.truthIp = truthIp;
+    }
+
+    public String getMarketingOccupancyType() {
+        return marketingOccupancyType;
+    }
+
+    public void setMarketingOccupancyType(String marketingOccupancyType) {
+        this.marketingOccupancyType = marketingOccupancyType;
+    }
+
+    public String getOccupiedTaskKeyword() {
+        return occupiedTaskKeyword;
+    }
+
+    public void setOccupiedTaskKeyword(String occupiedTaskKeyword) {
+        this.occupiedTaskKeyword = occupiedTaskKeyword;
+    }
+
+    public Integer getOccupiedBusinessType() {
+        return occupiedBusinessType;
+    }
+
+    public void setOccupiedBusinessType(Integer occupiedBusinessType) {
+        this.occupiedBusinessType = occupiedBusinessType;
+    }
+
+    public Boolean getCallable() {
+        return callable;
+    }
+
+    public void setCallable(Boolean callable) {
+        this.callable = callable;
+    }
+
+    public List<Long> getResolvedOccupancyGroupIds() {
+        return resolvedOccupancyGroupIds;
+    }
+
+    public void setResolvedOccupancyGroupIds(List<Long> resolvedOccupancyGroupIds) {
+        this.resolvedOccupancyGroupIds = resolvedOccupancyGroupIds;
     }
 }

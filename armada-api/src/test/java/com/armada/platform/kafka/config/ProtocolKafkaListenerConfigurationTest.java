@@ -17,22 +17,35 @@ class ProtocolKafkaListenerConfigurationTest {
     void protocolEventListenersResolveTopicAndGroupFromEnvironmentProperties() throws NoSuchMethodException {
         assertListenerUsesProperties(
                 ProtocolAccountEventConsumer.class,
-                "${armada.protocol.kafka.account-events.topic:protocol.account.events.v1}",
-                "${armada.protocol.kafka.account-events.group-id:armada-api-account-events}");
+                "onStateMessage",
+                "${armada.protocol.kafka.account-state-events.topic:protocol.account.state.events.v1}",
+                "${armada.protocol.kafka.account-state-events.group-id:armada-api-account-state-events}",
+                "${armada.protocol.kafka.account-state-events.concurrency:4}");
+        assertListenerUsesProperties(
+                ProtocolAccountEventConsumer.class,
+                "onGroupSyncMessage",
+                "${armada.protocol.kafka.account-group-sync-events.topic:protocol.account.group-sync.events.v1}",
+                "${armada.protocol.kafka.account-group-sync-events.group-id:armada-api-account-group-sync-events}",
+                "${armada.protocol.kafka.account-group-sync-events.concurrency:4}");
         assertListenerUsesProperties(
                 ProtocolGroupEventConsumer.class,
+                "onMessage",
                 "${armada.protocol.kafka.group-events.topic:protocol.group.events.v1}",
-                "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}");
+                "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}",
+                "");
     }
 
     private static void assertListenerUsesProperties(Class<?> listenerType,
+                                                     String methodName,
                                                      String expectedTopic,
-                                                     String expectedGroupId) throws NoSuchMethodException {
-        Method onMessage = listenerType.getDeclaredMethod("onMessage", String.class);
+                                                     String expectedGroupId,
+                                                     String expectedConcurrency) throws NoSuchMethodException {
+        Method onMessage = listenerType.getDeclaredMethod(methodName, String.class);
         KafkaListener listener = onMessage.getAnnotation(KafkaListener.class);
 
         assertThat(listener).isNotNull();
         assertThat(listener.topics()).containsExactly(expectedTopic);
         assertThat(listener.groupId()).isEqualTo(expectedGroupId);
+        assertThat(listener.concurrency()).isEqualTo(expectedConcurrency);
     }
 }

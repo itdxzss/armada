@@ -6,6 +6,7 @@ import com.armada.account.model.dto.AccountGroupMergeDTO;
 import com.armada.account.model.dto.AccountGroupSplitDTO;
 import com.armada.account.model.dto.AccountIdsDTO;
 import com.armada.account.model.vo.AccountGroupVO;
+import com.armada.account.model.vo.AccountGroupMarketingOccupancyVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
@@ -43,6 +44,17 @@ public class AccountGroupController {
     @GetMapping
     public ApiResponse<PageResult<AccountGroupVO>> list(@ModelAttribute AccountGroupQuery query) {
         return ApiResponse.ok(service.list(query));
+    }
+
+    /**
+     * 查询账号分组当前营销占用详情，仅在用户点击分组名称时调用。
+     *
+     * @param id 分组 ID
+     * @return 营销占用任务、状态和账号调用统计
+     */
+    @GetMapping("/{id}/marketing-occupancy")
+    public ApiResponse<AccountGroupMarketingOccupancyVO> marketingOccupancy(@PathVariable Long id) {
+        return ApiResponse.ok(service.marketingOccupancy(id));
     }
 
     /**

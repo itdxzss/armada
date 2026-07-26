@@ -7,6 +7,7 @@ import com.armada.account.model.dto.AccountBatchTargetQuery;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountBatchPreviewRow;
@@ -43,7 +44,11 @@ class AccountBatchTargetMapperDbTest extends DbTestBase {
         Account first = seedTarget(phonePrefix + "01", AccountStateCode.NORMAL, "印度", true, now);
         Account second = seedTarget(phonePrefix + "02", AccountStateCode.NORMAL, "印度", true, now + 1);
         Account banned = seedTarget(phonePrefix + "03", AccountStateCode.BANNED, "印度", false, now + 2);
-        seedTarget(phonePrefix + "04", AccountStateCode.NORMAL, "美国", true, now + 3);
+        seedTarget(phonePrefix + "04", AccountStateCode.NORMAL, AccountLoginStateCode.PENDING_ONLINE,
+                "印度", true, now + 3);
+        seedTarget(phonePrefix + "05", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE,
+                "印度", true, now + 4);
+        seedTarget(phonePrefix + "06", AccountStateCode.NORMAL, "美国", true, now + 5);
         AccountQuery query = new AccountBatchQueryDTO(
                 null, phonePrefix, null, null, null, null, null, null,
                 null, null, null, "印度", null).toAccountQuery();
@@ -52,8 +57,10 @@ class AccountBatchTargetMapperDbTest extends DbTestBase {
         List<AccountBatchTargetRow> rows = accountMapper.selectBatchTargetsAfterId(
                 AccountBatchTargetQuery.from(query, 0L, 2));
 
-        assertThat(preview.getMatched()).isEqualTo(3);
+        assertThat(preview.getMatched()).isEqualTo(5);
         assertThat(preview.getBanned()).isEqualTo(1);
+        assertThat(preview.getAlreadyPending()).isEqualTo(1);
+        assertThat(preview.getAlreadyOnline()).isEqualTo(1);
         assertThat(preview.getMissingCredential()).isZero();
         assertThat(rows).hasSize(2);
         assertThat(rows).extracting(AccountBatchTargetRow::getId)
@@ -92,6 +99,16 @@ class AccountBatchTargetMapperDbTest extends DbTestBase {
             String country,
             boolean withCredential,
             long now) {
+        return seedTarget(phone, stateCode, null, country, withCredential, now);
+    }
+
+    private Account seedTarget(
+            String phone,
+            int stateCode,
+            Integer loginState,
+            String country,
+            boolean withCredential,
+            long now) {
         Account account = new Account();
         account.setWsPhone(phone);
         account.setAccountType(1);
@@ -110,9 +127,9 @@ class AccountBatchTargetMapperDbTest extends DbTestBase {
         stateMapper.insert(state);
         jdbcTemplate.update("""
                 UPDATE account_state
-                SET account_state = ?, proxy_country = ?
+                SET account_state = ?, login_state = ?, proxy_country = ?
                 WHERE account_id = ?
-                """, stateCode, country, account.getId());
+                """, stateCode, loginState, country, account.getId());
 
         if (withCredential) {
             AccountCredential credential = new AccountCredential();

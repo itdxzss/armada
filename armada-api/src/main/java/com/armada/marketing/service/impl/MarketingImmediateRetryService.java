@@ -5,6 +5,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.support.MarketingResolvedTarget;
@@ -20,7 +21,9 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +38,8 @@ public class MarketingImmediateRetryService {
     private static final long IMMEDIATE_ROUND_NO = 0L;
     private static final int INITIAL_ATTEMPT_NO = 1;
     private static final int RETRY_ATTEMPT_NO = 2;
+    private static final Set<String> BANNED_GROUP_CODES = Set.of(
+            "GROUP_BANNED", "BANNED", "CHAT_SUSPENDED", "CHAT_TERMINATED");
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingAccountOccupancyService occupancyService;
@@ -71,6 +76,9 @@ public class MarketingImmediateRetryService {
         if (event == null || !Long.valueOf(IMMEDIATE_ROUND_NO).equals(event.roundNo())) {
             return false;
         }
+        if (reportsBannedGroup(event)) {
+            return false;
+        }
         MarketingTaskSendAttempt attempt = taskMapper.selectSendAttemptById(event.attemptId());
         if (!matchesFirstImmediateAttempt(attempt, event.commandId())) {
             return false;
@@ -80,11 +88,18 @@ public class MarketingImmediateRetryService {
         if (!retryEnabledAndSending(task, target, resultAt)) {
             return false;
         }
-        MarketingAccountOccupancyOwnerRow owner = occupancyService
-                .loadActiveOwners(List.of(target.getAccountId()))
-                .get(target.getAccountId());
-        if (owner == null || !Objects.equals(task.getId(), owner.getMarketingTaskId())) {
-            return false;
+        if (groupPull(task)) {
+            if (taskMapper.countOwnedGroupPullMarketingGroup(task.getId()) != 1
+                    || taskMapper.countSendableGroupPullTarget(target.getId()) != 1) {
+                return false;
+            }
+        } else {
+            MarketingAccountOccupancyOwnerRow owner = occupancyService
+                    .loadActiveOwners(List.of(target.getAccountId()))
+                    .get(target.getAccountId());
+            if (owner == null || !Objects.equals(task.getId(), owner.getMarketingTaskId())) {
+                return false;
+            }
         }
         MarketingTargetCandidateRow group = taskMapper.selectCurrentTargetGroup(
                 target.getAccountId(), attempt.getGroupLinkId());
@@ -152,9 +167,35 @@ public class MarketingImmediateRetryService {
                 && task.getRetryLimit() != null
                 && task.getRetryLimit() >= 1
                 && Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())
-                && Integer.valueOf(MarketingTargetScope.ACCOUNT_DYNAMIC.code()).equals(target.getTargetScope())
+                && validTargetScope(task, target)
                 && (task.getTaskStartAt() == null || task.getTaskStartAt() <= now)
                 && (task.getTaskEndAt() == null || task.getTaskEndAt() > now);
+    }
+
+    private static boolean validTargetScope(MarketingTask task, MarketingTaskTarget target) {
+        if (groupPull(task)) {
+            return Integer.valueOf(MarketingTargetScope.GROUP_FIXED.code())
+                    .equals(target.getTargetScope());
+        }
+        return Integer.valueOf(MarketingTargetScope.ACCOUNT_DYNAMIC.code())
+                .equals(target.getTargetScope());
+    }
+
+    private static boolean groupPull(MarketingTask task) {
+        return task != null
+                && Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                        .equals(task.getBusinessType());
+    }
+
+    private static boolean reportsBannedGroup(ProtocolMessageSendResultReportedEvent event) {
+        return bannedCode(event.reasonCode())
+                || bannedCode(event.groupStatus())
+                || bannedCode(event.groupStatusReason());
+    }
+
+    private static boolean bannedCode(String value) {
+        return value != null
+                && BANNED_GROUP_CODES.contains(value.trim().toUpperCase(Locale.ROOT));
     }
 
     private boolean enqueueRetryOrFinalizeLocalFailure(MarketingTask task,

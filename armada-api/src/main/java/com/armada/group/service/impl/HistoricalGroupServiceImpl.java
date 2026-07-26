@@ -653,7 +653,7 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         GroupParticipantBatchResult protocolResult;
         try {
             protocolResult = protocolPorts.participants().updateParticipants(
-                    account.protocolAccountId(), groupJid, actionable, action);
+                    account, groupJid, actionable, action);
         } catch (ProtocolException ex) {
             log.warn("历史群成员协议操作失败 accountId={} action={} targetCount={} reasonCode={} httpStatus={}",
                     account.armadaAccountId(), action, actionable.size(), ex.errorCode(), ex.httpStatus());

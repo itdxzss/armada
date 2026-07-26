@@ -6,6 +6,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.support.MarketingSendAttemptResult;
+import com.armada.marketing.model.support.MarketingTargetResultSnapshot;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
@@ -65,6 +66,9 @@ public interface MarketingTaskMapper {
     /** 到达计划结束时间后，未启动/执行中/已暂停任务进入已完成。 */
     int endExpiredTask(@Param("id") Long id, @Param("now") long now);
 
+    /** 拉群营销到期后结束主任务并进入资源释放中。 */
+    int endExpiredGroupPullTask(@Param("id") Long id, @Param("now") long now);
+
     /** 修正开始时间尚未到达却处于发送中的任务,退回等待并取消轮次调度。 */
     int deferEarlySendingTask(@Param("id") Long id, @Param("now") long now);
 
@@ -88,6 +92,19 @@ public interface MarketingTaskMapper {
 
     /** 按 ID 查询目标及账号当前协议路由事实。 */
     MarketingTaskTarget selectTargetById(@Param("targetId") Long targetId);
+
+    /** 拉群营销首次发送前确认目标营销账号仍正常在线。 */
+    int countSendableGroupPullTarget(@Param("targetId") Long targetId);
+
+    /** 拉群营销正常轮次或即时重试前确认营销分组仍由本任务持有。 */
+    int countOwnedGroupPullMarketingGroup(@Param("taskId") Long taskId);
+
+    /** 发送结果明确群封禁时同步拉群群明细状态。 */
+    int markGroupPullExecutionBannedByTargetId(@Param("targetId") Long targetId,
+                                               @Param("now") long now);
+
+    /** 批量读取拉群营销本轮账号正常在线且群正常的固定目标 ID。 */
+    List<Long> selectSendableGroupPullTargetIds(@Param("taskId") Long taskId);
 
     /** 把首次即时 attempt 原子切换为第二次提交，并替换当前 commandId。 */
     int resubmitImmediateAttempt(@Param("attemptId") Long attemptId,
@@ -146,17 +163,86 @@ public interface MarketingTaskMapper {
                                   @Param("failedDelta") int failedDelta,
                                   @Param("now") long now);
 
-    /** 协议层成功结果幂等落地后,把本次 attempt 的真实群快照和计数汇总到 target 明细。 */
-    int markTargetSuccessFromAttempt(@Param("targetId") Long targetId,
-                                     @Param("attemptId") Long attemptId,
-                                     @Param("resultAt") long resultAt);
+    /**
+     * 释放任务时把当前租户下已取消 outbox 对应的提交中 attempt 标记为业务跳过。
+     *
+     * @param tenantId 当前租户 ID
+     * @param taskId 营销任务 ID
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际更新的发送尝试数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int markCanceledOutboxAttemptsSkipped(@Param("tenantId") Long tenantId,
+                                          @Param("taskId") Long taskId,
+                                          @Param("now") long now);
 
-    /** 协议层失败结果幂等落地后,把本次 attempt 的真实群快照、失败计数和原因汇总到 target 明细。 */
-    int markTargetFailedFromAttempt(@Param("targetId") Long targetId,
-                                    @Param("attemptId") Long attemptId,
-                                    @Param("reasonCode") String reasonCode,
-                                    @Param("reasonMessage") String reasonMessage,
-                                    @Param("resultAt") long resultAt);
+    /**
+     * 释放任务时把当前租户下死信 outbox 对应的提交中 attempt 标记为失败。
+     *
+     * @param tenantId 当前租户 ID
+     * @param taskId 营销任务 ID
+     * @param now 当前时间（epoch 毫秒）
+     * @return 实际更新的发送尝试数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int markDeadOutboxAttemptsFailed(@Param("tenantId") Long tenantId,
+                                     @Param("taskId") Long taskId,
+                                     @Param("now") long now);
+
+    /**
+     * 协议层成功结果幂等落地后，把本次 attempt 的真实群快照和计数汇总到 target 明细。
+     *
+     * <p>先锁定 target 行，再通过普通查询解析共享群元数据，最后执行 target 单表更新；
+     * 调用签名和字段优先级保持不变。</p>
+     */
+    default int markTargetSuccessFromAttempt(Long targetId, Long attemptId, long resultAt) {
+        MarketingTaskTarget target = selectTargetForResultUpdate(targetId);
+        if (target == null) {
+            return 0;
+        }
+        MarketingTargetResultSnapshot snapshot = selectTargetResultSnapshot(target, attemptId);
+        return snapshot == null ? 0 : updateTargetSuccessFromSnapshot(targetId, snapshot, resultAt);
+    }
+
+    /**
+     * 协议层失败结果幂等落地后，把本次 attempt 的真实群快照、失败计数和原因汇总到 target 明细。
+     *
+     * <p>先锁定 target 行，再通过普通查询解析共享群元数据，最后执行 target 单表更新；
+     * 调用签名和字段优先级保持不变。</p>
+     */
+    default int markTargetFailedFromAttempt(Long targetId,
+                                            Long attemptId,
+                                            String reasonCode,
+                                            String reasonMessage,
+                                            long resultAt) {
+        MarketingTaskTarget target = selectTargetForResultUpdate(targetId);
+        if (target == null) {
+            return 0;
+        }
+        MarketingTargetResultSnapshot snapshot = selectTargetResultSnapshot(target, attemptId);
+        return snapshot == null
+                ? 0
+                : updateTargetFailedFromSnapshot(targetId, snapshot, reasonCode, reasonMessage, resultAt);
+    }
+
+    /** 单表锁定并读取待回填 target，防止锁前快照覆盖并发结果。 */
+    MarketingTaskTarget selectTargetForResultUpdate(@Param("targetId") Long targetId);
+
+    /** 按已锁定 target 与 attempt 绑定关系读取结果回填群快照；普通查询不锁共享群表。 */
+    MarketingTargetResultSnapshot selectTargetResultSnapshot(@Param("target") MarketingTaskTarget target,
+                                                              @Param("attemptId") Long attemptId);
+
+    /** 使用已解析快照单表更新成功 target。 */
+    int updateTargetSuccessFromSnapshot(@Param("targetId") Long targetId,
+                                        @Param("snapshot") MarketingTargetResultSnapshot snapshot,
+                                        @Param("resultAt") long resultAt);
+
+    /** 使用已解析快照单表更新失败 target。 */
+    int updateTargetFailedFromSnapshot(@Param("targetId") Long targetId,
+                                       @Param("snapshot") MarketingTargetResultSnapshot snapshot,
+                                       @Param("reasonCode") String reasonCode,
+                                       @Param("reasonMessage") String reasonMessage,
+                                       @Param("resultAt") long resultAt);
 
     /** 在计划执行窗口内将未启动任务切换为执行中。 */
     int startPendingTask(@Param("id") Long id, @Param("now") long now);
@@ -175,6 +261,9 @@ public interface MarketingTaskMapper {
 
     /** 删除模板时，将关联的未启动、执行中或已暂停任务按异常终止置为已完成。 */
     int completeActiveTasksByTemplateIds(@Param("templateIds") List<Long> templateIds, @Param("now") long now);
+
+    /** 统计仍在使用指定模板的活动拉群营销任务。 */
+    int countActiveGroupPullTasksByTemplateIds(@Param("templateIds") List<Long> templateIds);
 
     /** 统计指定任务里仍处于未启动、执行中或已暂停的任务数量。 */
     int countActiveByIds(@Param("ids") List<Long> ids);

@@ -16,6 +16,12 @@ public enum AccountBatchSkipReason {
     /** 账号处于抢登中，普通批量登录不得干扰抢登流程。 */
     TAKING_OVER,
 
+    /** 上线命令已受理或协议层正在 VERIFYING，不重复释放和分配代理。 */
+    ALREADY_PENDING,
+
+    /** 账号已在线，相同上线请求作为幂等跳过。 */
+    ALREADY_ONLINE,
+
     /** 账号缺少协议登录所需的有效凭据。 */
     MISSING_CREDENTIAL
 }

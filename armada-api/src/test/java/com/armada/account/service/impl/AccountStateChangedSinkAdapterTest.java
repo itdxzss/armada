@@ -1,8 +1,12 @@
 package com.armada.account.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
@@ -24,6 +28,9 @@ class AccountStateChangedSinkAdapterTest {
     @Mock
     private AccountStateEventService service;
 
+    @Mock
+    private ProxyFailedRecoveryCoordinator recoveryCoordinator;
+
     @InjectMocks
     private AccountStateChangedSinkAdapter adapter;
 
@@ -41,7 +48,9 @@ class AccountStateChangedSinkAdapterTest {
                 403,
                 "batch_online",
                 "oa_state_1",
+                7L,
                 "worker-a");
+        when(service.applyStateChanged(any())).thenReturn(true);
 
         adapter.handleStateChanged(platformEvent);
 
@@ -58,5 +67,30 @@ class AccountStateChangedSinkAdapterTest {
         assertThat(event.rawCode()).isEqualTo(403);
         assertThat(event.source()).isEqualTo("batch_online");
         assertThat(event.onlineAttemptId()).isEqualTo("oa_state_1");
+        verify(recoveryCoordinator, never()).recover(any(), any(), any(), any());
+    }
+
+    @Test
+    void handleStateChanged_appliedProxyFailedStartsRecoveryAfterStateServiceReturns() {
+        ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
+                "evt-2", 1L, 100L, "acc_861800000001", "VERIFYING", "PROXY_FAILED",
+                1782626401000L, "PROXY_FAILED", 408, "batch_online", "oa_failed_1", 7L, "worker-a");
+        when(service.applyStateChanged(any())).thenReturn(true);
+
+        adapter.handleStateChanged(platformEvent);
+
+        verify(recoveryCoordinator).recover(1L, 100L, "oa_failed_1", 7L);
+    }
+
+    @Test
+    void handleStateChanged_staleProxyFailedDoesNotReleaseOrReonline() {
+        ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
+                "evt-3", 1L, 100L, "acc_861800000001", "VERIFYING", "PROXY_FAILED",
+                1782626401000L, "PROXY_FAILED", 408, "batch_online", "oa_failed_1", 7L, "worker-a");
+        when(service.applyStateChanged(any())).thenReturn(false);
+
+        adapter.handleStateChanged(platformEvent);
+
+        verify(recoveryCoordinator, never()).recover(any(), any(), any(), any());
     }
 }

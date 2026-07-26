@@ -1,11 +1,13 @@
 package com.armada.platform.kafka.dispatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,6 +23,7 @@ import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandPublishOutcome;
 import java.util.List;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -64,10 +67,8 @@ class ProtocolCommandDispatcherTest {
         ProtocolCommandOutbox second = insertedOutboxRow("cmd-202", 202L);
         when(mapper.markLockedByCommandIds(eq(List.of("cmd-201", "cmd-202")), eq("publisher-test"), anyLong()))
                 .thenReturn(2);
-        when(publisher.publishBatch(eq(List.of(first, second))))
-                .thenReturn(List.of(success(first), success(second)));
-        when(mapper.markSent(same(first), anyLong())).thenReturn(1);
-        when(mapper.markSent(same(second), anyLong())).thenReturn(1);
+        publishWindow(List.of(first, second), List.of(success(first), success(second)));
+        when(mapper.markSentBatch(eq(List.of(first, second)), anyLong())).thenReturn(2);
 
         ProtocolCommandDispatchResult result = dispatcher.dispatchInsertedRows(List.of(first, second));
 
@@ -82,7 +83,33 @@ class ProtocolCommandDispatcherTest {
         assertThat(second.getLockedAt()).isEqualTo(first.getLockedAt());
         verify(mapper, never()).selectDispatchable(anyInt(), anyLong(), anyInt());
         verify(mapper, never()).selectLockedByCommandIds(anyList(), eq("publisher-test"), anyLong());
-        verify(publisher).publishBatch(eq(List.of(first, second)));
+        verify(publisher).publishBatchByWindow(eq(List.of(first, second)), any());
+        verify(mapper).markSentBatch(eq(List.of(first, second)), anyLong());
+    }
+
+    @Test
+    void dispatchInsertedRows_marksEachCompletedWindowSeparately() {
+        ProtocolCommandOutbox first = insertedOutboxRow("cmd-301", 301L);
+        ProtocolCommandOutbox second = insertedOutboxRow("cmd-302", 302L);
+        ProtocolCommandOutbox third = insertedOutboxRow("cmd-303", 303L);
+        List<ProtocolCommandOutbox> rows = List.of(first, second, third);
+        when(mapper.markLockedByCommandIds(
+                eq(List.of("cmd-301", "cmd-302", "cmd-303")), eq("publisher-test"), anyLong()))
+                .thenReturn(3);
+        doAnswer(invocation -> {
+            Consumer<List<ProtocolCommandPublishOutcome>> consumer = invocation.getArgument(1);
+            consumer.accept(List.of(success(first), success(second)));
+            consumer.accept(List.of(success(third)));
+            return null;
+        }).when(publisher).publishBatchByWindow(eq(rows), any());
+        when(mapper.markSentBatch(eq(List.of(first, second)), anyLong())).thenReturn(2);
+        when(mapper.markSentBatch(eq(List.of(third)), anyLong())).thenReturn(1);
+
+        ProtocolCommandDispatchResult result = dispatcher.dispatchInsertedRows(rows);
+
+        assertThat(result.sent()).isEqualTo(3);
+        verify(mapper).markSentBatch(eq(List.of(first, second)), anyLong());
+        verify(mapper).markSentBatch(eq(List.of(third)), anyLong());
     }
 
     @Test
@@ -95,8 +122,8 @@ class ProtocolCommandDispatcherTest {
             ProtocolCommandOutbox row = insertedOutboxRow("cmd-203", 203L);
             when(mapper.markLockedByCommandIds(eq(List.of("cmd-203")), eq("publisher-test"), anyLong()))
                     .thenReturn(1);
-            when(publisher.publishBatch(eq(List.of(row)))).thenReturn(List.of(success(row)));
-            when(mapper.markSent(same(row), anyLong())).thenReturn(1);
+            publishWindow(List.of(row), List.of(success(row)));
+            when(mapper.markSentBatch(eq(List.of(row)), anyLong())).thenReturn(1);
 
             dispatcher.dispatchInsertedRows(List.of(row));
 
@@ -115,8 +142,8 @@ class ProtocolCommandDispatcherTest {
                 .thenReturn(List.of(row));
         when(mapper.markLocked(eq(List.of(101L)), eq("publisher-test"), anyLong())).thenReturn(1);
         when(mapper.selectLockedBy(eq(List.of(101L)), eq("publisher-test"), anyLong())).thenReturn(List.of(row));
-        when(publisher.publishBatch(eq(List.of(row)))).thenReturn(List.of(success(row)));
-        when(mapper.markSent(same(row), anyLong())).thenReturn(1);
+        publishWindow(List.of(row), List.of(success(row)));
+        when(mapper.markSentBatch(eq(List.of(row)), anyLong())).thenReturn(1);
 
         ProtocolCommandDispatchResult result = dispatcher.dispatchPendingNow();
 
@@ -125,8 +152,8 @@ class ProtocolCommandDispatcherTest {
         assertThat(result.sent()).isEqualTo(1);
         assertThat(result.retried()).isZero();
         assertThat(result.dead()).isZero();
-        verify(publisher).publishBatch(eq(List.of(row)));
-        verify(mapper).markSent(same(row), anyLong());
+        verify(publisher).publishBatchByWindow(eq(List.of(row)), any());
+        verify(mapper).markSentBatch(eq(List.of(row)), anyLong());
         verify(mapper, never()).markRetry(same(row), anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
         verify(mapper, never()).markDead(same(row), org.mockito.ArgumentMatchers.anyString(), anyLong());
     }
@@ -138,8 +165,8 @@ class ProtocolCommandDispatcherTest {
                 .thenReturn(List.of(row));
         when(mapper.markLocked(eq(List.of(102L)), eq("publisher-test"), anyLong())).thenReturn(1);
         when(mapper.selectLockedBy(eq(List.of(102L)), eq("publisher-test"), anyLong())).thenReturn(List.of(row));
-        when(publisher.publishBatch(eq(List.of(row))))
-                .thenReturn(List.of(failure(row, ProtocolException.unknown("broker down", null))));
+        publishWindow(List.of(row),
+                List.of(failure(row, ProtocolException.unknown("broker down", null))));
         when(mapper.markRetry(same(row), anyLong(), eq("broker down"), anyLong())).thenReturn(1);
 
         ProtocolCommandDispatchResult result = dispatcher.dispatchPendingNow();
@@ -158,8 +185,8 @@ class ProtocolCommandDispatcherTest {
                 .thenReturn(List.of(row));
         when(mapper.markLocked(eq(List.of(103L)), eq("publisher-test"), anyLong())).thenReturn(1);
         when(mapper.selectLockedBy(eq(List.of(103L)), eq("publisher-test"), anyLong())).thenReturn(List.of(row));
-        when(publisher.publishBatch(eq(List.of(row))))
-                .thenReturn(List.of(failure(row, ProtocolException.unknown("payload invalid", null))));
+        publishWindow(List.of(row),
+                List.of(failure(row, ProtocolException.unknown("payload invalid", null))));
         when(mapper.markDead(same(row), eq("payload invalid"), anyLong())).thenReturn(1);
 
         ProtocolCommandDispatchResult result = dispatcher.dispatchPendingNow();
@@ -180,12 +207,11 @@ class ProtocolCommandDispatcherTest {
         when(mapper.markLocked(eq(List.of(104L, 105L)), eq("publisher-test"), anyLong())).thenReturn(2);
         when(mapper.selectLockedBy(eq(List.of(104L, 105L)), eq("publisher-test"), anyLong()))
                 .thenReturn(List.of(failed, sent));
-        when(publisher.publishBatch(eq(List.of(failed, sent))))
-                .thenReturn(List.of(
-                        failure(failed, ProtocolException.unknown("temporary kafka error", null)),
-                        success(sent)));
+        publishWindow(List.of(failed, sent), List.of(
+                failure(failed, ProtocolException.unknown("temporary kafka error", null)),
+                success(sent)));
         when(mapper.markRetry(same(failed), anyLong(), eq("temporary kafka error"), anyLong())).thenReturn(1);
-        when(mapper.markSent(same(sent), anyLong())).thenReturn(1);
+        when(mapper.markSentBatch(eq(List.of(sent)), anyLong())).thenReturn(1);
 
         ProtocolCommandDispatchResult result = dispatcher.dispatchPendingNow();
 
@@ -193,7 +219,7 @@ class ProtocolCommandDispatcherTest {
         assertThat(result.retried()).isEqualTo(1);
         assertThat(result.dead()).isZero();
         verify(mapper).markRetry(same(failed), anyLong(), eq("temporary kafka error"), anyLong());
-        verify(mapper).markSent(same(sent), anyLong());
+        verify(mapper).markSentBatch(eq(List.of(sent)), anyLong());
     }
 
     @Test
@@ -238,5 +264,14 @@ class ProtocolCommandDispatcherTest {
 
     private static ProtocolCommandPublishOutcome failure(ProtocolCommandOutbox row, RuntimeException error) {
         return ProtocolCommandPublishOutcome.failure(row, error);
+    }
+
+    private void publishWindow(List<ProtocolCommandOutbox> rows,
+                               List<ProtocolCommandPublishOutcome> outcomes) {
+        doAnswer(invocation -> {
+            Consumer<List<ProtocolCommandPublishOutcome>> consumer = invocation.getArgument(1);
+            consumer.accept(outcomes);
+            return null;
+        }).when(publisher).publishBatchByWindow(eq(rows), any());
     }
 }

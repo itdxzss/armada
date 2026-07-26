@@ -1,14 +1,20 @@
 package com.armada.account.mapper;
 
 import com.armada.account.model.dto.AccountGroupQuery;
+import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.vo.AccountGroupVoRow;
+import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * 账号分组数据访问。tenant_id 由租户行隔离拦截器自动注入,SQL 不手写 tenant_id 过滤。
+ * 账号分组数据访问。默认由租户行隔离拦截器注入 tenant_id；必须绕过拦截器的锁查询自行显式限定租户。
  */
 @Mapper
 public interface AccountGroupMapper {
@@ -28,6 +34,33 @@ public interface AccountGroupMapper {
      * @return 当前页分组 VoRow 列表(含 accountCount 聚合字段)
      */
     List<AccountGroupVoRow> selectPage(AccountGroupQuery query);
+
+    /**
+     * 批量读取当前页占用任务的主状态及拉群资源状态。
+     *
+     * @param taskIds 当前页去重后的营销任务 ID
+     * @return 仍存在的任务状态投影；已删除或异常缺失的任务不返回
+     */
+    List<AccountMarketingOccupancyTaskRow> selectMarketingOccupancyTasksByIds(
+            @Param("taskIds") List<Long> taskIds);
+
+    /**
+     * 按营销占用高级条件解析匹配的账号分组 ID。
+     *
+     * <p>只在高级筛选生效时调用，避免营销任务表进入账号默认分页查询。</p>
+     *
+     * @param query 账号列表营销占用筛选条件
+     * @return 匹配的活跃分组 ID
+     */
+    List<Long> selectMarketingOccupancyGroupIds(AccountQuery query);
+
+    /**
+     * 点击分组名称时查询完整营销占用详情。
+     *
+     * @param groupId 账号分组 ID
+     * @return 占用详情投影；分组不存在或已删除时返回 null
+     */
+    AccountMarketingOccupancyTaskRow selectMarketingOccupancyByGroupId(@Param("groupId") Long groupId);
 
     /**
      * 按名称查活跃分组(deleted_at IS NULL)。
@@ -56,6 +89,53 @@ public interface AccountGroupMapper {
      * @return 活跃分组;不存在或已软删时返回 null
      */
     AccountGroup selectById(@Param("id") Long id);
+
+    /**
+     * 按 ID 升序读取人工迁移涉及的来源分组和目标分组。
+     *
+     * <p>该查询只用于前置业务提示，不承担并发互斥；最终状态由账号条件更新复核。</p>
+     *
+     * @param groupIds 去重并升序排列的分组 ID
+     * @return 当前活跃分组行
+     */
+    List<AccountGroup> selectByIds(@Param("groupIds") List<Long> groupIds);
+
+    /**
+     * 按 ID 升序锁定任务启动或分组结构变更涉及的分组。
+     *
+     * <p>调用方不传 tenantId；本方法从当前 {@link TenantContext} 取租户并委托给显式租户 SQL，
+     * 避免租户拦截器把 MySQL 的 {@code ORDER BY ... FOR UPDATE} 尾句重写为非法顺序。</p>
+     *
+     * @param groupIds 去重并升序排列的分组 ID
+     * @return 当前活跃分组行
+     * @throws BusinessException 当前线程缺少租户上下文时抛出
+     */
+    default List<AccountGroup> selectByIdsForUpdate(List<Long> groupIds) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectByTenantAndIdsForUpdate(tenantId, groupIds);
+    }
+
+    /**
+     * 按显式租户和 ID 升序执行锁行查询，仅供 {@link #selectByIdsForUpdate(List)} 委托。
+     *
+     * @param tenantId 当前线程租户 ID
+     * @param groupIds 去重并升序排列的分组 ID
+     * @return 当前租户内的活跃分组行
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountGroup> selectByTenantAndIdsForUpdate(@Param("tenantId") Long tenantId,
+                                                     @Param("groupIds") List<Long> groupIds);
+
+    /**
+     * 统计仍处于资源锁定或释放中的拉群任务对建群账号分组的引用数。
+     *
+     * @param groupIds 人工迁移的来源分组 ID
+     * @return 活动引用数量
+     */
+    int countActiveBuilderGroupReferences(@Param("groupIds") List<Long> groupIds);
 
     /**
      * 查系统内置分组(system_builtin=1)。
@@ -94,7 +174,9 @@ public interface AccountGroupMapper {
     int updateProfile(AccountGroup row);
 
     /**
-     * 批量软删除分组:将 deleted_at 置为 deletedAt 时间戳。
+     * 批量软删除空闲分组:将 deleted_at 置为 deletedAt 时间戳。
+     *
+     * <p>SQL 再次要求营销占用任务为空，用作事务校验后的并发条件闸门。</p>
      *
      * @param ids       分组主键列表(已通过业务校验)
      * @param deletedAt 软删时间戳(epoch 毫秒,由调用方传入 System.currentTimeMillis())
@@ -124,4 +206,27 @@ public interface AccountGroupMapper {
     int mergeAccounts(@Param("sourceGroupIds") List<Long> sourceGroupIds,
                       @Param("targetGroupId") Long targetGroupId,
                       @Param("updatedAt") long updatedAt);
+
+    /**
+     * 仅在分组当前空闲时原子写入营销整组占用归属。
+     *
+     * @return 影响 1 行表示抢锁成功，0 行表示不存在或已被占用
+     */
+    int tryLockMarketingOccupancy(@Param("groupId") Long groupId,
+                                  @Param("occupancyType") int occupancyType,
+                                  @Param("taskId") Long taskId,
+                                  @Param("now") long now);
+
+    /**
+     * 仅由当前占用任务按类型和任务 ID 原子释放营销分组。
+     *
+     * @return 影响 1 行表示释放成功，0 行表示当前任务不持有该锁
+     */
+    int releaseMarketingOccupancy(@Param("groupId") Long groupId,
+                                  @Param("occupancyType") int occupancyType,
+                                  @Param("taskId") Long taskId,
+                                  @Param("now") long now);
+
+    /** 查询分组当前是否仍有任意营销占用。 */
+    int countMarketingOccupancy(@Param("groupId") Long groupId);
 }

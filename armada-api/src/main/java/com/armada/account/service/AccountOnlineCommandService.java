@@ -50,6 +50,19 @@ public interface AccountOnlineCommandService {
     AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId);
 
     /**
+     * 代理失败后换 IP 重上线，并排除协议事件明确指出的失败代理。
+     *
+     * @param accountId             Armada 账号主键
+     * @param failedOnlineAttemptId 刚失败的上线尝试 ID，可空
+     * @param failedProxyId         刚失败的代理 ID，可空；非空时本次分配必须排除
+     * @return outbox 上线命令受理回执；账号已不再满足 PROXY_FAILED 恢复条件时 accepted=false
+     */
+    AccountOnlineVO reonlineAfterProxyFailure(
+            Long accountId,
+            String failedOnlineAttemptId,
+            Long failedProxyId);
+
+    /**
      * 批量发起一键抢登。
      *
      * <p>只有全部账号当前为“被抢登”且未禁言时才允许进入抢登中。实现会先把账号状态改为抢登中,

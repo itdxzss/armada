@@ -27,11 +27,13 @@ import com.armada.resource.model.entity.IpProxy;
 import com.armada.shared.exception.BusinessException;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -123,6 +125,7 @@ class ProtocolCommandPublisherTest {
 
     @Test
     void publishBatch_onlineRowsHydratesCredentialsAndProxiesWithBulkQueriesBeforeSending() {
+        ProtocolCommandPublisher boundedPublisher = publisherWithMaxInFlight(1);
         ProtocolCommandOutbox first = outboxRow(
                 "cmd_100",
                 1L,
@@ -152,7 +155,7 @@ class ProtocolCommandPublisherTest {
         when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_101"), any()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
-        List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(first, second));
+        List<ProtocolCommandPublishOutcome> outcomes = boundedPublisher.publishBatch(List.of(first, second));
 
         assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.succeeded()).isTrue());
         verify(credentialMapper).selectByTenantAndAccountIds(1L, List.of(100L, 101L));
@@ -224,6 +227,32 @@ class ProtocolCommandPublisherTest {
                 .extracting(ProtocolCommandPublishOutcome::succeeded)
                 .containsExactly(true, false, true);
         assertThat(outcomes.get(1).error()).isInstanceOf(ProtocolException.class);
+    }
+
+    @Test
+    void publishBatchByWindow_notifiesCompletedWindowBeforeSubmittingNextWindow() {
+        ProtocolCommandPublisher boundedPublisher = publisherWithMaxInFlight(2);
+        List<ProtocolCommandOutbox> rows = List.of(
+                passthroughOutboxRow("cmd_100", 100L, "acc_100"),
+                passthroughOutboxRow("cmd_101", 101L, "acc_101"),
+                passthroughOutboxRow("cmd_102", 102L, "acc_102"));
+        List<String> events = new ArrayList<>();
+        when(kafkaTemplate.send(any(), any(), any())).thenAnswer(invocation -> {
+            events.add("send:" + invocation.getArgument(1, String.class));
+            return CompletableFuture.completedFuture(null);
+        });
+
+        boundedPublisher.publishBatchByWindow(rows, outcomes -> events.add(
+                "window:" + outcomes.stream()
+                        .map(outcome -> outcome.row().getKafkaKey())
+                        .collect(Collectors.joining(","))));
+
+        assertThat(events).containsExactly(
+                "send:acc_100",
+                "send:acc_101",
+                "window:acc_100,acc_101",
+                "send:acc_102",
+                "window:acc_102");
     }
 
     @Test

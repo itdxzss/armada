@@ -17,6 +17,10 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private static final String GROUP_CREATE_URI_PREFIX = "/ws/v1/groups/create/";
     private static final String GROUP_ANNOUNCEMENT_URI_PREFIX =
             "/ws/v1/groups/settings/sendmessage/";
+    private static final String GROUP_MEMBERS_ADD_URI_PREFIX = "/ws/v1/groups/members/add/";
+    private static final String GROUP_ADMIN_SET_URI_PREFIX = "/ws/v1/groups/admin/set/";
+    private static final String GROUP_INVITE_URI_PREFIX = "/ws/v1/groups/qrcode/";
+    private static final String GROUP_LEAVE_URI_PREFIX = "/ws/v1/groups/leave/";
     private static final String WS_PHONE_FIELD = "wsPhone";
     private static final String INVITE_CODE_FIELD = "inviteCode";
     private static final String GROUP_JID_FIELD = "groupJid";
@@ -132,6 +136,51 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
                 AndroidResponseEnvelope.class);
     }
 
+    @Override
+    public AndroidResponseEnvelope addGroupMembers(
+            String wsPhone,
+            String groupJid,
+            List<String> participants) {
+        return httpExecutor.postTyped(
+                GROUP_MEMBERS_ADD_URI_PREFIX + requireDigits(wsPhone),
+                new GroupMembersRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        requireTexts(participants, "participants")),
+                AndroidResponseEnvelope.class);
+    }
+
+    @Override
+    public AndroidResponseEnvelope setGroupAdmin(
+            String wsPhone,
+            String groupJid,
+            String participant,
+            boolean enabled) {
+        return httpExecutor.postTyped(
+                GROUP_ADMIN_SET_URI_PREFIX + requireDigits(wsPhone),
+                new GroupAdminRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        enabled,
+                        requireText(participant, "participant")),
+                AndroidResponseEnvelope.class);
+    }
+
+    @Override
+    public AndroidResponseEnvelope groupInvite(String wsPhone, String groupJid) {
+        return groupRequest(GROUP_INVITE_URI_PREFIX, wsPhone, groupJid);
+    }
+
+    @Override
+    public AndroidResponseEnvelope leaveGroup(String wsPhone, String groupJid) {
+        return groupRequest(GROUP_LEAVE_URI_PREFIX, wsPhone, groupJid);
+    }
+
+    private AndroidResponseEnvelope groupRequest(String uriPrefix, String wsPhone, String groupJid) {
+        return httpExecutor.postTyped(
+                uriPrefix + requireDigits(wsPhone),
+                new GroupRequest(requireText(groupJid, GROUP_JID_FIELD)),
+                AndroidResponseEnvelope.class);
+    }
+
     private static String requireDigits(String value) {
         String normalized = requireText(value, WS_PHONE_FIELD);
         if (!normalized.chars().allMatch(Character::isDigit)) {
@@ -171,5 +220,19 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private record AnnouncementRequest(
             @JsonProperty("group_id") String groupId,
             @JsonProperty("state") boolean membersCanSend) {
+    }
+
+    private record GroupMembersRequest(
+            @JsonProperty("group_id") String groupId,
+            List<String> participants) {
+    }
+
+    private record GroupAdminRequest(
+            @JsonProperty("group_id") String groupId,
+            @JsonProperty("state") boolean enabled,
+            String participant) {
+    }
+
+    private record GroupRequest(@JsonProperty("group_id") String groupId) {
     }
 }

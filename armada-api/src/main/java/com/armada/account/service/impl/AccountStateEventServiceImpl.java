@@ -102,12 +102,12 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void applyStateChanged(AccountStateChangedEvent event) {
+    public boolean applyStateChanged(AccountStateChangedEvent event) {
         validate(event);
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            applyStateChangedInTenant(event);
+            return applyStateChangedInTenant(event);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -123,7 +123,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
      * <p>协议层事件可能乱序、延迟或带着旧的协议账号 ID 回来。这里先做账号定位和事件新鲜度校验,
      * 再按“会改变账号生命周期的状态优先,普通登录态兜底”的顺序落库。</p>
      */
-    private void applyStateChangedInTenant(AccountStateChangedEvent event) {
+    private boolean applyStateChangedInTenant(AccountStateChangedEvent event) {
         // 账号已删除或从未入库时只记录并跳过,避免 Kafka 消费被历史事件卡住。
         Account account = accountMapper.selectActiveById(event.accountId());
         if (account == null) {
@@ -131,7 +131,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                             + "from={} to={} semantic={} rawCode={}",
                     event.tenantId(), event.accountId(), event.protocolAccountId(),
                     event.from(), event.to(), event.semantic(), event.rawCode());
-            return;
+            return false;
         }
 
         // 同一个业务账号重新绑定协议号后,旧协议 worker 仍可能回补状态;这里防止旧事件串改新账号状态。
@@ -140,7 +140,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                             + "dbProtocolAccountId={} from={} to={}",
                     event.tenantId(), event.accountId(), event.protocolAccountId(),
                     account.getProtocolAccountId(), event.from(), event.to());
-            return;
+            return false;
         }
 
         // occurredAt 是状态收敛的业务时间。协议未上报时退回本机时间,保证仍可更新 last_state_sync_time。
@@ -153,7 +153,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                             + "eventOccurredAt={} currentLastStateSyncTime={}",
                     account.getId(), event.protocolAccountId(), event.from(), event.to(),
                     occurredAt, currentState.getLastStateSyncTime());
-            return;
+            return false;
         }
         long updatedAt = System.currentTimeMillis();
         String stateSource = stateSource(event);
@@ -167,7 +167,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                             + "semantic={} rawCode={} occurredAt={}",
                     account.getId(), event.protocolAccountId(), event.from(), event.to(),
                     event.semantic(), event.rawCode(), occurredAt);
-            return;
+            return true;
         }
 
         // 剩余事件只表达在线/离线等登录态变化,不改变正常、被抢登、封禁、解绑等账号生命周期状态。
@@ -180,6 +180,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                         + "stateSource={} updated={} occurredAt={}",
                 account.getId(), event.protocolAccountId(), event.from(), event.to(), row.getLoginState(),
                 stateSource, updated, occurredAt);
+        return true;
     }
 
     private boolean applyLifecycleTransition(Account account,
@@ -236,6 +237,9 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static String stateSource(AccountStateChangedEvent event) {
         if (isLoginReplaced(event)) {
             return SOURCE_LOGIN_REPLACED;
+        }
+        if (isProxyFailedEvent(event)) {
+            return STATE_PROXY_FAILED;
         }
         return clamp(event.semantic() == null || event.semantic().isBlank()
                 ? SOURCE_STATE_CHANGED
@@ -311,7 +315,6 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
 
     private void releaseIpIfOffline(Account account, AccountStateChangedEvent event, long occurredAt) {
         if (isProxyFailedEvent(event)) {
-            ipProxyService.markBoundProxyUnavailableByAccount(account.getId(), occurredAt, STATE_PROXY_FAILED);
             return;
         }
         if (!shouldReleaseIp(event.to())) {

@@ -9,6 +9,7 @@ public class AccountBatchTargetRow {
 
     private Long id;
     private Integer accountState;
+    private Integer loginState;
     private boolean credentialPresent;
 
     public Long getId() {
@@ -25,6 +26,14 @@ public class AccountBatchTargetRow {
 
     public void setAccountState(Integer accountState) {
         this.accountState = accountState;
+    }
+
+    public Integer getLoginState() {
+        return loginState;
+    }
+
+    public void setLoginState(Integer loginState) {
+        this.loginState = loginState;
     }
 
     public boolean isCredentialPresent() {

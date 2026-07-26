@@ -83,6 +83,12 @@ public enum ProtocolErrorCode {
     /** 协议请求完成，但无法确认账号是否真实入群。 */
     JOIN_RESULT_UNCONFIRMED,
 
+    /** 建群请求可能已经成功，禁止使用相同业务操作再次创建。 */
+    GROUP_CREATE_RESULT_UNCONFIRMED,
+
+    /** 建群严格幂等存储不可用，禁止调用协议后端。 */
+    IDEMPOTENCY_STORE_UNAVAILABLE,
+
     /** Android 原生接口返回了无法识别的响应。 */
     ANDROID_RESPONSE_UNRECOGNIZED,
 

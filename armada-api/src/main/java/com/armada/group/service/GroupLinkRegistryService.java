@@ -33,10 +33,38 @@ public interface GroupLinkRegistryService {
      */
     Long registerAccountObservedGroup(String groupJid, String groupName, long now);
 
+    /**
+     * 登记业务流程刚创建成功的自建群及建群账号在群关系。
+     *
+     * @param groupJid WhatsApp 群 JID，不能为空
+     * @param groupName 建群成功时取得的群名称，可空
+     * @param ownerAccountId 建群账号的 Armada 账号 ID，不能为空
+     * @param ownerPhone 建群账号手机号，可空
+     * @param memberCount 建群完成时取得的群成员数，可空
+     * @param now 登记时间（epoch 毫秒）
+     * @return 复用或新建后的 {@code group_link.id}
+     * @throws BusinessException 当群 JID 或建群账号 ID 缺失时抛出
+     */
     Long registerSelfBuiltGroup(String groupJid,
                                 String groupName,
                                 Long ownerAccountId,
                                 String ownerPhone,
                                 Integer memberCount,
                                 long now);
+
+    /**
+     * 登记拉群流程已经确认的账号在群关系。
+     *
+     * @param groupLinkId 统一群入口 ID，不能为空
+     * @param groupJid WhatsApp 群 JID，不能为空
+     * @param accountId 已确认进群的 Armada 账号 ID，不能为空
+     * @param admin 该账号是否已确认为群管理员
+     * @param now 关系确认时间（epoch 毫秒）
+     * @throws BusinessException 当群入口、群 JID 或账号 ID 缺失时抛出
+     */
+    void registerKnownMembership(Long groupLinkId,
+                                 String groupJid,
+                                 Long accountId,
+                                 boolean admin,
+                                 long now);
 }

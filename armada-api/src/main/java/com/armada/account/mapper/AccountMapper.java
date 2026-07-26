@@ -255,17 +255,21 @@ public interface AccountMapper {
     List<AccountDeleteGateRow> selectStatesByIds(@Param("ids") List<Long> ids);
 
     /**
-     * 批量迁移分组:UPDATE account SET account_group_id=#{accountGroupId}, updated_at=#{updatedAt}。
-     * 仅更新未软删行。
+     * 按账号原始来源分组执行人工迁移条件更新。
      *
-     * @param ids            账号 ID 列表
+     * <p>来源和目标分组必须存在且未被营销任务占用；非空来源分组不得处于拉群任务
+     * 资源锁定或释放中。账号已离开预期来源、任一分组状态变化时对应行不会更新。</p>
+     *
+     * @param ids 待迁移的同一来源分组账号 ID
+     * @param sourceGroupId 读取账号时的来源分组 ID；为空表示未分组
      * @param accountGroupId 目标分组 ID
-     * @param updatedAt      更新时间(epoch 毫秒)
+     * @param updatedAt 更新时间(epoch 毫秒)
      * @return 实际更新行数
      */
-    int migrateGroup(@Param("ids") List<Long> ids,
-                     @Param("accountGroupId") Long accountGroupId,
-                     @Param("updatedAt") long updatedAt);
+    int migrateGroupIfAvailable(@Param("ids") List<Long> ids,
+                                @Param("sourceGroupId") Long sourceGroupId,
+                                @Param("accountGroupId") Long accountGroupId,
+                                @Param("updatedAt") long updatedAt);
 
     /**
      * 批量软删除账号:UPDATE account SET deleted_at=#{deletedAt}。

@@ -159,12 +159,12 @@ Review the complete diff against database/Flyway rules. Blocking conditions are 
 version, checksum drift, manual history manipulation, duplicate version, or readiness check that
 can accept an empty/error response.
 
-- [ ] **Step 3: Update the change record and commit**
+- [x] **Step 3: Update the change record and commit**
 
 Record real test outputs and the migration source. Commit only task files; preserve unrelated
 `.claude/worktrees` state. Push `1.0.2-snapshot`.
 
-- [ ] **Step 4: Reconfirm test1 history and deploy**
+- [x] **Step 4: Reconfirm test1 history and deploy**
 
 Read-only query test1 `flyway_schema_history` V061-V079 and compare every checksum to the contract,
 then run:
@@ -173,7 +173,7 @@ then run:
 ./armada-deploy/deploy-test.sh --env test1 --be --branch 1.0.2-snapshot -y
 ```
 
-- [ ] **Step 5: Verify real deployment state**
+- [x] **Step 5: Verify real deployment state**
 
 Require deployment exit 0, container `running`, restart count 0, a fresh `Started Application`
 log, no Flyway validation/migration error, V061-V079 still present and successful in schema history, and

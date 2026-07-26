@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
+# shellcheck source=lib/artifact.sh
+. "${SCRIPT_DIR}/lib/artifact.sh"
 
 # Use the public IP by default so local proxy fake-ip DNS cannot break ssh/rsync.
 SSH_HOST="${ARMADA_DEPLOY_HOST:-65.2.123.53}"
@@ -21,7 +23,7 @@ PROTOCOL_SSH_USER="${ARMADA_PROTOCOL_DEPLOY_USER:-ec2-user}"
 PROTOCOL_SSH_KEY="${ARMADA_PROTOCOL_DEPLOY_KEY:-${WORKSPACE_ROOT}/protocol.pem}"
 PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-/home/ec2-user/armada-protocol}"
 PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-armada.ecosystem.config.cjs}"
-JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
+JAR_NAME="armada-api-deploy.jar"
 
 SCOPE="all"
 ASSUME_YES=0
@@ -74,7 +76,7 @@ resolve_wsl_ssh_key() {
 
 refresh_build_paths() {
   API_DIR="${BUILD_REPO_ROOT}/armada-api"
-  JAR_PATH="${API_DIR}/target/${JAR_NAME}"
+  JAR_PATH=""
   DEPLOY_ASSET_DIR="${BUILD_REPO_ROOT}/armada-deploy"
 }
 
@@ -552,7 +554,8 @@ fi
 if [ "${BUILD_BE}" = 1 ]; then
   info "构建后端 jar..."
   (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests clean package)
-  [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
+  JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
+    || die "构建后未找到唯一后端 jar: ${API_DIR}/target"
   ok "后端 jar 已就绪: ${JAR_PATH}"
 fi
 

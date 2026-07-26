@@ -18,7 +18,8 @@ armada_find_jdk17() {
 armada_build_backend() {
   info "构建后端 jar..."
   (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -DskipTests clean package)
-  [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
+  JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
+    || die "构建后未找到唯一后端 jar: ${API_DIR}/target"
   ok "后端 jar 已就绪: ${JAR_PATH}"
 }
 

@@ -17,12 +17,12 @@
 - Modify: `armada-deploy/deploy-test.test.sh`
 - Modify: `armada-deploy/package-prod.test.sh`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `deploy-test.test.sh` 创建临时 `target`，分别断言单个 `armada-api-1.0.2-SNAPSHOT.jar` 可解析，零候选和两个
 JAR 均失败。在两个脚本测试中断言部署资产使用 `armada-api-deploy.jar`，且不包含版本化 SNAPSHOT 文件名。
 
-- [ ] **Step 2: 运行测试确认红灯**
+- [x] **Step 2: 运行测试确认红灯**
 
 Run:
 
@@ -33,9 +33,9 @@ bash armada-deploy/package-prod.test.sh
 
 Expected: FAIL，原因是共享解析函数和稳定暂存名尚不存在。
 
-- [ ] **Step 3: 实现共享解析函数**
+- [x] **Step 3: 实现共享解析函数**
 
-实现 `armada_resolve_backend_jar`，用 `find -maxdepth 1 -type f -name '*.jar'` 收集候选，只有一个候选时输出路径。
+实现 `armada_resolve_backend_jar`，用 POSIX 兼容的 `target/*.jar` glob 收集普通文件候选，只有一个候选时输出路径。
 
 ### Task 2: 接入所有部署入口
 
@@ -46,16 +46,16 @@ Expected: FAIL，原因是共享解析函数和稳定暂存名尚不存在。
 - Modify: `armada-deploy/package-prod.sh`
 - Modify: `armada-deploy/backend.prebuilt.Dockerfile`
 
-- [ ] **Step 1: 改测试部署**
+- [x] **Step 1: 改测试部署**
 
 测试部署统一设置 `JAR_NAME=armada-api-deploy.jar`。Maven 构建后调用共享函数设置实际 `JAR_PATH`，再把该文件
 同步到远端稳定路径。
 
-- [ ] **Step 2: 改 Windows 和生产打包**
+- [x] **Step 2: 改 Windows 和生产打包**
 
 Windows 部署及生产离线打包复用同一解析函数；准备 Docker 上下文时把实际产物复制为稳定暂存名。
 
-- [ ] **Step 3: 修改 Dockerfile**
+- [x] **Step 3: 修改 Dockerfile**
 
 将后端复制路径改为：
 
@@ -63,7 +63,7 @@ Windows 部署及生产离线打包复用同一解析函数；准备 Docker 上�
 COPY armada-api/target/armada-api-deploy.jar /app/app.jar
 ```
 
-- [ ] **Step 4: 运行测试确认转绿**
+- [x] **Step 4: 运行测试确认转绿**
 
 Run:
 
@@ -82,7 +82,7 @@ Expected: 全部退出码为 0。
 - Verify: `armada-api/target/*.jar`
 - Deploy: `armada-deploy/deploy-test.sh`
 
-- [ ] **Step 1: 实际构建并验证解析**
+- [x] **Step 1: 实际构建并验证解析**
 
 Run:
 

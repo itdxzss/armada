@@ -76,6 +76,11 @@ test_app_package_templates() {
   assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "render-platform-config.sh"
   assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "PLATFORM_CONFIG_ROOT=/usr/share/nginx/html/saas"
   assert_file_contains "${SCRIPT_DIR}/render-platform-config.sh" "platform-config.template.json"
+  assert_file_contains "${PACKAGE_SCRIPT}" "armada-api-deploy.jar"
+  assert_file_contains "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" "armada-api-deploy.jar"
+  assert_file_not_contains_regex "${PACKAGE_SCRIPT}" 'armada-api-[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT\.jar'
+  assert_file_not_contains_regex "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" \
+    'armada-api-[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT\.jar'
 }
 
 test_protocol_package_templates() {

@@ -7,6 +7,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
+# shellcheck source=lib/artifact.sh
+. "${SCRIPT_DIR}/lib/artifact.sh"
 
 FRONTEND_DIR="${ARMADA_FRONTEND_DIR:-${WORKSPACE_ROOT}/wheel-saas-pure-web}"
 PROTOCOL_DIR="${ARMADA_PROTOCOL_DIR:-${WORKSPACE_ROOT}/armada-protocol}"
@@ -20,9 +22,9 @@ BUILD_PROTOCOL=1
 SKIP_BUILD=0
 DRY_RUN=0
 
-JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
+JAR_NAME="armada-api-deploy.jar"
 API_DIR="${REPO_ROOT}/armada-api"
-JAR_PATH="${API_DIR}/target/${JAR_NAME}"
+JAR_PATH=""
 
 info() {
   printf '> %s\n' "$*"
@@ -189,7 +191,8 @@ build_backend() {
   command -v mvn >/dev/null 2>&1 || die "mvn is required to build backend"
   info "building backend jar"
   (cd "${API_DIR}" && JAVA_HOME="${jdk17_home}" mvn -q -DskipTests clean package)
-  [ -f "${JAR_PATH}" ] || die "backend jar not found after build: ${JAR_PATH}"
+  JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
+    || die "unique backend jar not found after build: ${API_DIR}/target"
 }
 
 build_frontend() {

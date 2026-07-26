@@ -18,7 +18,7 @@
 
 新增 `armada-deploy/lib/artifact.sh`，提供 `armada_resolve_backend_jar <target-dir>`：
 
-1. 仅扫描目标目录第一层的 `*.jar` 普通文件。
+1. 使用 POSIX 兼容的 `target/*.jar` glob，仅扫描目标目录第一层普通文件。
 2. `.jar.original` 不匹配 `*.jar`，不会被当作可执行产物。
 3. 候选恰好一个时输出绝对路径。
 4. 候选为零或多于一个时返回非零并输出不含敏感信息的错误。

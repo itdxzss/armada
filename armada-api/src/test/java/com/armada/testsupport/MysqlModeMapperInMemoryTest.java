@@ -15,6 +15,8 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -82,6 +84,8 @@ class MysqlModeMapperInMemoryTest {
     private GroupLinkHealthMapper healthMapper;
     @Autowired
     private MarketingTaskMapper marketingTaskMapper;
+    @Autowired
+    private GroupPullMarketingMapper groupPullMarketingMapper;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -111,6 +115,28 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groups).extracting(AccountGroup::getId).containsExactly(11L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 AccountGroupMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void groupPullReleaseLockQueryExecutesAndKeepsTenantBoundary() throws SQLException {
+        executeSql(
+                "INSERT INTO group_pull_marketing_execution "
+                        + "(id, tenant_id, task_id, execution_status) VALUES (31, 7, 146, 1)",
+                "INSERT INTO group_pull_marketing_execution "
+                        + "(id, tenant_id, task_id, execution_status) VALUES (32, 8, 146, 1)");
+
+        List<GroupPullMarketingExecution> executions = transactionTemplate.execute(status -> {
+            List<GroupPullMarketingExecution> locked =
+                    groupPullMarketingMapper.selectCancelableExecutionsForUpdate(146L);
+            status.setRollbackOnly();
+            return locked;
+        });
+
+        assertThat(executions).isNotNull();
+        assertThat(executions).extracting(GroupPullMarketingExecution::getId).containsExactly(31L);
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                GroupPullMarketingMapper.class.getName()
+                        + ".selectCancelableExecutionsByTenantForUpdate")).isTrue();
     }
 
     @Test
@@ -417,6 +443,35 @@ class MysqlModeMapperInMemoryTest {
                     tenant_id BIGINT NOT NULL,
                     name VARCHAR(100),
                     deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_execution (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    task_id BIGINT NOT NULL,
+                    builder_account_id BIGINT,
+                    marketing_account_id BIGINT,
+                    group_name VARCHAR(255),
+                    group_jid VARCHAR(128),
+                    group_link_id BIGINT,
+                    group_invite_url VARCHAR(255),
+                    execution_status TINYINT NOT NULL,
+                    current_stage TINYINT,
+                    stage_retry_count INT,
+                    next_execute_at BIGINT,
+                    group_status TINYINT,
+                    group_member_count INT,
+                    marketer_admin_status TINYINT,
+                    builder_exit_status TINYINT,
+                    marketing_target_id BIGINT,
+                    failure_reason VARCHAR(255),
+                    group_created_at BIGINT,
+                    finished_at BIGINT,
+                    released_at BIGINT,
+                    created_at BIGINT,
+                    updated_at BIGINT,
+                    active_builder_account_id BIGINT
                 )
                 """,
                 """
@@ -763,6 +818,7 @@ class MysqlModeMapperInMemoryTest {
                     new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
                     new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkHealthMapper.xml"),
+                    new ClassPathResource("mapper/marketing/GroupPullMarketingMapper.xml"),
                     new ClassPathResource("mapper/marketing/MarketingTaskMapper.xml"));
             return factoryBean.getObject();
         }
@@ -795,6 +851,11 @@ class MysqlModeMapperInMemoryTest {
         @Bean
         MarketingTaskMapper marketingTaskMapper(SqlSessionTemplate sqlSessionTemplate) {
             return sqlSessionTemplate.getMapper(MarketingTaskMapper.class);
+        }
+
+        @Bean
+        GroupPullMarketingMapper groupPullMarketingMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(GroupPullMarketingMapper.class);
         }
     }
 }

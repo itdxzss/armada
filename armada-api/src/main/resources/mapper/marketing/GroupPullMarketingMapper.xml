@@ -1019,10 +1019,12 @@
         LIMIT #{limit}
     </select>
 
-    <select id="selectCancelableExecutionsForUpdate" resultMap="ExecutionResultMap">
+    <!-- 显式 tenant_id + InterceptorIgnore，避免租户插件破坏 ORDER BY ... FOR UPDATE 的 MySQL 尾句。 -->
+    <select id="selectCancelableExecutionsByTenantForUpdate" resultMap="ExecutionResultMap">
         SELECT <include refid="ExecutionColumns"/>
         FROM group_pull_marketing_execution
-        WHERE task_id = #{taskId}
+        WHERE tenant_id = #{tenantId}
+          AND task_id = #{taskId}
           AND group_name IS NULL
           AND execution_status IN (1, 2)
         ORDER BY id

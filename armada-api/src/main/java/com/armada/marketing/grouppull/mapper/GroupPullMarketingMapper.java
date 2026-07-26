@@ -14,6 +14,9 @@ import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -313,8 +316,34 @@ public interface GroupPullMarketingMapper {
     @InterceptorIgnore(tenantLine = "true")
     List<GroupPullTaskDispatchRow> selectReleasingTaskDispatches(@Param("limit") int limit);
 
-    /** 锁定读取尚未正式建群、可由释放流程取消的执行。 */
-    List<GroupPullMarketingExecution> selectCancelableExecutionsForUpdate(
+    /**
+     * 锁定读取尚未正式建群、可由释放流程取消的执行。
+     *
+     * <p>从当前租户上下文取 tenantId，再委托给显式租户 SQL，避免租户插件破坏
+     * MySQL 的 {@code ORDER BY ... FOR UPDATE} 子句顺序。</p>
+     *
+     * @param taskId 统一营销任务 ID
+     * @return 当前租户内可直接取消的准备执行
+     * @throws BusinessException 当前线程缺少租户上下文时抛出
+     */
+    default List<GroupPullMarketingExecution> selectCancelableExecutionsForUpdate(Long taskId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectCancelableExecutionsByTenantForUpdate(tenantId, taskId);
+    }
+
+    /**
+     * 按显式租户锁定读取可取消执行，仅供 {@link #selectCancelableExecutionsForUpdate(Long)} 委托。
+     *
+     * @param tenantId 当前租户 ID
+     * @param taskId 统一营销任务 ID
+     * @return 当前租户内可直接取消的准备执行
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupPullMarketingExecution> selectCancelableExecutionsByTenantForUpdate(
+            @Param("tenantId") Long tenantId,
             @Param("taskId") Long taskId);
 
     /** 释放流程取消一条尚未正式建群的执行。 */

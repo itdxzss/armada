@@ -1055,6 +1055,14 @@ test_armada_module_checks_frontend_title_and_api_proxy() {
   assert_contains "${content}" "/api/account-groups"
 }
 
+test_armada_module_preserves_unauthenticated_response_body() {
+  local module_content
+  module_content="$(cat "${SCRIPT_DIR}/lib/armada.sh")"
+  assert_contains "${module_content}" 'curl -sS -m 8'
+  assert_not_contains "${module_content}" 'curl -fsS -m 8 \"http://127.0.0.1:\${port}/api/account-groups\"'
+  assert_contains "${module_content}" '(40101|40104|0|40001)'
+}
+
 test_main_orchestrator_uses_armada_module() {
   local script_content
   script_content="$(cat "${SCRIPT}")"
@@ -1142,6 +1150,7 @@ test_armada_backend_readiness_is_bounded
 test_armada_backend_readiness_stops_after_success
 test_armada_perf_runtime_contract_checks_android_url_and_topics
 test_armada_module_checks_frontend_title_and_api_proxy
+test_armada_module_preserves_unauthenticated_response_body
 test_main_orchestrator_uses_armada_module
 test_armada_compose_passes_android_base_url_to_backend
 test_kafka_checker_redacts_connection_errors

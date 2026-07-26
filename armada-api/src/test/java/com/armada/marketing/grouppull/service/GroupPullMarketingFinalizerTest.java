@@ -9,6 +9,8 @@ import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStage;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStatus;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -17,15 +19,19 @@ class GroupPullMarketingFinalizerTest {
 
     @Test
     void failedExecutionKeepsTheStageWhereTheFailureOccurred() {
+        AtomicInteger expectedStatus = new AtomicInteger();
+        AtomicInteger expectedStage = new AtomicInteger();
         AtomicInteger terminalStatus = new AtomicInteger();
         AtomicInteger terminalStage = new AtomicInteger();
         GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
-            case "selectExecutionByIdForUpdate" -> execution();
-            case "selectTaskByIdForUpdate" -> task();
+            case "selectExecutionById" -> execution();
+            case "selectTaskById" -> task();
             case "countSuccessfulMaterialEntries" -> 2L;
             case "markExecutionTerminal" -> {
-                terminalStatus.set((Integer) args[1]);
-                terminalStage.set((Integer) args[2]);
+                expectedStatus.set((Integer) args[1]);
+                expectedStage.set((Integer) args[2]);
+                terminalStatus.set((Integer) args[3]);
+                terminalStage.set((Integer) args[4]);
                 yield 1;
             }
             case "completeFailedJoinedMaterials", "releaseUnjoinedMaterials",
@@ -37,8 +43,32 @@ class GroupPullMarketingFinalizerTest {
 
         finalizer.finalizeAfterStages(501L);
 
+        assertThat(expectedStatus.get()).isEqualTo(GroupPullExecutionStatus.EXECUTING.code());
+        assertThat(expectedStage.get()).isEqualTo(GroupPullExecutionStage.ADD_MATERIALS.code());
         assertThat(terminalStatus.get()).isEqualTo(GroupPullExecutionStatus.FAILED.code());
         assertThat(terminalStage.get()).isEqualTo(GroupPullExecutionStage.ADD_MATERIALS.code());
+    }
+
+    @Test
+    void terminalUpdateConflictSkipsAllSettlementSideEffects() {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution();
+            case "selectTaskById" -> task();
+            case "markExecutionTerminal" -> 0;
+            case "completeFailedJoinedMaterials", "releaseUnjoinedMaterials",
+                    "cancelMarketingQuota", "moveBuilderAccount", "markExecutionReleased" -> {
+                calls.add(method);
+                yield 1;
+            }
+            default -> throw new UnsupportedOperationException(method);
+        });
+        GroupPullMarketingFinalizer finalizer = new GroupPullMarketingFinalizer(
+                mapper, null, new ReleasingOccupancyService(), null);
+
+        finalizer.fail(501L, "测试失败");
+
+        assertThat(calls).isEmpty();
     }
 
     private static GroupPullMarketingExecution execution() {

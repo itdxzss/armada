@@ -16,7 +16,10 @@ import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingMaterial;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.shared.tenant.TenantContext;
@@ -119,25 +122,65 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
-    void groupPullReleaseLockQueryExecutesAndKeepsTenantBoundary() throws SQLException {
+    void groupPullReleaseCandidateQueryExecutesAndKeepsTenantBoundary() throws SQLException {
         executeSql(
                 "INSERT INTO group_pull_marketing_execution "
                         + "(id, tenant_id, task_id, execution_status) VALUES (31, 7, 146, 1)",
                 "INSERT INTO group_pull_marketing_execution "
                         + "(id, tenant_id, task_id, execution_status) VALUES (32, 8, 146, 1)");
 
-        List<GroupPullMarketingExecution> executions = transactionTemplate.execute(status -> {
-            List<GroupPullMarketingExecution> locked =
-                    groupPullMarketingMapper.selectCancelableExecutionsForUpdate(146L);
-            status.setRollbackOnly();
-            return locked;
-        });
+        List<GroupPullMarketingExecution> executions =
+                groupPullMarketingMapper.selectCancelableExecutions(146L);
 
         assertThat(executions).isNotNull();
         assertThat(executions).extracting(GroupPullMarketingExecution::getId).containsExactly(31L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupPullMarketingMapper.class.getName()
-                        + ".selectCancelableExecutionsByTenantForUpdate")).isTrue();
+                        + ".selectCancelableExecutions")).isFalse();
+    }
+
+    @Test
+    void groupPullNonLockingAllocatorReadsExecuteAndKeepTenantBoundary() throws SQLException {
+        executeSql(
+                "INSERT INTO group_pull_marketing_task "
+                        + "(marketing_task_id, tenant_id, builder_group_id, created_at, updated_at) "
+                        + "VALUES (146, 7, 278, 100, 100)",
+                "INSERT INTO group_pull_marketing_task "
+                        + "(marketing_task_id, tenant_id, builder_group_id, created_at, updated_at) "
+                        + "VALUES (147, 8, 279, 100, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (61, 7, 146, 2, '10002', 1, 100, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (62, 7, 146, 1, '10001', 1, 100, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (63, 8, 146, 0, '20001', 1, 100, 100)",
+                "INSERT INTO group_pull_marketing_account_stat "
+                        + "(id, tenant_id, task_id, account_id, reserved_group_count, "
+                        + "joined_group_count, created_at, updated_at) "
+                        + "VALUES (71, 7, 146, 88, 1, 2, 100, 100)",
+                "INSERT INTO group_pull_marketing_account_stat "
+                        + "(id, tenant_id, task_id, account_id, reserved_group_count, "
+                        + "joined_group_count, created_at, updated_at) "
+                        + "VALUES (72, 8, 146, 88, 9, 9, 100, 100)");
+
+        GroupPullMarketingTask task = groupPullMarketingMapper.selectTaskById(146L);
+        List<GroupPullMarketingMaterial> materials =
+                groupPullMarketingMapper.selectAvailableMaterials(146L, 5);
+        GroupPullMarketingAccountStat stat =
+                groupPullMarketingMapper.selectAccountStat(146L, 88L);
+
+        assertThat(task).isNotNull();
+        assertThat(task.getTenantId()).isEqualTo(CURRENT_TENANT_ID);
+        assertThat(groupPullMarketingMapper.selectTaskById(147L)).isNull();
+        assertThat(materials).extracting(GroupPullMarketingMaterial::getId)
+                .containsExactly(62L, 61L);
+        assertThat(stat).isNotNull();
+        assertThat(stat.getTenantId()).isEqualTo(CURRENT_TENANT_ID);
+        assertThat(stat.getReservedGroupCount()).isEqualTo(1);
+        assertThat(stat.getJoinedGroupCount()).isEqualTo(2);
     }
 
     @Test
@@ -536,7 +579,42 @@ class MysqlModeMapperInMemoryTest {
                     task_id BIGINT NOT NULL,
                     account_id BIGINT NOT NULL,
                     reserved_group_count INT NOT NULL,
-                    joined_group_count INT NOT NULL
+                    joined_group_count INT NOT NULL,
+                    created_at BIGINT,
+                    updated_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_task (
+                    marketing_task_id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    builder_group_id BIGINT NOT NULL,
+                    success_group_id BIGINT,
+                    failure_group_id BIGINT,
+                    marketing_account_group_limit INT DEFAULT 10,
+                    group_name_prefix VARCHAR(100),
+                    friend_retry_limit INT DEFAULT 3,
+                    material_per_group INT DEFAULT 3,
+                    speak_permission TINYINT DEFAULT 1,
+                    builder_exit_enabled BOOLEAN DEFAULT TRUE,
+                    block_reason TINYINT DEFAULT 0,
+                    resource_status TINYINT DEFAULT 1,
+                    marketing_account_total_count INT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_material (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    task_id BIGINT NOT NULL,
+                    line_no INT NOT NULL,
+                    phone VARCHAR(32) NOT NULL,
+                    status TINYINT NOT NULL DEFAULT 1,
+                    current_execution_id BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
                 )
                 """,
                 """

@@ -492,13 +492,6 @@
         WHERE marketing_task_id = #{taskId}
     </delete>
 
-    <select id="selectTaskByIdForUpdate" resultMap="TaskResultMap">
-        SELECT <include refid="TaskColumns"/>
-        FROM group_pull_marketing_task
-        WHERE marketing_task_id = #{taskId}
-        FOR UPDATE
-    </select>
-
     <select id="countInflightExecutions" resultType="long">
         SELECT COUNT(*)
         FROM group_pull_marketing_execution
@@ -573,7 +566,7 @@
         LIMIT 1
     </select>
 
-    <select id="selectAvailableMaterialsForUpdate" resultMap="MaterialResultMap">
+    <select id="selectAvailableMaterials" resultMap="MaterialResultMap">
         SELECT id, tenant_id, task_id, line_no, phone, status, current_execution_id,
                created_at, updated_at
         FROM group_pull_marketing_material
@@ -581,7 +574,6 @@
           AND status = 1
         ORDER BY line_no ASC
         LIMIT #{limit}
-        FOR UPDATE
     </select>
 
     <update id="reserveMaterials">
@@ -641,13 +633,12 @@
         ORDER BY em.allocation_no ASC
     </select>
 
-    <select id="selectAccountStatForUpdate" resultMap="AccountStatResultMap">
+    <select id="selectAccountStat" resultMap="AccountStatResultMap">
         SELECT id, tenant_id, task_id, account_id, reserved_group_count, joined_group_count,
                created_at, updated_at
         FROM group_pull_marketing_account_stat
         WHERE task_id = #{taskId}
           AND account_id = #{accountId}
-        FOR UPDATE
     </select>
 
     <insert id="insertAccountStat" useGeneratedKeys="true" keyProperty="id">
@@ -843,13 +834,6 @@
           AND entry_status = 2
     </select>
 
-    <select id="selectExecutionByIdForUpdate" resultMap="ExecutionResultMap">
-        SELECT <include refid="ExecutionColumns"/>
-        FROM group_pull_marketing_execution
-        WHERE id = #{id}
-        FOR UPDATE
-    </select>
-
     <update id="markExecutionTerminal">
         UPDATE group_pull_marketing_execution
         SET execution_status = #{terminalStatus},
@@ -862,7 +846,8 @@
             next_execute_at = #{finishedAt},
             updated_at = #{finishedAt}
         WHERE id = #{id}
-          AND execution_status IN (1, 2)
+          AND execution_status = #{expectedStatus}
+          AND current_stage = #{expectedStage}
     </update>
 
     <update id="completeSuccessfulMaterials">
@@ -1017,16 +1002,13 @@
         LIMIT #{limit}
     </select>
 
-    <!-- 显式 tenant_id + InterceptorIgnore，避免租户插件破坏 ORDER BY ... FOR UPDATE 的 MySQL 尾句。 -->
-    <select id="selectCancelableExecutionsByTenantForUpdate" resultMap="ExecutionResultMap">
+    <select id="selectCancelableExecutions" resultMap="ExecutionResultMap">
         SELECT <include refid="ExecutionColumns"/>
         FROM group_pull_marketing_execution
-        WHERE tenant_id = #{tenantId}
-          AND task_id = #{taskId}
+        WHERE task_id = #{taskId}
           AND group_name IS NULL
           AND execution_status IN (1, 2)
         ORDER BY id
-        FOR UPDATE
     </select>
 
     <update id="cancelPreGroupExecution">

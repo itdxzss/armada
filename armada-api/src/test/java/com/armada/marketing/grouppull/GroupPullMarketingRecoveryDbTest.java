@@ -52,8 +52,8 @@ class GroupPullMarketingRecoveryDbTest extends DbTestBase {
         assertThat(mapper.completeSuccessfulMaterials(executionId, now + 6)).isEqualTo(1);
         assertThat(mapper.completeSuccessfulMaterials(executionId, now + 7)).isZero();
 
-        assertThat(mapper.markExecutionTerminal(executionId, 3, 11, null, now + 8)).isEqualTo(1);
-        assertThat(mapper.markExecutionTerminal(executionId, 3, 11, null, now + 9)).isZero();
+        assertThat(mapper.markExecutionTerminal(executionId, 2, 4, 3, 11, null, now + 8)).isEqualTo(1);
+        assertThat(mapper.markExecutionTerminal(executionId, 2, 4, 3, 11, null, now + 9)).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT group_jid FROM group_pull_marketing_execution WHERE id = ?",
                 String.class,

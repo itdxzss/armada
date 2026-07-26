@@ -83,7 +83,7 @@ public class GroupPullMarketingAllocator {
     private AllocationAttempt allocateInTransaction(Long taskId,
                                                     org.springframework.transaction.TransactionStatus status) {
         MarketingTask task = mapper.selectTaskForUpdate(taskId);
-        GroupPullMarketingTask extension = mapper.selectTaskByIdForUpdate(taskId);
+        GroupPullMarketingTask extension = mapper.selectTaskById(taskId);
         if (task == null || extension == null
                 || !Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())
                 || !Integer.valueOf(GroupPullResourceStatus.LOCKED.code()).equals(extension.getResourceStatus())) {
@@ -112,7 +112,7 @@ public class GroupPullMarketingAllocator {
         }
         reserveMarketingQuota(taskId, marketer.getAccountId(), extension.getMarketingAccountGroupLimit(), now);
 
-        List<GroupPullMarketingMaterial> materials = mapper.selectAvailableMaterialsForUpdate(
+        List<GroupPullMarketingMaterial> materials = mapper.selectAvailableMaterials(
                 taskId, extension.getMaterialPerGroup());
         if (materials.size() < extension.getMaterialPerGroup()) {
             status.setRollbackOnly();
@@ -134,7 +134,7 @@ public class GroupPullMarketingAllocator {
     }
 
     private void reserveMarketingQuota(Long taskId, Long accountId, int limit, long now) {
-        GroupPullMarketingAccountStat stat = mapper.selectAccountStatForUpdate(taskId, accountId);
+        GroupPullMarketingAccountStat stat = mapper.selectAccountStat(taskId, accountId);
         if (stat == null) {
             stat = new GroupPullMarketingAccountStat();
             stat.setTaskId(taskId);

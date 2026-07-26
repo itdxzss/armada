@@ -70,6 +70,21 @@ class GroupPullMarketingReleaseServiceTest {
                 .doesNotContain("markResourceReleased");
     }
 
+    @Test
+    void releaseDefersWhenCancelableExecutionWinsRace() {
+        ReleaseFixture fixture = new ReleaseFixture();
+        fixture.cancelableExecutions = List.of(execution(501L, 601L, 701L));
+        fixture.cancelPreGroupExecutionResult = 0;
+
+        assertThat(fixture.service().tryRelease(101L)).isFalse();
+
+        assertThat(fixture.calls)
+                .contains("cancelPreGroupExecution")
+                .doesNotContain("releaseExecutionMaterials", "cancelMarketingQuota",
+                        "cancelPendingMarketingTaskCommands:11:101", "releaseResidualAccounts",
+                        "releaseGroup", "markResourceReleased");
+    }
+
     private static GroupPullMarketingExecution execution(Long id, Long builderId, Long marketerId) {
         GroupPullMarketingExecution execution = new GroupPullMarketingExecution();
         execution.setId(id);
@@ -87,6 +102,7 @@ class GroupPullMarketingReleaseServiceTest {
         private long unfinishedAttempts;
         private boolean groupReleased = true;
         private boolean groupFree;
+        private int cancelPreGroupExecutionResult = 1;
 
         private GroupPullMarketingReleaseService service() {
             return new GroupPullMarketingReleaseService(
@@ -100,10 +116,14 @@ class GroupPullMarketingReleaseServiceTest {
         private GroupPullMarketingMapper groupPullMapper() {
             return proxy(GroupPullMarketingMapper.class, (method, args) -> switch (method) {
                 case "selectTaskForUpdate" -> marketingTask();
-                case "selectTaskByIdForUpdate" -> pullTask();
-                case "selectCancelableExecutionsForUpdate" -> cancelableExecutions;
+                case "selectTaskById" -> pullTask();
+                case "selectCancelableExecutions" -> cancelableExecutions;
                 case "countActiveFormalExecutions" -> activeFormalExecutions;
-                case "cancelPreGroupExecution", "releaseExecutionMaterials", "cancelMarketingQuota",
+                case "cancelPreGroupExecution" -> {
+                    calls.add(method);
+                    yield cancelPreGroupExecutionResult;
+                }
+                case "releaseExecutionMaterials", "cancelMarketingQuota",
                         "markExecutionReleased", "markTaskExecutionsReleased", "markResourceReleased" -> {
                     calls.add(method);
                     yield 1;

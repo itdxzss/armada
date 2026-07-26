@@ -30,7 +30,7 @@ class GroupPullMarketingMapperDbTest extends DbTestBase {
                 material(taskId, 1, "8613800000001")))).isEqualTo(2);
 
         assertThat(mapper.selectTaskById(taskId).getBuilderGroupId()).isEqualTo(101L);
-        assertThat(mapper.selectAvailableMaterialsForUpdate(taskId, 2))
+        assertThat(mapper.selectAvailableMaterials(taskId, 2))
                 .extracting(GroupPullMarketingMaterial::getLineNo)
                 .containsExactly(1, 2);
     }

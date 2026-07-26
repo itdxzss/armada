@@ -41,6 +41,30 @@ class GroupPullMarketingAllocatorSqlShapeTest {
     }
 
     @Test
+    void materialCandidateUsesNonLockingStableOrder() throws IOException {
+        String xml = resource("/mapper/marketing/GroupPullMarketingMapper.xml");
+
+        assertThat(block(xml, "select", "selectAvailableMaterials"))
+                .contains("task_id = #{taskId}")
+                .contains("status = 1")
+                .contains("ORDER BY line_no ASC")
+                .contains("LIMIT #{limit}")
+                .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    void accountQuotaCandidateUsesNonLockingLookup() throws IOException {
+        String xml = resource("/mapper/marketing/GroupPullMarketingMapper.xml");
+
+        assertThat(block(xml, "select", "selectAccountStat"))
+                .contains("task_id = #{taskId}")
+                .contains("account_id = #{accountId}")
+                .doesNotContain("FOR UPDATE");
+        assertThat(block(xml, "update", "reserveMarketingQuota"))
+                .contains("reserved_group_count + joined_group_count &lt; #{limit}");
+    }
+
+    @Test
     void accountOccupancyKeepsGroupPullBuildersUntilResourcesReleased() throws IOException {
         String xml = resource("/mapper/marketing/MarketingAccountOccupancyMapper.xml");
 

@@ -74,14 +74,22 @@ public class GroupPullMarketingReleaseService {
     @Transactional(rollbackFor = Exception.class)
     public boolean tryRelease(Long taskId) {
         MarketingTask task = mapper.selectTaskForUpdate(taskId);
-        GroupPullMarketingTask pullTask = mapper.selectTaskByIdForUpdate(taskId);
+        GroupPullMarketingTask pullTask = mapper.selectTaskById(taskId);
         if (task == null || pullTask == null
                 || !Integer.valueOf(GroupPullResourceStatus.RELEASING.code())
                         .equals(pullTask.getResourceStatus())) {
             return false;
         }
         long now = System.currentTimeMillis();
-        int canceledExecutions = cancelPreGroupExecutions(taskId, now);
+        CancellationResult cancellation = cancelPreGroupExecutions(taskId, now);
+        if (!cancellation.stable()) {
+            log.debug(
+                    "拉群营销取消准备执行时状态发生变化，延后释放 taskId={} canceledPreparations={}",
+                    taskId,
+                    cancellation.canceled());
+            return false;
+        }
+        int canceledExecutions = cancellation.canceled();
         long activeFormalExecutions = mapper.countActiveFormalExecutions(taskId);
         if (activeFormalExecutions > 0) {
             log.debug(
@@ -145,14 +153,14 @@ public class GroupPullMarketingReleaseService {
      *
      * @param taskId 统一营销任务 ID
      * @param now 当前时间（epoch 毫秒）
-     * @return 实际取消的准备执行数
+     * @return 已取消数量及候选状态是否保持稳定
      */
-    private int cancelPreGroupExecutions(Long taskId, long now) {
+    private CancellationResult cancelPreGroupExecutions(Long taskId, long now) {
         int canceled = 0;
         for (GroupPullMarketingExecution execution
-                : mapper.selectCancelableExecutionsForUpdate(taskId)) {
+                : mapper.selectCancelableExecutions(taskId)) {
             if (mapper.cancelPreGroupExecution(execution.getId(), now) != 1) {
-                continue;
+                return new CancellationResult(canceled, false);
             }
             mapper.releaseExecutionMaterials(execution.getId(), now);
             mapper.cancelMarketingQuota(taskId, execution.getMarketingAccountId(), now);
@@ -161,6 +169,10 @@ public class GroupPullMarketingReleaseService {
             mapper.markExecutionReleased(execution.getId(), now);
             canceled++;
         }
-        return canceled;
+        return new CancellationResult(canceled, true);
+    }
+
+    /** 准备执行条件取消结果。 */
+    private record CancellationResult(int canceled, boolean stable) {
     }
 }

@@ -317,11 +317,11 @@ public class GroupPullMarketingExecutionWorker {
             return execution.getGroupName();
         }
         String generated = transactionTemplate.execute(status -> {
-            GroupPullMarketingExecution locked = mapper.selectExecutionByIdForUpdate(execution.getId());
-            if (StringUtils.hasText(locked.getGroupName())) {
-                return locked.getGroupName();
-            }
             mapper.selectTaskForUpdate(execution.getTaskId());
+            GroupPullMarketingExecution current = mapper.selectExecutionById(execution.getId());
+            if (StringUtils.hasText(current.getGroupName())) {
+                return current.getGroupName();
+            }
             long sequence = mapper.countNamedExecutions(execution.getTaskId()) + 1;
             String name = GroupPullGroupNameGenerator.generate(task.getGroupNamePrefix(), sequence);
             if (mapper.saveGroupNameIfAbsent(execution.getId(), name, System.currentTimeMillis()) != 1) {

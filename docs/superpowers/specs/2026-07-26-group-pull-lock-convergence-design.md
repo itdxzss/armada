@@ -39,7 +39,8 @@
 3. `selectAccountStatForUpdate` 改为普通查询。统计行由 `(tenant_id, task_id, account_id)` 唯一键保证唯一，
    实际额度预留继续由带上限条件的原子 `UPDATE` 裁决。
 4. 删除 `selectExecutionByIdForUpdate`。Finalizer 普通读取执行快照，使用
-   `markExecutionTerminal WHERE execution_status IN (1, 2)` 抢占唯一结算权；影响行数为零时不执行任何后续副作用。
+   `markExecutionTerminal WHERE execution_status = expectedStatus AND current_stage = expectedStage`
+   抢占唯一结算权；影响行数为零时不执行任何后续副作用，避免短租约接管后使用旧阶段快照结算。
 5. 群名冻结事务先锁 `marketing_task`，再普通读取执行记录，最后用
    `saveGroupNameIfAbsent` 的状态条件保存群名，统一成 `task -> execution` 顺序。
 

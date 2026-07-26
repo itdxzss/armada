@@ -10,19 +10,34 @@ import org.junit.jupiter.api.Test;
 class GroupPullMarketingAllocatorSqlShapeTest {
 
     @Test
-    void allocatorUsesFiveInflightLimitAndStableMarketerOrder() throws IOException {
+    void allocatorUsesFiveInflightLimit() throws IOException {
         String xml = resource("/mapper/marketing/GroupPullMarketingMapper.xml");
 
         assertThat(block(xml, "select", "countInflightExecutions"))
                 .contains("execution_status IN (1, 2)");
-        assertThat(block(xml, "select", "selectBuilderCandidateForUpdate"))
+    }
+
+    @Test
+    void builderCandidateUsesNonLockingStableOrder() throws IOException {
+        String xml = resource("/mapper/marketing/GroupPullMarketingMapper.xml");
+
+        assertThat(block(xml, "select", "selectBuilderCandidate"))
                 .contains("marketing_occupancy_task_id IS NULL")
-                .contains("FOR UPDATE");
-        assertThat(block(xml, "select", "selectMarketerCandidateForUpdate"))
+                .contains("ORDER BY a.created_at DESC")
+                .contains("LIMIT 1")
+                .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    void marketerCandidateUsesNonLockingStableOrder() throws IOException {
+        String xml = resource("/mapper/marketing/GroupPullMarketingMapper.xml");
+
+        assertThat(block(xml, "select", "selectMarketerCandidate"))
                 .contains("reserved_group_count")
                 .contains("joined_group_count")
                 .contains("ORDER BY a.created_at DESC")
-                .contains("FOR UPDATE");
+                .contains("LIMIT 1")
+                .doesNotContain("FOR UPDATE");
     }
 
     @Test

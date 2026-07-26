@@ -506,7 +506,7 @@
           AND execution_status IN (1, 2)
     </select>
 
-    <select id="selectBuilderCandidateForUpdate"
+    <select id="selectBuilderCandidate"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,
@@ -542,10 +542,9 @@
           )
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 1
-        FOR UPDATE
     </select>
 
-    <select id="selectMarketerCandidateForUpdate"
+    <select id="selectMarketerCandidate"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,
@@ -572,7 +571,6 @@
           AND COALESCE(stat.reserved_group_count, 0) + COALESCE(stat.joined_group_count, 0) &lt; #{limit}
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 1
-        FOR UPDATE
     </select>
 
     <select id="selectAvailableMaterialsForUpdate" resultMap="MaterialResultMap">

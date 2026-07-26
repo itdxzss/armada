@@ -17,6 +17,7 @@ import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
+import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -137,6 +138,57 @@ class MysqlModeMapperInMemoryTest {
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupPullMarketingMapper.class.getName()
                         + ".selectCancelableExecutionsByTenantForUpdate")).isTrue();
+    }
+
+    @Test
+    void groupPullCandidateQueriesExecuteWithTenantPlugin() throws SQLException {
+        executeSql(
+                "INSERT INTO account_group "
+                        + "(id, tenant_id, name, deleted_at, marketing_occupancy_type, "
+                        + "marketing_occupancy_task_id) "
+                        + "VALUES (278, 7, 'builder', NULL, NULL, NULL)",
+                "INSERT INTO account_group "
+                        + "(id, tenant_id, name, deleted_at, marketing_occupancy_type, "
+                        + "marketing_occupancy_task_id) "
+                        + "VALUES (336, 7, 'marketer', NULL, 2, 157)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (41, 7, '10001', 278, 'android', 'acc_10001', 100, NULL)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (42, 7, '10002', 336, 'android', 'acc_10002', 200, NULL)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (43, 8, '20001', 278, 'android', 'acc_20001', 300, NULL)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (44, 8, '20002', 336, 'android', 'acc_20002', 400, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (51, 7, 41, 2, 1, 1, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (52, 7, 42, 2, 1, 1, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (53, 8, 43, 2, 1, 1, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (54, 8, 44, 2, 1, 1, NULL)");
+
+        GroupPullAccountRefRow builder =
+                groupPullMarketingMapper.selectBuilderCandidate(157L, 278L);
+        GroupPullAccountRefRow marketer =
+                groupPullMarketingMapper.selectMarketerCandidate(157L, 336L, 10);
+
+        assertThat(builder).isNotNull();
+        assertThat(builder.getAccountId()).isEqualTo(41L);
+        assertThat(marketer).isNotNull();
+        assertThat(marketer.getAccountId()).isEqualTo(42L);
     }
 
     @Test
@@ -442,7 +494,49 @@ class MysqlModeMapperInMemoryTest {
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     name VARCHAR(100),
+                    deleted_at BIGINT,
+                    marketing_occupancy_type TINYINT,
+                    marketing_occupancy_task_id BIGINT
+                )
+                """,
+                """
+                CREATE TABLE account (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    ws_phone VARCHAR(32) NOT NULL,
+                    account_group_id BIGINT,
+                    protocol_id VARCHAR(32),
+                    protocol_account_id VARCHAR(64),
+                    created_at BIGINT NOT NULL,
                     deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE account_state (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    account_state TINYINT,
+                    login_state TINYINT,
+                    risk_status TINYINT,
+                    mute_status TINYINT
+                )
+                """,
+                """
+                CREATE TABLE marketing_account_occupancy (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_account_stat (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    task_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    reserved_group_count INT NOT NULL,
+                    joined_group_count INT NOT NULL
                 )
                 """,
                 """

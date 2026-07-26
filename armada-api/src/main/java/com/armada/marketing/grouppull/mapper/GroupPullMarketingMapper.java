@@ -109,12 +109,12 @@ public interface GroupPullMarketingMapper {
     /** 统计任务当前准备中或正式执行中的建群数。 */
     long countInflightExecutions(@Param("taskId") Long taskId);
 
-    /** 锁定选择一个尚未被任何任务领取的建群账号。 */
-    GroupPullAccountRefRow selectBuilderCandidateForUpdate(@Param("taskId") Long taskId,
-                                                           @Param("builderGroupId") Long builderGroupId);
+    /** 选择一个尚未被任何任务领取的建群账号，实际领取由账号占用表唯一键裁决。 */
+    GroupPullAccountRefRow selectBuilderCandidate(@Param("taskId") Long taskId,
+                                                  @Param("builderGroupId") Long builderGroupId);
 
-    /** 按账号创建时间倒序锁定选择一个仍有群额度的营销账号。 */
-    GroupPullAccountRefRow selectMarketerCandidateForUpdate(
+    /** 按账号创建时间倒序选择一个仍有群额度的营销账号。 */
+    GroupPullAccountRefRow selectMarketerCandidate(
             @Param("taskId") Long taskId,
             @Param("marketingGroupId") Long marketingGroupId,
             @Param("limit") int limit);

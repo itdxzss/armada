@@ -93,7 +93,7 @@ public class GroupPullMarketingAllocator {
             return new AllocationAttempt(InternalOutcome.CONCURRENCY_FULL, null);
         }
 
-        GroupPullAccountRefRow builder = mapper.selectBuilderCandidateForUpdate(
+        GroupPullAccountRefRow builder = mapper.selectBuilderCandidate(
                 taskId, extension.getBuilderGroupId());
         if (builder == null) {
             return new AllocationAttempt(InternalOutcome.WAIT_BUILDER, null);
@@ -104,7 +104,7 @@ public class GroupPullMarketingAllocator {
             return new AllocationAttempt(InternalOutcome.RETRY_BUILDER, null);
         }
 
-        GroupPullAccountRefRow marketer = mapper.selectMarketerCandidateForUpdate(
+        GroupPullAccountRefRow marketer = mapper.selectMarketerCandidate(
                 taskId, task.getAccountGroupId(), extension.getMarketingAccountGroupLimit());
         if (marketer == null) {
             status.setRollbackOnly();

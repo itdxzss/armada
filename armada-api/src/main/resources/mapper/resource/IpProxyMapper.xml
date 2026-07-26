@@ -113,10 +113,10 @@
             c.last_ip_sample_check_at AS last_sample_check_at
         FROM country c
         LEFT JOIN ip_proxy p
-          ON TRIM(p.region) = c.name_zh
+          ON p.region = c.name_zh
          AND p.deleted_at IS NULL
          AND p.region IS NOT NULL
-         AND TRIM(p.region) != ''
+         AND p.region != ''
         <if test="q.protocol != null">AND p.protocol = #{q.protocol}</if>
         <if test="q.allocationMode != null and q.allocationMode != ''">AND p.allocation_mode = #{q.allocationMode}</if>
         <if test="q.source != null and q.source != ''">AND p.source LIKE CONCAT('%', #{q.source}, '%')</if>
@@ -141,7 +141,7 @@
     <sql id="StatsDetailWhere">
         <where>
             deleted_at IS NULL
-            AND TRIM(region) = #{region}
+            AND region = #{region}
             <if test="q.status != null">AND status = #{q.status}</if>
             <if test="q.protocol != null">AND protocol = #{q.protocol}</if>
             <if test="q.allocationMode != null and q.allocationMode != ''">AND allocation_mode = #{q.allocationMode}</if>
@@ -204,11 +204,11 @@
                 COUNT(DISTINCT p.region) AS covered_region_count
             FROM country c
             LEFT JOIN (
-                SELECT DISTINCT TRIM(region) AS region
+                SELECT DISTINCT region
                 FROM ip_proxy
                 WHERE deleted_at IS NULL
                   AND region IS NOT NULL
-                  AND TRIM(region) != ''
+                  AND region != ''
             ) p ON p.region = c.name_zh
             WHERE c.deleted_at IS NULL
               AND c.is_enabled = 1
@@ -255,10 +255,10 @@
             COALESCE(SUM(CASE WHEN p.status = 3 THEN 1 ELSE 0 END), 0) AS unavailable_ip_count
         FROM country c
         LEFT JOIN ip_proxy p
-          ON TRIM(p.region) = c.name_zh
+          ON p.region = c.name_zh
          AND p.deleted_at IS NULL
          AND p.region IS NOT NULL
-         AND TRIM(p.region) != ''
+         AND p.region != ''
         WHERE c.deleted_at IS NULL
           AND c.is_enabled = 1
           AND c.is_ip_supported = 1
@@ -277,7 +277,7 @@
         SELECT id
         FROM ip_proxy
         WHERE deleted_at IS NULL
-          AND TRIM(region) = #{region}
+          AND region = #{region}
         ORDER BY RAND()
         LIMIT #{limit}
     </select>
@@ -307,18 +307,18 @@
         SELECT host, port, username, password
         FROM ip_proxy
         WHERE deleted_at IS NULL
-          AND TRIM(region) = #{region}
+          AND region = #{region}
         ORDER BY id DESC
     </select>
 
     <select id="selectDistinctRegions" resultType="string">
         SELECT region
         FROM (
-          SELECT DISTINCT TRIM(region) AS region
+          SELECT DISTINCT region
           FROM ip_proxy
           WHERE deleted_at IS NULL
             AND region IS NOT NULL
-            AND TRIM(region) != ''
+            AND region != ''
         ) r
         ORDER BY
           CASE WHEN r.region = #{mixedRegion} THEN 0 ELSE 1 END,

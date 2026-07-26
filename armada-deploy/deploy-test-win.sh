@@ -417,7 +417,8 @@ protocol_ssh_run() {
   ssh "${PROTOCOL_SSH_OPTS[@]}" "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}" "$@"
 }
 
-remote_required_env_check='
+remote_required_env_check="$(
+cat <<'REMOTE_REQUIRED_ENV_CHECK'
 set -euo pipefail
 cd "$1"
 test -f .env || { echo "远端缺少 .env: $1/.env" >&2; exit 20; }
@@ -441,7 +442,8 @@ fi
   echo "$1/.env 的 PROMOTION_TRACKING_ENCRYPTION_KEY 解码后必须为 32 字节" >&2
   exit 22
 }
-'
+REMOTE_REQUIRED_ENV_CHECK
+)"
 
 protocol_remote_deploy='
 set -eu

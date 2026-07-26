@@ -95,6 +95,9 @@ public class AccountListVoRow {
     /** 出口国家。 */
     private String proxyCountry;
 
+    /** 出口国家对应的国旗 emoji;混合国家或无匹配国家时为空。 */
+    private String countryFlag;
+
     /** 代理来源展示快照;为空时来自当前绑定代理。 */
     private String ipSource;
 
@@ -334,6 +337,14 @@ public class AccountListVoRow {
 
     public void setProxyCountry(String proxyCountry) {
         this.proxyCountry = proxyCountry;
+    }
+
+    public String getCountryFlag() {
+        return countryFlag;
+    }
+
+    public void setCountryFlag(String countryFlag) {
+        this.countryFlag = countryFlag;
     }
 
     public String getIpSource() {

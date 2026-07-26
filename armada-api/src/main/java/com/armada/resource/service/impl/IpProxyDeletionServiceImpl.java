@@ -3,6 +3,9 @@ package com.armada.resource.service.impl;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.service.IpProxyDeletionService;
+import com.armada.resource.model.IpProxyStatus;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,8 +44,21 @@ public class IpProxyDeletionServiceImpl implements IpProxyDeletionService {
             return;
         }
 
+        // 配对占用不属于正式账号绑定，删除链路不能把它当成无账号代理直接软删。
+        long pairingReservations = ipProxyMapper.countPairingReservationsByIds(
+                ids, IpProxyStatus.PAIRING_RESERVED.code());
+        if (pairingReservations > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "所选代理正在用于 WhatsApp 配对，请稍后重试");
+        }
+
         accountOnlineCommandService.reloginOnlineAccountsByProxyIds(ids);
         int deleted = ipProxyMapper.softDeleteByIds(ids, System.currentTimeMillis());
+        // 兜住“首次检查后、软删前”才完成预占的竞态；软删 SQL 会跳过该行，这里统一回滚并返回冲突。
+        long racedPairingReservations = ipProxyMapper.countPairingReservationsByIds(
+                ids, IpProxyStatus.PAIRING_RESERVED.code());
+        if (racedPairingReservations > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "所选代理正在用于 WhatsApp 配对，请稍后重试");
+        }
         log.info("IP代理删除编排完成 requested={} deleted={}", ids.size(), deleted);
     }
 }

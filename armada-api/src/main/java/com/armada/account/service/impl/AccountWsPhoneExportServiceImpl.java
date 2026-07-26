@@ -2,7 +2,6 @@ package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountWsPhoneExportDTO;
-import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountWsPhoneExportFile;
 import com.armada.account.model.vo.AccountWsPhoneExportRow;
 import com.armada.account.service.AccountWsPhoneExportService;
@@ -22,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-/** 所选正常账号 WS 号码导出实现。 */
+/** 所选未软删除账号 WS 号码导出实现，不限制账号状态。 */
 @Service
 public class AccountWsPhoneExportServiceImpl implements AccountWsPhoneExportService {
 
@@ -62,8 +61,8 @@ public class AccountWsPhoneExportServiceImpl implements AccountWsPhoneExportServ
             Set<String> phones = new LinkedHashSet<>();
             for (int from = 0; from < ids.size(); from += QUERY_CHUNK_SIZE) {
                 int to = Math.min(from + QUERY_CHUNK_SIZE, ids.size());
-                List<AccountWsPhoneExportRow> rows = accountMapper.selectNormalWsPhonesByIds(
-                        ids.subList(from, to), AccountStateCode.NORMAL);
+                List<AccountWsPhoneExportRow> rows = accountMapper.selectWsPhonesByIds(
+                        ids.subList(from, to));
                 if (rows == null) {
                     continue;
                 }

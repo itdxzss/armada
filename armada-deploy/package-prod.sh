@@ -156,6 +156,7 @@ require_common_files() {
   [ -f "${SCRIPT_DIR}/prod/scripts/rollback.sh" ] || die "missing prod rollback script"
   [ -f "${SCRIPT_DIR}/prod/scripts/status.sh" ] || die "missing prod status script"
   [ -f "${SCRIPT_DIR}/prod/scripts/logs.sh" ] || die "missing prod logs script"
+  [ -f "${SCRIPT_DIR}/prod/scripts/inspect-production-host.sh" ] || die "missing production host inspection script"
   [ -f "${SCRIPT_DIR}/prod/README-prod.md" ] || die "missing prod README"
 }
 
@@ -249,6 +250,7 @@ copy_common_release_files() {
   cp "${SCRIPT_DIR}/prod/scripts/rollback.sh" "${release_dir}/scripts/rollback.sh"
   cp "${SCRIPT_DIR}/prod/scripts/status.sh" "${release_dir}/scripts/status.sh"
   cp "${SCRIPT_DIR}/prod/scripts/logs.sh" "${release_dir}/scripts/logs.sh"
+  cp "${SCRIPT_DIR}/prod/scripts/inspect-production-host.sh" "${release_dir}/scripts/inspect-production-host.sh"
   cp "${SCRIPT_DIR}/prod/README-prod.md" "${release_dir}/README-prod.md"
   chmod +x "${release_dir}/scripts/"*.sh
 }
@@ -276,7 +278,7 @@ create_app_package() {
   render_template "${SCRIPT_DIR}/prod/app/docker-compose.yml" "${release_dir}/docker-compose.yml"
   cp "${SCRIPT_DIR}/prod/app/.env.example" "${release_dir}/.env.example"
   copy_common_release_files "${release_dir}"
-  write_release_env "${release_dir}" "armada-app" "armada-prod" "app" "DB_URL DB_USER DB_PASSWORD DEV_LOGIN_PASSWORD KAFKA_BROKERS ARMADA_PROTOCOL_BASE_URL ARMADA_PROTOCOL_API_KEY"
+  write_release_env "${release_dir}" "armada-app" "armada-prod" "app" "DB_URL DB_USER DB_PASSWORD DEV_LOGIN_PASSWORD KAFKA_BROKERS ARMADA_PROTOCOL_BASE_URL ARMADA_PROTOCOL_API_KEY PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID"
   info "saving app images"
   docker save -o "${release_dir}/images/app-images.tar" "${BACKEND_IMAGE}" "${NGINX_IMAGE}"
   mkdir -p "${OUTPUT_DIR}"

@@ -57,6 +57,7 @@ test_help_and_dry_run_contract() {
 }
 
 test_app_package_templates() {
+  local env_chmod_line env_validation_line
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "image: armada/backend:__VERSION__"
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "image: armada/nginx:__VERSION__"
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'APP_TITLE: ${APP_TITLE:-Wheel SaaS}'
@@ -64,6 +65,8 @@ test_app_package_templates() {
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC:-protocol.android.lifecycle.commands.v1}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC:-protocol.android.message.commands.v1}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:-protocol.android.group-join.commands.v1}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROMOTION_TRACKING_ENCRYPTION_KEY: ${PROMOTION_TRACKING_ENCRYPTION_KEY:?PROMOTION_TRACKING_ENCRYPTION_KEY is required}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROMOTION_TRACKING_ENCRYPTION_KEY_ID: ${PROMOTION_TRACKING_ENCRYPTION_KEY_ID:?PROMOTION_TRACKING_ENCRYPTION_KEY_ID is required}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "      IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200"
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "      ARMADA_IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200"
   assert_file_contains "${PROD_DIR}/app/.env.example" "APP_TITLE=Wheel SaaS"
@@ -73,9 +76,22 @@ test_app_package_templates() {
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC=protocol.android.lifecycle.commands.v1"
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC=protocol.android.message.commands.v1"
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC=protocol.android.group-join.commands.v1"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "PROMOTION_TRACKING_ENCRYPTION_KEY=CHANGE_ME_BASE64_32_BYTE_AES_KEY"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "PROMOTION_TRACKING_ENCRYPTION_KEY_ID=prod-v1"
   assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "render-platform-config.sh"
   assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "PLATFORM_CONFIG_ROOT=/usr/share/nginx/html/saas"
   assert_file_contains "${SCRIPT_DIR}/render-platform-config.sh" "platform-config.template.json"
+  assert_file_contains "${PACKAGE_SCRIPT}" "PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID"
+  assert_file_contains "${PROD_DIR}/scripts/install.sh" "base64 --decode"
+  assert_file_contains "${PROD_DIR}/scripts/install.sh" 'if [ "${RELEASE_KIND}" = "armada-app" ]; then'
+  assert_file_contains "${PROD_DIR}/scripts/install.sh" "chmod 600"
+  assert_file_contains "${PROD_DIR}/README-prod.md" "umask 077"
+  assert_file_contains "${PROD_DIR}/README-prod.md" "chmod 600 .env"
+
+  env_chmod_line="$(grep -n 'chmod 600 "${RELEASE_DIR}/.env"' "${PROD_DIR}/scripts/install.sh" | head -1 | cut -d: -f1)"
+  env_validation_line="$(grep -n 'for key in ${REQUIRED_ENV_KEYS:-}' "${PROD_DIR}/scripts/install.sh" | head -1 | cut -d: -f1)"
+  [ "${env_chmod_line}" -lt "${env_validation_line}" ] \
+    || fail "expected production installer to protect .env before validation"
   assert_file_contains "${PACKAGE_SCRIPT}" "armada-api-deploy.jar"
   assert_file_contains "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" "armada-api-deploy.jar"
   assert_file_not_contains_regex "${PACKAGE_SCRIPT}" 'armada-api-[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT\.jar'
@@ -104,9 +120,13 @@ test_runtime_scripts_are_offline_only() {
     assert_executable "${PROD_DIR}/scripts/${script}"
     assert_file_not_contains_regex "${PROD_DIR}/scripts/${script}" '(^|[[:space:]])(ssh|rsync|scp|git[[:space:]]+clone|curl[[:space:]]+https?://)'
   done
+  assert_file "${PROD_DIR}/scripts/inspect-production-host.sh"
+  assert_file_not_contains_regex "${PROD_DIR}/scripts/inspect-production-host.sh" '(^|[[:space:]])(ssh|rsync|scp|git[[:space:]]+clone|curl[[:space:]]+https?://)'
   assert_file_contains "${PROD_DIR}/scripts/install.sh" "docker load -i"
   assert_file_contains "${PROD_DIR}/scripts/install.sh" "docker compose"
   assert_file_contains "${PROD_DIR}/README-prod.md" "生产机器不需要访问外网"
+  assert_file_contains "${PROD_DIR}/scripts/inspect-production-host.sh" "PASS/WARN/FAIL/SKIP"
+  assert_file_not_contains_regex "${PROD_DIR}/scripts/inspect-production-host.sh" 'sysctl[[:space:]]+-w|systemctl[[:space:]]+(start|stop|restart|enable|disable)'
 }
 
 test_help_and_dry_run_contract

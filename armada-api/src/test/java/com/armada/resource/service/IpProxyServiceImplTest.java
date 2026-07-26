@@ -595,7 +595,7 @@ class IpProxyServiceImplTest {
         assertThat(inserted.getLastSampleCheckAt()).isNull();
         verify(detector, never()).check(any());
         verify(ipProxyCheckExecutor, never()).execute(any(Runnable.class));
-        verify(mapper, never()).updateDetectionResult(any(), anyInt());
+        verify(mapper, never()).updateDetectionResult(any(), anyInt(), anyInt());
     }
 
     @Test
@@ -620,7 +620,9 @@ class IpProxyServiceImplTest {
                 IpProxyCheckTiming.zero(),
                 1_719_800_000_000L));
         when(countryService.resolveIpRegionByIso2("IN")).thenReturn("印度");
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
+        when(mapper.updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code())))
+                .thenReturn(1);
 
         IpProxyCheckResultVO result = service.checkProxy(10L);
 
@@ -633,7 +635,10 @@ class IpProxyServiceImplTest {
         assertThat(result.outboundIp()).isEqualTo("103.10.10.10");
         assertThat(result.whatsappStatus()).isEqualTo("HTTP 400");
         ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
-        verify(mapper).updateDetectionResult(updateCaptor.capture(), eq(IpProxyStatus.IN_USE.code()));
+        verify(mapper).updateDetectionResult(
+                updateCaptor.capture(),
+                eq(IpProxyStatus.IN_USE.code()),
+                eq(IpProxyStatus.PAIRING_RESERVED.code()));
         assertThat(updateCaptor.getValue().getRegion()).isEqualTo("美国");
     }
 
@@ -660,13 +665,16 @@ class IpProxyServiceImplTest {
                 400,
                 IpProxyCheckTiming.zero(),
                 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
+        when(mapper.updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code())))
+                .thenReturn(1);
 
         IpProxyCheckResultVO result = service.checkProxy(10L);
 
         assertThat(result.checkStatus()).isEqualTo("success");
         assertThat(result.connectionStatus()).isEqualTo("使用中");
-        verify(mapper).updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()));
+        verify(mapper).updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code()));
     }
 
     @Test
@@ -680,13 +688,16 @@ class IpProxyServiceImplTest {
         updated.setLastCheckError("代理连接超时");
         when(mapper.selectActiveById(10L)).thenReturn(inUse, updated);
         when(detector.check(any())).thenReturn(IpProxyCheckResult.failed(10L, "代理连接超时", 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
+        when(mapper.updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code())))
+                .thenReturn(1);
 
         IpProxyCheckResultVO result = service.checkProxy(10L);
 
         assertThat(result.checkStatus()).isEqualTo("failed");
         assertThat(result.connectionStatus()).isEqualTo("使用中");
-        verify(mapper).updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()));
+        verify(mapper).updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code()));
     }
 
     @Test
@@ -694,7 +705,9 @@ class IpProxyServiceImplTest {
         IpProxy row = idleProxy();
         when(mapper.selectActiveById(10L)).thenReturn(row);
         when(detector.check(any())).thenReturn(IpProxyCheckResult.failed(10L, "代理连接超时", 1_719_800_000_000L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(0);
+        when(mapper.updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code())))
+                .thenReturn(0);
 
         assertThatThrownBy(() -> service.checkProxy(10L))
                 .isInstanceOfSatisfying(BusinessException.class, ex -> {
@@ -799,6 +812,41 @@ class IpProxyServiceImplTest {
             inOrder.verify(mapper).markUsingAndBind(
                     eq(10L), eq(100L), eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.IN_USE.code()), anyLong());
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void allocatePairingEndpoint_triesNextCandidateWhenFirstCandidateIsClaimedConcurrently() {
+        TenantContext.set(1L);
+        try {
+            IpProxy first = idleProxy(10L, "proxy-a.internal");
+            IpProxy second = idleProxy(11L, "proxy-b.internal");
+            when(mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                    1L,
+                    IpProxyStatus.IDLE.code(),
+                    "印度",
+                    "混合（不限国家）",
+                    List.of(),
+                    true,
+                    100))).thenReturn(List.of(first, second));
+            when(mapper.reserveForPairing(
+                    eq(10L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong())).thenReturn(0);
+            when(mapper.reserveForPairing(
+                    eq(11L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong())).thenReturn(1);
+
+            IpProxyAllocation allocation = service.allocatePairingEndpoint(7001L, "印度", true);
+
+            assertThat(allocation.proxyId()).isEqualTo(11L);
+            verify(mapper).reserveForPairing(
+                    eq(10L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong());
+            verify(mapper).reserveForPairing(
+                    eq(11L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong());
         } finally {
             TenantContext.clear();
         }
@@ -1176,7 +1224,9 @@ class IpProxyServiceImplTest {
                         1_719_800_000_000L));
         when(detector.check(argThat(request -> request != null && request.id().equals(11L))))
                 .thenReturn(IpProxyCheckResult.failed(11L, "代理连接超时", 1_719_800_000_001L));
-        when(mapper.updateDetectionResult(any(), eq(IpProxyStatus.IN_USE.code()))).thenReturn(1);
+        when(mapper.updateDetectionResult(
+                any(), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.PAIRING_RESERVED.code())))
+                .thenReturn(1);
         IpProxy tenantOneUpdated = idleProxy(10L, "proxy-a.internal");
         tenantOneUpdated.setTenantId(1L);
         IpProxy tenantTwoUpdated = unavailableProxy(11L, "proxy-b.internal", 2L);

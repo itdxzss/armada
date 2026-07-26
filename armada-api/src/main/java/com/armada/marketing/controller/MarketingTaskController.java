@@ -12,6 +12,7 @@ import com.armada.marketing.model.vo.MarketingTreeAccountVO;
 import com.armada.marketing.service.MarketingTaskService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/marketing-tasks")
+@PreAuthorize("hasAuthority('tenant:marketing_task:view')")
 public class MarketingTaskController {
 
     private final MarketingTaskService service;

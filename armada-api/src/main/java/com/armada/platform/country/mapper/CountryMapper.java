@@ -1,6 +1,7 @@
 package com.armada.platform.country.mapper;
 
 import com.armada.platform.country.model.entity.Country;
+import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -40,6 +41,15 @@ public interface CountryMapper {
      * @return 启用国家;不存在时返回 null
      */
     Country selectActiveByNameZh(@Param("nameZh") String nameZh);
+
+    /** 批量按 ISO2 查询国家展示信息；空集合由调用方拦截。 */
+    List<Country> selectByIso2s(@Param("iso2s") Collection<String> iso2s);
+
+    /** 按主键查询启用国家；保留用于既有 ID 引用调用。 */
+    Country selectActiveById(@Param("id") Long id);
+
+    /** 批量按主键查询国家展示信息；保留用于既有 ID 引用调用。 */
+    List<Country> selectByIds(@Param("ids") Collection<Long> ids);
 
     /**
      * 更新国家级最近 IP 抽检时间。

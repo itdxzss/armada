@@ -4,6 +4,7 @@ import com.armada.group.model.dto.HistoricalGroupPullCreateForm;
 import com.armada.group.model.vo.HistoricalGroupPullExecutionVO;
 import com.armada.group.service.HistoricalGroupPullExecutionService;
 import com.armada.shared.response.ApiResponse;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** 历史群单群拉人执行创建、启动与轮询端点。 */
 @RestController
 @RequestMapping("/api/historical-group-pull-executions")
+@PreAuthorize("hasAuthority('tenant:historical_group:view')")
 public class HistoricalGroupPullExecutionController {
 
     private final HistoricalGroupPullExecutionService executionService;

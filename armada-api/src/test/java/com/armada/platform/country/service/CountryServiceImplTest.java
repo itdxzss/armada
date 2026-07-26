@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 
 import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
+import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
 import com.armada.platform.country.service.impl.CountryServiceImpl;
 import com.armada.shared.exception.BusinessException;
@@ -94,6 +95,45 @@ class CountryServiceImplTest {
                 .containsEntry("16841234567@s.whatsapp.net", "美属萨摩亚")
                 .containsEntry("8613812345678", null);
         verify(mapper).selectIpSupported();
+    }
+
+    @Test
+    void countryOptions_validateIso2AndLoadPageDisplayDataInBatch() {
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        when(mapper.selectActiveByIso2("IN")).thenReturn(india);
+        when(mapper.selectByIso2s(List.of("IN"))).thenReturn(List.of(india));
+
+        assertThat(service.requireActiveOption(" in ", true).nameZh()).isEqualTo("印度");
+        assertThat(service.requireActiveOption("mixed", true))
+                .extracting(CountryOptionVO::value, CountryOptionVO::virtual)
+                .containsExactly("MIXED", true);
+        assertThat(service.optionsByValues(List.of("IN", "IN", "MIXED")))
+                .containsOnlyKeys("IN", "MIXED")
+                .extractingByKey("IN")
+                .satisfies(option -> assertThat(option.phonePrefix()).isEqualTo("+91"));
+
+        verify(mapper).selectByIso2s(List.of("IN"));
+    }
+
+    @Test
+    void countryOptions_rejectMixedWhenRealCountryIsRequired() {
+        assertThatThrownBy(() -> service.requireActiveOption("MIXED", false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("预选区号");
+    }
+
+    @Test
+    void legacyIdReferencesRemainAvailableForOtherBusinessDomains() {
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        india.setId(101L);
+        when(mapper.selectActiveById(101L)).thenReturn(india);
+        when(mapper.selectByIds(List.of(101L))).thenReturn(List.of(india));
+
+        assertThat(service.requireActiveReference(101L).nameZh()).isEqualTo("印度");
+        assertThat(service.referencesByIds(List.of(101L, 101L)))
+                .containsOnlyKeys(101L)
+                .extractingByKey(101L)
+                .satisfies(reference -> assertThat(reference.phonePrefix()).isEqualTo("+91"));
     }
 
     private static Country country(String iso2, String nameZh, String phonePrefix, String flag) {

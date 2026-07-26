@@ -1,0 +1,491 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.promotion.channel.mapper.PromotionChannelMapper">
+
+  <!-- 新增前校验：模板必须属于当前租户、处于启用状态且未软删。 -->
+  <select id="selectAvailableTemplateById"
+          resultType="com.armada.promotion.channel.model.entity.PromotionLandingTemplate">
+    SELECT id, template_code, template_name
+    FROM promotion_landing_template
+    WHERE id = #{id}
+      AND status = 1
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 域名先规范化再查询；tenant_id 由租户拦截器注入。 -->
+  <select id="selectActiveDomainByHost"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE domain_host = #{domainHost}
+      AND is_active = 1
+    LIMIT 1
+  </select>
+
+  <!-- 反向检查模板是否已有域名；用于新增、编辑共用的“一模板一域名”校验。 -->
+  <select id="selectActiveDomainByTemplateId"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE landing_template_id = #{templateId}
+      AND is_active = 1
+    LIMIT 1
+  </select>
+
+  <!-- 唯一键冲突后的锁定读属于 current read，可看到竞争事务刚提交的域名映射。 -->
+  <select id="selectActiveDomainByHostForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE domain_host = #{domainHost}
+      AND is_active = 1
+    FOR UPDATE
+  </select>
+
+  <!-- 与域名 current read 配对，识别同模板被并发绑定到其他域名的情况。 -->
+  <select id="selectActiveDomainByTemplateIdForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE landing_template_id = #{templateId}
+      AND is_active = 1
+    FOR UPDATE
+  </select>
+
+  <!-- 新增和编辑在写渠道前锁定最终域名，避免并发删除把即将引用的域名软删。 -->
+  <select id="selectActiveDomainByIdForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT id, domain_host, landing_template_id, created_by, updated_by, created_at, updated_at
+    FROM promotion_domain
+    WHERE id = #{id}
+      AND is_active = 1
+    FOR UPDATE
+  </select>
+
+  <!-- 子查询只读取渠道的域名ID，FOR UPDATE 仅锁外层域名行，统一并发删除的加锁顺序。 -->
+  <select id="selectActiveDomainByChannelIdForUpdate"
+          resultType="com.armada.promotion.channel.model.entity.PromotionDomain">
+    SELECT d.id, d.domain_host, d.landing_template_id,
+           d.created_by, d.updated_by, d.created_at, d.updated_at
+    FROM promotion_domain d
+    WHERE d.id = (
+      SELECT c.promotion_domain_id
+      FROM promotion_channel c
+      WHERE c.id = #{channelId}
+        AND c.deleted_at IS NULL
+    )
+      AND d.is_active = 1
+    FOR UPDATE
+  </select>
+
+  <!-- 域名和模板唯一键共同处理并发抢占，Service 捕获冲突后重新判断双方归属。 -->
+  <insert id="insertDomain" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_domain
+      (domain_host, landing_template_id, created_by, updated_by, created_at, updated_at)
+    VALUES
+      (#{domainHost}, #{landingTemplateId}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <!-- 创建人按已确认口径取归属用户；tenant_id 由拦截器自动补充。 -->
+  <insert id="insertChannel" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_channel
+      (channel_code, channel_name, owner_user_id, promotion_domain_id,
+       theme_color, is_app_download_shown,
+       target_country_value, preselected_country_value, platform,
+       is_in_app_open_allowed, is_marketing_allowed, status,
+       created_by, updated_by, created_at, updated_at)
+    VALUES
+      (#{channelCode}, #{channelName}, #{ownerUserId}, #{promotionDomainId},
+       #{themeColor}, #{isAppDownloadShown},
+       #{targetCountry}, #{preselectedCountry}, #{platform},
+       #{isInAppOpenAllowed}, #{isMarketingAllowed}, #{status},
+       #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <!-- access_token_ciphertext 只接收应用层 AES-GCM 密文，禁止传入或记录明文 Token。 -->
+  <insert id="insertTrackingConfig" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO promotion_channel_tracking_config
+      (channel_id, provider_type, tracking_id,
+       access_token_ciphertext, encryption_key_id, token_fingerprint,
+       lead_event_name, login_request_event_name, login_success_event_name,
+       created_by, updated_by, created_at, updated_at)
+    VALUES
+      (#{channelId}, #{providerType}, #{trackingId},
+       #{accessTokenCiphertext}, #{encryptionKeyId}, #{tokenFingerprint},
+       #{leadEventName}, #{loginRequestEventName}, #{loginSuccessEventName},
+       #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <!-- 编辑/删除前只查询当前租户内有效渠道；敏感追踪配置不进入该投影。 -->
+  <select id="selectActiveChannelById"
+          resultType="com.armada.promotion.channel.model.entity.PromotionChannel">
+    SELECT id,
+           channel_code AS channelCode,
+           channel_name AS channelName,
+           owner_user_id AS ownerUserId,
+           promotion_domain_id AS promotionDomainId,
+           theme_color AS themeColor,
+           is_app_download_shown AS isAppDownloadShown,
+           target_country_value AS targetCountry,
+           preselected_country_value AS preselectedCountry,
+           platform,
+           is_in_app_open_allowed AS isInAppOpenAllowed,
+           is_marketing_allowed AS isMarketingAllowed,
+           status,
+           created_by AS createdBy,
+           updated_by AS updatedBy,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+    FROM promotion_channel
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <!--
+    编辑回显只投影可编辑字段；Token 三个敏感列只参与完整性判断，
+    不返回明文、密文、指纹或密钥版本。tenant_id 由租户拦截器注入。
+  -->
+  <select id="selectDetailById"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelDetailRow">
+    SELECT c.id,
+           c.channel_name AS channelName,
+           c.owner_user_id AS ownerUserId,
+           c.target_country_value AS targetCountry,
+           d.landing_template_id AS landingTemplateId,
+           d.domain_host AS domain,
+           c.preselected_country_value AS preselectedCountry,
+           c.theme_color AS themeColor,
+           c.is_app_download_shown AS isAppDownloadShown,
+           c.platform,
+           tc.tracking_id AS trackingId,
+           CASE WHEN tc.access_token_ciphertext IS NOT NULL
+                     AND tc.encryption_key_id IS NOT NULL
+                     AND tc.token_fingerprint IS NOT NULL
+                THEN 1 ELSE 0 END AS accessTokenConfigured,
+           tc.lead_event_name AS leadEventName,
+           tc.login_request_event_name AS loginRequestEventName,
+           tc.login_success_event_name AS loginSuccessEventName,
+           c.is_in_app_open_allowed AS isInAppOpenAllowed,
+           c.is_marketing_allowed AS isMarketingAllowed,
+           c.status
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d
+      ON d.id = c.promotion_domain_id AND d.deleted_at IS NULL
+    LEFT JOIN promotion_channel_tracking_config tc
+      ON tc.channel_id = c.id AND tc.deleted_at IS NULL
+    WHERE c.id = #{id}
+      AND c.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!--
+    公共运行时查询没有租户上下文，Mapper 方法显式关闭自动租户注入；
+    SQL 必须用渠道码和域名共同定位，并校验租户启用、三张业务表 tenant_id 一致且均处于可用状态。
+    投影严格限制为落地页渲染所需的五个非敏感字段。
+  -->
+  <select id="selectRuntimeByCodeAndHost"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow">
+    SELECT t.template_code AS templateCode,
+           c.theme_color AS themeColor,
+           c.is_app_download_shown AS isAppDownloadShown,
+           c.target_country_value AS targetCountry,
+           c.preselected_country_value AS preselectedCountry
+    FROM promotion_domain d
+    INNER JOIN promotion_channel c
+      ON c.promotion_domain_id = d.id
+     AND d.tenant_id = c.tenant_id
+     AND c.status = 1
+     AND c.deleted_at IS NULL
+    INNER JOIN tenant tenant_registry
+      ON tenant_registry.id = c.tenant_id
+     AND tenant_registry.status = 1
+    INNER JOIN promotion_landing_template t
+      ON t.id = d.landing_template_id
+     AND t.tenant_id = c.tenant_id
+     AND t.status = 1
+     AND t.deleted_at IS NULL
+    WHERE c.channel_code = #{channelCode}
+      AND d.domain_host = #{domainHost}
+      AND d.is_active = 1
+      AND d.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 配对入口只投影可信上下文；国家 ISO2 在 SQL 中转换为现有代理池使用的中文地区名。 -->
+  <select id="selectPairingContextByCodeAndHost"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow">
+    SELECT c.tenant_id AS tenantId,
+           c.id AS channelId,
+           c.channel_name AS channelName,
+           c.owner_user_id AS ownerUserId,
+           country.name_zh AS preferredProxyRegion
+    FROM promotion_domain d
+    INNER JOIN promotion_channel c
+      ON c.promotion_domain_id = d.id
+     AND c.tenant_id = d.tenant_id
+     AND c.status = 1
+     AND c.deleted_at IS NULL
+    INNER JOIN tenant tenant_registry
+      ON tenant_registry.id = c.tenant_id
+     AND tenant_registry.status = 1
+    INNER JOIN promotion_landing_template t
+      ON t.id = d.landing_template_id
+     AND t.tenant_id = c.tenant_id
+     AND t.status = 1
+     AND t.deleted_at IS NULL
+    LEFT JOIN country
+      ON country.iso2 = c.preselected_country_value
+     AND country.is_enabled = 1
+     AND country.deleted_at IS NULL
+    WHERE c.channel_code = #{channelCode}
+      AND d.domain_host = #{domainHost}
+      AND d.is_active = 1
+      AND d.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!--
+    只有探测服务允许读取 Token 密文；查询仍受租户拦截器和三张表软删除条件约束，
+    该投影禁止复用于列表、详情或导出接口。
+  -->
+  <select id="selectProbeConfigByChannelId"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow">
+    SELECT c.id AS channelId,
+           c.owner_user_id AS ownerUserId,
+           c.platform,
+           c.channel_code AS channelCode,
+           d.domain_host AS domainHost,
+           tc.id AS trackingConfigId,
+           tc.tracking_id AS trackingId,
+           tc.access_token_ciphertext AS accessTokenCiphertext,
+           tc.encryption_key_id AS encryptionKeyId,
+           tc.token_fingerprint AS tokenFingerprint
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d
+      ON d.id = c.promotion_domain_id AND d.deleted_at IS NULL
+    LEFT JOIN promotion_channel_tracking_config tc
+      ON tc.channel_id = c.id AND tc.deleted_at IS NULL
+    WHERE c.id = #{id}
+      AND c.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!-- 运行超过一分钟可重新抢占，终态需冷却30秒；兼顾异常恢复与平台调用限流。 -->
+  <update id="markProbeRunning">
+    UPDATE promotion_channel_tracking_config
+    SET last_probe_status = 0,
+        last_probe_event_name = #{row.lastProbeEventName},
+        last_probe_event_id = NULL,
+        last_probe_error_code = NULL,
+        last_probe_error_message = NULL,
+        last_probed_at = #{row.lastProbedAt},
+        updated_by = #{row.updatedBy},
+        updated_at = #{row.updatedAt}
+    WHERE channel_id = #{row.channelId}
+      AND deleted_at IS NULL
+      AND provider_type = #{row.providerType}
+      AND tracking_id = #{row.trackingId}
+      AND token_fingerprint = #{row.tokenFingerprint}
+      AND (last_probe_status IS NULL
+           OR (last_probe_status = 0
+               AND (last_probed_at IS NULL OR last_probed_at &lt;= #{staleBefore}))
+           OR (last_probe_status &lt;&gt; 0
+               AND (last_probed_at IS NULL OR last_probed_at &lt;= #{cooldownBefore})))
+  </update>
+
+  <!-- 最终结果只写脱敏错误和测试事件标识，绝不更新或返回 Token 材料。 -->
+  <update id="updateProbeResult">
+    UPDATE promotion_channel_tracking_config
+    SET last_probe_status = #{row.lastProbeStatus},
+        last_probe_event_name = #{row.lastProbeEventName},
+        last_probe_event_id = #{row.lastProbeEventId},
+        last_probe_error_code = #{row.lastProbeErrorCode},
+        last_probe_error_message = #{row.lastProbeErrorMessage},
+        last_probed_at = #{row.lastProbedAt},
+        updated_by = #{row.updatedBy},
+        updated_at = #{row.updatedAt}
+    WHERE channel_id = #{row.channelId}
+      AND deleted_at IS NULL
+      AND provider_type = #{row.providerType}
+      AND tracking_id = #{row.trackingId}
+      AND token_fingerprint = #{row.tokenFingerprint}
+      AND last_probe_status = 0
+      AND last_probed_at = #{startedAt}
+  </update>
+
+  <!-- 只有平台和追踪 ID 均未变且三个密文字段完整时，空 Token 才表示沿用旧值。 -->
+  <select id="countReusableTrackingToken" resultType="int">
+    SELECT COUNT(*)
+    FROM promotion_channel_tracking_config
+    WHERE channel_id = #{channelId}
+      AND provider_type = #{providerType}
+      AND tracking_id = #{trackingId}
+      AND access_token_ciphertext IS NOT NULL
+      AND encryption_key_id IS NOT NULL
+      AND token_fingerprint IS NOT NULL
+      AND deleted_at IS NULL
+  </select>
+
+  <!-- 渠道码和创建信息属于稳定历史事实，编辑时只更新页面可编辑字段。 -->
+  <update id="updateChannel">
+    UPDATE promotion_channel
+    SET channel_name = #{channelName},
+        owner_user_id = #{ownerUserId},
+        promotion_domain_id = #{promotionDomainId},
+        theme_color = COALESCE(#{themeColor}, theme_color),
+        is_app_download_shown = COALESCE(#{isAppDownloadShown}, is_app_download_shown),
+        target_country_value = #{targetCountry},
+        preselected_country_value = #{preselectedCountry},
+        platform = #{platform},
+        is_in_app_open_allowed = #{isInAppOpenAllowed},
+        is_marketing_allowed = #{isMarketingAllowed},
+        status = #{status},
+        updated_by = #{updatedBy},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- Token 留空时不生成赋值片段，从而保留原密文；配置变更后清空旧探测结论。 -->
+  <update id="updateTrackingConfig">
+    UPDATE promotion_channel_tracking_config
+    SET provider_type = #{providerType},
+        tracking_id = #{trackingId},
+        <if test="accessTokenCiphertext != null">
+          access_token_ciphertext = #{accessTokenCiphertext},
+          encryption_key_id = #{encryptionKeyId},
+          token_fingerprint = #{tokenFingerprint},
+          token_expires_at = NULL,
+        </if>
+        lead_event_name = #{leadEventName},
+        login_request_event_name = #{loginRequestEventName},
+        login_success_event_name = #{loginSuccessEventName},
+        last_probe_status = NULL,
+        last_probe_event_name = NULL,
+        last_probe_event_id = NULL,
+        last_probe_error_code = NULL,
+        last_probe_error_message = NULL,
+        last_probed_at = NULL,
+        updated_by = #{updatedBy},
+        updated_at = #{updatedAt},
+        deleted_at = NULL
+    WHERE channel_id = #{channelId}
+  </update>
+
+  <!-- 平台变化时旧 Token 不具备跨平台语义，必须先清空再同步新平台配置。 -->
+  <update id="clearTrackingCredentials">
+    UPDATE promotion_channel_tracking_config
+    SET tracking_id = NULL,
+        access_token_ciphertext = NULL,
+        encryption_key_id = NULL,
+        token_fingerprint = NULL,
+        token_expires_at = NULL,
+        updated_by = #{updatedBy},
+        updated_at = #{updatedAt}
+    WHERE channel_id = #{channelId}
+  </update>
+
+  <!-- 非 CAPI 平台和渠道删除都只软删追踪配置，保留审计与恢复能力。 -->
+  <update id="softDeleteTrackingConfig">
+    UPDATE promotion_channel_tracking_config
+    SET deleted_at = #{deletedAt},
+        updated_by = #{updatedBy},
+        updated_at = #{deletedAt}
+    WHERE channel_id = #{channelId}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- 删除渠道先退出当前有效集合，Service 再判断是否需要释放域名绑定。 -->
+  <update id="softDeleteChannel">
+    UPDATE promotion_channel
+    SET deleted_at = #{deletedAt},
+        updated_by = #{updatedBy},
+        updated_at = #{deletedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- 显式 tenant_id 并关闭租户改写，避免拦截器把 LIMIT ... FOR UPDATE 重排成 MySQL 非法语序。 -->
+  <select id="selectAnyActiveChannelIdByDomainForUpdate" resultType="long">
+    SELECT id
+    FROM promotion_channel
+    WHERE promotion_domain_id = #{domainId}
+      AND tenant_id = #{tenantId}
+      AND deleted_at IS NULL
+    LIMIT 1
+    FOR UPDATE
+  </select>
+
+  <!-- 仅最后一个有效渠道删除后执行；软删保留历史渠道的域名引用。 -->
+  <update id="softDeleteDomain">
+    UPDATE promotion_domain
+    SET deleted_at = #{deletedAt},
+        updated_by = #{updatedBy},
+        updated_at = #{deletedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
+  <!-- countPage/selectPage 共用筛选，保证分页总数与列表口径一致。 -->
+  <sql id="pageFilter">
+    c.deleted_at IS NULL
+    <!-- 真实国家和混合国家统一按 CountryOptionVO.value 精确筛选。 -->
+    <if test="targetCountry != null and targetCountry != ''">
+      AND c.target_country_value = #{targetCountry}
+    </if>
+    <if test="landingTemplateId != null">
+      AND d.landing_template_id = #{landingTemplateId}
+    </if>
+    <!-- 创建人精确条件优先；上级用户由前端展开为 ownerUserIds 后执行 IN 查询。 -->
+    <choose>
+      <when test="creatorUserId != null">
+        AND c.owner_user_id = #{creatorUserId}
+      </when>
+      <when test="ownerUserIds != null and ownerUserIds.size() > 0">
+        AND c.owner_user_id IN
+        <foreach collection="ownerUserIds" item="ownerUserId" open="(" separator="," close=")">
+          #{ownerUserId}
+        </foreach>
+      </when>
+    </choose>
+  </sql>
+
+  <!-- 先统计总数，无结果时 Service 不再执行列表和国家批量查询。 -->
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d ON d.id = c.promotion_domain_id
+    WHERE <include refid="pageFilter"/>
+  </select>
+
+  <!-- 列表仅查询页面展示所需字段，明确不读取 Token 密文、指纹和密钥版本。 -->
+  <select id="selectPage" resultType="com.armada.promotion.channel.model.vo.PromotionChannelVoRow">
+    SELECT c.id,
+           c.channel_name AS channelName,
+           c.channel_code AS channelCode,
+           c.owner_user_id AS ownerUserId,
+           c.target_country_value AS targetCountry,
+           c.preselected_country_value AS preselectedCountry,
+           d.landing_template_id AS landingTemplateId,
+           t.template_name AS templateName,
+           d.domain_host AS domainHost,
+           c.platform,
+           tc.tracking_id AS trackingId,
+           tc.last_probe_status AS lastProbeStatus,
+           c.status,
+           c.is_in_app_open_allowed AS isInAppOpenAllowed,
+           c.is_marketing_allowed AS isMarketingAllowed,
+           c.created_at AS createdAt
+    FROM promotion_channel c
+    INNER JOIN promotion_domain d ON d.id = c.promotion_domain_id
+    INNER JOIN promotion_landing_template t ON t.id = d.landing_template_id
+    LEFT JOIN promotion_channel_tracking_config tc
+      ON tc.channel_id = c.id AND tc.deleted_at IS NULL
+    WHERE <include refid="pageFilter"/>
+    ORDER BY c.created_at DESC, c.id DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+</mapper>

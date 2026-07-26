@@ -1,0 +1,4 @@
+-- 评审索引；实际执行入口按顺序为：
+-- armada-api/src/main/resources/db/migration/V067__promotion_pairing_account_phone_index.sql
+-- armada-api/src/main/resources/db/migration/V068__promotion_pairing_ip_reservation.sql
+-- armada-api/src/main/resources/db/migration/V069__promotion_pairing_session.sql

@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.admin.mapper.SysUserMapper">
+
+    <sql id="Columns">
+        id, tenant_id, username, nickname, password_hash, status,
+        created_at, created_by, updated_at, updated_by
+    </sql>
+
+    <select id="findById" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByUsername" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        WHERE username = #{username}
+    </select>
+
+    <select id="findForLogin" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        WHERE tenant_id = #{tenantId}
+          AND username = #{username}
+        LIMIT 1
+    </select>
+
+    <select id="findAllOrdered" resultType="com.armada.admin.model.entity.SysUser">
+        SELECT <include refid="Columns"/>
+        FROM sys_user
+        ORDER BY id DESC
+    </select>
+
+    <insert id="insert" parameterType="com.armada.admin.model.entity.SysUser"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_user
+            (username, nickname, password_hash, status,
+             created_at, created_by, updated_at, updated_by)
+        VALUES
+            (#{username}, #{nickname}, #{passwordHash}, #{status},
+             #{createdAt}, #{createdBy}, #{updatedAt}, #{updatedBy})
+    </insert>
+
+    <select id="countByUsername" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_user
+        WHERE username = #{username}
+    </select>
+
+    <update id="updateProfile" parameterType="com.armada.admin.model.entity.SysUser">
+        UPDATE sys_user
+        SET nickname = #{nickname},
+            updated_at = #{updatedAt},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updatePasswordHash">
+        UPDATE sys_user
+        SET password_hash = #{passwordHash},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE sys_user
+        SET status = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findRoleIdsByUserId" resultType="long">
+        SELECT role_id
+        FROM sys_user_role
+        WHERE user_id = #{userId}
+        ORDER BY role_id
+    </select>
+
+    <select id="findEnabledRoleIdsByUserId" resultType="long">
+        SELECT ur.role_id
+        FROM sys_user_role ur
+        JOIN sys_role role ON role.id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND role.status = 1
+        ORDER BY ur.role_id
+    </select>
+
+    <select id="findEnabledRoleCodesByUserId" resultType="string">
+        SELECT role.role_code
+        FROM sys_user_role ur
+        JOIN sys_role role ON role.id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND role.status = 1
+        ORDER BY role.id
+    </select>
+
+    <select id="hasRoleCode" resultType="boolean">
+        SELECT COUNT(*) &gt; 0
+        FROM sys_user_role ur
+        JOIN sys_role role ON role.id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND role.role_code = #{roleCode}
+    </select>
+
+    <select id="countEnabledUsersByRoleCode" resultType="long">
+        SELECT COUNT(DISTINCT u.id)
+        FROM sys_user u
+        JOIN sys_user_role ur ON ur.user_id = u.id
+        JOIN sys_role role ON role.id = ur.role_id
+        WHERE u.status = 1
+          AND role.status = 1
+          AND role.role_code = #{roleCode}
+    </select>
+
+    <delete id="deleteUserRoles">
+        DELETE FROM sys_user_role
+        WHERE user_id = #{userId}
+    </delete>
+
+    <insert id="insertUserRoles">
+        INSERT INTO sys_user_role (user_id, role_id)
+        VALUES
+        <foreach collection="roleIds" item="roleId" separator=",">
+            (#{userId}, #{roleId})
+        </foreach>
+    </insert>
+</mapper>

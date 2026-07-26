@@ -18,4 +18,7 @@ public interface TenantMapper {
      * @return 命中的启用租户;无匹配返回 {@code null},调用方须判空(解析→空 Optional、登录→抛 LOGIN_FAILED)
      */
     Tenant selectActiveByCode(@Param("code") String code);
+
+    /** 按主键查询启用租户，供服务端会话校验使用。 */
+    Tenant selectActiveById(@Param("id") long id);
 }

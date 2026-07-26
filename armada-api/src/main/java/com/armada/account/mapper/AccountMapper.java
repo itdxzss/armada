@@ -30,10 +30,28 @@ public interface AccountMapper {
     int insert(Account row);
 
     /**
+     * 插入由推广配对创建的账号，并写入渠道归因字段。
+     *
+     * <p>该入口只供推广配对落库使用，避免修改普通导入、后台创建等存量账号的通用 insert SQL。</p>
+     *
+     * @param row 已完成校验的推广配对账号
+     * @return 插入行数（正常为 1）
+     */
+    int insertPromotionAccount(Account row);
+
+    /**
      * 按 WA 号查未软删账号(is_active 虚拟列为 1 即 deleted_at IS NULL)。
      * 导入查重/回填场景使用。
      */
     Account selectActiveByWsPhone(@Param("wsPhone") String wsPhone);
+
+    /**
+     * 跨租户判断手机号是否已归属任一活跃账号。
+     *
+     * <p>仅供公开推广配对入口做全局身份归属保护；显式绕过租户插件，禁止用于普通账号列表查询。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    boolean existsActiveByWsPhoneAnyTenant(@Param("wsPhone") String wsPhone);
 
     /**
      * 按 ID 查未软删账号。
@@ -121,17 +139,14 @@ public interface AccountMapper {
     List<Account> selectActiveByWsPhones(@Param("wsPhones") List<String> wsPhones);
 
     /**
-     * 查询指定账号中未软删且账号状态正常的 WS 号码。
+     * 查询指定账号中未软删除的 WS 号码，不限制账号状态。
      *
-     * <p>调用方保证 IDs 非空并分片；tenant_id 由租户拦截器注入，状态表按账号和租户双键关联。</p>
+     * <p>调用方保证 IDs 非空并分片；tenant_id 由租户拦截器注入。</p>
      *
      * @param ids 当前租户前端所选账号 ID
-     * @param normalAccountState 正常账号状态码
      * @return 按账号 ID 升序排列的最小导出字段
      */
-    List<AccountWsPhoneExportRow> selectNormalWsPhonesByIds(
-            @Param("ids") List<Long> ids,
-            @Param("normalAccountState") int normalAccountState);
+    List<AccountWsPhoneExportRow> selectWsPhonesByIds(@Param("ids") List<Long> ids);
 
     /**
      * 在指定账号中筛选当前在线账号 ID。

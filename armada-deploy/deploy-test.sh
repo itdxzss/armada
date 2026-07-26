@@ -629,7 +629,7 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将检查 Zhuan SSH 连通性"
   fi
   [ -n "${DEPLOY_BRANCH}" ] && info "[dry-run] 实际部署时将 fetch origin/${DEPLOY_BRANCH} 并创建临时 worktree"
-  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -DskipTests clean package)"
+  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -Dmaven.test.skip=true clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
     if [ "${PNPM_AVAILABLE}" = 1 ]; then
       info "[dry-run] 将执行: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"

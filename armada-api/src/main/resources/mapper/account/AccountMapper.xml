@@ -19,12 +19,39 @@
     )
   </insert>
 
+  <!-- 推广配对专用写入：保留通用 insert 原样，仅此入口写渠道归因。 -->
+  <insert id="insertPromotionAccount" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account (
+      ws_phone, account_type, device_os, number_source, channel_name, promotion_channel_id,
+      ownership, lease_until, account_group_id,
+      protocol_id, protocol_account_id, protocol_address,
+      priority, dispatched_at, remark,
+      created_at, updated_at, created_by
+    ) VALUES (
+      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId},
+      #{ownership}, #{leaseUntil}, #{accountGroupId},
+      #{protocolId}, #{protocolAccountId}, #{protocolAddress},
+      #{priority}, #{dispatchedAt}, #{remark},
+      #{createdAt}, #{updatedAt}, #{createdBy}
+    )
+  </insert>
+
   <!-- deleted_at IS NULL 等价于 is_active=1(虚拟列);LIMIT 1 防意外 -->
   <select id="selectActiveByWsPhone" resultType="com.armada.account.model.entity.Account">
     SELECT * FROM account
     WHERE ws_phone = #{wsPhone}
       AND deleted_at IS NULL
     LIMIT 1
+  </select>
+
+  <!-- 公开配对入口必须避免同一 WhatsApp 身份跨租户重复归属。 -->
+  <select id="existsActiveByWsPhoneAnyTenant" resultType="boolean">
+    SELECT EXISTS(
+      SELECT 1
+      FROM account
+      WHERE ws_phone = #{wsPhone}
+        AND deleted_at IS NULL
+    )
   </select>
 
   <select id="selectActiveById" resultType="com.armada.account.model.entity.Account">
@@ -149,19 +176,14 @@
   </select>
 
   <!--
-    导出所选正常账号的最小 WS 号码字段。
-    tenant_id 由租户拦截器注入；INNER JOIN 同时按 tenant_id 关联，避免状态行跨租户串联。
+    导出所选未软删除账号的最小 WS 号码字段，不关联状态表；tenant_id 由租户拦截器注入。
   -->
-  <select id="selectNormalWsPhonesByIds"
+  <select id="selectWsPhonesByIds"
           resultType="com.armada.account.model.vo.AccountWsPhoneExportRow">
     <if test="ids != null and ids.size() &gt; 0">
     SELECT a.id, a.ws_phone AS wsPhone
     FROM account a
-    INNER JOIN account_state s
-      ON s.account_id = a.id
-     AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
-      AND s.account_state = #{normalAccountState}
       AND a.id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY a.id ASC
@@ -352,6 +374,7 @@
            s.block_error_code AS blockErrorCode, s.block_reason AS blockReason,
            s.state_source AS stateSource, s.truth_ip AS truthIp,
            COALESCE(s.proxy_country, p.region) AS proxyCountry,
+           country_master.flag AS countryFlag,
            COALESCE(s.proxy_source, p.source) AS ipSource,
            s.pull_into_group_count AS pullIntoGroupCount,
            s.invalidated_at AS invalidatedAt,
@@ -364,6 +387,9 @@
       AND c.deleted_at IS NULL
     LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
       AND p.deleted_at IS NULL AND p.status = 2
+    LEFT JOIN country country_master
+      ON country_master.name_zh = COALESCE(s.proxy_country, p.region)
+      AND country_master.deleted_at IS NULL
     LEFT JOIN (
       SELECT tenant_id, account_id, COUNT(*) AS groups_num
       FROM account_group_membership

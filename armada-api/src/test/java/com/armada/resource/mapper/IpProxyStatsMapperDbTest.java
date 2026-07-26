@@ -145,12 +145,12 @@ class IpProxyStatsMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void detailQueryUsesSameTrimmedRegionAsCountryAggregation() {
+    void detailQueryUsesSameNormalizedRegionAsCountryAggregation() {
         long now = System.currentTimeMillis();
-        String marker = "ip-stats-trim-dbtest-" + now;
-        String displayRegion = "印度-trim-" + now;
+        String marker = "ip-stats-region-dbtest-" + now;
+        String displayRegion = "印度-region-" + now;
         insertCountry("XT", displayRegion, now);
-        insertProxy(" " + displayRegion + " ", marker, IpProxyStatus.IDLE.code(), now);
+        insertProxy(displayRegion, marker, IpProxyStatus.IDLE.code(), now);
 
         IpProxyStatsCountryQuery countryQuery = new IpProxyStatsCountryQuery();
         countryQuery.setKeyword(marker);

@@ -27,6 +27,7 @@ import com.armada.group.service.GroupLinkService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -45,6 +46,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @RestController
 @RequestMapping("/api/group-links")
+@PreAuthorize("hasAuthority('tenant:group_link:view')")
 public class GroupLinkController {
 
     private final GroupLinkService groupLinkService;
@@ -72,6 +74,7 @@ public class GroupLinkController {
      * @return 导入汇总结果
      */
     @PostMapping("/import")
+    @PreAuthorize("hasAuthority('tenant:group_link_import:view')")
     public ApiResponse<GroupLinkImportResultVO> importLinks(
             @RequestParam("labelId") Long labelId,
             @RequestParam(value = "batchName", required = false) String batchName,
@@ -91,6 +94,7 @@ public class GroupLinkController {
      * @return 分页群链接列表
      */
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('tenant:group_link:view', 'tenant:group_link_import:view', 'tenant:pull_task:view')")
     public ApiResponse<PageResult<GroupLinkVO>> list(@ModelAttribute GroupLinkQuery query) {
         return ApiResponse.ok(groupLinkService.listByLabel(query));
     }
@@ -213,6 +217,7 @@ public class GroupLinkController {
      * @return 实际迁移行数
      */
     @PostMapping("/migrate")
+    @PreAuthorize("hasAuthority('tenant:group_link_import:view')")
     public ApiResponse<Integer> migrate(@RequestBody GroupLinkMigrateDTO dto) {
         return ApiResponse.ok(groupLinkService.migrate(dto.linkIds(), dto.targetLabelId()));
     }

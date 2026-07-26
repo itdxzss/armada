@@ -10,6 +10,7 @@ import com.armada.account.model.vo.AccountGroupMarketingOccupancyVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/account-groups")
+@PreAuthorize("hasAuthority('tenant:account-group:view')")
 public class AccountGroupController {
 
     private final AccountGroupService service;
@@ -42,6 +44,10 @@ public class AccountGroupController {
      * @return 分页分组列表
      */
     @GetMapping
+    @PreAuthorize("hasAnyAuthority('tenant:account-group:view', 'tenant:account:view', 'tenant:account:edit', "
+            + "'tenant:historical_group:view', 'tenant:group_creation_marketing:view', "
+            + "'tenant:marketing_task:view', 'tenant:group_pull_marketing:view', "
+            + "'tenant:join_task:view', 'tenant:pull_task:view')")
     public ApiResponse<PageResult<AccountGroupVO>> list(@ModelAttribute AccountGroupQuery query) {
         return ApiResponse.ok(service.list(query));
     }
@@ -53,6 +59,7 @@ public class AccountGroupController {
      * @return 营销占用任务、状态和账号调用统计
      */
     @GetMapping("/{id}/marketing-occupancy")
+    @PreAuthorize("hasAnyAuthority('tenant:account-group:view', 'tenant:account:view')")
     public ApiResponse<AccountGroupMarketingOccupancyVO> marketingOccupancy(@PathVariable Long id) {
         return ApiResponse.ok(service.marketingOccupancy(id));
     }

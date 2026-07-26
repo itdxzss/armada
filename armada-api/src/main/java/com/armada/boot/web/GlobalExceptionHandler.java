@@ -1,11 +1,15 @@
 package com.armada.boot.web;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.platform.auth.exception.AuthInfrastructureException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
 
 /**
  * 全局异常处理。把 {@link BusinessException} 转成 {@code ApiResponse.code != 0},
@@ -22,6 +26,15 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> handleBusiness(BusinessException ex) {
         log.warn("业务异常 code={} msg={}", ex.getCode(), ex.getMessage());
         return ApiResponse.error(ex.getCode(), ex.getMessage());
+    }
+
+    @ExceptionHandler(AuthInfrastructureException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ApiResponse<Void> handleAuthInfrastructure(AuthInfrastructureException ex) {
+        log.error("认证基础设施不可用", ex);
+        return ApiResponse.error(
+                ErrorCode.AUTH_SERVICE_UNAVAILABLE.code(),
+                ErrorCode.AUTH_SERVICE_UNAVAILABLE.defaultMessage());
     }
 
     @ExceptionHandler(Exception.class)

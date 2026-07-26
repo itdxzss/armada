@@ -1,5 +1,6 @@
 package com.armada.group.mapper;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -41,6 +42,18 @@ class AccountGroupMembershipMapperSqlTest {
         String xml = mapperXml();
         assertTrue(xml.contains("<select id=\"selectGroupLinkIdByGroupJidIncludingDeleted\""));
         assertTrue(xml.contains("ORDER BY CASE WHEN g.deleted_at IS NULL THEN 0 ELSE 1 END, g.id ASC"));
+    }
+
+    @Test
+    void completeSnapshotMarksMissingRowsByOrderedPrimaryKeysInsteadOfAccountRangeUpdate()
+            throws IOException {
+        String xml = mapperXml();
+        assertTrue(xml.contains("<select id=\"selectMissingMembershipIds\" resultType=\"long\"> SELECT id"));
+        assertTrue(xml.contains("<update id=\"markMembershipsNotInGroupByIds\">"));
+        assertTrue(xml.contains("WHERE id IN <foreach collection=\"ids\""));
+        assertTrue(xml.contains("status_updated_at &lt; #{row.statusUpdatedAt}"));
+        assertTrue(xml.contains("ORDER BY id ASC"));
+        assertFalse(xml.contains("<update id=\"markMissingMembershipsNotInGroup\">"));
     }
 
     private String mapperXml() throws IOException {

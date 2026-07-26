@@ -24,12 +24,36 @@ public interface GroupLinkMapper {
     GroupLink selectAnyByUrl(@Param("url") String url);
 
     /**
+     * 按 URL 当前读群入口（含软删记录）。
+     *
+     * <p>用于唯一键 upsert 后解析最终 ID；RR 快照读可能看不到等待期间由其它事务提交的行，
+     * 当前读可读取最新已提交版本。调用方必须处于写事务内。</p>
+     *
+     * @param url 归一化链接
+     * @return 找到则返回并锁定实体，否则 null
+     */
+    GroupLink selectAnyByUrlForUpdate(@Param("url") String url);
+
+    /**
      * 插入新群链接(id/tenant_id 由库或拦截器注入,时间由调用方传入)。
      *
      * @param row 群链接实体
      * @return 影响行数
      */
     int insert(GroupLink row);
+
+    /**
+     * 原子登记账号同步观察到的内部群入口。
+     *
+     * <p>租户内 URL 唯一键承担并发互斥；命中既有行时保留首次来源、导入归属和自建群关系态，
+     * 只执行账号同步原有的复活、群名和已入群状态更新。</p>
+     *
+     * @param row               新建分支的群入口字段；调用方写后按 URL 查询最终行 ID
+     * @param observedGroupName 协议观察到的群名；空值不覆盖既有群名
+     * @return MySQL 影响行数
+     */
+    int upsertAccountObservedGroup(@Param("row") GroupLink row,
+                                   @Param("observedGroupName") String observedGroupName);
 
     /**
      * 复活软删链接并归到目标分组:复活(deleted_at=NULL) + 改归属分组 + 更新来源批次 + COALESCE 群名(空不覆盖)。

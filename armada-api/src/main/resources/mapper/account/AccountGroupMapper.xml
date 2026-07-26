@@ -221,11 +221,12 @@
     ORDER BY id
   </select>
 
-  <!-- 任务启动及分组拆分/合并按主键升序锁行，降低并发结构变更死锁风险。 -->
-  <select id="selectByIdsForUpdate" resultType="com.armada.account.model.entity.AccountGroup">
+  <!-- 显式 tenant_id + InterceptorIgnore，避免租户插件破坏 ORDER BY ... FOR UPDATE 的 MySQL 尾句。 -->
+  <select id="selectByTenantAndIdsForUpdate" resultType="com.armada.account.model.entity.AccountGroup">
     SELECT *
     FROM account_group
-    WHERE deleted_at IS NULL
+    WHERE tenant_id = #{tenantId}
+      AND deleted_at IS NULL
       AND id IN
     <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">#{groupId}</foreach>
     ORDER BY id

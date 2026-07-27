@@ -63,7 +63,7 @@
 ## Task 4: Add the tenant-scoped CAPI outbox with real Mapper coverage
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V071__promotion_capi_event_outbox.sql`
+- Create: `armada-api/src/main/resources/db/migration/V080__promotion_capi_event_outbox.sql`
 - Create: `armada-api/src/main/java/com/armada/promotion/pairing/model/entity/PromotionCapiEventOutbox.java`
 - Create: `armada-api/src/main/java/com/armada/promotion/pairing/model/enums/PromotionCapiEventStage.java`
 - Create: `armada-api/src/main/java/com/armada/promotion/pairing/model/enums/PromotionCapiEventStatus.java`

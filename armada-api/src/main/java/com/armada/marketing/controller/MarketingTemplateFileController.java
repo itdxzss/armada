@@ -7,6 +7,7 @@ import com.armada.shared.response.ApiResponse;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @RestController
 @RequestMapping("/api/marketing-template-files")
+@PreAuthorize("hasAuthority('tenant:marketing_template:view')")
 public class MarketingTemplateFileController {
 
     private final MarketingTemplateFileService service;
@@ -36,6 +38,9 @@ public class MarketingTemplateFileController {
 
     /** 读取图片内容,供模板列表/编辑/预览回显。 */
     @GetMapping("/{id}/content")
+    @PreAuthorize("hasAnyAuthority('tenant:marketing_template:view', 'tenant:historical_group:view', "
+            + "'tenant:marketing_task:view', 'tenant:group_pull_marketing:view', "
+            + "'tenant:group_creation_marketing:view')")
     public ResponseEntity<byte[]> content(@PathVariable Long id) {
         MarketingTemplateFileContent file = service.content(id);
         return ResponseEntity.ok()

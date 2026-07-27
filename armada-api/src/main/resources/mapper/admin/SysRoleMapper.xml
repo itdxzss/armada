@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.admin.mapper.SysRoleMapper">
+
+    <sql id="Columns">
+        id, tenant_id, role_name, role_code, status, is_system, remark,
+        created_at, created_by, updated_at, updated_by
+    </sql>
+
+    <select id="findById" resultType="com.armada.admin.model.entity.SysRole">
+        SELECT <include refid="Columns"/>
+        FROM sys_role
+        WHERE id = #{id}
+    </select>
+
+    <select id="findAllOrdered" resultType="com.armada.admin.model.entity.SysRole">
+        SELECT <include refid="Columns"/>
+        FROM sys_role
+        ORDER BY is_system DESC, id
+    </select>
+
+    <select id="findByIds" resultType="com.armada.admin.model.entity.SysRole">
+        SELECT <include refid="Columns"/>
+        FROM sys_role
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY id
+    </select>
+
+    <select id="findEnabledIds" resultType="long">
+        SELECT id
+        FROM sys_role
+        WHERE status = 1
+        ORDER BY is_system DESC, id
+    </select>
+
+    <insert id="insert" parameterType="com.armada.admin.model.entity.SysRole"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_role
+            (role_name, role_code, status, is_system, remark,
+             created_at, created_by, updated_at, updated_by)
+        VALUES
+            (#{roleName}, #{roleCode}, #{status}, #{isSystem}, #{remark},
+             #{createdAt}, #{createdBy}, #{updatedAt}, #{updatedBy})
+    </insert>
+
+    <select id="countByNameExcludingId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_role
+        WHERE role_name = #{roleName}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <select id="countByCodeExcludingId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_role
+        WHERE role_code = #{roleCode}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <update id="update" parameterType="com.armada.admin.model.entity.SysRole">
+        UPDATE sys_role
+        SET role_name = #{roleName},
+            remark = #{remark},
+            updated_at = #{updatedAt},
+            updated_by = #{updatedBy}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE sys_role
+        SET status = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countUsersByRoleId" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_user_role
+        WHERE role_id = #{roleId}
+    </select>
+
+    <select id="countEnabledTenantAdmins" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_role
+        WHERE role_code = 'TENANT_ADMIN'
+          AND status = 1
+          AND is_system = 1
+    </select>
+
+    <select id="findMenuIdsByRoleId" resultType="long">
+        SELECT menu_id
+        FROM sys_role_menu
+        WHERE role_id = #{roleId}
+        ORDER BY menu_id
+    </select>
+</mapper>

@@ -2,7 +2,9 @@ package com.armada.marketing.grouppull.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +57,24 @@ class GroupPullMarketingLifecycleSqlShapeTest {
                 .contains("attempt.tenant_id = #{tenantId}")
                 .contains("outbox_row.tenant_id = #{tenantId}")
                 .contains("attempt.marketing_task_id = #{taskId}");
+    }
+
+    @Test
+    void releaseLockUsesExplicitTenantAndKeepsValidMysqlClauseOrder() throws Exception {
+        Method method = GroupPullMarketingMapper.class.getMethod(
+                "selectCancelableExecutionsByTenantForUpdate", Long.class, Long.class);
+        InterceptorIgnore ignore = method.getAnnotation(InterceptorIgnore.class);
+        String xml = readResource(MAPPER_XML);
+        String lockSql = block(xml, "select", "selectCancelableExecutionsByTenantForUpdate");
+
+        assertThat(ignore).isNotNull();
+        assertThat(ignore.tenantLine()).isEqualTo("true");
+        assertThat(lockSql)
+                .contains("tenant_id = #{tenantId}")
+                .contains("task_id = #{taskId}")
+                .contains("ORDER BY id")
+                .contains("FOR UPDATE");
+        assertThat(lockSql.indexOf("ORDER BY id")).isLessThan(lockSql.indexOf("FOR UPDATE"));
     }
 
     @Test

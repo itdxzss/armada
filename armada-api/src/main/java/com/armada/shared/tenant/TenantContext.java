@@ -3,7 +3,7 @@ package com.armada.shared.tenant;
 /**
  * 当前租户上下文(ThreadLocal)。
  *
- * <p>登录时由 Web 鉴权拦截器写入 tenant_id;租户行隔离拦截器读取它给每条 SQL 注入
+ * <p>请求时由 Bearer Token 鉴权过滤器写入 tenant_id;租户行隔离拦截器读取它给每条 SQL 注入
  * {@code AND tenant_id = ?}。无上下文时回退哨兵值 -1(fail-closed,查不到任何业务数据,防越权泄漏)。</p>
  *
  * <p>铁律:ThreadLocal 绑在线程上——脱离 HTTP 请求线程的路径(@Async/线程池/Kafka/定时任务)

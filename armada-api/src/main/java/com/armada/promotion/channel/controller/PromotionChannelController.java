@@ -11,6 +11,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -26,6 +27,7 @@ import java.util.List;
 /** 渠道管理新增、分页、详情、编辑和删除接口。 */
 @RestController
 @RequestMapping("/api/promotion-channels")
+@PreAuthorize("hasAuthority('tenant:buyer-channel:view')")
 public class PromotionChannelController {
 
     private final PromotionChannelService service;
@@ -49,6 +51,7 @@ public class PromotionChannelController {
      * @return 新增后的渠道详情，响应中不会包含 Access Token
      */
     @PostMapping("/create")
+    @PreAuthorize("hasAuthority('tenant:buyer-channel:create')")
     public ApiResponse<PromotionChannelVO> create(@RequestBody PromotionChannelCreateDTO request) {
         return ApiResponse.ok(service.create(request));
     }
@@ -87,6 +90,7 @@ public class PromotionChannelController {
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在、测试码非法或已有探测执行时抛出
      */
     @PostMapping("/probe/{id}")
+    @PreAuthorize("hasAuthority('tenant:buyer-channel:detect')")
     public ApiResponse<PromotionChannelProbeVO> probe(
             @PathVariable Long id,
             @RequestBody(required = false) PromotionChannelProbeDTO request) {
@@ -104,6 +108,7 @@ public class PromotionChannelController {
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在或参数不符合业务约束时抛出
      */
     @PutMapping("/update/{id}")
+    @PreAuthorize("hasAuthority('tenant:buyer-channel:edit')")
     public ApiResponse<Void> update(
             @PathVariable Long id,
             @RequestBody PromotionChannelUpdateDTO request) {
@@ -119,6 +124,7 @@ public class PromotionChannelController {
      * @throws com.armada.shared.exception.BusinessException 当渠道不存在或已删除时抛出
      */
     @DeleteMapping("/delete/{id}")
+    @PreAuthorize("hasAuthority('tenant:buyer-channel:delete')")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ApiResponse.ok();

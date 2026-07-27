@@ -70,6 +70,12 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
+        <!-- 管理端用户登录、Bearer Token 过滤和方法级权限控制。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
         <!-- 对象转换:MapStruct(无 Lombok,无处理器顺序坑) -->
         <dependency>
             <groupId>org.mapstruct</groupId>

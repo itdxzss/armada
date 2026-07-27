@@ -11,6 +11,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -29,6 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @RestController
 @RequestMapping("/api/group-pull-marketing-tasks")
+@PreAuthorize("hasAuthority('tenant:group_pull_marketing:view')")
 public class GroupPullMarketingTaskController {
 
     /** 拉群营销任务业务服务。 */

@@ -13,6 +13,7 @@ import com.armada.resource.service.IpProxyService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/ip-proxies")
+@PreAuthorize("hasAuthority('tenant:resource:ips:list')")
 public class IpProxyController {
 
     private final IpProxyService service;
@@ -86,6 +88,7 @@ public class IpProxyController {
      * @return 本次检测结果
      */
     @PostMapping("/{id}/check")
+    @PreAuthorize("hasAnyAuthority('tenant:resource:ips:list', 'tenant:resource:ip-stats:list')")
     public ApiResponse<IpProxyCheckResultVO> checkProxy(@PathVariable Long id) {
         return ApiResponse.ok(service.checkProxy(id));
     }

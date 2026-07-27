@@ -1,5 +1,5 @@
 -- 评审副本；实际执行入口为
--- armada-api/src/main/resources/db/migration/V071__promotion_capi_event_outbox.sql
+-- armada-api/src/main/resources/db/migration/V080__promotion_capi_event_outbox.sql
 CREATE TABLE promotion_capi_event_outbox (
     id BIGINT NOT NULL AUTO_INCREMENT COMMENT 'Outbox主键',
     tenant_id BIGINT NOT NULL COMMENT '渠道所属租户ID',

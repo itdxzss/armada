@@ -11,7 +11,7 @@ public class Tenant {
     /** 主键,即各业务表里用的 tenant_id。 */
     private Long id;
 
-    /** 租户码(前端 {@code X-Tenant-Code} 头 / 登录入参;租户内唯一)。 */
+    /** 租户码，仅用于服务端身份展示和平台管理；租户内唯一。 */
     private String tenantCode;
 
     /** 租户名(展示用)。 */

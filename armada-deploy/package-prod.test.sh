@@ -92,6 +92,11 @@ test_app_package_templates() {
   env_validation_line="$(grep -n 'for key in ${REQUIRED_ENV_KEYS:-}' "${PROD_DIR}/scripts/install.sh" | head -1 | cut -d: -f1)"
   [ "${env_chmod_line}" -lt "${env_validation_line}" ] \
     || fail "expected production installer to protect .env before validation"
+  assert_file_contains "${PACKAGE_SCRIPT}" "armada-api-deploy.jar"
+  assert_file_contains "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" "armada-api-deploy.jar"
+  assert_file_not_contains_regex "${PACKAGE_SCRIPT}" 'armada-api-[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT\.jar'
+  assert_file_not_contains_regex "${SCRIPT_DIR}/backend.prebuilt.Dockerfile" \
+    'armada-api-[0-9]+\.[0-9]+\.[0-9]+-SNAPSHOT\.jar'
 }
 
 test_protocol_package_templates() {

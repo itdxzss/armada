@@ -70,11 +70,11 @@ public class GroupPullMarketingFinalizer {
      */
     @Transactional(rollbackFor = Exception.class)
     public void finalizeAfterStages(Long executionId) {
-        GroupPullMarketingExecution execution = mapper.selectExecutionByIdForUpdate(executionId);
+        GroupPullMarketingExecution execution = mapper.selectExecutionById(executionId);
         if (!active(execution)) {
             return;
         }
-        GroupPullMarketingTask task = mapper.selectTaskByIdForUpdate(execution.getTaskId());
+        GroupPullMarketingTask task = mapper.selectTaskById(execution.getTaskId());
         long joined = mapper.countSuccessfulMaterialEntries(executionId);
         if (joined >= task.getMaterialPerGroup()) {
             finish(execution, task, GroupPullExecutionStatus.SUCCEEDED, null);
@@ -95,13 +95,13 @@ public class GroupPullMarketingFinalizer {
      */
     @Transactional(rollbackFor = Exception.class)
     public void fail(Long executionId, String reason) {
-        GroupPullMarketingExecution execution = mapper.selectExecutionByIdForUpdate(executionId);
+        GroupPullMarketingExecution execution = mapper.selectExecutionById(executionId);
         if (!active(execution)) {
             return;
         }
         finish(
                 execution,
-                mapper.selectTaskByIdForUpdate(execution.getTaskId()),
+                mapper.selectTaskById(execution.getTaskId()),
                 GroupPullExecutionStatus.FAILED,
                 reason);
     }
@@ -114,13 +114,13 @@ public class GroupPullMarketingFinalizer {
      */
     @Transactional(rollbackFor = Exception.class)
     public void skipBeforeGroup(Long executionId, String reason) {
-        GroupPullMarketingExecution execution = mapper.selectExecutionByIdForUpdate(executionId);
+        GroupPullMarketingExecution execution = mapper.selectExecutionById(executionId);
         if (!active(execution)) {
             return;
         }
         finish(
                 execution,
-                mapper.selectTaskByIdForUpdate(execution.getTaskId()),
+                mapper.selectTaskById(execution.getTaskId()),
                 GroupPullExecutionStatus.PRE_GROUP_SKIPPED,
                 reason);
     }
@@ -128,8 +128,8 @@ public class GroupPullMarketingFinalizer {
     /**
      * 首次把活动执行收口到指定终态，并同步处理关联资源。
      *
-     * @param execution 已锁定的活动执行
-     * @param task 已锁定的拉群任务配置
+     * @param execution 条件终态更新前读取的活动执行
+     * @param task 拉群任务配置
      * @param outcome 最终执行结果
      * @param reason 失败或跳过原因；成功时可空
      */
@@ -143,7 +143,13 @@ public class GroupPullMarketingFinalizer {
                 ? GroupPullExecutionStage.COMPLETED.code()
                 : execution.getCurrentStage();
         if (mapper.markExecutionTerminal(
-                execution.getId(), outcome.code(), terminalStage, reason, now) != 1) {
+                execution.getId(),
+                execution.getExecutionStatus(),
+                execution.getCurrentStage(),
+                outcome.code(),
+                terminalStage,
+                reason,
+                now) != 1) {
             return;
         }
 

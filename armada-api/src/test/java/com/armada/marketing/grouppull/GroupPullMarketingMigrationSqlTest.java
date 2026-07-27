@@ -14,6 +14,9 @@ class GroupPullMarketingMigrationSqlTest {
     private static final Path MIGRATION = Path.of(
             "src/main/resources/db/migration/V070__group_pull_marketing.sql");
 
+    private static final Path MATERIAL_INTERVAL_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V080__group_pull_material_entry_interval.sql");
+
     @Test
     void migrationDefinesOnlyConfirmedGroupPullFacts() throws IOException {
         assertThat(MIGRATION).exists();
@@ -31,5 +34,16 @@ class GroupPullMarketingMigrationSqlTest {
                 .contains("UNIQUE KEY uq_gpme_active_builder")
                 .doesNotContain("next_group_sequence")
                 .doesNotContain("group_link_health_status");
+    }
+
+    @Test
+    void materialEntryIntervalMigrationAddsBackwardCompatibleDefaultWithGuard() throws IOException {
+        assertThat(MATERIAL_INTERVAL_MIGRATION).exists();
+        String sql = Files.readString(MATERIAL_INTERVAL_MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(sql)
+                .contains("column_name = 'material_entry_interval_seconds'")
+                .contains("ADD COLUMN material_entry_interval_seconds INT NOT NULL DEFAULT 300")
+                .contains("AFTER material_per_group");
     }
 }

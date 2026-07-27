@@ -1,13 +1,25 @@
 package com.armada.marketing.grouppull.service;
 
 import com.armada.marketing.grouppull.model.enums.GroupPullSpeakPermission;
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
+import java.util.Locale;
+import java.util.Set;
 
 /** 拉群执行阶段共用的有限重试和结果判定规则。 */
 public final class GroupPullRetryPolicy {
 
     /** 建群及群配置关键操作失败后的固定重试次数，不包含首次。 */
     private static final int FIXED_GROUP_RETRY_COUNT = 2;
+
+    /** 单成员操作明确成功或成员已在群内的状态码。 */
+    private static final Set<String> PARTICIPANT_SUCCESS_CODES =
+            Set.of("OK", "ALREADY_IN", "200");
+
+    /** 协议原始错误中明确表示群组已封禁或终止的代码。 */
+    private static final Set<String> BANNED_GROUP_CODES = Set.of(
+            "GROUP_BANNED", "BANNED", "CHAT_SUSPENDED", "CHAT_TERMINATED");
 
     /** 禁止实例化纯规则类。 */
     private GroupPullRetryPolicy() {
@@ -42,9 +54,44 @@ public final class GroupPullRetryPolicy {
         if (item == null) {
             return false;
         }
-        return "OK".equalsIgnoreCase(item.status())
-                || "ALREADY_IN".equalsIgnoreCase(item.status())
-                || "200".equals(item.rawStatus());
+        return isParticipantSuccessCode(item.status())
+                || isParticipantSuccessCode(item.rawStatus());
+    }
+
+    /**
+     * 判断协议异常是否明确表示目标群已封禁或终止。
+     *
+     * @param exception 协议调用异常
+     * @return 统一错误码或协议原始码明确表示群不可用时返回 true
+     */
+    public static boolean isGroupBanned(ProtocolException exception) {
+        if (exception.errorCode() == ProtocolErrorCode.GROUP_UNAVAILABLE) {
+            return true;
+        }
+        return exception.protocolCode()
+                .map(GroupPullRetryPolicy::isGroupBannedCode)
+                .orElse(false);
+    }
+
+    /**
+     * 判断单成员操作结果是否明确表示目标群已封禁或终止。
+     *
+     * @param item 协议层单成员结果；可空
+     * @return 归一状态或原始状态明确表示群不可用时返回 true
+     */
+    public static boolean isGroupBanned(GroupParticipantBatchResult.Item item) {
+        return item != null
+                && (isGroupBannedCode(item.status()) || isGroupBannedCode(item.rawStatus()));
+    }
+
+    private static boolean isGroupBannedCode(String code) {
+        return code != null
+                && BANNED_GROUP_CODES.contains(code.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private static boolean isParticipantSuccessCode(String code) {
+        return code != null
+                && PARTICIPANT_SUCCESS_CODES.contains(code.trim().toUpperCase(Locale.ROOT));
     }
 
     /**

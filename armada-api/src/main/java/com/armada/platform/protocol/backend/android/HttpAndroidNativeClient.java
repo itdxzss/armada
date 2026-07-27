@@ -13,6 +13,7 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private static final String STATUS_URI_PREFIX = "/ws/v1/auth/status/";
     private static final String JOIN_URI_PREFIX = "/ws/v1/groups/invite/";
     private static final String MEMBERS_URI_PREFIX = "/ws/v1/groups/members/";
+    private static final String GROUPS_URI_PREFIX = "/ws/v1/groups/list/";
     private static final String CONTACTS_ADD_URI_PREFIX = "/ws/v1/contacts/add/";
     private static final String GROUP_CREATE_URI_PREFIX = "/ws/v1/groups/create/";
     private static final String GROUP_ANNOUNCEMENT_URI_PREFIX =
@@ -76,6 +77,19 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
         return httpExecutor.postTyped(
                 MEMBERS_URI_PREFIX + requireDigits(wsPhone),
                 new MembersRequest(requireText(groupJid, GROUP_JID_FIELD)),
+                AndroidResponseEnvelope.class);
+    }
+
+    /**
+     * 调用 Zhuan 当前参与群列表接口。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @return Android 原生响应包
+     */
+    @Override
+    public AndroidResponseEnvelope groups(String wsPhone) {
+        return httpExecutor.getTyped(
+                GROUPS_URI_PREFIX + requireDigits(wsPhone),
                 AndroidResponseEnvelope.class);
     }
 

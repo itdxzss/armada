@@ -17,6 +17,7 @@ package com.armada.marketing.grouppull.model.dto;
  * @param groupNamePrefix 群名前缀，可空；为空时使用任务名称
  * @param friendRetryLimit 建群账号与营销账号互加失败后的重试次数，不包含首次
  * @param materialPerGroup 单群抽取料子数量
+ * @param materialEntryIntervalSeconds 逐个添加料子的基准间隔秒数，实际按上下百分之二十随机
  * @param speakPermission 群发言权限：1=不操作，2=禁言，3=不禁言
  * @param builderExitEnabled 建群完成后建群账号是否退出群组
  * @param remark 任务备注，可空
@@ -34,6 +35,7 @@ public record CreateGroupPullMarketingTaskDTO(
         String groupNamePrefix,
         Integer friendRetryLimit,
         Integer materialPerGroup,
+        Integer materialEntryIntervalSeconds,
         Integer speakPermission,
         Boolean builderExitEnabled,
         String remark,

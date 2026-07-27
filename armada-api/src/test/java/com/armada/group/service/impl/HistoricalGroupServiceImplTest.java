@@ -36,6 +36,7 @@ import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
@@ -55,14 +56,20 @@ class HistoricalGroupServiceImplTest {
             Mockito.mock(AccountGroupMembershipMapper.class);
     private final AccountParticipatingGroupPort participatingGroupPort =
             Mockito.mock(AccountParticipatingGroupPort.class);
-    private final GroupMetadataPort metadataPort = Mockito.mock(GroupMetadataPort.class);
+    private final FixedAccountGroupMetadataPort readMetadataPort =
+            Mockito.mock(FixedAccountGroupMetadataPort.class);
+    private final GroupMetadataPort writeMetadataPort = Mockito.mock(GroupMetadataPort.class);
     private final GroupInvitePort invitePort = Mockito.mock(GroupInvitePort.class);
     private final GroupParticipantPort participantPort = Mockito.mock(GroupParticipantPort.class);
     private final HistoricalGroupServiceImpl service = new HistoricalGroupServiceImpl(
             accountLookupService,
             membershipMapper,
             new HistoricalGroupProtocolPorts(
-                    participatingGroupPort, metadataPort, invitePort, participantPort),
+                    participatingGroupPort,
+                    readMetadataPort,
+                    writeMetadataPort,
+                    invitePort,
+                    participantPort),
             new ObjectMapper());
 
     @Test
@@ -72,13 +79,13 @@ class HistoricalGroupServiceImplTest {
         assertThatThrownBy(() -> service.getHistoricalGroupDetail(20L, "outside@g.us"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不属于操作账号 baseline");
-        verifyNoInteractions(metadataPort, invitePort, participantPort);
+        verifyNoInteractions(readMetadataPort, writeMetadataPort, invitePort, participantPort);
     }
 
     @Test
     void detailLoadsFullMetadataMembersAndInviteForBaselineGroup() {
         ProtocolAccountRef account = stubBaseline(21L, "[\"baseline@g.us\"]", null);
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(readMetadataPort.getMetadata(account, "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "完整群名",
@@ -107,7 +114,7 @@ class HistoricalGroupServiceImplTest {
     @Test
     void detailKeepsMetadataReadOnlyAndReturnsCompleteInviteFailure() {
         ProtocolAccountRef account = stubBaseline(22L, "[\"baseline@g.us\"]", null);
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(readMetadataPort.getMetadata(account, "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "只读群名",
@@ -136,7 +143,7 @@ class HistoricalGroupServiceImplTest {
                 25L,
                 "[\"baseline@g.us\"]",
                 "{\"baseline@g.us\":\"历史群名\"}");
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(readMetadataPort.getMetadata(account, "baseline@g.us"))
                 .thenThrow(new ProtocolException(
                         ProtocolErrorCode.GROUP_UNAVAILABLE,
                         "metadata 完整失败原因"));
@@ -159,9 +166,86 @@ class HistoricalGroupServiceImplTest {
     }
 
     @Test
+    void androidDetailUsesRoutedReadMetadataAndKeepsMemberMutationDisabled() {
+        ProtocolAccountRef android = stubBaseline(
+                31L,
+                ProtocolBackend.ANDROID,
+                "[\"120363detail@g.us\"]",
+                null);
+        GroupMetadataResult androidMetadata = new GroupMetadataResult(
+                "120363detail@g.us",
+                "安卓历史群",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                "Android 当前不支持读取 inviteViaLink 设置状态",
+                false,
+                false,
+                List.of(
+                        new GroupParticipantResult(
+                                "919000000001@s.whatsapp.net",
+                                "919000000001",
+                                true,
+                                false,
+                                "admin"),
+                        new GroupParticipantResult(
+                                "919000000002@s.whatsapp.net",
+                                "919000000002",
+                                false,
+                                false,
+                                "participant")));
+        when(readMetadataPort.getMetadata(android, "120363detail@g.us"))
+                .thenReturn(androidMetadata);
+        when(invitePort.getInvite(android, "120363detail@g.us"))
+                .thenReturn(new GroupInviteResult(
+                        "120363detail@g.us",
+                        "ABC123",
+                        "https://chat.whatsapp.com/ABC123"));
+
+        HistoricalGroupDetailVO result =
+                service.getHistoricalGroupDetail(31L, "120363detail@g.us");
+
+        assertThat(result.subject()).isEqualTo("安卓历史群");
+        assertThat(result.members()).hasSize(2);
+        assertThat(result.inviteUrl()).isEqualTo("https://chat.whatsapp.com/ABC123");
+        assertThat(result.selfRole()).isEqualTo(HistoricalGroupSelfRole.ADMIN);
+        assertThat(result.speechState()).isEqualTo(SpeechState.ABNORMAL);
+        assertThat(result.operationAllowed()).isFalse();
+        assertThat(result.operationDisabledReason()).isEqualTo("当前协议暂不支持成员管理");
+        verifyNoInteractions(writeMetadataPort, participantPort);
+    }
+
+    @Test
+    void androidParticipantMutationStillUsesLegacyWriteMetadataPort() {
+        ProtocolAccountRef android = stubBaseline(
+                32L,
+                ProtocolBackend.ANDROID,
+                "[\"120363detail@g.us\"]",
+                null);
+        when(writeMetadataPort.getMetadata(
+                android.protocolAccountId(), "120363detail@g.us"))
+                .thenThrow(new ProtocolException(
+                        ProtocolErrorCode.UNSUPPORTED_BACKEND,
+                        "Android 历史群成员管理尚未接入"));
+
+        assertThatThrownBy(() -> service.promoteParticipants(
+                new HistoricalGroupParticipantActionDTO(
+                        32L,
+                        "120363detail@g.us",
+                        List.of("919000000002@s.whatsapp.net"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("尚未接入");
+        verifyNoInteractions(readMetadataPort, participantPort);
+    }
+
+    @Test
     void promoteParticipantsRejectsMissingFreshInviteBeforeWrite() {
         ProtocolAccountRef account = stubBaseline(23L, "[\"baseline@g.us\"]", null);
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(writeMetadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "管理群",
@@ -190,7 +274,7 @@ class HistoricalGroupServiceImplTest {
         String ownerJid = "8613800000001@s.whatsapp.net";
         String adminJid = "8613800000002@s.whatsapp.net";
         String memberJid = "8613800000003@s.whatsapp.net";
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(writeMetadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "管理群",
@@ -203,19 +287,19 @@ class HistoricalGroupServiceImplTest {
                 .thenReturn(new GroupInviteResult(
                         "baseline@g.us", "fresh", "https://chat.whatsapp.com/fresh"));
         when(participantPort.updateParticipants(
-                account.protocolAccountId(),
+                account,
                 "baseline@g.us",
                 List.of(memberJid),
                 GroupParticipantAction.PROMOTE))
                 .thenReturn(batch(item(memberJid, "OK", "200")));
         when(participantPort.updateParticipants(
-                account.protocolAccountId(),
+                account,
                 "baseline@g.us",
                 List.of(adminJid),
                 GroupParticipantAction.DEMOTE))
                 .thenReturn(batch(item(adminJid, "OK", "200")));
         when(participantPort.updateParticipants(
-                account.protocolAccountId(),
+                account,
                 "baseline@g.us",
                 List.of(memberJid, adminJid),
                 GroupParticipantAction.REMOVE))
@@ -248,20 +332,21 @@ class HistoricalGroupServiceImplTest {
         assertThat(removeResult.results().get(1).errorMessage())
                 .isEqualTo("protocol complete denied reason");
         verify(invitePort, times(3)).getInvite(account, "baseline@g.us");
-        verify(metadataPort, times(3)).getMetadata(account.protocolAccountId(), "baseline@g.us");
+        verify(writeMetadataPort, times(3))
+                .getMetadata(account.protocolAccountId(), "baseline@g.us");
         verify(participantPort).updateParticipants(
-                account.protocolAccountId(), "baseline@g.us", List.of(memberJid), GroupParticipantAction.PROMOTE);
+                account, "baseline@g.us", List.of(memberJid), GroupParticipantAction.PROMOTE);
         verify(participantPort).updateParticipants(
-                account.protocolAccountId(), "baseline@g.us", List.of(adminJid), GroupParticipantAction.DEMOTE);
+                account, "baseline@g.us", List.of(adminJid), GroupParticipantAction.DEMOTE);
         verify(participantPort).updateParticipants(
-                account.protocolAccountId(), "baseline@g.us", List.of(memberJid, adminJid), GroupParticipantAction.REMOVE);
+                account, "baseline@g.us", List.of(memberJid, adminJid), GroupParticipantAction.REMOVE);
         verifyNoMoreInteractions(participantPort);
     }
 
     @Test
     void participantActionsRejectNonAdminAndNonBaselineBeforeMutation() {
         ProtocolAccountRef memberAccount = stubBaseline(26L, "[\"baseline@g.us\"]", null);
-        when(metadataPort.getMetadata(memberAccount.protocolAccountId(), "baseline@g.us"))
+        when(writeMetadataPort.getMetadata(memberAccount.protocolAccountId(), "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "普通成员群",
@@ -284,7 +369,7 @@ class HistoricalGroupServiceImplTest {
         assertThatThrownBy(() -> service.promoteParticipants(outsideRequest))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不属于操作账号 baseline");
-        verify(metadataPort, never()).getMetadata("acc_27", "outside@g.us");
+        verify(writeMetadataPort, never()).getMetadata("acc_27", "outside@g.us");
     }
 
     @Test
@@ -292,7 +377,7 @@ class HistoricalGroupServiceImplTest {
         ProtocolAccountRef account = stubBaseline(28L, "[\"baseline@g.us\"]", null);
         String firstJid = "8613800000101@s.whatsapp.net";
         String secondJid = "8613800000102@s.whatsapp.net";
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(writeMetadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "管理群",
@@ -304,7 +389,7 @@ class HistoricalGroupServiceImplTest {
                 .thenReturn(new GroupInviteResult(
                         "baseline@g.us", "fresh", "https://chat.whatsapp.com/fresh"));
         when(participantPort.updateParticipants(
-                account.protocolAccountId(),
+                account,
                 "baseline@g.us",
                 List.of(firstJid, secondJid),
                 GroupParticipantAction.REMOVE))
@@ -322,7 +407,7 @@ class HistoricalGroupServiceImplTest {
         assertThat(result.results()).extracting(item -> item.errorMessage())
                 .containsOnly("协议整批完整失败原因");
         verify(participantPort, times(1)).updateParticipants(
-                account.protocolAccountId(),
+                account,
                 "baseline@g.us",
                 List.of(firstJid, secondJid),
                 GroupParticipantAction.REMOVE);
@@ -334,7 +419,7 @@ class HistoricalGroupServiceImplTest {
         String selfJid = "8613800000029@s.whatsapp.net";
         String ownerJid = "8613800000001@s.whatsapp.net";
         String memberJid = "8613800000002@s.whatsapp.net";
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(writeMetadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
                         "管理群",
@@ -361,7 +446,7 @@ class HistoricalGroupServiceImplTest {
     @Test
     void participantActionsReturnCompleteMetadataGateFailureAsBusinessError() {
         ProtocolAccountRef account = stubBaseline(30L, "[\"baseline@g.us\"]", null);
-        when(metadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
+        when(writeMetadataPort.getMetadata(account.protocolAccountId(), "baseline@g.us"))
                 .thenThrow(new ProtocolException(
                         ProtocolErrorCode.GROUP_UNAVAILABLE,
                         "写前 metadata 完整失败原因"));
@@ -448,6 +533,41 @@ class HistoricalGroupServiceImplTest {
     }
 
     @Test
+    void androidRefreshUsesBaselineIntersectionAndExcludesGroupsJoinedAfterImport() {
+        ProtocolAccountRef android = stubBaseline(
+                33L,
+                ProtocolBackend.ANDROID,
+                "[\"120363left@g.us\",\"120363still@g.us\"]",
+                null);
+        when(participatingGroupPort.listCurrent(android)).thenReturn(List.of(
+                currentGroup("120363still@g.us", "仍在历史群"),
+                currentGroup("120363new@g.us", "导入后新群")));
+        when(participatingGroupPort.summarize(
+                android,
+                List.of("120363still@g.us"),
+                8)).thenReturn(List.of(summary(
+                        "120363still@g.us",
+                        true,
+                        null,
+                        "仍在历史群",
+                        12,
+                        "ADMIN",
+                        null,
+                        false)));
+
+        List<HistoricalGroupItemVO> result = service.refreshHistoricalGroups(33L);
+
+        assertThat(result).extracting(HistoricalGroupItemVO::groupJid)
+                .containsExactly("120363left@g.us", "120363still@g.us");
+        assertThat(result.get(0).membershipState())
+                .isEqualTo(HistoricalGroupMembershipState.CURRENT_NOT_IN_GROUP);
+        assertThat(result.get(1).membershipState())
+                .isEqualTo(HistoricalGroupMembershipState.CURRENT_IN_GROUP);
+        assertThat(result.get(1).selfRole()).isEqualTo(HistoricalGroupSelfRole.ADMIN);
+        assertThat(result.get(1).speechState()).isEqualTo(SpeechState.ABNORMAL);
+    }
+
+    @Test
     void refreshHistoricalGroups_mapsRolesSpeechAndItemFailures() {
         List<String> groupJids = List.of(
                 "owner@g.us", "admin@g.us", "member@g.us", "normal@g.us", "failed@g.us", "abnormal@g.us");
@@ -525,11 +645,27 @@ class HistoricalGroupServiceImplTest {
     }
 
     private ProtocolAccountRef stubBaseline(Long accountId, String groupJidsJson, String subjectsJson) {
-        ProtocolAccountRef account = new ProtocolAccountRef(
+        return stubBaseline(
                 accountId,
                 ProtocolBackend.WEB,
-                "acc_" + accountId,
-                "86138000000" + accountId);
+                groupJidsJson,
+                subjectsJson);
+    }
+
+    private ProtocolAccountRef stubBaseline(
+            Long accountId,
+            ProtocolBackend backend,
+            String groupJidsJson,
+            String subjectsJson) {
+        ProtocolAccountRef account = new ProtocolAccountRef(
+                accountId,
+                backend,
+                backend == ProtocolBackend.WEB
+                        ? "acc_" + accountId
+                        : "android_" + accountId,
+                backend == ProtocolBackend.WEB
+                        ? "86138000000" + accountId
+                        : "919000000001");
         AccountGroupBaselineRow baseline = new AccountGroupBaselineRow();
         baseline.setAccountId(accountId);
         baseline.setBaselineGroupJidsJson(groupJidsJson);
@@ -579,6 +715,8 @@ class HistoricalGroupServiceImplTest {
                 true,
                 true,
                 null,
+                false,
+                true,
                 List.of(participants));
     }
 

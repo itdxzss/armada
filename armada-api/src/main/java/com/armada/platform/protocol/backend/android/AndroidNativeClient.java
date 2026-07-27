@@ -36,6 +36,14 @@ public interface AndroidNativeClient {
     AndroidResponseEnvelope members(String wsPhone, String groupJid);
 
     /**
+     * 查询 Android 协议账号当前参与的群。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @return Android 原生响应包
+     */
+    AndroidResponseEnvelope groups(String wsPhone);
+
+    /**
      * 使用 Android 原生接口保存联系人。
      *
      * @param wsPhone 不带加号的纯数字 WhatsApp 手机号

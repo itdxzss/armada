@@ -14,6 +14,7 @@
         <result column="group_name_prefix" property="groupNamePrefix"/>
         <result column="friend_retry_limit" property="friendRetryLimit"/>
         <result column="material_per_group" property="materialPerGroup"/>
+        <result column="material_entry_interval_seconds" property="materialEntryIntervalSeconds"/>
         <result column="speak_permission" property="speakPermission"/>
         <result column="builder_exit_enabled" property="builderExitEnabled"/>
         <result column="block_reason" property="blockReason"/>
@@ -130,6 +131,7 @@
             <arg column="groupNamePrefix" javaType="java.lang.String"/>
             <arg column="friendRetryLimit" javaType="java.lang.Integer"/>
             <arg column="materialPerGroup" javaType="java.lang.Integer"/>
+            <arg column="materialEntryIntervalSeconds" javaType="java.lang.Integer"/>
             <arg column="speakPermission" javaType="java.lang.Integer"/>
             <arg column="builderExitEnabled" javaType="java.lang.Boolean"/>
             <arg column="remark" javaType="java.lang.String"/>
@@ -174,7 +176,7 @@
     <sql id="TaskColumns">
         marketing_task_id, tenant_id, builder_group_id, success_group_id, failure_group_id,
         marketing_account_group_limit, group_name_prefix, friend_retry_limit, material_per_group,
-        speak_permission, builder_exit_enabled, block_reason, resource_status,
+        material_entry_interval_seconds, speak_permission, builder_exit_enabled, block_reason, resource_status,
         marketing_account_total_count, created_at, updated_at
     </sql>
 
@@ -246,12 +248,14 @@
         INSERT INTO group_pull_marketing_task
             (marketing_task_id, builder_group_id, success_group_id, failure_group_id,
              marketing_account_group_limit, group_name_prefix, friend_retry_limit,
-             material_per_group, speak_permission, builder_exit_enabled, block_reason,
+             material_per_group, material_entry_interval_seconds, speak_permission,
+             builder_exit_enabled, block_reason,
              resource_status, marketing_account_total_count, created_at, updated_at)
         VALUES
             (#{marketingTaskId}, #{builderGroupId}, #{successGroupId}, #{failureGroupId},
              #{marketingAccountGroupLimit}, #{groupNamePrefix}, #{friendRetryLimit},
-             #{materialPerGroup}, #{speakPermission}, #{builderExitEnabled}, #{blockReason},
+             #{materialPerGroup}, #{materialEntryIntervalSeconds}, #{speakPermission},
+             #{builderExitEnabled}, #{blockReason},
              #{resourceStatus}, #{marketingAccountTotalCount}, #{createdAt}, #{updatedAt})
     </insert>
 
@@ -304,6 +308,7 @@
                gp.group_name_prefix AS groupNamePrefix,
                gp.friend_retry_limit AS friendRetryLimit,
                gp.material_per_group AS materialPerGroup,
+               gp.material_entry_interval_seconds AS materialEntryIntervalSeconds,
                gp.speak_permission AS speakPermission,
                gp.builder_exit_enabled AS builderExitEnabled,
                mt.remark AS remark,
@@ -390,6 +395,16 @@
           AND business_type = 2
           AND deleted_at IS NULL
         FOR UPDATE
+    </select>
+
+    <select id="selectTaskRuntime" resultType="com.armada.marketing.model.entity.MarketingTask">
+        SELECT id,
+               status,
+               task_end_at AS taskEndAt
+        FROM marketing_task
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
     </select>
 
     <update id="startTask">
@@ -492,13 +507,6 @@
         WHERE marketing_task_id = #{taskId}
     </delete>
 
-    <select id="selectTaskByIdForUpdate" resultMap="TaskResultMap">
-        SELECT <include refid="TaskColumns"/>
-        FROM group_pull_marketing_task
-        WHERE marketing_task_id = #{taskId}
-        FOR UPDATE
-    </select>
-
     <select id="countInflightExecutions" resultType="long">
         SELECT COUNT(*)
         FROM group_pull_marketing_execution
@@ -506,7 +514,7 @@
           AND execution_status IN (1, 2)
     </select>
 
-    <select id="selectBuilderCandidateForUpdate"
+    <select id="selectBuilderCandidate"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,
@@ -542,10 +550,9 @@
           )
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 1
-        FOR UPDATE
     </select>
 
-    <select id="selectMarketerCandidateForUpdate"
+    <select id="selectMarketerCandidate"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow">
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,
@@ -572,10 +579,9 @@
           AND COALESCE(stat.reserved_group_count, 0) + COALESCE(stat.joined_group_count, 0) &lt; #{limit}
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 1
-        FOR UPDATE
     </select>
 
-    <select id="selectAvailableMaterialsForUpdate" resultMap="MaterialResultMap">
+    <select id="selectAvailableMaterials" resultMap="MaterialResultMap">
         SELECT id, tenant_id, task_id, line_no, phone, status, current_execution_id,
                created_at, updated_at
         FROM group_pull_marketing_material
@@ -583,7 +589,6 @@
           AND status = 1
         ORDER BY line_no ASC
         LIMIT #{limit}
-        FOR UPDATE
     </select>
 
     <update id="reserveMaterials">
@@ -643,13 +648,32 @@
         ORDER BY em.allocation_no ASC
     </select>
 
-    <select id="selectAccountStatForUpdate" resultMap="AccountStatResultMap">
+    <select id="selectNextPendingExecutionMaterial" resultMap="ExecutionMaterialResultMap">
+        SELECT em.id, em.tenant_id, em.execution_id, em.material_id,
+               material.phone AS material_phone,
+               em.allocation_no, em.friend_status, em.friend_failure_reason,
+               em.entry_status, em.entry_failure_reason, em.created_at, em.updated_at
+        FROM group_pull_marketing_execution_material em
+        JOIN group_pull_marketing_material material ON material.id = em.material_id
+        WHERE em.execution_id = #{executionId}
+          AND em.entry_status = 1
+        ORDER BY em.allocation_no ASC
+        LIMIT 1
+    </select>
+
+    <select id="countPendingExecutionMaterials" resultType="long">
+        SELECT COUNT(*)
+        FROM group_pull_marketing_execution_material
+        WHERE execution_id = #{executionId}
+          AND entry_status = 1
+    </select>
+
+    <select id="selectAccountStat" resultMap="AccountStatResultMap">
         SELECT id, tenant_id, task_id, account_id, reserved_group_count, joined_group_count,
                created_at, updated_at
         FROM group_pull_marketing_account_stat
         WHERE task_id = #{taskId}
           AND account_id = #{accountId}
-        FOR UPDATE
     </select>
 
     <insert id="insertAccountStat" useGeneratedKeys="true" keyProperty="id">
@@ -763,7 +787,7 @@
             execution_status = 2,
             current_stage = #{nextStage},
             stage_retry_count = 0,
-            next_execute_at = #{createdAt},
+            next_execute_at = #{nextExecuteAt},
             updated_at = #{createdAt}
         WHERE id = #{id}
           AND execution_status IN (1, 2)
@@ -797,7 +821,49 @@
             entry_failure_reason = #{reason},
             updated_at = #{now}
         WHERE id = #{id}
-          AND entry_status != 2
+          AND entry_status = 1
+    </update>
+
+    <update id="updateMaterialStageProgress">
+        UPDATE group_pull_marketing_execution
+        SET stage_retry_count = #{nextRetryCount},
+            next_execute_at = #{nextExecuteAt},
+            failure_reason = CASE
+                WHEN #{reason} IS NULL OR #{reason} = '' THEN failure_reason
+                ELSE LEFT(CONCAT_WS(';', NULLIF(failure_reason, ''), #{reason}), 255)
+            END,
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND execution_status = #{executionStatus}
+          AND current_stage = #{expectedStage}
+          AND stage_retry_count = #{expectedRetryCount}
+    </update>
+
+    <update id="rescheduleMaterialExecutionsOnResume">
+        UPDATE group_pull_marketing_execution
+        SET next_execute_at = #{now} + #{minDelayMillis}
+                + FLOOR(RAND() * (
+                    (#{maxDelayMillis} - #{minDelayMillis}) / 1000 + 1
+                  )) * 1000,
+            updated_at = #{now}
+        WHERE task_id = #{taskId}
+          AND execution_status IN (1, 2)
+          AND current_stage = 5
+          AND EXISTS (
+              SELECT 1
+              FROM group_pull_marketing_execution_material relation
+              WHERE relation.execution_id = group_pull_marketing_execution.id
+                AND relation.entry_status = 1
+          )
+    </update>
+
+    <update id="failPendingExecutionMaterials">
+        UPDATE group_pull_marketing_execution_material
+        SET entry_status = 3,
+            entry_failure_reason = #{reason},
+            updated_at = #{now}
+        WHERE execution_id = #{executionId}
+          AND entry_status = 1
     </update>
 
     <update id="updateMarketerAdminStatus">
@@ -845,13 +911,6 @@
           AND entry_status = 2
     </select>
 
-    <select id="selectExecutionByIdForUpdate" resultMap="ExecutionResultMap">
-        SELECT <include refid="ExecutionColumns"/>
-        FROM group_pull_marketing_execution
-        WHERE id = #{id}
-        FOR UPDATE
-    </select>
-
     <update id="markExecutionTerminal">
         UPDATE group_pull_marketing_execution
         SET execution_status = #{terminalStatus},
@@ -864,7 +923,8 @@
             next_execute_at = #{finishedAt},
             updated_at = #{finishedAt}
         WHERE id = #{id}
-          AND execution_status IN (1, 2)
+          AND execution_status = #{expectedStatus}
+          AND current_stage = #{expectedStage}
     </update>
 
     <update id="completeSuccessfulMaterials">
@@ -987,6 +1047,10 @@
           AND execution.execution_status IN (1, 2)
           AND execution.next_execute_at &lt;= #{now}
           AND (
+              execution.current_stage &lt;&gt; 5
+              OR task.status &lt;&gt; 5
+          )
+          AND (
               (
                   pull_task.resource_status = 2
                   AND task.status = 2
@@ -1019,16 +1083,13 @@
         LIMIT #{limit}
     </select>
 
-    <!-- 显式 tenant_id + InterceptorIgnore，避免租户插件破坏 ORDER BY ... FOR UPDATE 的 MySQL 尾句。 -->
-    <select id="selectCancelableExecutionsByTenantForUpdate" resultMap="ExecutionResultMap">
+    <select id="selectCancelableExecutions" resultMap="ExecutionResultMap">
         SELECT <include refid="ExecutionColumns"/>
         FROM group_pull_marketing_execution
-        WHERE tenant_id = #{tenantId}
-          AND task_id = #{taskId}
+        WHERE task_id = #{taskId}
           AND group_name IS NULL
           AND execution_status IN (1, 2)
         ORDER BY id
-        FOR UPDATE
     </select>
 
     <update id="cancelPreGroupExecution">

@@ -14,9 +14,6 @@ import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow;
 import com.armada.marketing.model.entity.MarketingTask;
-import com.armada.shared.exception.BusinessException;
-import com.armada.shared.exception.ErrorCode;
-import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -103,18 +100,15 @@ public interface GroupPullMarketingMapper {
     /** 删除待启动任务扩展配置。 */
     int deleteTaskExtension(@Param("taskId") Long taskId);
 
-    /** 锁定读取任务扩展配置，供一次短事务分配。 */
-    GroupPullMarketingTask selectTaskByIdForUpdate(@Param("taskId") Long taskId);
-
     /** 统计任务当前准备中或正式执行中的建群数。 */
     long countInflightExecutions(@Param("taskId") Long taskId);
 
-    /** 锁定选择一个尚未被任何任务领取的建群账号。 */
-    GroupPullAccountRefRow selectBuilderCandidateForUpdate(@Param("taskId") Long taskId,
-                                                           @Param("builderGroupId") Long builderGroupId);
+    /** 选择一个尚未被任何任务领取的建群账号，实际领取由账号占用表唯一键裁决。 */
+    GroupPullAccountRefRow selectBuilderCandidate(@Param("taskId") Long taskId,
+                                                  @Param("builderGroupId") Long builderGroupId);
 
-    /** 按账号创建时间倒序锁定选择一个仍有群额度的营销账号。 */
-    GroupPullAccountRefRow selectMarketerCandidateForUpdate(
+    /** 按账号创建时间倒序选择一个仍有群额度的营销账号。 */
+    GroupPullAccountRefRow selectMarketerCandidate(
             @Param("taskId") Long taskId,
             @Param("marketingGroupId") Long marketingGroupId,
             @Param("limit") int limit);
@@ -129,8 +123,8 @@ public interface GroupPullMarketingMapper {
                              @Param("accountId") Long accountId,
                              @Param("now") long now);
 
-    /** 按文件顺序锁定读取指定数量的可用料子。 */
-    List<GroupPullMarketingMaterial> selectAvailableMaterialsForUpdate(
+    /** 按文件顺序读取指定数量的可用料子，实际预留由条件更新裁决。 */
+    List<GroupPullMarketingMaterial> selectAvailableMaterials(
             @Param("taskId") Long taskId,
             @Param("limit") int limit);
 
@@ -152,8 +146,15 @@ public interface GroupPullMarketingMapper {
     List<GroupPullMarketingExecutionMaterial> selectExecutionMaterials(
             @Param("executionId") Long executionId);
 
-    /** 锁定读取营销账号在当前任务内的群额度。 */
-    GroupPullMarketingAccountStat selectAccountStatForUpdate(
+    /** 按抽取顺序读取一条仍待进群的料子。 */
+    GroupPullMarketingExecutionMaterial selectNextPendingExecutionMaterial(
+            @Param("executionId") Long executionId);
+
+    /** 统计当前执行仍待进群的料子数量。 */
+    long countPendingExecutionMaterials(@Param("executionId") Long executionId);
+
+    /** 读取营销账号在当前任务内的群额度，实际预留由条件更新裁决。 */
+    GroupPullMarketingAccountStat selectAccountStat(
             @Param("taskId") Long taskId,
             @Param("accountId") Long accountId);
 
@@ -202,11 +203,7 @@ public interface GroupPullMarketingMapper {
                               @Param("now") long now);
 
     /** 建群成功后保存群 JID 并推进到加营销号或加料子阶段。 */
-    int markGroupCreated(@Param("id") Long id,
-                         @Param("expectedStage") int expectedStage,
-                         @Param("groupJid") String groupJid,
-                         @Param("nextStage") int nextStage,
-                         @Param("createdAt") long createdAt);
+    int markGroupCreated(GroupCreatedUpdate update);
 
     /** 建群结果无法确认时转人工处理，禁止自动重建。 */
     int markExecutionManualReview(@Param("id") Long id,
@@ -225,6 +222,24 @@ public interface GroupPullMarketingMapper {
                                   @Param("status") int status,
                                   @Param("reason") String reason,
                                   @Param("now") long now);
+
+    /** 只在重试计数未变化时保存当前料子的下一次尝试进度。 */
+    int updateMaterialStageProgress(MaterialStageProgress update);
+
+    /** 恢复任务时为每条待拉料执行重新生成独立随机时间。 */
+    int rescheduleMaterialExecutionsOnResume(
+            @Param("taskId") Long taskId,
+            @Param("now") long now,
+            @Param("minDelayMillis") long minDelayMillis,
+            @Param("maxDelayMillis") long maxDelayMillis);
+
+    /** 读取逐料执行闸门需要的公共任务状态和结束时间。 */
+    MarketingTask selectTaskRuntime(@Param("taskId") Long taskId);
+
+    /** 任务结束或资源释放后把仍待拉料的关系统一记为失败。 */
+    int failPendingExecutionMaterials(@Param("executionId") Long executionId,
+                                      @Param("reason") String reason,
+                                      @Param("now") long now);
 
     /** 写入营销账号管理员状态。 */
     int updateMarketerAdminStatus(@Param("id") Long id,
@@ -252,13 +267,12 @@ public interface GroupPullMarketingMapper {
     /** 统计本次执行实际成功进入群组的料子数。 */
     long countSuccessfulMaterialEntries(@Param("executionId") Long executionId);
 
-    /** 锁定单次执行，保证结果只结算一次。 */
-    GroupPullMarketingExecution selectExecutionByIdForUpdate(@Param("id") Long id);
-
     /**
      * 把活动执行条件更新为最终结果，同时保存成功完成阶段或失败发生阶段。
      *
      * @param id 单群执行 ID
+     * @param expectedStatus 读取执行时的活动状态码
+     * @param expectedStage 读取执行时的阶段码
      * @param terminalStatus 最终执行状态码
      * @param terminalStage 最终展示阶段码；失败时保留原失败阶段
      * @param reason 最终失败原因；成功时可空
@@ -266,6 +280,8 @@ public interface GroupPullMarketingMapper {
      * @return 实际更新行数
      */
     int markExecutionTerminal(@Param("id") Long id,
+                              @Param("expectedStatus") int expectedStatus,
+                              @Param("expectedStage") int expectedStage,
                               @Param("terminalStatus") int terminalStatus,
                               @Param("terminalStage") int terminalStage,
                               @Param("reason") String reason,
@@ -316,35 +332,8 @@ public interface GroupPullMarketingMapper {
     @InterceptorIgnore(tenantLine = "true")
     List<GroupPullTaskDispatchRow> selectReleasingTaskDispatches(@Param("limit") int limit);
 
-    /**
-     * 锁定读取尚未正式建群、可由释放流程取消的执行。
-     *
-     * <p>从当前租户上下文取 tenantId，再委托给显式租户 SQL，避免租户插件破坏
-     * MySQL 的 {@code ORDER BY ... FOR UPDATE} 子句顺序。</p>
-     *
-     * @param taskId 统一营销任务 ID
-     * @return 当前租户内可直接取消的准备执行
-     * @throws BusinessException 当前线程缺少租户上下文时抛出
-     */
-    default List<GroupPullMarketingExecution> selectCancelableExecutionsForUpdate(Long taskId) {
-        Long tenantId = TenantContext.get();
-        if (tenantId == null) {
-            throw new BusinessException(ErrorCode.TENANT_MISSING);
-        }
-        return selectCancelableExecutionsByTenantForUpdate(tenantId, taskId);
-    }
-
-    /**
-     * 按显式租户锁定读取可取消执行，仅供 {@link #selectCancelableExecutionsForUpdate(Long)} 委托。
-     *
-     * @param tenantId 当前租户 ID
-     * @param taskId 统一营销任务 ID
-     * @return 当前租户内可直接取消的准备执行
-     */
-    @InterceptorIgnore(tenantLine = "true")
-    List<GroupPullMarketingExecution> selectCancelableExecutionsByTenantForUpdate(
-            @Param("tenantId") Long tenantId,
-            @Param("taskId") Long taskId);
+    /** 普通读取尚未正式建群、可由释放流程尝试条件取消的执行。 */
+    List<GroupPullMarketingExecution> selectCancelableExecutions(@Param("taskId") Long taskId);
 
     /** 释放流程取消一条尚未正式建群的执行。 */
     int cancelPreGroupExecution(@Param("id") Long id, @Param("now") long now);
@@ -361,4 +350,46 @@ public interface GroupPullMarketingMapper {
 
     /** 营销分组确认释放后把资源状态置为已释放。 */
     int markResourceReleased(@Param("taskId") Long taskId, @Param("now") long now);
+
+    /**
+     * 建群成功后的条件更新参数。
+     *
+     * @param id 单群执行 ID
+     * @param expectedStage 预期创建群组阶段
+     * @param groupJid 已创建群 JID
+     * @param nextStage 下一执行阶段
+     * @param nextExecuteAt 下一阶段允许执行时间
+     * @param createdAt 群创建成功时间
+     */
+    record GroupCreatedUpdate(
+            Long id,
+            int expectedStage,
+            String groupJid,
+            int nextStage,
+            long nextExecuteAt,
+            long createdAt) {
+    }
+
+    /**
+     * 逐料阶段重试和调度条件更新参数。
+     *
+     * @param id 单群执行 ID
+     * @param executionStatus 当前执行状态
+     * @param expectedStage 预期逐料阶段
+     * @param expectedRetryCount 更新前重试计数
+     * @param nextRetryCount 更新后重试计数
+     * @param nextExecuteAt 下一次允许执行时间
+     * @param reason 可追加的失败原因
+     * @param now 更新时间
+     */
+    record MaterialStageProgress(
+            Long id,
+            int executionStatus,
+            int expectedStage,
+            int expectedRetryCount,
+            int nextRetryCount,
+            long nextExecuteAt,
+            String reason,
+            long now) {
+    }
 }

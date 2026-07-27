@@ -6,6 +6,10 @@ import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /** 拉群营销生命周期 SQL 的状态条件测试。 */
@@ -60,21 +64,27 @@ class GroupPullMarketingLifecycleSqlShapeTest {
     }
 
     @Test
-    void releaseLockUsesExplicitTenantAndKeepsValidMysqlClauseOrder() throws Exception {
+    void releaseCandidateUsesTenantPluginWithoutRowLock() throws Exception {
         Method method = GroupPullMarketingMapper.class.getMethod(
-                "selectCancelableExecutionsByTenantForUpdate", Long.class, Long.class);
+                "selectCancelableExecutions", Long.class);
         InterceptorIgnore ignore = method.getAnnotation(InterceptorIgnore.class);
         String xml = readResource(MAPPER_XML);
-        String lockSql = block(xml, "select", "selectCancelableExecutionsByTenantForUpdate");
+        String candidateSql = block(xml, "select", "selectCancelableExecutions");
 
-        assertThat(ignore).isNotNull();
-        assertThat(ignore.tenantLine()).isEqualTo("true");
-        assertThat(lockSql)
-                .contains("tenant_id = #{tenantId}")
+        assertThat(ignore).isNull();
+        assertThat(candidateSql)
                 .contains("task_id = #{taskId}")
+                .contains("group_name IS NULL")
+                .contains("execution_status IN (1, 2)")
                 .contains("ORDER BY id")
-                .contains("FOR UPDATE");
-        assertThat(lockSql.indexOf("ORDER BY id")).isLessThan(lockSql.indexOf("FOR UPDATE"));
+                .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    void onlyTaskLookupKeepsExplicitForUpdate() throws IOException {
+        String xml = readResource(MAPPER_XML);
+
+        assertThat(selectIdsContainingForUpdate(xml)).containsExactly("selectTaskForUpdate");
     }
 
     @Test
@@ -93,7 +103,58 @@ class GroupPullMarketingLifecycleSqlShapeTest {
                 .contains("LIMIT #{query.pageSize} OFFSET #{query.offset}");
         assertThat(block(xml, "update", "markExecutionTerminal"))
                 .contains("current_stage = #{terminalStage}")
+                .contains("execution_status = #{expectedStatus}")
+                .contains("current_stage = #{expectedStage}")
                 .doesNotContain("current_stage = 11");
+    }
+
+    @Test
+    void materialEntryQueriesAreSingleRowConditionalAndPersistRetrySchedule() throws IOException {
+        String xml = readResource(MAPPER_XML);
+
+        assertThat(block(xml, "select", "selectNextPendingExecutionMaterial"))
+                .contains("em.entry_status = 1")
+                .contains("ORDER BY em.allocation_no ASC")
+                .contains("LIMIT 1");
+        assertThat(block(xml, "update", "updateMaterialStageProgress"))
+                .contains("stage_retry_count = #{nextRetryCount}")
+                .contains("stage_retry_count = #{expectedRetryCount}")
+                .contains("next_execute_at = #{nextExecuteAt}")
+                .contains("current_stage = #{expectedStage}");
+        assertThat(block(xml, "update", "rescheduleMaterialExecutionsOnResume"))
+                .contains("current_stage = 5")
+                .contains("relation.entry_status = 1")
+                .contains("RAND()")
+                .contains("next_execute_at");
+        assertThat(block(xml, "update", "updateMaterialEntryResult"))
+                .contains("entry_status = 1")
+                .doesNotContain("entry_status != 2");
+        assertThat(block(xml, "update", "markGroupCreated"))
+                .contains("next_execute_at = #{nextExecuteAt}");
+    }
+
+    @Test
+    void pausedTasksDoNotDispatchMaterialEntryAndTerminalTasksCanCloseIt() throws IOException {
+        String xml = readResource(MAPPER_XML);
+        String dueSql = block(xml, "select", "selectDueExecutionDispatches");
+
+        assertThat(dueSql)
+                .contains("execution.current_stage &lt;&gt; 5")
+                .contains("task.status &lt;&gt; 5")
+                .contains("pull_task.resource_status = 3");
+    }
+
+    @Test
+    void terminalMaterialCleanupIsConditionalAndTaskRuntimeIsLightweight() throws IOException {
+        String xml = readResource(MAPPER_XML);
+
+        assertThat(block(xml, "select", "selectTaskRuntime"))
+                .contains("task_end_at")
+                .contains("business_type = 2")
+                .doesNotContain("FOR UPDATE");
+        assertThat(block(xml, "update", "failPendingExecutionMaterials"))
+                .contains("entry_status = 3")
+                .contains("entry_status = 1");
     }
 
     private String readResource(String path) throws IOException {
@@ -109,5 +170,18 @@ class GroupPullMarketingLifecycleSqlShapeTest {
         int contentStart = xml.indexOf('>', start) + 1;
         int end = xml.indexOf("</" + tag + ">", contentStart);
         return xml.substring(contentStart, end);
+    }
+
+    private List<String> selectIdsContainingForUpdate(String xml) {
+        Matcher matcher = Pattern.compile(
+                "<select\\s+id=\"([^\"]+)\"[^>]*>(.*?)</select>",
+                Pattern.DOTALL).matcher(xml);
+        List<String> ids = new ArrayList<>();
+        while (matcher.find()) {
+            if (matcher.group(2).contains("FOR UPDATE")) {
+                ids.add(matcher.group(1));
+            }
+        }
+        return ids;
     }
 }

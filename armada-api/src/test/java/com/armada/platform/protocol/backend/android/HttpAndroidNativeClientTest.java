@@ -42,6 +42,11 @@ class HttpAndroidNativeClientTest {
                 .andRespond(withSuccess(
                         "{\"Code\":0,\"Data\":{\"Participants\":[]},\"Msg\":\"ok\"}",
                         MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://android.internal/ws/v1/groups/list/919000000001"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        "{\"Code\":0,\"Data\":{\"Count\":0,\"GroupInfos\":[]},\"Msg\":\"\"}",
+                        MediaType.APPLICATION_JSON));
         server.expect(requestTo("http://android.internal/ws/v1/contacts/add/919000000001"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("{\"Numbers\":[\"919000000002\"]}"))
@@ -65,10 +70,17 @@ class HttpAndroidNativeClientTest {
                 .andRespond(withSuccess(
                         "{\"Code\":0,\"Data\":\"\",\"Msg\":\"\"}",
                         MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://android.internal/ws/v1/groups/qrcode/919000000001"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"group_id\":\"120363001@g.us\"}"))
+                .andRespond(withSuccess(
+                        "{\"Code\":0,\"Data\":\"https://chat.whatsapp.com/ABC123\",\"Msg\":\"\"}",
+                        MediaType.APPLICATION_JSON));
 
         assertThat(client.status("919000000001").code()).isZero();
         assertThat(client.join("919000000001", "ABC123").code()).isZero();
         assertThat(client.members("919000000001", "120363001@g.us").code()).isZero();
+        assertThat(client.groups("919000000001").code()).isZero();
         assertThat(client.saveContacts(
                 "919000000001", List.of("919000000002")).code()).isZero();
         assertThat(client.createGroup(
@@ -77,6 +89,8 @@ class HttpAndroidNativeClientTest {
                 List.of("919000000002@s.whatsapp.net")).code()).isZero();
         assertThat(client.setGroupAnnouncement(
                 "919000000001", "120363001@g.us", false).code()).isZero();
+        assertThat(client.groupInvite(
+                "919000000001", "120363001@g.us").code()).isZero();
         server.verify();
     }
 

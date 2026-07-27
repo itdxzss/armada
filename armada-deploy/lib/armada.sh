@@ -19,6 +19,8 @@ armada_build_backend() {
   info "构建后端 jar..."
   # 部署包不应被仓库中与当前发布无关的测试源码编译错误阻断；测试由发布前验证阶段单独执行。
   (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -Dmaven.test.skip=true clean package)
+  JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
+    || die "构建后无法确定唯一后端 jar: ${API_DIR}/target"
   [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
   ok "后端 jar 已就绪: ${JAR_PATH}"
 }

@@ -3,9 +3,12 @@ package com.armada.platform.protocol.http.group;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupMetadataPort;
+import com.armada.platform.protocol.routing.FixedAccountGroupMetadataBackend;
 import java.util.List;
 
 /**
@@ -13,7 +16,8 @@ import java.util.List;
  *
  * <p>本类只将协议层 wire 结构转换为 Armada 稳定结果,不承担页面权限判断。</p>
  */
-public class HttpGroupMetadataAdapter implements GroupMetadataPort {
+public class HttpGroupMetadataAdapter
+        implements GroupMetadataPort, FixedAccountGroupMetadataBackend {
 
     private static final String METADATA_URI_TEMPLATE = "/v1/groups/%s/metadata?accountId=%s";
     private static final String ROLE_ADMIN = "admin";
@@ -24,6 +28,30 @@ public class HttpGroupMetadataAdapter implements GroupMetadataPort {
 
     public HttpGroupMetadataAdapter(ProtocolHttpExecutor httpExecutor) {
         this.httpExecutor = httpExecutor;
+    }
+
+    @Override
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
+    }
+
+    /**
+     * 使用固定 Web 账号引用查询群详情。
+     *
+     * @param account 固定操作账号引用
+     * @param groupJid 群 JID
+     * @return 稳定群详情
+     */
+    @Override
+    public GroupMetadataResult getMetadata(
+            ProtocolAccountRef account,
+            String groupJid) {
+        if (account == null) {
+            throw new ProtocolException(
+                    ProtocolErrorCode.BAD_REQUEST,
+                    "协议层操作账号不能为空");
+        }
+        return getMetadata(account.protocolAccountId(), groupJid);
     }
 
     /**
@@ -57,6 +85,8 @@ public class HttpGroupMetadataAdapter implements GroupMetadataPort {
                 response.inviteViaLink(),
                 invite != null && invite.supported(),
                 invite == null ? CAPABILITY_NOT_DECLARED : invite.reason(),
+                Boolean.TRUE.equals(response.isBanned()),
+                true,
                 participants);
     }
 
@@ -108,6 +138,7 @@ public class HttpGroupMetadataAdapter implements GroupMetadataPort {
             Boolean joinApprovalMode,
             Integer ephemeralDuration,
             Boolean inviteViaLink,
+            Boolean isBanned,
             CapabilitiesResponse capabilities,
             List<ParticipantResponse> participants) {
     }

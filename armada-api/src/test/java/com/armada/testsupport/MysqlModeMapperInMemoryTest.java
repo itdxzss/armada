@@ -16,8 +16,14 @@ import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecutionMaterial;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingMaterial;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
+import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
@@ -118,25 +124,159 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
-    void groupPullReleaseLockQueryExecutesAndKeepsTenantBoundary() throws SQLException {
+    void groupPullReleaseCandidateQueryExecutesAndKeepsTenantBoundary() throws SQLException {
         executeSql(
                 "INSERT INTO group_pull_marketing_execution "
                         + "(id, tenant_id, task_id, execution_status) VALUES (31, 7, 146, 1)",
                 "INSERT INTO group_pull_marketing_execution "
                         + "(id, tenant_id, task_id, execution_status) VALUES (32, 8, 146, 1)");
 
-        List<GroupPullMarketingExecution> executions = transactionTemplate.execute(status -> {
-            List<GroupPullMarketingExecution> locked =
-                    groupPullMarketingMapper.selectCancelableExecutionsForUpdate(146L);
-            status.setRollbackOnly();
-            return locked;
-        });
+        List<GroupPullMarketingExecution> executions =
+                groupPullMarketingMapper.selectCancelableExecutions(146L);
 
         assertThat(executions).isNotNull();
         assertThat(executions).extracting(GroupPullMarketingExecution::getId).containsExactly(31L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupPullMarketingMapper.class.getName()
-                        + ".selectCancelableExecutionsByTenantForUpdate")).isTrue();
+                        + ".selectCancelableExecutions")).isFalse();
+    }
+
+    @Test
+    void groupPullNonLockingAllocatorReadsExecuteAndKeepTenantBoundary() throws SQLException {
+        executeSql(
+                "INSERT INTO group_pull_marketing_task "
+                        + "(marketing_task_id, tenant_id, builder_group_id, created_at, updated_at) "
+                        + "VALUES (146, 7, 278, 100, 100)",
+                "INSERT INTO group_pull_marketing_task "
+                        + "(marketing_task_id, tenant_id, builder_group_id, created_at, updated_at) "
+                        + "VALUES (147, 8, 279, 100, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (61, 7, 146, 2, '10002', 1, 100, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (62, 7, 146, 1, '10001', 1, 100, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (63, 8, 146, 0, '20001', 1, 100, 100)",
+                "INSERT INTO group_pull_marketing_account_stat "
+                        + "(id, tenant_id, task_id, account_id, reserved_group_count, "
+                        + "joined_group_count, created_at, updated_at) "
+                        + "VALUES (71, 7, 146, 88, 1, 2, 100, 100)",
+                "INSERT INTO group_pull_marketing_account_stat "
+                        + "(id, tenant_id, task_id, account_id, reserved_group_count, "
+                        + "joined_group_count, created_at, updated_at) "
+                        + "VALUES (72, 8, 146, 88, 9, 9, 100, 100)");
+
+        GroupPullMarketingTask task = groupPullMarketingMapper.selectTaskById(146L);
+        List<GroupPullMarketingMaterial> materials =
+                groupPullMarketingMapper.selectAvailableMaterials(146L, 5);
+        GroupPullMarketingAccountStat stat =
+                groupPullMarketingMapper.selectAccountStat(146L, 88L);
+
+        assertThat(task).isNotNull();
+        assertThat(task.getTenantId()).isEqualTo(CURRENT_TENANT_ID);
+        assertThat(task.getMaterialEntryIntervalSeconds()).isEqualTo(300);
+        assertThat(groupPullMarketingMapper.selectTaskById(147L)).isNull();
+        assertThat(materials).extracting(GroupPullMarketingMaterial::getId)
+                .containsExactly(62L, 61L);
+        assertThat(stat).isNotNull();
+        assertThat(stat.getTenantId()).isEqualTo(CURRENT_TENANT_ID);
+        assertThat(stat.getReservedGroupCount()).isEqualTo(1);
+        assertThat(stat.getJoinedGroupCount()).isEqualTo(2);
+    }
+
+    @Test
+    void groupPullMaterialProgressQueriesExecuteAgainstRealMapperXml() throws SQLException {
+        executeSql(
+                "INSERT INTO marketing_task "
+                        + "(id, tenant_id, business_type, status, task_end_at, deleted_at) "
+                        + "VALUES (146, 7, 2, 2, 999999, NULL)",
+                "INSERT INTO group_pull_marketing_execution "
+                        + "(id, tenant_id, task_id, execution_status, current_stage, "
+                        + "stage_retry_count, next_execute_at) VALUES (81, 7, 146, 2, 5, 0, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (91, 7, 146, 1, '10001', 2, 100, 100)",
+                "INSERT INTO group_pull_marketing_execution_material "
+                        + "(id, tenant_id, execution_id, material_id, allocation_no, "
+                        + "friend_status, entry_status, created_at, updated_at) "
+                        + "VALUES (101, 7, 81, 91, 1, 2, 1, 100, 100)");
+
+        GroupPullMarketingExecutionMaterial pending =
+                groupPullMarketingMapper.selectNextPendingExecutionMaterial(81L);
+        MarketingTask runtime = groupPullMarketingMapper.selectTaskRuntime(146L);
+        assertThat(pending).isNotNull();
+        assertThat(pending.getId()).isEqualTo(101L);
+        assertThat(pending.getMaterialPhone()).isEqualTo("10001");
+        assertThat(runtime).isNotNull();
+        assertThat(runtime.getStatus()).isEqualTo(2);
+        assertThat(runtime.getTaskEndAt()).isEqualTo(999_999L);
+        assertThat(groupPullMarketingMapper.updateMaterialStageProgress(
+                new GroupPullMarketingMapper.MaterialStageProgress(
+                        81L, 2, 5, 0, 1, 240_000L, null, 200L))).isEqualTo(1);
+        assertThat(groupPullMarketingMapper.updateMaterialStageProgress(
+                new GroupPullMarketingMapper.MaterialStageProgress(
+                        81L, 2, 5, 0, 1, 250_000L, null, 201L))).isZero();
+        assertThat(groupPullMarketingMapper.rescheduleMaterialExecutionsOnResume(
+                146L, 1_000L, 240_000L, 240_000L)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT next_execute_at FROM group_pull_marketing_execution WHERE id = 81",
+                Long.class)).isEqualTo(241_000L);
+        assertThat(groupPullMarketingMapper.failPendingExecutionMaterials(
+                81L, "任务已停止，未继续拉料", 300L)).isEqualTo(1);
+        assertThat(groupPullMarketingMapper.countPendingExecutionMaterials(81L)).isZero();
+    }
+
+    @Test
+    void groupPullCandidateQueriesExecuteWithTenantPlugin() throws SQLException {
+        executeSql(
+                "INSERT INTO account_group "
+                        + "(id, tenant_id, name, deleted_at, marketing_occupancy_type, "
+                        + "marketing_occupancy_task_id) "
+                        + "VALUES (278, 7, 'builder', NULL, NULL, NULL)",
+                "INSERT INTO account_group "
+                        + "(id, tenant_id, name, deleted_at, marketing_occupancy_type, "
+                        + "marketing_occupancy_task_id) "
+                        + "VALUES (336, 7, 'marketer', NULL, 2, 157)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (41, 7, '10001', 278, 'android', 'acc_10001', 100, NULL)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (42, 7, '10002', 336, 'android', 'acc_10002', 200, NULL)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (43, 8, '20001', 278, 'android', 'acc_20001', 300, NULL)",
+                "INSERT INTO account "
+                        + "(id, tenant_id, ws_phone, account_group_id, protocol_id, "
+                        + "protocol_account_id, created_at, deleted_at) "
+                        + "VALUES (44, 8, '20002', 336, 'android', 'acc_20002', 400, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (51, 7, 41, 2, 1, 1, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (52, 7, 42, 2, 1, 1, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (53, 8, 43, 2, 1, 1, NULL)",
+                "INSERT INTO account_state "
+                        + "(id, tenant_id, account_id, account_state, login_state, risk_status, mute_status) "
+                        + "VALUES (54, 8, 44, 2, 1, 1, NULL)");
+
+        GroupPullAccountRefRow builder =
+                groupPullMarketingMapper.selectBuilderCandidate(157L, 278L);
+        GroupPullAccountRefRow marketer =
+                groupPullMarketingMapper.selectMarketerCandidate(157L, 336L, 10);
+
+        assertThat(builder).isNotNull();
+        assertThat(builder.getAccountId()).isEqualTo(41L);
+        assertThat(marketer).isNotNull();
+        assertThat(marketer.getAccountId()).isEqualTo(42L);
     }
 
     @Test
@@ -442,7 +582,95 @@ class MysqlModeMapperInMemoryTest {
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     name VARCHAR(100),
+                    deleted_at BIGINT,
+                    marketing_occupancy_type TINYINT,
+                    marketing_occupancy_task_id BIGINT
+                )
+                """,
+                """
+                CREATE TABLE account (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    ws_phone VARCHAR(32) NOT NULL,
+                    account_group_id BIGINT,
+                    protocol_id VARCHAR(32),
+                    protocol_account_id VARCHAR(64),
+                    created_at BIGINT NOT NULL,
                     deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE account_state (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    account_state TINYINT,
+                    login_state TINYINT,
+                    risk_status TINYINT,
+                    mute_status TINYINT
+                )
+                """,
+                """
+                CREATE TABLE marketing_account_occupancy (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_account_stat (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    task_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    reserved_group_count INT NOT NULL,
+                    joined_group_count INT NOT NULL,
+                    created_at BIGINT,
+                    updated_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE marketing_task (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    business_type TINYINT NOT NULL,
+                    status TINYINT NOT NULL,
+                    task_end_at BIGINT,
+                    deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_task (
+                    marketing_task_id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    builder_group_id BIGINT NOT NULL,
+                    success_group_id BIGINT,
+                    failure_group_id BIGINT,
+                    marketing_account_group_limit INT DEFAULT 10,
+                    group_name_prefix VARCHAR(100),
+                    friend_retry_limit INT DEFAULT 3,
+                    material_per_group INT DEFAULT 3,
+                    material_entry_interval_seconds INT NOT NULL DEFAULT 300,
+                    speak_permission TINYINT DEFAULT 1,
+                    builder_exit_enabled BOOLEAN DEFAULT TRUE,
+                    block_reason TINYINT DEFAULT 0,
+                    resource_status TINYINT DEFAULT 1,
+                    marketing_account_total_count INT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_material (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    task_id BIGINT NOT NULL,
+                    line_no INT NOT NULL,
+                    phone VARCHAR(32) NOT NULL,
+                    status TINYINT NOT NULL DEFAULT 1,
+                    current_execution_id BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
                 )
                 """,
                 """
@@ -472,6 +700,21 @@ class MysqlModeMapperInMemoryTest {
                     created_at BIGINT,
                     updated_at BIGINT,
                     active_builder_account_id BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_execution_material (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    execution_id BIGINT NOT NULL,
+                    material_id BIGINT NOT NULL,
+                    allocation_no INT NOT NULL,
+                    friend_status TINYINT NOT NULL,
+                    friend_failure_reason VARCHAR(255),
+                    entry_status TINYINT NOT NULL,
+                    entry_failure_reason VARCHAR(255),
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
                 )
                 """,
                 """

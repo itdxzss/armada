@@ -27,6 +27,7 @@ import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupDetailProtocolPorts;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
@@ -261,7 +262,7 @@ class GroupDetailServiceImplTest {
 
         InOrder order = inOrder(groupSettingsPort, groupMetadataPort);
         order.verify(groupSettingsPort)
-                .setEphemeralDuration("acc_7", "120363detail@g.us", 604_800);
+                .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
         order.verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
         verify(selector).require(10L);
     }
@@ -273,7 +274,7 @@ class GroupDetailServiceImplTest {
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
-                .setEphemeralDuration("acc_7", "120363detail@g.us", 604_800);
+                .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
         when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 604_800));
 
@@ -308,7 +309,7 @@ class GroupDetailServiceImplTest {
         doThrow(new ProtocolException(
                 ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
                 .when(groupSettingsPort)
-                .setEphemeralDuration("acc_7", "120363detail@g.us", 604_800);
+                .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
 
         assertThatThrownBy(() -> service.updateTimedMessage(
                 10L, new GroupTimedMessageCommandDTO(GroupTimedMessageMode.DAYS_7)))
@@ -328,7 +329,7 @@ class GroupDetailServiceImplTest {
                 GroupPermissionKey.ADD_MEMBERS, true));
 
         verify(groupSettingsPort)
-                .setAddMembersAllowed("acc_7", "120363detail@g.us", true);
+                .setAddMembersAllowed(webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
         verify(selector).require(10L);
     }
@@ -340,7 +341,7 @@ class GroupDetailServiceImplTest {
         doThrow(new ProtocolException(
                 ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
                 .when(groupSettingsPort)
-                .setSendMessagesAllowed("acc_7", "120363detail@g.us", false);
+                .setSendMessagesAllowed(webAccount(), "120363detail@g.us", false);
 
         assertThatThrownBy(() -> service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.SEND_MESSAGES, false)))
@@ -357,7 +358,7 @@ class GroupDetailServiceImplTest {
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
-                .setEditGroupSettingsAllowed("acc_7", "120363detail@g.us", true);
+                .setEditGroupSettingsAllowed(webAccount(), "120363detail@g.us", true);
         when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 
@@ -410,7 +411,7 @@ class GroupDetailServiceImplTest {
                         participant("admin-a@s.whatsapp.net", true, false),
                         participant("admin-b@s.whatsapp.net", true, false))));
         when(groupParticipantPort.updateParticipants(
-                "acc_7",
+                webAccount(),
                 "120363detail@g.us",
                 List.of("admin-a@s.whatsapp.net", "admin-b@s.whatsapp.net"),
                 GroupParticipantAction.DEMOTE))
@@ -447,7 +448,7 @@ class GroupDetailServiceImplTest {
                                 "member@s.whatsapp.net", false, false))),
                         metadataWithParticipants(List.of()));
         when(groupParticipantPort.updateParticipants(
-                "acc_7",
+                webAccount(),
                 "120363detail@g.us",
                 List.of("member@s.whatsapp.net"),
                 GroupParticipantAction.REMOVE))
@@ -472,7 +473,7 @@ class GroupDetailServiceImplTest {
                 .thenReturn(metadataWithParticipants(List.of(participant(
                         "member@s.whatsapp.net", false, false))));
         when(groupParticipantPort.updateParticipants(
-                "acc_7",
+                webAccount(),
                 "120363detail@g.us",
                 List.of("member@s.whatsapp.net"),
                 GroupParticipantAction.PROMOTE))
@@ -611,6 +612,10 @@ class GroupDetailServiceImplTest {
         assertThat(result.members()).isEmpty();
     }
 
+    private static ProtocolAccountRef webAccount() {
+        return new GroupExecutionAccount(7L, "acc_7").protocolRef();
+    }
+
     private void givenLiveTarget() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
@@ -634,6 +639,8 @@ class GroupDetailServiceImplTest {
                 null,
                 false,
                 "Baileys 7.0.0-rc11 does not expose invite-link access",
+                false,
+                true,
                 List.of(new GroupParticipantResult(
                         "8613800000000@s.whatsapp.net",
                         "8613800000000",
@@ -655,6 +662,8 @@ class GroupDetailServiceImplTest {
                 null,
                 false,
                 "Baileys 7.0.0-rc11 does not expose invite-link access",
+                false,
+                true,
                 participants);
     }
 

@@ -110,10 +110,12 @@ ZHUAN_HTTP_PORT="${ARMADA_ZHUAN_HTTP_PORT:-${PROFILE_ZHUAN_HTTP_PORT}}"
 ZHUAN_START_SERVICES="${PROFILE_ZHUAN_START_SERVICES}"
 ZHUAN_HEALTH_SERVICES="${PROFILE_ZHUAN_HEALTH_SERVICES}"
 ZHUAN_HEALTH_DISPLAY="${ZHUAN_HEALTH_SERVICES// /、}"
-JAR_NAME="armada-api-1.0.0-SNAPSHOT.jar"
+JAR_NAME="armada-api-deploy.jar"
 
 # shellcheck source=lib/common.sh
 . "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=lib/artifact.sh
+. "${SCRIPT_DIR}/lib/artifact.sh"
 # shellcheck source=lib/armada.sh
 . "${SCRIPT_DIR}/lib/armada.sh"
 # shellcheck source=lib/protocol.sh
@@ -146,7 +148,7 @@ SCOPE_EXPLICIT=0
 
 refresh_build_paths() {
   API_DIR="${BUILD_REPO_ROOT}/armada-api"
-  JAR_PATH="${API_DIR}/target/${JAR_NAME}"
+  JAR_PATH=""
   DEPLOY_ASSET_DIR="${BUILD_REPO_ROOT}/armada-deploy"
 }
 

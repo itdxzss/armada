@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -65,17 +64,12 @@ public class GroupPullMarketingExecutionWorker {
 
     private static final int FRIEND_SUCCESS = 2;
     private static final int FRIEND_FAILED = 3;
-    private static final int ENTRY_SUCCESS = 2;
-    private static final int ENTRY_FAILED = 3;
     private static final int ADMIN_NOT_REQUIRED = 0;
     private static final int ADMIN_SET = 2;
     private static final int ADMIN_FAILED = 3;
     private static final int EXIT_NOT_REQUIRED = 0;
     private static final int EXIT_SUCCEEDED = 2;
     private static final int EXIT_FAILED = 3;
-
-    private static final Set<String> BANNED_GROUP_CODES = Set.of(
-            "GROUP_BANNED", "BANNED", "CHAT_SUSPENDED", "CHAT_TERMINATED");
 
     private final GroupPullMarketingMapper mapper;
     private final GroupPullMarketingFinalizer finalizer;
@@ -87,6 +81,8 @@ public class GroupPullMarketingExecutionWorker {
     private final GroupMemberListPort memberListPort;
     private final GroupInvitePort invitePort;
     private final GroupLeavePort leavePort;
+    private final GroupPullMarketingMaterialEntryService materialEntryService;
+    private final GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy;
     private final TransactionTemplate transactionTemplate;
 
     public GroupPullMarketingExecutionWorker(
@@ -100,6 +96,8 @@ public class GroupPullMarketingExecutionWorker {
             GroupMemberListPort memberListPort,
             GroupInvitePort invitePort,
             GroupLeavePort leavePort,
+            GroupPullMarketingMaterialEntryService materialEntryService,
+            GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy,
             PlatformTransactionManager transactionManager) {
         this.mapper = mapper;
         this.finalizer = finalizer;
@@ -111,6 +109,8 @@ public class GroupPullMarketingExecutionWorker {
         this.memberListPort = memberListPort;
         this.invitePort = invitePort;
         this.leavePort = leavePort;
+        this.materialEntryService = materialEntryService;
+        this.materialEntryDelayPolicy = materialEntryDelayPolicy;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -137,18 +137,21 @@ public class GroupPullMarketingExecutionWorker {
             finalizer.fail(executionId, "建群账号已封禁或不可用");
             return;
         }
-        if (!online(builder)) {
-            mapper.delayExecution(
-                    executionId,
-                    execution.getExecutionStatus(),
-                    stage.code(),
-                    now + OFFLINE_RECHECK_DELAY.toMillis(),
-                    null,
-                    now);
-            return;
-        }
-
         try {
+            if (!online(builder)) {
+                if (stage == GroupPullExecutionStage.ADD_MATERIALS) {
+                    materialEntryService.processBuilderUnavailable(execution);
+                } else {
+                    mapper.delayExecution(
+                            executionId,
+                            execution.getExecutionStatus(),
+                            stage.code(),
+                            now + OFFLINE_RECHECK_DELAY.toMillis(),
+                            null,
+                            now);
+                }
+                return;
+            }
             executeStage(execution, stage, builder);
         } catch (RuntimeException exception) {
             log.error(
@@ -178,7 +181,7 @@ public class GroupPullMarketingExecutionWorker {
             case FRIEND_PREPARATION -> prepareFriends(execution, builder);
             case CREATE_GROUP -> createGroup(execution, builder);
             case ADD_MARKETER -> addMarketer(execution, builder);
-            case ADD_MATERIALS -> addMaterials(execution, builder);
+            case ADD_MATERIALS -> materialEntryService.process(execution, builder.protocolRef());
             case SET_MARKETER_ADMIN -> setMarketerAdmin(execution, builder);
             case SET_SPEAK_PERMISSION -> setSpeakPermission(execution, builder);
             case SAVE_GROUP_INFO -> saveGroupInfo(execution, builder);
@@ -278,7 +281,7 @@ public class GroupPullMarketingExecutionWorker {
                         List.of(marketer.getWsPhone()),
                         false,
                         operationId));
-                saveCreatedGroup(execution, marketer, result);
+                saveCreatedGroup(execution, marketer, task, result);
                 mapper.updateBlockReason(
                         execution.getTaskId(),
                         GroupPullBlockReason.NONE.code(),
@@ -317,11 +320,11 @@ public class GroupPullMarketingExecutionWorker {
             return execution.getGroupName();
         }
         String generated = transactionTemplate.execute(status -> {
-            GroupPullMarketingExecution locked = mapper.selectExecutionByIdForUpdate(execution.getId());
-            if (StringUtils.hasText(locked.getGroupName())) {
-                return locked.getGroupName();
-            }
             mapper.selectTaskForUpdate(execution.getTaskId());
+            GroupPullMarketingExecution current = mapper.selectExecutionById(execution.getId());
+            if (StringUtils.hasText(current.getGroupName())) {
+                return current.getGroupName();
+            }
             long sequence = mapper.countNamedExecutions(execution.getTaskId()) + 1;
             String name = GroupPullGroupNameGenerator.generate(task.getGroupNamePrefix(), sequence);
             if (mapper.saveGroupNameIfAbsent(execution.getId(), name, System.currentTimeMillis()) != 1) {
@@ -338,6 +341,7 @@ public class GroupPullMarketingExecutionWorker {
     private void saveCreatedGroup(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow marketer,
+            GroupPullMarketingTask task,
             GroupCreateResult result) {
         if (result == null || !StringUtils.hasText(result.groupJid())) {
             throw new ProtocolException(
@@ -350,12 +354,17 @@ public class GroupPullMarketingExecutionWorker {
                 : GroupPullExecutionStage.ADD_MARKETER.code();
         transactionTemplate.executeWithoutResult(status -> {
             long now = System.currentTimeMillis();
-            if (mapper.markGroupCreated(
+            long nextExecuteAt = marketerJoined
+                    ? materialEntryDelayPolicy.nextExecuteAt(
+                            now, task.getMaterialEntryIntervalSeconds())
+                    : now;
+            if (mapper.markGroupCreated(new GroupPullMarketingMapper.GroupCreatedUpdate(
                     execution.getId(),
                     GroupPullExecutionStage.CREATE_GROUP.code(),
                     result.groupJid(),
                     nextStage,
-                    now) != 1) {
+                    nextExecuteAt,
+                    now)) != 1) {
                 throw new IllegalStateException("保存建群结果时执行状态已变化");
             }
             if (marketerJoined && mapper.confirmMarketingQuota(
@@ -368,6 +377,7 @@ public class GroupPullMarketingExecutionWorker {
     private void addMarketer(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
+        GroupPullMarketingTask task = requireTask(execution.getTaskId());
         GroupPullAccountRefRow marketer = requireAccount(execution.getMarketingAccountId());
         String marketerJid = WhatsappJids.userJid(marketer.getWsPhone());
         ParticipantAttempt result = updateParticipantsWithRetry(
@@ -385,47 +395,15 @@ public class GroupPullMarketingExecutionWorker {
                     execution.getTaskId(), marketer.getAccountId(), now) != 1) {
                 throw new IllegalStateException("营销账号群额度确认失败");
             }
-            advance(
+            long nextExecuteAt = materialEntryDelayPolicy.nextExecuteAt(
+                    now, task.getMaterialEntryIntervalSeconds());
+            advanceAt(
                     execution,
                     GroupPullExecutionStage.ADD_MATERIALS,
-                    GroupPullExecutionStatus.EXECUTING);
-        });
-    }
-
-    private void addMaterials(
-            GroupPullMarketingExecution execution,
-            GroupPullAccountRefRow builder) {
-        List<GroupPullMarketingExecutionMaterial> materials =
-                mapper.selectExecutionMaterials(execution.getId());
-        List<String> targets = materials.stream()
-                .filter(row -> !Integer.valueOf(ENTRY_SUCCESS).equals(row.getEntryStatus()))
-                .map(GroupPullMarketingExecutionMaterial::getMaterialPhone)
-                .map(WhatsappJids::userJid)
-                .toList();
-        ParticipantAttempt attempt = targets.isEmpty()
-                ? new ParticipantAttempt(Set.of(), null)
-                : updateParticipantsWithRetry(
-                        execution,
-                        builder.protocolRef(),
-                        targets,
-                        GroupParticipantAction.ADD);
-        long now = System.currentTimeMillis();
-        for (GroupPullMarketingExecutionMaterial material : materials) {
-            if (Integer.valueOf(ENTRY_SUCCESS).equals(material.getEntryStatus())) {
-                continue;
-            }
-            boolean joined = attempt.successfulPhones().contains(
-                    phoneOf(material.getMaterialPhone()));
-            mapper.updateMaterialEntryResult(
-                    material.getId(),
-                    joined ? ENTRY_SUCCESS : ENTRY_FAILED,
-                    joined ? null : attempt.failureReason(),
+                    GroupPullExecutionStatus.EXECUTING,
+                    nextExecuteAt,
                     now);
-        }
-        advance(
-                execution,
-                GroupPullExecutionStage.SET_MARKETER_ADMIN,
-                GroupPullExecutionStatus.EXECUTING);
+        });
     }
 
     private ParticipantAttempt updateParticipantsWithRetry(
@@ -455,7 +433,7 @@ public class GroupPullMarketingExecutionWorker {
                     }
                 }
             } catch (ProtocolException exception) {
-                if (groupBanned(exception)) {
+                if (GroupPullRetryPolicy.isGroupBanned(exception)) {
                     mapper.markGroupBanned(execution.getId(), System.currentTimeMillis());
                 }
                 failureReason = compactReason(exception);
@@ -527,7 +505,7 @@ public class GroupPullMarketingExecutionWorker {
                         GroupPullExecutionStatus.EXECUTING);
                 return;
             } catch (ProtocolException exception) {
-                if (groupBanned(exception)) {
+                if (GroupPullRetryPolicy.isGroupBanned(exception)) {
                     mapper.markGroupBanned(execution.getId(), System.currentTimeMillis());
                 }
                 last = exception;
@@ -626,7 +604,7 @@ public class GroupPullMarketingExecutionWorker {
                 finalizer.finalizeAfterStages(execution.getId());
                 return;
             } catch (ProtocolException exception) {
-                if (groupBanned(exception)) {
+                if (GroupPullRetryPolicy.isGroupBanned(exception)) {
                     mapper.markGroupBanned(execution.getId(), System.currentTimeMillis());
                 }
                 last = exception;
@@ -644,18 +622,29 @@ public class GroupPullMarketingExecutionWorker {
             GroupPullExecutionStage nextStage,
             GroupPullExecutionStatus nextStatus) {
         long now = System.currentTimeMillis();
+        advanceAt(execution, nextStage, nextStatus, now, now);
+    }
+
+    private void advanceAt(
+            GroupPullMarketingExecution execution,
+            GroupPullExecutionStage nextStage,
+            GroupPullExecutionStatus nextStatus,
+            long nextExecuteAt,
+            long now) {
         if (mapper.advanceExecutionStage(
                 execution.getId(),
                 execution.getExecutionStatus(),
                 execution.getCurrentStage(),
                 nextStage.code(),
                 nextStatus.code(),
-                now,
+                nextExecuteAt,
                 now) != 1) {
             throw new IllegalStateException("推进拉群执行阶段失败");
         }
         execution.setCurrentStage(nextStage.code());
         execution.setExecutionStatus(nextStatus.code());
+        execution.setStageRetryCount(0);
+        execution.setNextExecuteAt(nextExecuteAt);
     }
 
     private void delayForSystemDependency(GroupPullMarketingExecution execution) {
@@ -731,15 +720,6 @@ public class GroupPullMarketingExecutionWorker {
             }
         }
         return false;
-    }
-
-    private static boolean groupBanned(ProtocolException exception) {
-        if (exception.errorCode() == ProtocolErrorCode.GROUP_UNAVAILABLE) {
-            return true;
-        }
-        return exception.protocolCode()
-                .map(code -> BANNED_GROUP_CODES.contains(code.trim().toUpperCase(Locale.ROOT)))
-                .orElse(false);
     }
 
     private static String phoneOf(String value) {

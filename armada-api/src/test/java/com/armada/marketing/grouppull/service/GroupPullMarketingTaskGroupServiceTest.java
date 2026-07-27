@@ -60,7 +60,7 @@ class GroupPullMarketingTaskGroupServiceTest {
 
     private static GroupPullMarketingTaskServiceImpl service(GroupPullMarketingMapper mapper) {
         return new GroupPullMarketingTaskServiceImpl(
-                mapper, null, null, null, null, null, null, null);
+                mapper, null, null, null, null, null, null, null, null);
     }
 
     private static GroupPullMarketingTask task() {

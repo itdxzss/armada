@@ -146,6 +146,13 @@ public interface GroupPullMarketingMapper {
     List<GroupPullMarketingExecutionMaterial> selectExecutionMaterials(
             @Param("executionId") Long executionId);
 
+    /** 按抽取顺序读取一条仍待进群的料子。 */
+    GroupPullMarketingExecutionMaterial selectNextPendingExecutionMaterial(
+            @Param("executionId") Long executionId);
+
+    /** 统计当前执行仍待进群的料子数量。 */
+    long countPendingExecutionMaterials(@Param("executionId") Long executionId);
+
     /** 读取营销账号在当前任务内的群额度，实际预留由条件更新裁决。 */
     GroupPullMarketingAccountStat selectAccountStat(
             @Param("taskId") Long taskId,
@@ -196,11 +203,7 @@ public interface GroupPullMarketingMapper {
                               @Param("now") long now);
 
     /** 建群成功后保存群 JID 并推进到加营销号或加料子阶段。 */
-    int markGroupCreated(@Param("id") Long id,
-                         @Param("expectedStage") int expectedStage,
-                         @Param("groupJid") String groupJid,
-                         @Param("nextStage") int nextStage,
-                         @Param("createdAt") long createdAt);
+    int markGroupCreated(GroupCreatedUpdate update);
 
     /** 建群结果无法确认时转人工处理，禁止自动重建。 */
     int markExecutionManualReview(@Param("id") Long id,
@@ -219,6 +222,24 @@ public interface GroupPullMarketingMapper {
                                   @Param("status") int status,
                                   @Param("reason") String reason,
                                   @Param("now") long now);
+
+    /** 只在重试计数未变化时保存当前料子的下一次尝试进度。 */
+    int updateMaterialStageProgress(MaterialStageProgress update);
+
+    /** 恢复任务时为每条待拉料执行重新生成独立随机时间。 */
+    int rescheduleMaterialExecutionsOnResume(
+            @Param("taskId") Long taskId,
+            @Param("now") long now,
+            @Param("minDelayMillis") long minDelayMillis,
+            @Param("maxDelayMillis") long maxDelayMillis);
+
+    /** 读取逐料执行闸门需要的公共任务状态和结束时间。 */
+    MarketingTask selectTaskRuntime(@Param("taskId") Long taskId);
+
+    /** 任务结束或资源释放后把仍待拉料的关系统一记为失败。 */
+    int failPendingExecutionMaterials(@Param("executionId") Long executionId,
+                                      @Param("reason") String reason,
+                                      @Param("now") long now);
 
     /** 写入营销账号管理员状态。 */
     int updateMarketerAdminStatus(@Param("id") Long id,
@@ -329,4 +350,46 @@ public interface GroupPullMarketingMapper {
 
     /** 营销分组确认释放后把资源状态置为已释放。 */
     int markResourceReleased(@Param("taskId") Long taskId, @Param("now") long now);
+
+    /**
+     * 建群成功后的条件更新参数。
+     *
+     * @param id 单群执行 ID
+     * @param expectedStage 预期创建群组阶段
+     * @param groupJid 已创建群 JID
+     * @param nextStage 下一执行阶段
+     * @param nextExecuteAt 下一阶段允许执行时间
+     * @param createdAt 群创建成功时间
+     */
+    record GroupCreatedUpdate(
+            Long id,
+            int expectedStage,
+            String groupJid,
+            int nextStage,
+            long nextExecuteAt,
+            long createdAt) {
+    }
+
+    /**
+     * 逐料阶段重试和调度条件更新参数。
+     *
+     * @param id 单群执行 ID
+     * @param executionStatus 当前执行状态
+     * @param expectedStage 预期逐料阶段
+     * @param expectedRetryCount 更新前重试计数
+     * @param nextRetryCount 更新后重试计数
+     * @param nextExecuteAt 下一次允许执行时间
+     * @param reason 可追加的失败原因
+     * @param now 更新时间
+     */
+    record MaterialStageProgress(
+            Long id,
+            int executionStatus,
+            int expectedStage,
+            int expectedRetryCount,
+            int nextRetryCount,
+            long nextExecuteAt,
+            String reason,
+            long now) {
+    }
 }

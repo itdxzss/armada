@@ -40,9 +40,24 @@ class GroupPullMarketingRecoveryDbTest extends DbTestBase {
 
         assertThat(mapper.saveGroupNameIfAbsent(executionId, "恢复测试群", now)).isEqualTo(1);
         assertThat(mapper.saveGroupNameIfAbsent(executionId, "重复群名", now + 1)).isZero();
-        assertThat(mapper.markGroupCreated(executionId, 3, "recovery-group@g.us", 4, now + 2))
+        long nextExecuteAt = now + 300_000L;
+        assertThat(mapper.markGroupCreated(new GroupPullMarketingMapper.GroupCreatedUpdate(
+                executionId, 3, "recovery-group@g.us", 5, nextExecuteAt, now + 2)))
                 .isEqualTo(1);
-        assertThat(mapper.markGroupCreated(executionId, 3, "duplicate-group@g.us", 4, now + 3))
+        assertThat(mapper.markGroupCreated(new GroupPullMarketingMapper.GroupCreatedUpdate(
+                executionId, 3, "duplicate-group@g.us", 5, nextExecuteAt, now + 3)))
+                .isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT next_execute_at FROM group_pull_marketing_execution WHERE id = ?",
+                Long.class,
+                executionId)).isEqualTo(nextExecuteAt);
+        assertThat(mapper.updateMaterialStageProgress(
+                new GroupPullMarketingMapper.MaterialStageProgress(
+                        executionId, 2, 5, 0, 1, now + 600_000L, null, now + 3)))
+                .isEqualTo(1);
+        assertThat(mapper.updateMaterialStageProgress(
+                new GroupPullMarketingMapper.MaterialStageProgress(
+                        executionId, 2, 5, 0, 1, now + 700_000L, null, now + 4)))
                 .isZero();
 
         long materialId = insertReservedMaterial(executionId, now);
@@ -52,8 +67,8 @@ class GroupPullMarketingRecoveryDbTest extends DbTestBase {
         assertThat(mapper.completeSuccessfulMaterials(executionId, now + 6)).isEqualTo(1);
         assertThat(mapper.completeSuccessfulMaterials(executionId, now + 7)).isZero();
 
-        assertThat(mapper.markExecutionTerminal(executionId, 2, 4, 3, 11, null, now + 8)).isEqualTo(1);
-        assertThat(mapper.markExecutionTerminal(executionId, 2, 4, 3, 11, null, now + 9)).isZero();
+        assertThat(mapper.markExecutionTerminal(executionId, 2, 5, 3, 11, null, now + 8)).isEqualTo(1);
+        assertThat(mapper.markExecutionTerminal(executionId, 2, 5, 3, 11, null, now + 9)).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT group_jid FROM group_pull_marketing_execution WHERE id = ?",
                 String.class,

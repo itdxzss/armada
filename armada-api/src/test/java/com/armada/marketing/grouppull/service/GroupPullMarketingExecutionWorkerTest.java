@@ -65,6 +65,8 @@ class GroupPullMarketingExecutionWorkerTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 NO_OP_TRANSACTION_MANAGER);
 
         worker.process(execution.getId());

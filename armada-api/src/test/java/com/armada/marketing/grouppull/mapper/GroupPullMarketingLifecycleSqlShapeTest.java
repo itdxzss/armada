@@ -108,6 +108,55 @@ class GroupPullMarketingLifecycleSqlShapeTest {
                 .doesNotContain("current_stage = 11");
     }
 
+    @Test
+    void materialEntryQueriesAreSingleRowConditionalAndPersistRetrySchedule() throws IOException {
+        String xml = readResource(MAPPER_XML);
+
+        assertThat(block(xml, "select", "selectNextPendingExecutionMaterial"))
+                .contains("em.entry_status = 1")
+                .contains("ORDER BY em.allocation_no ASC")
+                .contains("LIMIT 1");
+        assertThat(block(xml, "update", "updateMaterialStageProgress"))
+                .contains("stage_retry_count = #{nextRetryCount}")
+                .contains("stage_retry_count = #{expectedRetryCount}")
+                .contains("next_execute_at = #{nextExecuteAt}")
+                .contains("current_stage = #{expectedStage}");
+        assertThat(block(xml, "update", "rescheduleMaterialExecutionsOnResume"))
+                .contains("current_stage = 5")
+                .contains("relation.entry_status = 1")
+                .contains("RAND()")
+                .contains("next_execute_at");
+        assertThat(block(xml, "update", "updateMaterialEntryResult"))
+                .contains("entry_status = 1")
+                .doesNotContain("entry_status != 2");
+        assertThat(block(xml, "update", "markGroupCreated"))
+                .contains("next_execute_at = #{nextExecuteAt}");
+    }
+
+    @Test
+    void pausedTasksDoNotDispatchMaterialEntryAndTerminalTasksCanCloseIt() throws IOException {
+        String xml = readResource(MAPPER_XML);
+        String dueSql = block(xml, "select", "selectDueExecutionDispatches");
+
+        assertThat(dueSql)
+                .contains("execution.current_stage &lt;&gt; 5")
+                .contains("task.status &lt;&gt; 5")
+                .contains("pull_task.resource_status = 3");
+    }
+
+    @Test
+    void terminalMaterialCleanupIsConditionalAndTaskRuntimeIsLightweight() throws IOException {
+        String xml = readResource(MAPPER_XML);
+
+        assertThat(block(xml, "select", "selectTaskRuntime"))
+                .contains("task_end_at")
+                .contains("business_type = 2")
+                .doesNotContain("FOR UPDATE");
+        assertThat(block(xml, "update", "failPendingExecutionMaterials"))
+                .contains("entry_status = 3")
+                .contains("entry_status = 1");
+    }
+
     private String readResource(String path) throws IOException {
         return new String(
                 getClass().getResourceAsStream(path).readAllBytes(),

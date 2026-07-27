@@ -28,6 +28,8 @@ class GroupPullMarketingSchemaDbTest extends DbTestBase {
     void migrationCreatesFiveTablesAndPublicColumns() {
         assertThat(columnExists("marketing_task", "business_type")).isTrue();
         assertThat(columnExists("account_group", "marketing_occupancy_task_id")).isTrue();
+        assertThat(columnExists(
+                "group_pull_marketing_task", "material_entry_interval_seconds")).isTrue();
         assertThat(TABLES).allMatch(this::tableExists);
     }
 

@@ -17,6 +17,7 @@ import com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.service.GroupPullMarketingMaterialParser;
+import com.armada.marketing.grouppull.service.GroupPullMaterialEntryDelayPolicy;
 import com.armada.marketing.grouppull.service.GroupPullMarketingTaskService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -91,6 +92,9 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     /** 营销账号任务占用服务。 */
     private final MarketingAccountOccupancyService accountOccupancyService;
 
+    /** 逐料随机间隔策略。 */
+    private final GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy;
+
     /**
      * 创建拉群营销任务业务服务。
      *
@@ -102,6 +106,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
      * @param materialParser TXT/CSV 料子文件解析器
      * @param groupOccupancyService 营销分组整组占用服务
      * @param accountOccupancyService 营销账号任务占用服务
+     * @param materialEntryDelayPolicy 逐料随机间隔策略
      */
     public GroupPullMarketingTaskServiceImpl(GroupPullMarketingMapper mapper,
                                              MarketingTaskMapper marketingTaskMapper,
@@ -110,7 +115,8 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
                                              AccountProtocolLookupService accountProtocolLookupService,
                                              GroupPullMarketingMaterialParser materialParser,
                                              MarketingGroupOccupancyService groupOccupancyService,
-                                             MarketingAccountOccupancyService accountOccupancyService) {
+                                             MarketingAccountOccupancyService accountOccupancyService,
+                                             GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy) {
         this.mapper = mapper;
         this.marketingTaskMapper = marketingTaskMapper;
         this.templateMapper = templateMapper;
@@ -119,6 +125,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         this.materialParser = materialParser;
         this.groupOccupancyService = groupOccupancyService;
         this.accountOccupancyService = accountOccupancyService;
+        this.materialEntryDelayPolicy = materialEntryDelayPolicy;
     }
 
     /**
@@ -325,6 +332,14 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         if (mapper.resumeTask(id, now) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "只有已暂停任务可以恢复");
         }
+        GroupPullMaterialEntryDelayPolicy.DelayWindow delayWindow =
+                materialEntryDelayPolicy.delayWindow(
+                        extension.getMaterialEntryIntervalSeconds());
+        mapper.rescheduleMaterialExecutionsOnResume(
+                id,
+                now,
+                delayWindow.minDelayMillis(),
+                delayWindow.maxDelayMillis());
         mapper.updateBlockReason(id, currentBlockReason(task, extension), now);
         return requireDetail(id);
     }
@@ -400,6 +415,12 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         }
         int speakPermission = valueOrDefault(
                 request.speakPermission(), GroupPullSpeakPermission.UNCHANGED.code());
+        try {
+            GroupPullMaterialEntryDelayPolicy.normalizeBaseSeconds(
+                    request.materialEntryIntervalSeconds());
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION, exception.getMessage());
+        }
         try {
             GroupPullSpeakPermission.fromCode(speakPermission);
         } catch (IllegalArgumentException ex) {
@@ -590,6 +611,9 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         row.setGroupNamePrefix(trimToNull(request.groupNamePrefix()));
         row.setFriendRetryLimit(valueOrDefault(request.friendRetryLimit(), DEFAULT_FRIEND_RETRY_LIMIT));
         row.setMaterialPerGroup(valueOrDefault(request.materialPerGroup(), DEFAULT_MATERIAL_PER_GROUP));
+        row.setMaterialEntryIntervalSeconds(
+                GroupPullMaterialEntryDelayPolicy.normalizeBaseSeconds(
+                        request.materialEntryIntervalSeconds()));
         row.setSpeakPermission(valueOrDefault(
                 request.speakPermission(), GroupPullSpeakPermission.UNCHANGED.code()));
         row.setBuilderExitEnabled(request.builderExitEnabled() == null || request.builderExitEnabled());

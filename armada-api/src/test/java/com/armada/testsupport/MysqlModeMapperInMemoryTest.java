@@ -18,10 +18,12 @@ import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
+import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecutionMaterial;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingMaterial;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
@@ -174,6 +176,7 @@ class MysqlModeMapperInMemoryTest {
 
         assertThat(task).isNotNull();
         assertThat(task.getTenantId()).isEqualTo(CURRENT_TENANT_ID);
+        assertThat(task.getMaterialEntryIntervalSeconds()).isEqualTo(300);
         assertThat(groupPullMarketingMapper.selectTaskById(147L)).isNull();
         assertThat(materials).extracting(GroupPullMarketingMaterial::getId)
                 .containsExactly(62L, 61L);
@@ -181,6 +184,48 @@ class MysqlModeMapperInMemoryTest {
         assertThat(stat.getTenantId()).isEqualTo(CURRENT_TENANT_ID);
         assertThat(stat.getReservedGroupCount()).isEqualTo(1);
         assertThat(stat.getJoinedGroupCount()).isEqualTo(2);
+    }
+
+    @Test
+    void groupPullMaterialProgressQueriesExecuteAgainstRealMapperXml() throws SQLException {
+        executeSql(
+                "INSERT INTO marketing_task "
+                        + "(id, tenant_id, business_type, status, task_end_at, deleted_at) "
+                        + "VALUES (146, 7, 2, 2, 999999, NULL)",
+                "INSERT INTO group_pull_marketing_execution "
+                        + "(id, tenant_id, task_id, execution_status, current_stage, "
+                        + "stage_retry_count, next_execute_at) VALUES (81, 7, 146, 2, 5, 0, 100)",
+                "INSERT INTO group_pull_marketing_material "
+                        + "(id, tenant_id, task_id, line_no, phone, status, created_at, updated_at) "
+                        + "VALUES (91, 7, 146, 1, '10001', 2, 100, 100)",
+                "INSERT INTO group_pull_marketing_execution_material "
+                        + "(id, tenant_id, execution_id, material_id, allocation_no, "
+                        + "friend_status, entry_status, created_at, updated_at) "
+                        + "VALUES (101, 7, 81, 91, 1, 2, 1, 100, 100)");
+
+        GroupPullMarketingExecutionMaterial pending =
+                groupPullMarketingMapper.selectNextPendingExecutionMaterial(81L);
+        MarketingTask runtime = groupPullMarketingMapper.selectTaskRuntime(146L);
+        assertThat(pending).isNotNull();
+        assertThat(pending.getId()).isEqualTo(101L);
+        assertThat(pending.getMaterialPhone()).isEqualTo("10001");
+        assertThat(runtime).isNotNull();
+        assertThat(runtime.getStatus()).isEqualTo(2);
+        assertThat(runtime.getTaskEndAt()).isEqualTo(999_999L);
+        assertThat(groupPullMarketingMapper.updateMaterialStageProgress(
+                new GroupPullMarketingMapper.MaterialStageProgress(
+                        81L, 2, 5, 0, 1, 240_000L, null, 200L))).isEqualTo(1);
+        assertThat(groupPullMarketingMapper.updateMaterialStageProgress(
+                new GroupPullMarketingMapper.MaterialStageProgress(
+                        81L, 2, 5, 0, 1, 250_000L, null, 201L))).isZero();
+        assertThat(groupPullMarketingMapper.rescheduleMaterialExecutionsOnResume(
+                146L, 1_000L, 240_000L, 240_000L)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT next_execute_at FROM group_pull_marketing_execution WHERE id = 81",
+                Long.class)).isEqualTo(241_000L);
+        assertThat(groupPullMarketingMapper.failPendingExecutionMaterials(
+                81L, "任务已停止，未继续拉料", 300L)).isEqualTo(1);
+        assertThat(groupPullMarketingMapper.countPendingExecutionMaterials(81L)).isZero();
     }
 
     @Test
@@ -585,6 +630,16 @@ class MysqlModeMapperInMemoryTest {
                 )
                 """,
                 """
+                CREATE TABLE marketing_task (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    business_type TINYINT NOT NULL,
+                    status TINYINT NOT NULL,
+                    task_end_at BIGINT,
+                    deleted_at BIGINT
+                )
+                """,
+                """
                 CREATE TABLE group_pull_marketing_task (
                     marketing_task_id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
@@ -595,6 +650,7 @@ class MysqlModeMapperInMemoryTest {
                     group_name_prefix VARCHAR(100),
                     friend_retry_limit INT DEFAULT 3,
                     material_per_group INT DEFAULT 3,
+                    material_entry_interval_seconds INT NOT NULL DEFAULT 300,
                     speak_permission TINYINT DEFAULT 1,
                     builder_exit_enabled BOOLEAN DEFAULT TRUE,
                     block_reason TINYINT DEFAULT 0,
@@ -644,6 +700,21 @@ class MysqlModeMapperInMemoryTest {
                     created_at BIGINT,
                     updated_at BIGINT,
                     active_builder_account_id BIGINT
+                )
+                """,
+                """
+                CREATE TABLE group_pull_marketing_execution_material (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    execution_id BIGINT NOT NULL,
+                    material_id BIGINT NOT NULL,
+                    allocation_no INT NOT NULL,
+                    friend_status TINYINT NOT NULL,
+                    friend_failure_reason VARCHAR(255),
+                    entry_status TINYINT NOT NULL,
+                    entry_failure_reason VARCHAR(255),
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
                 )
                 """,
                 """

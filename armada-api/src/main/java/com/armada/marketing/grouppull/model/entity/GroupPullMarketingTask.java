@@ -30,6 +30,9 @@ public class GroupPullMarketingTask {
     /** 每个群组抽取的料子数量。 */
     private Integer materialPerGroup;
 
+    /** 逐个添加料子的基准间隔秒数，实际按上下百分之二十随机。 */
+    private Integer materialEntryIntervalSeconds;
+
     /** 群组发言权限操作码。 */
     private Integer speakPermission;
 
@@ -121,6 +124,14 @@ public class GroupPullMarketingTask {
 
     public void setMaterialPerGroup(Integer materialPerGroup) {
         this.materialPerGroup = materialPerGroup;
+    }
+
+    public Integer getMaterialEntryIntervalSeconds() {
+        return materialEntryIntervalSeconds;
+    }
+
+    public void setMaterialEntryIntervalSeconds(Integer materialEntryIntervalSeconds) {
+        this.materialEntryIntervalSeconds = materialEntryIntervalSeconds;
     }
 
     public Integer getSpeakPermission() {

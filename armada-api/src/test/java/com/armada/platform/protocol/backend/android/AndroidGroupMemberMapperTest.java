@@ -49,6 +49,22 @@ class AndroidGroupMemberMapperTest {
     }
 
     @Test
+    void mapsLowercaseParticipantsFromAndroidGroupList() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {"participants":[
+                  {"jid":"919000000001:7@s.whatsapp.net","type":"admin"},
+                  {"phone_number":"919000000002","type":"participant"}
+                ]}
+                """);
+
+        List<GroupParticipantResult> result = mapper.map(data);
+
+        assertThat(result).extracting(GroupParticipantResult::phone)
+                .containsExactly("919000000001", "919000000002");
+        assertThat(result.get(0).admin()).isTrue();
+    }
+
+    @Test
     void rejectsMalformedParticipantsContainer() throws Exception {
         assertUnrecognized(objectMapper.readTree("{\"Participants\":{}}"));
     }

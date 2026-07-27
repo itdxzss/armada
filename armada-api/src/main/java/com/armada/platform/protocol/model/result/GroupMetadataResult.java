@@ -15,6 +15,8 @@ import java.util.List;
  * @param inviteViaLink                  邀请链接入群开关;协议不可读时为 null
  * @param inviteViaLinkSupported         当前协议是否支持该能力
  * @param inviteViaLinkUnsupportedReason 不支持原因
+ * @param stateAbnormal                  协议是否明确报告群状态异常
+ * @param participantMutationSupported   当前协议是否已接入历史群成员修改
  * @param participants                   群成员
  */
 public record GroupMetadataResult(
@@ -28,6 +30,8 @@ public record GroupMetadataResult(
         Boolean inviteViaLink,
         boolean inviteViaLinkSupported,
         String inviteViaLinkUnsupportedReason,
+        boolean stateAbnormal,
+        boolean participantMutationSupported,
         List<GroupParticipantResult> participants
 ) {
 }

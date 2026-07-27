@@ -4,9 +4,11 @@ import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
-import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import com.armada.platform.protocol.port.AccountParticipatingGroupBatchPort;
+import com.armada.platform.protocol.routing.AccountParticipatingGroupBackend;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -18,7 +20,8 @@ import org.slf4j.LoggerFactory;
  * <p>协议层沿用 Baileys 字段名,例如 {@code accountId}、{@code size}、{@code owner}、{@code announce}。
  * 本适配器把这些 wire 字段收敛到 Armada 内部稳定结果模型,避免营销模块直接依赖协议层响应细节。</p>
  */
-public class HttpAccountParticipatingGroupAdapter implements AccountParticipatingGroupPort {
+public class HttpAccountParticipatingGroupAdapter
+        implements AccountParticipatingGroupBackend, AccountParticipatingGroupBatchPort {
 
     private static final Logger log = LoggerFactory.getLogger(HttpAccountParticipatingGroupAdapter.class);
 
@@ -45,6 +48,11 @@ public class HttpAccountParticipatingGroupAdapter implements AccountParticipatin
      */
     public HttpAccountParticipatingGroupAdapter(ProtocolHttpExecutor httpExecutor) {
         this.httpExecutor = httpExecutor;
+    }
+
+    @Override
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
     }
 
     /**

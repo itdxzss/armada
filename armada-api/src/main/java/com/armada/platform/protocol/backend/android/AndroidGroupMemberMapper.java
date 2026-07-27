@@ -14,6 +14,7 @@ import java.util.List;
 public final class AndroidGroupMemberMapper {
 
     private static final String PARTICIPANTS_FIELD = "Participants";
+    private static final String GROUP_LIST_PARTICIPANTS_FIELD = "participants";
 
     private static final List<String> IDENTITY_FIELDS = List.of(
             "phone", "phone_number", "phoneNumber", "jid");
@@ -28,9 +29,12 @@ public final class AndroidGroupMemberMapper {
      * @throws ProtocolException 响应缺少成员数组时抛出
      */
     public List<GroupParticipantResult> map(JsonNode data) {
-        JsonNode participants = data == null ? null : data.path(PARTICIPANTS_FIELD);
+        JsonNode participants = data == null ? null : data.get(PARTICIPANTS_FIELD);
+        if (participants == null && data != null) {
+            participants = data.get(GROUP_LIST_PARTICIPANTS_FIELD);
+        }
         if (participants == null || !participants.isArray()) {
-            throw unrecognized("Android 群成员响应缺少 Participants 数组");
+            throw unrecognized("Android 群成员响应缺少 participants 数组");
         }
         List<GroupParticipantResult> results = new ArrayList<>();
         for (JsonNode participant : participants) {

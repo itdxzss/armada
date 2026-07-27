@@ -3,6 +3,7 @@ package com.armada.platform.protocol.config;
 import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.protocol.backend.android.AndroidAccountRuntimeStatusAdapter;
+import com.armada.platform.protocol.backend.android.AndroidAccountParticipatingGroupMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupCreateResponseMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupJoinResponseMapper;
@@ -10,6 +11,7 @@ import com.armada.platform.protocol.backend.android.AndroidGroupMemberMapper;
 import com.armada.platform.protocol.backend.android.AndroidGroupMembershipVerifier;
 import com.armada.platform.protocol.backend.android.AndroidGroupOperationErrorMapper;
 import com.armada.platform.protocol.backend.android.AndroidNativeClient;
+import com.armada.platform.protocol.backend.android.AndroidNativeAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeContactAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupCreateAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupJoinAdapter;
@@ -18,6 +20,7 @@ import com.armada.platform.protocol.backend.android.AndroidNativeGroupSettingsAd
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupInviteAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupLeaveAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupMemberListAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeFixedAccountGroupMetadataAdapter;
 import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.backend.android.AndroidMessageSendBackend;
 import com.armada.platform.protocol.backend.android.HttpAndroidNativeClient;
@@ -46,6 +49,7 @@ import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.platform.protocol.port.ContactPort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.platform.protocol.port.GroupLeavePort;
@@ -58,7 +62,9 @@ import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
+import com.armada.platform.protocol.routing.AccountParticipatingGroupBackend;
 import com.armada.platform.protocol.routing.ContactBackend;
+import com.armada.platform.protocol.routing.FixedAccountGroupMetadataBackend;
 import com.armada.platform.protocol.routing.GroupCreateBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
 import com.armada.platform.protocol.routing.GroupParticipantBackend;
@@ -68,7 +74,9 @@ import com.armada.platform.protocol.routing.GroupLeaveBackend;
 import com.armada.platform.protocol.routing.GroupMemberListBackend;
 import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.routing.RoutingAccountRuntimeStatusPort;
+import com.armada.platform.protocol.routing.RoutingAccountParticipatingGroupPort;
 import com.armada.platform.protocol.routing.RoutingContactPort;
+import com.armada.platform.protocol.routing.RoutingFixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.routing.RoutingGroupCreatePort;
 import com.armada.platform.protocol.routing.RoutingGroupJoinPort;
 import com.armada.platform.protocol.routing.RoutingGroupParticipantPort;
@@ -236,6 +244,18 @@ public class ProtocolConfiguration {
     }
 
     /**
+     * 注册 Android 当前参与群响应 mapper。
+     *
+     * @param memberMapper Android 群成员响应 mapper
+     * @return Android 当前参与群响应 mapper
+     */
+    @Bean
+    public AndroidAccountParticipatingGroupMapper androidAccountParticipatingGroupMapper(
+            AndroidGroupMemberMapper memberMapper) {
+        return new AndroidAccountParticipatingGroupMapper(memberMapper);
+    }
+
+    /**
      * 注册 Android 建群成功响应 mapper。
      *
      * @param memberMapper Android 群成员响应 mapper
@@ -325,14 +345,50 @@ public class ProtocolConfiguration {
     }
 
     /**
-     * 注册账号当前参与群查询协议端口。
+     * 注册 Web/Baileys 固定账号参与群读取和批量查群后端。
      *
-     * @param protocolHttpExecutor 协议层 HTTP 执行器
-     * @return 账号参与群查询端口 HTTP 实现
+     * @param registry 按协议后端保存的 HTTP 执行器注册表
+     * @return Web/Baileys 参与群 HTTP adapter
      */
     @Bean
-    public AccountParticipatingGroupPort accountParticipatingGroupPort(ProtocolHttpExecutor protocolHttpExecutor) {
-        return new HttpAccountParticipatingGroupAdapter(protocolHttpExecutor);
+    public HttpAccountParticipatingGroupAdapter webAccountParticipatingGroupBackend(
+            ProtocolHttpExecutorRegistry registry) {
+        return new HttpAccountParticipatingGroupAdapter(
+                registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册 Android Zhuan 固定账号参与群读取后端。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @param errorMapper Android 群操作错误 mapper
+     * @param mapper Android 当前群响应 mapper
+     * @return Android Zhuan 固定账号参与群读取后端
+     */
+    @Bean
+    public AccountParticipatingGroupBackend androidAccountParticipatingGroupBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper,
+            AndroidAccountParticipatingGroupMapper mapper) {
+        return new AndroidNativeAccountParticipatingGroupAdapter(
+                client,
+                decoder,
+                errorMapper,
+                mapper);
+    }
+
+    /**
+     * 注册统一账号当前参与群查询端口。
+     *
+     * @param backends Spring 收集的所有固定账号参与群读取后端
+     * @return 后端感知的统一参与群查询端口
+     */
+    @Bean
+    public AccountParticipatingGroupPort accountParticipatingGroupPort(
+            List<AccountParticipatingGroupBackend> backends) {
+        return new RoutingAccountParticipatingGroupPort(backends);
     }
 
     /** 注册 Web/Baileys 原生进群 backend。 */
@@ -593,14 +649,50 @@ public class ProtocolConfiguration {
     }
 
     /**
-     * 注册群详情实时查询协议端口。
+     * 注册 Web/Baileys 群详情读取和写前校验 adapter。
      *
-     * @param protocolHttpExecutor 协议层 HTTP 执行器
-     * @return 群详情 HTTP 实现
+     * @param registry 按协议后端保存的 HTTP 执行器注册表
+     * @return Web/Baileys 群详情 adapter
      */
     @Bean
-    public GroupMetadataPort groupMetadataPort(ProtocolHttpExecutor protocolHttpExecutor) {
-        return new HttpGroupMetadataAdapter(protocolHttpExecutor);
+    public HttpGroupMetadataAdapter webGroupMetadataAdapter(
+            ProtocolHttpExecutorRegistry registry) {
+        return new HttpGroupMetadataAdapter(
+                registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册 Android Zhuan 固定账号只读群 metadata 后端。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @param errorMapper Android 群操作错误 mapper
+     * @param memberMapper Android 群成员响应 mapper
+     * @return Android Zhuan 固定账号只读群 metadata 后端
+     */
+    @Bean
+    public FixedAccountGroupMetadataBackend androidFixedAccountGroupMetadataBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper,
+            AndroidGroupMemberMapper memberMapper) {
+        return new AndroidNativeFixedAccountGroupMetadataAdapter(
+                client,
+                decoder,
+                errorMapper,
+                memberMapper);
+    }
+
+    /**
+     * 注册统一固定账号只读群 metadata 端口。
+     *
+     * @param backends Spring 收集的所有固定账号只读群 metadata 后端
+     * @return 后端感知的统一只读群 metadata 端口
+     */
+    @Bean
+    public FixedAccountGroupMetadataPort fixedAccountGroupMetadataPort(
+            List<FixedAccountGroupMetadataBackend> backends) {
+        return new RoutingFixedAccountGroupMetadataPort(backends);
     }
 
     /**

@@ -61,6 +61,8 @@ class HttpGroupMetadataAdapterTest {
         assertThat(result.inviteViaLink()).isNull();
         assertThat(result.inviteViaLinkSupported()).isFalse();
         assertThat(result.inviteViaLinkUnsupportedReason()).isEqualTo("Baileys 当前不支持");
+        assertThat(result.stateAbnormal()).isFalse();
+        assertThat(result.participantMutationSupported()).isTrue();
         assertThat(result.participants()).hasSize(1);
         assertThat(result.participants().get(0).jid()).isEqualTo("8613800000000:7@s.whatsapp.net");
         assertThat(result.participants().get(0).phone()).isEqualTo("8613800000000");

@@ -52,6 +52,8 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     private static final String UNKNOWN_COUNT = "unknown";
     private static final String NON_ADMIN_REASON = "当前账号不是管理员";
     private static final String INVITE_UNAVAILABLE_REASON = "群邀请链接不可用";
+    private static final String PARTICIPANT_MUTATION_UNSUPPORTED_REASON =
+            "当前协议暂不支持成员管理";
     private static final String PARTICIPANT_STATUS_OK = "OK";
     private static final String PARTICIPANT_RESULT_MISSING = "PROTOCOL_RESULT_MISSING";
     private static final String PARTICIPANT_MEMBER_NOT_FOUND = "MEMBER_NOT_FOUND";
@@ -178,9 +180,17 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
                 || accountRole == HistoricalGroupSelfRole.OWNER;
         String errorCode = joinErrors(metadataLookup.errorCode(), inviteLookup.errorCode());
         String errorMessage = joinErrors(metadataLookup.errorMessage(), inviteLookup.errorMessage());
-        boolean operationAllowed = metadata != null && accountAdmin && inviteLookup.inviteUrl() != null;
-        String disabledReason = errorMessage != null ? errorMessage
-                : accountAdmin ? null : NON_ADMIN_REASON;
+        boolean participantMutationSupported = metadata != null
+                && metadata.participantMutationSupported();
+        boolean operationAllowed = metadata != null
+                && participantMutationSupported
+                && accountAdmin
+                && inviteLookup.inviteUrl() != null;
+        String disabledReason = errorMessage != null
+                ? errorMessage
+                : !participantMutationSupported
+                        ? PARTICIPANT_MUTATION_UNSUPPORTED_REASON
+                        : accountAdmin ? null : NON_ADMIN_REASON;
         List<HistoricalGroupDetailVO.Member> members = detailMembers(
                 account, participants, operationAllowed, disabledReason);
         return new HistoricalGroupDetailVO(
@@ -192,7 +202,9 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
                         : HistoricalGroupMembershipState.CURRENT_IN_GROUP,
                 roleCategory(accountRole),
                 accountRole,
-                metadata == null ? SpeechState.ABNORMAL : detailSpeechState(metadata.announce(), accountRole),
+                metadata == null || metadata.stateAbnormal()
+                        ? SpeechState.ABNORMAL
+                        : detailSpeechState(metadata.announce(), accountRole),
                 metadata == null ? null : members.size(),
                 metadata == null ? null : metadata.announce(),
                 inviteLookup.inviteUrl(),
@@ -207,7 +219,7 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     private MetadataLookup readDetailMetadata(ProtocolAccountRef account, String groupJid) {
         try {
             return new MetadataLookup(
-                    protocolPorts.metadata().getMetadata(account.protocolAccountId(), groupJid),
+                    protocolPorts.readMetadata().getMetadata(account, groupJid),
                     null,
                     null);
         } catch (ProtocolException ex) {
@@ -308,7 +320,8 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
             String groupJid,
             GroupParticipantAction action) {
         try {
-            return protocolPorts.metadata().getMetadata(account.protocolAccountId(), groupJid);
+            return protocolPorts.writeMetadata().getMetadata(
+                    account.protocolAccountId(), groupJid);
         } catch (ProtocolException ex) {
             log.warn("历史群成员操作写前 metadata 读取失败 accountId={} action={} reasonCode={} httpStatus={}",
                     account.armadaAccountId(), action, ex.errorCode(), ex.httpStatus());

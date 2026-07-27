@@ -13,7 +13,8 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
-import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
+import com.armada.platform.protocol.port.AccountParticipatingGroupBatchPort;
+import com.armada.platform.protocol.routing.AccountParticipatingGroupBackend;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ class HttpAccountParticipatingGroupAdapterTest {
     void listCurrentGetsLightGroupsForFixedAccount() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        AccountParticipatingGroupPort port =
+        AccountParticipatingGroupBackend port =
                 new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol-master.internal/v1/accounts/acc_86%2F1111/groups"))
@@ -57,7 +58,7 @@ class HttpAccountParticipatingGroupAdapterTest {
     void summarizePostsOrderedGroupJidsAndMapsPerGroupErrorsAndNullFields() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        AccountParticipatingGroupPort port =
+        AccountParticipatingGroupBackend port =
                 new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo(
@@ -118,7 +119,7 @@ class HttpAccountParticipatingGroupAdapterTest {
     void summarizeRejectsIncompleteTopLevelResponseInsteadOfDroppingGroupErrors() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        AccountParticipatingGroupPort port =
+        AccountParticipatingGroupBackend port =
                 new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo(
@@ -151,7 +152,7 @@ class HttpAccountParticipatingGroupAdapterTest {
     void listBatchPostsAccountIdsAndMapsPerAccountGroups() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        AccountParticipatingGroupPort port =
+        AccountParticipatingGroupBatchPort port =
                 new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
 
         server.expect(requestTo("http://protocol-master.internal/v1/accounts/groups/batch"))
@@ -218,7 +219,7 @@ class HttpAccountParticipatingGroupAdapterTest {
     void listBatchSplitsRequestsByProtocolBatchLimit() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        AccountParticipatingGroupPort port =
+        AccountParticipatingGroupBatchPort port =
                 new HttpAccountParticipatingGroupAdapter(new ProtocolHttpExecutor(builder.build()));
         List<String> accountIds = IntStream.rangeClosed(1, 201)
                 .mapToObj(index -> "acc_" + index)

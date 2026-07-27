@@ -23,7 +23,8 @@
 
 ## 数据模型
 
-- Flyway：`V080__promotion_capi_event_outbox.sql`；账号期望登录状态沿用 1.0.1 的 `V077__account_desired_login_state.sql`。
+- Flyway：`V081__promotion_capi_event_outbox.sql`；账号期望登录状态沿用 1.0.1 的 `V077__account_desired_login_state.sql`。
+- 保留 `origin/1.0.2-snapshot` 已上线的 `V080__group_pull_material_entry_interval.sql` 原始内容，本功能不修改原迁移，只使用后续 V081。
 - 原 `V062__account_desired_login_state.sql` 调整为 V072，保留 canonical 的 `V062__promotion_channel_country_values.sql`，当前工作区迁移版本唯一。
 - 新表 `promotion_capi_event_outbox` 独立承载业务阶段快照、重试状态和临时匹配数据，不把投递状态塞入配对会话或渠道配置宽表。
 - `(tenant_id, pairing_session_id, event_stage)` 保证同一会话同一阶段唯一；`event_id` 全局唯一并在重试间保持不变。

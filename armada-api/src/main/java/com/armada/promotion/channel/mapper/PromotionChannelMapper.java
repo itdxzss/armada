@@ -76,7 +76,7 @@ public interface PromotionChannelMapper {
             @Param("channelCode") String channelCode,
             @Param("domainHost") String domainHost);
 
-    /** 探测专用敏感配置查询；结果只能在 Service 内使用，禁止直接返回 Controller。 */
+    /** CAPI 内部投递专用敏感配置查询；结果只能在 Service 内使用，禁止返回 Controller。 */
     PromotionChannelProbeConfigRow selectProbeConfigByChannelId(@Param("id") Long id);
 
     /** 原子抢占探测状态；处于有效探测窗口内时返回 0，防止重复调用平台。 */

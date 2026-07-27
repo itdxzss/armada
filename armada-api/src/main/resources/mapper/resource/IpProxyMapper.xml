@@ -450,11 +450,9 @@
         WHERE tenant_id = #{query.tenantId}
           AND deleted_at IS NULL
           AND status = #{query.idleStatus}
-        <if test="query.excludedProxyIds != null and query.excludedProxyIds.size() &gt; 0">
-          AND status = #{idleStatus}
           AND pairing_session_id IS NULL
           AND bound_account_id IS NULL
-        <if test="excludedIds != null and excludedIds.size() &gt; 0">
+        <if test="query.excludedProxyIds != null and query.excludedProxyIds.size() &gt; 0">
           AND id NOT IN
           <foreach collection="query.excludedProxyIds" item="id" open="(" separator="," close=")">#{id}</foreach>
         </if>

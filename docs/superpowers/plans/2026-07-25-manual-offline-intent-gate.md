@@ -13,7 +13,7 @@
 ### Task 1: Persist desired login state and gate recovery SQL
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V062__account_desired_login_state.sql`
+- Create: `armada-api/src/main/resources/db/migration/V072__account_desired_login_state.sql`
 - Modify: `armada-api/src/main/java/com/armada/account/model/entity/AccountState.java`
 - Modify: `armada-api/src/main/java/com/armada/account/mapper/AccountStateMapper.java`
 - Modify: `armada-api/src/main/resources/mapper/account/AccountStateMapper.xml`

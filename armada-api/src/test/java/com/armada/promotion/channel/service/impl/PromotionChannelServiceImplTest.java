@@ -26,7 +26,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
-import com.armada.promotion.channel.service.FacebookCapiProbeClient;
+import com.armada.promotion.channel.service.FacebookCapiClient;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -59,7 +59,7 @@ class PromotionChannelServiceImplTest {
     private PromotionTokenCipher tokenCipher;
 
     @Mock
-    private FacebookCapiProbeClient facebookCapiProbeClient;
+    private FacebookCapiClient facebookCapiClient;
 
     private PromotionChannelServiceImpl service;
 
@@ -72,13 +72,60 @@ class PromotionChannelServiceImplTest {
               new PromotionChannelConverter() { },
               codeGenerator,
               tokenCipher,
-              facebookCapiProbeClient,
+              facebookCapiClient,
               true);
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void facebookStandardEventsExposeOnlyTheApprovedEighteenCodesInStableOrder() {
+        assertThat(service.facebookStandardEvents())
+                .extracting(event -> event.code())
+                .containsExactly(
+                        "PageView",
+                        "ViewContent",
+                        "Search",
+                        "AddToCart",
+                        "AddToWishlist",
+                        "InitiateCheckout",
+                        "AddPaymentInfo",
+                        "Purchase",
+                        "Lead",
+                        "CompleteRegistration",
+                        "Contact",
+                        "CustomizeProduct",
+                        "Donate",
+                        "FindLocation",
+                        "Schedule",
+                        "StartTrial",
+                        "SubmitApplication",
+                        "Subscribe");
+    }
+
+    @Test
+    void createAndUpdateRejectCustomFacebookEventNamesBeforeWritingAnything() {
+        PromotionChannelCreateDTO createRequest = new PromotionChannelCreateDTO(
+                "印度渠道", 20001L, "IN", 11L, "go.example.com",
+                "#E11D48", true, "IN", 1, "pixel-123", "secret-token",
+                "CustomLead", "InitiateCheckout", "CompleteRegistration", true, true);
+        PromotionChannelUpdateDTO updateRequest = new PromotionChannelUpdateDTO(
+                "更新渠道", 20002L, "IN", 11L, "go.example.com",
+                "#2563EB", false, "IN", 1, "pixel-123", null,
+                "Lead", "CustomCheckout", "CompleteRegistration", true, false, 1);
+
+        assertThatThrownBy(() -> service.create(createRequest))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Meta 官方标准事件");
+        assertThatThrownBy(() -> service.update(51L, updateRequest))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Meta 官方标准事件");
+
+        verify(mapper, never()).insertChannel(any());
+        verify(mapper, never()).updateChannel(any());
     }
 
     @Test
@@ -177,7 +224,7 @@ class PromotionChannelServiceImplTest {
                 new PromotionChannelConverter() { },
                 codeGenerator,
                 tokenCipher,
-                facebookCapiProbeClient,
+                facebookCapiClient,
                 false);
 
         assertThatThrownBy(() -> disabledService.probe(
@@ -196,8 +243,7 @@ class PromotionChannelServiceImplTest {
         when(tokenCipher.decrypt(
                 any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
                 .thenReturn("secret-token");
-        when(facebookCapiProbeClient.probe(any())).thenReturn(
-                new FacebookCapiProbeClient.Result(true, null, null));
+        when(facebookCapiClient.probe(any())).thenReturn(FacebookCapiClient.Result.accepted());
         when(mapper.updateProbeResult(any(PromotionChannelTrackingConfig.class), any(Long.class)))
                 .thenReturn(1);
 
@@ -211,9 +257,9 @@ class PromotionChannelServiceImplTest {
         assertThat(result.eventId()).startsWith("probe_");
         assertThat(result.errorCode()).isNull();
 
-        ArgumentCaptor<FacebookCapiProbeClient.Command> commandCaptor =
-                ArgumentCaptor.forClass(FacebookCapiProbeClient.Command.class);
-        verify(facebookCapiProbeClient).probe(commandCaptor.capture());
+        ArgumentCaptor<FacebookCapiClient.ProbeCommand> commandCaptor =
+                ArgumentCaptor.forClass(FacebookCapiClient.ProbeCommand.class);
+        verify(facebookCapiClient).probe(commandCaptor.capture());
         assertThat(commandCaptor.getValue().testEventCode()).isEqualTo("TEST12345");
         assertThat(commandCaptor.getValue().eventSourceUrl())
                 .isEqualTo("http://go.example.com/a8k2m9qx");
@@ -241,7 +287,7 @@ class PromotionChannelServiceImplTest {
         assertThat(result.errorMessage()).contains("不支持");
         assertThat(result.trackingId()).isNull();
         assertThat(result.accessTokenConfigured()).isFalse();
-        verify(facebookCapiProbeClient, never()).probe(any());
+        verify(facebookCapiClient, never()).probe(any());
         verify(tokenCipher, never()).decrypt(any(), any(), any());
         verify(mapper, never()).markProbeRunning(any(), any(Long.class), any(Long.class));
     }
@@ -260,7 +306,7 @@ class PromotionChannelServiceImplTest {
         assertThat(result.errorMessage()).contains("未配置 Pixel ID 或 Access Token");
         assertThat(result.eventName()).isNull();
         assertThat(result.eventId()).isNull();
-        verify(facebookCapiProbeClient, never()).probe(any());
+        verify(facebookCapiClient, never()).probe(any());
     }
 
     @Test
@@ -272,9 +318,9 @@ class PromotionChannelServiceImplTest {
         when(tokenCipher.decrypt(
                 any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
                 .thenReturn("secret-token");
-        when(facebookCapiProbeClient.probe(any())).thenReturn(
-                new FacebookCapiProbeClient.Result(
-                        false, "TOKEN_INVALID_OR_FORBIDDEN", "Access Token 无效或无 Pixel 权限"));
+        when(facebookCapiClient.probe(any())).thenReturn(
+                new FacebookCapiClient.Result(
+                        false, false, "TOKEN_INVALID_OR_FORBIDDEN", "Access Token 无效或无 Pixel 权限"));
         when(mapper.updateProbeResult(any(PromotionChannelTrackingConfig.class), any(Long.class)))
                 .thenReturn(1);
 
@@ -303,7 +349,7 @@ class PromotionChannelServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("正在探测");
 
-        verify(facebookCapiProbeClient, never()).probe(any());
+        verify(facebookCapiClient, never()).probe(any());
         verify(tokenCipher, never()).decrypt(any(), any(), any());
     }
 
@@ -316,8 +362,7 @@ class PromotionChannelServiceImplTest {
         when(tokenCipher.decrypt(
                 any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
                 .thenReturn("secret-token");
-        when(facebookCapiProbeClient.probe(any())).thenReturn(
-                new FacebookCapiProbeClient.Result(true, null, null));
+        when(facebookCapiClient.probe(any())).thenReturn(FacebookCapiClient.Result.accepted());
         // 更新返回 0 表示探测期间 Pixel、Token 或平台已被编辑，旧结果必须作废。
         when(mapper.updateProbeResult(any(PromotionChannelTrackingConfig.class), any(Long.class)))
                 .thenReturn(0);

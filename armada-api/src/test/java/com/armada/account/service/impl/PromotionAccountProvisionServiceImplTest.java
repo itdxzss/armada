@@ -2,6 +2,7 @@ package com.armada.account.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +40,7 @@ class PromotionAccountProvisionServiceImplTest {
         });
         when(stateMapper.insert(any(AccountState.class))).thenReturn(1);
         when(stateMapper.updateLoginAndAccountState(any(AccountState.class))).thenReturn(1);
-        when(stateMapper.updateProxySnapshot(any(AccountState.class))).thenReturn(1);
+        when(stateMapper.updateProxySnapshots(any())).thenReturn(1);
         when(credentialMapper.insertPromotionCredential(any(AccountCredential.class))).thenReturn(1);
         PromotionAccountProvisionServiceImpl service = new PromotionAccountProvisionServiceImpl(
                 accountMapper, stateMapper, credentialMapper);
@@ -63,6 +64,10 @@ class PromotionAccountProvisionServiceImplTest {
         verify(stateMapper).updateLoginAndAccountState(stateCaptor.capture());
         assertThat(stateCaptor.getValue().getAccountState()).isEqualTo(AccountStateCode.NORMAL);
         assertThat(stateCaptor.getValue().getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
+        verify(stateMapper).updateProxySnapshots(argThat(rows -> rows.size() == 1
+                && Long.valueOf(901L).equals(rows.get(0).getAccountId())
+                && "IN".equals(rows.get(0).getProxyCountry())
+                && "provider-a".equals(rows.get(0).getProxySource())));
 
         ArgumentCaptor<AccountCredential> credentialCaptor = ArgumentCaptor.forClass(AccountCredential.class);
         verify(credentialMapper).insertPromotionCredential(credentialCaptor.capture());

@@ -14,6 +14,7 @@ import com.armada.account.service.PromotionAccountProvisionService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -100,7 +101,7 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
         if (StringUtils.hasText(command.proxyCountry()) || StringUtils.hasText(command.proxySource())) {
             state.setProxyCountry(command.proxyCountry());
             state.setProxySource(command.proxySource());
-            requireOne(stateMapper.updateProxySnapshot(state), "账号代理快照写入失败");
+            requireOne(stateMapper.updateProxySnapshots(List.of(state)), "账号代理快照写入失败");
         }
 
         // ③ 完整 Baileys creds + keys 只进入凭据表，日志绝不输出明文。

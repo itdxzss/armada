@@ -20,6 +20,7 @@ public final class AndroidAccountParticipatingGroupMapper {
     private static final String GROUPS_FIELD = "GroupInfos";
     private static final String COUNT_FIELD = "Count";
     private static final String GROUP_JID_FIELD = "group_id";
+    private static final String GROUP_JID_SUFFIX = "@g.us";
     private static final String SUBJECT_FIELD = "subject";
     private static final String GROUP_MISSING_ERROR = "Android 当前群列表缺少该群";
 
@@ -183,7 +184,7 @@ public final class AndroidAccountParticipatingGroupMapper {
         if (groupJid == null) {
             throw unrecognized("Android 当前群响应缺少 group_id");
         }
-        return groupJid;
+        return groupJid.contains("@") ? groupJid : groupJid + GROUP_JID_SUFFIX;
     }
 
     private static String normalizePhone(String value) {

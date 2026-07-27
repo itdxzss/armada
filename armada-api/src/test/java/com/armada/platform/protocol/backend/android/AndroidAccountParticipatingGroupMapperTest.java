@@ -75,6 +75,37 @@ class AndroidAccountParticipatingGroupMapperTest {
     }
 
     @Test
+    void normalizesBareGroupIdBeforeMatchingHistoricalBaseline() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {
+                  "Count": 1,
+                  "GroupInfos": [{
+                    "group_id": "120363000000000000",
+                    "subject": "历史群",
+                    "participants": [
+                      {"phone_number":"919000000001","type":"participant"}
+                    ]
+                  }]
+                }
+                """);
+
+        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(data);
+        List<AccountGroupMetadataSummaryResult> summaries = mapper.mapSummaries(
+                data,
+                List.of("120363000000000000@g.us"),
+                "919000000001");
+
+        assertThat(groups)
+                .extracting(AccountParticipatingGroupResult.Group::groupJid)
+                .containsExactly("120363000000000000@g.us");
+        assertThat(summaries).singleElement().satisfies(summary -> {
+            assertThat(summary.groupJid()).isEqualTo("120363000000000000@g.us");
+            assertThat(summary.success()).isTrue();
+            assertThat(summary.selfRole()).isEqualTo("MEMBER");
+        });
+    }
+
+    @Test
     void rejectsCountMismatchBeforeHistoricalGroupsCanBeMarkedExited() throws Exception {
         JsonNode data = objectMapper.readTree("""
                 {"Count":2,"GroupInfos":[
@@ -86,5 +117,21 @@ class AndroidAccountParticipatingGroupMapperTest {
                 .isInstanceOfSatisfying(ProtocolException.class, ex ->
                         assertThat(ex.errorCode())
                                 .isEqualTo(ProtocolErrorCode.ANDROID_RESPONSE_UNRECOGNIZED));
+    }
+
+    @Test
+    void rejectsMissingGroupId() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {"Count":1,"GroupInfos":[
+                  {"subject":"缺少群标识","participants":[]}
+                ]}
+                """);
+
+        assertThatThrownBy(() -> mapper.mapGroups(data))
+                .isInstanceOfSatisfying(ProtocolException.class, ex -> {
+                    assertThat(ex.errorCode())
+                            .isEqualTo(ProtocolErrorCode.ANDROID_RESPONSE_UNRECOGNIZED);
+                    assertThat(ex.getMessage()).contains("group_id");
+                });
     }
 }

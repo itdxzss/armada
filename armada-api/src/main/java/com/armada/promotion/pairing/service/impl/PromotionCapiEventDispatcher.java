@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +28,16 @@ public class PromotionCapiEventDispatcher {
     private final long retryDelayMillis;
     private final String dispatcherId;
 
+    /**
+     * 创建正式 CAPI 事件投递器，配置值由 Spring 环境注入。
+     *
+     * @param outboxMapper CAPI Outbox 数据访问
+     * @param channelService 推广渠道正式 CAPI 投递服务
+     * @param batchSize 单次候选事件数量
+     * @param maxRetryCount 最大重试次数
+     * @param retryDelayMillis 初始重试延迟毫秒数
+     */
+    @Autowired
     public PromotionCapiEventDispatcher(
             PromotionCapiEventOutboxMapper outboxMapper,
             PromotionChannelService channelService,

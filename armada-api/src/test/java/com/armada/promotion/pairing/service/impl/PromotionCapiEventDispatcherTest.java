@@ -22,6 +22,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 @ExtendWith(MockitoExtension.class)
 class PromotionCapiEventDispatcherTest {
@@ -34,6 +35,19 @@ class PromotionCapiEventDispatcherTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+    }
+
+    @Test
+    void springCreatesDispatcherThroughItsDependencyInjectionConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(PromotionCapiEventOutboxMapper.class, () -> outboxMapper);
+            context.registerBean(PromotionChannelService.class, () -> channelService);
+            context.register(PromotionCapiEventDispatcher.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(PromotionCapiEventDispatcher.class)).isNotNull();
+        }
     }
 
     @Test

@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.promotion.pairing.mapper.PromotionCapiEventOutboxMapper">
+
+  <sql id="Columns">
+    id, tenant_id, promotion_channel_id, pairing_session_id, event_stage,
+    event_name, event_id, event_time, phone_sha256, client_ip, client_user_agent,
+    fbp, fbc, event_source_url, status, retry_count, next_retry_at,
+    locked_by, locked_at, sent_at, last_error_code, last_error_message,
+    sensitive_expires_at, created_at, updated_at
+  </sql>
+
+  <sql id="ClearSensitiveFields">
+    phone_sha256 = NULL,
+    client_ip = NULL,
+    client_user_agent = NULL,
+    fbp = NULL,
+    fbc = NULL,
+    event_source_url = NULL
+  </sql>
+
+  <insert id="batchInsert">
+    INSERT INTO promotion_capi_event_outbox (
+      promotion_channel_id, pairing_session_id, event_stage, event_name, event_id,
+      event_time, phone_sha256, client_ip, client_user_agent, fbp, fbc,
+      event_source_url, status, retry_count, next_retry_at, sensitive_expires_at,
+      created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="r" separator=",">
+      (#{r.promotionChannelId}, #{r.pairingSessionId}, #{r.eventStage},
+       #{r.eventName}, #{r.eventId}, #{r.eventTime}, #{r.phoneSha256},
+       #{r.clientIp}, #{r.clientUserAgent}, #{r.fbp}, #{r.fbc},
+       #{r.eventSourceUrl}, #{r.status}, #{r.retryCount}, #{r.nextRetryAt},
+       #{r.sensitiveExpiresAt},
+       #{r.createdAt}, #{r.updatedAt})
+    </foreach>
+  </insert>
+
+  <update id="activateInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{pendingStatus},
+        event_time = #{eventTime},
+        next_retry_at = 0,
+        updated_at = #{now}
+    WHERE pairing_session_id = #{pairingSessionId}
+      AND event_stage = #{eventStage}
+      AND status = #{waitingStatus}
+  </update>
+
+  <update id="cancelWaitingInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{canceledStatus},
+        <include refid="ClearSensitiveFields"/>,
+        updated_at = #{now}
+    WHERE pairing_session_id = #{pairingSessionId}
+      AND status = #{waitingStatus}
+  </update>
+
+  <select id="selectDispatchableInternal" resultType="com.armada.promotion.pairing.model.entity.PromotionCapiEventOutbox">
+    SELECT <include refid="Columns"/>
+    FROM promotion_capi_event_outbox
+    WHERE status = #{pendingStatus}
+      AND next_retry_at &lt;= #{now}
+    ORDER BY next_retry_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
+  <update id="markLockedInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{lockedStatus}, locked_by = #{lockedBy}, locked_at = #{lockedAt},
+        updated_at = #{lockedAt}
+    WHERE status = #{pendingStatus}
+      AND next_retry_at &lt;= #{lockedAt}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <select id="selectLockedInternal" resultType="com.armada.promotion.pairing.model.entity.PromotionCapiEventOutbox">
+    SELECT <include refid="Columns"/>
+    FROM promotion_capi_event_outbox
+    WHERE status = #{lockedStatus}
+      AND locked_by = #{lockedBy}
+      AND locked_at = #{lockedAt}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id ASC
+  </select>
+
+  <update id="markSentInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{sentStatus}, sent_at = #{sentAt},
+        locked_by = NULL, locked_at = NULL,
+        last_error_code = NULL, last_error_message = NULL,
+        <include refid="ClearSensitiveFields"/>,
+        updated_at = #{sentAt}
+    WHERE id = #{row.id} AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy} AND locked_at = #{row.lockedAt}
+  </update>
+
+  <update id="markRetryInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{pendingStatus}, retry_count = retry_count + 1,
+        next_retry_at = #{nextRetryAt}, locked_by = NULL, locked_at = NULL,
+        last_error_code = #{errorCode}, last_error_message = #{errorMessage},
+        updated_at = #{now}
+    WHERE id = #{row.id} AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy} AND locked_at = #{row.lockedAt}
+  </update>
+
+  <update id="markDeadInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{deadStatus}, locked_by = NULL, locked_at = NULL,
+        last_error_code = #{errorCode}, last_error_message = #{errorMessage},
+        <include refid="ClearSensitiveFields"/>,
+        updated_at = #{now}
+    WHERE id = #{row.id} AND status = #{lockedStatus}
+      AND locked_by = #{row.lockedBy} AND locked_at = #{row.lockedAt}
+  </update>
+
+  <update id="releaseExpiredLocksInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = #{pendingStatus}, locked_by = NULL, locked_at = NULL,
+        next_retry_at = #{now}, last_error_code = 'LOCK_EXPIRED',
+        last_error_message = 'dispatcher lock expired', updated_at = #{now}
+    WHERE status = #{lockedStatus}
+      AND locked_at IS NOT NULL AND locked_at &lt; #{lockedBefore}
+    ORDER BY locked_at ASC, id ASC
+    LIMIT #{limit}
+  </update>
+
+  <update id="scrubExpiredSensitiveInternal">
+    UPDATE promotion_capi_event_outbox
+    SET status = CASE
+          WHEN status = #{waitingStatus} THEN #{canceledStatus}
+          ELSE #{deadStatus}
+        END,
+        locked_by = NULL, locked_at = NULL,
+        last_error_code = 'PRIVACY_RETENTION_EXPIRED',
+        last_error_message = 'sensitive attribution retention expired',
+        <include refid="ClearSensitiveFields"/>,
+        updated_at = #{now}
+    WHERE sensitive_expires_at &lt;= #{now}
+      AND phone_sha256 IS NOT NULL
+      AND (
+        status IN (#{waitingStatus}, #{pendingStatus})
+        OR (status = #{lockedStatus} AND locked_at &lt; #{lockedBefore})
+      )
+    ORDER BY sensitive_expires_at ASC, id ASC
+    LIMIT #{limit}
+  </update>
+
+</mapper>

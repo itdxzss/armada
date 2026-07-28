@@ -1,12 +1,16 @@
 package com.armada.admin.controller;
 
+import com.armada.admin.model.dto.PasswordChangeDTO;
 import com.armada.admin.model.dto.UserLoginDTO;
 import com.armada.admin.model.vo.CurrentAuthVO;
 import com.armada.admin.model.vo.UserLoginVO;
 import com.armada.admin.service.AuthenticationService;
+import com.armada.admin.service.UserManagementService;
 import com.armada.platform.auth.model.CaptchaChallenge;
 import com.armada.platform.auth.service.CaptchaService;
 import com.armada.platform.auth.service.SessionService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.security.AuthPrincipal;
 import jakarta.servlet.http.HttpServletResponse;
@@ -28,14 +32,17 @@ public class AuthenticationController {
     private final CaptchaService captchaService;
     private final AuthenticationService authenticationService;
     private final SessionService sessionService;
+    private final UserManagementService userManagementService;
 
     public AuthenticationController(
             CaptchaService captchaService,
             AuthenticationService authenticationService,
-            SessionService sessionService) {
+            SessionService sessionService,
+            UserManagementService userManagementService) {
         this.captchaService = captchaService;
         this.authenticationService = authenticationService;
         this.sessionService = sessionService;
+        this.userManagementService = userManagementService;
     }
 
     /**
@@ -81,6 +88,27 @@ public class AuthenticationController {
     @PostMapping("/api/auth/logout")
     public ApiResponse<Void> logout(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization) {
         sessionService.logout(rawToken(authorization));
+        return ApiResponse.ok();
+    }
+
+    /**
+     * 校验当前密码并修改当前登录用户密码，成功后使该用户已有会话失效。
+     *
+     * @param principal Token 过滤器建立的可信身份
+     * @param request 当前密码和新密码
+     * @return 空成功响应
+     */
+    @PostMapping("/api/auth/change-password")
+    public ApiResponse<Void> changePassword(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestBody PasswordChangeDTO request) {
+        if (principal == null) {
+            throw new BusinessException(ErrorCode.AUTH_INVALID);
+        }
+        userManagementService.changeOwnPassword(
+                principal.userId(),
+                request == null ? null : request.currentPassword(),
+                request == null ? null : request.newPassword());
         return ApiResponse.ok();
     }
 

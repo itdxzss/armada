@@ -109,9 +109,24 @@ public class UserManagementServiceImpl implements UserManagementService {
     public void resetPassword(long id, String newPassword) {
         requireUser(id);
         String normalizedPassword = password(newPassword);
-        userMapper.updatePasswordHash(id, passwordEncoder.encode(normalizedPassword), System.currentTimeMillis());
+        userMapper.updatePasswordHash(
+                id, passwordEncoder.encode(normalizedPassword), System.currentTimeMillis());
         sessionService.invalidateUser(id);
         log.info("重置系统用户密码成功: userId={}", id);
+    }
+
+    @Override
+    @Transactional
+    public void changeOwnPassword(long id, String currentPassword, String newPassword) {
+        SysUser user = requireUser(id);
+        String suppliedPassword = currentPassword == null ? "" : currentPassword;
+        if (!passwordEncoder.matches(suppliedPassword, user.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "当前密码错误");
+        }
+        String normalizedPassword = password(newPassword);
+        userMapper.updatePasswordHash(id, passwordEncoder.encode(normalizedPassword), System.currentTimeMillis());
+        sessionService.invalidateUser(id);
+        log.info("当前用户修改密码成功: userId={}", id);
     }
 
     @Override

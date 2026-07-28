@@ -18,7 +18,7 @@ public enum GroupPullExecutionStatus {
     /** 建群前失败并跳过，不计建群失败。 */
     PRE_GROUP_SKIPPED(5),
 
-    /** 任务释放时取消的准备记录。 */
+    /** 任务释放时取消的活动执行。 */
     CANCELED(6),
 
     /** 外部结果不明确，需要人工处理。 */

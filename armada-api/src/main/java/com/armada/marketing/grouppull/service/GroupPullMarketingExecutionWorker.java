@@ -10,6 +10,7 @@ import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.enums.GroupPullBlockReason;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStage;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStatus;
+import com.armada.marketing.grouppull.model.enums.GroupPullResourceStatus;
 import com.armada.marketing.grouppull.model.enums.GroupPullSpeakPermission;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
@@ -131,6 +132,9 @@ public class GroupPullMarketingExecutionWorker {
                 leaseUntil) != 1) {
             return;
         }
+        if (cancelIfTaskNotLocked(execution)) {
+            return;
+        }
 
         GroupPullAccountRefRow builder = mapper.selectAccountRef(execution.getBuilderAccountId());
         if (!builderUsable(builder)) {
@@ -154,6 +158,9 @@ public class GroupPullMarketingExecutionWorker {
             }
             executeStage(execution, stage, builder);
         } catch (RuntimeException exception) {
+            if (cancelIfTaskNotLocked(execution)) {
+                return;
+            }
             log.error(
                     "拉群营销执行阶段异常 executionId={} stage={}",
                     executionId,
@@ -205,16 +212,26 @@ public class GroupPullMarketingExecutionWorker {
         }
         int attempts = GroupPullRetryPolicy.friendAttempts(task.getFriendRetryLimit());
         String prefix = "group-pull:" + execution.getId() + ":friend:";
-        if (!saveContact(
+        ContactSaveResult builderToMarketer = saveContact(
+                execution,
                 builder.protocolRef(),
                 marketer.getWsPhone(),
                 prefix + "builder-to-marketer:" + marketer.getAccountId(),
-                attempts)
-                || !saveContact(
+                attempts);
+        if (builderToMarketer == ContactSaveResult.TASK_STOPPED) {
+            return;
+        }
+        ContactSaveResult marketerToBuilder = saveContact(
+                execution,
                 marketer.protocolRef(),
                 builder.getWsPhone(),
                 prefix + "marketer-to-builder:" + marketer.getAccountId(),
-                attempts)) {
+                attempts);
+        if (marketerToBuilder == ContactSaveResult.TASK_STOPPED) {
+            return;
+        }
+        if (builderToMarketer == ContactSaveResult.FAILED
+                || marketerToBuilder == ContactSaveResult.FAILED) {
             finalizer.skipBeforeGroup(execution.getId(), "建群账号与营销账号互加好友失败");
             return;
         }
@@ -225,11 +242,16 @@ public class GroupPullMarketingExecutionWorker {
             String operationId = prefix + "builder-to-material:" + material.getMaterialId();
             String failure = null;
             try {
-                if (!saveContact(
+                ContactSaveResult result = saveContact(
+                        execution,
                         builder.protocolRef(),
                         material.getMaterialPhone(),
                         operationId,
-                        attempts)) {
+                        attempts);
+                if (result == ContactSaveResult.TASK_STOPPED) {
+                    return;
+                }
+                if (result == ContactSaveResult.FAILED) {
                     failure = "添加料子好友失败";
                 }
             } catch (RuntimeException exception) {
@@ -244,16 +266,20 @@ public class GroupPullMarketingExecutionWorker {
         advance(execution, GroupPullExecutionStage.CREATE_GROUP, GroupPullExecutionStatus.PREPARING);
     }
 
-    private boolean saveContact(
+    private ContactSaveResult saveContact(
+            GroupPullMarketingExecution execution,
             ProtocolAccountRef account,
             String contact,
             String operationId,
             int attempts) {
         RuntimeException last = null;
         for (int attempt = 0; attempt < attempts; attempt++) {
+            if (cancelIfTaskNotLocked(execution)) {
+                return ContactSaveResult.TASK_STOPPED;
+            }
             try {
                 contactPort.save(new ContactSaveCommand(account, contact, contact, operationId));
-                return true;
+                return ContactSaveResult.SUCCEEDED;
             } catch (RuntimeException exception) {
                 last = exception;
             }
@@ -262,7 +288,10 @@ public class GroupPullMarketingExecutionWorker {
                 "拉群好友操作重试耗尽 operationId={} reason={}",
                 operationId,
                 last == null ? "unknown" : compactReason(last));
-        return false;
+        if (cancelIfTaskNotLocked(execution)) {
+            return ContactSaveResult.TASK_STOPPED;
+        }
+        return ContactSaveResult.FAILED;
     }
 
     private void createGroup(
@@ -274,6 +303,9 @@ public class GroupPullMarketingExecutionWorker {
         String operationId = "group-pull:" + execution.getId() + ":create-group";
         RuntimeException last = null;
         for (int attempt = 0; attempt < GroupPullRetryPolicy.groupOperationAttempts(); attempt++) {
+            if (cancelIfTaskNotLocked(execution)) {
+                return;
+            }
             try {
                 GroupCreateResult result = groupCreatePort.create(new GroupCreateCommand(
                         builder.protocolRef(),
@@ -288,6 +320,9 @@ public class GroupPullMarketingExecutionWorker {
                         System.currentTimeMillis());
                 return;
             } catch (ProtocolException exception) {
+                if (cancelIfTaskNotLocked(execution)) {
+                    return;
+                }
                 if (exception.errorCode() == ProtocolErrorCode.IDEMPOTENCY_STORE_UNAVAILABLE) {
                     delayForSystemDependency(execution);
                     return;
@@ -385,6 +420,9 @@ public class GroupPullMarketingExecutionWorker {
                 builder.protocolRef(),
                 List.of(marketerJid),
                 GroupParticipantAction.ADD);
+        if (result.taskStopped()) {
+            return;
+        }
         if (!result.successfulPhones().contains(phoneOf(marketerJid))) {
             finalizer.fail(execution.getId(), "营销账号添加失败：" + result.failureReason());
             return;
@@ -417,6 +455,10 @@ public class GroupPullMarketingExecutionWorker {
              attempt < GroupPullRetryPolicy.groupOperationAttempts()
                      && successful.size() < targets.size();
              attempt++) {
+            if (cancelIfTaskNotLocked(execution)) {
+                return new ParticipantAttempt(
+                        Set.copyOf(successful), failureReason, true);
+            }
             List<String> pending = targets.stream()
                     .filter(target -> !successful.contains(phoneOf(target)))
                     .toList();
@@ -440,8 +482,13 @@ public class GroupPullMarketingExecutionWorker {
             } catch (RuntimeException exception) {
                 failureReason = compactReason(exception);
             }
+            if (successful.size() < targets.size()
+                    && cancelIfTaskNotLocked(execution)) {
+                return new ParticipantAttempt(
+                        Set.copyOf(successful), failureReason, true);
+            }
         }
-        return new ParticipantAttempt(Set.copyOf(successful), failureReason);
+        return new ParticipantAttempt(Set.copyOf(successful), failureReason, false);
     }
 
     private void setMarketerAdmin(
@@ -467,6 +514,9 @@ public class GroupPullMarketingExecutionWorker {
                 builder.protocolRef(),
                 List.of(WhatsappJids.userJid(marketer.getWsPhone())),
                 GroupParticipantAction.PROMOTE);
+        if (result.taskStopped()) {
+            return;
+        }
         if (result.successfulPhones().contains(phoneOf(marketer.getWsPhone()))) {
             mapper.updateMarketerAdminStatus(
                     execution.getId(), ADMIN_SET, System.currentTimeMillis());
@@ -496,6 +546,9 @@ public class GroupPullMarketingExecutionWorker {
         RuntimeException last = null;
         boolean enabled = permission == GroupPullSpeakPermission.UNMUTED;
         for (int attempt = 0; attempt < GroupPullRetryPolicy.groupOperationAttempts(); attempt++) {
+            if (cancelIfTaskNotLocked(execution)) {
+                return;
+            }
             try {
                 settingsPort.setSendMessagesAllowed(
                         builder.protocolRef(), execution.getGroupJid(), enabled);
@@ -509,6 +562,9 @@ public class GroupPullMarketingExecutionWorker {
                     mapper.markGroupBanned(execution.getId(), System.currentTimeMillis());
                 }
                 last = exception;
+                if (cancelIfTaskNotLocked(execution)) {
+                    return;
+                }
             }
         }
         finalizer.fail(
@@ -523,6 +579,9 @@ public class GroupPullMarketingExecutionWorker {
         List<GroupParticipantResult> members = null;
         String inviteUrl = null;
         List<String> nonFatalReasons = new ArrayList<>();
+        if (cancelIfTaskNotLocked(execution)) {
+            return;
+        }
         try {
             members = memberListPort.list(new GroupMemberListQuery(
                     builder.protocolRef(),
@@ -530,6 +589,9 @@ public class GroupPullMarketingExecutionWorker {
                     "group-pull:" + execution.getId() + ":group-info:members"));
         } catch (RuntimeException exception) {
             nonFatalReasons.add("群人数获取失败：" + compactReason(exception));
+        }
+        if (cancelIfTaskNotLocked(execution)) {
+            return;
         }
         try {
             GroupInviteResult invite = invitePort.getInvite(
@@ -593,6 +655,9 @@ public class GroupPullMarketingExecutionWorker {
         }
         RuntimeException last = null;
         for (int attempt = 0; attempt < GroupPullRetryPolicy.groupOperationAttempts(); attempt++) {
+            if (cancelIfTaskNotLocked(execution)) {
+                return;
+            }
             try {
                 leavePort.leave(builder.protocolRef(), execution.getGroupJid());
                 mapper.updateBuilderExitStatus(
@@ -608,6 +673,9 @@ public class GroupPullMarketingExecutionWorker {
                     mapper.markGroupBanned(execution.getId(), System.currentTimeMillis());
                 }
                 last = exception;
+                if (cancelIfTaskNotLocked(execution)) {
+                    return;
+                }
             }
         }
         mapper.updateBuilderExitStatus(
@@ -674,6 +742,22 @@ public class GroupPullMarketingExecutionWorker {
             throw new IllegalStateException("拉群营销账号不存在 accountId=" + accountId);
         }
         return account;
+    }
+
+    /**
+     * 仅允许资源仍被当前任务锁定时启动下一次协议动作。
+     *
+     * @return 任务已不再运行并已触发执行取消时返回 {@code true}
+     */
+    private boolean cancelIfTaskNotLocked(GroupPullMarketingExecution execution) {
+        GroupPullMarketingTask task = mapper.selectTaskById(execution.getTaskId());
+        if (task != null
+                && Integer.valueOf(GroupPullResourceStatus.LOCKED.code())
+                        .equals(task.getResourceStatus())) {
+            return false;
+        }
+        finalizer.cancelForTaskRelease(execution.getId());
+        return true;
     }
 
     private static boolean active(GroupPullMarketingExecution execution) {
@@ -754,6 +838,15 @@ public class GroupPullMarketingExecutionWorker {
         return joined.length() <= 255 ? joined : joined.substring(0, 255);
     }
 
-    private record ParticipantAttempt(Set<String> successfulPhones, String failureReason) {
+    private enum ContactSaveResult {
+        SUCCEEDED,
+        FAILED,
+        TASK_STOPPED
+    }
+
+    private record ParticipantAttempt(
+            Set<String> successfulPhones,
+            String failureReason,
+            boolean taskStopped) {
     }
 }

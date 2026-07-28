@@ -17,6 +17,7 @@ import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStage;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStatus;
+import com.armada.marketing.grouppull.model.enums.GroupPullResourceStatus;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.platform.protocol.model.command.GroupCreateCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -116,7 +117,6 @@ class GroupPullMarketingFirstMaterialDelayTest {
         execution.setGroupName("间隔测试群-1");
         stubDispatch(execution, builder(true));
         when(mapper.selectAccountRef(301L)).thenReturn(marketer());
-        when(mapper.selectTaskById(101L)).thenReturn(task());
         when(groupCreatePort.create(any(GroupCreateCommand.class))).thenReturn(new GroupCreateResult(
                 "group@g.us",
                 false,
@@ -141,7 +141,6 @@ class GroupPullMarketingFirstMaterialDelayTest {
         GroupPullMarketingExecution execution = execution(GroupPullExecutionStage.ADD_MARKETER);
         stubDispatch(execution, builder(true));
         when(mapper.selectAccountRef(301L)).thenReturn(marketer());
-        when(mapper.selectTaskById(101L)).thenReturn(task());
         when(participantPort.updateParticipants(
                 any(ProtocolAccountRef.class),
                 eq("group@g.us"),
@@ -196,6 +195,7 @@ class GroupPullMarketingFirstMaterialDelayTest {
         when(mapper.selectExecutionById(501L)).thenReturn(execution);
         when(mapper.tryLeaseExecution(eq(501L), anyInt(), anyInt(), anyLong(), anyLong()))
                 .thenReturn(1);
+        when(mapper.selectTaskById(101L)).thenReturn(task());
         when(mapper.selectAccountRef(201L)).thenReturn(builder);
     }
 
@@ -218,6 +218,7 @@ class GroupPullMarketingFirstMaterialDelayTest {
         task.setMarketingTaskId(101L);
         task.setGroupNamePrefix("间隔测试群");
         task.setMaterialEntryIntervalSeconds(300);
+        task.setResourceStatus(GroupPullResourceStatus.LOCKED.code());
         return task;
     }
 

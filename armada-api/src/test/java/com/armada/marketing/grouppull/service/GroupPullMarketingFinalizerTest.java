@@ -71,14 +71,128 @@ class GroupPullMarketingFinalizerTest {
         assertThat(calls).isEmpty();
     }
 
+    @Test
+    void failureBeforeQuotaConfirmationCancelsReservedQuota() {
+        assertThat(failureSettlementCalls(GroupPullExecutionStage.CREATE_GROUP))
+                .contains("cancelMarketingQuota");
+    }
+
+    @Test
+    void failureAfterQuotaConfirmationKeepsReservedQuotaForOtherExecutions() {
+        assertThat(failureSettlementCalls(GroupPullExecutionStage.ADD_MATERIALS))
+                .doesNotContain("cancelMarketingQuota");
+    }
+
+    @Test
+    void taskReleaseCancelsFormalExecutionAndReleasesItsAccount() {
+        List<String> calls = new ArrayList<>();
+        AtomicInteger terminalStatus = new AtomicInteger();
+        AtomicInteger terminalStage = new AtomicInteger();
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution(GroupPullExecutionStage.CREATE_GROUP);
+            case "markExecutionTerminal" -> {
+                terminalStatus.set((Integer) args[3]);
+                terminalStage.set((Integer) args[4]);
+                yield 1;
+            }
+            case "completeFailedJoinedMaterials", "releaseUnjoinedMaterials",
+                    "cancelMarketingQuota", "markExecutionReleased" -> {
+                calls.add(method);
+                yield 1;
+            }
+            default -> throw new UnsupportedOperationException(method);
+        });
+        GroupPullMarketingFinalizer finalizer = new GroupPullMarketingFinalizer(
+                mapper, null, new RecordingOccupancyService(calls), null);
+
+        finalizer.cancelForTaskRelease(501L);
+
+        assertThat(terminalStatus.get()).isEqualTo(GroupPullExecutionStatus.CANCELED.code());
+        assertThat(terminalStage.get()).isEqualTo(GroupPullExecutionStage.COMPLETED.code());
+        assertThat(calls).containsSubsequence(
+                "completeFailedJoinedMaterials",
+                "releaseUnjoinedMaterials",
+                "cancelMarketingQuota",
+                "releaseTaskAccount",
+                "markExecutionReleased");
+    }
+
+    @Test
+    void taskReleaseAfterQuotaConfirmationKeepsReservedQuotaForOtherExecutions() {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution(GroupPullExecutionStage.ADD_MATERIALS);
+            case "markExecutionTerminal" -> 1;
+            case "completeFailedJoinedMaterials", "releaseUnjoinedMaterials",
+                    "cancelMarketingQuota", "markExecutionReleased" -> {
+                calls.add(method);
+                yield 1;
+            }
+            default -> throw new UnsupportedOperationException(method);
+        });
+        GroupPullMarketingFinalizer finalizer = new GroupPullMarketingFinalizer(
+                mapper, null, new RecordingOccupancyService(calls), null);
+
+        finalizer.cancelForTaskRelease(501L);
+
+        assertThat(calls)
+                .contains("releaseTaskAccount", "markExecutionReleased")
+                .doesNotContain("cancelMarketingQuota");
+    }
+
+    @Test
+    void taskReleaseTerminalUpdateConflictSkipsAllSettlementSideEffects() {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution(GroupPullExecutionStage.CREATE_GROUP);
+            case "markExecutionTerminal" -> 0;
+            case "completeFailedJoinedMaterials", "releaseUnjoinedMaterials",
+                    "cancelMarketingQuota", "markExecutionReleased" -> {
+                calls.add(method);
+                yield 1;
+            }
+            default -> throw new UnsupportedOperationException(method);
+        });
+        GroupPullMarketingFinalizer finalizer = new GroupPullMarketingFinalizer(
+                mapper, null, new RecordingOccupancyService(calls), null);
+
+        finalizer.cancelForTaskRelease(501L);
+
+        assertThat(calls).isEmpty();
+    }
+
+    private static List<String> failureSettlementCalls(GroupPullExecutionStage stage) {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution(stage);
+            case "selectTaskById" -> task();
+            case "markExecutionTerminal" -> 1;
+            case "completeFailedJoinedMaterials", "releaseUnjoinedMaterials",
+                    "cancelMarketingQuota", "markExecutionReleased" -> {
+                calls.add(method);
+                yield 1;
+            }
+            default -> throw new UnsupportedOperationException(method);
+        });
+        GroupPullMarketingFinalizer finalizer = new GroupPullMarketingFinalizer(
+                mapper, null, new ReleasingOccupancyService(), null);
+
+        finalizer.fail(501L, "测试失败");
+        return calls;
+    }
+
     private static GroupPullMarketingExecution execution() {
+        return execution(GroupPullExecutionStage.ADD_MATERIALS);
+    }
+
+    private static GroupPullMarketingExecution execution(GroupPullExecutionStage stage) {
         GroupPullMarketingExecution execution = new GroupPullMarketingExecution();
         execution.setId(501L);
         execution.setTaskId(101L);
         execution.setBuilderAccountId(201L);
         execution.setMarketingAccountId(301L);
         execution.setExecutionStatus(GroupPullExecutionStatus.EXECUTING.code());
-        execution.setCurrentStage(GroupPullExecutionStage.ADD_MATERIALS.code());
+        execution.setCurrentStage(stage.code());
         return execution;
     }
 
@@ -110,6 +224,23 @@ class GroupPullMarketingFinalizerTest {
 
         @Override
         public boolean releaseTaskAccount(Long taskId, Long accountId) {
+            return true;
+        }
+    }
+
+    /** 记录任务释放取消时的账号占用清理。 */
+    private static final class RecordingOccupancyService extends MarketingAccountOccupancyService {
+
+        private final List<String> calls;
+
+        private RecordingOccupancyService(List<String> calls) {
+            super(null, null);
+            this.calls = calls;
+        }
+
+        @Override
+        public boolean releaseTaskAccount(Long taskId, Long accountId) {
+            calls.add("releaseTaskAccount");
             return true;
         }
     }

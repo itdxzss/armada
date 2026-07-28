@@ -9,6 +9,7 @@ import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStage;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStatus;
+import com.armada.marketing.grouppull.model.enums.GroupPullResourceStatus;
 import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
@@ -17,6 +18,8 @@ import com.armada.platform.protocol.port.GroupCreatePort;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -77,9 +80,145 @@ class GroupPullMarketingExecutionWorkerTest {
                 "saveGroupNameIfAbsent");
     }
 
+    @Test
+    void releasingTaskCancelsExecutionWithoutReadingAccountOrCallingProtocol() {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingExecution execution = execution();
+        GroupPullMarketingTask releasingTask = task();
+        releasingTask.setResourceStatus(GroupPullResourceStatus.RELEASING.code());
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution;
+            case "tryLeaseExecution" -> 1;
+            case "selectTaskById" -> releasingTask;
+            case "selectAccountRef" -> null;
+            default -> throw new UnsupportedOperationException(method);
+        }, calls);
+        RecordingFinalizer finalizer = new RecordingFinalizer(calls);
+        GroupPullMarketingExecutionWorker worker = new GroupPullMarketingExecutionWorker(
+                mapper,
+                finalizer,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                NO_OP_TRANSACTION_MANAGER);
+
+        worker.process(execution.getId());
+
+        assertThat(calls)
+                .contains("cancelForTaskRelease")
+                .doesNotContain("selectAccountRef", "fail");
+    }
+
+    @Test
+    void releasedTaskCancelsStaleExecutionWithoutCallingProtocol() {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingExecution execution = execution();
+        GroupPullMarketingTask releasedTask = task();
+        releasedTask.setResourceStatus(GroupPullResourceStatus.RELEASED.code());
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution;
+            case "tryLeaseExecution" -> 1;
+            case "selectTaskById" -> releasedTask;
+            case "selectAccountRef" -> null;
+            default -> throw new UnsupportedOperationException(method);
+        }, calls);
+        RecordingFinalizer finalizer = new RecordingFinalizer(calls);
+        GroupPullMarketingExecutionWorker worker = new GroupPullMarketingExecutionWorker(
+                mapper,
+                finalizer,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                NO_OP_TRANSACTION_MANAGER);
+
+        worker.process(execution.getId());
+
+        assertThat(calls)
+                .contains("cancelForTaskRelease")
+                .doesNotContain("selectAccountRef", "fail");
+    }
+
+    @Test
+    void releaseDuringFirstGroupCreateAttemptPreventsRetry() {
+        List<String> calls = new ArrayList<>();
+        AtomicBoolean releaseRequested = new AtomicBoolean();
+        AtomicInteger protocolCalls = new AtomicInteger();
+        GroupPullMarketingExecution execution = execution();
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution;
+            case "tryLeaseExecution", "saveGroupNameIfAbsent", "updateBlockReason",
+                    "delayExecution" -> 1;
+            case "selectTaskById" -> {
+                GroupPullMarketingTask current = task();
+                current.setResourceStatus(releaseRequested.get()
+                        ? GroupPullResourceStatus.RELEASING.code()
+                        : GroupPullResourceStatus.LOCKED.code());
+                yield current;
+            }
+            case "selectAccountRef" -> account((Long) args[0]);
+            case "selectTaskForUpdate" -> new MarketingTask();
+            case "countNamedExecutions" -> 0L;
+            default -> throw new UnsupportedOperationException(method);
+        }, calls);
+        GroupCreatePort createPort = command -> {
+            protocolCalls.incrementAndGet();
+            releaseRequested.set(true);
+            throw new ProtocolException(ProtocolErrorCode.TEMPORARY_FAILURE, "expected");
+        };
+        RecordingFinalizer finalizer = new RecordingFinalizer(calls);
+        GroupPullMarketingExecutionWorker worker = new GroupPullMarketingExecutionWorker(
+                mapper,
+                finalizer,
+                null,
+                null,
+                createPort,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                NO_OP_TRANSACTION_MANAGER);
+
+        worker.process(execution.getId());
+
+        assertThat(protocolCalls.get()).isEqualTo(1);
+        assertThat(calls).contains("cancelForTaskRelease");
+    }
+
     private static GroupPullMarketingMapper mapper(
             List<String> calls,
             GroupPullMarketingExecution execution) {
+        return mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution;
+            case "tryLeaseExecution", "saveGroupNameIfAbsent", "updateBlockReason",
+                    "delayExecution" -> 1;
+            case "selectAccountRef" -> account((Long) args[0]);
+            case "selectTaskById" -> task();
+            case "selectTaskForUpdate" -> new MarketingTask();
+            case "countNamedExecutions" -> 0L;
+            default -> throw new UnsupportedOperationException(method);
+        }, calls);
+    }
+
+    private static GroupPullMarketingMapper mapper(
+            Invocation invocation,
+            List<String> calls) {
         Object proxy = Proxy.newProxyInstance(
                 GroupPullMarketingMapper.class.getClassLoader(),
                 new Class<?>[]{GroupPullMarketingMapper.class},
@@ -88,16 +227,7 @@ class GroupPullMarketingExecutionWorkerTest {
                         return "GroupPullMarketingExecutionWorkerTestMapper";
                     }
                     calls.add(method.getName());
-                    return switch (method.getName()) {
-                        case "selectExecutionById" -> execution;
-                        case "tryLeaseExecution", "saveGroupNameIfAbsent", "updateBlockReason",
-                                "delayExecution" -> 1;
-                        case "selectAccountRef" -> account((Long) args[0]);
-                        case "selectTaskById" -> task();
-                        case "selectTaskForUpdate" -> new MarketingTask();
-                        case "countNamedExecutions" -> 0L;
-                        default -> throw new UnsupportedOperationException(method.getName());
-                    };
+                    return invocation.invoke(method.getName(), args);
                 });
         return GroupPullMarketingMapper.class.cast(proxy);
     }
@@ -118,6 +248,7 @@ class GroupPullMarketingExecutionWorkerTest {
         GroupPullMarketingTask task = new GroupPullMarketingTask();
         task.setMarketingTaskId(101L);
         task.setGroupNamePrefix("测试群");
+        task.setResourceStatus(GroupPullResourceStatus.LOCKED.code());
         return task;
     }
 
@@ -130,5 +261,32 @@ class GroupPullMarketingExecutionWorkerTest {
         account.setAccountState(AccountStateCode.NORMAL);
         account.setLoginState(AccountLoginStateCode.ONLINE);
         return account;
+    }
+
+    /** 记录 worker 是否走入任务释放取消或普通失败结算。 */
+    private static final class RecordingFinalizer extends GroupPullMarketingFinalizer {
+
+        private final List<String> calls;
+
+        private RecordingFinalizer(List<String> calls) {
+            super(null, null, null, null);
+            this.calls = calls;
+        }
+
+        @Override
+        public void cancelForTaskRelease(Long executionId) {
+            calls.add("cancelForTaskRelease");
+        }
+
+        @Override
+        public void fail(Long executionId, String reason) {
+            calls.add("fail");
+        }
+    }
+
+    @FunctionalInterface
+    private interface Invocation {
+
+        Object invoke(String method, Object[] args);
     }
 }

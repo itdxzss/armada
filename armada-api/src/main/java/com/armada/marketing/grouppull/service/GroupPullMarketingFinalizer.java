@@ -126,6 +126,53 @@ public class GroupPullMarketingFinalizer {
     }
 
     /**
+     * 因任务进入资源释放流程而取消一条活动执行，并释放其建群账号占用。
+     *
+     * <p>本入口不再推进任何协议阶段，也不迁移建群账号。已经加入群组的料子按失败使用收口，
+     * 尚未加入的料子归还任务料子池；营销额度仅在仍处于预留阶段时归还。</p>
+     *
+     * @param executionId 待取消的单群执行 ID
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelForTaskRelease(Long executionId) {
+        GroupPullMarketingExecution execution = mapper.selectExecutionById(executionId);
+        if (!active(execution)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (mapper.markExecutionTerminal(
+                execution.getId(),
+                execution.getExecutionStatus(),
+                execution.getCurrentStage(),
+                GroupPullExecutionStatus.CANCELED.code(),
+                GroupPullExecutionStage.COMPLETED.code(),
+                "任务释放，执行已取消",
+                now) != 1) {
+            return;
+        }
+        mapper.completeFailedJoinedMaterials(execution.getId(), now);
+        mapper.releaseUnjoinedMaterials(execution.getId(), now);
+        if (hasReservedMarketingQuota(execution)) {
+            mapper.cancelMarketingQuota(
+                    execution.getTaskId(), execution.getMarketingAccountId(), now);
+        }
+        if (occupancyService.releaseTaskAccount(
+                execution.getTaskId(), execution.getBuilderAccountId())) {
+            mapper.markExecutionReleased(execution.getId(), now);
+        } else {
+            log.warn(
+                    "拉群任务释放取消时建群账号占用未释放 taskId={} executionId={} accountId={}",
+                    execution.getTaskId(),
+                    execution.getId(),
+                    execution.getBuilderAccountId());
+        }
+        log.info(
+                "拉群任务释放已取消活动执行 taskId={} executionId={}",
+                execution.getTaskId(),
+                execution.getId());
+    }
+
+    /**
      * 首次把活动执行收口到指定终态，并同步处理关联资源。
      *
      * @param execution 条件终态更新前读取的活动执行
@@ -159,8 +206,10 @@ public class GroupPullMarketingFinalizer {
         } else {
             mapper.completeFailedJoinedMaterials(execution.getId(), now);
             mapper.releaseUnjoinedMaterials(execution.getId(), now);
-            mapper.cancelMarketingQuota(
-                    execution.getTaskId(), execution.getMarketingAccountId(), now);
+            if (hasReservedMarketingQuota(execution)) {
+                mapper.cancelMarketingQuota(
+                        execution.getTaskId(), execution.getMarketingAccountId(), now);
+            }
         }
 
         Long targetGroupId = outcome == GroupPullExecutionStatus.SUCCEEDED
@@ -240,5 +289,9 @@ public class GroupPullMarketingFinalizer {
                         .equals(execution.getExecutionStatus())
                 || Integer.valueOf(GroupPullExecutionStatus.EXECUTING.code())
                         .equals(execution.getExecutionStatus()));
+    }
+
+    private static boolean hasReservedMarketingQuota(GroupPullMarketingExecution execution) {
+        return execution.getCurrentStage() < GroupPullExecutionStage.ADD_MATERIALS.code();
     }
 }

@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,6 +51,33 @@ class UserManagementServiceImplTest {
     void setUp() {
         passwordEncoder = PasswordEncoderFactories.createDelegatingPasswordEncoder();
         service = new UserManagementServiceImpl(userMapper, roleMapper, passwordEncoder, sessionService);
+    }
+
+    @Test
+    void changesOwnPasswordAfterVerifyingCurrentPassword() {
+        SysUser user = user(7L, 1);
+        user.setPasswordHash(passwordEncoder.encode("old-password1"));
+        when(userMapper.findById(7L)).thenReturn(Optional.of(user));
+
+        service.changeOwnPassword(7L, "old-password1", "new-password2");
+
+        verify(userMapper).updatePasswordHash(eq(7L), argThat(hash ->
+                passwordEncoder.matches("new-password2", hash)), anyLong());
+        verify(sessionService).invalidateUser(7L);
+    }
+
+    @Test
+    void rejectsWrongCurrentPasswordWithoutChangingAnything() {
+        SysUser user = user(7L, 1);
+        user.setPasswordHash(passwordEncoder.encode("old-password1"));
+        when(userMapper.findById(7L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.changeOwnPassword(7L, "wrong-password", "new-password2"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("当前密码错误");
+
+        verify(userMapper, never()).updatePasswordHash(anyLong(), anyString(), anyLong());
+        verify(sessionService, never()).invalidateUser(anyLong());
     }
 
     @Test

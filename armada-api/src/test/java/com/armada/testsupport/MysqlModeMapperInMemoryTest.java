@@ -229,6 +229,35 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
+    void groupPullInitialInviteUrlWriteMatchesGroupAndDoesNotOverwrite() throws SQLException {
+        executeSql(
+                "INSERT INTO group_pull_marketing_execution "
+                        + "(id, tenant_id, task_id, group_jid, execution_status, current_stage, "
+                        + "stage_retry_count, next_execute_at, created_at, updated_at) "
+                        + "VALUES (82, 7, 146, 'invite-group@g.us', 2, 4, 0, 0, 100, 100)");
+
+        assertThat(groupPullMarketingMapper.saveInitialGroupInviteUrl(
+                82L,
+                "other-group@g.us",
+                "https://chat.whatsapp.com/wrong",
+                101L)).isZero();
+        assertThat(groupPullMarketingMapper.saveInitialGroupInviteUrl(
+                82L,
+                "invite-group@g.us",
+                "https://chat.whatsapp.com/first",
+                102L)).isEqualTo(1);
+        assertThat(groupPullMarketingMapper.saveInitialGroupInviteUrl(
+                82L,
+                "invite-group@g.us",
+                "https://chat.whatsapp.com/replacement",
+                103L)).isZero();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT group_invite_url FROM group_pull_marketing_execution WHERE id = 82",
+                String.class)).isEqualTo("https://chat.whatsapp.com/first");
+    }
+
+    @Test
     void groupPullCandidateQueriesExecuteWithTenantPlugin() throws SQLException {
         executeSql(
                 "INSERT INTO account_group "

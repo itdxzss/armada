@@ -22,7 +22,6 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
-import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.ContactPort;
@@ -51,18 +50,30 @@ import java.util.Set;
 /**
  * 按短租约逐阶段推进一条拉群营销建群执行。
  *
- * <p>协议调用不持有数据库事务；每个状态写入都使用执行 ID、当前阶段和执行状态作为条件闸门。</p>
+ * <p>主流程依次完成好友准备、建群、添加营销号与料子、设置群权限、登记群信息、建群号退群和结果结算。
+ * 每次调度只处理当前阶段，成功后通过条件更新推进到下一阶段，失败则由阶段自身决定终止、延迟或转人工处理。</p>
+ *
+ * <p>核心约束：</p>
+ * <ul>
+ *     <li>协议调用不持有数据库事务，避免远程请求拉长锁持有时间；</li>
+ *     <li>每次状态写入都以执行 ID、读取时状态和当前阶段作为并发闸门；</li>
+ *     <li>执行协议动作前重复检查任务资源锁，任务停止后不再产生新的外部副作用；</li>
+ *     <li>建群使用稳定操作 ID；结果无法确认时转人工处理，禁止自动重建群；</li>
+ *     <li>群人数和邀请链接属于非核心快照，读取失败不阻断已经创建的群继续结算。</li>
+ * </ul>
  */
 @Component
 public class GroupPullMarketingExecutionWorker {
 
     private static final Logger log = LoggerFactory.getLogger(GroupPullMarketingExecutionWorker.class);
 
+    /** 建群协议耗时通常高于其他阶段，因此使用独立的较长租约。 */
     private static final Duration CREATE_GROUP_LEASE = Duration.ofSeconds(90);
     private static final Duration DEFAULT_STAGE_LEASE = Duration.ofSeconds(30);
     private static final Duration OFFLINE_RECHECK_DELAY = Duration.ofSeconds(15);
     private static final Duration SYSTEM_RECHECK_DELAY = Duration.ofSeconds(15);
 
+    /** 以下状态码只在执行明细内部使用，与协议层返回码无关。 */
     private static final int FRIEND_SUCCESS = 2;
     private static final int FRIEND_FAILED = 3;
     private static final int ADMIN_NOT_REQUIRED = 0;
@@ -86,6 +97,7 @@ public class GroupPullMarketingExecutionWorker {
     private final GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy;
     private final TransactionTemplate transactionTemplate;
 
+    /** 注入阶段推进所需的持久化、协议端口和短事务组件。 */
     public GroupPullMarketingExecutionWorker(
             GroupPullMarketingMapper mapper,
             GroupPullMarketingFinalizer finalizer,
@@ -115,7 +127,12 @@ public class GroupPullMarketingExecutionWorker {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
-    /** 尝试推进一条到期执行；未抢到租约时直接返回。 */
+    /**
+     * 尝试推进一条到期执行；未抢到租约时直接返回。
+     *
+     * <p>入口统一完成活动状态校验、阶段租约竞争、任务锁检查和建群号可用性检查。未被阶段方法消费的
+     * 运行时异常会被转换为系统阻塞原因，并把当前阶段短暂延后，等待下一轮调度恢复。</p>
+     */
     public void process(Long executionId) {
         GroupPullMarketingExecution execution = mapper.selectExecutionById(executionId);
         if (!active(execution)) {
@@ -180,6 +197,7 @@ public class GroupPullMarketingExecutionWorker {
         }
     }
 
+    /** 把已取得租约的执行分发给唯一的当前阶段处理器。 */
     private void executeStage(
             GroupPullMarketingExecution execution,
             GroupPullExecutionStage stage,
@@ -201,6 +219,12 @@ public class GroupPullMarketingExecutionWorker {
         }
     }
 
+    /**
+     * 建群前准备双向联系人关系，并逐条记录建群号添加料子联系人的结果。
+     *
+     * <p>营销号不可用或双方互加失败时尚未产生群资源，可以安全跳过本次执行；单个料子好友失败只记入
+     * 料子明细，后续逐料阶段仍可按既定重试策略处理。</p>
+     */
     private void prepareFriends(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
@@ -266,6 +290,11 @@ public class GroupPullMarketingExecutionWorker {
         advance(execution, GroupPullExecutionStage.CREATE_GROUP, GroupPullExecutionStatus.PREPARING);
     }
 
+    /**
+     * 在任务仍持有资源锁的前提下，按配置次数重试联系人保存动作。
+     *
+     * @return 成功、重试耗尽或任务已停止
+     */
     private ContactSaveResult saveContact(
             GroupPullMarketingExecution execution,
             ProtocolAccountRef account,
@@ -294,6 +323,12 @@ public class GroupPullMarketingExecutionWorker {
         return ContactSaveResult.FAILED;
     }
 
+    /**
+     * 使用稳定操作 ID 创建群，并在群 JID 落库后立即尽力捕获邀请链接。
+     *
+     * <p>幂等存储不可用时等待系统恢复；建群结果无法确认时转人工处理。只有协议明确返回普通失败时才
+     * 允许按策略重试，避免对已经创建但响应丢失的群再次发起建群。</p>
+     */
     private void createGroup(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
@@ -314,6 +349,8 @@ public class GroupPullMarketingExecutionWorker {
                         false,
                         operationId));
                 saveCreatedGroup(execution, marketer, task, result);
+                GroupPullMarketingInviteLinkSupport.captureAfterCreate(
+                        mapper, invitePort, execution, builder, result.groupJid());
                 mapper.updateBlockReason(
                         execution.getTaskId(),
                         GroupPullBlockReason.NONE.code(),
@@ -348,6 +385,11 @@ public class GroupPullMarketingExecutionWorker {
                 "创建群组失败：" + (last == null ? "未知错误" : compactReason(last)));
     }
 
+    /**
+     * 返回已经固化的群名；首次生成时锁定任务并按已命名执行数分配序号。
+     *
+     * <p>群名在正式建群前只写一次，使同一执行重试时始终使用相同名称。</p>
+     */
     private String ensureGroupName(
             GroupPullMarketingExecution execution,
             GroupPullMarketingTask task) {
@@ -373,6 +415,12 @@ public class GroupPullMarketingExecutionWorker {
         return generated;
     }
 
+    /**
+     * 原子保存建群 JID、下一阶段和营销号额度确认结果。
+     *
+     * <p>若建群响应确认营销号已经入群，则跳过重复添加营销号并为首条料子计算等待时间；否则进入添加
+     * 营销号阶段。该方法只负责核心建群结果，邀请链接在事务提交后单独读取。</p>
+     */
     private void saveCreatedGroup(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow marketer,
@@ -409,6 +457,7 @@ public class GroupPullMarketingExecutionWorker {
         });
     }
 
+    /** 添加营销号入群，并在协议确认成功后核销预留群额度。 */
     private void addMarketer(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
@@ -444,6 +493,11 @@ public class GroupPullMarketingExecutionWorker {
         });
     }
 
+    /**
+     * 批量更新群成员并仅重试尚未成功的号码。
+     *
+     * <p>协议报告封群时同步记录群状态；任务停止时返回已完成的部分结果，由调用方直接结束当前轮处理。</p>
+     */
     private ParticipantAttempt updateParticipantsWithRetry(
             GroupPullMarketingExecution execution,
             ProtocolAccountRef account,
@@ -491,6 +545,11 @@ public class GroupPullMarketingExecutionWorker {
         return new ParticipantAttempt(Set.copyOf(successful), failureReason, false);
     }
 
+    /**
+     * 按发言权限和建群号退群配置决定是否需要把营销号提升为管理员。
+     *
+     * <p>不需要管理员时写入“不适用”状态，避免明细把跳过误判为未执行。</p>
+     */
     private void setMarketerAdmin(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
@@ -531,6 +590,7 @@ public class GroupPullMarketingExecutionWorker {
         finalizer.fail(execution.getId(), "营销账号管理员设置失败：" + result.failureReason());
     }
 
+    /** 设置群发言权限；配置为保持不变时不调用协议层。 */
     private void setSpeakPermission(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
@@ -572,12 +632,17 @@ public class GroupPullMarketingExecutionWorker {
                 "群发言权限设置失败：" + (last == null ? "未知错误" : compactReason(last)));
     }
 
+    /**
+     * 汇总群人数和邀请链接，并在一个短事务中登记自建群、营销号成员关系和执行快照。
+     *
+     * <p>群人数读取失败会留下非致命原因；邀请链接优先复用建群后已保存的值，缺失时再通过协议补查。
+     * 只有群资源登记或核心执行状态保存失败才终止执行。</p>
+     */
     private void saveGroupInfo(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
         GroupPullAccountRefRow marketer = requireAccount(execution.getMarketingAccountId());
         List<GroupParticipantResult> members = null;
-        String inviteUrl = null;
         List<String> nonFatalReasons = new ArrayList<>();
         if (cancelIfTaskNotLocked(execution)) {
             return;
@@ -593,17 +658,16 @@ public class GroupPullMarketingExecutionWorker {
         if (cancelIfTaskNotLocked(execution)) {
             return;
         }
-        try {
-            GroupInviteResult invite = invitePort.getInvite(
-                    builder.protocolRef(), execution.getGroupJid());
-            inviteUrl = invite == null ? null : invite.inviteUrl();
-        } catch (RuntimeException exception) {
-            nonFatalReasons.add("群链接获取失败：" + compactReason(exception));
+        GroupPullMarketingInviteLinkSupport.LookupResult invite =
+                GroupPullMarketingInviteLinkSupport.resolveForSave(
+                        invitePort, execution, builder);
+        if (StringUtils.hasText(invite.failureReason())) {
+            nonFatalReasons.add(invite.failureReason());
         }
 
         Integer memberCount = members == null ? null : members.size();
         String reason = joinReasons(nonFatalReasons);
-        String finalInviteUrl = inviteUrl;
+        String finalInviteUrl = invite.inviteUrl();
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 long now = System.currentTimeMillis();
@@ -639,6 +703,11 @@ public class GroupPullMarketingExecutionWorker {
         }
     }
 
+    /**
+     * 根据任务配置让建群号退出群，并在成功或无需退出时立即触发最终结算。
+     *
+     * <p>退群失败属于核心流程失败；协议报告封群时同时更新群状态，供明细和统计使用。</p>
+     */
     private void leaveBuilder(
             GroupPullMarketingExecution execution,
             GroupPullAccountRefRow builder) {
@@ -685,6 +754,7 @@ public class GroupPullMarketingExecutionWorker {
                 "建群账号退群失败：" + (last == null ? "未知错误" : compactReason(last)));
     }
 
+    /** 立即推进到下一阶段。 */
     private void advance(
             GroupPullMarketingExecution execution,
             GroupPullExecutionStage nextStage,
@@ -693,6 +763,11 @@ public class GroupPullMarketingExecutionWorker {
         advanceAt(execution, nextStage, nextStatus, now, now);
     }
 
+    /**
+     * 以读取时状态和阶段为条件推进执行，并同步当前内存对象供同一调用栈继续使用。
+     *
+     * <p>更新行数不是 1 表示租约期间状态已变化，调用方必须停止继续产生副作用。</p>
+     */
     private void advanceAt(
             GroupPullMarketingExecution execution,
             GroupPullExecutionStage nextStage,
@@ -715,6 +790,7 @@ public class GroupPullMarketingExecutionWorker {
         execution.setNextExecuteAt(nextExecuteAt);
     }
 
+    /** 标记系统依赖阻塞，并保留当前阶段等待下一轮调度重试。 */
     private void delayForSystemDependency(GroupPullMarketingExecution execution) {
         long now = System.currentTimeMillis();
         mapper.updateBlockReason(

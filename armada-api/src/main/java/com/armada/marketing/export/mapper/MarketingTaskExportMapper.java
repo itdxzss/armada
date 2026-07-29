@@ -141,34 +141,43 @@ public interface MarketingTaskExportMapper {
     /**
      * 逐行读取按国家导出的成功进群事实；MIN_VALUE 是 Connector/J 未启用游标时的真流式语义。
      *
+     * @param tenantId 导出作业所属租户 ID
      * @param taskIds 普通营销任务 ID 集合
      * @param snapshotAt 数据快照截止时间
      * @param resultHandler 逐行结果处理器
      */
+    @InterceptorIgnore(tenantLine = "true")
     @Options(fetchSize = Integer.MIN_VALUE, resultSetType = ResultSetType.FORWARD_ONLY)
     void selectCountryEntryRows(
+            @Param("tenantId") Long tenantId,
             @Param("taskIds") List<Long> taskIds,
             @Param("snapshotAt") long snapshotAt,
             ResultHandler<MarketingTaskCountryEntryExportRow> resultHandler);
 
     /**
+     * @param tenantId 导出作业所属租户 ID
      * @param taskIds 普通营销任务 ID 集合
      * @param snapshotAt 数据快照截止时间
      * @return 每个任务一行的全量汇总数据
      */
+    @InterceptorIgnore(tenantLine = "true")
     List<MarketingTaskSummaryExportRow> selectSummaryRows(
+            @Param("tenantId") Long tenantId,
             @Param("taskIds") List<Long> taskIds,
             @Param("snapshotAt") long snapshotAt);
 
     /**
      * 逐行读取全量导出的群组明细，保持与国家明细相同的 Connector/J 真流式语义。
      *
+     * @param tenantId 导出作业所属租户 ID
      * @param taskIds 普通营销任务 ID 集合
      * @param snapshotAt 数据快照截止时间
      * @param resultHandler 逐行结果处理器
      */
+    @InterceptorIgnore(tenantLine = "true")
     @Options(fetchSize = Integer.MIN_VALUE, resultSetType = ResultSetType.FORWARD_ONLY)
     void selectGroupRows(
+            @Param("tenantId") Long tenantId,
             @Param("taskIds") List<Long> taskIds,
             @Param("snapshotAt") long snapshotAt,
             ResultHandler<MarketingTaskGroupExportRow> resultHandler);

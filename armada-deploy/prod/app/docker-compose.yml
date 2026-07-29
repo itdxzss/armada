@@ -42,8 +42,10 @@ services:
       LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: 500MB
       LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 10
       LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 5GB
+      ARMADA_MARKETING_EXPORT_STORAGE_DIR: /app/data/marketing-exports
     volumes:
       - ./logs/backend:/app/logs
+      - ./data/marketing-exports:/app/data/marketing-exports
     expose:
       - "8080"
     logging:

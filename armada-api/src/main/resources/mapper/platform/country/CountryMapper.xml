@@ -14,6 +14,21 @@
     WHERE deleted_at IS NULL
   </select>
 
+  <select id="selectEnabled" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+    ORDER BY sort_order ASC, id ASC
+  </select>
+
+  <select id="selectPhonePrefixMappings"
+          resultType="com.armada.platform.country.model.entity.CountryPhonePrefixMapping">
+    SELECT normalized_prefix, country_iso2
+    FROM country_phone_prefix_mapping
+    ORDER BY CHAR_LENGTH(normalized_prefix) DESC, normalized_prefix ASC
+  </select>
+
   <select id="selectIpSupported" resultType="com.armada.platform.country.model.entity.Country">
     SELECT <include refid="Columns"/>
     FROM country

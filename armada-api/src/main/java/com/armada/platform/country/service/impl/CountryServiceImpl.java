@@ -2,6 +2,7 @@ package com.armada.platform.country.service.impl;
 
 import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
+import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
@@ -31,8 +32,11 @@ import org.springframework.util.StringUtils;
 @Service
 public class CountryServiceImpl implements CountryService {
 
-    /** 当前只开放给 IP 管理使用的选项范围。后续若有账号/群链接等差异化范围,在这里扩展 scope。 */
+    /** IP 管理使用的选项范围。 */
     private static final String IP_SCOPE = "ip";
+
+    /** 营销任务导出使用的真实国家/地区选项范围。 */
+    private static final String MARKETING_EXPORT_SCOPE = "marketing-export";
 
     /** 前端选择“混合（不限国家）”时提交的稳定值。该值不是国家,不入 country 表。 */
     private static final String MIXED_VALUE = "MIXED";
@@ -42,7 +46,7 @@ public class CountryServiceImpl implements CountryService {
 
     /** 下拉第一项虚拟选项,用于表达不限真实国家的混合代理池。 */
     private static final CountryOptionVO MIXED_OPTION =
-            new CountryOptionVO(MIXED_VALUE, null, MIXED_REGION, "", "🌐", true);
+            new CountryOptionVO(MIXED_VALUE, null, MIXED_REGION, "", "", "🌐", true);
 
     private final CountryMapper mapper;
 
@@ -53,12 +57,17 @@ public class CountryServiceImpl implements CountryService {
     /**
      * 查询国家下拉选项。
      *
-     * <p>{@code scope} 为空时按 IP 管理处理;当前不支持其它范围,避免前端误用同一个接口表达不同业务语义。
-     * 返回值固定把 {@code MIXED} 虚拟项放在第一位,真实国家只取启用且允许 IP 管理展示的主数据。</p>
+     * <p>{@code scope} 为空时按 IP 管理处理。IP 范围固定把 {@code MIXED} 虚拟项放在第一位，
+     * 真实国家只取启用且允许 IP 管理展示的主数据；营销导出范围直接复用全部启用国家主数据。</p>
      */
     @Override
     public CountryOptionsVO options(String scope) {
         String normalizedScope = StringUtils.hasText(scope) ? scope.trim() : IP_SCOPE;
+        if (MARKETING_EXPORT_SCOPE.equalsIgnoreCase(normalizedScope)) {
+            return new CountryOptionsVO(mapper.selectEnabled().stream()
+                    .map(CountryServiceImpl::toOption)
+                    .toList());
+        }
         if (!IP_SCOPE.equalsIgnoreCase(normalizedScope)) {
             throw new BusinessException(ErrorCode.VALIDATION, "不支持的国家选项范围: " + scope);
         }
@@ -69,11 +78,58 @@ public class CountryServiceImpl implements CountryService {
                     country.getIso2(),
                     country.getIso2(),
                     country.getNameZh(),
+                    country.getNameEn() == null ? "" : country.getNameEn(),
                     country.getPhonePrefix() == null ? "" : country.getPhonePrefix(),
                     country.getFlag() == null ? "" : country.getFlag(),
                     false));
         }
         return new CountryOptionsVO(List.copyOf(rows));
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Map<String, CountryOptionVO> resolveActiveOptionsByPhonePrefix(Collection<String> phones) {
+        if (phones == null || phones.isEmpty()) {
+            return Map.of();
+        }
+        CountryService.PhonePrefixResolver resolver = activePhonePrefixResolver();
+        Map<String, CountryOptionVO> result = new LinkedHashMap<>();
+        for (String phone : phones) {
+            if (result.containsKey(phone)) {
+                continue;
+            }
+            CountryOptionVO matched = resolver.resolve(phone);
+            if (matched != null) {
+                result.put(phone, matched);
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public CountryService.PhonePrefixResolver activePhonePrefixResolver() {
+        List<Country> countries = mapper.selectEnabled();
+        Map<String, String> configuredIso2ByPrefix = mapper.selectPhonePrefixMappings().stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        CountryPhonePrefixMapping::getNormalizedPrefix,
+                        CountryPhonePrefixMapping::getCountryIso2));
+        Map<String, List<Country>> countriesByPrefix = new LinkedHashMap<>();
+        for (Country country : countries) {
+            for (String prefix : phonePrefixes(country.getPhonePrefix())) {
+                countriesByPrefix.computeIfAbsent(prefix, ignored -> new ArrayList<>()).add(country);
+            }
+        }
+        List<String> prefixes = new ArrayList<>(countriesByPrefix.keySet());
+        prefixes.sort((left, right) -> {
+            int lengthComparison = Integer.compare(right.length(), left.length());
+            return lengthComparison == 0 ? left.compareTo(right) : lengthComparison;
+        });
+        return phone -> {
+            Country matched = matchCountry(
+                    phone, countriesByPrefix, prefixes, configuredIso2ByPrefix);
+            return matched == null ? null : toOption(matched);
+        };
     }
 
     /**
@@ -238,9 +294,63 @@ public class CountryServiceImpl implements CountryService {
                 country.getIso2(),
                 country.getIso2(),
                 country.getNameZh(),
+                country.getNameEn() == null ? "" : country.getNameEn(),
                 country.getPhonePrefix() == null ? "" : country.getPhonePrefix(),
                 country.getFlag() == null ? "" : country.getFlag(),
                 false);
+    }
+
+    /** 按最长前缀匹配；同前缀多国家时必须由配置表指定唯一 ISO2。 */
+    private static Country matchCountry(
+            String phone,
+            Map<String, List<Country>> countriesByPrefix,
+            List<String> prefixes,
+            Map<String, String> configuredIso2ByPrefix) {
+        String phoneDigits = digitsOnly(phone);
+        if (!StringUtils.hasText(phoneDigits)) {
+            return null;
+        }
+        String matchedPrefix = prefixes.stream()
+                .filter(phoneDigits::startsWith)
+                .findFirst()
+                .orElse(null);
+        if (matchedPrefix == null) {
+            return null;
+        }
+        List<Country> candidates = countriesByPrefix.get(matchedPrefix);
+        if (candidates.size() == 1) {
+            return candidates.get(0);
+        }
+        String configuredIso2 = configuredIso2ByPrefix.get(matchedPrefix);
+        if (!StringUtils.hasText(configuredIso2)) {
+            return null;
+        }
+        return candidates.stream()
+                .filter(country -> configuredIso2.equalsIgnoreCase(country.getIso2()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** 把 +1-787/939 这类展示值拆成 1787、1939 两条可匹配前缀。 */
+    private static List<String> phonePrefixes(String displayPrefix) {
+        if (!StringUtils.hasText(displayPrefix)) {
+            return List.of();
+        }
+        int firstSlash = displayPrefix.indexOf('/');
+        int sharedDash = firstSlash < 0 ? -1 : displayPrefix.lastIndexOf('-', firstSlash);
+        if (sharedDash < 0) {
+            String digits = digitsOnly(displayPrefix);
+            return StringUtils.hasText(digits) ? List.of(digits) : List.of();
+        }
+        String shared = digitsOnly(displayPrefix.substring(0, sharedDash));
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for (String suffix : displayPrefix.substring(sharedDash + 1).split("/")) {
+            String suffixDigits = digitsOnly(suffix);
+            if (StringUtils.hasText(suffixDigits)) {
+                result.add(shared + suffixDigits);
+            }
+        }
+        return List.copyOf(result);
     }
 
     /** 规范化并限制 CountryOptionVO.value，防止任意文本进入渠道国家字段。 */

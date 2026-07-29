@@ -337,7 +337,7 @@ TENANT_GROUPS = [
     ("买量 / 推广 / 落地页", ["buyer_channel","buyer_daily_stat","promotion_channel","promotion_template","landing_page","visit_log"]),
     ("统计", ["channel_stat_daily","channel_ad_data","marketing_stat_daily"]),
     ("告警", ["alarm_rule","alarm_event"]),
-    ("资源池（国家 / IP / 协议 / 数据包 / 导出）", ["country","ip_proxy","protocol","protocol_account","protocol_export_batch","protocol_export_detail","data_pack","data_pack_item","export_batch"]),
+    ("资源池（国家 / IP / 协议 / 数据包 / 导出）", ["country","country_phone_prefix_mapping","ip_proxy","protocol","protocol_account","protocol_export_batch","protocol_export_detail","data_pack","data_pack_item","export_batch","marketing_task_export_job"]),
     ("公共（文件 / 字段字典）", ["file_meta_tenant","file_upload_session_tenant","pull_field_doc"]),
 ]
 

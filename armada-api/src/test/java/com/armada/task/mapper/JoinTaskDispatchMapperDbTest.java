@@ -144,6 +144,7 @@ class JoinTaskDispatchMapperDbTest extends DbTestBase {
         assertThat(afterSuccess.get(0).getStatus()).isEqualTo("SUCCESS");
         assertThat(afterSuccess.get(0).getDispatchState()).isEqualTo(JoinTaskDispatchState.TERMINAL);
         assertThat(afterSuccess.get(0).getGroupJid()).isEqualTo("120363000001@g.us");
+        assertThat(afterSuccess.get(0).getJoinedAt()).isEqualTo(retryAt + 100);
         assertThat(afterSuccess.get(1).getNextExecuteAt()).isEqualTo(nextLaneAt);
 
         assertThat(taskMapper.markDoneWhenNoPending(task.getId(), nextLaneAt)).isZero();

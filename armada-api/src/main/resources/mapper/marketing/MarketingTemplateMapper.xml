@@ -56,11 +56,13 @@
         FOR UPDATE
     </select>
 
-    <!-- 删除端先按固定顺序锁模板，再结束任务和释放账号，避免与创建任务产生检查-删除竞态 -->
+    <!-- 显式限定租户并绕过自动改写，防止 JSqlParser 把 ORDER BY 移到 FOR UPDATE 之后。 -->
     <select id="selectExistingIdsForUpdate" resultType="long">
         SELECT id
         FROM marketing_template
-        WHERE deleted_at IS NULL AND id IN
+        WHERE tenant_id = #{tenantId}
+          AND deleted_at IS NULL
+          AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
         ORDER BY id ASC
         FOR UPDATE

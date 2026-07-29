@@ -277,7 +277,7 @@ class MarketingTaskExportServiceImplTest {
         when(mapper.renewJobLease(eq(3L), eq(88L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1);
-        when(mapper.selectSummaryRows(List.of(9L), FIXED_CLOCK.millis()))
+        when(mapper.selectSummaryRows(3L, List.of(9L), FIXED_CLOCK.millis()))
                 .thenReturn(List.of(new MarketingTaskSummaryExportRow()));
         when(workbookWriter.writeFull(
                 any(Path.class),
@@ -302,7 +302,7 @@ class MarketingTaskExportServiceImplTest {
         verify(mapper).claimJob(
                 eq(3L), eq(88L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), claimedToken.capture());
-        verify(mapper).selectGroupRows(eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        verify(mapper).selectGroupRows(eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
 
         ArgumentCaptor<MarketingTaskExportJob> completedJob =
                 ArgumentCaptor.forClass(MarketingTaskExportJob.class);
@@ -344,12 +344,13 @@ class MarketingTaskExportServiceImplTest {
                 .thenReturn(1);
         when(countryService.activePhonePrefixResolver()).thenReturn(phone -> indonesia);
         doAnswer(invocation -> {
-            ResultHandler<MarketingTaskCountryEntryExportRow> handler = invocation.getArgument(2);
+            ResultHandler<MarketingTaskCountryEntryExportRow> handler = invocation.getArgument(3);
             ResultContext<MarketingTaskCountryEntryExportRow> context = mock(ResultContext.class);
             when(context.getResultObject()).thenReturn(sourceRow);
             handler.handleResult(context);
             return null;
-        }).when(mapper).selectCountryEntryRows(eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        }).when(mapper).selectCountryEntryRows(
+                eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
         when(workbookWriter.writeCountryEntry(
                 any(Path.class),
                 any(MarketingTaskExportWorkbookWriter.RowSource.class),
@@ -372,7 +373,8 @@ class MarketingTaskExportServiceImplTest {
         assertThat(sourceRow.getCountryName()).isEqualTo("印度尼西亚");
         assertThat(sourceRow.getCountryPhonePrefix()).isEqualTo("+62");
         verify(countryService).activePhonePrefixResolver();
-        verify(mapper).selectCountryEntryRows(eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        verify(mapper).selectCountryEntryRows(
+                eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
         ArgumentCaptor<MarketingTaskExportJob> completedJob =
                 ArgumentCaptor.forClass(MarketingTaskExportJob.class);
         verify(mapper).markJobSuccess(completedJob.capture());
@@ -403,7 +405,7 @@ class MarketingTaskExportServiceImplTest {
                     scheduledHeartbeat.set(invocation.getArgument(0));
                     return scheduledFuture;
                 });
-        when(mapper.selectSummaryRows(List.of(9L), FIXED_CLOCK.millis()))
+        when(mapper.selectSummaryRows(3L, List.of(9L), FIXED_CLOCK.millis()))
                 .thenAnswer(invocation -> {
                     scheduledHeartbeat.get().run();
                     return List.of(new MarketingTaskSummaryExportRow());
@@ -418,7 +420,7 @@ class MarketingTaskExportServiceImplTest {
 
         service.processPendingJobs(1);
 
-        verify(mapper).selectSummaryRows(List.of(9L), FIXED_CLOCK.millis());
+        verify(mapper).selectSummaryRows(3L, List.of(9L), FIXED_CLOCK.millis());
         verify(mapper, never()).markJobSuccess(any(MarketingTaskExportJob.class));
         verify(mapper).markJobFailed(
                 eq(3L), eq(90L), anyString(),

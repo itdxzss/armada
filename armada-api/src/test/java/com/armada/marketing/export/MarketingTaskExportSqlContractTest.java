@@ -3,6 +3,7 @@ package com.armada.marketing.export;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -89,6 +90,32 @@ class MarketingTaskExportSqlContractTest {
                 .contains("COUNT(DISTINCT NULLIF(REGEXP_REPLACE")
                 .doesNotContain("GROUP BY mt.id, mt.task_name, mt.remark, target.id")
                 .doesNotContain("HAVING groupJid IS NOT NULL");
+    }
+
+    @Test
+    void complexExportQueriesUseExplicitTenantScopeWithoutInterceptorRewrite()
+            throws IOException, NoSuchMethodException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String countryRows = selectBlock(xml, "selectCountryEntryRows");
+        String groupCtes = sqlBlock(xml, "ExportGroupCtes");
+        String summaryRows = selectBlock(xml, "selectSummaryRows");
+
+        assertThat(countryRows)
+                .containsOnlyOnce("WHERE a.tenant_id = #{tenantId}\n              AND a.status = 1")
+                .containsOnlyOnce("WHERE a.tenant_id = #{tenantId}\n              AND a.status IN (1, 2)");
+        assertThat(groupCtes)
+                .contains("WHERE a.tenant_id = #{tenantId}\n              AND (CASE WHEN a.status = 3")
+                .contains("WHERE t.tenant_id = #{tenantId}\n              AND COALESCE(t.target_scope, 1) = 1");
+        assertThat(summaryRows).contains("AND mt.tenant_id = #{tenantId}");
+
+        assertTenantInterceptorIgnored("selectCountryEntryRows",
+                Long.class, List.class, long.class, ResultHandler.class);
+        assertTenantInterceptorIgnored("selectSummaryRows",
+                Long.class, List.class, long.class);
+        assertTenantInterceptorIgnored("selectGroupRows",
+                Long.class, List.class, long.class, ResultHandler.class);
     }
 
     @Test
@@ -185,11 +212,20 @@ class MarketingTaskExportSqlContractTest {
 
     private static void assertStreamingOptions(String methodName) throws NoSuchMethodException {
         Method method = MarketingTaskExportMapper.class.getMethod(
-                methodName, List.class, long.class, ResultHandler.class);
+                methodName, Long.class, List.class, long.class, ResultHandler.class);
         Options options = method.getAnnotation(Options.class);
 
         assertThat(options).isNotNull();
         assertThat(options.fetchSize()).isEqualTo(Integer.MIN_VALUE);
         assertThat(options.resultSetType()).isEqualTo(ResultSetType.FORWARD_ONLY);
+    }
+
+    private static void assertTenantInterceptorIgnored(String methodName, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Method method = MarketingTaskExportMapper.class.getMethod(methodName, parameterTypes);
+        InterceptorIgnore annotation = method.getAnnotation(InterceptorIgnore.class);
+
+        assertThat(annotation).isNotNull();
+        assertThat(annotation.tenantLine()).isEqualTo("true");
     }
 }

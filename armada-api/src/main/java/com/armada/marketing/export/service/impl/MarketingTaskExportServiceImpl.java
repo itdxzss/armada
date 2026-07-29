@@ -224,7 +224,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                 writeResult = workbookWriter.writeCountryEntry(
                         temporaryFile,
                         consumer -> streamCountryRows(
-                                taskIds, job.getSnapshotAt(), selectedCountries, heartbeat, consumer),
+                                job, taskIds, selectedCountries, heartbeat, consumer),
                         snapshotAt,
                         generatedAt);
                 if (writeResult.detailRowCount() == 0) {
@@ -233,12 +233,12 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                 }
             } else {
                 List<MarketingTaskSummaryExportRow> summaries = mapper.selectSummaryRows(
-                        taskIds, job.getSnapshotAt());
+                        job.getTenantId(), taskIds, job.getSnapshotAt());
                 writeResult = workbookWriter.writeFull(
                         temporaryFile,
                         summaries,
                         consumer -> mapper.selectGroupRows(
-                                taskIds, job.getSnapshotAt(),
+                                job.getTenantId(), taskIds, job.getSnapshotAt(),
                                 context -> {
                                     heartbeat.renewIfDue();
                                     consumer.accept(context.getResultObject());
@@ -285,14 +285,14 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         }
     }
 
-    private void streamCountryRows(List<Long> taskIds,
-                                   long snapshotAt,
+    private void streamCountryRows(MarketingTaskExportJob job,
+                                   List<Long> taskIds,
                                    List<String> selectedCountryIso2s,
                                    LeaseHeartbeat heartbeat,
                                    Consumer<MarketingTaskCountryEntryExportRow> consumer) {
         Set<String> selected = new LinkedHashSet<>(selectedCountryIso2s);
         CountryService.PhonePrefixResolver countryResolver = countryService.activePhonePrefixResolver();
-        mapper.selectCountryEntryRows(taskIds, snapshotAt, context -> {
+        mapper.selectCountryEntryRows(job.getTenantId(), taskIds, job.getSnapshotAt(), context -> {
             heartbeat.renewIfDue();
             MarketingTaskCountryEntryExportRow row = context.getResultObject();
             CountryOptionVO country = countryResolver.resolve(row.getActualPhone());

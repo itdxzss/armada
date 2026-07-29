@@ -240,7 +240,8 @@
             JOIN marketing_task_target t ON t.id = a.target_id
                                         AND t.marketing_task_id = a.marketing_task_id
                                         AND t.tenant_id = a.tenant_id
-            WHERE a.status = 1
+            WHERE a.tenant_id = #{tenantId}
+              AND a.status = 1
               AND a.group_jid IS NOT NULL
               AND TRIM(a.group_jid) &lt;&gt; ''
               AND ((a.result_at IS NOT NULL AND a.result_at &lt;= #{snapshotAt})
@@ -292,7 +293,8 @@
             JOIN marketing_task_target t ON t.id = a.target_id
                                         AND t.marketing_task_id = a.marketing_task_id
                                         AND t.tenant_id = a.tenant_id
-            WHERE a.status IN (1, 2)
+            WHERE a.tenant_id = #{tenantId}
+              AND a.status IN (1, 2)
               AND COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) IS NOT NULL
               AND ((a.result_at IS NOT NULL AND a.result_at &lt;= #{snapshotAt})
                    OR (a.result_at IS NULL AND a.submitted_at IS NULL
@@ -404,7 +406,8 @@
             JOIN marketing_task_target t ON t.id = a.target_id
                                         AND t.marketing_task_id = a.marketing_task_id
                                         AND t.tenant_id = a.tenant_id
-            WHERE (CASE WHEN a.status = 3
+            WHERE a.tenant_id = #{tenantId}
+              AND (CASE WHEN a.status = 3
                         THEN COALESCE(a.attempted_at, a.created_at)
                         ELSE COALESCE(a.submitted_at, a.attempted_at, a.created_at)
                    END) &lt;= #{snapshotAt}
@@ -469,7 +472,8 @@
             LEFT JOIN group_link g ON g.id = t.group_link_id AND g.tenant_id = t.tenant_id
             LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
                                           AND p.tenant_id = t.tenant_id
-            WHERE COALESCE(t.target_scope, 1) = 1
+            WHERE t.tenant_id = #{tenantId}
+              AND COALESCE(t.target_scope, 1) = 1
               AND t.created_at &lt;= #{snapshotAt}
               AND t.marketing_task_id IN
             <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
@@ -756,6 +760,7 @@
         LEFT JOIN account_stats accounts ON accounts.marketing_task_id = mt.id
         WHERE mt.deleted_at IS NULL
           AND mt.business_type = 1
+          AND mt.tenant_id = #{tenantId}
           AND mt.id IN
         <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
             #{taskId}

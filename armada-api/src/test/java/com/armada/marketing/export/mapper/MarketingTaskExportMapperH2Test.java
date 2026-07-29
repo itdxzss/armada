@@ -6,6 +6,7 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import java.sql.Connection;
@@ -115,6 +116,18 @@ class MarketingTaskExportMapperH2Test {
         assertThat(persisted.getStatus()).isEqualTo("SUCCESS");
         assertThat(persisted.getStorageKey()).isNull();
         assertThat(persisted.getFileSize()).isNull();
+    }
+
+    @Test
+    void complexFactQueriesBypassAutomaticTenantRewrite() {
+        String mapperName = MarketingTaskExportMapper.class.getName();
+
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                mapperName + ".selectCountryEntryRows")).isTrue();
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                mapperName + ".selectSummaryRows")).isTrue();
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                mapperName + ".selectGroupRows")).isTrue();
     }
 
     private static MarketingTaskExportJob completion(Long id, String claimToken) {

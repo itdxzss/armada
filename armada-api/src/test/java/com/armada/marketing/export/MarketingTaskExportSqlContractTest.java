@@ -45,7 +45,7 @@ class MarketingTaskExportSqlContractTest {
     void exportFactsUseSnapshotCutoffAndExplicitSameTenantJoins() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
         String groupStatusCase = sqlBlock(xml, "ExportGroupStatusCase");
         String countryRows = groupStatusCase + selectBlock(xml, "selectCountryEntryRows");
         String groupRows = groupStatusCase + sqlBlock(xml, "ExportGroupCtes")
@@ -97,7 +97,7 @@ class MarketingTaskExportSqlContractTest {
             throws IOException, NoSuchMethodException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
         String countryRows = selectBlock(xml, "selectCountryEntryRows");
         String groupCtes = sqlBlock(xml, "ExportGroupCtes");
         String summaryRows = selectBlock(xml, "selectSummaryRows");
@@ -128,7 +128,7 @@ class MarketingTaskExportSqlContractTest {
     void summaryExportsActualExecutionTimes() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
         String summaryRows = selectBlock(xml, "selectSummaryRows");
 
         assertThat(summaryRows)
@@ -142,7 +142,7 @@ class MarketingTaskExportSqlContractTest {
     void workerCompletionUsesClaimTokenFencing() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
 
         assertThat(updateBlock(xml, "claimJob"))
                 .contains("claim_token = #{claimToken}");
@@ -160,7 +160,7 @@ class MarketingTaskExportSqlContractTest {
     void exhaustedWorkerLeasesBecomeTerminalFailures() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
         String update = updateBlock(xml, "markExhaustedJobs");
 
         assertThat(update)
@@ -173,7 +173,7 @@ class MarketingTaskExportSqlContractTest {
     void expiredFilesAreSelectedAndClearedWithTenantAndStorageKeyGuards() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8);
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
         String select = selectBlock(xml, "selectExpiredFiles");
         String update = updateBlock(xml, "clearExpiredStorage");
 

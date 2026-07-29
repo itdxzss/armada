@@ -56,6 +56,9 @@ public class JoinTaskResult {
     /** 成为管理员时间（epoch 毫秒）；可空。 */
     private Long promotedAt;
 
+    /** 受控账号首次明确进群成功时间（epoch 毫秒）；历史数据可为空。 */
+    private Long joinedAt;
+
     /** 创建时间（epoch 毫秒）。 */
     private Long createdAt;
 
@@ -220,6 +223,14 @@ public class JoinTaskResult {
 
     public void setPromotedAt(Long promotedAt) {
         this.promotedAt = promotedAt;
+    }
+
+    public Long getJoinedAt() {
+        return joinedAt;
+    }
+
+    public void setJoinedAt(Long joinedAt) {
+        this.joinedAt = joinedAt;
     }
 
     public Long getCreatedAt() {

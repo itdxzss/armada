@@ -1,0 +1,195 @@
+package com.armada.marketing.export;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.mapping.ResultSetType;
+import org.apache.ibatis.session.ResultHandler;
+import org.junit.jupiter.api.Test;
+
+/** 营销任务导出迁移与事实查询的安全边界契约。 */
+class MarketingTaskExportSqlContractTest {
+
+    private static final Path JOB_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V083__marketing_task_export_job.sql");
+    private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskExportMapper.xml";
+
+    @Test
+    void migrationDefinesDurableTenantJobAndActiveRequestDeduplication() throws IOException {
+        String sql = Files.readString(JOB_MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(sql)
+                .contains("CREATE TABLE IF NOT EXISTS marketing_task_export_job")
+                .contains("snapshot_at BIGINT NOT NULL")
+                .contains("claim_token CHAR(36)")
+                .contains("GENERATED ALWAYS AS")
+                .contains("IF(status IN ('PENDING', 'PROCESSING'), request_hash, NULL)")
+                .contains("UNIQUE KEY uq_marketing_export_active")
+                .contains("IF(status IN ('PENDING', 'PROCESSING'), created_by, NULL)")
+                .contains("UNIQUE KEY uq_marketing_export_creator_active")
+                .contains("(tenant_id, active_created_by)")
+                .contains("tenant:marketing_task:export")
+                .doesNotContain("CREATE TABLE IF NOT EXISTS marketing_task (")
+                .doesNotContain("ALTER TABLE marketing_task ");
+    }
+
+    @Test
+    void exportFactsUseSnapshotCutoffAndExplicitSameTenantJoins() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String groupStatusCase = sqlBlock(xml, "ExportGroupStatusCase");
+        String countryRows = groupStatusCase + selectBlock(xml, "selectCountryEntryRows");
+        String groupRows = groupStatusCase + sqlBlock(xml, "ExportGroupCtes")
+                + selectBlock(xml, "selectGroupRows");
+
+        assertThat(countryRows)
+                .contains("a.tenant_id")
+                .contains("mt.tenant_id = sm.tenant_id")
+                .contains("jtr.tenant_id = sm.tenant_id")
+                .contains("joined_account.tenant_id = jtr.tenant_id")
+                .contains("a.result_at &lt;= #{snapshotAt}")
+                .contains("COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}")
+                .contains("jtr.status = 'SUCCESS'")
+                .contains("REGEXP_REPLACE")
+                .contains("ROW_NUMBER() OVER")
+                .contains("COUNT(*) OVER")
+                .contains("sender_rank = 1")
+                .contains("latest_group_status AS")
+                .contains("status_rank = 1")
+                .contains("ORDER BY effective_group_status DESC,")
+                .contains("round_no DESC, attempt_no DESC, attempt_id DESC")
+                .contains("CHAT_TERMINATED")
+                .contains("ACCOUNT_NOT_PARTICIPANT")
+                .contains("protocol.group_status_reason")
+                .contains("health.health_status = 2")
+                .contains("health.health_status = 3")
+                .contains("sm.marketing_count AS marketingCount")
+                .doesNotContain("COUNT(DISTINCT sm.attempt_id) AS marketingCount")
+                .doesNotContain("MAX(membership.is_admin)");
+        assertThat(groupRows)
+                .contains("t.tenant_id = a.tenant_id")
+                .contains("mt.tenant_id = d.tenant_id")
+                .contains("attempts.tenant_id = d.tenant_id")
+                .contains("joined.tenant_id = d.tenant_id")
+                .contains("account_state.tenant_id = d.tenant_id")
+                .contains("submitted_at &lt;= #{snapshotAt}")
+                .contains("result_at &gt; #{snapshotAt}")
+                .contains("COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}")
+                .contains("REGEXP_REPLACE")
+                .contains("selected_group_jids AS")
+                .contains("FROM selected_group_jids selected")
+                .contains("COUNT(DISTINCT NULLIF(REGEXP_REPLACE")
+                .doesNotContain("GROUP BY mt.id, mt.task_name, mt.remark, target.id")
+                .doesNotContain("HAVING groupJid IS NOT NULL");
+    }
+
+    @Test
+    void largeDetailQueriesUseConnectorJRowByRowStreaming() throws NoSuchMethodException {
+        assertStreamingOptions("selectCountryEntryRows");
+        assertStreamingOptions("selectGroupRows");
+    }
+
+    @Test
+    void summaryExportsActualExecutionTimes() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String summaryRows = selectBlock(xml, "selectSummaryRows");
+
+        assertThat(summaryRows)
+                .contains("mt.started_at AS taskStartedAt")
+                .contains("mt.finished_at AS taskFinishedAt")
+                .doesNotContain("mt.task_start_at AS taskStartedAt")
+                .doesNotContain("mt.task_end_at AS taskFinishedAt");
+    }
+
+    @Test
+    void workerCompletionUsesClaimTokenFencing() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        assertThat(updateBlock(xml, "claimJob"))
+                .contains("claim_token = #{claimToken}");
+        assertThat(updateBlock(xml, "renewJobLease"))
+                .contains("status = 'PROCESSING'")
+                .contains("claim_token = #{claimToken}")
+                .contains("lease_until = #{leaseUntil}");
+        assertThat(updateBlock(xml, "markJobSuccess"))
+                .contains("claim_token = #{claimToken}");
+        assertThat(updateBlock(xml, "markJobFailed"))
+                .contains("claim_token = #{claimToken}");
+    }
+
+    @Test
+    void exhaustedWorkerLeasesBecomeTerminalFailures() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String update = updateBlock(xml, "markExhaustedJobs");
+
+        assertThat(update)
+                .contains("status = 'FAILED'")
+                .contains("lease_until &lt; #{now}")
+                .contains("attempt_count &gt;= 3");
+    }
+
+    @Test
+    void expiredFilesAreSelectedAndClearedWithTenantAndStorageKeyGuards() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String select = selectBlock(xml, "selectExpiredFiles");
+        String update = updateBlock(xml, "clearExpiredStorage");
+
+        assertThat(select)
+                .contains("status = 'SUCCESS'")
+                .contains("expires_at &lt;= #{now}")
+                .contains("storage_key IS NOT NULL")
+                .contains("LIMIT #{limit}");
+        assertThat(update)
+                .contains("tenant_id = #{tenantId}")
+                .contains("id = #{id}")
+                .contains("storage_key = #{storageKey}")
+                .contains("expires_at &lt;= #{now}");
+    }
+
+    private static String selectBlock(String xml, String id) {
+        return block(xml, "select", id);
+    }
+
+    private static String updateBlock(String xml, String id) {
+        return block(xml, "update", id);
+    }
+
+    private static String sqlBlock(String xml, String id) {
+        return block(xml, "sql", id);
+    }
+
+    private static String block(String xml, String tag, String id) {
+        String startTag = "<" + tag + " id=\"" + id + "\"";
+        int start = xml.indexOf(startTag);
+        assertThat(start).as("mapper %s %s exists", tag, id).isGreaterThanOrEqualTo(0);
+        int end = xml.indexOf("</" + tag + ">", start);
+        assertThat(end).as("mapper %s %s closes", tag, id).isGreaterThan(start);
+        return xml.substring(start, end);
+    }
+
+    private static void assertStreamingOptions(String methodName) throws NoSuchMethodException {
+        Method method = MarketingTaskExportMapper.class.getMethod(
+                methodName, List.class, long.class, ResultHandler.class);
+        Options options = method.getAnnotation(Options.class);
+
+        assertThat(options).isNotNull();
+        assertThat(options.fetchSize()).isEqualTo(Integer.MIN_VALUE);
+        assertThat(options.resultSetType()).isEqualTo(ResultSetType.FORWARD_ONLY);
+    }
+}

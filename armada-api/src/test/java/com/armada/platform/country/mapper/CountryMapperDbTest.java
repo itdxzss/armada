@@ -3,6 +3,7 @@ package com.armada.platform.country.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.platform.country.model.entity.Country;
+import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -17,8 +18,8 @@ class CountryMapperDbTest extends DbTestBase {
     private CountryMapper mapper;
 
     @Test
-    void countActive_returnsSeeded248Rows() {
-        assertThat(mapper.countActive()).isEqualTo(248);
+    void countActive_returnsSeeded249Rows() {
+        assertThat(mapper.countActive()).isEqualTo(249);
     }
 
     @Test
@@ -37,6 +38,36 @@ class CountryMapperDbTest extends DbTestBase {
             assertThat(row.getFlag()).isEqualTo("🇮🇳");
         });
         assertThat(rows).allSatisfy(row -> assertThat(row.getNameEn()).isNotBlank());
+    }
+
+    @Test
+    void selectEnabled_returnsMarketingExportCountriesIncludingDiegoGarcia() {
+        List<Country> rows = mapper.selectEnabled();
+
+        assertThat(rows).hasSize(249);
+        assertThat(rows).anySatisfy(row -> {
+            assertThat(row.getIso2()).isEqualTo("DG");
+            assertThat(row.getNameZh()).isEqualTo("迪戈加西亚岛");
+            assertThat(row.getNameEn()).isEqualTo("Diego Garcia");
+            assertThat(row.getPhonePrefix()).isEqualTo("+246");
+        });
+    }
+
+    @Test
+    void selectPhonePrefixMappings_returnsUniqueConfiguredCountryForSharedPrefixes() {
+        List<CountryPhonePrefixMapping> rows = mapper.selectPhonePrefixMappings();
+
+        assertThat(rows)
+                .extracting(CountryPhonePrefixMapping::getNormalizedPrefix)
+                .doesNotHaveDuplicates();
+        assertThat(rows).anySatisfy(row -> {
+            assertThat(row.getNormalizedPrefix()).isEqualTo("1");
+            assertThat(row.getCountryIso2()).isEqualTo("US");
+        });
+        assertThat(rows).anySatisfy(row -> {
+            assertThat(row.getNormalizedPrefix()).isEqualTo("246");
+            assertThat(row.getCountryIso2()).isEqualTo("DG");
+        });
     }
 
     @Test

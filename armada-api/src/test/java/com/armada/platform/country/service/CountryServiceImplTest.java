@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 
 import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
+import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
 import com.armada.platform.country.service.impl.CountryServiceImpl;
@@ -42,6 +43,80 @@ class CountryServiceImplTest {
         assertThat(result.rows().get(1).value()).isEqualTo("IN");
         assertThat(result.rows().get(1).phonePrefix()).isEqualTo("+91");
         assertThat(result.rows().get(1).virtual()).isFalse();
+    }
+
+    @Test
+    void options_marketingExportScopeReturnsOnlyEnabledRealCountriesWithEnglishName() {
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        india.setNameEn("India");
+        when(mapper.selectEnabled()).thenReturn(List.of(india));
+
+        CountryOptionsVO result = service.options("marketing-export");
+
+        assertThat(result.rows()).singleElement().satisfies(option -> {
+            assertThat(option.value()).isEqualTo("IN");
+            assertThat(option.iso2()).isEqualTo("IN");
+            assertThat(option.nameZh()).isEqualTo("印度");
+            assertThat(option.nameEn()).isEqualTo("India");
+            assertThat(option.phonePrefix()).isEqualTo("+91");
+            assertThat(option.virtual()).isFalse();
+        });
+    }
+
+    @Test
+    void resolveActiveOptionsByPhonePrefix_usesLongestRuleAndConfiguredUniqueMapping() {
+        Country unitedStates = country("US", "美国", "+1", "🇺🇸");
+        Country canada = country("CA", "加拿大", "+1", "🇨🇦");
+        Country puertoRico = country("PR", "波多黎各", "+1-787/939", "🇵🇷");
+        when(mapper.selectEnabled()).thenReturn(List.of(canada, puertoRico, unitedStates));
+        when(mapper.selectPhonePrefixMappings()).thenReturn(List.of(prefixMapping("1", "US")));
+
+        Map<String, CountryOptionVO> result = service.resolveActiveOptionsByPhonePrefix(List.of(
+                "17875550123",
+                "+1 939 555 0123",
+                "14165550123",
+                "999"));
+
+        assertThat(result)
+                .extractingByKey("17875550123")
+                .satisfies(option -> assertThat(option.iso2()).isEqualTo("PR"));
+        assertThat(result)
+                .extractingByKey("+1 939 555 0123")
+                .satisfies(option -> assertThat(option.iso2()).isEqualTo("PR"));
+        assertThat(result)
+                .extractingByKey("14165550123")
+                .satisfies(option -> assertThat(option.iso2()).isEqualTo("US"));
+        assertThat(result).doesNotContainKey("999");
+    }
+
+    @Test
+    void resolveActiveOptionsByPhonePrefix_doesNotGuessWhenSharedPrefixHasNoMapping() {
+        when(mapper.selectEnabled()).thenReturn(List.of(
+                country("US", "美国", "+1", "🇺🇸"),
+                country("CA", "加拿大", "+1", "🇨🇦")));
+        when(mapper.selectPhonePrefixMappings()).thenReturn(List.of());
+
+        Map<String, CountryOptionVO> result =
+                service.resolveActiveOptionsByPhonePrefix(List.of("14165550123"));
+
+        assertThat(result).doesNotContainKey("14165550123");
+    }
+
+    @Test
+    void activePhonePrefixResolverLoadsCatalogOnceAndResolvesWithoutMoreQueries() {
+        Country unitedStates = country("US", "美国", "+1", "🇺🇸");
+        Country canada = country("CA", "加拿大", "+1", "🇨🇦");
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        when(mapper.selectEnabled()).thenReturn(List.of(canada, india, unitedStates));
+        when(mapper.selectPhonePrefixMappings()).thenReturn(List.of(prefixMapping("1", "US")));
+
+        CountryService.PhonePrefixResolver resolver = service.activePhonePrefixResolver();
+
+        assertThat(resolver.resolve("14165550123").iso2()).isEqualTo("US");
+        assertThat(resolver.resolve("919876543210").iso2()).isEqualTo("IN");
+        assertThat(resolver.resolve("999")).isNull();
+        verify(mapper).selectEnabled();
+        verify(mapper).selectPhonePrefixMappings();
     }
 
     @Test
@@ -143,5 +218,12 @@ class CountryServiceImplTest {
         country.setPhonePrefix(phonePrefix);
         country.setFlag(flag);
         return country;
+    }
+
+    private static CountryPhonePrefixMapping prefixMapping(String prefix, String iso2) {
+        CountryPhonePrefixMapping mapping = new CountryPhonePrefixMapping();
+        mapping.setNormalizedPrefix(prefix);
+        mapping.setCountryIso2(iso2);
+        return mapping;
     }
 }

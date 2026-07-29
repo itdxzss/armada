@@ -7,6 +7,7 @@ public record CountryOptionVO(
         String value,
         String iso2,
         String nameZh,
+        String nameEn,
         String phonePrefix,
         String flag,
         boolean virtual) {

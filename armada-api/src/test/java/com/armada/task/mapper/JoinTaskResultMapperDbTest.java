@@ -149,12 +149,14 @@ class JoinTaskResultMapperDbTest extends DbTestBase {
         mapper.insertResults(List.of(pending));
         Long resultId = mapper.selectResultsByTask(TEST_TASK_ID).get(0).getId();
 
-        int affected = mapper.updateResultSuccess(resultId, "120363999@g.us", System.currentTimeMillis() + 1);
+        long joinedAt = System.currentTimeMillis() + 1;
+        int affected = mapper.updateResultSuccess(resultId, "120363999@g.us", joinedAt);
 
         assertThat(affected).isEqualTo(1);
         JoinTaskResult updated = mapper.selectResultsByTask(TEST_TASK_ID).get(0);
         assertThat(updated.getStatus()).isEqualTo("SUCCESS");
         assertThat(updated.getGroupJid()).isEqualTo("120363999@g.us");
+        assertThat(updated.getJoinedAt()).isEqualTo(joinedAt);
         assertThat(updated.getReason()).isEqualTo("");
     }
 

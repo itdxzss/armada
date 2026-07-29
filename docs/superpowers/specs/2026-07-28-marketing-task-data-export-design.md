@@ -1,8 +1,8 @@
 # 营销任务数据导出开发前设计
 
-> 状态：`APPROVED / IMPLEMENTING`  
-> PRD：营销任务数据导出需求文档 V1.1（2026-07-27）  
-> 评审范围：Armada 后端、wheel-saas-pure-web 前端、MySQL、Excel 文件存储  
+> 状态：`APPROVED / IMPLEMENTING`
+> PRD：营销任务数据导出需求文档 V1.1（2026-07-27）
+> 评审范围：Armada 后端、wheel-saas-pure-web 前端、MySQL、Excel 文件存储
 > 结论：P0 口径已经确认，方案进入实现与验证阶段；剩余展示细节沿用现有页面口径，不阻塞开发。
 
 ## 1. 结论摘要

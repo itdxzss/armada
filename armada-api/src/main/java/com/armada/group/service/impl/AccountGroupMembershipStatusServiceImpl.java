@@ -9,6 +9,7 @@ import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusSnapshot;
 import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -110,7 +111,10 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             Transition transition = transition(event.action());
             long now = System.currentTimeMillis();
             Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
-                    event.groupJid().trim(), null, now);
+                    event.groupJid().trim(),
+                    null,
+                    ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                    now);
             AccountGroupMembership membership = new AccountGroupMembership();
             membership.setAccountId(event.accountId());
             membership.setGroupLinkId(groupLinkId);

@@ -17,6 +17,7 @@ import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -43,6 +44,7 @@ class AccountGroupMembershipReportServiceImplTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyBoolean(),
                 org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new AccountGroupMembershipChangeSet(List.of(), List.of()));
@@ -102,7 +104,8 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq(true),
                 eq(1782626401000L),
                 eq("evt-pending-baseline"),
-                eq(null));
+                eq(null),
+                eq(ProtocolBackend.WEB));
     }
 
     @Test
@@ -164,7 +167,8 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq(true),
                 eq(1782626401000L),
                 eq("evt-visible"),
-                eq("wa_groups_dirty"));
+                eq("wa_groups_dirty"),
+                eq(ProtocolBackend.WEB));
         verify(membershipMapper, never()).capturePendingAccountGroupBaseline(
                 org.mockito.ArgumentMatchers.any(AccountGroupBaselineRow.class), anyLong(), anyLong());
     }
@@ -178,7 +182,8 @@ class AccountGroupMembershipReportServiceImplTest {
         when(membershipMapper.markAccountBaselineCaptured(eq(10L), anyLong())).thenReturn(1);
         when(snapshotService.replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), anyBoolean(), anyLong(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
                 .thenReturn(changeSet("120363old@g.us"));
 
         service.applyGroupsReported(event(10L, "120363old@g.us"));
@@ -193,7 +198,8 @@ class AccountGroupMembershipReportServiceImplTest {
         when(membershipMapper.selectAccountBaselineRow(10L)).thenReturn(row);
         when(snapshotService.replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), anyBoolean(), anyLong(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
                 .thenReturn(changeSet("120363new@g.us"));
 
         service.applyGroupsReported(event(10L, "120363new@g.us"));
@@ -216,7 +222,8 @@ class AccountGroupMembershipReportServiceImplTest {
 
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), anyLong(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                eq(ProtocolBackend.ANDROID));
 
         AccountGroupBaselineRow web = baseline(11L, AccountGroupBaselineStateCode.CAPTURED);
         web.setProtocolId("WEB");
@@ -227,7 +234,8 @@ class AccountGroupMembershipReportServiceImplTest {
 
         verify(snapshotService).replaceVisibleGroups(
                 eq(11L), org.mockito.ArgumentMatchers.any(), eq(true), anyLong(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                eq(ProtocolBackend.WEB));
     }
 
     @Test
@@ -248,10 +256,10 @@ class AccountGroupMembershipReportServiceImplTest {
 
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(2000L),
-                eq("evt-false"), eq("android_groups_dirty"));
+                eq("evt-false"), eq("android_groups_dirty"), eq(ProtocolBackend.ANDROID));
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(3000L),
-                eq("evt-skipped"), eq("android_groups_dirty"));
+                eq("evt-skipped"), eq("android_groups_dirty"), eq(ProtocolBackend.ANDROID));
     }
 
     @Test
@@ -268,7 +276,7 @@ class AccountGroupMembershipReportServiceImplTest {
 
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(4000L),
-                eq("evt-web-skipped"), eq("wa_groups_dirty"));
+                eq("evt-web-skipped"), eq("wa_groups_dirty"), eq(ProtocolBackend.WEB));
     }
 
     @Test
@@ -280,7 +288,7 @@ class AccountGroupMembershipReportServiceImplTest {
         service.applyGroupsReported(event(10L, "120363stale@g.us"));
 
         verify(snapshotService, Mockito.never()).replaceVisibleGroups(
-                any(), any(), anyBoolean(), anyLong(), any(), any());
+                any(), any(), anyBoolean(), anyLong(), any(), any(), any());
     }
 
     private static AccountGroupBaselineRow baseline(Long accountId, Integer state) {

@@ -400,7 +400,8 @@ class AccountGroupSyncMySqlConcurrencyTest {
                                 true,
                                 syncAt,
                                 "mysql-lock-round-" + round + "-thread-" + currentThread,
-                                "testcontainers"));
+                                "testcontainers",
+                                com.armada.platform.protocol.model.enums.ProtocolBackend.WEB));
                         return null;
                     } finally {
                         TenantContext.clear();
@@ -626,6 +627,7 @@ class AccountGroupSyncMySqlConcurrencyTest {
                   import_batch_id BIGINT DEFAULT NULL,
                   origin TINYINT NOT NULL DEFAULT 1,
                   membership_state TINYINT NOT NULL DEFAULT 1,
+                  sync_protocol_mask TINYINT NOT NULL DEFAULT 0,
                   remark VARCHAR(255) DEFAULT NULL,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,

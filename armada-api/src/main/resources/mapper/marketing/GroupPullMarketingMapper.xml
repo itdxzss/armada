@@ -795,6 +795,15 @@
           AND group_jid IS NULL
     </update>
 
+    <update id="saveInitialGroupInviteUrl">
+        UPDATE group_pull_marketing_execution
+        SET group_invite_url = #{inviteUrl},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND group_jid = #{groupJid}
+          AND group_invite_url IS NULL
+    </update>
+
     <update id="markExecutionManualReview">
         UPDATE group_pull_marketing_execution
         SET execution_status = 7,

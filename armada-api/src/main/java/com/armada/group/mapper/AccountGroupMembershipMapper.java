@@ -99,11 +99,13 @@ public interface AccountGroupMembershipMapper {
      *
      * @param groupLinkId 群入口 ID
      * @param groupName   协议返回群名,可空
+     * @param syncProtocolMask 本次观察协议位
      * @param updatedAt   更新时间(epoch 毫秒)
      * @return 影响行数
      */
     int touchGroupLinkFromAccountSync(@Param("groupLinkId") Long groupLinkId,
                                       @Param("groupName") String groupName,
+                                      @Param("syncProtocolMask") int syncProtocolMask,
                                       @Param("updatedAt") long updatedAt);
 
     /**

@@ -229,6 +229,35 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
+    void groupPullInitialInviteUrlWriteMatchesGroupAndDoesNotOverwrite() throws SQLException {
+        executeSql(
+                "INSERT INTO group_pull_marketing_execution "
+                        + "(id, tenant_id, task_id, group_jid, execution_status, current_stage, "
+                        + "stage_retry_count, next_execute_at, created_at, updated_at) "
+                        + "VALUES (82, 7, 146, 'invite-group@g.us', 2, 4, 0, 0, 100, 100)");
+
+        assertThat(groupPullMarketingMapper.saveInitialGroupInviteUrl(
+                82L,
+                "other-group@g.us",
+                "https://chat.whatsapp.com/wrong",
+                101L)).isZero();
+        assertThat(groupPullMarketingMapper.saveInitialGroupInviteUrl(
+                82L,
+                "invite-group@g.us",
+                "https://chat.whatsapp.com/first",
+                102L)).isEqualTo(1);
+        assertThat(groupPullMarketingMapper.saveInitialGroupInviteUrl(
+                82L,
+                "invite-group@g.us",
+                "https://chat.whatsapp.com/replacement",
+                103L)).isZero();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT group_invite_url FROM group_pull_marketing_execution WHERE id = 82",
+                String.class)).isEqualTo("https://chat.whatsapp.com/first");
+    }
+
+    @Test
     void groupPullCandidateQueriesExecuteWithTenantPlugin() throws SQLException {
         executeSql(
                 "INSERT INTO account_group "
@@ -360,6 +389,28 @@ class MysqlModeMapperInMemoryTest {
                 .containsEntry("origin", 2)
                 .containsEntry("membership_state", 2)
                 .containsEntry("updated_at", 2_001L);
+    }
+
+    @Test
+    void accountObservedUpsertAccumulatesSyncProtocolMask() throws SQLException {
+        GroupLink webObserved = observedGroup(
+                "wa://group/120363protocol@g.us", "协议来源群", 2_100L);
+        webObserved.setSyncProtocolMask(1);
+        GroupLink androidObserved = observedGroup(
+                "wa://group/120363protocol@g.us", "协议来源群", 2_101L);
+        androidObserved.setSyncProtocolMask(2);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            groupLinkMapper.upsertAccountObservedGroup(webObserved, "协议来源群");
+            groupLinkMapper.upsertAccountObservedGroup(androidObserved, "协议来源群");
+        });
+
+        assertThat(queryLong("""
+                SELECT sync_protocol_mask
+                FROM group_link
+                WHERE link_url = 'wa://group/120363protocol@g.us'
+                """))
+                .isEqualTo(3L);
     }
 
     @Test
@@ -727,6 +778,7 @@ class MysqlModeMapperInMemoryTest {
                     import_batch_id BIGINT,
                     origin TINYINT NOT NULL,
                     membership_state TINYINT NOT NULL,
+                    sync_protocol_mask TINYINT NOT NULL DEFAULT 0,
                     deleted_at BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
@@ -966,6 +1018,7 @@ class MysqlModeMapperInMemoryTest {
         row.setGroupName(groupName);
         row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
         row.setMembershipState(GroupMembershipState.JOINED.code());
+        row.setSyncProtocolMask(1);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;

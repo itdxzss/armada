@@ -170,7 +170,6 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         BaselineSnapshot baseline = loadBaseline(accountId);
         String targetJid = requireBaselineGroup(baseline, groupJid);
         MetadataLookup metadataLookup = readDetailMetadata(account, targetJid);
-        InviteLookup inviteLookup = readDetailInvite(account, targetJid);
         GroupMetadataResult metadata = metadataLookup.metadata();
         List<GroupParticipantResult> participants = metadata == null
                 ? List.of()
@@ -178,16 +177,18 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         HistoricalGroupSelfRole accountRole = accountRole(account, participants);
         boolean accountAdmin = accountRole == HistoricalGroupSelfRole.ADMIN
                 || accountRole == HistoricalGroupSelfRole.OWNER;
+        InviteLookup inviteLookup = metadata != null && accountAdmin
+                ? readDetailInvite(account, targetJid)
+                : new InviteLookup(null, null, null);
         String errorCode = joinErrors(metadataLookup.errorCode(), inviteLookup.errorCode());
         String errorMessage = joinErrors(metadataLookup.errorMessage(), inviteLookup.errorMessage());
         boolean participantMutationSupported = metadata != null
                 && metadata.participantMutationSupported();
         boolean operationAllowed = metadata != null
                 && participantMutationSupported
-                && accountAdmin
-                && inviteLookup.inviteUrl() != null;
-        String disabledReason = errorMessage != null
-                ? errorMessage
+                && accountAdmin;
+        String disabledReason = metadata == null
+                ? metadataLookup.errorMessage()
                 : !participantMutationSupported
                         ? PARTICIPANT_MUTATION_UNSUPPORTED_REASON
                         : accountAdmin ? null : NON_ADMIN_REASON;
@@ -246,7 +247,7 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     /**
      * 使用固定管理员账号批量提升 baseline 群普通成员。
      *
-     * <p>协议写入前重新读取实时 metadata 和非空邀请链接，不接受浏览器回传链接。</p>
+     * <p>协议写入前重新读取实时 metadata，校验当前账号管理员身份和目标成员状态；提升操作不依赖邀请链接。</p>
      *
      * @param dto 固定操作账号、baseline 群和目标成员
      * @return 按请求顺序返回的协议逐项结果
@@ -290,7 +291,9 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         String groupJid = requireBaselineGroup(baseline, dto.groupJid());
         GroupMetadataResult metadata = requireActionMetadata(account, groupJid, action);
         requireAdministrator(account, metadata.participants());
-        requireFreshInvite(account, groupJid);
+        if (action != GroupParticipantAction.PROMOTE) {
+            requireFreshInvite(account, groupJid);
+        }
         Map<String, GroupParticipantResult> currentMembers = participantsByJid(metadata.participants());
         Map<String, HistoricalGroupParticipantActionVO.Result> results = new LinkedHashMap<>();
         List<String> actionable = new ArrayList<>();
@@ -320,8 +323,10 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
             String groupJid,
             GroupParticipantAction action) {
         try {
-            return protocolPorts.writeMetadata().getMetadata(
-                    account.protocolAccountId(), groupJid);
+            if (action == GroupParticipantAction.PROMOTE) {
+                return protocolPorts.readMetadata().getMetadata(account, groupJid);
+            }
+            return protocolPorts.writeMetadata().getMetadata(account.protocolAccountId(), groupJid);
         } catch (ProtocolException ex) {
             log.warn("历史群成员操作写前 metadata 读取失败 accountId={} action={} reasonCode={} httpStatus={}",
                     account.armadaAccountId(), action, ex.errorCode(), ex.httpStatus());
@@ -537,17 +542,19 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
             String phone = firstText(participant.phone(), phoneKey(participant.jid()));
             boolean self = accountPhone.equals(phoneKey(phone));
             boolean owner = Boolean.TRUE.equals(participant.owner());
-            boolean allowed = accountCanOperate && !self && !owner;
+            boolean administrator = owner || Boolean.TRUE.equals(participant.admin());
+            boolean allowed = accountCanOperate && !self && !administrator;
             String disabledReason = allowed ? null
-                    : owner ? "群主不能被降级或踢出"
-                    : self ? "操作账号本人不能被降级或踢出"
+                    : owner ? "群主已经是管理员"
+                    : self ? "操作账号本人不能作为提升目标"
+                    : administrator ? "目标成员已经是管理员"
                     : globalDisabledReason;
             members.add(new HistoricalGroupDetailVO.Member(
                     participant.jid().trim(),
                     phone,
                     self,
                     owner,
-                    owner || Boolean.TRUE.equals(participant.admin()),
+                    administrator,
                     participantRole(participant),
                     allowed,
                     disabledReason));

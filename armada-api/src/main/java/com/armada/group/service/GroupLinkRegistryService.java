@@ -1,5 +1,6 @@
 package com.armada.group.service;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
 
@@ -27,11 +28,15 @@ public interface GroupLinkRegistryService {
      *
      * @param groupJid WhatsApp 群 JID，不能为空
      * @param groupName 协议层观察到的群名称，可空；非空时最多保留 128 个字符
+     * @param observedBackend 本次观察群的协议后端
      * @param now 本地登记或复活时间（epoch 毫秒）
      * @return 复用、复活或新建后的 {@code group_link.id}
      * @throws BusinessException 当群 JID 为空时抛出
      */
-    Long registerAccountObservedGroup(String groupJid, String groupName, long now);
+    Long registerAccountObservedGroup(String groupJid,
+                                      String groupName,
+                                      ProtocolBackend observedBackend,
+                                      long now);
 
     /**
      * 登记业务流程刚创建成功的自建群及建群账号在群关系。

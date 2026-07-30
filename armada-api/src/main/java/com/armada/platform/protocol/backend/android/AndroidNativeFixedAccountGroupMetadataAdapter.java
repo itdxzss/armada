@@ -89,8 +89,9 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         if (data == null || !data.isObject()) {
             throw unrecognized("Android 群成员响应 Data 无效");
         }
-        String responseGroupJid = text(data.get("GroupId"));
-        if (!requestedGroupJid.equals(responseGroupJid)) {
+        String normalizedRequestedGroupJid = normalizeGroupJid(requestedGroupJid);
+        String responseGroupJid = normalizeGroupJid(text(data.get("GroupId")));
+        if (!normalizedRequestedGroupJid.equals(responseGroupJid)) {
             throw unrecognized("Android 群成员响应 GroupId 与请求不一致");
         }
         List<GroupParticipantResult> participants = memberMapper.map(data);
@@ -112,8 +113,16 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 false,
                 INVITE_SETTING_UNSUPPORTED,
                 false,
-                false,
+                true,
                 participants);
+    }
+
+    private static String normalizeGroupJid(String value) {
+        String normalized = textValue(value);
+        if (normalized == null || normalized.contains("@")) {
+            return normalized;
+        }
+        return normalized + "@g.us";
     }
 
     private static String requireText(String value, String field) {
@@ -131,6 +140,14 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         }
         String value = node.asText("").trim();
         return value.isEmpty() ? null : value;
+    }
+
+    private static String textValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private static ProtocolException unrecognized(String message) {

@@ -23,6 +23,9 @@ class GroupLinkMapperSqlShapeTest {
                 .contains("ON DUPLICATE KEY UPDATE")
                 .contains("deleted_at = NULL")
                 .contains("membership_state = CASE WHEN membership_state = 3 THEN 3 ELSE 2 END")
+                .contains("WHEN sync_protocol_mask = 0 THEN #{row.syncProtocolMask}")
+                .contains("WHEN sync_protocol_mask = #{row.syncProtocolMask} THEN sync_protocol_mask")
+                .contains("ELSE 3")
                 .doesNotContain("LAST_INSERT_ID")
                 .doesNotContain("origin =")
                 .doesNotContain("label_id =")
@@ -33,6 +36,7 @@ class GroupLinkMapperSqlShapeTest {
                 .replace("#{row.groupName}", "'观察群'")
                 .replace("#{row.origin}", "5")
                 .replace("#{row.membershipState}", "2")
+                .replace("#{row.syncProtocolMask}", "2")
                 .replace("#{row.createdAt}", "1784966400000")
                 .replace("#{row.updatedAt}", "1784966400000")
                 .replace("#{observedGroupName}", "'观察群'");

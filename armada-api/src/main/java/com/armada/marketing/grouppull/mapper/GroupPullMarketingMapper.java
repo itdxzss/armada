@@ -205,6 +205,12 @@ public interface GroupPullMarketingMapper {
     /** 建群成功后保存群 JID 并推进到加营销号或加料子阶段。 */
     int markGroupCreated(GroupCreatedUpdate update);
 
+    /** 建群结果落库后，仅在相同群 JID 尚无邀请链接时保存首次取链结果。 */
+    int saveInitialGroupInviteUrl(@Param("id") Long id,
+                                  @Param("groupJid") String groupJid,
+                                  @Param("inviteUrl") String inviteUrl,
+                                  @Param("now") long now);
+
     /** 建群结果无法确认时转人工处理，禁止自动重建。 */
     int markExecutionManualReview(@Param("id") Long id,
                                   @Param("expectedStage") int expectedStage,

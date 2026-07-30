@@ -99,7 +99,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                     snapshotComplete,
                     syncAt,
                     event.eventId(),
-                    event.source());
+                    event.source(),
+                    ProtocolBackend.fromProtocolId(baselineRow.getProtocolId()));
             if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
                 List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
                         .map(group -> new MarketingNewGroupDTO(

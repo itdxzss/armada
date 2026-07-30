@@ -14,6 +14,7 @@ import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
@@ -75,7 +76,8 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             boolean snapshotComplete,
             long syncAt,
             String eventId,
-            String source) {
+            String source,
+            ProtocolBackend observedBackend) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号群关系写入缺少 accountId");
         }
@@ -86,7 +88,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                         AccountGroupMembershipStatus.UNCONFIRMED.code()));
         Set<String> previousActive = normalizeJids(activeGroupJids);
         Map<String, AccountGroupsReportedEvent.Group> visibleGroups = normalizeVisibleGroups(groups);
-        List<ResolvedGroup> resolvedGroups = resolveGroups(visibleGroups, now);
+        List<ResolvedGroup> resolvedGroups = resolveGroups(visibleGroups, observedBackend, now);
         List<ResolvedGroup> groupsByLinkId = resolvedGroups.stream()
                 .sorted(Comparator.comparing(ResolvedGroup::groupLinkId)
                         .thenComparing(ResolvedGroup::groupJid))
@@ -216,12 +218,13 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
 
     private List<ResolvedGroup> resolveGroups(
             Map<String, AccountGroupsReportedEvent.Group> visibleGroups,
+            ProtocolBackend observedBackend,
             long now) {
         List<ResolvedGroup> resolvedGroups = new ArrayList<>(visibleGroups.size());
         for (Map.Entry<String, AccountGroupsReportedEvent.Group> entry : visibleGroups.entrySet()) {
             AccountGroupsReportedEvent.Group group = entry.getValue();
             Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
-                    entry.getKey(), group.subject(), now);
+                    entry.getKey(), group.subject(), observedBackend, now);
             resolvedGroups.add(new ResolvedGroup(groupLinkId, entry.getKey(), group));
         }
         return resolvedGroups;

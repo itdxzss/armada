@@ -2,6 +2,7 @@ package com.armada.group.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
 import java.util.concurrent.CountDownLatch;
@@ -64,7 +65,8 @@ class GroupLinkRegistryServiceDbTest extends DbTestBase {
             if (!start.await(5, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("并发群入口登记未在限定时间内开始");
             }
-            return service.registerAccountObservedGroup(groupJid, "并发登记群", System.currentTimeMillis());
+            return service.registerAccountObservedGroup(
+                    groupJid, "并发登记群", ProtocolBackend.WEB, System.currentTimeMillis());
         } finally {
             TenantContext.clear();
         }

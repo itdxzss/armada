@@ -59,6 +59,7 @@ class GroupConverterTest {
         row.setMemberSize(8);
         row.setCurrentCount(9);
         row.setAdmin("8611111111111");
+        row.setSyncProtocolMask(3);
         row.setOrigin(GroupLinkOrigin.IMPORT.code());
         row.setMembershipState(GroupMembershipState.JOINED.code());
         row.setCreatedAt(EPOCH_2024_06_01_UTC);
@@ -75,6 +76,7 @@ class GroupConverterTest {
         assertThat(vo.statusLabel()).isEqualTo("可用");
         assertThat(vo.memberCount()).isEqualTo(9);
         assertThat(vo.admin()).isEqualTo("8611111111111");
+        assertThat(vo.syncProtocolMask()).isEqualTo(3);
         assertThat(vo.source()).isEqualTo("导入链接");
         assertThat(vo.membershipStateLabel()).isEqualTo("已进群");
         assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);

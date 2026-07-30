@@ -63,6 +63,7 @@ public interface GroupConverter {
                 row.getBanned(),
                 row.getCurrentCount() == null ? row.getMemberSize() : row.getCurrentCount(),
                 row.getAdmin(),
+                row.getSyncProtocolMask(),
                 row.getOrigin(),
                 origin == null ? null : origin.label(),
                 row.getMembershipState(),

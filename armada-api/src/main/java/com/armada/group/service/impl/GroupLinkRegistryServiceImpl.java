@@ -9,6 +9,7 @@ import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkUrls;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.LinkedHashSet;
@@ -61,15 +62,20 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
      *
      * @param groupJid WhatsApp 群 JID，不能为空
      * @param groupName 协议层观察到的群名称，可空
+     * @param observedBackend 本次观察群的协议后端
      * @param now 本地登记或复活时间（epoch 毫秒）
      * @return 复用、复活或新建后的 {@code group_link.id}
      * @throws BusinessException 当群 JID 为空时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Long registerAccountObservedGroup(String groupJid, String groupName, long now) {
+    public Long registerAccountObservedGroup(String groupJid,
+                                             String groupName,
+                                             ProtocolBackend observedBackend,
+                                             long now) {
         String normalizedJid = normalizeRequired(groupJid, "账号群同步缺少 groupJid");
         String normalizedName = clamp(blankToNull(groupName), 128);
+        int syncProtocolMask = observedBackend == ProtocolBackend.ANDROID ? 2 : 1;
         Long groupLinkId = membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(normalizedJid);
         if (groupLinkId == null) {
             GroupLink row = new GroupLink();
@@ -77,6 +83,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             row.setGroupName(normalizedName == null ? normalizedJid : normalizedName);
             row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
             row.setMembershipState(GroupMembershipState.JOINED.code());
+            row.setSyncProtocolMask(syncProtocolMask);
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             groupLinkMapper.upsertAccountObservedGroup(row, normalizedName);
@@ -87,7 +94,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             return resolved.getId();
         }
         membershipMapper.touchGroupLinkFromAccountSync(
-                groupLinkId, normalizedName, now);
+                groupLinkId, normalizedName, syncProtocolMask, now);
         return groupLinkId;
     }
 

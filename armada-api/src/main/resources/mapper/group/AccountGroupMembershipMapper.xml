@@ -107,6 +107,11 @@
     SET deleted_at = NULL,
         group_name = COALESCE(NULLIF(TRIM(#{groupName}), ''), group_name),
         membership_state = CASE WHEN membership_state = 3 THEN 3 ELSE 2 END,
+        sync_protocol_mask = CASE
+          WHEN sync_protocol_mask = 0 THEN #{syncProtocolMask}
+          WHEN sync_protocol_mask = #{syncProtocolMask} THEN sync_protocol_mask
+          ELSE 3
+        END,
         updated_at = #{updatedAt}
     WHERE id = #{groupLinkId}
   </update>

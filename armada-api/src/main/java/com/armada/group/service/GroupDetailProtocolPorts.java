@@ -1,6 +1,6 @@
 package com.armada.group.service;
 
-import com.armada.platform.protocol.port.GroupMetadataPort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupSettingsPort;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public record GroupDetailProtocolPorts(
-        GroupMetadataPort metadata,
+        FixedAccountGroupMetadataPort metadata,
         GroupProfilePort profile,
         GroupSettingsPort settings,
         GroupParticipantPort participants) {

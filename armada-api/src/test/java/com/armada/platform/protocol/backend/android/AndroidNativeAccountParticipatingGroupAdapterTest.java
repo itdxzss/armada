@@ -30,6 +30,9 @@ class AndroidNativeAccountParticipatingGroupAdapterTest {
                 {"Code":0,"Data":{"Count":1,"GroupInfos":[{
                   "group_id":"120363001@g.us",
                   "subject":"安卓历史群",
+                  "creator":"919000000009@s.whatsapp.net",
+                  "creation":"1720000000",
+                  "announce_only":true,
                   "participants":[
                     {"phone_number":"919000000001","type":"admin"},
                     {"phone_number":"919000000002","type":"participant"}
@@ -46,12 +49,16 @@ class AndroidNativeAccountParticipatingGroupAdapterTest {
         assertThat(groups).singleElement().satisfies(group -> {
             assertThat(group.groupJid()).isEqualTo("120363001@g.us");
             assertThat(group.subject()).isEqualTo("安卓历史群");
+            assertThat(group.ownerJid()).isEqualTo("919000000009@s.whatsapp.net");
+            assertThat(group.createdAt()).isEqualTo(1720000000L);
+            assertThat(group.admin()).isTrue();
+            assertThat(group.announceOnly()).isTrue();
         });
         assertThat(summaries).singleElement().satisfies(summary -> {
             assertThat(summary.success()).isTrue();
             assertThat(summary.selfRole()).isEqualTo("ADMIN");
             assertThat(summary.memberSize()).isEqualTo(2);
-            assertThat(summary.announceOnly()).isNull();
+            assertThat(summary.announceOnly()).isTrue();
         });
     }
 

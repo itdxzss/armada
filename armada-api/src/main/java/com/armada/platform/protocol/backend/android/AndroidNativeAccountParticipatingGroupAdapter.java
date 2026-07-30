@@ -65,7 +65,7 @@ public final class AndroidNativeAccountParticipatingGroupAdapter
                 account,
                 CURRENT_OPERATION,
                 () -> client.groups(account.wsPhone()),
-                mapper::mapGroups);
+                data -> mapper.mapGroups(data, account.wsPhone()));
     }
 
     /**

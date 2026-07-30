@@ -38,11 +38,11 @@ public interface HistoricalGroupPullExecutionService {
     HistoricalGroupPullExecutionVO getById(Long id);
 
     /**
-     * 查询操作账号在目标群最近创建的执行。
+     * 查询来源账号组在目标群最近创建的执行。
      *
-     * @param accountId 操作账号 ID
+     * @param sourceAccountGroupId 来源账号组 ID
      * @param groupJid  目标群 JID
      * @return 最近执行详情
      */
-    Optional<HistoricalGroupPullExecutionVO> latest(Long accountId, String groupJid);
+    Optional<HistoricalGroupPullExecutionVO> latest(Long sourceAccountGroupId, String groupJid);
 }

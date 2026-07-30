@@ -59,7 +59,7 @@ public class HttpAccountParticipatingGroupAdapter
      * 查询固定账号当前参与群的轻量快照。
      *
      * @param account 固定操作账号引用
-     * @return 仅映射群 JID 和群名称的当前群列表
+     * @return 映射协议响应中已有群摘要字段的当前群列表
      * @throws ProtocolException 当协议响应不完整或协议调用失败时抛出
      */
     @Override
@@ -184,17 +184,19 @@ public class HttpAccountParticipatingGroupAdapter
                 response.size(),
                 blankToNull(response.owner()),
                 response.isAdmin(),
-                response.announce());
+                response.announce(),
+                response.creation());
     }
 
     private static AccountParticipatingGroupResult.Group toLightGroup(GroupResponse response) {
         return new AccountParticipatingGroupResult.Group(
                 blankToNull(response.groupJid()),
                 blankToNull(response.subject()),
-                null,
-                null,
-                null,
-                null);
+                response.size(),
+                blankToNull(response.owner()),
+                response.isAdmin(),
+                response.announce(),
+                response.creation());
     }
 
     private static AccountGroupMetadataSummaryResult toMetadataSummary(

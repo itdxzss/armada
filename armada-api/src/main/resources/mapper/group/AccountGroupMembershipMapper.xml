@@ -2,6 +2,245 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.AccountGroupMembershipMapper">
 
+  <sql id="historicalGroupAggregated">
+    SELECT history.group_jid AS groupJid,
+           COALESCE(
+             MAX(NULLIF(TRIM(p.wa_subject), '')),
+             MAX(NULLIF(TRIM(g.group_name), '')),
+             MAX(history.baseline_subject)
+           ) AS subject,
+           MAX(NULLIF(TRIM(p.invite_code), '')) AS inviteCode,
+           MAX(NULLIF(TRIM(p.owner_phone), '')) AS ownerPhone,
+           MAX(p.group_created_at) AS groupCreatedAt,
+           COUNT(DISTINCT CASE
+             WHEN relation.membership_status &lt;&gt; #{unconfirmedStatus} THEN relation.id
+           END) AS knownMembershipCount,
+           COUNT(DISTINCT CASE
+             WHEN relation.membership_status = #{inGroupStatus} THEN relation.id
+           END) AS inGroupCount,
+           MAX(CASE
+             WHEN relation.membership_status = #{inGroupStatus}
+              AND relation.is_admin = 1
+             THEN 1
+             ELSE 0
+           END) AS adminInGroup,
+           MAX(CASE
+             WHEN relation.membership_status = #{inGroupStatus}
+              AND REPLACE(SUBSTRING_INDEX(relation.ws_phone, '@', 1), '+', '')
+                  = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+             THEN 1 ELSE 0
+           END) AS ownerInGroup,
+           MAX(p.announce_only) AS announceOnly,
+           MAX(p.member_size) AS memberSize,
+           MAX(CASE
+             WHEN relation.membership_status = #{inGroupStatus}
+              AND relation.is_admin = 1
+              AND relation.login_state = #{onlineLoginState}
+              AND relation.account_state = #{normalAccountState}
+             THEN 1 ELSE 0
+           END) AS operable
+    FROM (
+      SELECT baseline_group.group_jid,
+             MAX(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(
+               b0.baseline_group_subjects,
+               CONCAT('$.&quot;', REPLACE(baseline_group.group_jid, '&quot;', '\\&quot;'), '&quot;')
+             ))), '')) AS baseline_subject
+      FROM account a0
+      INNER JOIN account_group_baseline b0
+        ON b0.tenant_id = a0.tenant_id
+       AND b0.account_id = a0.id
+      INNER JOIN JSON_TABLE(
+        b0.baseline_group_jids,
+        '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+      ) baseline_group
+      WHERE a0.tenant_id = #{tenantId}
+        AND a0.account_group_id = #{accountGroupId}
+        AND a0.deleted_at IS NULL
+        AND baseline_group.group_jid IS NOT NULL
+        AND TRIM(baseline_group.group_jid) &lt;&gt; ''
+      GROUP BY baseline_group.group_jid
+    ) history
+    LEFT JOIN (
+      SELECT m.id,
+             m.group_jid,
+             m.membership_status,
+             m.is_admin,
+             a1.ws_phone,
+             s1.login_state,
+             s1.account_state
+      FROM account a1
+      INNER JOIN account_group_membership m
+        ON m.tenant_id = a1.tenant_id
+       AND m.account_id = a1.id
+       AND m.deleted_at IS NULL
+      LEFT JOIN account_state s1
+        ON s1.tenant_id = a1.tenant_id
+       AND s1.account_id = a1.id
+      WHERE a1.tenant_id = #{tenantId}
+        AND a1.account_group_id = #{accountGroupId}
+        AND a1.deleted_at IS NULL
+    ) relation
+      ON relation.group_jid = history.group_jid
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = #{tenantId}
+     AND p.group_jid = history.group_jid
+    LEFT JOIN group_link g
+      ON g.tenant_id = #{tenantId}
+     AND g.id = p.group_link_id
+     AND g.deleted_at IS NULL
+    GROUP BY history.group_jid
+  </sql>
+
+  <select id="countHistoricalGroupsByTenantAndAccountGroup" resultType="long">
+    <bind name="inGroupStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
+    <bind name="unconfirmedStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@UNCONFIRMED.code()"/>
+    <bind name="onlineLoginState"
+          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
+    <bind name="normalAccountState"
+          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    SELECT COUNT(*)
+    FROM (
+      <include refid="historicalGroupAggregated"/>
+    ) grouped_history
+    WHERE knownMembershipCount = 0 OR adminInGroup = 1
+  </select>
+
+  <select id="selectHistoricalGroupPageByTenantAndAccountGroup"
+          resultType="com.armada.group.model.vo.HistoricalGroupPageRow">
+    <bind name="inGroupStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
+    <bind name="unconfirmedStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@UNCONFIRMED.code()"/>
+    <bind name="onlineLoginState"
+          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
+    <bind name="normalAccountState"
+          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    SELECT *
+    FROM (
+      <include refid="historicalGroupAggregated"/>
+    ) grouped_history
+    WHERE knownMembershipCount = 0 OR adminInGroup = 1
+    ORDER BY groupJid ASC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+  <select id="selectHistoricalGroupAccountPhonesByTenantAndAccountGroup"
+          resultType="com.armada.group.model.vo.HistoricalGroupAccountPhoneRow">
+    <bind name="inGroupStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
+    SELECT phone.groupJid,
+           phone.accountPhone,
+           MAX(phone.currentRelation) AS currentRelation
+    FROM (
+      SELECT baseline_phone.group_jid AS groupJid,
+             a.id AS accountId,
+             a.ws_phone AS accountPhone,
+             0 AS currentRelation
+      FROM account a
+      INNER JOIN account_group_baseline b
+        ON b.tenant_id = a.tenant_id
+       AND b.account_id = a.id
+      INNER JOIN JSON_TABLE(
+        b.baseline_group_jids,
+        '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+      ) baseline_phone
+      WHERE a.tenant_id = #{tenantId}
+        AND a.account_group_id = #{accountGroupId}
+        AND a.deleted_at IS NULL
+        AND a.ws_phone IS NOT NULL
+        AND TRIM(a.ws_phone) &lt;&gt; ''
+        AND baseline_phone.group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+          #{groupJid}
+        </foreach>
+      UNION ALL
+      SELECT current_phone.group_jid AS groupJid,
+             a.id AS accountId,
+             a.ws_phone AS accountPhone,
+             1 AS currentRelation
+      FROM account_group_membership current_phone
+      INNER JOIN account a
+        ON a.tenant_id = current_phone.tenant_id
+       AND a.id = current_phone.account_id
+      WHERE a.tenant_id = #{tenantId}
+        AND a.account_group_id = #{accountGroupId}
+        AND a.deleted_at IS NULL
+        AND a.ws_phone IS NOT NULL
+        AND TRIM(a.ws_phone) &lt;&gt; ''
+        AND current_phone.deleted_at IS NULL
+        AND current_phone.membership_status = #{inGroupStatus}
+        AND current_phone.group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+          #{groupJid}
+        </foreach>
+    ) phone
+    GROUP BY phone.groupJid, phone.accountPhone
+    ORDER BY phone.groupJid ASC,
+             MAX(phone.currentRelation) DESC,
+             MIN(phone.accountId) ASC
+  </select>
+
+  <select id="existsHistoricalGroupByTenantAndAccountGroup" resultType="boolean">
+    SELECT EXISTS(
+      SELECT 1
+      FROM account a
+      INNER JOIN account_group_baseline b
+        ON b.tenant_id = a.tenant_id
+       AND b.account_id = a.id
+      WHERE a.tenant_id = #{tenantId}
+        AND a.account_group_id = #{accountGroupId}
+        AND a.deleted_at IS NULL
+        AND JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(#{groupJid})) = 1
+    )
+  </select>
+
+  <select id="selectHistoricalGroupExecutionAccountByTenant"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <bind name="inGroupStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
+    <bind name="onlineLoginState"
+          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
+    <bind name="normalAccountState"
+          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    SELECT a.id AS accountId,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           a.ws_phone AS wsPhone
+    FROM account_group_membership m
+    INNER JOIN account a
+      ON a.tenant_id = m.tenant_id
+     AND a.id = m.account_id
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = m.tenant_id
+     AND p.group_jid = m.group_jid
+    WHERE a.tenant_id = #{tenantId}
+      AND a.account_group_id = #{accountGroupId}
+      AND a.deleted_at IS NULL
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND m.deleted_at IS NULL
+      AND m.group_jid = #{groupJid}
+      AND m.is_admin = 1
+      AND m.membership_status = #{inGroupStatus}
+      AND s.login_state = #{onlineLoginState}
+      AND s.account_state = #{normalAccountState}
+    ORDER BY CASE
+               WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                    = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+               THEN 0 ELSE 1
+             END,
+             COALESCE(m.last_seen_at, 0) DESC,
+             a.id ASC
+    LIMIT 1
+  </select>
+
   <select id="selectAccountBaselineRow" resultType="com.armada.group.model.vo.AccountGroupBaselineRow">
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
@@ -119,10 +358,10 @@
   <insert id="upsertPreviewFromAccountSync">
     INSERT INTO group_link_preview (
       group_link_id, group_jid, wa_subject, member_size, owner_phone,
-      announce_only, avatar_url, last_preview_at, created_at, updated_at
+      announce_only, group_created_at, avatar_url, last_preview_at, created_at, updated_at
     ) VALUES (
       #{groupLinkId}, #{groupJid}, #{subject}, #{memberSize}, #{ownerPhone},
-      #{announceOnly}, #{avatarUrl}, #{syncAt}, #{now}, #{now}
+      #{announceOnly}, #{groupCreatedAt}, #{avatarUrl}, #{syncAt}, #{now}, #{now}
     )
     ON DUPLICATE KEY UPDATE
       group_jid = VALUES(group_jid),
@@ -130,6 +369,7 @@
       member_size = COALESCE(VALUES(member_size), member_size),
       owner_phone = COALESCE(NULLIF(TRIM(VALUES(owner_phone)), ''), owner_phone),
       announce_only = COALESCE(VALUES(announce_only), announce_only),
+      group_created_at = COALESCE(VALUES(group_created_at), group_created_at),
       avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
       last_preview_at = VALUES(last_preview_at),
       updated_at = VALUES(updated_at)
@@ -142,6 +382,7 @@
         member_size = COALESCE(#{memberSize}, member_size),
         owner_phone = COALESCE(NULLIF(TRIM(#{ownerPhone}), ''), owner_phone),
         announce_only = COALESCE(#{announceOnly}, announce_only),
+        group_created_at = COALESCE(#{groupCreatedAt}, group_created_at),
         avatar_url = COALESCE(NULLIF(TRIM(#{avatarUrl}), ''), avatar_url),
         last_preview_at = #{lastPreviewAt},
         updated_at = #{updatedAt}

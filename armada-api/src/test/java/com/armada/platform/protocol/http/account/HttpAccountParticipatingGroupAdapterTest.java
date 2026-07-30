@@ -38,7 +38,15 @@ class HttpAccountParticipatingGroupAdapterTest {
                         {
                           "total": 2,
                           "groups": [
-                            { "groupJid": "120363first@g.us", "subject": "第一个群" },
+                            {
+                              "groupJid": "120363first@g.us",
+                              "subject": "第一个群",
+                              "size": 12,
+                              "owner": "8613800000000",
+                              "isAdmin": true,
+                              "announce": false,
+                              "creation": 1722470400
+                            },
                             { "groupJid": "120363second@g.us", "subject": null }
                           ]
                         }
@@ -48,9 +56,10 @@ class HttpAccountParticipatingGroupAdapterTest {
 
         assertThat(groups).containsExactly(
                 new AccountParticipatingGroupResult.Group(
-                        "120363first@g.us", "第一个群", null, null, null, null),
+                        "120363first@g.us", "第一个群", 12, "8613800000000",
+                        true, false, 1722470400L),
                 new AccountParticipatingGroupResult.Group(
-                        "120363second@g.us", null, null, null, null, null));
+                        "120363second@g.us", null, null, null, null, null, null));
         server.verify();
     }
 
@@ -207,6 +216,7 @@ class HttpAccountParticipatingGroupAdapterTest {
             assertThat(group.ownerJid()).isEqualTo("8613000000000@s.whatsapp.net");
             assertThat(group.admin()).isTrue();
             assertThat(group.announceOnly()).isFalse();
+            assertThat(group.createdAt()).isEqualTo(1710000000L);
         });
         assertThat(results.get(1).protocolAccountId()).isEqualTo("acc_862222");
         assertThat(results.get(1).success()).isFalse();

@@ -5,10 +5,10 @@
   <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_link_preview (
       group_link_id, group_jid, invite_code, wa_subject, member_size, owner_phone,
-      announce_only, avatar_url, last_preview_at, created_at, updated_at
+      announce_only, group_created_at, avatar_url, last_preview_at, created_at, updated_at
     ) VALUES (
       #{groupLinkId}, #{groupJid}, #{inviteCode}, #{waSubject}, #{memberSize}, #{ownerPhone},
-      #{announceOnly}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
+      #{announceOnly}, #{groupCreatedAt}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
     )
     ON DUPLICATE KEY UPDATE
       group_jid = VALUES(group_jid),
@@ -17,6 +17,7 @@
       member_size = VALUES(member_size),
       owner_phone = VALUES(owner_phone),
       announce_only = VALUES(announce_only),
+      group_created_at = COALESCE(VALUES(group_created_at), group_created_at),
       avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
       last_preview_at = VALUES(last_preview_at),
       updated_at = VALUES(updated_at)
@@ -55,5 +56,12 @@
     WHERE group_link_id = #{groupLinkId}
     LIMIT 1
   </select>
+
+  <update id="updateInviteCodeByGroupJid">
+    UPDATE group_link_preview
+    SET invite_code = #{inviteCode},
+        updated_at = #{updatedAt}
+    WHERE group_jid = #{groupJid}
+  </update>
 
 </mapper>

@@ -1,33 +1,25 @@
 package com.armada.group.service.impl;
 
-import com.armada.account.service.AccountProtocolLookupService;
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.HistoricalGroupParticipantActionDTO;
 import com.armada.group.model.enums.HistoricalGroupMembershipState;
 import com.armada.group.model.enums.HistoricalGroupSelfRole;
 import com.armada.group.model.enums.RoleCategory;
 import com.armada.group.model.enums.SpeechState;
-import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.HistoricalGroupDetailVO;
-import com.armada.group.model.vo.HistoricalGroupItemVO;
 import com.armada.group.model.vo.HistoricalGroupParticipantActionVO;
+import com.armada.group.service.HistoricalGroupExecutionAccountSelector;
 import com.armada.group.service.HistoricalGroupProtocolPorts;
 import com.armada.group.service.HistoricalGroupService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
-import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
-import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -39,17 +31,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 历史群列表与请求级协议刷新聚合实现。
- *
- * <p>baseline JID 是唯一展示范围,本服务不持久化当前状态,也不反写 baseline 群名。</p>
+ * 账号组历史群详情与成员操作协议聚合实现。
  */
 @Service
 public class HistoricalGroupServiceImpl implements HistoricalGroupService {
 
     private static final Logger log = LoggerFactory.getLogger(HistoricalGroupServiceImpl.class);
-    private static final int SUMMARY_CONCURRENCY = 8;
-    private static final String MISSING_SUMMARY_ERROR = "协议摘要缺少该群结果";
-    private static final String UNKNOWN_COUNT = "unknown";
     private static final String NON_ADMIN_REASON = "当前账号不是管理员";
     private static final String INVITE_UNAVAILABLE_REASON = "群邀请链接不可用";
     private static final String PARTICIPANT_MUTATION_UNSUPPORTED_REASON =
@@ -62,113 +49,36 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     private static final String PARTICIPANT_ROLE_MISMATCH = "ROLE_MISMATCH";
     private static final int PARTICIPANT_BATCH_MAX_SIZE = 50;
 
-    private final AccountProtocolLookupService accountLookupService;
-    private final AccountGroupMembershipMapper membershipMapper;
     private final HistoricalGroupProtocolPorts protocolPorts;
-    private final ObjectMapper objectMapper;
+    private final HistoricalGroupExecutionAccountSelector executionAccountSelector;
 
     /**
-     * 创建历史群聚合服务。
+     * 创建账号组维度历史群服务。
      *
-     * @param accountLookupService   当前租户账号协议引用查询服务
-     * @param membershipMapper       baseline 数据访问
-     * @param protocolPorts          历史群查询与成员操作协议端口组合
-     * @param objectMapper           baseline JSON 解析器
+     * @param protocolPorts 历史群协议端口组合
+     * @param executionAccountSelector 账号组历史群管理员选择器
      */
-    public HistoricalGroupServiceImpl(AccountProtocolLookupService accountLookupService,
-                                      AccountGroupMembershipMapper membershipMapper,
-                                      HistoricalGroupProtocolPorts protocolPorts,
-                                      ObjectMapper objectMapper) {
-        this.accountLookupService = accountLookupService;
-        this.membershipMapper = membershipMapper;
+    public HistoricalGroupServiceImpl(
+            HistoricalGroupProtocolPorts protocolPorts,
+            HistoricalGroupExecutionAccountSelector executionAccountSelector) {
         this.protocolPorts = protocolPorts;
-        this.objectMapper = objectMapper;
+        this.executionAccountSelector = executionAccountSelector;
     }
 
     /**
-     * 读取 baseline 历史群并保持 JID 存储顺序。
+     * 按需读取账号组历史范围内单个群的完整实时详情。
      *
-     * <p>先经账号域 Service 校验当前租户可见性和协议身份,避免群组域绕过租户边界直接查账号表。</p>
+     * <p>账号组历史范围校验严格先于任何协议调用，执行账号由后台实时选择。</p>
      *
-     * @param accountId 操作账号 ID
-     * @return 按 baseline JID 顺序排列的未验证历史群
-     */
-    @Override
-    public List<HistoricalGroupItemVO> listHistoricalGroups(Long accountId) {
-        requireAccount(accountId);
-        BaselineSnapshot baseline = loadBaseline(accountId);
-        List<HistoricalGroupItemVO> items = new ArrayList<>(baseline.groupJids().size());
-        for (String groupJid : baseline.groupJids()) {
-            items.add(new HistoricalGroupItemVO(
-                    groupJid,
-                    baseline.subjects().get(groupJid),
-                    HistoricalGroupMembershipState.UNVERIFIED,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null));
-        }
-        return List.copyOf(items);
-    }
-
-    /**
-     * 请求级刷新历史群当前状态。
-     *
-     * <p>先以轻量当前群列表判定在群/已退出,再只对 baseline 交集请求摘要。
-     * 协议返回的非 baseline 群永不进入响应,避免生成第二套历史范围。</p>
-     *
-     * @param accountId 操作账号 ID
-     * @return 按 baseline JID 顺序排列的请求级刷新结果
-     */
-    @Override
-    public List<HistoricalGroupItemVO> refreshHistoricalGroups(Long accountId) {
-        ProtocolAccountRef account = requireAccount(accountId);
-        BaselineSnapshot baseline = loadBaseline(accountId);
-        if (baseline.groupJids().isEmpty()) {
-            log.info("历史群刷新完成 accountId={} baselineGroups=0 currentGroups=0 intersectionGroups=0", accountId);
-            return List.of();
-        }
-
-        Map<String, AccountParticipatingGroupResult.Group> currentGroups;
-        try {
-            currentGroups = currentGroupsByJid(protocolPorts.participatingGroups().listCurrent(account));
-        } catch (ProtocolException ex) {
-            // 当前群整体失败时不能把未知误判为已退出;错误完整回给请求,日志只记录安全诊断字段。
-            log.warn("历史群轻量列表获取失败 accountId={} baselineGroups={} currentGroups={} "
-                            + "intersectionGroups={} reasonCode={} httpStatus={}",
-                    accountId, baseline.groupJids().size(), UNKNOWN_COUNT, UNKNOWN_COUNT,
-                    ex.errorCode(), ex.httpStatus());
-            return fetchFailedItems(baseline, ex.getMessage());
-        }
-
-        List<String> intersection = baseline.groupJids().stream()
-                .filter(currentGroups::containsKey)
-                .toList();
-        List<HistoricalGroupItemVO> items = membershipItems(baseline, currentGroups);
-        if (!intersection.isEmpty()) {
-            items = applySummary(account, accountId, items, intersection, currentGroups.size());
-        }
-        log.info("历史群刷新完成 accountId={} baselineGroups={} currentGroups={} intersectionGroups={}",
-                accountId, baseline.groupJids().size(), currentGroups.size(), intersection.size());
-        return List.copyOf(items);
-    }
-
-    /**
-     * 按需读取 baseline 内单个历史群的完整实时详情。
-     *
-     * <p>baseline 范围校验严格先于任何协议调用，且始终使用页面固定的操作账号。</p>
-     *
-     * @param accountId 固定操作账号 ID
-     * @param groupJid  baseline 群 JID
+     * @param accountGroupId 来源账号组 ID
+     * @param groupJid  历史群 JID
      * @return 包含完整成员和当前系统邀请链接的详情
      */
     @Override
-    public HistoricalGroupDetailVO getHistoricalGroupDetail(Long accountId, String groupJid) {
-        ProtocolAccountRef account = requireAccount(accountId);
-        BaselineSnapshot baseline = loadBaseline(accountId);
-        String targetJid = requireBaselineGroup(baseline, groupJid);
+    public HistoricalGroupDetailVO getHistoricalGroupDetail(Long accountGroupId, String groupJid) {
+        OperationTarget target = operationTarget(accountGroupId, groupJid);
+        ProtocolAccountRef account = target.account();
+        String targetJid = target.groupJid();
         MetadataLookup metadataLookup = readDetailMetadata(account, targetJid);
         GroupMetadataResult metadata = metadataLookup.metadata();
         List<GroupParticipantResult> participants = metadata == null
@@ -195,9 +105,9 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         List<HistoricalGroupDetailVO.Member> members = detailMembers(
                 account, participants, operationAllowed, disabledReason);
         return new HistoricalGroupDetailVO(
-                accountId,
+                account.armadaAccountId(),
                 targetJid,
-                firstText(metadata == null ? null : metadata.subject(), baseline.subjects().get(targetJid)),
+                metadata == null ? null : blankToNull(metadata.subject()),
                 metadata == null
                         ? HistoricalGroupMembershipState.FETCH_FAILED
                         : HistoricalGroupMembershipState.CURRENT_IN_GROUP,
@@ -245,11 +155,11 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     }
 
     /**
-     * 使用固定管理员账号批量提升 baseline 群普通成员。
+     * 使用后台自动选择的群主或管理员批量提升历史群普通成员。
      *
      * <p>协议写入前重新读取实时 metadata，校验当前账号管理员身份和目标成员状态；提升操作不依赖邀请链接。</p>
      *
-     * @param dto 固定操作账号、baseline 群和目标成员
+     * @param dto 账号组、历史群和目标成员
      * @return 按请求顺序返回的协议逐项结果
      */
     @Override
@@ -259,9 +169,9 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     }
 
     /**
-     * 使用固定管理员账号批量降级 baseline 群内其他管理员。
+     * 使用后台自动选择的群主或管理员批量降级历史群内其他管理员。
      *
-     * @param dto 固定操作账号、baseline 群和目标成员
+     * @param dto 账号组、历史群和目标成员
      * @return 按请求顺序返回的本地保护与协议逐项结果
      */
     @Override
@@ -271,9 +181,9 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     }
 
     /**
-     * 使用固定管理员账号批量移除 baseline 群内可操作成员。
+     * 使用后台自动选择的群主或管理员批量移除历史群内可操作成员。
      *
-     * @param dto 固定操作账号、baseline 群和目标成员
+     * @param dto 账号组、历史群和目标成员
      * @return 按请求顺序返回的本地保护与协议逐项结果
      */
     @Override
@@ -286,9 +196,9 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
             HistoricalGroupParticipantActionDTO dto,
             GroupParticipantAction action) {
         List<String> requestedJids = requireParticipantJids(dto);
-        ProtocolAccountRef account = requireAccount(dto.accountId());
-        BaselineSnapshot baseline = loadBaseline(dto.accountId());
-        String groupJid = requireBaselineGroup(baseline, dto.groupJid());
+        OperationTarget target = operationTarget(dto.accountGroupId(), dto.groupJid());
+        ProtocolAccountRef account = target.account();
+        String groupJid = target.groupJid();
         GroupMetadataResult metadata = requireActionMetadata(account, groupJid, action);
         requireAdministrator(account, metadata.participants());
         if (action != GroupParticipantAction.PROMOTE) {
@@ -312,10 +222,17 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         long successCount = response.results().stream()
                 .filter(HistoricalGroupParticipantActionVO.Result::success)
                 .count();
-        log.info("历史群成员操作完成 accountId={} action={} requestedCount={} protocolTargetCount={} "
+        log.info("历史群成员操作完成 accountGroupId={} action={} requestedCount={} protocolTargetCount={} "
                         + "successCount={} partial={}",
-                dto.accountId(), action, requestedJids.size(), actionable.size(), successCount, response.partial());
+                dto.accountGroupId(), action, requestedJids.size(), actionable.size(), successCount, response.partial());
         return response;
+    }
+
+    private OperationTarget operationTarget(Long accountGroupId, String groupJid) {
+        String targetJid = blankToNull(groupJid);
+        com.armada.group.model.vo.GroupExecutionAccount selected =
+                executionAccountSelector.require(accountGroupId, targetJid);
+        return new OperationTarget(selected.protocolRef(), targetJid);
     }
 
     private GroupMetadataResult requireActionMetadata(
@@ -334,140 +251,6 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         }
     }
 
-    private ProtocolAccountRef requireAccount(Long accountId) {
-        if (accountId == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "操作账号 ID 不能为空");
-        }
-        return accountLookupService.findActiveProtocolRef(accountId)
-                .orElseThrow(() -> new BusinessException(
-                        ErrorCode.NOT_FOUND,
-                        "操作账号不存在或协议身份不完整: " + accountId));
-    }
-
-    private List<HistoricalGroupItemVO> applySummary(
-            ProtocolAccountRef account,
-            Long accountId,
-            List<HistoricalGroupItemVO> items,
-            List<String> intersection,
-            int currentGroupCount) {
-        List<AccountGroupMetadataSummaryResult> summaries;
-        try {
-            summaries = protocolPorts.participatingGroups().summarize(account, intersection, SUMMARY_CONCURRENCY);
-        } catch (ProtocolException ex) {
-            // 摘要整体失败不影响轻量列表已经确认的在群/已退出结论。
-            log.warn("历史群摘要整体获取失败 accountId={} baselineGroups={} currentGroups={} "
-                            + "intersectionGroups={} reasonCode={} httpStatus={}",
-                    accountId, items.size(), currentGroupCount, intersection.size(), ex.errorCode(), ex.httpStatus());
-            return markCurrentItemsAbnormal(items, ex.getMessage());
-        }
-        Map<String, AccountGroupMetadataSummaryResult> byJid = summariesByJid(summaries);
-        List<HistoricalGroupItemVO> enriched = new ArrayList<>(items.size());
-        for (HistoricalGroupItemVO item : items) {
-            if (item.membershipState() != HistoricalGroupMembershipState.CURRENT_IN_GROUP) {
-                enriched.add(item);
-                continue;
-            }
-            enriched.add(summaryItem(item, byJid.get(item.groupJid())));
-        }
-        return enriched;
-    }
-
-    private static Map<String, AccountParticipatingGroupResult.Group> currentGroupsByJid(
-            List<AccountParticipatingGroupResult.Group> groups) {
-        Map<String, AccountParticipatingGroupResult.Group> current = new LinkedHashMap<>();
-        if (groups == null) {
-            return current;
-        }
-        for (AccountParticipatingGroupResult.Group group : groups) {
-            if (group == null || blankToNull(group.groupJid()) == null) {
-                continue;
-            }
-            current.putIfAbsent(group.groupJid().trim(), group);
-        }
-        return current;
-    }
-
-    private static List<HistoricalGroupItemVO> membershipItems(
-            BaselineSnapshot baseline,
-            Map<String, AccountParticipatingGroupResult.Group> currentGroups) {
-        List<HistoricalGroupItemVO> items = new ArrayList<>(baseline.groupJids().size());
-        for (String groupJid : baseline.groupJids()) {
-            AccountParticipatingGroupResult.Group current = currentGroups.get(groupJid);
-            HistoricalGroupMembershipState state = current == null
-                    ? HistoricalGroupMembershipState.CURRENT_NOT_IN_GROUP
-                    : HistoricalGroupMembershipState.CURRENT_IN_GROUP;
-            String subject = current == null
-                    ? baseline.subjects().get(groupJid)
-                    : firstText(current.subject(), baseline.subjects().get(groupJid));
-            items.add(emptyItem(groupJid, subject, state, null, null));
-        }
-        return items;
-    }
-
-    private static List<HistoricalGroupItemVO> fetchFailedItems(BaselineSnapshot baseline, String error) {
-        List<HistoricalGroupItemVO> items = new ArrayList<>(baseline.groupJids().size());
-        for (String groupJid : baseline.groupJids()) {
-            items.add(emptyItem(
-                    groupJid,
-                    baseline.subjects().get(groupJid),
-                    HistoricalGroupMembershipState.FETCH_FAILED,
-                    SpeechState.ABNORMAL,
-                    error));
-        }
-        return List.copyOf(items);
-    }
-
-    private static List<HistoricalGroupItemVO> markCurrentItemsAbnormal(
-            List<HistoricalGroupItemVO> items,
-            String error) {
-        List<HistoricalGroupItemVO> failed = new ArrayList<>(items.size());
-        for (HistoricalGroupItemVO item : items) {
-            if (item.membershipState() == HistoricalGroupMembershipState.CURRENT_IN_GROUP) {
-                failed.add(emptyItem(
-                        item.groupJid(), item.subject(), item.membershipState(), SpeechState.ABNORMAL, error));
-            } else {
-                failed.add(item);
-            }
-        }
-        return failed;
-    }
-
-    private static Map<String, AccountGroupMetadataSummaryResult> summariesByJid(
-            List<AccountGroupMetadataSummaryResult> summaries) {
-        Map<String, AccountGroupMetadataSummaryResult> byJid = new LinkedHashMap<>();
-        if (summaries == null) {
-            return byJid;
-        }
-        for (AccountGroupMetadataSummaryResult summary : summaries) {
-            if (summary != null && blankToNull(summary.groupJid()) != null) {
-                byJid.putIfAbsent(summary.groupJid().trim(), summary);
-            }
-        }
-        return byJid;
-    }
-
-    private static HistoricalGroupItemVO summaryItem(
-            HistoricalGroupItemVO item,
-            AccountGroupMetadataSummaryResult summary) {
-        if (summary == null) {
-            return emptyItem(
-                    item.groupJid(), item.subject(), item.membershipState(), SpeechState.ABNORMAL, MISSING_SUMMARY_ERROR);
-        }
-        HistoricalGroupSelfRole selfRole = HistoricalGroupSelfRole.fromProtocolValue(summary.selfRole());
-        RoleCategory roleCategory = roleCategory(selfRole);
-        SpeechState speechState = speechState(summary, selfRole);
-        return new HistoricalGroupItemVO(
-                item.groupJid(),
-                firstText(summary.subject(), item.subject()),
-                item.membershipState(),
-                roleCategory,
-                selfRole,
-                speechState,
-                summary.memberSize(),
-                summary.announceOnly(),
-                summary.error());
-    }
-
     private static RoleCategory roleCategory(HistoricalGroupSelfRole selfRole) {
         if (selfRole == null) {
             return null;
@@ -476,23 +259,6 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
             case OWNER, ADMIN -> RoleCategory.ADMIN;
             case MEMBER -> RoleCategory.MEMBER;
         };
-    }
-
-    private static SpeechState speechState(
-            AccountGroupMetadataSummaryResult summary,
-            HistoricalGroupSelfRole selfRole) {
-        if (!summary.success() || summary.stateAbnormal()) {
-            return SpeechState.ABNORMAL;
-        }
-        if (Boolean.FALSE.equals(summary.announceOnly())) {
-            return SpeechState.NORMAL;
-        }
-        if (!Boolean.TRUE.equals(summary.announceOnly()) || selfRole == null) {
-            return SpeechState.ABNORMAL;
-        }
-        return selfRole == HistoricalGroupSelfRole.MEMBER
-                ? SpeechState.CANNOT_SPEAK
-                : SpeechState.ADMIN_CAN_SPEAK;
     }
 
     private static SpeechState detailSpeechState(
@@ -760,91 +526,6 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         return normalized.startsWith("+") ? normalized.substring(1) : normalized;
     }
 
-    private static String requireBaselineGroup(BaselineSnapshot baseline, String groupJid) {
-        String targetJid = blankToNull(groupJid);
-        if (targetJid == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群 JID 不能为空");
-        }
-        if (!baseline.groupJids().contains(targetJid)) {
-            throw new BusinessException(
-                    ErrorCode.NOT_FOUND,
-                    "目标群不属于操作账号 baseline: " + targetJid);
-        }
-        return targetJid;
-    }
-
-    private static HistoricalGroupItemVO emptyItem(
-            String groupJid,
-            String subject,
-            HistoricalGroupMembershipState membershipState,
-            SpeechState speechState,
-            String error) {
-        return new HistoricalGroupItemVO(
-                groupJid, subject, membershipState, null, null, speechState, null, null, error);
-    }
-
-    private BaselineSnapshot loadBaseline(Long accountId) {
-        AccountGroupBaselineRow row = membershipMapper.selectAccountBaselineRow(accountId);
-        if (row == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "操作账号 baseline 不存在: " + accountId);
-        }
-        return new BaselineSnapshot(
-                readGroupJids(row.getBaselineGroupJidsJson()),
-                readSubjects(row.getBaselineGroupSubjectsJson()));
-    }
-
-    private List<String> readGroupJids(String json) {
-        if (json == null || json.isBlank()) {
-            return List.of();
-        }
-        try {
-            List<String> values = objectMapper.readValue(json, new TypeReference<>() {
-            });
-            if (values == null || values.isEmpty()) {
-                return List.of();
-            }
-            Set<String> normalized = new LinkedHashSet<>();
-            for (String value : values) {
-                if (value != null && !value.isBlank()) {
-                    normalized.add(value.trim());
-                }
-            }
-            return List.copyOf(normalized);
-        } catch (JsonProcessingException ex) {
-            throw baselineJsonException(ex);
-        }
-    }
-
-    private Map<String, String> readSubjects(String json) {
-        if (json == null || json.isBlank()) {
-            return Map.of();
-        }
-        try {
-            Map<String, String> subjects = objectMapper.readValue(json, new TypeReference<>() {
-            });
-            if (subjects == null || subjects.isEmpty()) {
-                return Map.of();
-            }
-            Map<String, String> normalized = new LinkedHashMap<>();
-            subjects.forEach((groupJid, subject) -> {
-                String normalizedJid = blankToNull(groupJid);
-                String normalizedSubject = blankToNull(subject);
-                if (normalizedJid != null && normalizedSubject != null) {
-                    normalized.putIfAbsent(normalizedJid, normalizedSubject);
-                }
-            });
-            return Map.copyOf(normalized);
-        } catch (JsonProcessingException ex) {
-            throw baselineJsonException(ex);
-        }
-    }
-
-    private static BusinessException baselineJsonException(JsonProcessingException ex) {
-        return new BusinessException(
-                ErrorCode.VALIDATION,
-                "操作账号 baseline JSON 解析失败: " + ex.getOriginalMessage());
-    }
-
     private static String firstText(String preferred, String fallback) {
         String value = blankToNull(preferred);
         return value == null ? blankToNull(fallback) : value;
@@ -869,9 +550,6 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         return value.trim();
     }
 
-    private record BaselineSnapshot(List<String> groupJids, Map<String, String> subjects) {
-    }
-
     private record MetadataLookup(
             GroupMetadataResult metadata,
             String errorCode,
@@ -882,5 +560,10 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
             String inviteUrl,
             String errorCode,
             String errorMessage) {
+    }
+
+    private record OperationTarget(
+            ProtocolAccountRef account,
+            String groupJid) {
     }
 }

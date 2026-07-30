@@ -43,4 +43,16 @@ public interface GroupLinkPreviewMapper {
      * @return 预览快照;不存在时返回 null
      */
     GroupLinkPreview selectByGroupLinkId(@Param("groupLinkId") Long groupLinkId);
+
+    /**
+     * 按群 JID 保存最新邀请码,不覆盖其它群预览字段。
+     *
+     * @param groupJid WhatsApp 群 JID
+     * @param inviteCode 当前邀请码
+     * @param updatedAt 更新时间(epoch 毫秒)
+     * @return 影响行数
+     */
+    int updateInviteCodeByGroupJid(@Param("groupJid") String groupJid,
+                                   @Param("inviteCode") String inviteCode,
+                                   @Param("updatedAt") long updatedAt);
 }

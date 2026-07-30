@@ -22,6 +22,9 @@ public final class AndroidAccountParticipatingGroupMapper {
     private static final String GROUP_JID_FIELD = "group_id";
     private static final String GROUP_JID_SUFFIX = "@g.us";
     private static final String SUBJECT_FIELD = "subject";
+    private static final String CREATOR_FIELD = "creator";
+    private static final String CREATION_FIELD = "creation";
+    private static final String ANNOUNCE_ONLY_FIELD = "announce_only";
     private static final String GROUP_MISSING_ERROR = "Android 当前群列表缺少该群";
 
     private final AndroidGroupMemberMapper memberMapper;
@@ -39,26 +42,44 @@ public final class AndroidAccountParticipatingGroupMapper {
      * 映射当前参与群轻量列表。
      *
      * @param data Android 原生响应 Data
+     * @param wsPhone 固定账号手机号,用于识别自身管理员身份
      * @return 当前群轻量列表
      * @throws ProtocolException 顶层数量或逐群 JID 不完整时抛出
      */
-    public List<AccountParticipatingGroupResult.Group> mapGroups(JsonNode data) {
+    public List<AccountParticipatingGroupResult.Group> mapGroups(
+            JsonNode data,
+            String wsPhone) {
+        String selfPhone = normalizePhone(wsPhone);
+        if (selfPhone == null) {
+            throw new ProtocolException(
+                    ProtocolErrorCode.BAD_REQUEST,
+                    "Android 当前群列表 wsPhone 无效");
+        }
         return groupNodes(data).stream()
-                .map(group -> new AccountParticipatingGroupResult.Group(
-                        requireGroupJid(group),
-                        text(group.get(SUBJECT_FIELD)),
-                        null,
-                        null,
-                        null,
-                        null))
+                .map(group -> mapGroup(group, selfPhone))
                 .toList();
+    }
+
+    private AccountParticipatingGroupResult.Group mapGroup(
+            JsonNode group,
+            String selfPhone) {
+        List<GroupParticipantResult> participants = memberMapper.map(group);
+        String role = selfRole(participants, selfPhone);
+        return new AccountParticipatingGroupResult.Group(
+                requireGroupJid(group),
+                text(group.get(SUBJECT_FIELD)),
+                participants.size(),
+                text(group.get(CREATOR_FIELD)),
+                "OWNER".equals(role) || "ADMIN".equals(role),
+                booleanValue(group.get(ANNOUNCE_ONLY_FIELD)),
+                longValue(group.get(CREATION_FIELD)));
     }
 
     /**
      * 从同一当前群快照中按请求顺序生成 metadata 摘要。
      *
-     * <p>Zhuan 当前接口未返回发言和 suspended 状态，因此对应字段保持未知，
-     * 不把未知状态伪装为正常。</p>
+     * <p>Zhuan 当前接口返回仅管理员发言状态，但仍不返回 suspended 状态，
+     * 未知字段保持为空，不把未知状态伪装为正常。</p>
      *
      * @param data Android 原生响应 Data
      * @param groupJids 待查询群 JID，输出保持该顺序
@@ -105,7 +126,7 @@ public final class AndroidAccountParticipatingGroupMapper {
                     text(group.get(SUBJECT_FIELD)),
                     participants.size(),
                     selfRole(participants, selfPhone),
-                    null,
+                    booleanValue(group.get(ANNOUNCE_ONLY_FIELD)),
                     false);
         } catch (ProtocolException ex) {
             return new AccountGroupMetadataSummaryResult(
@@ -211,6 +232,25 @@ public final class AndroidAccountParticipatingGroupMapper {
 
     private static String text(JsonNode node) {
         return node == null || node.isNull() ? null : text(node.asText());
+    }
+
+    private static Boolean booleanValue(JsonNode node) {
+        return node == null || node.isNull() || !node.isBoolean()
+                ? null
+                : node.booleanValue();
+    }
+
+    private static Long longValue(JsonNode node) {
+        String value = text(node);
+        if (value == null) {
+            return null;
+        }
+        try {
+            long parsed = Long.parseLong(value);
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private static String text(String value) {

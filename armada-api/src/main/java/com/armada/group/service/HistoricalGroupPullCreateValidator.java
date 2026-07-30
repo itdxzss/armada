@@ -1,7 +1,6 @@
 package com.armada.group.service;
 
 import com.armada.account.service.AccountGroupService;
-import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.HistoricalGroupPullCreateDTO;
 import com.armada.group.model.vo.HistoricalGroupDetailVO;
 import com.armada.shared.exception.BusinessException;
@@ -14,22 +13,18 @@ public class HistoricalGroupPullCreateValidator {
 
     private static final int PARTICIPANT_BATCH_MAX_SIZE = 50;
 
-    private final AccountProtocolLookupService accountLookupService;
     private final AccountGroupService accountGroupService;
     private final HistoricalGroupService historicalGroupService;
 
     /**
      * 创建资源校验器。
      *
-     * @param accountLookupService 当前租户账号只读服务
      * @param accountGroupService  当前租户账号分组服务
-     * @param historicalGroupService baseline 与实时群详情服务
+     * @param historicalGroupService 账号组历史范围与实时群详情服务
      */
     public HistoricalGroupPullCreateValidator(
-            AccountProtocolLookupService accountLookupService,
             AccountGroupService accountGroupService,
             HistoricalGroupService historicalGroupService) {
-        this.accountLookupService = accountLookupService;
         this.accountGroupService = accountGroupService;
         this.historicalGroupService = historicalGroupService;
     }
@@ -38,21 +33,18 @@ public class HistoricalGroupPullCreateValidator {
      * 校验创建参数和当前租户资源，并从服务端重新读取邀请链接。
      *
      * <p>不检查 {@code operationAllowed}：该字段只约束管理员成员操作，拉手踩链接拉人
-     * 只要求目标属于 baseline 且服务端此刻能取到非空邀请链接。</p>
+     * 只要求目标属于账号组历史范围且服务端此刻能取到非空邀请链接。</p>
      *
      * @param request 创建元数据
      * @return 含 fresh 群名和邀请链接的实时详情
-     * @throws BusinessException 参数、账号、分组、baseline 或邀请链接不合法时抛出
+     * @throws BusinessException 参数、账号组、历史群范围或邀请链接不合法时抛出
      */
     public HistoricalGroupDetailVO validateAndLoadFreshDetail(HistoricalGroupPullCreateDTO request) {
         validateFields(request);
-        accountLookupService.findActiveProtocolRef(request.operationAccountId())
-                .orElseThrow(() -> new BusinessException(
-                        ErrorCode.NOT_FOUND,
-                        "操作账号不存在或协议身份不完整: " + request.operationAccountId()));
+        accountGroupService.requireExisting(request.sourceAccountGroupId());
         accountGroupService.requireExisting(request.pullerAccountGroupId());
         HistoricalGroupDetailVO detail = historicalGroupService.getHistoricalGroupDetail(
-                request.operationAccountId(), request.groupJid().trim());
+                request.sourceAccountGroupId(), request.groupJid().trim());
         if (!detail.linkAvailable() || !hasText(detail.inviteUrl())) {
             throw new BusinessException(ErrorCode.VALIDATION, "当前无法取得群邀请链接，不能创建拉人执行");
         }
@@ -63,8 +55,8 @@ public class HistoricalGroupPullCreateValidator {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "创建参数不能为空");
         }
-        if (request.operationAccountId() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "操作账号 ID 不能为空");
+        if (request.sourceAccountGroupId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "来源账号组 ID 不能为空");
         }
         if (!hasText(request.groupJid())) {
             throw new BusinessException(ErrorCode.VALIDATION, "目标群 JID 不能为空");

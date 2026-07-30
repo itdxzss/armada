@@ -13,6 +13,7 @@ public class HistoricalGroupPullExecution {
     private Long createdBy;
     private String idempotencyKey;
     private Long operationAccountId;
+    private Long sourceAccountGroupId;
     private String groupJid;
     private String groupSubjectSnapshot;
     private String inviteLink;
@@ -48,6 +49,10 @@ public class HistoricalGroupPullExecution {
     public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
     public Long getOperationAccountId() { return operationAccountId; }
     public void setOperationAccountId(Long operationAccountId) { this.operationAccountId = operationAccountId; }
+    public Long getSourceAccountGroupId() { return sourceAccountGroupId; }
+    public void setSourceAccountGroupId(Long sourceAccountGroupId) {
+        this.sourceAccountGroupId = sourceAccountGroupId;
+    }
     public String getGroupJid() { return groupJid; }
     public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
     public String getGroupSubjectSnapshot() { return groupSubjectSnapshot; }

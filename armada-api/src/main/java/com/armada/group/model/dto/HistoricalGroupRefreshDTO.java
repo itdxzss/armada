@@ -3,7 +3,7 @@ package com.armada.group.model.dto;
 /**
  * 历史群手动刷新请求。
  *
- * @param accountId 当前租户操作账号 ID
+ * @param accountGroupId 当前租户账号组 ID
  */
-public record HistoricalGroupRefreshDTO(Long accountId) {
+public record HistoricalGroupRefreshDTO(Long accountGroupId) {
 }

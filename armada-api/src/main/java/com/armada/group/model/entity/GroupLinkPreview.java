@@ -30,6 +30,9 @@ public class GroupLinkPreview {
     /** 是否仅管理员可发言:NULL=未知 0=否 1=是。 */
     private Boolean announceOnly;
 
+    /** WhatsApp 群创建时间(Unix 秒)。 */
+    private Long groupCreatedAt;
+
     /** 群头像 URL。 */
     private String avatarUrl;
 
@@ -112,6 +115,14 @@ public class GroupLinkPreview {
 
     public void setAnnounceOnly(Boolean announceOnly) {
         this.announceOnly = announceOnly;
+    }
+
+    public Long getGroupCreatedAt() {
+        return groupCreatedAt;
+    }
+
+    public void setGroupCreatedAt(Long groupCreatedAt) {
+        this.groupCreatedAt = groupCreatedAt;
     }
 
     public String getAvatarUrl() {

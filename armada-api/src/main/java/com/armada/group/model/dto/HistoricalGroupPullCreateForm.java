@@ -11,23 +11,48 @@ import org.springframework.web.multipart.MultipartFile;
 public class HistoricalGroupPullCreateForm {
 
     private MultipartFile file;
-    private Long operationAccountId;
+    private Long sourceAccountGroupId;
     private String groupJid;
     private Long pullerAccountGroupId;
     private Integer singleAddCount;
     private String idempotencyKey;
 
+    /** @return 上传的拉群料子文件 */
     public MultipartFile getFile() { return file; }
+
+    /** @param file 上传的拉群料子文件 */
     public void setFile(MultipartFile file) { this.file = file; }
-    public Long getOperationAccountId() { return operationAccountId; }
-    public void setOperationAccountId(Long operationAccountId) { this.operationAccountId = operationAccountId; }
+
+    /** @return 来源历史群账号组 ID */
+    public Long getSourceAccountGroupId() { return sourceAccountGroupId; }
+
+    /** @param sourceAccountGroupId 来源历史群账号组 ID */
+    public void setSourceAccountGroupId(Long sourceAccountGroupId) {
+        this.sourceAccountGroupId = sourceAccountGroupId;
+    }
+
+    /** @return 目标群 JID */
     public String getGroupJid() { return groupJid; }
+
+    /** @param groupJid 目标群 JID */
     public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
+
+    /** @return 拉手账号组 ID */
     public Long getPullerAccountGroupId() { return pullerAccountGroupId; }
+
+    /** @param value 拉手账号组 ID */
     public void setPullerAccountGroupId(Long value) { this.pullerAccountGroupId = value; }
+
+    /** @return 单次拉人数量 */
     public Integer getSingleAddCount() { return singleAddCount; }
+
+    /** @param singleAddCount 单次拉人数量 */
     public void setSingleAddCount(Integer singleAddCount) { this.singleAddCount = singleAddCount; }
+
+    /** @return 幂等键 */
     public String getIdempotencyKey() { return idempotencyKey; }
+
+    /** @param idempotencyKey 幂等键 */
     public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
 
     /**
@@ -37,6 +62,6 @@ public class HistoricalGroupPullCreateForm {
      */
     public HistoricalGroupPullCreateDTO toDTO() {
         return new HistoricalGroupPullCreateDTO(
-                operationAccountId, groupJid, pullerAccountGroupId, singleAddCount, idempotencyKey);
+                sourceAccountGroupId, groupJid, pullerAccountGroupId, singleAddCount, idempotencyKey);
     }
 }

@@ -74,7 +74,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
         service = new HistoricalGroupPullExecutionServiceImpl(
                 parser,
                 new HistoricalGroupPullCreateValidator(
-                        accountLookupService, accountGroupService, historicalGroupService),
+                        accountGroupService, historicalGroupService),
                 accountLookupService,
                 executionMapper,
                 memberMapper,
@@ -100,7 +100,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
     void requiresFreshNonEmptyInviteButDoesNotRequireOperationAccountToBeAdmin() {
         HistoricalGroupPullCreateDTO request = request(10, "fresh-link");
         prepareOwnership(request);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-invite", true, false));
         when(parser.parse(any())).thenReturn(parseResult());
         when(accountLookupService.findActiveProtocolRefsByPhones(List.of("8613900000002")))
@@ -119,13 +119,15 @@ class HistoricalGroupPullExecutionServiceImplTest {
         verify(executionMapper).insert(executionCaptor.capture());
         assertThat(executionCaptor.getValue().getInviteLink()).isEqualTo("fresh-invite");
         assertThat(executionCaptor.getValue().getGroupSubjectSnapshot()).isEqualTo("fresh-subject");
+        assertThat(executionCaptor.getValue().getSourceAccountGroupId()).isEqualTo(201L);
+        assertThat(executionCaptor.getValue().getOperationAccountId()).isEqualTo(101L);
     }
 
     @Test
     void rejectsUnavailableOrBlankServerInviteLink() {
         HistoricalGroupPullCreateDTO request = request(10, "missing-link");
         prepareOwnership(request);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail(" ", true, true));
 
         assertThatThrownBy(() -> service.create(request, file()))
@@ -138,7 +140,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
     void rejectsInviteWhenServerMarksLinkUnavailableEvenIfTextIsPresent() {
         HistoricalGroupPullCreateDTO request = request(10, "unavailable-link");
         prepareOwnership(request);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("stale-looking-link", false, false));
 
         assertThatThrownBy(() -> service.create(request, file()))
@@ -151,7 +153,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
     void persistsMarketingFirstAndMatchesMarketingAccountsInOneBatch() {
         HistoricalGroupPullCreateDTO request = request(10, "create-members");
         prepareOwnership(request);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-invite", true, true));
         when(parser.parse(any())).thenReturn(parseResult());
         ProtocolAccountRef marketingAccount =
@@ -206,7 +208,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
         HistoricalGroupPullCreateDTO request = request(10, "concurrent-key");
         HistoricalGroupPullExecution winner = execution(904L, request);
         prepareOwnership(request);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-invite", true, false));
         when(parser.parse(any())).thenReturn(parseResult());
         when(accountLookupService.findActiveProtocolRefsByPhones(List.of("8613900000002")))
@@ -235,7 +237,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
         prepareOwnership(request);
         when(executionMapper.selectByTenantAndId(TENANT_ID, 905L))
                 .thenReturn(pending, running);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-start-link", true, false));
         when(executionMapper.claimStatus(
                 org.mockito.ArgumentMatchers.eq(905L),
@@ -250,7 +252,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
         assertThat(result.pullStatus()).isEqualTo(HistoricalGroupPullStatus.RUNNING);
         assertThat(result.inviteUrl()).isEqualTo("persisted-create-link");
         verify(historicalGroupService).getHistoricalGroupDetail(
-                request.operationAccountId(), request.groupJid());
+                request.sourceAccountGroupId(), request.groupJid());
         verify(dispatchTrigger).dispatchAfterCommit(TENANT_ID, 905L);
     }
 
@@ -280,7 +282,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
         HistoricalGroupPullExecution pending = execution(907L, request);
         prepareOwnership(request);
         when(executionMapper.selectByTenantAndId(TENANT_ID, 907L)).thenReturn(pending);
-        when(historicalGroupService.getHistoricalGroupDetail(request.operationAccountId(), request.groupJid()))
+        when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-start-link", true, false));
         when(executionMapper.claimStatus(
                 org.mockito.ArgumentMatchers.eq(907L),
@@ -316,8 +318,8 @@ class HistoricalGroupPullExecutionServiceImplTest {
     private void prepareOwnership(HistoricalGroupPullCreateDTO request) {
         ProtocolAccountRef operationAccount =
                 new ProtocolAccountRef(101L, ProtocolBackend.WEB, "operation-101", "8613700000101");
-        when(accountLookupService.findActiveProtocolRef(request.operationAccountId()))
-                .thenReturn(Optional.of(operationAccount));
+        when(accountGroupService.requireExisting(request.sourceAccountGroupId()))
+                .thenReturn(new AccountGroup());
         when(accountGroupService.requireExisting(request.pullerAccountGroupId()))
                 .thenReturn(new AccountGroup());
     }
@@ -360,7 +362,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
 
     private static HistoricalGroupPullCreateDTO request(int singleAddCount, String idempotencyKey) {
         return new HistoricalGroupPullCreateDTO(
-                101L, "120363test@g.us", 301L, singleAddCount, idempotencyKey);
+                201L, "120363test@g.us", 301L, singleAddCount, idempotencyKey);
     }
 
     private static HistoricalGroupPullExecution execution(
@@ -370,7 +372,8 @@ class HistoricalGroupPullExecutionServiceImplTest {
         row.setId(id);
         row.setTenantId(TENANT_ID);
         row.setIdempotencyKey(request.idempotencyKey());
-        row.setOperationAccountId(request.operationAccountId());
+        row.setSourceAccountGroupId(request.sourceAccountGroupId());
+        row.setOperationAccountId(101L);
         row.setGroupJid(request.groupJid());
         row.setPullerAccountGroupId(request.pullerAccountGroupId());
         row.setSingleAddCount(request.singleAddCount());

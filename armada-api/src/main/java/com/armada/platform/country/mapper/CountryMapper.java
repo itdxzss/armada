@@ -27,6 +27,13 @@ public interface CountryMapper {
     List<Country> selectIpSupported();
 
     /**
+     * 查询全部启用国家/地区,不受 IP 管理支持标记限制。
+     *
+     * @return 按 sort_order,id 排序的启用国家列表
+     */
+    List<Country> selectActive();
+
+    /**
      * 按二字母国家/地区码查询启用国家。
      *
      * @param iso2 ISO/CLDR 二字母国家/地区码,大写

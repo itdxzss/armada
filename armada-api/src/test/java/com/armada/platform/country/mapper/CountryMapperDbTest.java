@@ -40,6 +40,15 @@ class CountryMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void selectActive_returnsAllEnabledCountriesInSortOrder() {
+        List<Country> rows = mapper.selectActive();
+
+        assertThat(rows).hasSize(248);
+        assertThat(rows.get(0).getIso2()).isEqualTo("AF");
+        assertThat(rows).allSatisfy(row -> assertThat(row.getPhonePrefix()).isNotBlank());
+    }
+
+    @Test
     void selectActiveByIso2AndNameZh_ignoreTenantInterceptor() {
         Country byIso2 = mapper.selectActiveByIso2("IN");
         Country byName = mapper.selectActiveByNameZh("印度");

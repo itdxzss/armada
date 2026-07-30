@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 账号可见群关系快照写入服务。
@@ -70,6 +71,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AccountGroupMembershipChangeSet replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
@@ -248,6 +250,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                     preview.getMemberSize(),
                     preview.getOwnerPhone(),
                     preview.getAnnounceOnly(),
+                    preview.getGroupCreatedAt(),
                     preview.getAvatarUrl(),
                     preview.getLastPreviewAt(),
                     preview.getUpdatedAt());
@@ -263,6 +266,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         preview.setMemberSize(group.memberCount());
         preview.setOwnerPhone(clamp(ownerPhone(group), OWNER_PHONE_MAX_LENGTH));
         preview.setAnnounceOnly(group.announceOnly());
+        preview.setGroupCreatedAt(group.groupCreatedAt());
         preview.setAvatarUrl(clamp(blankToNull(group.avatarUrl()), AVATAR_URL_MAX_LENGTH));
         preview.setLastPreviewAt(syncAt);
         preview.setCreatedAt(now);

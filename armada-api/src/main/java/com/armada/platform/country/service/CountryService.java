@@ -50,6 +50,18 @@ public interface CountryService {
     Map<String, String> resolveIpRegionsByPhonePrefix(Collection<String> wsPhones);
 
     /**
+     * 批量按 WhatsApp 手机号解析启用国家展示信息。
+     *
+     * <p>该方法用于群创建者等通用号码识别,不受国家是否支持 IP 管理的标记限制。
+     * 同时存在多个可匹配区号时取最长前缀。</p>
+     *
+     * @param wsPhones WhatsApp 手机号或 JID 集合
+     * @return 原手机号到国家展示引用的映射;未匹配时 value 为 null
+     */
+    Map<String, CountryReferenceVO> resolveActiveCountriesByPhonePrefix(
+            Collection<String> wsPhones);
+
+    /**
      * 按检测出的 ISO2 国家码解析为 IP 代理池 region 中文快照。
      *
      * @param iso2 检测出的二字母国家码

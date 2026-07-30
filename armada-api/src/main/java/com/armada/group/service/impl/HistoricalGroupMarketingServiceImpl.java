@@ -91,7 +91,7 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
         }
 
         HistoricalGroupDetailVO detail = historicalGroupService.getHistoricalGroupDetail(
-                execution.getOperationAccountId(), execution.getGroupJid());
+                execution.getSourceAccountGroupId(), execution.getGroupJid());
         requireLink(detail);
         MarketingComposedMessageVO message = messageCompositionService.compose(templateId);
         long now = System.currentTimeMillis();

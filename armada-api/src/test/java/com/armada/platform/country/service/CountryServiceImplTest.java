@@ -9,6 +9,7 @@ import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.impl.CountryServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -95,6 +96,26 @@ class CountryServiceImplTest {
                 .containsEntry("16841234567@s.whatsapp.net", "美属萨摩亚")
                 .containsEntry("8613812345678", null);
         verify(mapper).selectIpSupported();
+    }
+
+    @Test
+    void resolveActiveCountriesByPhonePrefix_usesAllActiveCountriesAndLongestPrefix() {
+        when(mapper.selectActive()).thenReturn(List.of(
+                country("US", "美国", "+1", "🇺🇸"),
+                country("AS", "美属萨摩亚", "+1-684", "🇦🇸"),
+                country("CN", "中国", "+86", "🇨🇳")));
+
+        Map<String, CountryReferenceVO> result = service.resolveActiveCountriesByPhonePrefix(
+                List.of("16841234567@s.whatsapp.net", "+86 13800000000", "999"));
+
+        assertThat(result.get("16841234567@s.whatsapp.net"))
+                .extracting(CountryReferenceVO::iso2, CountryReferenceVO::nameZh)
+                .containsExactly("AS", "美属萨摩亚");
+        assertThat(result.get("+86 13800000000"))
+                .extracting(CountryReferenceVO::iso2, CountryReferenceVO::flag)
+                .containsExactly("CN", "🇨🇳");
+        assertThat(result).containsEntry("999", null);
+        verify(mapper).selectActive();
     }
 
     @Test

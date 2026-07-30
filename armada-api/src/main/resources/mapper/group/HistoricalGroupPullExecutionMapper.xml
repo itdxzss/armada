@@ -3,7 +3,8 @@
 <mapper namespace="com.armada.group.mapper.HistoricalGroupPullExecutionMapper">
 
   <sql id="Columns">
-    id, tenant_id, created_by, idempotency_key, operation_account_id, group_jid,
+    id, tenant_id, created_by, idempotency_key, operation_account_id,
+    source_account_group_id, group_jid,
     group_subject_snapshot, invite_link, puller_account_group_id, puller_account_id,
     single_add_count, marketing_template_id, normal_count, marketing_count, invalid_count,
     duplicate_count, pull_success_count, pull_failure_count, send_success_count,
@@ -14,14 +15,14 @@
   <!-- tenant_id 由租户拦截器注入；(tenant_id,idempotency_key) 是创建幂等边界。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO historical_group_pull_execution (
-      created_by, idempotency_key, operation_account_id, group_jid,
+      created_by, idempotency_key, operation_account_id, source_account_group_id, group_jid,
       group_subject_snapshot, invite_link, puller_account_group_id, puller_account_id,
       single_add_count, marketing_template_id, normal_count, marketing_count, invalid_count,
       duplicate_count, pull_success_count, pull_failure_count, send_success_count,
       send_failure_count, pull_status, marketing_status, failure_stage, error_code,
       error_message, started_at, finished_at, created_at, updated_at
     ) VALUES (
-      #{createdBy}, #{idempotencyKey}, #{operationAccountId}, #{groupJid},
+      #{createdBy}, #{idempotencyKey}, #{operationAccountId}, #{sourceAccountGroupId}, #{groupJid},
       #{groupSubjectSnapshot}, #{inviteLink}, #{pullerAccountGroupId}, #{pullerAccountId},
       #{singleAddCount}, #{marketingTemplateId}, COALESCE(#{normalCount}, 0),
       COALESCE(#{marketingCount}, 0), COALESCE(#{invalidCount}, 0),
@@ -70,16 +71,24 @@
     FOR UPDATE
   </select>
 
-  <select id="selectLatestByTenantAccountAndGroup"
+  <select id="selectLatestByTenantSourceGroupAndGroup"
           resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
     SELECT <include refid="Columns"/>
     FROM historical_group_pull_execution
     WHERE tenant_id = #{tenantId}
-      AND operation_account_id = #{operationAccountId}
+      AND source_account_group_id = #{sourceAccountGroupId}
       AND group_jid = #{groupJid}
     ORDER BY created_at DESC, id DESC
     LIMIT 1
   </select>
+
+  <update id="updateOperationAccountIfPending">
+    UPDATE historical_group_pull_execution
+    SET operation_account_id = #{operationAccountId},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND pull_status = #{pendingStatus}
+  </update>
 
   <!-- 只有一个 worker 能把期望态推进到目标态。 -->
   <update id="claimStatus">

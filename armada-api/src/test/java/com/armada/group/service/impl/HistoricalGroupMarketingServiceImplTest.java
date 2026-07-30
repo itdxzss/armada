@@ -135,7 +135,7 @@ class HistoricalGroupMarketingServiceImplTest {
     @Test
     void rejectsUnavailableLinkBeforeClaimAndEnqueuesNothing() {
         members.add(member(11L, "8613900000011", true));
-        when(historicalGroupService.getHistoricalGroupDetail(101L, "120363target@g.us"))
+        when(historicalGroupService.getHistoricalGroupDetail(201L, "120363target@g.us"))
                 .thenReturn(detail(false, null));
 
         assertThatThrownBy(() -> service.send(
@@ -209,7 +209,7 @@ class HistoricalGroupMarketingServiceImplTest {
     @Test
     void duplicateOrConcurrentRequestThatLosesClaimNeverEnqueuesAgain() {
         members.add(member(11L, "8613900000011", true));
-        when(historicalGroupService.getHistoricalGroupDetail(101L, "120363target@g.us"))
+        when(historicalGroupService.getHistoricalGroupDetail(201L, "120363target@g.us"))
                 .thenReturn(detail(true, "https://chat.whatsapp.com/fresh"));
         when(messageCompositionService.compose(TEMPLATE_ID)).thenReturn(textMessage());
         when(executionMapper.claimMarketingIfNotStarted(
@@ -263,7 +263,7 @@ class HistoricalGroupMarketingServiceImplTest {
     }
 
     private void prepareGateAndClaim() {
-        when(historicalGroupService.getHistoricalGroupDetail(101L, "120363target@g.us"))
+        when(historicalGroupService.getHistoricalGroupDetail(201L, "120363target@g.us"))
                 .thenReturn(detail(true, "https://chat.whatsapp.com/fresh"));
         when(messageCompositionService.compose(TEMPLATE_ID)).thenReturn(textMessage());
         when(executionMapper.claimMarketingIfNotStarted(
@@ -304,6 +304,7 @@ class HistoricalGroupMarketingServiceImplTest {
         row.setId(EXECUTION_ID);
         row.setTenantId(TENANT_ID);
         row.setOperationAccountId(101L);
+        row.setSourceAccountGroupId(201L);
         row.setGroupJid("120363target@g.us");
         row.setPullStatus(HistoricalGroupPullStatus.SUCCESS.code());
         row.setMarketingStatus(HistoricalGroupMarketingStatus.NOT_STARTED.code());

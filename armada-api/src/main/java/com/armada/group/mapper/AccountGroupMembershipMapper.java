@@ -6,6 +6,12 @@ import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.model.vo.HistoricalGroupAccountPhoneRow;
+import com.armada.group.model.vo.HistoricalGroupPageRow;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -13,6 +19,125 @@ import org.apache.ibatis.annotations.Param;
 /** 账号群关系当前状态数据访问。 */
 @Mapper
 public interface AccountGroupMembershipMapper {
+
+    /**
+     * 统计当前租户账号组历史群并集。
+     *
+     * @param accountGroupId 账号组 ID
+     * @return 可展示的去重历史群数量
+     */
+    default long countHistoricalGroupsByAccountGroup(Long accountGroupId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return countHistoricalGroupsByTenantAndAccountGroup(tenantId, accountGroupId);
+    }
+
+    /** 显式租户版历史群统计,用于绕过 JSON_TABLE 的租户 SQL 自动改写。 */
+    @InterceptorIgnore(tenantLine = "true")
+    long countHistoricalGroupsByTenantAndAccountGroup(
+            @Param("tenantId") Long tenantId,
+            @Param("accountGroupId") Long accountGroupId);
+
+    /**
+     * 分页读取当前租户账号组历史群并集。
+     *
+     * @param accountGroupId 账号组 ID
+     * @param offset SQL 偏移量
+     * @param pageSize 每页数量
+     * @return 群级聚合行
+     */
+    default List<HistoricalGroupPageRow> selectHistoricalGroupPageByAccountGroup(
+            Long accountGroupId,
+            int offset,
+            int pageSize) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectHistoricalGroupPageByTenantAndAccountGroup(
+                tenantId,
+                accountGroupId,
+                offset,
+                pageSize);
+    }
+
+    /** 显式租户版历史群分页,用于绕过 JSON_TABLE 的租户 SQL 自动改写。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<HistoricalGroupPageRow> selectHistoricalGroupPageByTenantAndAccountGroup(
+            @Param("tenantId") Long tenantId,
+            @Param("accountGroupId") Long accountGroupId,
+            @Param("offset") int offset,
+            @Param("pageSize") int pageSize);
+
+    /**
+     * 批量读取当前页历史群的关联账号号码。
+     *
+     * <p>当前真实在群账号优先；尚无当前在群事实时，调用方使用 baseline 账号作为离线展示兜底。</p>
+     *
+     * @param accountGroupId 账号组 ID
+     * @param groupJids 当前页群 JID
+     * @return 群与账号号码关系
+     */
+    default List<HistoricalGroupAccountPhoneRow> selectHistoricalGroupAccountPhonesByAccountGroup(
+            Long accountGroupId,
+            List<String> groupJids) {
+        if (groupJids == null || groupJids.isEmpty()) {
+            return List.of();
+        }
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectHistoricalGroupAccountPhonesByTenantAndAccountGroup(
+                tenantId, accountGroupId, groupJids);
+    }
+
+    /** 显式租户版历史群关联账号查询,用于绕过 JSON_TABLE 的租户 SQL 自动改写。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<HistoricalGroupAccountPhoneRow> selectHistoricalGroupAccountPhonesByTenantAndAccountGroup(
+            @Param("tenantId") Long tenantId,
+            @Param("accountGroupId") Long accountGroupId,
+            @Param("groupJids") List<String> groupJids);
+
+    /** 判断群 JID 是否属于账号组内任一账号的历史 baseline。 */
+    default boolean existsHistoricalGroupByAccountGroup(
+            Long accountGroupId,
+            String groupJid) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return existsHistoricalGroupByTenantAndAccountGroup(
+                tenantId, accountGroupId, groupJid);
+    }
+
+    /** 显式租户版历史群范围判断。 */
+    @InterceptorIgnore(tenantLine = "true")
+    boolean existsHistoricalGroupByTenantAndAccountGroup(
+            @Param("tenantId") Long tenantId,
+            @Param("accountGroupId") Long accountGroupId,
+            @Param("groupJid") String groupJid);
+
+    /** 从账号组内选择在线、正常且仍在群内的管理员账号。 */
+    default GroupExecutionAccount selectHistoricalGroupExecutionAccount(
+            Long accountGroupId,
+            String groupJid) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectHistoricalGroupExecutionAccountByTenant(
+                tenantId, accountGroupId, groupJid);
+    }
+
+    /** 显式租户版历史群管理员选择。 */
+    @InterceptorIgnore(tenantLine = "true")
+    GroupExecutionAccount selectHistoricalGroupExecutionAccountByTenant(
+            @Param("tenantId") Long tenantId,
+            @Param("accountGroupId") Long accountGroupId,
+            @Param("groupJid") String groupJid);
 
     /**
      * 查询账号群 baseline 状态。
@@ -117,6 +242,7 @@ public interface AccountGroupMembershipMapper {
      * @param memberSize   群人数,可空
      * @param ownerPhone   群主号码,可空
      * @param announceOnly 是否仅管理员发言,可空
+     * @param groupCreatedAt WhatsApp 群创建时间,Unix 秒;可空
      * @param avatarUrl    群头像 URL,可空
      * @param syncAt       同步时间(epoch 毫秒)
      * @param now          写入时间(epoch 毫秒)
@@ -128,6 +254,7 @@ public interface AccountGroupMembershipMapper {
                                      @Param("memberSize") Integer memberSize,
                                      @Param("ownerPhone") String ownerPhone,
                                      @Param("announceOnly") Boolean announceOnly,
+                                     @Param("groupCreatedAt") Long groupCreatedAt,
                                      @Param("avatarUrl") String avatarUrl,
                                      @Param("syncAt") long syncAt,
                                      @Param("now") long now);

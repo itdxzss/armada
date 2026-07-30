@@ -30,11 +30,18 @@ public interface HistoricalGroupPullExecutionMapper {
             @Param("tenantId") Long tenantId,
             @Param("idempotencyKey") String idempotencyKey);
 
-    /** 按固定操作账号和目标群查询最近创建的执行。 */
-    HistoricalGroupPullExecution selectLatestByTenantAccountAndGroup(
+    /** 按来源账号组和目标群查询最近创建的执行。 */
+    HistoricalGroupPullExecution selectLatestByTenantSourceGroupAndGroup(
             @Param("tenantId") Long tenantId,
-            @Param("operationAccountId") Long operationAccountId,
+            @Param("sourceAccountGroupId") Long sourceAccountGroupId,
             @Param("groupJid") String groupJid);
+
+    /** 启动前把本次重新选择的管理员账号写入待执行记录。 */
+    int updateOperationAccountIfPending(
+            @Param("id") Long id,
+            @Param("operationAccountId") Long operationAccountId,
+            @Param("pendingStatus") int pendingStatus,
+            @Param("updatedAt") long updatedAt);
 
     /** 以期望状态为前置条件原子认领执行。 */
     int claimStatus(@Param("id") Long id,

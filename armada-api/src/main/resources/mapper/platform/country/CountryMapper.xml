@@ -23,6 +23,14 @@
     ORDER BY sort_order ASC, id ASC
   </select>
 
+  <select id="selectActive" resultType="com.armada.platform.country.model.entity.Country">
+    SELECT <include refid="Columns"/>
+    FROM country
+    WHERE deleted_at IS NULL
+      AND is_enabled = 1
+    ORDER BY sort_order ASC, id ASC
+  </select>
+
   <select id="selectActiveByIso2" resultType="com.armada.platform.country.model.entity.Country">
     SELECT <include refid="Columns"/>
     FROM country

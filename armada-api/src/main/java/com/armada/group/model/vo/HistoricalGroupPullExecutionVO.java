@@ -13,7 +13,8 @@ import java.util.List;
  *
  * @param id                    执行 ID
  * @param idempotencyKey        创建幂等键
- * @param operationAccountId    固定操作账号 ID
+ * @param operationAccountId    后端自动选择的实际执行账号 ID
+ * @param sourceAccountGroupId  来源历史群账号组 ID
  * @param groupJid              目标群 JID
  * @param groupSubject          创建时实时群名快照
  * @param inviteUrl             创建时服务端实时邀请链接
@@ -46,6 +47,7 @@ public record HistoricalGroupPullExecutionVO(
         Long id,
         String idempotencyKey,
         Long operationAccountId,
+        Long sourceAccountGroupId,
         String groupJid,
         String groupSubject,
         String inviteUrl,

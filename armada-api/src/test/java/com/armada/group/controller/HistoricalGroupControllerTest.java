@@ -11,10 +11,14 @@ import com.armada.group.model.enums.HistoricalGroupMembershipState;
 import com.armada.group.model.enums.HistoricalGroupSelfRole;
 import com.armada.group.model.enums.RoleCategory;
 import com.armada.group.model.enums.SpeechState;
+import com.armada.group.model.dto.HistoricalGroupQuery;
 import com.armada.group.model.vo.HistoricalGroupDetailVO;
 import com.armada.group.model.vo.HistoricalGroupItemVO;
 import com.armada.group.model.vo.HistoricalGroupParticipantActionVO;
 import com.armada.group.service.HistoricalGroupService;
+import com.armada.group.service.impl.HistoricalGroupAccountGroupQueryService;
+import com.armada.group.service.impl.HistoricalGroupAccountGroupRefreshService;
+import com.armada.shared.response.PageResult;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,49 +35,59 @@ class HistoricalGroupControllerTest {
     @Mock
     private HistoricalGroupService historicalGroupService;
 
+    @Mock
+    private HistoricalGroupAccountGroupQueryService queryService;
+
+    @Mock
+    private HistoricalGroupAccountGroupRefreshService refreshService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new HistoricalGroupController(historicalGroupService))
+                .standaloneSetup(new HistoricalGroupController(
+                        historicalGroupService, queryService, refreshService))
                 .build();
     }
 
     @Test
-    void listUsesAccountIdQueryAndReturnsApiResponse() throws Exception {
-        when(historicalGroupService.listHistoricalGroups(7L)).thenReturn(List.of(item(
-                HistoricalGroupMembershipState.UNVERIFIED,
-                null)));
+    void listUsesAccountGroupAndPaginationQueryAndReturnsPageResult() throws Exception {
+        when(queryService.list(org.mockito.ArgumentMatchers.any())).thenReturn(PageResult.of(
+                List.of(item(HistoricalGroupMembershipState.UNVERIFIED, null)),
+                2,
+                20,
+                21));
 
-        mockMvc.perform(get("/api/historical-groups").param("accountId", "7"))
+        mockMvc.perform(get("/api/historical-groups")
+                        .param("accountGroupId", "7")
+                        .param("page", "2")
+                        .param("pageSize", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.message").value("ok"))
-                .andExpect(jsonPath("$.data[0].groupJid").value("120363history@g.us"))
-                .andExpect(jsonPath("$.data[0].membershipState").value("UNVERIFIED"));
+                .andExpect(jsonPath("$.data.list[0].groupJid").value("120363history@g.us"))
+                .andExpect(jsonPath("$.data.list[0].membershipState").value("UNVERIFIED"))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.total").value(21));
 
-        verify(historicalGroupService).listHistoricalGroups(7L);
+        verify(queryService).list(org.mockito.ArgumentMatchers.argThat(query ->
+                query.getAccountGroupId().equals(7L)
+                        && query.getPage() == 2
+                        && query.getPageSize() == 20));
     }
 
     @Test
-    void refreshUsesDtoAccountIdAndReturnsRequestScopedResult() throws Exception {
-        when(historicalGroupService.refreshHistoricalGroups(8L)).thenReturn(List.of(item(
-                HistoricalGroupMembershipState.CURRENT_IN_GROUP,
-                SpeechState.ADMIN_CAN_SPEAK)));
-
+    void refreshUsesOnlyAccountGroupId() throws Exception {
         mockMvc.perform(post("/api/historical-groups/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"accountId":8}
+                                {"accountGroupId":8}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data[0].membershipState").value("CURRENT_IN_GROUP"))
-                .andExpect(jsonPath("$.data[0].roleCategory").value("ADMIN"))
-                .andExpect(jsonPath("$.data[0].speechState").value("ADMIN_CAN_SPEAK"));
+                .andExpect(jsonPath("$.code").value(0));
 
-        verify(historicalGroupService).refreshHistoricalGroups(8L);
+        verify(refreshService).refresh(8L);
     }
 
     @Test
@@ -107,7 +121,7 @@ class HistoricalGroupControllerTest {
                 .thenReturn(detail);
 
         mockMvc.perform(get("/api/historical-groups/detail")
-                        .param("accountId", "17")
+                        .param("accountGroupId", "17")
                         .param("groupJid", "120363detail@g.us"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.inviteUrl").value("https://chat.whatsapp.com/current"))
@@ -139,7 +153,7 @@ class HistoricalGroupControllerTest {
                 .thenReturn(response);
         String body = """
                 {
-                  "accountId":17,
+                  "accountGroupId":17,
                   "groupJid":"120363detail@g.us",
                   "participantJids":["8613800000099@s.whatsapp.net"]
                 }
@@ -160,7 +174,7 @@ class HistoricalGroupControllerTest {
         }
 
         verify(historicalGroupService).promoteParticipants(org.mockito.ArgumentMatchers.argThat(
-                dto -> dto.accountId().equals(17L)
+                dto -> dto.accountGroupId().equals(17L)
                         && dto.groupJid().equals("120363detail@g.us")
                         && dto.participantJids().equals(List.of("8613800000099@s.whatsapp.net"))));
         verify(historicalGroupService).demoteParticipants(org.mockito.ArgumentMatchers.any());
@@ -173,12 +187,20 @@ class HistoricalGroupControllerTest {
         return new HistoricalGroupItemVO(
                 "120363history@g.us",
                 "历史群",
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
                 membershipState,
                 speechState == null ? null : RoleCategory.ADMIN,
                 speechState == null ? null : HistoricalGroupSelfRole.ADMIN,
                 speechState,
                 speechState == null ? null : 20,
                 speechState == null ? null : true,
+                false,
+                null,
                 null);
     }
 }

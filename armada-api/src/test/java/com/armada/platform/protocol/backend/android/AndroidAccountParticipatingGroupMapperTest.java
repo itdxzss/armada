@@ -27,6 +27,9 @@ class AndroidAccountParticipatingGroupMapperTest {
                   "GroupInfos": [{
                     "group_id": "120363admin@g.us",
                     "subject": "管理群",
+                    "creator": "919000000009@s.whatsapp.net",
+                    "creation": "1720000000",
+                    "announce_only": true,
                     "participants": [
                       {"jid":"919000000001:3@s.whatsapp.net","type":"admin"},
                       {"phone_number":"919000000002","type":"participant"}
@@ -41,7 +44,8 @@ class AndroidAccountParticipatingGroupMapperTest {
                 }
                 """);
 
-        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(data);
+        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(
+                data, "919000000001");
         List<AccountGroupMetadataSummaryResult> summaries = mapper.mapSummaries(
                 data,
                 List.of("120363owner@g.us", "120363missing@g.us", "120363admin@g.us"),
@@ -53,6 +57,18 @@ class AndroidAccountParticipatingGroupMapperTest {
         assertThat(groups)
                 .extracting(AccountParticipatingGroupResult.Group::subject)
                 .containsExactly("管理群", "群主群");
+        assertThat(groups.get(0)).satisfies(group -> {
+            assertThat(group.memberCount()).isEqualTo(2);
+            assertThat(group.ownerJid()).isEqualTo("919000000009@s.whatsapp.net");
+            assertThat(group.admin()).isTrue();
+            assertThat(group.announceOnly()).isTrue();
+            assertThat(group.createdAt()).isEqualTo(1720000000L);
+        });
+        assertThat(groups.get(1)).satisfies(group -> {
+            assertThat(group.admin()).isTrue();
+            assertThat(group.announceOnly()).isNull();
+            assertThat(group.createdAt()).isNull();
+        });
         assertThat(summaries)
                 .extracting(AccountGroupMetadataSummaryResult::groupJid)
                 .containsExactly(
@@ -89,7 +105,8 @@ class AndroidAccountParticipatingGroupMapperTest {
                 }
                 """);
 
-        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(data);
+        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(
+                data, "919000000001");
         List<AccountGroupMetadataSummaryResult> summaries = mapper.mapSummaries(
                 data,
                 List.of("120363000000000000@g.us"),
@@ -113,7 +130,7 @@ class AndroidAccountParticipatingGroupMapperTest {
                 ]}
                 """);
 
-        assertThatThrownBy(() -> mapper.mapGroups(data))
+        assertThatThrownBy(() -> mapper.mapGroups(data, "919000000001"))
                 .isInstanceOfSatisfying(ProtocolException.class, ex ->
                         assertThat(ex.errorCode())
                                 .isEqualTo(ProtocolErrorCode.ANDROID_RESPONSE_UNRECOGNIZED));
@@ -127,7 +144,7 @@ class AndroidAccountParticipatingGroupMapperTest {
                 ]}
                 """);
 
-        assertThatThrownBy(() -> mapper.mapGroups(data))
+        assertThatThrownBy(() -> mapper.mapGroups(data, "919000000001"))
                 .isInstanceOfSatisfying(ProtocolException.class, ex -> {
                     assertThat(ex.errorCode())
                             .isEqualTo(ProtocolErrorCode.ANDROID_RESPONSE_UNRECOGNIZED);

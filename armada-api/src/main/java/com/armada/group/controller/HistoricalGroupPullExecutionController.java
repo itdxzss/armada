@@ -65,16 +65,16 @@ public class HistoricalGroupPullExecutionController {
     }
 
     /**
-     * 查询固定操作账号与群最近一次执行；没有历史执行时 data 为 null。
+     * 查询来源账号组与群最近一次执行；没有历史执行时 data 为 null。
      *
-     * @param accountId 操作账号 ID
+     * @param sourceAccountGroupId 来源账号组 ID
      * @param groupJid  目标群 JID
      * @return 最近执行或空 data
      */
     @GetMapping("/latest")
     public ApiResponse<HistoricalGroupPullExecutionVO> latest(
-            @RequestParam Long accountId,
+            @RequestParam Long sourceAccountGroupId,
             @RequestParam String groupJid) {
-        return ApiResponse.ok(executionService.latest(accountId, groupJid).orElse(null));
+        return ApiResponse.ok(executionService.latest(sourceAccountGroupId, groupJid).orElse(null));
     }
 }

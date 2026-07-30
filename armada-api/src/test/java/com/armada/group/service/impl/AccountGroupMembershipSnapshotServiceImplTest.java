@@ -15,11 +15,13 @@ import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import java.lang.reflect.Method;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+import org.springframework.transaction.annotation.Transactional;
 
 class AccountGroupMembershipSnapshotServiceImplTest {
 
@@ -33,6 +35,25 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     private final AccountGroupMembershipSnapshotServiceImpl service =
             new AccountGroupMembershipSnapshotServiceImpl(
                     membershipMapper, groupLinkMapper, healthMapper, registryService);
+
+    @Test
+    void replaceVisibleGroupsUsesOneTransactionForAllSnapshotTables() throws Exception {
+        Method method = AccountGroupMembershipSnapshotServiceImpl.class.getMethod(
+                "replaceVisibleGroups",
+                Long.class,
+                List.class,
+                boolean.class,
+                long.class,
+                String.class,
+                String.class,
+                ProtocolBackend.class);
+
+        org.assertj.core.api.Assertions.assertThat(method.getAnnotation(Transactional.class))
+                .isNotNull()
+                .extracting(Transactional::rollbackFor)
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.ARRAY)
+                .contains(Exception.class);
+    }
 
     @Test
     void replaceVisibleGroups_usesGroupJidAsNewLinkNameWhenSubjectIsMissing() {
@@ -190,7 +211,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                 org.mockito.ArgumentMatchers.argThat(row -> row.getGroupLinkId().equals(30L)
                         && row.getLastCheckAt().equals(4_000L)));
         Mockito.verify(membershipMapper, Mockito.never()).upsertPreviewFromAccountSync(
-                any(), any(), any(), any(), any(), any(), any(), any(Long.class), any(Long.class));
+                any(), any(), any(), any(), any(), any(), any(), any(), any(Long.class), any(Long.class));
         Mockito.verify(healthMapper, Mockito.never()).upsertFromAccountGroupSync(any());
         Mockito.verify(membershipMapper, Mockito.never()).upsertMembership(any());
     }
@@ -295,7 +316,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         inOrder.verify(membershipMapper).upsertPreviewFromAccountSync(
                 org.mockito.ArgumentMatchers.eq(groupLinkId),
                 org.mockito.ArgumentMatchers.eq(groupJid),
-                any(), any(), any(), any(), any(), any(Long.class), any(Long.class));
+                any(), any(), any(), any(), any(), any(), any(Long.class), any(Long.class));
     }
 
     private void verifyHealthPersist(InOrder inOrder, Long groupLinkId) {

@@ -136,12 +136,35 @@ public class CountryServiceImpl implements CountryService {
         return result;
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public Map<String, CountryReferenceVO> resolveActiveCountriesByPhonePrefix(
+            Collection<String> wsPhones) {
+        if (wsPhones == null || wsPhones.isEmpty()) {
+            return Map.of();
+        }
+        List<Country> countries = mapper.selectActive();
+        Map<String, CountryReferenceVO> result = new LinkedHashMap<>();
+        for (String wsPhone : wsPhones) {
+            if (!result.containsKey(wsPhone)) {
+                Country matched = resolveCountryByPhonePrefix(wsPhone, countries);
+                result.put(wsPhone, matched == null ? null : toReference(matched));
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
     private static String resolveIpRegionByPhonePrefix(String wsPhone, List<Country> countries) {
+        Country matched = resolveCountryByPhonePrefix(wsPhone, countries);
+        return matched == null ? null : matched.getNameZh();
+    }
+
+    private static Country resolveCountryByPhonePrefix(String wsPhone, List<Country> countries) {
         String phoneDigits = digitsOnly(wsPhone);
         if (!StringUtils.hasText(phoneDigits)) {
             return null;
         }
-        String matchedRegion = null;
+        Country matchedCountry = null;
         int matchedPrefixLength = 0;
         for (Country country : countries) {
             String prefixDigits = digitsOnly(country.getPhonePrefix());
@@ -149,11 +172,11 @@ public class CountryServiceImpl implements CountryService {
                 continue;
             }
             if (prefixDigits.length() > matchedPrefixLength && phoneDigits.startsWith(prefixDigits)) {
-                matchedRegion = country.getNameZh();
+                matchedCountry = country;
                 matchedPrefixLength = prefixDigits.length();
             }
         }
-        return matchedRegion;
+        return matchedCountry;
     }
 
     /**

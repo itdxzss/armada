@@ -139,8 +139,14 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
         if (execution.getPullStatus() != HistoricalGroupPullStatus.PENDING.code()) {
             throw new BusinessException(ErrorCode.CONFLICT, "只有待执行状态可以启动");
         }
-        validator.validateAndLoadFreshDetail(startValidationRequest(execution));
+        HistoricalGroupDetailVO detail = validator.validateAndLoadFreshDetail(
+                startValidationRequest(execution));
         long now = System.currentTimeMillis();
+        executionMapper.updateOperationAccountIfPending(
+                id,
+                detail.accountId(),
+                HistoricalGroupPullStatus.PENDING.code(),
+                now);
         int claimed = executionMapper.claimStatus(
                 id,
                 HistoricalGroupPullStatus.PENDING.code(),
@@ -167,12 +173,12 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
 
     /** {@inheritDoc} */
     @Override
-    public Optional<HistoricalGroupPullExecutionVO> latest(Long accountId, String groupJid) {
-        if (accountId == null || groupJid == null || groupJid.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "操作账号 ID 和目标群 JID 不能为空");
+    public Optional<HistoricalGroupPullExecutionVO> latest(Long sourceAccountGroupId, String groupJid) {
+        if (sourceAccountGroupId == null || groupJid == null || groupJid.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "来源账号组 ID 和目标群 JID 不能为空");
         }
-        HistoricalGroupPullExecution execution = executionMapper.selectLatestByTenantAccountAndGroup(
-                requireTenantId(), accountId, groupJid.trim());
+        HistoricalGroupPullExecution execution = executionMapper.selectLatestByTenantSourceGroupAndGroup(
+                requireTenantId(), sourceAccountGroupId, groupJid.trim());
         if (execution == null) {
             return Optional.empty();
         }
@@ -208,7 +214,8 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
             long now) {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
         row.setIdempotencyKey(idempotencyKey);
-        row.setOperationAccountId(request.operationAccountId());
+        row.setOperationAccountId(detail.accountId());
+        row.setSourceAccountGroupId(request.sourceAccountGroupId());
         row.setGroupJid(request.groupJid().trim());
         row.setGroupSubjectSnapshot(trimToNull(detail.subject()));
         row.setInviteLink(detail.inviteUrl().trim());
@@ -280,6 +287,7 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
         String pullerPhone = puller == null ? null : puller.wsPhone();
         return new HistoricalGroupPullExecutionVO(
                 execution.getId(), execution.getIdempotencyKey(), execution.getOperationAccountId(),
+                execution.getSourceAccountGroupId(),
                 execution.getGroupJid(), execution.getGroupSubjectSnapshot(), execution.getInviteLink(),
                 execution.getPullerAccountGroupId(), execution.getPullerAccountId(), pullerPhone,
                 pullerPhone == null ? null : WhatsappJids.userJid(pullerPhone), execution.getSingleAddCount(),
@@ -308,7 +316,7 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
     private static HistoricalGroupPullCreateDTO startValidationRequest(
             HistoricalGroupPullExecution execution) {
         return new HistoricalGroupPullCreateDTO(
-                execution.getOperationAccountId(),
+                execution.getSourceAccountGroupId(),
                 execution.getGroupJid(),
                 execution.getPullerAccountGroupId(),
                 execution.getSingleAddCount(),

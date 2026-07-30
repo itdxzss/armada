@@ -197,6 +197,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                 clamp(blankToNull(ownerPhone), 32),
                 null,
                 null,
+                null,
                 now,
                 now);
         upsertKnownMembership(groupLinkId, normalizedJid, ownerAccountId, true, "SELF_BUILT", now);

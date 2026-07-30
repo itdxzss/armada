@@ -81,6 +81,19 @@ public interface AccountMapper {
             @Param("riskAllowed") int riskAllowed);
 
     /**
+     * 查询指定账号组内全部在线正常且协议身份完整的账号。
+     *
+     * @param groupId 账号组 ID
+     * @param normalAccountState 正常账号状态码
+     * @param onlineLoginState 在线登录状态码
+     * @return 按账号 ID 排序的候选账号
+     */
+    List<Account> selectOnlineNormalByGroupId(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState);
+
+    /**
      * 从指定分组随机选择在线正常且协议身份完整的 Web 拉手账号。
      *
      * @param groupId           账号分组 ID

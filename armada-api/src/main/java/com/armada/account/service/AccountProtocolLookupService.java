@@ -39,6 +39,14 @@ public interface AccountProtocolLookupService {
     Optional<ProtocolAccountRef> findRandomOnlineNormalByGroupId(Long groupId);
 
     /**
+     * 查询指定分组内全部在线正常账号,用于用户显式触发的群列表同步。
+     *
+     * @param groupId 账号组 ID
+     * @return 按账号 ID 排序的协议引用
+     */
+    List<ProtocolAccountRef> findOnlineNormalByGroupId(Long groupId);
+
+    /**
      * 从当前租户指定分组随机选择一个在线正常的 Web 拉手账号。
      *
      * <p>该专用查询服务于联系人保存和成员 ADD 尚只支持 Web 的执行链路，不改变通用选号语义。</p>

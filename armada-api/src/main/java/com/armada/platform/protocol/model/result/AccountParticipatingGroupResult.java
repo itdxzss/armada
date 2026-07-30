@@ -26,6 +26,7 @@ public record AccountParticipatingGroupResult(
      * @param ownerJid     群主 JID
      * @param admin        查询账号是否为该群管理员
      * @param announceOnly 是否仅管理员可发言
+     * @param createdAt    WhatsApp 群创建时间,Unix 秒;未知时为空
      */
     public record Group(
             String groupJid,
@@ -33,7 +34,8 @@ public record AccountParticipatingGroupResult(
             Integer memberCount,
             String ownerJid,
             Boolean admin,
-            Boolean announceOnly
+            Boolean announceOnly,
+            Long createdAt
     ) {
     }
 }

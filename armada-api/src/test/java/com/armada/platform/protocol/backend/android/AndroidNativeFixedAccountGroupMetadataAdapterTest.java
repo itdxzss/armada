@@ -22,7 +22,7 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
     private AndroidNativeClient client;
 
     @Test
-    void mapsExistingMembersEndpointAsReadOnlyHistoricalGroupMetadata() throws Exception {
+    void mapsExistingMembersEndpointAsHistoricalGroupMetadataWithParticipantMutation() throws Exception {
         when(client.members("919000000001", "120363001@g.us"))
                 .thenReturn(envelope("""
                         {"Code":0,"Data":{
@@ -42,9 +42,26 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
         assertThat(result.subject()).isEqualTo("安卓历史群");
         assertThat(result.announce()).isNull();
         assertThat(result.stateAbnormal()).isFalse();
-        assertThat(result.participantMutationSupported()).isFalse();
+        assertThat(result.participantMutationSupported()).isTrue();
         assertThat(result.participants()).hasSize(2);
         assertThat(result.participants().get(0).admin()).isTrue();
+    }
+
+    @Test
+    void normalizesBareResponseGroupIdToFullGroupJid() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"安卓历史群",
+                          "GroupId":"120363001",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.groupJid()).isEqualTo("120363001@g.us");
     }
 
     @Test

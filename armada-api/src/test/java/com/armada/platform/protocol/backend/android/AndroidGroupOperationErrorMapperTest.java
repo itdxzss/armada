@@ -45,6 +45,23 @@ class AndroidGroupOperationErrorMapperTest {
     }
 
     @Test
+    void classifiesNotAuthorizedAndRaw401AsGroupPermissionDenied() {
+        ProtocolException messageException = mapper.toException(
+                response("获取群链接失败, not-authorized, Code: 401", null, null),
+                account(), "group.invite.get", "item:11");
+        ProtocolException rawCodeException = mapper.toException(
+                response("permission failed", null, "401"),
+                account(), "group.admin.promote", "item:12");
+
+        assertThat(messageException.errorCode())
+                .isEqualTo(ProtocolErrorCode.GROUP_PERMISSION_DENIED);
+        assertThat(rawCodeException.errorCode())
+                .isEqualTo(ProtocolErrorCode.GROUP_PERMISSION_DENIED);
+        assertThat(messageException.getMessage()).doesNotContain("not-authorized");
+        assertThat(rawCodeException.getMessage()).doesNotContain("permission failed");
+    }
+
+    @Test
     void preservesSafeMetadataAndCanonicalContext() {
         ProtocolException exception = mapper.toException(
                 response("sensitive native response", null, "999"),

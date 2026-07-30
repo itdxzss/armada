@@ -86,6 +86,13 @@ public final class AndroidGroupOperationErrorMapper {
         if (message.contains("time out") || message.contains("timeout")) {
             return ProtocolErrorCode.TIMEOUT;
         }
+        boolean unauthorized = "401".equals(response.rawProtocolCode())
+                || message.contains("not-authorized")
+                || message.contains("not authorized")
+                || message.contains("code: 401");
+        if (unauthorized) {
+            return ProtocolErrorCode.GROUP_PERMISSION_DENIED;
+        }
         boolean rateLimited = "429".equals(response.rawProtocolCode())
                 || message.contains("rate-overlimit");
         if (groupCreate && rateLimited) {

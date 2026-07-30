@@ -14,6 +14,7 @@ import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.shared.util.HttpUrlValidator;
 import java.util.List;
 import java.util.Objects;
@@ -26,7 +27,8 @@ import org.springframework.util.StringUtils;
 /**
  * 营销模板业务实现。
  *
- * <p>租户隔离由 MyBatis 租户拦截器透明完成,本类不手写 tenant_id。</p>
+ * <p>普通查询由 MyBatis 租户拦截器透明隔离；批量删除的锁行查询为避免 SQL 改写破坏
+ * MySQL 锁子句顺序，由本类从租户上下文传递 tenantId 并在 Mapper SQL 中显式限定。</p>
  */
 @Service
 public class MarketingTemplateServiceImpl implements MarketingTemplateService {
@@ -166,7 +168,11 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         }
         // 必须先锁模板再扫描关联任务：如果创建任务先拿到锁，本事务等待后可以看到并结束新任务；
         // 如果删除先拿到锁，创建事务会在软删除提交后查不到模板，从而整体回滚。
-        List<Long> lockedTemplateIds = mapper.selectExistingIdsForUpdate(normalizedIds);
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        List<Long> lockedTemplateIds = mapper.selectExistingIdsForUpdate(tenantId, normalizedIds);
         if (taskMapper.countActiveGroupPullTasksByTemplateIds(normalizedIds) > 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板正在被拉群营销任务使用，不能删除");
         }

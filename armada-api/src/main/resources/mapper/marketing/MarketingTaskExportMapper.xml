@@ -323,7 +323,7 @@
                    COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
                    '[^0-9]', '') AS actualPhone,
                COALESCE(sm.group_name, NULLIF(TRIM(preview.wa_subject), ''), sm.group_jid) AS groupName,
-               sm.group_jid AS groupJid,
+               group_link_data.link_url AS groupLink,
                <include refid="ExportGroupStatusCase"/> AS groupStatus,
                CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
                         THEN '仅管理员可发言（发送账号可发言）'
@@ -349,6 +349,8 @@
                                             AND (preview.group_jid IS NULL OR preview.group_jid = sm.group_jid)
         LEFT JOIN group_link_health health ON health.group_link_id = sm.group_link_id
                                           AND health.tenant_id = sm.tenant_id
+        LEFT JOIN group_link group_link_data ON group_link_data.id = sm.group_link_id
+                                             AND group_link_data.tenant_id = sm.tenant_id
         LEFT JOIN latest_group_status protocol ON protocol.tenant_id = sm.tenant_id
                                               AND protocol.marketing_task_id = sm.marketing_task_id
                                               AND protocol.group_jid = sm.group_jid
@@ -361,7 +363,7 @@
                  REGEXP_REPLACE(
                      COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
                      '[^0-9]', ''),
-                 sm.group_jid, sm.group_name, preview.wa_subject,
+                 sm.group_jid, sm.group_name, preview.wa_subject, group_link_data.link_url,
                  health.is_banned, health.health_status,
                  protocol.projected_status, protocol.reason_code,
                  protocol.group_status, protocol.group_status_reason,
@@ -592,6 +594,7 @@
                             NULLIF(TRIM(preview.wa_subject), ''),
                             COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName,
                    COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
+                   group_link.link_url AS groupLink,
                    d.group_key AS groupKey,
                    <include refid="ExportGroupStatusCase"/> AS groupStatus,
                    CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
@@ -691,93 +694,65 @@
         )
     </sql>
 
-    <select id="selectSummaryRows"
-            resultType="com.armada.marketing.export.model.vo.MarketingTaskSummaryExportRow">
-        WITH <include refid="ExportGroupCtes"/>,
-        group_stats AS (
-            SELECT taskId,
-                   COUNT(*) AS total_group_count,
-                   SUM(CASE WHEN groupStatus = '正常' THEN 1 ELSE 0 END) AS normal_group_count,
-                   SUM(CASE WHEN groupStatus = '已封禁' THEN 1 ELSE 0 END) AS banned_group_count,
-                   SUM(CASE WHEN groupStatus = '已解散' THEN 1 ELSE 0 END) AS dissolved_group_count,
-                   SUM(CASE WHEN groupStatus = '账号已被移出' THEN 1 ELSE 0 END) AS kicked_group_count,
-                   SUM(CASE WHEN groupStatus = '无发言权限' THEN 1 ELSE 0 END) AS no_permission_group_count
-            FROM group_rows
-            GROUP BY taskId
-        ),
-        attempt_stats AS (
-            SELECT marketing_task_id,
-                   SUM(CASE WHEN projected_status IN (0, 1, 2) THEN 1 ELSE 0 END) AS planned_count,
-                   SUM(CASE WHEN projected_status = 1 THEN 1 ELSE 0 END) AS success_count,
-                   SUM(CASE WHEN projected_status = 2 THEN 1 ELSE 0 END) AS failed_count,
-                   SUM(CASE WHEN projected_status = 0 THEN 1 ELSE 0 END) AS unknown_count
-            FROM attempt_facts
-            GROUP BY marketing_task_id
-        ),
-        used_accounts AS (
-            SELECT DISTINCT tenant_id, marketing_task_id, account_id
-            FROM attempt_facts
-            WHERE projected_status IN (0, 1, 2)
-        ),
-        account_stats AS (
-            SELECT used.marketing_task_id,
-                   COUNT(*) AS total_account_count,
-                   SUM(CASE WHEN state.login_state = 1 THEN 1 ELSE 0 END) AS online_account_count,
-                   SUM(CASE WHEN state.account_state IS NULL OR state.account_state &lt;&gt; 2
-                                  OR state.risk_status &gt; 1 OR state.mute_status IS NOT NULL
-                            THEN 1 ELSE 0 END) AS abnormal_account_count
-            FROM used_accounts used
-            LEFT JOIN account_state state ON state.tenant_id = used.tenant_id
-                                         AND state.account_id = used.account_id
-            GROUP BY used.marketing_task_id
-        )
-        SELECT mt.created_at AS taskCreatedAt,
-               mt.started_at AS taskStartedAt,
-               mt.finished_at AS taskFinishedAt,
-               mt.id AS taskId,
-               mt.task_name AS taskName,
-               COALESCE(group_totals.total_group_count, 0) AS totalGroupCount,
-               COALESCE(group_totals.normal_group_count, 0) AS normalGroupCount,
-               COALESCE(group_totals.banned_group_count, 0) AS bannedGroupCount,
-               COALESCE(group_totals.dissolved_group_count, 0) AS dissolvedGroupCount,
-               COALESCE(group_totals.kicked_group_count, 0) AS kickedGroupCount,
-               COALESCE(group_totals.no_permission_group_count, 0) AS noPermissionGroupCount,
-               COALESCE(accounts.total_account_count, 0) AS totalAccountCount,
-               COALESCE(accounts.online_account_count, 0) AS onlineAccountCount,
-               COALESCE(accounts.abnormal_account_count, 0) AS abnormalAccountCount,
-               COALESCE(attempts.planned_count, 0) AS plannedCount,
-               COALESCE(attempts.success_count, 0) AS successCount,
-               COALESCE(attempts.failed_count, 0) AS failedCount,
-               COALESCE(attempts.unknown_count, 0) AS unknownCount,
-               CASE WHEN mt.status = 2 THEN '执行中'
-                    WHEN mt.status = 5 THEN '已暂停'
-                    WHEN mt.status = 7 THEN '已完成'
-                    WHEN mt.status = 8 THEN '已关闭'
-                    ELSE '未启动' END AS taskStatus
-        FROM marketing_task mt
-        LEFT JOIN group_stats group_totals ON group_totals.taskId = mt.id
-        LEFT JOIN attempt_stats attempts ON attempts.marketing_task_id = mt.id
-        LEFT JOIN account_stats accounts ON accounts.marketing_task_id = mt.id
-        WHERE mt.deleted_at IS NULL
-          AND mt.business_type = 1
-          AND mt.tenant_id = #{tenantId}
-          AND mt.id IN
-        <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
-            #{taskId}
-        </foreach>
-        ORDER BY FIELD(mt.id,
-        <foreach collection="taskIds" item="taskId" separator=",">
-            #{taskId}
-        </foreach>)
-    </select>
-
     <select id="selectGroupRows"
             resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow">
         WITH <include refid="ExportGroupCtes"/>
-        SELECT joinedTaskAt, taskId, taskName, groupName, groupJid, groupStatus, speechPermission,
+        SELECT joinedTaskAt, taskId, taskName, groupName, groupLink, groupStatus, speechPermission,
                groupMemberCount, joinedPhoneCount, plannedCount, successCount, failedCount, unknownCount,
                senderPhone, accountStatus, firstSentAt, lastSentAt, sendStatus, failureReason, remark
         FROM group_rows
         ORDER BY taskId ASC, groupKey ASC
+    </select>
+
+    <select id="selectGroupMemberRows"
+            resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow">
+        WITH <include refid="ExportGroupCtes"/>
+        SELECT groups.taskId,
+               groups.taskName,
+               groups.groupName,
+               groups.groupLink,
+               groups.groupStatus,
+               groups.groupMemberCount,
+               member_account.ws_phone AS memberPhone,
+               CASE WHEN membership.is_admin = 1 THEN '管理员'
+                    WHEN membership.is_admin = 0 THEN '群成员'
+                    ELSE '未知' END AS role,
+               NULL AS countryName,
+               CASE WHEN membership.membership_status = 1 THEN '是'
+                    WHEN membership.membership_status IN (3, 4, 5) THEN '否'
+                    ELSE '未知' END AS inGroup,
+               CASE WHEN membership.last_exit_type = 3 THEN '被移出群'
+                    WHEN membership.last_exit_type = 4 THEN '主动退群'
+                    ELSE '' END AS exitType,
+               CASE WHEN membership.joined_at &lt;= #{snapshotAt}
+                    THEN membership.joined_at END AS joinedAt,
+               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
+                    THEN membership.last_exited_at END AS exitedAt,
+               CASE WHEN EXISTS (
+                   SELECT 1
+                   FROM join_task_result member_join
+                   WHERE member_join.tenant_id = #{tenantId}
+                     AND member_join.group_jid = groups.groupJid
+                     AND member_join.account_id = membership.account_id
+                     AND member_join.status = 'SUCCESS'
+                     AND COALESCE(member_join.joined_at,
+                                  member_join.updated_at,
+                                  member_join.created_at) BETWEEN
+                         COALESCE(groups.joinedTaskAt, 0) AND #{snapshotAt}
+               ) THEN '本任务成功进群'
+                 ELSE '原群成员' END AS taskJoinStatus
+        FROM group_rows groups
+        JOIN account_group_membership membership
+          ON membership.tenant_id = #{tenantId}
+         AND membership.group_jid = groups.groupJid
+         AND membership.deleted_at IS NULL
+         AND membership.created_at &lt;= #{snapshotAt}
+        JOIN account member_account
+          ON member_account.tenant_id = membership.tenant_id
+         AND member_account.id = membership.account_id
+         AND member_account.deleted_at IS NULL
+        WHERE groups.groupJid IS NOT NULL
+          AND TRIM(groups.groupJid) &lt;&gt; ''
+        ORDER BY groups.taskId ASC, groups.groupKey ASC, membership.account_id ASC
     </select>
 </mapper>

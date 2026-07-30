@@ -22,8 +22,11 @@ import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.service.impl.MarketingTemplateServiceImpl;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.tenant.TenantContext;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,6 +40,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
  */
 @ExtendWith(MockitoExtension.class)
 class MarketingTemplateServiceImplTest {
+
+    private static final long TENANT_ID = 1L;
 
     @Mock
     private MarketingTemplateMapper mapper;
@@ -52,6 +57,16 @@ class MarketingTemplateServiceImplTest {
 
     @InjectMocks
     private MarketingTemplateServiceImpl service;
+
+    @BeforeEach
+    void setTenantContext() {
+        TenantContext.set(TENANT_ID);
+    }
+
+    @AfterEach
+    void clearTenantContext() {
+        TenantContext.clear();
+    }
 
     private MarketingTemplateDTO dto(String name, int linkMode, List<MessageButton> buttons) {
         return new MarketingTemplateDTO(name, linkMode, "PROMO", null, "内容", "正文", buttons, null, "备注");
@@ -254,10 +269,20 @@ class MarketingTemplateServiceImplTest {
     @Test
     void batchDelete_empty_noop() {
         service.batchDelete(List.of());
-        verify(mapper, never()).selectExistingIdsForUpdate(any());
+        verify(mapper, never()).selectExistingIdsForUpdate(anyLong(), any());
         verify(taskMapper, never()).completeActiveTasksByTemplateIds(any(), anyLong());
         verify(occupancyService, never()).releaseAccountsByTemplateIds(any());
         verify(mapper, never()).softDeleteByIds(any(), anyLong());
+    }
+
+    @Test
+    void batchDelete_missingTenant_rejectsBeforeLockingTemplates() {
+        TenantContext.clear();
+
+        assertThatThrownBy(() -> service.batchDelete(List.of(1L)))
+                .isInstanceOf(BusinessException.class);
+
+        verify(mapper, never()).selectExistingIdsForUpdate(anyLong(), any());
     }
 
     @Test
@@ -265,7 +290,7 @@ class MarketingTemplateServiceImplTest {
         service.batchDelete(Arrays.asList(2L, null, 1L, 2L));
 
         InOrder ordered = inOrder(mapper, taskMapper, occupancyService);
-        ordered.verify(mapper).selectExistingIdsForUpdate(List.of(1L, 2L));
+        ordered.verify(mapper).selectExistingIdsForUpdate(TENANT_ID, List.of(1L, 2L));
         ordered.verify(taskMapper).completeActiveTasksByTemplateIds(eq(List.of(1L, 2L)), anyLong());
         ordered.verify(occupancyService).releaseAccountsByTemplateIds(List.of(1L, 2L));
         ordered.verify(mapper).softDeleteByIds(eq(List.of(1L, 2L)), anyLong());

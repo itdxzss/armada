@@ -9,7 +9,7 @@ public class MarketingTaskCountryEntryExportRow {
     private String countryPhonePrefix;
     private String actualPhone;
     private String groupName;
-    private String groupJid;
+    private String groupLink;
     private String groupStatus;
     private String speechPermission;
     private String senderPhone;
@@ -29,8 +29,8 @@ public class MarketingTaskCountryEntryExportRow {
     public void setActualPhone(String actualPhone) { this.actualPhone = actualPhone; }
     public String getGroupName() { return groupName; }
     public void setGroupName(String groupName) { this.groupName = groupName; }
-    public String getGroupJid() { return groupJid; }
-    public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
+    public String getGroupLink() { return groupLink; }
+    public void setGroupLink(String groupLink) { this.groupLink = groupLink; }
     public String getGroupStatus() { return groupStatus; }
     public void setGroupStatus(String groupStatus) { this.groupStatus = groupStatus; }
     public String getSpeechPermission() { return speechPermission; }

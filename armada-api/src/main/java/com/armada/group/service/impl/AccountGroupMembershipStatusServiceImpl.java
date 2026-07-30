@@ -121,6 +121,9 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
                 membership.setJoinedAt(event.occurredAt());
                 membership.setLastSeenAt(event.occurredAt());
+            } else {
+                membership.setLastExitType(transition.status().code());
+                membership.setLastExitedAt(event.occurredAt());
             }
             membership.setCreatedAt(now);
             membership.setUpdatedAt(now);

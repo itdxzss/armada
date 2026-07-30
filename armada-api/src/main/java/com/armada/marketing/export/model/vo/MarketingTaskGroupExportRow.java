@@ -1,12 +1,12 @@
 package com.armada.marketing.export.model.vo;
 
-/** 全量导出的账号×群组明细行。 */
+/** 全量导出的营销群组统计行。 */
 public class MarketingTaskGroupExportRow {
     private Long joinedTaskAt;
     private Long taskId;
     private String taskName;
     private String groupName;
-    private String groupJid;
+    private String groupLink;
     private String groupStatus;
     private String speechPermission;
     private Integer groupMemberCount;
@@ -31,8 +31,8 @@ public class MarketingTaskGroupExportRow {
     public void setTaskName(String taskName) { this.taskName = taskName; }
     public String getGroupName() { return groupName; }
     public void setGroupName(String groupName) { this.groupName = groupName; }
-    public String getGroupJid() { return groupJid; }
-    public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
+    public String getGroupLink() { return groupLink; }
+    public void setGroupLink(String groupLink) { this.groupLink = groupLink; }
     public String getGroupStatus() { return groupStatus; }
     public void setGroupStatus(String groupStatus) { this.groupStatus = groupStatus; }
     public String getSpeechPermission() { return speechPermission; }

@@ -100,7 +100,7 @@ class MarketingTaskExportSqlContractTest {
                 StandardCharsets.UTF_8).replace("\r\n", "\n");
         String countryRows = selectBlock(xml, "selectCountryEntryRows");
         String groupCtes = sqlBlock(xml, "ExportGroupCtes");
-        String summaryRows = selectBlock(xml, "selectSummaryRows");
+        String memberRows = selectBlock(xml, "selectGroupMemberRows");
 
         assertThat(countryRows)
                 .containsOnlyOnce("WHERE a.tenant_id = #{tenantId}\n              AND a.status = 1")
@@ -108,13 +108,17 @@ class MarketingTaskExportSqlContractTest {
         assertThat(groupCtes)
                 .contains("WHERE a.tenant_id = #{tenantId}\n              AND (CASE WHEN a.status = 3")
                 .contains("WHERE t.tenant_id = #{tenantId}\n              AND COALESCE(t.target_scope, 1) = 1");
-        assertThat(summaryRows).contains("AND mt.tenant_id = #{tenantId}");
+        assertThat(memberRows)
+                .contains("membership.tenant_id = #{tenantId}")
+                .contains("member_account.tenant_id = membership.tenant_id")
+                .contains("membership.last_exit_type = 3")
+                .contains("membership.last_exited_at &lt;= #{snapshotAt}");
 
         assertTenantInterceptorIgnored("selectCountryEntryRows",
                 Long.class, List.class, long.class, ResultHandler.class);
-        assertTenantInterceptorIgnored("selectSummaryRows",
-                Long.class, List.class, long.class);
         assertTenantInterceptorIgnored("selectGroupRows",
+                Long.class, List.class, long.class, ResultHandler.class);
+        assertTenantInterceptorIgnored("selectGroupMemberRows",
                 Long.class, List.class, long.class, ResultHandler.class);
     }
 
@@ -122,20 +126,7 @@ class MarketingTaskExportSqlContractTest {
     void largeDetailQueriesUseConnectorJRowByRowStreaming() throws NoSuchMethodException {
         assertStreamingOptions("selectCountryEntryRows");
         assertStreamingOptions("selectGroupRows");
-    }
-
-    @Test
-    void summaryExportsActualExecutionTimes() throws IOException {
-        String xml = new String(
-                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
-                StandardCharsets.UTF_8).replace("\r\n", "\n");
-        String summaryRows = selectBlock(xml, "selectSummaryRows");
-
-        assertThat(summaryRows)
-                .contains("mt.started_at AS taskStartedAt")
-                .contains("mt.finished_at AS taskFinishedAt")
-                .doesNotContain("mt.task_start_at AS taskStartedAt")
-                .doesNotContain("mt.task_end_at AS taskFinishedAt");
+        assertStreamingOptions("selectGroupMemberRows");
     }
 
     @Test

@@ -125,9 +125,9 @@ class MarketingTaskExportMapperH2Test {
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 mapperName + ".selectCountryEntryRows")).isTrue();
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
-                mapperName + ".selectSummaryRows")).isTrue();
-        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 mapperName + ".selectGroupRows")).isTrue();
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                mapperName + ".selectGroupMemberRows")).isTrue();
     }
 
     private static MarketingTaskExportJob completion(Long id, String claimToken) {

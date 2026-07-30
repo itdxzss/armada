@@ -31,7 +31,7 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
-import com.armada.platform.protocol.port.GroupMetadataPort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
@@ -63,7 +63,7 @@ class GroupDetailServiceImplTest {
     private GroupExecutionAccountSelector selector;
 
     @Mock
-    private GroupMetadataPort groupMetadataPort;
+    private FixedAccountGroupMetadataPort groupMetadataPort;
 
     @Mock
     private GroupProfilePort groupProfilePort;
@@ -93,8 +93,10 @@ class GroupDetailServiceImplTest {
     void detailCombinesLocalProfileWithOneRealtimeMetadataSnapshot() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
-        when(selector.find(10L)).thenReturn(Optional.of(new GroupExecutionAccount(7L, "acc_7")));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        GroupExecutionAccount account = new GroupExecutionAccount(
+                7L, "ANDROID", "android-handle", "8613800000000");
+        when(selector.find(10L)).thenReturn(Optional.of(account));
+        when(groupMetadataPort.getMetadata(account.protocolRef(), "120363detail@g.us"))
                 .thenReturn(metadata("真实群名", true, true, false, true, 604_800));
 
         GroupDetailVO result = service.detail(10L);
@@ -110,7 +112,7 @@ class GroupDetailServiceImplTest {
         assertThat(result.timedMessageMode()).isEqualTo("7d");
         assertThat(result.members()).hasSize(1);
         assertThat(result.members().get(0).owner()).isTrue();
-        verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
+        verify(groupMetadataPort).getMetadata(account.protocolRef(), "120363detail@g.us");
     }
 
     @Test
@@ -134,7 +136,7 @@ class GroupDetailServiceImplTest {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.find(10L)).thenReturn(Optional.of(new GroupExecutionAccount(7L, "acc_7")));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.NETWORK, "protocol unavailable"));
 
         GroupDetailVO result = service.detail(10L);
@@ -148,7 +150,7 @@ class GroupDetailServiceImplTest {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", null));
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.find(10L)).thenReturn(Optional.of(new GroupExecutionAccount(7L, "acc_7")));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("真实群名", false, false, false, false, 123));
 
         GroupDetailVO result = service.detail(10L);
@@ -195,7 +197,7 @@ class GroupDetailServiceImplTest {
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupProfilePort).updateSubject("acc_7", "120363detail@g.us", "新群名");
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("新群名", false, false, false, false, 0));
         when(groupLinkMapper.updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
@@ -205,7 +207,7 @@ class GroupDetailServiceImplTest {
         service.updateSubject(10L, new GroupSubjectCommandDTO("新群名"));
 
         verify(selector).require(10L);
-        verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
+        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
         verify(groupLinkMapper).updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
                 org.mockito.ArgumentMatchers.eq("新群名"),
@@ -219,7 +221,7 @@ class GroupDetailServiceImplTest {
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupProfilePort).updateSubject("acc_7", "120363detail@g.us", "新群名");
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("仍是旧群名", false, false, false, false, 0));
 
         assertThatThrownBy(() -> service.updateSubject(10L, new GroupSubjectCommandDTO("新群名")))
@@ -254,7 +256,7 @@ class GroupDetailServiceImplTest {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 604_800));
 
         service.updateTimedMessage(
@@ -263,7 +265,7 @@ class GroupDetailServiceImplTest {
         InOrder order = inOrder(groupSettingsPort, groupMetadataPort);
         order.verify(groupSettingsPort)
                 .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
-        order.verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
+        order.verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
         verify(selector).require(10L);
     }
 
@@ -275,14 +277,14 @@ class GroupDetailServiceImplTest {
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
                 .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 604_800));
 
         service.updateTimedMessage(
                 10L, new GroupTimedMessageCommandDTO(GroupTimedMessageMode.DAYS_7));
 
         verify(selector).require(10L);
-        verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
+        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
     }
 
     @Test
@@ -290,7 +292,7 @@ class GroupDetailServiceImplTest {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 86_400));
 
         assertThatThrownBy(() -> service.updateTimedMessage(
@@ -322,7 +324,7 @@ class GroupDetailServiceImplTest {
     void updateSettingUsesSelectedAccountAndConfirmsMetadata() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", true, false, false, false, 0));
 
         service.updateSetting(10L, new GroupSettingCommandDTO(
@@ -330,7 +332,7 @@ class GroupDetailServiceImplTest {
 
         verify(groupSettingsPort)
                 .setAddMembersAllowed(webAccount(), "120363detail@g.us", true);
-        verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
+        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
         verify(selector).require(10L);
     }
 
@@ -359,21 +361,21 @@ class GroupDetailServiceImplTest {
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
                 .setEditGroupSettingsAllowed(webAccount(), "120363detail@g.us", true);
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.EDIT_GROUP_SETTINGS, true));
 
         verify(selector).require(10L);
-        verify(groupMetadataPort).getMetadata("acc_7", "120363detail@g.us");
+        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
     }
 
     @Test
     void updateSettingUnconfirmedThrowsDedicatedError() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 
         assertThatThrownBy(() -> service.updateSetting(10L, new GroupSettingCommandDTO(
@@ -389,7 +391,7 @@ class GroupDetailServiceImplTest {
     void updateSettingRejectsUnsupportedInviteViaLinkBeforeMutation() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 
         assertThatThrownBy(() -> service.updateSetting(10L, new GroupSettingCommandDTO(
@@ -405,7 +407,7 @@ class GroupDetailServiceImplTest {
     void demoteMembersProtectsOwnerAndFillsMissingProtocolResults() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadataWithParticipants(List.of(
                         participant("owner@s.whatsapp.net", true, true),
                         participant("admin-a@s.whatsapp.net", true, false),
@@ -442,7 +444,7 @@ class GroupDetailServiceImplTest {
     void kickMembersTimeoutConfirmsRemovalWithSameAccount() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(
                         metadataWithParticipants(List.of(participant(
                                 "member@s.whatsapp.net", false, false))),
@@ -462,14 +464,14 @@ class GroupDetailServiceImplTest {
         assertThat(result.results().get(0).status()).isEqualTo("OK");
         verify(selector).require(10L);
         verify(groupMetadataPort, org.mockito.Mockito.times(2))
-                .getMetadata("acc_7", "120363detail@g.us");
+                .getMetadata(webAccount(), "120363detail@g.us");
     }
 
     @Test
     void promoteMembersPermissionDeniedDoesNotSelectAnotherAccount() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, "acc_7"));
-        when(groupMetadataPort.getMetadata("acc_7", "120363detail@g.us"))
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadataWithParticipants(List.of(participant(
                         "member@s.whatsapp.net", false, false))));
         when(groupParticipantPort.updateParticipants(

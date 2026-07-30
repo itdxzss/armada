@@ -10,6 +10,7 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -32,10 +33,11 @@ class GroupLinkRegistryServiceImplUnitTest {
         when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363001@g.us"))
                 .thenReturn(88L);
 
-        Long result = service.registerAccountObservedGroup("120363001@g.us", "测试群", 1000L);
+        Long result = service.registerAccountObservedGroup(
+                "120363001@g.us", "测试群", ProtocolBackend.ANDROID, 1000L);
 
         assertThat(result).isEqualTo(88L);
-        verify(membershipMapper).touchGroupLinkFromAccountSync(88L, "测试群", 1000L);
+        verify(membershipMapper).touchGroupLinkFromAccountSync(88L, "测试群", 2, 1000L);
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
     }
 
@@ -53,7 +55,8 @@ class GroupLinkRegistryServiceImplUnitTest {
         when(groupLinkMapper.selectAnyByUrlForUpdate("wa://group/120363002@g.us"))
                 .thenReturn(resolved);
 
-        Long result = service.registerAccountObservedGroup("120363002@g.us", "新群", 2000L);
+        Long result = service.registerAccountObservedGroup(
+                "120363002@g.us", "新群", ProtocolBackend.ANDROID, 2000L);
 
         assertThat(result).isEqualTo(99L);
         ArgumentCaptor<GroupLink> rowCaptor = ArgumentCaptor.forClass(GroupLink.class);
@@ -63,11 +66,13 @@ class GroupLinkRegistryServiceImplUnitTest {
         assertThat(rowCaptor.getValue().getGroupName()).isEqualTo("新群");
         assertThat(rowCaptor.getValue().getOrigin()).isEqualTo(GroupLinkOrigin.ACCOUNT_SYNC.code());
         assertThat(rowCaptor.getValue().getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
+        assertThat(rowCaptor.getValue().getSyncProtocolMask()).isEqualTo(2);
         verify(groupLinkMapper).selectAnyByUrlForUpdate("wa://group/120363002@g.us");
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
         verify(membershipMapper, never()).touchGroupLinkFromAccountSync(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyLong());
     }
 }

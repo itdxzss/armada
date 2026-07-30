@@ -157,7 +157,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         try {
             GroupExecutionAccount account = selected.orElseThrow();
             GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), target.groupJid());
+                    account.protocolRef(), target.groupJid());
             List<GroupLinkMemberVO> members = metadata.participants().stream()
                     .map(GroupDetailServiceImpl::memberVO)
                     .toList();
@@ -441,7 +441,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupMetadataResult metadata;
         try {
             metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), target.groupJid());
+                    account.protocolRef(), target.groupJid());
         } catch (ProtocolException ex) {
             log.warn("群成员操作前读取元数据失败 groupLinkId={} accountId={} action={} code={}",
                     id, account.accountId(), action, ex.errorCode());
@@ -593,7 +593,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupMetadataResult confirmed;
         try {
             confirmed = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), groupJid);
+                    account.protocolRef(), groupJid);
         } catch (ProtocolException ex) {
             log.warn("群成员操作超时回读失败 accountId={} action={} targetCount={} code={}",
                     account.accountId(), action, actionable.size(), ex.errorCode());
@@ -771,7 +771,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             String expectedSubject) {
         try {
             GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), groupJid);
+                    account.protocolRef(), groupJid);
             return expectedSubject.equals(metadata.subject());
         } catch (ProtocolException readEx) {
             log.warn("群名称超时回读失败 accountId={} code={}",
@@ -821,7 +821,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             int expectedSeconds) {
         try {
             GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), groupJid);
+                    account.protocolRef(), groupJid);
             if (Integer.valueOf(expectedSeconds).equals(
                     metadata.ephemeralDurationSeconds())) {
                 return;
@@ -858,7 +858,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupMetadataResult metadata;
         try {
             metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), groupJid);
+                    account.protocolRef(), groupJid);
         } catch (ProtocolException ex) {
             throw groupBusinessException(ex);
         }
@@ -913,7 +913,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             boolean expected) {
         try {
             GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolAccountId(), groupJid);
+                    account.protocolRef(), groupJid);
             requireConfirmedPermission(metadata, key, expected);
         } catch (BusinessException ex) {
             log.warn("群权限设置回读状态不一致 accountId={} key={} expected={}",

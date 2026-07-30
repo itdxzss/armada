@@ -29,6 +29,9 @@ public class GroupLink {
     /** 我方与群关系:1=目标未进群 2=已进群 3=自建拥有。 */
     private Integer membershipState;
 
+    /** 曾被账号群同步观察到的协议位:1=Web,2=Android,3=两者。 */
+    private Integer syncProtocolMask;
+
     /** 备注(纯导入备注)。 */
     private String remark;
 
@@ -106,6 +109,14 @@ public class GroupLink {
 
     public void setMembershipState(Integer membershipState) {
         this.membershipState = membershipState;
+    }
+
+    public Integer getSyncProtocolMask() {
+        return syncProtocolMask;
+    }
+
+    public void setSyncProtocolMask(Integer syncProtocolMask) {
+        this.syncProtocolMask = syncProtocolMask;
     }
 
     public String getRemark() {

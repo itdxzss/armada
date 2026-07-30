@@ -20,6 +20,8 @@ public class GroupLinkVoRow {
     private Integer currentCount;
     private String ownerPhone;
     private String admin;
+    /** 历史同步协议来源位掩码:0=未知,1=Web(JSON号),2=Android(六段号),3=两者;不表示当前实时可用协议。 */
+    private Integer syncProtocolMask;
     private Integer origin;
     private Integer membershipState;
     private String remark;
@@ -123,6 +125,14 @@ public class GroupLinkVoRow {
 
     public void setAdmin(String admin) {
         this.admin = admin;
+    }
+
+    public Integer getSyncProtocolMask() {
+        return syncProtocolMask;
+    }
+
+    public void setSyncProtocolMask(Integer syncProtocolMask) {
+        this.syncProtocolMask = syncProtocolMask;
     }
 
     public Integer getOrigin() {

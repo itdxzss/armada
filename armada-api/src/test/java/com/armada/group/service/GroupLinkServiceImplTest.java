@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountMapper;
@@ -100,6 +101,24 @@ class GroupLinkServiceImplTest {
     }
 
     @Test
+    void listByLabel_usesPageProjectionWithoutProtocolAggregationQuery() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        GroupLinkVoRow row = new GroupLinkVoRow();
+        row.setId(11L);
+        row.setSyncProtocolMask(3);
+        when(groupLinkMapper.countByLabel(query)).thenReturn(1L);
+        when(groupLinkMapper.selectPageByLabel(query)).thenReturn(List.of(row));
+        when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of());
+
+        service.listByLabel(query);
+
+        verify(groupLinkMapper).countByLabel(query);
+        verify(groupLinkMapper).selectPageByLabel(query);
+        verifyNoMoreInteractions(groupLinkMapper);
+        verify(converter).toGroupLinkVOList(List.of(row));
+    }
+
+    @Test
     void listByLabel_callsSelectPage_whenTotalNonZero() {
         GroupLinkQuery q = new GroupLinkQuery();
         q.setLabelId(1L);
@@ -107,7 +126,7 @@ class GroupLinkServiceImplTest {
         GroupLinkVO vo = new GroupLinkVO(
                 1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
                 "UNCHECKED", "未检测", null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, 1000L);
+                3, null, null, null, null, null, null, null, null, null, null, 1000L);
         when(groupLinkMapper.countByLabel(q)).thenReturn(1L);
         when(groupLinkMapper.selectPageByLabel(q)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of(vo));

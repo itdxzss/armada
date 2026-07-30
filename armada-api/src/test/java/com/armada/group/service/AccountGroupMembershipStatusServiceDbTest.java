@@ -6,6 +6,7 @@ import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
@@ -64,7 +65,8 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
                 true,
                 4000L,
                 "evt-snapshot-priority",
-                "android_groups_dirty");
+                "android_groups_dirty",
+                ProtocolBackend.ANDROID);
 
         assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
         assertThat(source(accountId, GROUP_JID)).isEqualTo("WGP2_REMOVE");

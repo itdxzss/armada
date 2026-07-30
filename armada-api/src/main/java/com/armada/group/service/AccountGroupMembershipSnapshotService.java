@@ -2,6 +2,7 @@ package com.armada.group.service;
 
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.util.List;
 
 /**
@@ -21,6 +22,7 @@ public interface AccountGroupMembershipSnapshotService {
      * @param syncAt    协议查询时间(epoch 毫秒)
      * @param eventId   协议层事件 ID,用于跨层日志关联
      * @param source    群列表同步来源
+     * @param observedBackend 本次群列表使用的协议后端
      * @return 刷新后的当前群快照及相对刷新前的新增群
      */
     AccountGroupMembershipChangeSet replaceVisibleGroups(
@@ -29,5 +31,6 @@ public interface AccountGroupMembershipSnapshotService {
             boolean snapshotComplete,
             long syncAt,
             String eventId,
-            String source);
+            String source,
+            ProtocolBackend observedBackend);
 }

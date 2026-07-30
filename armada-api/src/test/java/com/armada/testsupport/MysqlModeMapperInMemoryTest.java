@@ -392,6 +392,28 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
+    void accountObservedUpsertAccumulatesSyncProtocolMask() throws SQLException {
+        GroupLink webObserved = observedGroup(
+                "wa://group/120363protocol@g.us", "协议来源群", 2_100L);
+        webObserved.setSyncProtocolMask(1);
+        GroupLink androidObserved = observedGroup(
+                "wa://group/120363protocol@g.us", "协议来源群", 2_101L);
+        androidObserved.setSyncProtocolMask(2);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            groupLinkMapper.upsertAccountObservedGroup(webObserved, "协议来源群");
+            groupLinkMapper.upsertAccountObservedGroup(androidObserved, "协议来源群");
+        });
+
+        assertThat(queryLong("""
+                SELECT sync_protocol_mask
+                FROM group_link
+                WHERE link_url = 'wa://group/120363protocol@g.us'
+                """))
+                .isEqualTo(3L);
+    }
+
+    @Test
     void concurrentAccountObservedUpsertCreatesOneRowAndReturnsOneId() throws Exception {
         String linkUrl = "wa://group/120363concurrent@g.us";
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -756,6 +778,7 @@ class MysqlModeMapperInMemoryTest {
                     import_batch_id BIGINT,
                     origin TINYINT NOT NULL,
                     membership_state TINYINT NOT NULL,
+                    sync_protocol_mask TINYINT NOT NULL DEFAULT 0,
                     deleted_at BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
@@ -995,6 +1018,7 @@ class MysqlModeMapperInMemoryTest {
         row.setGroupName(groupName);
         row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
         row.setMembershipState(GroupMembershipState.JOINED.code());
+        row.setSyncProtocolMask(1);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;

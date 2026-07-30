@@ -41,6 +41,9 @@ public record GroupLinkVO(
         /** 我方已提权管理员账号,多个用逗号分隔;为空时前端展示待分配。 */
         String admin,
 
+        /** 曾被账号群同步观察到的协议位:1=Web,2=Android,3=两者。 */
+        Integer syncProtocolMask,
+
         /** 首次进入群组池来源码。 */
         Integer origin,
 

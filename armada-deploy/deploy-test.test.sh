@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="${SCRIPT_DIR}/deploy-test.sh"
+ARTIFACT_LIB="${SCRIPT_DIR}/lib/artifact.sh"
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -27,6 +28,31 @@ test_assert_contains_handles_large_haystack() {
   local large_haystack
   large_haystack="$(awk 'BEGIN { print "needle"; for (i = 0; i < 20000; i++) print "padding" }')"
   assert_contains "${large_haystack}" "needle"
+}
+
+test_backend_jar_resolution_requires_one_executable_jar() {
+  local fixture resolved
+  fixture="$(mktemp -d)"
+  [ -f "${ARTIFACT_LIB}" ] || fail "expected artifact resolver: ${ARTIFACT_LIB}"
+  # shellcheck source=/dev/null
+  . "${ARTIFACT_LIB}"
+
+  mkdir -p "${fixture}/single" "${fixture}/empty" "${fixture}/multiple"
+  : >"${fixture}/single/armada-api-1.0.1-SNAPSHOT.jar"
+  : >"${fixture}/single/armada-api-1.0.1-SNAPSHOT.jar.original"
+  resolved="$(armada_resolve_backend_jar "${fixture}/single")"
+  [ "${resolved}" = "${fixture}/single/armada-api-1.0.1-SNAPSHOT.jar" ] \
+    || fail "unexpected resolved jar: ${resolved}"
+
+  if armada_resolve_backend_jar "${fixture}/empty" >/dev/null 2>&1; then
+    fail "expected empty target to fail jar resolution"
+  fi
+  : >"${fixture}/multiple/armada-api-1.0.1-SNAPSHOT.jar"
+  : >"${fixture}/multiple/extra.jar"
+  if armada_resolve_backend_jar "${fixture}/multiple" >/dev/null 2>&1; then
+    fail "expected multiple jars to fail jar resolution"
+  fi
+  rm -rf "${fixture}"
 }
 
 setup_zhuan_command_fixture() {
@@ -1086,6 +1112,7 @@ test_kafka_checker_reports_consumer_group_state_read_only() {
   assert_not_contains "${checker_content}" "createTopics("
 }
 
+test_backend_jar_resolution_requires_one_executable_jar
 test_armada_compose_passes_promotion_token_encryption_config_to_backend
 test_assert_contains_handles_large_haystack
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload

@@ -17,13 +17,16 @@ class FlywayAppliedMigrationCompatibilityTest {
             Path.of("src/main/resources/db/migration");
 
     @Test
-    void test1AppliedExportMigrationsKeepOriginalChecksums() throws IOException {
+    void test1AppliedMigrationsKeepOriginalChecksums() throws IOException {
         assertAppliedMigration(
                 "V082__marketing_export_country_and_joined_at.sql",
                 -1_524_599_230);
         assertAppliedMigration(
                 "V083__marketing_task_export_job.sql",
                 1_140_684_827);
+        assertAppliedMigration(
+                "V085__account_group_membership_last_exit.sql",
+                810_248_183);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class HistoricalGroupPullSourceAccountGroupSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V086__historical_group_pull_source_account_group.sql");
+            "src/main/resources/db/migration/V087__historical_group_pull_source_account_group.sql");
 
     private static final Path MAPPER = Path.of(
             "src/main/resources/mapper/group/HistoricalGroupPullExecutionMapper.xml");

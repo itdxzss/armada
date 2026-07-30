@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class HistoricalGroupPreviewSchemaSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V085__historical_group_created_at.sql");
+            "src/main/resources/db/migration/V086__historical_group_created_at.sql");
 
     private static final Path MAPPER = Path.of(
             "src/main/resources/mapper/group/GroupLinkPreviewMapper.xml");

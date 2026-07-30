@@ -5,7 +5,7 @@ import com.armada.marketing.export.model.dto.MarketingTaskExportRequestDTO;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
 import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
 import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
-import com.armada.marketing.export.model.vo.MarketingTaskSummaryExportRow;
+import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.marketing.export.service.impl.MarketingTaskExportServiceImpl;
 import com.armada.marketing.export.writer.MarketingTaskExportWorkbookWriter;
 import com.armada.marketing.model.entity.MarketingTask;
@@ -277,19 +277,21 @@ class MarketingTaskExportServiceImplTest {
         when(mapper.renewJobLease(eq(3L), eq(88L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1);
-        when(mapper.selectSummaryRows(3L, List.of(9L), FIXED_CLOCK.millis()))
-                .thenReturn(List.of(new MarketingTaskSummaryExportRow()));
+        when(countryService.activePhonePrefixResolver()).thenReturn(phone -> null);
         when(workbookWriter.writeFull(
                 any(Path.class),
-                any(List.class),
+                any(MarketingTaskExportWorkbookWriter.RowSource.class),
                 any(MarketingTaskExportWorkbookWriter.RowSource.class),
                 eq(FIXED_CLOCK.instant()),
                 eq(FIXED_CLOCK.instant())))
                 .thenAnswer(invocation -> {
                     Path output = invocation.getArgument(0);
                     MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskGroupExportRow> rows =
-                            invocation.getArgument(2);
+                            invocation.getArgument(1);
                     rows.forEach(ignored -> { });
+                    MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskGroupMemberExportRow> members =
+                            invocation.getArgument(2);
+                    members.forEach(ignored -> { });
                     Files.write(output, new byte[] {1, 2, 3});
                     return new MarketingTaskExportWorkbookWriter.WriteResult(1, 0);
                 });
@@ -303,6 +305,8 @@ class MarketingTaskExportServiceImplTest {
                 eq(3L), eq(88L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), claimedToken.capture());
         verify(mapper).selectGroupRows(eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        verify(mapper).selectGroupMemberRows(
+                eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
 
         ArgumentCaptor<MarketingTaskExportJob> completedJob =
                 ArgumentCaptor.forClass(MarketingTaskExportJob.class);
@@ -405,14 +409,14 @@ class MarketingTaskExportServiceImplTest {
                     scheduledHeartbeat.set(invocation.getArgument(0));
                     return scheduledFuture;
                 });
-        when(mapper.selectSummaryRows(3L, List.of(9L), FIXED_CLOCK.millis()))
+        when(countryService.activePhonePrefixResolver())
                 .thenAnswer(invocation -> {
                     scheduledHeartbeat.get().run();
-                    return List.of(new MarketingTaskSummaryExportRow());
+                    return (CountryService.PhonePrefixResolver) phone -> null;
                 });
         when(workbookWriter.writeFull(
                 any(Path.class),
-                any(List.class),
+                any(MarketingTaskExportWorkbookWriter.RowSource.class),
                 any(MarketingTaskExportWorkbookWriter.RowSource.class),
                 eq(FIXED_CLOCK.instant()),
                 eq(FIXED_CLOCK.instant())))
@@ -420,7 +424,7 @@ class MarketingTaskExportServiceImplTest {
 
         service.processPendingJobs(1);
 
-        verify(mapper).selectSummaryRows(3L, List.of(9L), FIXED_CLOCK.millis());
+        verify(countryService).activePhonePrefixResolver();
         verify(mapper, never()).markJobSuccess(any(MarketingTaskExportJob.class));
         verify(mapper).markJobFailed(
                 eq(3L), eq(90L), anyString(),

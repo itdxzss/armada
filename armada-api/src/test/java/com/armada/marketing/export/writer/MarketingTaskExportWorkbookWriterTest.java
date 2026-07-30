@@ -1,7 +1,8 @@
 package com.armada.marketing.export.writer;
 
 import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
-import com.armada.marketing.export.model.vo.MarketingTaskSummaryExportRow;
+import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
+import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,7 +33,7 @@ class MarketingTaskExportWorkbookWriterTest {
         try (InputStream input = Files.newInputStream(file);
              var workbook = WorkbookFactory.create(input)) {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(1);
-            assertThat(workbook.getSheetName(0)).isEqualTo("按国家进群明细");
+            assertThat(workbook.getSheetName(0)).isEqualTo("国家进群数据");
             var header = workbook.getSheetAt(0).getRow(0);
             assertThat(header.getLastCellNum()).isEqualTo((short) 12);
             assertThat(header.getCell(0).getStringCellValue()).isEqualTo("进群时间");
@@ -42,27 +43,44 @@ class MarketingTaskExportWorkbookWriterTest {
     }
 
     @Test
-    void fullWorkbookAlwaysContainsSummaryAndGroupDetailSheets() throws Exception {
+    void fullWorkbookContainsGroupStatisticsAndMemberDetailSheets() throws Exception {
         Path file = tempDir.resolve("full.xlsx");
+
+        MarketingTaskGroupExportRow group = new MarketingTaskGroupExportRow();
+        group.setTaskId(101L);
+        group.setGroupLink("https://chat.whatsapp.com/group-101");
+        MarketingTaskGroupMemberExportRow member = new MarketingTaskGroupMemberExportRow();
+        member.setTaskId(101L);
+        member.setMemberPhone("628123456789");
+        member.setExitType("主动退群");
+        member.setExitedAt(1_785_310_600_000L);
 
         writer.writeFull(
                 file,
-                java.util.List.of(),
-                java.util.List.of(),
+                java.util.List.of(group),
+                java.util.List.of(member),
                 Instant.parse("2026-07-29T03:20:00Z"),
                 Instant.parse("2026-07-29T03:21:00Z"));
 
         try (InputStream input = Files.newInputStream(file);
              var workbook = WorkbookFactory.create(input)) {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
-            assertThat(workbook.getSheetName(0)).isEqualTo("营销任务汇总");
-            assertThat(workbook.getSheetName(1)).isEqualTo("群组明细");
+            assertThat(workbook.getSheetName(0)).isEqualTo("营销群组统计");
+            assertThat(workbook.getSheetName(1)).isEqualTo("群组成员明细");
             assertThat(workbook.getSheetAt(0).getRow(0).getLastCellNum()).isEqualTo((short) 21);
-            assertThat(workbook.getSheetAt(1).getRow(0).getLastCellNum()).isEqualTo((short) 20);
+            assertThat(workbook.getSheetAt(1).getRow(0).getLastCellNum()).isEqualTo((short) 14);
             assertThat(workbook.getSheetAt(0).getRow(0).getCell(19).getStringCellValue())
                     .isEqualTo("数据统计截止时间");
             assertThat(workbook.getSheetAt(0).getRow(0).getCell(20).getStringCellValue())
-                    .isEqualTo("文件导出时间");
+                    .isEqualTo("备注");
+            assertThat(workbook.getSheetAt(1).getRow(0).getCell(10).getStringCellValue())
+                    .isEqualTo("退出方式");
+            assertThat(workbook.getSheetAt(1).getRow(0).getCell(12).getStringCellValue())
+                    .isEqualTo("退群时间");
+            assertThat(workbook.getSheetAt(1).getRow(1).getCell(10).getStringCellValue())
+                    .isEqualTo("主动退群");
+            assertThat(workbook.getSheetAt(1).getRow(1).getCell(12).getStringCellValue())
+                    .isNotBlank();
         }
     }
 
@@ -87,54 +105,4 @@ class MarketingTaskExportWorkbookWriterTest {
         }
     }
 
-    @Test
-    void fullWorkbookAppendsSummedTotalRowForMultipleTasks() throws Exception {
-        Path file = tempDir.resolve("full-total.xlsx");
-        MarketingTaskSummaryExportRow first = summary(101L, "任务A", 2, 3, 4, 5);
-        MarketingTaskSummaryExportRow second = summary(102L, "任务B", 7, 11, 13, 17);
-
-        var result = writer.writeFull(
-                file,
-                java.util.List.of(first, second),
-                java.util.List.of(),
-                Instant.parse("2026-07-29T03:20:00Z"),
-                Instant.parse("2026-07-29T03:21:00Z"));
-
-        assertThat(result.summaryRowCount()).isEqualTo(3);
-        try (InputStream input = Files.newInputStream(file);
-             var workbook = WorkbookFactory.create(input)) {
-            var total = workbook.getSheet("营销任务汇总").getRow(3);
-            assertThat(total.getCell(4).getStringCellValue()).isEqualTo("合计");
-            assertThat(total.getCell(5).getNumericCellValue()).isEqualTo(9);
-            assertThat(total.getCell(14).getNumericCellValue()).isEqualTo(14);
-            assertThat(total.getCell(15).getNumericCellValue()).isEqualTo(17);
-            assertThat(total.getCell(16).getNumericCellValue()).isEqualTo(22);
-            assertThat(total.getCell(17).getNumericCellValue()).isEqualTo(12);
-        }
-    }
-
-    private static MarketingTaskSummaryExportRow summary(Long taskId,
-                                                          String taskName,
-                                                          int totalGroups,
-                                                          int planned,
-                                                          int success,
-                                                          int failed) {
-        MarketingTaskSummaryExportRow row = new MarketingTaskSummaryExportRow();
-        row.setTaskId(taskId);
-        row.setTaskName(taskName);
-        row.setTotalGroupCount(totalGroups);
-        row.setNormalGroupCount(1);
-        row.setBannedGroupCount(1);
-        row.setDissolvedGroupCount(0);
-        row.setKickedGroupCount(0);
-        row.setNoPermissionGroupCount(0);
-        row.setTotalAccountCount(1);
-        row.setOnlineAccountCount(1);
-        row.setAbnormalAccountCount(0);
-        row.setPlannedCount(planned);
-        row.setSuccessCount(success);
-        row.setFailedCount(failed);
-        row.setUnknownCount(6);
-        return row;
-    }
 }

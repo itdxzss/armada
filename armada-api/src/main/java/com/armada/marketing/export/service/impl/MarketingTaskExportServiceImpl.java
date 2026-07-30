@@ -7,7 +7,7 @@ import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
 import com.armada.marketing.export.model.vo.MarketingTaskExportFile;
 import com.armada.marketing.export.model.vo.MarketingTaskExportJobVO;
 import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
-import com.armada.marketing.export.model.vo.MarketingTaskSummaryExportRow;
+import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.marketing.export.service.MarketingTaskExportService;
 import com.armada.marketing.export.service.MarketingTaskExportRuntime;
 import com.armada.marketing.export.writer.MarketingTaskExportWorkbookWriter;
@@ -232,17 +232,18 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                             ErrorCode.VALIDATION, "所选任务和国家没有符合条件的成功进群数据");
                 }
             } else {
-                List<MarketingTaskSummaryExportRow> summaries = mapper.selectSummaryRows(
-                        job.getTenantId(), taskIds, job.getSnapshotAt());
+                CountryService.PhonePrefixResolver countryResolver =
+                        countryService.activePhonePrefixResolver();
                 writeResult = workbookWriter.writeFull(
                         temporaryFile,
-                        summaries,
                         consumer -> mapper.selectGroupRows(
                                 job.getTenantId(), taskIds, job.getSnapshotAt(),
                                 context -> {
                                     heartbeat.renewIfDue();
                                     consumer.accept(context.getResultObject());
                                 }),
+                        consumer -> streamGroupMemberRows(
+                                job, taskIds, countryResolver, heartbeat, consumer),
                         snapshotAt,
                         generatedAt);
             }
@@ -301,6 +302,23 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                 row.setCountryPhonePrefix(country.phonePrefix());
                 consumer.accept(row);
             }
+        });
+    }
+
+    private void streamGroupMemberRows(
+            MarketingTaskExportJob job,
+            List<Long> taskIds,
+            CountryService.PhonePrefixResolver countryResolver,
+            LeaseHeartbeat heartbeat,
+            Consumer<MarketingTaskGroupMemberExportRow> consumer) {
+        mapper.selectGroupMemberRows(job.getTenantId(), taskIds, job.getSnapshotAt(), context -> {
+            heartbeat.renewIfDue();
+            MarketingTaskGroupMemberExportRow row = context.getResultObject();
+            CountryOptionVO country = countryResolver.resolve(row.getMemberPhone());
+            if (country != null) {
+                row.setCountryName(country.nameZh());
+            }
+            consumer.accept(row);
         });
     }
 

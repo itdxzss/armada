@@ -1,4 +1,4 @@
--- 正式 Flyway: armada-api/src/main/resources/db/migration/V084__account_group_membership_last_exit.sql
+-- 正式 Flyway: armada-api/src/main/resources/db/migration/V083_1__account_group_membership_last_exit.sql
 -- 目的: 保留受控账号最近一次精确退群事实，供营销任务全量导出。
 
 SET @last_exit_type_col_exists := (

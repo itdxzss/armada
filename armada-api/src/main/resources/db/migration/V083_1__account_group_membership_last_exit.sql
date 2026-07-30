@@ -1,4 +1,4 @@
--- 保留受控账号最近一次精确退群事实，账号重新进群后仍可用于业务导出。
+-- V083.1：保留受控账号最近一次精确退群事实，账号重新进群后仍可用于业务导出。
 
 SET @last_exit_type_col_exists := (
     SELECT COUNT(*) FROM information_schema.columns

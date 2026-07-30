@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-07-30 / `1.0.1-snapshot-export` / `D:\idea_project\armada`
 - 需求来源: `D:\documents\营销任务数据导出_PRD需求文档_V1.1.docx`、产品确认的两个最终版 Excel 样例、`docs/superpowers/specs/2026-07-28-marketing-task-data-export-design.md`
-- 状态: 最终样例字段适配和专项测试完成；待明确 MySQL 8 测试库执行 V084、真库查询和数据模型文档生成
+- 状态: 最终样例字段适配和专项测试完成；待明确 MySQL 8 测试库执行 V083.1、真库查询和数据模型文档生成
 
 ## 目标（一句话）
 
@@ -31,7 +31,7 @@
 - [x] 群组成员明细移除昵称、备注、最近聊天时间、当日发言数、累计发言数；仅导出现有系统能稳定提供的 14 个字段。
 - [x] 复用现有 `account_group_membership` 聚合，新增最近一次精确退群方式/时间；协议 `remove/leave` 更新该事实，账号重新进群后仍保留，导出显示 `被移出群/主动退群` 和对应事实时间。
 - [x] 按国家导出固定为最终样例的 `国家进群数据` 单工作表和 12 个字段。
-- [ ] 在明确的 MySQL 8 测试库完成 V082/V083/V084、DbTest、`EXPLAIN` 和数据模型自动生成；未执行真实部署。
+- [ ] 在明确的 MySQL 8 测试库完成 V082/V083/V083.1、DbTest、`EXPLAIN` 和数据模型自动生成；未执行真实部署。
 
 ## 关键设计决策
 
@@ -55,7 +55,7 @@
 - 已核对 `MarketingTask`、`MarketingTaskTarget`、`MarketingTaskSendAttempt`、`JoinTaskResult`、`AccountState`、`GroupLinkPreview`、`GroupLinkHealth` 及相关 Mapper/状态枚举。
 - 后端完整聚焦门禁：Controller、导出 Service、Writer、H2 Mapper、SQL 契约、国家服务和关联渠道回归共 72 项通过，失败 0、错误 0、跳过 0；覆盖 HTTP 202、输入上限、活动作业配额、独立心跳丢失令牌、无数据错误、最新协议群状态、合计行和流式读取配置。
 - 后端 `mvn -q -DskipTests verify` 通过，确认完整编译和打包阶段无新增错误。
-- 最终样例适配聚焦测试通过：Writer、导出 Service、导出 SQL/H2 Mapper、群成员状态 Service/Mapper、V084 与 Flyway 版本契约共 8 个测试类通过。
+- 最终样例适配聚焦测试通过：Writer、导出 Service、导出 SQL/H2 Mapper、群成员状态 Service/Mapper、V083.1 与 Flyway 版本契约共 8 个测试类通过。
 - HTTP 202、原始集合上限、ISO2 格式和国家去重查询新增聚焦回归；Controller 与导出 Service 聚焦测试通过。
 - Java、安全和数据库专项复审均为 `APPROVE`，代码层 P0/P1 为 0；COUNTRY 与 FULL 的最新协议状态排序已统一为轮次、尝试次数和记录 ID 降序，V083 活动作业生成列与唯一索引的 MySQL 8 语义已通过只读复审。
 - 前端聚焦测试：API、组合式函数与 UI 契约共 16 项通过；`pnpm typecheck`、局部 ESLint、Prettier 检查、`pnpm build` 均通过。
@@ -66,10 +66,11 @@
 ## 部署
 
 - commit / 环境 / 部署后验证结果: 尚未进入部署阶段。
-- 部署前必须先查询目标库 `flyway_schema_history`：V084 为新增迁移，禁止修改已执行的 V082/V083 或触发 checksum 修复；当前仅能确认此前用户截图中的环境执行到 V080，不能代替目标环境核验。
+- 部署前必须先查询目标库 `flyway_schema_history`：V083.1 为新增迁移，禁止修改已执行的 V082/V083 或触发 checksum 修复；当前仅能确认此前用户截图中的环境执行到 V080，不能代替目标环境核验。
 
 ## 遗留 / 跟进
 
 - 容量上限和其余 P1 展示细节在压测与联调中确认。
-- `.harness/wiki/数据模型.md` 必须在已应用 V082/V083/V084 的明确 MySQL 测试库上重跑 `gen_datamodel.py` 后刷新；本机无 Docker、MySQL 客户端且未获授权连接共享库，未手工修改自动生成文档，也不声称已刷新。
+- `.harness/wiki/数据模型.md` 必须在已应用 V082/V083/V083.1 的明确 MySQL 测试库上重跑 `gen_datamodel.py` 后刷新；本机无 Docker、MySQL 客户端且未获授权连接共享库，未手工修改自动生成文档，也不声称已刷新。
+- V083.1 专门避开 1.0.2 已使用的 V084；后续正向合并必须永久保留 V083.1。若目标 1.0.2 库已执行 V084/V085，必须先核对各库 `flyway_schema_history` 并制定一次性 out-of-order 对齐方案，禁止直接删除、改号或 repair 掩盖历史分叉。
 - 导出记录入口和历史记录可见范围留待后续需求开发。

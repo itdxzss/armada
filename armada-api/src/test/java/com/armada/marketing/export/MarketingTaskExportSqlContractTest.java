@@ -111,7 +111,10 @@ class MarketingTaskExportSqlContractTest {
         assertThat(memberRows)
                 .contains("membership.tenant_id = #{tenantId}")
                 .contains("member_account.tenant_id = membership.tenant_id")
-                .contains("membership.last_exit_type = 3")
+                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
+                        + "                          AND membership.last_exit_type = 3")
+                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
+                        + "                          AND membership.last_exit_type = 4")
                 .contains("membership.last_exited_at &lt;= #{snapshotAt}");
 
         assertTenantInterceptorIgnored("selectCountryEntryRows",
@@ -120,6 +123,19 @@ class MarketingTaskExportSqlContractTest {
                 Long.class, List.class, long.class, ResultHandler.class);
         assertTenantInterceptorIgnored("selectGroupMemberRows",
                 Long.class, List.class, long.class, ResultHandler.class);
+    }
+
+    @Test
+    void groupMemberQueryAvoidsMysqlReservedWordAlias() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
+        String memberRows = selectBlock(xml, "selectGroupMemberRows");
+
+        assertThat(memberRows)
+                .contains("FROM group_rows group_data")
+                .doesNotContain("FROM group_rows groups")
+                .doesNotContain("groups.");
     }
 
     @Test

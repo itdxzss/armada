@@ -17,7 +17,7 @@
 
 ## 影响
 
-- 数据库：新增 `group_link.sync_protocol_mask`，迁移一次性按现有账号群关系回填。
+- 数据库：V084 新增 `group_link.sync_protocol_mask`，迁移一次性按现有账号群关系回填；同时保留 test1 已执行的原始 V082/V083 及其校验和。
 - API：`GET /api/group-links` 行新增 `syncProtocolMask`。
 - Redis：无。
 - 远程环境：未操作。

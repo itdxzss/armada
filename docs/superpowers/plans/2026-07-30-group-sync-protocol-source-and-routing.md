@@ -13,7 +13,7 @@
 ### Task 1: 同步来源字段与迁移
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V082__group_sync_protocol_mask.sql`
+- Create: `armada-api/src/main/resources/db/migration/V084__group_sync_protocol_mask.sql`
 - Create: `armada-api/src/test/java/com/armada/group/GroupSyncProtocolMigrationSqlTest.java`
 - Modify: `armada-api/src/main/java/com/armada/group/model/entity/GroupLink.java`
 - Modify: `armada-api/src/test/java/com/armada/testsupport/MysqlModeMapperInMemoryTest.java`
@@ -21,7 +21,7 @@
 
 - [x] **Step 1: 写失败的迁移合同测试**
 
-测试读取 `V082__group_sync_protocol_mask.sql`，断言包含非空默认列和一次性存量回填：
+测试读取 `V084__group_sync_protocol_mask.sql`，断言包含非空默认列和一次性存量回填：
 
 ```java
 assertThat(sql)
@@ -35,7 +35,7 @@ assertThat(sql)
 
 Run: `cd armada-api && mvn -Dtest=GroupSyncProtocolMigrationSqlTest test`
 
-Expected: FAIL，提示 `V082__group_sync_protocol_mask.sql` 不存在。
+Expected: FAIL，提示 `V084__group_sync_protocol_mask.sql` 不存在。
 
 - [x] **Step 3: 新增字段、存量回填与实体属性**
 

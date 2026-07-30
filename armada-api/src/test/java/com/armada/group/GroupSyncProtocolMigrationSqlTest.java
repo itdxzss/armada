@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class GroupSyncProtocolMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V082__group_sync_protocol_mask.sql");
+            "src/main/resources/db/migration/V084__group_sync_protocol_mask.sql");
 
     @Test
     void migrationAddsMaskAndBackfillsExistingObservedProtocols() throws IOException {

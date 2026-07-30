@@ -45,6 +45,8 @@ sync_protocol_mask TINYINT NOT NULL DEFAULT 0
 
 字段表达历史同步来源，只增不减。账号离群、离线或删除不清除位，避免把历史来源误当成实时能力。迁移使用现有 `account_group_membership + account.protocol_id` 一次性回填存量数据；该聚合只在部署迁移时执行，不进入运行时列表查询。
 
+迁移版本使用 V084。V082/V083 已由 test1 执行，必须以原文件和原校验和随应用继续发布，禁止复用、改写或通过 Flyway repair 掩盖版本冲突。
+
 ## 写入流程
 
 账号群同步服务处理某账号上报的群时，根据该账号 `protocol_id` 得到来源位：

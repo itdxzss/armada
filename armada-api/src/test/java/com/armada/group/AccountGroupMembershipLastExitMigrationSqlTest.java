@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class AccountGroupMembershipLastExitMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V084__account_group_membership_last_exit.sql");
+            "src/main/resources/db/migration/V085__account_group_membership_last_exit.sql");
 
     @Test
     void migrationAddsIdempotentExitColumnsAndBackfillsKnownExitStates() throws IOException {

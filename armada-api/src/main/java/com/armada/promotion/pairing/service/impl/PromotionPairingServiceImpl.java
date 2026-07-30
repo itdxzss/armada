@@ -8,7 +8,10 @@ import com.armada.platform.protocol.port.PairingLoginPort;
 import com.armada.platform.proxy.ProxyResolver;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.service.PromotionChannelService;
+import com.armada.promotion.channel.support.PromotionDomainNormalizer;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
+import com.armada.promotion.pairing.model.command.PromotionPairingAttribution;
+import com.armada.promotion.pairing.model.command.PromotionPairingCreateCommand;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
 import com.armada.promotion.pairing.model.vo.PromotionPairingCreatedVO;
@@ -19,6 +22,11 @@ import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -32,6 +40,8 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
 
     private static final Logger log = LoggerFactory.getLogger(PromotionPairingServiceImpl.class);
     private static final Pattern PHONE = Pattern.compile("[1-9][0-9]{9,14}");
+    private static final Pattern META_BROWSER_ID = Pattern.compile("[A-Za-z0-9._-]{1,255}");
+    private static final Pattern IPV6_LITERAL = Pattern.compile("[0-9A-Fa-f:.]{2,45}");
     private static final long INITIAL_TTL_MILLIS = 180_000L;
     private static final long EVENT_DELIVERY_GRACE_MILLIS = 30_000L;
     private static final String ERROR_REQUEST_FAILED = "PAIRING_REQUEST_FAILED";
@@ -44,6 +54,7 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
     private final ProxyResolver proxyResolver;
     private final PairingLoginPort pairingLoginPort;
     private final PromotionPairingTokenService tokenService;
+    private final PromotionPairingTransitionService transitionService;
     private final PromotionPairingCompletionService completionService;
 
     public PromotionPairingServiceImpl(PromotionChannelService channelService,
@@ -53,6 +64,7 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
                                        ProxyResolver proxyResolver,
                                        PairingLoginPort pairingLoginPort,
                                        PromotionPairingTokenService tokenService,
+                                       PromotionPairingTransitionService transitionService,
                                        PromotionPairingCompletionService completionService) {
         this.channelService = channelService;
         this.sessionMapper = sessionMapper;
@@ -61,14 +73,20 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
         this.proxyResolver = proxyResolver;
         this.pairingLoginPort = pairingLoginPort;
         this.tokenService = tokenService;
+        this.transitionService = transitionService;
         this.completionService = completionService;
     }
 
     @Override
-    public PromotionPairingCreatedVO create(String channelCode, String forwardedHost, String phone) {
-        String normalizedPhone = normalizePhone(phone);
+    public PromotionPairingCreatedVO create(PromotionPairingCreateCommand command) {
+        if (command == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "配对参数不能为空");
+        }
+        String normalizedPhone = normalizePhone(command.phone());
         PromotionChannelPairingContextRow context =
-                channelService.resolvePairingContext(channelCode, forwardedHost);
+                channelService.resolvePairingContext(command.channelCode(), command.forwardedHost());
+        PromotionPairingAttribution attribution = normalizeAttribution(
+                command, PromotionDomainNormalizer.normalize(command.forwardedHost()));
 
         Long previousTenant = TenantContext.get();
         PromotionPairingSession session = null;
@@ -82,7 +100,7 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
             long now = System.currentTimeMillis();
             PromotionPairingTokenService.GeneratedToken token = tokenService.generate();
             session = buildSession(context, normalizedPhone, token.tokenHash(), now);
-            requireOne(sessionMapper.insert(session), "配对会话创建失败");
+            transitionService.createSession(session, context, attribution, now);
 
             // 代理使用专用配对状态和会话归属占用；成功落库后才转成正式 account.id。
             IpProxyAllocation allocation = ipProxyService.allocatePairingEndpoint(
@@ -99,9 +117,9 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
                     session.getProtocolAccountId(), normalizedPhone, proxy));
             validateAccepted(session, accepted);
             long expiresAt = accepted.expiresAt().toEpochMilli();
-            requireOne(sessionMapper.markAccepted(
-                    session.getId(), context.tenantId(), accepted.pairingId(), expiresAt, System.currentTimeMillis()),
-                    "配对会话状态已变化");
+            transitionService.markAccepted(
+                    session.getId(), context.tenantId(), accepted.pairingId(),
+                    expiresAt, System.currentTimeMillis());
             log.info("推广配对请求已受理 sessionId={} channelId={} proxyId={} expiresAt={}",
                     session.getId(), context.channelId(), allocation.proxyId(), expiresAt);
             return new PromotionPairingCreatedVO(
@@ -213,6 +231,102 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
             throw new BusinessException(ErrorCode.VALIDATION, "手机号需为 10-15 位国际号码数字");
         }
         return normalized;
+    }
+
+    private static PromotionPairingAttribution normalizeAttribution(
+            PromotionPairingCreateCommand command, String expectedHost) {
+        return new PromotionPairingAttribution(
+                optionalMetaId(command.fbp()),
+                optionalMetaId(command.fbc()),
+                optionalSourceUrl(command.sourceUrl(), expectedHost),
+                optionalClientIp(command.clientIp()),
+                optionalUserAgent(command.clientUserAgent()));
+    }
+
+    private static String optionalMetaId(String value) {
+        String normalized = optionalTrim(value);
+        if (normalized != null && !META_BROWSER_ID.matcher(normalized).matches()) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private static String optionalClientIp(String value) {
+        String normalized = optionalTrim(value);
+        return isIpv4Literal(normalized) || isIpv6Literal(normalized) ? normalized : null;
+    }
+
+    private static String optionalUserAgent(String value) {
+        String normalized = optionalTrim(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.length() > 512 || normalized.chars().anyMatch(Character::isISOControl)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private static String optionalSourceUrl(String value, String expectedHost) {
+        String normalized = optionalTrim(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.length() > 2048) {
+            return null;
+        }
+        try {
+            URI uri = new URI(normalized);
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getHost() == null || uri.getUserInfo() != null
+                    || !expectedHost.equalsIgnoreCase(uri.getHost())) {
+                return null;
+            }
+            String ascii = new URI(
+                    uri.getScheme().toLowerCase(), null, uri.getHost(), uri.getPort(),
+                    uri.getPath(), null, null).toASCIIString();
+            return ascii.length() <= 2048 ? ascii : null;
+        } catch (URISyntaxException ex) {
+            return null;
+        }
+    }
+
+    private static boolean isIpv4Literal(String value) {
+        if (value == null) {
+            return false;
+        }
+        String[] parts = value.split("\\.", -1);
+        if (parts.length != 4) {
+            return false;
+        }
+        for (String part : parts) {
+            if (part.isEmpty() || part.length() > 3 || !part.chars().allMatch(Character::isDigit)) {
+                return false;
+            }
+            int number = Integer.parseInt(part);
+            if (number > 255 || (part.length() > 1 && part.startsWith("0"))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isIpv6Literal(String value) {
+        if (value == null || !value.contains(":") || !IPV6_LITERAL.matcher(value).matches()) {
+            return false;
+        }
+        try {
+            return InetAddress.getByName(value) instanceof Inet6Address;
+        } catch (UnknownHostException ex) {
+            return false;
+        }
+    }
+
+    private static String optionalTrim(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private static boolean isActive(PromotionPairingStatus status) {

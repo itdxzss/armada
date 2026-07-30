@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.boot.web.GlobalExceptionHandler;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
+import com.armada.promotion.channel.model.vo.FacebookStandardEventVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
@@ -101,6 +102,22 @@ class PromotionChannelControllerTest {
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getCreatorUserId()).isEqualTo(20001L);
         org.assertj.core.api.Assertions.assertThat(captor.getValue().getOwnerUserIds())
                 .containsExactly(20001L, 20002L);
+    }
+
+    @Test
+    void facebookStandardEventsReturnsBackendCatalogWithoutClientSuppliedValues() throws Exception {
+        when(service.facebookStandardEvents()).thenReturn(List.of(
+                new FacebookStandardEventVO("PageView", "浏览页面", "PageView"),
+                new FacebookStandardEventVO("Lead", "潜在客户", "Lead")));
+
+        mockMvc.perform(get("/api/promotion-channels/facebook-standard-events"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data[0].code").value("PageView"))
+                .andExpect(jsonPath("$.data[0].nameZh").value("浏览页面"))
+                .andExpect(jsonPath("$.data[1].code").value("Lead"));
+
+        verify(service).facebookStandardEvents();
     }
 
     @Test

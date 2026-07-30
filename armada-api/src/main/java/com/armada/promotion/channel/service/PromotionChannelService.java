@@ -1,10 +1,13 @@
 package com.armada.promotion.channel.service;
 
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
+import com.armada.promotion.channel.model.dto.PromotionChannelCapiEventDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
+import com.armada.promotion.channel.model.vo.FacebookStandardEventVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelCapiDeliveryResult;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
@@ -13,6 +16,21 @@ import com.armada.shared.response.PageResult;
 
 /** 渠道管理业务接口。 */
 public interface PromotionChannelService {
+
+    /**
+     * 返回渠道表单允许配置的 Facebook 官方标准事件目录。
+     *
+     * @return 顺序稳定的 18 个目录项
+     */
+    java.util.List<FacebookStandardEventVO> facebookStandardEvents();
+
+    /**
+     * 使用当前租户、当前渠道的有效 Facebook 配置投递正式业务事件。
+     *
+     * @param event 已脱敏的 Outbox 事件
+     * @return 可供 Outbox 判定成功、重试或永久失败的脱敏结果
+     */
+    PromotionChannelCapiDeliveryResult deliverFacebookCapi(PromotionChannelCapiEventDTO event);
 
     /**
      * 在单个事务内创建域名绑定、渠道主记录和可选追踪配置。

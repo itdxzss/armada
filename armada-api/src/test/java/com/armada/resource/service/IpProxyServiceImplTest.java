@@ -818,11 +818,11 @@ class IpProxyServiceImplTest {
     }
 
     @Test
-    void allocatePairingEndpoint_triesNextCandidateWhenFirstCandidateIsClaimedConcurrently() {
+    void allocatePairingEndpoint_usesCandidateQueryAndRetriesNextConcurrentCandidate() {
         TenantContext.set(1L);
         try {
-            IpProxy first = idleProxy(10L, "proxy-a.internal");
-            IpProxy second = idleProxy(11L, "proxy-b.internal");
+            IpProxy conflicted = idleProxy(10L, "proxy-conflicted.internal");
+            IpProxy available = idleProxy(11L, "proxy-available.internal");
             when(mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
                     1L,
                     IpProxyStatus.IDLE.code(),
@@ -830,22 +830,24 @@ class IpProxyServiceImplTest {
                     "混合（不限国家）",
                     List.of(),
                     true,
-                    100))).thenReturn(List.of(first, second));
+                    100))).thenReturn(List.of(conflicted, available));
             when(mapper.reserveForPairing(
-                    eq(10L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(10L), eq(700L), eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong())).thenReturn(0);
             when(mapper.reserveForPairing(
-                    eq(11L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(11L), eq(700L), eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong())).thenReturn(1);
 
-            IpProxyAllocation allocation = service.allocatePairingEndpoint(7001L, "印度", true);
+            IpProxyAllocation allocation = service.allocatePairingEndpoint(700L, "印度", true);
 
             assertThat(allocation.proxyId()).isEqualTo(11L);
+            assertThat(allocation.endpoint().host()).isEqualTo("proxy-available.internal");
+            verify(mapper).selectIdleByRegionPriority(any(IpProxyCandidateQuery.class));
             verify(mapper).reserveForPairing(
-                    eq(10L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(10L), eq(700L), eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong());
             verify(mapper).reserveForPairing(
-                    eq(11L), eq(7001L), eq(IpProxyStatus.IDLE.code()),
+                    eq(11L), eq(700L), eq(IpProxyStatus.IDLE.code()),
                     eq(IpProxyStatus.PAIRING_RESERVED.code()), anyLong());
         } finally {
             TenantContext.clear();

@@ -5,6 +5,7 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
+import com.armada.promotion.channel.model.dto.PromotionChannelCapiEventDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
@@ -12,9 +13,12 @@ import com.armada.promotion.channel.model.entity.PromotionChannel;
 import com.armada.promotion.channel.model.entity.PromotionChannelTrackingConfig;
 import com.armada.promotion.channel.model.entity.PromotionDomain;
 import com.armada.promotion.channel.model.entity.PromotionLandingTemplate;
+import com.armada.promotion.channel.model.enums.FacebookStandardEvent;
 import com.armada.promotion.channel.model.enums.PromotionPlatform;
+import com.armada.promotion.channel.model.vo.FacebookStandardEventVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
+import com.armada.promotion.channel.model.vo.PromotionChannelCapiDeliveryResult;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
@@ -23,7 +27,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
 import com.armada.promotion.channel.security.PromotionTokenCipher;
-import com.armada.promotion.channel.service.FacebookCapiProbeClient;
+import com.armada.promotion.channel.service.FacebookCapiClient;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
 import com.armada.promotion.channel.support.PromotionChannelLinkBuilder;
@@ -60,9 +64,9 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private static final int OWNER_FILTER_MAX = 500;
     private static final int CHANNEL_STATUS_DISABLED = 0;
     private static final int CHANNEL_STATUS_ENABLED = 1;
-    private static final String DEFAULT_LEAD_EVENT = "Lead";
-    private static final String DEFAULT_LOGIN_REQUEST_EVENT = "InitiateCheckout";
-    private static final String DEFAULT_LOGIN_SUCCESS_EVENT = "CompleteRegistration";
+    private static final String DEFAULT_LEAD_EVENT = FacebookStandardEvent.LEAD.code();
+    private static final String DEFAULT_LOGIN_REQUEST_EVENT = FacebookStandardEvent.INITIATE_CHECKOUT.code();
+    private static final String DEFAULT_LOGIN_SUCCESS_EVENT = FacebookStandardEvent.COMPLETE_REGISTRATION.code();
     private static final String DEFAULT_THEME_COLOR = "#e11d48";
     private static final Pattern THEME_COLOR_PATTERN = Pattern.compile("^#[0-9a-fA-F]{6}$");
     private static final Pattern CHANNEL_CODE_PATTERN = Pattern.compile("^[a-z0-9]{1,32}$");
@@ -82,13 +86,14 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private static final int PROBE_ERROR_MESSAGE_MAX_LENGTH = 255;
     private static final Pattern TEST_EVENT_CODE_PATTERN =
             Pattern.compile("^TEST[A-Za-z0-9_-]{1,60}$");
+    private static final Pattern SHA256_HEX_PATTERN = Pattern.compile("^[0-9a-f]{64}$");
 
     private final PromotionChannelMapper mapper;
     private final CountryService countryService;
     private final PromotionChannelConverter converter;
     private final ChannelCodeGenerator codeGenerator;
     private final PromotionTokenCipher tokenCipher;
-    private final FacebookCapiProbeClient facebookCapiProbeClient;
+    private final FacebookCapiClient facebookCapiClient;
     private final boolean probeEnabled;
 
     public PromotionChannelServiceImpl(
@@ -97,15 +102,64 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             PromotionChannelConverter converter,
             ChannelCodeGenerator codeGenerator,
             PromotionTokenCipher tokenCipher,
-            FacebookCapiProbeClient facebookCapiProbeClient,
+            FacebookCapiClient facebookCapiClient,
             @Value("${armada.promotion.tracking.facebook.probe-enabled:false}") boolean probeEnabled) {
         this.mapper = mapper;
         this.countryService = countryService;
         this.converter = converter;
         this.codeGenerator = codeGenerator;
         this.tokenCipher = tokenCipher;
-        this.facebookCapiProbeClient = facebookCapiProbeClient;
+        this.facebookCapiClient = facebookCapiClient;
         this.probeEnabled = probeEnabled;
+    }
+
+    @Override
+    public List<FacebookStandardEventVO> facebookStandardEvents() {
+        return java.util.Arrays.stream(FacebookStandardEvent.values())
+                .map(event -> new FacebookStandardEventVO(
+                        event.code(), event.nameZh(), event.nameEn()))
+                .toList();
+    }
+
+    @Override
+    public PromotionChannelCapiDeliveryResult deliverFacebookCapi(
+            PromotionChannelCapiEventDTO event) {
+        if (event == null || event.channelId() == null || event.channelId() <= 0
+                || !FacebookStandardEvent.supports(event.eventName())
+                || !StringUtils.hasText(event.eventId())
+                || event.eventTimeSeconds() == null || event.eventTimeSeconds() <= 0
+                || !StringUtils.hasText(event.phoneSha256())
+                || !SHA256_HEX_PATTERN.matcher(event.phoneSha256()).matches()) {
+            return deliveryFailure(false, "INVALID_EVENT", "正式事件参数不完整或不合法");
+        }
+        PromotionChannelProbeConfigRow config = mapper.selectProbeConfigByChannelId(event.channelId());
+        if (config == null || config.getPlatform() == null
+                || config.getPlatform() != PromotionPlatform.FACEBOOK.code()
+                || !StringUtils.hasText(config.getTrackingId()) || !hasCompleteToken(config)) {
+            return deliveryFailure(false, "UNCONFIGURED", "Facebook Pixel ID 或 Access Token 未配置");
+        }
+        final String accessToken;
+        try {
+            accessToken = tokenCipher.decrypt(
+                    config.getAccessTokenCiphertext(),
+                    config.getEncryptionKeyId(),
+                    config.getTokenFingerprint());
+        } catch (RuntimeException ex) {
+            return deliveryFailure(false, "TOKEN_DECRYPT_FAILED", "Access Token 解密失败");
+        }
+        FacebookCapiClient.Result result = facebookCapiClient.send(
+                new FacebookCapiClient.BusinessEventCommand(
+                        config.getTrackingId(), accessToken, event.eventSourceUrl(),
+                        event.eventName(), event.eventId(), event.eventTimeSeconds(),
+                        event.phoneSha256(), event.clientIp(), event.clientUserAgent(),
+                        event.fbp(), event.fbc()));
+        return new PromotionChannelCapiDeliveryResult(
+                result.success(), result.retryable(), result.errorCode(), result.errorMessage());
+    }
+
+    private static PromotionChannelCapiDeliveryResult deliveryFailure(
+            boolean retryable, String errorCode, String errorMessage) {
+        return new PromotionChannelCapiDeliveryResult(false, retryable, errorCode, errorMessage);
     }
 
     /**
@@ -298,11 +352,11 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
         String eventId = "probe_" + UUID.randomUUID().toString().replace("-", "");
         long eventTimeSeconds = System.currentTimeMillis() / 1000;
-        FacebookCapiProbeClient.Command command = new FacebookCapiProbeClient.Command(
+        FacebookCapiClient.ProbeCommand command = new FacebookCapiClient.ProbeCommand(
                 config.getTrackingId(), accessToken, testEventCode,
                 promotionLink(config), PROBE_EVENT_NAME, eventId, eventTimeSeconds,
                 sha256Hex(eventId));
-        FacebookCapiProbeClient.Result clientResult = facebookCapiProbeClient.probe(command);
+        FacebookCapiClient.Result clientResult = facebookCapiClient.probe(command);
         if (clientResult == null) {
             return completeProbe(config, false, eventId, PROBE_ERROR_INVALID_RESPONSE,
                     "Facebook 返回结果无法识别", checkedAt, System.currentTimeMillis());
@@ -606,9 +660,9 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 platform,
                 trackingId,
                 token,
-                eventName(request.leadEventName(), DEFAULT_LEAD_EVENT),
-                eventName(request.loginRequestEventName(), DEFAULT_LOGIN_REQUEST_EVENT),
-                eventName(request.loginSuccessEventName(), DEFAULT_LOGIN_SUCCESS_EVENT),
+                eventName(platform, request.leadEventName(), FacebookStandardEvent.LEAD),
+                eventName(platform, request.loginRequestEventName(), FacebookStandardEvent.INITIATE_CHECKOUT),
+                eventName(platform, request.loginSuccessEventName(), FacebookStandardEvent.COMPLETE_REGISTRATION),
                 request.inAppOpenAllowed() == null || request.inAppOpenAllowed(),
                 request.marketingAllowed() == null || request.marketingAllowed(),
                 status);
@@ -942,9 +996,17 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         return trimmed;
     }
 
-    /** 上报事件未填写时使用产品默认事件名，填写时执行统一长度校验。 */
-    private static String eventName(String value, String defaultValue) {
-        return StringUtils.hasText(value) ? requiredText(value, "上报事件", 64) : defaultValue;
+    /** Facebook 只接受官方标准事件；其他既有 CAPI 平台保持原有长度校验行为。 */
+    private static String eventName(
+            PromotionPlatform platform,
+            String value,
+            FacebookStandardEvent defaultEvent) {
+        if (platform == PromotionPlatform.FACEBOOK) {
+            return FacebookStandardEvent.requireOrDefault(value, defaultEvent);
+        }
+        return StringUtils.hasText(value)
+                ? requiredText(value, "上报事件", 64)
+                : defaultEvent.code();
     }
 
     /** 校验所有业务主键均为正整数。 */

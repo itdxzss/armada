@@ -134,6 +134,25 @@ class PromotionChannelMapperSqlContractTest {
     }
 
     @Test
+    void publicPairingContextSnapshotsEventMappingWithoutSelectingTrackingSecrets() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectPairingContextByCodeAndHost\"");
+        assertThat(start).isGreaterThanOrEqualTo(0);
+        String pairingContext = xml.substring(start, xml.indexOf("</select>", start));
+
+        assertThat(pairingContext).contains(
+                "c.platform",
+                "tracking.lead_event_name AS leadEventName",
+                "tracking.login_request_event_name AS loginRequestEventName",
+                "tracking.login_success_event_name AS loginSuccessEventName",
+                "tracking.channel_id = c.id",
+                "tracking.tenant_id = c.tenant_id",
+                "tracking.deleted_at IS NULL");
+        assertThat(pairingContext).doesNotContain(
+                "access_token_ciphertext", "token_fingerprint", "encryption_key_id");
+    }
+
+    @Test
     void probeSqlSelectsSensitiveConfigurationOnlyForProbeAndUsesAtomicStateUpdates() throws IOException {
         String xml = mapperXml();
         int probeStart = xml.indexOf("<select id=\"selectProbeConfigByChannelId\"");

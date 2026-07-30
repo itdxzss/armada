@@ -4,6 +4,7 @@ import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelUpdateDTO;
+import com.armada.promotion.channel.model.vo.FacebookStandardEventVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
@@ -21,6 +22,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /** 渠道管理新增、分页、详情、编辑和删除接口。 */
 @RestController
 @RequestMapping("/api/promotion-channels")
@@ -31,6 +34,12 @@ public class PromotionChannelController {
 
     public PromotionChannelController(PromotionChannelService service) {
         this.service = service;
+    }
+
+    /** 返回渠道表单允许配置的 Facebook 官方标准事件。 */
+    @GetMapping("/facebook-standard-events")
+    public ApiResponse<List<FacebookStandardEventVO>> facebookStandardEvents() {
+        return ApiResponse.ok(service.facebookStandardEvents());
     }
 
     /**

@@ -499,6 +499,24 @@
           AND bound_account_id IS NULL
     </update>
 
+    <update id="markUsingAndBindBatch">
+        UPDATE ip_proxy
+        SET status = #{usingStatus},
+            bound_account_id = CASE id
+            <foreach collection="targets" item="target">
+                WHEN #{target.proxyId} THEN #{target.accountId}
+            </foreach>
+            END,
+            bound_at = #{boundAt},
+            updated_at = #{boundAt}
+        WHERE deleted_at IS NULL
+          AND status = #{idleStatus}
+          AND pairing_session_id IS NULL
+          AND bound_account_id IS NULL
+          AND id IN
+        <foreach collection="targets" item="target" open="(" separator="," close=")">#{target.proxyId}</foreach>
+    </update>
+
     <update id="releaseByAccount">
         UPDATE ip_proxy
         SET status = #{idleStatus},

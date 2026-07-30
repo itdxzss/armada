@@ -1101,6 +1101,8 @@ test_armada_compose_passes_promotion_token_encryption_config_to_backend() {
   assert_contains "${win_script}" 'DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID'
   assert_contains "${win_script}" 'base64 --decode'
   assert_contains "${win_script}" 'chmod 600 .env'
+  # Windows 脚本必须用 quoted heredoc 保存远端脚本；外层单引号会吞掉内部的 \r 和字符类引号。
+  assert_contains "${win_script}" "cat <<'REMOTE_REQUIRED_ENV_CHECK'"
 
   modular_chmod_line="$(grep -n 'chmod 600 .env' "${SCRIPT_DIR}/lib/armada.sh" | head -1 | cut -d: -f1)"
   modular_required_line="$(grep -n 'for key in DB_URL' "${SCRIPT_DIR}/lib/armada.sh" | head -1 | cut -d: -f1)"

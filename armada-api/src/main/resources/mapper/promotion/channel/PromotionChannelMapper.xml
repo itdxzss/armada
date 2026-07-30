@@ -220,7 +220,11 @@
            c.id AS channelId,
            c.channel_name AS channelName,
            c.owner_user_id AS ownerUserId,
-           country.name_zh AS preferredProxyRegion
+           country.name_zh AS preferredProxyRegion,
+           c.platform,
+           tracking.lead_event_name AS leadEventName,
+           tracking.login_request_event_name AS loginRequestEventName,
+           tracking.login_success_event_name AS loginSuccessEventName
     FROM promotion_domain d
     INNER JOIN promotion_channel c
       ON c.promotion_domain_id = d.id
@@ -239,6 +243,10 @@
       ON country.iso2 = c.preselected_country_value
      AND country.is_enabled = 1
      AND country.deleted_at IS NULL
+    LEFT JOIN promotion_channel_tracking_config tracking
+      ON tracking.channel_id = c.id
+     AND tracking.tenant_id = c.tenant_id
+     AND tracking.deleted_at IS NULL
     WHERE c.channel_code = #{channelCode}
       AND d.domain_host = #{domainHost}
       AND d.is_active = 1
@@ -247,7 +255,7 @@
   </select>
 
   <!--
-    只有探测服务允许读取 Token 密文；查询仍受租户拦截器和三张表软删除条件约束，
+    只有渠道域内部 CAPI 服务允许读取 Token 密文；查询仍受租户拦截器和三张表软删除条件约束，
     该投影禁止复用于列表、详情或导出接口。
   -->
   <select id="selectProbeConfigByChannelId"

@@ -296,36 +296,51 @@ public class IpProxyServiceImpl implements IpProxyService {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少租户上下文");
         }
         long now = System.currentTimeMillis();
-        List<IpProxy> candidates = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
-                tenantId,
-                IpProxyStatus.IDLE.code(),
-                preferredRegion,
-                MIXED_REGION,
-                List.of(),
-                allowOtherRegionFallback,
-                IpProxyOptimisticAllocator.CANDIDATE_BATCH_SIZE));
-        if (candidates.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "暂无空闲代理");
-        }
+        IpProxy proxy = reservePairingProxy(
+                tenantId, pairingSessionId, preferredRegion, allowOtherRegionFallback, now);
+        log.info("IP代理推广配对占用 pairingSessionId={} proxyId={} region={}",
+                pairingSessionId, proxy.getId(), proxy.getRegion());
+        return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
+    }
 
-        // 候选查询不持锁，通过带 IDLE 和空绑定条件的 UPDATE 逐个竞争，避免并发配对复用同一代理。
-        for (IpProxy proxy : candidates) {
-            if (proxy.getId() == null) {
-                continue;
+    /**
+     * 使用现有候选查询和状态 CAS 为推广配对占用一条代理。
+     *
+     * <p>候选 SELECT 不加锁；若候选被并发请求先占用，则继续尝试下一条，并在下一轮查询时排除
+     * 已尝试代理。真正归属只以 {@code reserveForPairing} 的条件更新结果为准。</p>
+     */
+    private IpProxy reservePairingProxy(Long tenantId,
+                                        Long pairingSessionId,
+                                        String preferredRegion,
+                                        boolean allowOtherRegionFallback,
+                                        long reservedAt) {
+        Set<Long> attemptedProxyIds = new LinkedHashSet<>();
+        while (true) {
+            List<IpProxy> candidates = mapper.selectIdleByRegionPriority(new IpProxyCandidateQuery(
+                    tenantId,
+                    IpProxyStatus.IDLE.code(),
+                    preferredRegion,
+                    MIXED_REGION,
+                    List.copyOf(attemptedProxyIds),
+                    allowOtherRegionFallback,
+                    IpProxyOptimisticAllocator.CANDIDATE_BATCH_SIZE));
+            boolean attemptedCandidate = false;
+            for (IpProxy candidate : candidates) {
+                if (candidate.getId() == null || !attemptedProxyIds.add(candidate.getId())) {
+                    continue;
+                }
+                attemptedCandidate = true;
+                int reserved = mapper.reserveForPairing(
+                        candidate.getId(), pairingSessionId,
+                        IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(), reservedAt);
+                if (reserved == 1) {
+                    return candidate;
+                }
             }
-            int reserved = mapper.reserveForPairing(
-                    proxy.getId(), pairingSessionId,
-                    IpProxyStatus.IDLE.code(), IpProxyStatus.PAIRING_RESERVED.code(), now);
-            if (reserved != 1) {
-                log.debug("IP代理推广配对候选竞争失败 pairingSessionId={} proxyId={}",
-                        pairingSessionId, proxy.getId());
-                continue;
+            if (!attemptedCandidate) {
+                throw new BusinessException(ErrorCode.VALIDATION, "暂无空闲代理");
             }
-            log.info("IP代理推广配对占用 pairingSessionId={} proxyId={} region={}",
-                    pairingSessionId, proxy.getId(), proxy.getRegion());
-            return new IpProxyAllocation(proxy.getId(), toEndpoint(proxy), proxy.getSource());
         }
-        throw new BusinessException(ErrorCode.CONFLICT, "配对代理分配冲突，请重试");
     }
 
     @Override

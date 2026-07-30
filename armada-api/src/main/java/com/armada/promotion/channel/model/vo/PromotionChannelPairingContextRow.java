@@ -6,5 +6,9 @@ public record PromotionChannelPairingContextRow(
         Long channelId,
         String channelName,
         Long ownerUserId,
-        String preferredProxyRegion) {
+        String preferredProxyRegion,
+        Integer platform,
+        String leadEventName,
+        String loginRequestEventName,
+        String loginSuccessEventName) {
 }

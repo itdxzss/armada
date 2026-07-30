@@ -14,7 +14,9 @@ import com.armada.platform.kafka.consumer.pairing.ProtocolPairingEvent;
 import com.armada.platform.protocol.model.result.PairingCredentialExport;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
+import com.armada.promotion.pairing.model.enums.PromotionCapiEventStage;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
+import com.armada.promotion.pairing.service.PromotionCapiEventService;
 import com.armada.resource.service.IpProxyService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +33,8 @@ class PromotionPairingCompletionServiceTest {
     private PromotionAccountProvisionService accountProvisionService;
     @Mock
     private IpProxyService ipProxyService;
+    @Mock
+    private PromotionCapiEventService capiEventService;
 
     @Test
     void completedEventCreatesFormalAccountAndTransfersTemporaryProxy() {
@@ -40,7 +44,7 @@ class PromotionPairingCompletionServiceTest {
         when(accountProvisionService.provision(any(PromotionAccountProvisionCommand.class))).thenReturn(901L);
         when(sessionMapper.markSucceeded(7001L, 7L, 901L, 1_800_000_000_000L)).thenReturn(1);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         Long accountId = service.complete(
                 7001L,
@@ -62,6 +66,8 @@ class PromotionPairingCompletionServiceTest {
         assertThat(commandCaptor.getValue().promotionChannelId()).isEqualTo(501L);
         assertThat(commandCaptor.getValue().proxySessionId()).isEqualTo("sticky001");
         assertThat(commandCaptor.getValue().accountType()).isEqualTo(2);
+        verify(capiEventService).activate(
+                7001L, PromotionCapiEventStage.LOGIN_SUCCESS, 1_800_000_000_000L);
     }
 
     @Test
@@ -73,7 +79,7 @@ class PromotionPairingCompletionServiceTest {
                 7001L, 7L, PromotionPairingStatus.EXPIRED.code(),
                 "PAIRING_EXPIRED", "配对码已失效，请重试", 1_800_000_000_000L)).thenReturn(1);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         Long accountId = service.complete(
                 7001L,
@@ -91,6 +97,7 @@ class PromotionPairingCompletionServiceTest {
                 7001L, 7L, PromotionPairingStatus.EXPIRED.code(),
                 "PAIRING_EXPIRED", "配对码已失效，请重试", 1_800_000_000_000L);
         verifyNoInteractions(accountProvisionService);
+        verify(capiEventService).cancelWaiting(7001L, 1_800_000_000_000L);
     }
 
     @Test
@@ -99,7 +106,7 @@ class PromotionPairingCompletionServiceTest {
         when(sessionMapper.selectByIdForUpdate(7001L, 7L)).thenReturn(session);
         when(accountProvisionService.existsActiveByPhoneGlobally("919876543210")).thenReturn(true);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         assertThatThrownBy(() -> service.complete(
                 7001L,
@@ -124,7 +131,7 @@ class PromotionPairingCompletionServiceTest {
         when(sessionMapper.selectByIdForUpdate(7001L, 7L)).thenReturn(session);
         when(sessionMapper.claimFinalizing(7001L, 7L, 1_800_000_000_000L)).thenReturn(1);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         assertThatThrownBy(() -> service.complete(
                 7001L,
@@ -151,7 +158,7 @@ class PromotionPairingCompletionServiceTest {
         current.setExpiresAt(1_800_000_180_000L);
         when(sessionMapper.selectByIdForUpdate(7001L, 7L)).thenReturn(current);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         boolean expired = service.expireIfDue(7001L, 7L, 1_800_000_000_000L);
 
@@ -171,12 +178,13 @@ class PromotionPairingCompletionServiceTest {
                 7001L, 7L, PromotionPairingStatus.EXPIRED.code(),
                 "PAIRING_EXPIRED", "配对码已失效，请重试", 1_800_000_000_000L)).thenReturn(1);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         boolean expired = service.expireIfDue(7001L, 7L, 1_800_000_000_000L);
 
         assertThat(expired).isTrue();
         verify(ipProxyService).releasePairingAllocation(7001L, 2002L);
+        verify(capiEventService).cancelWaiting(7001L, 1_800_000_000_000L);
     }
 
     @Test
@@ -189,7 +197,7 @@ class PromotionPairingCompletionServiceTest {
                 7001L, 7L, PromotionPairingStatus.EXPIRED.code(),
                 "PAIRING_EXPIRED", "配对码已失效，请重试", 1_800_000_000_000L)).thenReturn(1);
         PromotionPairingCompletionService service = new PromotionPairingCompletionService(
-                sessionMapper, accountProvisionService, ipProxyService);
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
 
         boolean expired = service.expireIfDue(7001L, 7L, 1_800_000_000_000L);
 

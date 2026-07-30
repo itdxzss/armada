@@ -52,6 +52,18 @@ armada:
         enabled: ${PROMOTION_PAIRING_EXPIRY_SCAN_ENABLED:true}
         fixed-delay-ms: ${PROMOTION_PAIRING_EXPIRY_SCAN_FIXED_DELAY_MS:30000}
         batch-size: ${PROMOTION_PAIRING_EXPIRY_SCAN_BATCH_SIZE:100}
+    capi-dispatcher:
+      batch-size: ${PROMOTION_CAPI_DISPATCH_BATCH_SIZE:100}
+      max-retry-count: ${PROMOTION_CAPI_MAX_RETRY_COUNT:6}
+      retry-delay-ms: ${PROMOTION_CAPI_RETRY_DELAY_MS:30000}
+      locked-timeout-ms: ${PROMOTION_CAPI_LOCKED_TIMEOUT_MS:60000}
+      privacy-cleanup:
+        fixed-delay-ms: ${PROMOTION_CAPI_PRIVACY_CLEANUP_DELAY_MS:3600000}
+        batch-size: ${PROMOTION_CAPI_PRIVACY_CLEANUP_BATCH_SIZE:500}
+      scheduler:
+        enabled: ${PROMOTION_CAPI_SCHEDULER_ENABLED:true}
+        fixed-delay-ms: ${PROMOTION_CAPI_SCHEDULER_FIXED_DELAY_MS:5000}
+        recovery-delay-ms: ${PROMOTION_CAPI_RECOVERY_DELAY_MS:60000}
   # 进群专用调度线程只做到期扫描和 outbox 入队；batch-size 是单轮上限，不是账号并行上限。
   task:
     join-dispatcher:

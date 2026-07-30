@@ -11,6 +11,7 @@ import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -35,10 +36,12 @@ class AccountGroupMembershipStatusServiceImplTest {
     void preciseRemoveStoresLatestExitFactForExport() {
         AccountGroupBaselineRow account = new AccountGroupBaselineRow();
         account.setAccountId(10L);
+        account.setProtocolId("ANDROID");
         account.setProtocolAccountId("protocol-account-10");
         Mockito.when(mapper.selectAccountBaselineRow(10L)).thenReturn(account);
         Mockito.when(registryService.registerAccountObservedGroup(
-                Mockito.eq("120363001@g.us"), Mockito.isNull(), Mockito.anyLong()))
+                Mockito.eq("120363001@g.us"), Mockito.isNull(),
+                Mockito.eq(ProtocolBackend.ANDROID), Mockito.anyLong()))
                 .thenReturn(20L);
 
         service.applyMembershipChanged(new AccountGroupMembershipChangedEvent(

@@ -123,6 +123,19 @@ class MarketingTaskExportSqlContractTest {
     }
 
     @Test
+    void groupMemberQueryAvoidsMysqlReservedWordAlias() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
+        String memberRows = selectBlock(xml, "selectGroupMemberRows");
+
+        assertThat(memberRows)
+                .contains("FROM group_rows group_data")
+                .doesNotContain("FROM group_rows groups")
+                .doesNotContain("groups.");
+    }
+
+    @Test
     void largeDetailQueriesUseConnectorJRowByRowStreaming() throws NoSuchMethodException {
         assertStreamingOptions("selectCountryEntryRows");
         assertStreamingOptions("selectGroupRows");

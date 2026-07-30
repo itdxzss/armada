@@ -707,12 +707,12 @@
     <select id="selectGroupMemberRows"
             resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow">
         WITH <include refid="ExportGroupCtes"/>
-        SELECT groups.taskId,
-               groups.taskName,
-               groups.groupName,
-               groups.groupLink,
-               groups.groupStatus,
-               groups.groupMemberCount,
+        SELECT group_data.taskId,
+               group_data.taskName,
+               group_data.groupName,
+               group_data.groupLink,
+               group_data.groupStatus,
+               group_data.groupMemberCount,
                member_account.ws_phone AS memberPhone,
                CASE WHEN membership.is_admin = 1 THEN '管理员'
                     WHEN membership.is_admin = 0 THEN '群成员'
@@ -732,27 +732,27 @@
                    SELECT 1
                    FROM join_task_result member_join
                    WHERE member_join.tenant_id = #{tenantId}
-                     AND member_join.group_jid = groups.groupJid
+                     AND member_join.group_jid = group_data.groupJid
                      AND member_join.account_id = membership.account_id
                      AND member_join.status = 'SUCCESS'
                      AND COALESCE(member_join.joined_at,
                                   member_join.updated_at,
                                   member_join.created_at) BETWEEN
-                         COALESCE(groups.joinedTaskAt, 0) AND #{snapshotAt}
+                         COALESCE(group_data.joinedTaskAt, 0) AND #{snapshotAt}
                ) THEN '本任务成功进群'
                  ELSE '原群成员' END AS taskJoinStatus
-        FROM group_rows groups
+        FROM group_rows group_data
         JOIN account_group_membership membership
           ON membership.tenant_id = #{tenantId}
-         AND membership.group_jid = groups.groupJid
+         AND membership.group_jid = group_data.groupJid
          AND membership.deleted_at IS NULL
          AND membership.created_at &lt;= #{snapshotAt}
         JOIN account member_account
           ON member_account.tenant_id = membership.tenant_id
          AND member_account.id = membership.account_id
          AND member_account.deleted_at IS NULL
-        WHERE groups.groupJid IS NOT NULL
-          AND TRIM(groups.groupJid) &lt;&gt; ''
-        ORDER BY groups.taskId ASC, groups.groupKey ASC, membership.account_id ASC
+        WHERE group_data.groupJid IS NOT NULL
+          AND TRIM(group_data.groupJid) &lt;&gt; ''
+        ORDER BY group_data.taskId ASC, group_data.groupKey ASC, membership.account_id ASC
     </select>
 </mapper>

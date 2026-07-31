@@ -192,3 +192,4 @@ armada:
     captcha-ttl: ${AUTH_CAPTCHA_TTL:2m}
     session-idle-timeout: ${AUTH_SESSION_IDLE_TIMEOUT:30m}
     session-max-lifetime: ${AUTH_SESSION_MAX_LIFETIME:24h}
+    session-key-prefix: ${AUTH_SESSION_KEY_PREFIX:armada:default:}

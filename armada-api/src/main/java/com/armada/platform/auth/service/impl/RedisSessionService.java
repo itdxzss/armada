@@ -30,8 +30,8 @@ public class RedisSessionService implements SessionService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisSessionService.class);
     // Redis Cluster 的 Lua 脚本要求所有 KEYS 位于同一槽位；相同 hash tag 保证会话双键同槽。
-    private static final String SESSION_PREFIX = "auth:{login-session}:session:";
-    private static final String USER_PREFIX = "auth:{login-session}:user:";
+    private static final String SESSION_KEY_SUFFIX = "auth:{login-session}:session:";
+    private static final String USER_KEY_SUFFIX = "auth:{login-session}:user:";
     private static final int TOKEN_BYTES = 32;
     private static final DefaultRedisScript<Long> CREATE_SCRIPT = new DefaultRedisScript<>("""
             local old = redis.call('GET', KEYS[2])
@@ -59,6 +59,8 @@ public class RedisSessionService implements SessionService {
     private final ObjectMapper objectMapper;
     private final AuthProperties properties;
     private final Clock clock;
+    private final String sessionPrefix;
+    private final String userPrefix;
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
@@ -74,6 +76,8 @@ public class RedisSessionService implements SessionService {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
+        this.sessionPrefix = properties.getSessionKeyPrefix() + SESSION_KEY_SUFFIX;
+        this.userPrefix = properties.getSessionKeyPrefix() + USER_KEY_SUFFIX;
     }
 
     @Override
@@ -86,7 +90,7 @@ public class RedisSessionService implements SessionService {
         try {
             Long created = redis.execute(CREATE_SCRIPT,
                     List.of(sessionKey(tokenHash), userKey(userId)),
-                    SESSION_PREFIX, json(session), tokenHash,
+                    sessionPrefix, json(session), tokenHash,
                     String.valueOf(ttl(now, absoluteExpiresAt).toMillis()));
             if (!Long.valueOf(1L).equals(created)) {
                 throw new AuthInfrastructureException("登录会话创建失败", null);
@@ -198,8 +202,8 @@ public class RedisSessionService implements SessionService {
         }
     }
 
-    private static String sessionKey(String tokenHash) { return SESSION_PREFIX + tokenHash; }
-    private static String userKey(long userId) { return USER_PREFIX + userId; }
+    String sessionKey(String tokenHash) { return sessionPrefix + tokenHash; }
+    String userKey(long userId) { return userPrefix + userId; }
 
     private static AuthInfrastructureException unavailable(Exception ex) {
         return ex instanceof AuthInfrastructureException authException

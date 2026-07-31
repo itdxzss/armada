@@ -25,6 +25,9 @@ class FlywayAppliedMigrationCompatibilityTest {
                 "V083__marketing_task_export_job.sql",
                 1_140_684_827);
         assertAppliedMigration(
+                "V083_1__account_group_membership_last_exit.sql",
+                -1_724_885_338);
+        assertAppliedMigration(
                 "V085__account_group_membership_last_exit.sql",
                 810_248_183);
     }

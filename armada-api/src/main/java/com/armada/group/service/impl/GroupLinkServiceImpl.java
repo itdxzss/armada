@@ -23,9 +23,11 @@ import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.GroupLinkService;
 import com.armada.platform.protocol.exception.ProtocolException;
-import com.armada.platform.protocol.port.GroupProfilePort;
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
+import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -371,10 +373,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                 // 当前请求内直接拿结果,不走 Kafka/Redis 异步回填。
                 GroupPreviewResult preview = groupPreviewPort.preview(protocolAccountId, link.getLinkUrl());
                 long previewAt = previewAtMillis(preview.previewAt());
-                String ownerPhone = ownerPhone(preview.ownerJid());
+                WhatsappJids.OwnerIdentity owner = WhatsappJids.ownerIdentity(preview.ownerJid(), null);
                 // 成功预览既刷新群元数据快照,也把健康状态重置为可用,供群列表直接读取。
-                persistSuccessfulPreview(link, preview, ownerPhone, previewAt);
-                items.add(successItem(link, preview, ownerPhone, previewAt));
+                persistSuccessfulPreview(link, preview, owner, previewAt);
+                items.add(successItem(link, preview, owner.ownerPhone(), previewAt));
                 succeeded++;
             } catch (ProtocolException ex) {
                 // 批量预览是运营工具能力:单条协议失败不应该拖垮整批,因此落到 item.reason。
@@ -466,7 +468,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private void persistSuccessfulPreview(
             GroupLink link,
             GroupPreviewResult preview,
-            String ownerPhone,
+            WhatsappJids.OwnerIdentity owner,
             long previewAt) {
         long now = System.currentTimeMillis();
 
@@ -477,7 +479,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         row.setInviteCode(preview.inviteCode());
         row.setWaSubject(preview.subject());
         row.setMemberSize(preview.memberCount());
-        row.setOwnerPhone(ownerPhone);
+        row.setOwnerPhone(owner.ownerPhone());
+        row.setOwnerPhoneObserved(owner.kind() != OwnerIdentityKind.UNKNOWN);
         row.setAnnounceOnly(preview.announce());
         row.setLastPreviewAt(previewAt);
         row.setCreatedAt(now);
@@ -540,27 +543,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /** 协议层没带 previewAt 时用 Armada 当前时间兜底,保证落库时间轴非空。 */
     private static long previewAtMillis(Instant previewAt) {
         return previewAt == null ? System.currentTimeMillis() : previewAt.toEpochMilli();
-    }
-
-    /**
-     * 从 WhatsApp JID 里提取纯手机号。
-     *
-     * <p>协议层常返回 {@code 8613xxx@s.whatsapp.net} 或带设备后缀的 JID,列表筛选只需要号码部分。</p>
-     */
-    private static String ownerPhone(String ownerJid) {
-        if (ownerJid == null || ownerJid.isBlank()) {
-            return null;
-        }
-        String normalized = ownerJid.trim();
-        int at = normalized.indexOf('@');
-        if (at >= 0) {
-            normalized = normalized.substring(0, at);
-        }
-        int device = normalized.indexOf(':');
-        if (device >= 0) {
-            normalized = normalized.substring(0, device);
-        }
-        return normalized.isBlank() ? null : normalized;
     }
 
     private record GroupProfileTarget(

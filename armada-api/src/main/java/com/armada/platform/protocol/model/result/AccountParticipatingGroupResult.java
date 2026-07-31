@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.model.result;
 
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import java.util.List;
 
 /**
@@ -24,6 +25,8 @@ public record AccountParticipatingGroupResult(
      * @param subject      群名称
      * @param memberCount  群成员数
      * @param ownerJid     群主 JID
+     * @param ownerPhone   已确认 PN 时的纯数字国际手机号
+     * @param ownerIdentityKind 群主身份类型
      * @param admin        查询账号是否为该群管理员
      * @param announceOnly 是否仅管理员可发言
      * @param createdAt    WhatsApp 群创建时间,Unix 秒;未知时为空
@@ -33,6 +36,8 @@ public record AccountParticipatingGroupResult(
             String subject,
             Integer memberCount,
             String ownerJid,
+            String ownerPhone,
+            OwnerIdentityKind ownerIdentityKind,
             Boolean admin,
             Boolean announceOnly,
             Long createdAt

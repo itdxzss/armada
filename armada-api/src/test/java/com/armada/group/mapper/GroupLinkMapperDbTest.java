@@ -257,6 +257,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         preview.setWaSubject("WA真实群名-主查询");
         preview.setMemberSize(42);
         preview.setOwnerPhone("8613800000011");
+        preview.setOwnerPhoneObserved(true);
         preview.setAvatarUrl("https://cdn.example.com/group.png");
         preview.setLastPreviewAt(1_717_200_000_000L);
         preview.setCreatedAt(1_717_200_000_000L);

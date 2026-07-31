@@ -4,6 +4,7 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
@@ -189,17 +190,17 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             groupLinkId = existing.getId();
             groupLinkMapper.markSelfBuiltGroup(groupLinkId, clamp(blankToNull(groupName), 128), now);
         }
-        membershipMapper.upsertPreviewFromAccountSync(
-                groupLinkId,
-                normalizedJid,
-                clamp(blankToNull(groupName), 255),
-                memberCount,
-                clamp(blankToNull(ownerPhone), 32),
-                null,
-                null,
-                null,
-                now,
-                now);
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupLinkId(groupLinkId);
+        preview.setGroupJid(normalizedJid);
+        preview.setWaSubject(clamp(blankToNull(groupName), 255));
+        preview.setMemberSize(memberCount);
+        preview.setOwnerPhone(clamp(blankToNull(ownerPhone), 32));
+        preview.setOwnerPhoneObserved(true);
+        preview.setLastPreviewAt(now);
+        preview.setCreatedAt(now);
+        preview.setUpdatedAt(now);
+        membershipMapper.upsertPreviewFromAccountSync(preview);
         upsertKnownMembership(groupLinkId, normalizedJid, ownerAccountId, true, "SELF_BUILT", now);
         return groupLinkId;
     }

@@ -54,7 +54,7 @@ class HistoricalGroupAccountGroupQueryServiceTest {
         row.setGroupJid("120363001@g.us");
         row.setSubject("账号组历史群");
         row.setInviteCode("InviteCode");
-        row.setOwnerPhone("8613800000000@s.whatsapp.net");
+        row.setOwnerPhone("51943333070");
         row.setGroupCreatedAt(1720000000L);
         row.setKnownMembershipCount(2);
         row.setInGroupCount(2);
@@ -71,11 +71,10 @@ class HistoricalGroupAccountGroupQueryServiceTest {
                         accountPhone("120363001@g.us", "8613800000000", false),
                         accountPhone("120363001@g.us", "8613900000000", true),
                         accountPhone("120363001@g.us", "8613900000000", false)));
-        when(countryService.resolveActiveCountriesByPhonePrefix(List.of(
-                "8613800000000@s.whatsapp.net")))
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("51943333070")))
                 .thenReturn(Map.of(
-                        "8613800000000@s.whatsapp.net",
-                        new CountryReferenceVO(86L, "CN", "中国", "+86", "🇨🇳")));
+                        "51943333070",
+                        new CountryReferenceVO(51L, "PE", "秘鲁", "+51", "🇵🇪")));
 
         PageResult<?> result = service.list(query);
 
@@ -88,9 +87,9 @@ class HistoricalGroupAccountGroupQueryServiceTest {
                     .containsExactly("8613900000000");
             assertThat(item.inviteLink())
                     .isEqualTo("https://chat.whatsapp.com/InviteCode");
-            assertThat(item.countryIso2()).isEqualTo("CN");
-            assertThat(item.countryName()).isEqualTo("中国");
-            assertThat(item.countryFlag()).isEqualTo("🇨🇳");
+            assertThat(item.countryIso2()).isEqualTo("PE");
+            assertThat(item.countryName()).isEqualTo("秘鲁");
+            assertThat(item.countryFlag()).isEqualTo("🇵🇪");
             assertThat(item.groupCreatedAt()).isEqualTo(1720000000L);
             assertThat(item.membershipState())
                     .isEqualTo(HistoricalGroupMembershipState.CURRENT_IN_GROUP);
@@ -102,6 +101,45 @@ class HistoricalGroupAccountGroupQueryServiceTest {
         verify(membershipMapper).selectHistoricalGroupPageByAccountGroup(12L, 20, 20);
         verify(membershipMapper).selectHistoricalGroupAccountPhonesByAccountGroup(
                 12L, List.of("120363001@g.us"));
+    }
+
+    @Test
+    void invalidOwnerIdentityLeavesCountryEmptyWithoutUsingAssociatedAccountCountry() {
+        HistoricalGroupQuery query = new HistoricalGroupQuery();
+        query.setAccountGroupId(12L);
+        query.setPage(1);
+        query.setPageSize(20);
+        AccountGroup group = new AccountGroup();
+        group.setId(12L);
+        when(accountGroupMapper.selectById(12L)).thenReturn(group);
+        when(membershipMapper.countHistoricalGroupsByAccountGroup(12L)).thenReturn(1L);
+
+        HistoricalGroupPageRow row = new HistoricalGroupPageRow();
+        row.setGroupJid("120363internal@g.us");
+        row.setSubject("内部身份群");
+        row.setOwnerPhone("193088878297313");
+        row.setKnownMembershipCount(0);
+        row.setInGroupCount(0);
+        row.setOperable(false);
+        when(membershipMapper.selectHistoricalGroupPageByAccountGroup(12L, 0, 20))
+                .thenReturn(List.of(row));
+        when(membershipMapper.selectHistoricalGroupAccountPhonesByAccountGroup(
+                12L, List.of("120363internal@g.us")))
+                .thenReturn(List.of(accountPhone(
+                        "120363internal@g.us", "51943333070", false)));
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("193088878297313")))
+                .thenReturn(Map.of());
+
+        PageResult<?> result = service.list(query);
+
+        assertThat(result.list()).singleElement().satisfies(raw -> {
+            var item = (com.armada.group.model.vo.HistoricalGroupItemVO) raw;
+            assertThat(item.countryIso2()).isNull();
+            assertThat(item.countryName()).isNull();
+            assertThat(item.countryFlag()).isNull();
+            assertThat(item.subject()).isEqualTo("内部身份群");
+            assertThat(item.accountPhones()).containsExactly("51943333070");
+        });
     }
 
     private static HistoricalGroupAccountPhoneRow accountPhone(

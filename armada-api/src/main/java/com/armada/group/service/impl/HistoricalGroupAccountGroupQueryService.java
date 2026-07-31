@@ -77,7 +77,7 @@ public class HistoricalGroupAccountGroupQueryService {
                 .toList();
         Map<String, CountryReferenceVO> countries = creators.isEmpty()
                 ? Map.of()
-                : countryService.resolveActiveCountriesByPhonePrefix(creators);
+                : countryService.resolveActiveCountriesByPhoneNumbers(creators);
         List<HistoricalGroupItemVO> items = rows.stream()
                 .map(row -> toItem(
                         row,

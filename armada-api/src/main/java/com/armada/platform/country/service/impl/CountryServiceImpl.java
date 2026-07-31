@@ -8,6 +8,9 @@ import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.google.i18n.phonenumbers.NumberParseException;
+import com.google.i18n.phonenumbers.PhoneNumberUtil;
+import com.google.i18n.phonenumbers.Phonenumber;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -17,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -39,6 +43,15 @@ public class CountryServiceImpl implements CountryService {
 
     /** 兼容 ip_proxy.region 既有中文存储和分配优先级。 */
     private static final String MIXED_REGION = "混合（不限国家）";
+
+    /** WhatsApp 明确手机号身份使用的用户 JID 后缀。 */
+    private static final String USER_JID_SUFFIX = "@s.whatsapp.net";
+
+    /** libphonenumber 解析带国际区号号码时使用的未知默认区域。 */
+    private static final String UNKNOWN_REGION = "ZZ";
+
+    /** Google 国际号码解析器,元数据由 libphonenumber 依赖提供。 */
+    private static final PhoneNumberUtil PHONE_NUMBER_UTIL = PhoneNumberUtil.getInstance();
 
     /** 下拉第一项虚拟选项,用于表达不限真实国家的混合代理池。 */
     private static final CountryOptionVO MIXED_OPTION =
@@ -138,20 +151,67 @@ public class CountryServiceImpl implements CountryService {
 
     /** {@inheritDoc} */
     @Override
-    public Map<String, CountryReferenceVO> resolveActiveCountriesByPhonePrefix(
+    public Map<String, CountryReferenceVO> resolveActiveCountriesByPhoneNumbers(
             Collection<String> wsPhones) {
         if (wsPhones == null || wsPhones.isEmpty()) {
             return Map.of();
         }
-        List<Country> countries = mapper.selectActive();
+        Map<String, Country> countriesByIso2 = mapper.selectActive().stream()
+                .filter(country -> StringUtils.hasText(country.getIso2()))
+                .collect(Collectors.toMap(
+                        country -> country.getIso2().trim().toUpperCase(Locale.ROOT),
+                        Function.identity(),
+                        (first, ignored) -> first,
+                        LinkedHashMap::new));
         Map<String, CountryReferenceVO> result = new LinkedHashMap<>();
-        for (String wsPhone : wsPhones) {
-            if (!result.containsKey(wsPhone)) {
-                Country matched = resolveCountryByPhonePrefix(wsPhone, countries);
-                result.put(wsPhone, matched == null ? null : toReference(matched));
-            }
+        for (String wsPhone : new LinkedHashSet<>(wsPhones)) {
+            validRegionIso2(wsPhone)
+                    .map(countriesByIso2::get)
+                    .ifPresent(country -> result.put(wsPhone, toReference(country)));
         }
         return Collections.unmodifiableMap(result);
+    }
+
+    /** 严格校验国际号码并解析二字母区域码。 */
+    private static Optional<String> validRegionIso2(String raw) {
+        Optional<String> internationalPhone = internationalPhone(raw);
+        if (internationalPhone.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            Phonenumber.PhoneNumber parsed = PHONE_NUMBER_UTIL.parse(
+                    internationalPhone.get(), UNKNOWN_REGION);
+            if (!PHONE_NUMBER_UTIL.isValidNumber(parsed)) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(PHONE_NUMBER_UTIL.getRegionCodeForNumber(parsed))
+                    .filter(region -> region.length() == 2)
+                    .map(region -> region.toUpperCase(Locale.ROOT));
+        } catch (NumberParseException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    /** 只接受纯数字国际号码、单个前导加号或明确的 WhatsApp PN JID。 */
+    private static Optional<String> internationalPhone(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return Optional.empty();
+        }
+        String normalized = raw.trim();
+        if (normalized.endsWith(USER_JID_SUFFIX)) {
+            normalized = normalized.substring(0, normalized.length() - USER_JID_SUFFIX.length());
+        }
+        if (normalized.contains("@")) {
+            return Optional.empty();
+        }
+        if (normalized.startsWith("+")) {
+            normalized = normalized.substring(1);
+        }
+        if (!StringUtils.hasText(normalized)
+                || !normalized.chars().allMatch(Character::isDigit)) {
+            return Optional.empty();
+        }
+        return Optional.of("+" + normalized);
     }
 
     private static String resolveIpRegionByPhonePrefix(String wsPhone, List<Country> countries) {

@@ -15,7 +15,11 @@
       invite_code = VALUES(invite_code),
       wa_subject = VALUES(wa_subject),
       member_size = VALUES(member_size),
-      owner_phone = VALUES(owner_phone),
+      owner_phone = CASE
+        WHEN #{ownerPhoneObserved} = TRUE
+          THEN NULLIF(TRIM(VALUES(owner_phone)), '')
+        ELSE owner_phone
+      END,
       announce_only = VALUES(announce_only),
       group_created_at = COALESCE(VALUES(group_created_at), group_created_at),
       avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),

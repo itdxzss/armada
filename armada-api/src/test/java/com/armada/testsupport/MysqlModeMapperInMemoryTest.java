@@ -9,6 +9,7 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -88,6 +89,8 @@ class MysqlModeMapperInMemoryTest {
     private AccountGroupMembershipMapper membershipMapper;
     @Autowired
     private GroupLinkHealthMapper healthMapper;
+    @Autowired
+    private GroupLinkPreviewMapper previewMapper;
     @Autowired
     private MarketingTaskMapper marketingTaskMapper;
     @Autowired
@@ -480,6 +483,81 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
+    void groupSnapshotUpdateAppliesOwnerPhoneObservationThreeState() throws SQLException {
+        insertGroupSnapshotFixtures();
+
+        GroupLinkPreview unknown = previewUpdate();
+        unknown.setOwnerPhone(null);
+        unknown.setOwnerPhoneObserved(false);
+        transactionTemplate.executeWithoutResult(
+                status -> membershipMapper.updatePreviewFromAccountSync(unknown));
+        assertOwnerPhone("8613800000000");
+
+        GroupLinkPreview lid = previewUpdate();
+        lid.setOwnerPhone(null);
+        lid.setOwnerPhoneObserved(true);
+        transactionTemplate.executeWithoutResult(
+                status -> membershipMapper.updatePreviewFromAccountSync(lid));
+        assertOwnerPhone(null);
+
+        GroupLinkPreview pn = previewUpdate();
+        pn.setOwnerPhone("51943333070");
+        pn.setOwnerPhoneObserved(true);
+        transactionTemplate.executeWithoutResult(
+                status -> membershipMapper.updatePreviewFromAccountSync(pn));
+        assertOwnerPhone("51943333070");
+    }
+
+    @Test
+    void groupSnapshotUpsertAppliesOwnerPhoneObservationThreeState() throws SQLException {
+        insertGroupSnapshotFixtures();
+
+        GroupLinkPreview unknown = previewUpdate();
+        unknown.setOwnerPhone(null);
+        unknown.setOwnerPhoneObserved(false);
+        transactionTemplate.executeWithoutResult(
+                status -> membershipMapper.upsertPreviewFromAccountSync(unknown));
+        assertOwnerPhone("8613800000000");
+
+        GroupLinkPreview lid = previewUpdate();
+        lid.setOwnerPhone(null);
+        lid.setOwnerPhoneObserved(true);
+        transactionTemplate.executeWithoutResult(
+                status -> membershipMapper.upsertPreviewFromAccountSync(lid));
+        assertOwnerPhone(null);
+
+        GroupLinkPreview pn = previewUpdate();
+        pn.setOwnerPhone("51943333070");
+        pn.setOwnerPhoneObserved(true);
+        transactionTemplate.executeWithoutResult(
+                status -> membershipMapper.upsertPreviewFromAccountSync(pn));
+        assertOwnerPhone("51943333070");
+    }
+
+    @Test
+    void groupPreviewUpsertAppliesOwnerPhoneObservationThreeState() throws SQLException {
+        insertGroupSnapshotFixtures();
+
+        GroupLinkPreview unknown = previewUpdate();
+        unknown.setOwnerPhone(null);
+        unknown.setOwnerPhoneObserved(false);
+        transactionTemplate.executeWithoutResult(status -> previewMapper.upsert(unknown));
+        assertOwnerPhone("8613800000000");
+
+        GroupLinkPreview lid = previewUpdate();
+        lid.setOwnerPhone(null);
+        lid.setOwnerPhoneObserved(true);
+        transactionTemplate.executeWithoutResult(status -> previewMapper.upsert(lid));
+        assertOwnerPhone(null);
+
+        GroupLinkPreview pn = previewUpdate();
+        pn.setOwnerPhone("51943333070");
+        pn.setOwnerPhoneObserved(true);
+        transactionTemplate.executeWithoutResult(status -> previewMapper.upsert(pn));
+        assertOwnerPhone("51943333070");
+    }
+
+    @Test
     void marketingResultSnapshotKeepsSuccessFailureAndTenantSemantics() throws SQLException {
         insertMarketingFixtures();
 
@@ -791,14 +869,17 @@ class MysqlModeMapperInMemoryTest {
                     tenant_id BIGINT NOT NULL,
                     group_link_id BIGINT NOT NULL,
                     group_jid VARCHAR(64),
+                    invite_code VARCHAR(128),
                     wa_subject VARCHAR(255),
                     member_size INT,
                     owner_phone VARCHAR(32),
                     announce_only BOOLEAN,
+                    group_created_at BIGINT,
                     avatar_url VARCHAR(512),
                     last_preview_at BIGINT,
                     created_at BIGINT,
-                    updated_at BIGINT
+                    updated_at BIGINT,
+                    CONSTRAINT uq_group_link_preview UNIQUE (tenant_id, group_link_id)
                 )
                 """,
                 """
@@ -881,7 +962,7 @@ class MysqlModeMapperInMemoryTest {
                 VALUES
                     (8, 99, '120363success@g.us', 'cross-tenant-preview'),
                     (7, 101, '120363success@g.us', 'preview-success'),
-                    (7, 101, '120363failed@g.us', 'preview-failed'),
+                    (7, 102, '120363failed@g.us', 'preview-failed'),
                     (8, 103, '120363other@g.us', 'preview-other')
                 """,
                 """
@@ -917,11 +998,11 @@ class MysqlModeMapperInMemoryTest {
         executeSql(
                 """
                 INSERT INTO group_link_preview (
-                  tenant_id, group_link_id, group_jid, wa_subject, member_size,
+                  tenant_id, group_link_id, group_jid, wa_subject, member_size, owner_phone,
                   last_preview_at, created_at, updated_at
                 ) VALUES
-                  (7, 21, 'current@g.us', '旧群名', 64, 1, 1, 1),
-                  (8, 22, 'other@g.us', '其他租户旧群名', 64, 1, 1, 1)
+                  (7, 21, 'current@g.us', '旧群名', 64, '8613800000000', 1, 1, 1),
+                  (8, 22, 'other@g.us', '其他租户旧群名', 64, '819012345678', 1, 1, 1)
                 """,
                 """
                 INSERT INTO group_link_health (
@@ -949,8 +1030,18 @@ class MysqlModeMapperInMemoryTest {
         row.setWaSubject("新群名");
         row.setMemberSize(128);
         row.setLastPreviewAt(2_000L);
+        row.setCreatedAt(2_000L);
         row.setUpdatedAt(2_000L);
         return row;
+    }
+
+    private void assertOwnerPhone(String expected) throws SQLException {
+        assertThat(queryOne("SELECT owner_phone FROM group_link_preview "
+                + "WHERE tenant_id = 7 AND group_link_id = 21").get("owner_phone"))
+                .isEqualTo(expected);
+        assertThat(queryOne("SELECT owner_phone FROM group_link_preview "
+                + "WHERE tenant_id = 8 AND group_link_id = 22").get("owner_phone"))
+                .isEqualTo("819012345678");
     }
 
     private GroupLinkHealth healthUpdate() {
@@ -1113,6 +1204,7 @@ class MysqlModeMapperInMemoryTest {
                     new ClassPathResource("mapper/account/AccountGroupMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
                     new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupLinkPreviewMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkHealthMapper.xml"),
                     new ClassPathResource("mapper/marketing/GroupPullMarketingMapper.xml"),
                     new ClassPathResource("mapper/marketing/MarketingTaskMapper.xml"));
@@ -1137,6 +1229,11 @@ class MysqlModeMapperInMemoryTest {
         @Bean
         AccountGroupMembershipMapper membershipMapper(SqlSessionTemplate sqlSessionTemplate) {
             return sqlSessionTemplate.getMapper(AccountGroupMembershipMapper.class);
+        }
+
+        @Bean
+        GroupLinkPreviewMapper previewMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(GroupLinkPreviewMapper.class);
         }
 
         @Bean

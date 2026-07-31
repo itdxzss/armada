@@ -9,6 +9,7 @@ import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResu
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.port.AccountParticipatingGroupBatchPort;
 import com.armada.platform.protocol.routing.AccountParticipatingGroupBackend;
+import com.armada.platform.protocol.util.WhatsappJids;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -75,7 +76,7 @@ public class HttpAccountParticipatingGroupAdapter
             throw invalidResponse("current groups 结果数量不一致");
         }
         return response.groups().stream()
-                .map(HttpAccountParticipatingGroupAdapter::toLightGroup)
+                .map(HttpAccountParticipatingGroupAdapter::toGroup)
                 .toList();
     }
 
@@ -178,22 +179,14 @@ public class HttpAccountParticipatingGroupAdapter
     }
 
     private static AccountParticipatingGroupResult.Group toGroup(GroupResponse response) {
+        WhatsappJids.OwnerIdentity owner = WhatsappJids.ownerIdentity(response.owner(), null);
         return new AccountParticipatingGroupResult.Group(
                 blankToNull(response.groupJid()),
                 blankToNull(response.subject()),
                 response.size(),
-                blankToNull(response.owner()),
-                response.isAdmin(),
-                response.announce(),
-                response.creation());
-    }
-
-    private static AccountParticipatingGroupResult.Group toLightGroup(GroupResponse response) {
-        return new AccountParticipatingGroupResult.Group(
-                blankToNull(response.groupJid()),
-                blankToNull(response.subject()),
-                response.size(),
-                blankToNull(response.owner()),
+                owner.ownerJid(),
+                owner.ownerPhone(),
+                owner.kind(),
                 response.isAdmin(),
                 response.announce(),
                 response.creation());

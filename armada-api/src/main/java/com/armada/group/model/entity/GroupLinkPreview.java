@@ -27,6 +27,9 @@ public class GroupLinkPreview {
     /** 群主号码。 */
     private String ownerPhone;
 
+    /** 本次响应是否明确观察到群主身份；仅供 Mapper 三态更新，不对应数据库列。 */
+    private Boolean ownerPhoneObserved;
+
     /** 是否仅管理员可发言:NULL=未知 0=否 1=是。 */
     private Boolean announceOnly;
 
@@ -107,6 +110,14 @@ public class GroupLinkPreview {
 
     public void setOwnerPhone(String ownerPhone) {
         this.ownerPhone = ownerPhone;
+    }
+
+    public Boolean getOwnerPhoneObserved() {
+        return ownerPhoneObserved;
+    }
+
+    public void setOwnerPhoneObserved(Boolean ownerPhoneObserved) {
+        this.ownerPhoneObserved = ownerPhoneObserved;
     }
 
     public Boolean getAnnounceOnly() {

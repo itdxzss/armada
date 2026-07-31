@@ -2,6 +2,7 @@ package com.armada.platform.protocol.backend.android;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,6 +29,7 @@ class AndroidAccountParticipatingGroupMapperTest {
                     "group_id": "120363admin@g.us",
                     "subject": "管理群",
                     "creator": "919000000009@s.whatsapp.net",
+                    "addressing_mode": "pn",
                     "creation": "1720000000",
                     "announce_only": true,
                     "participants": [
@@ -60,6 +62,8 @@ class AndroidAccountParticipatingGroupMapperTest {
         assertThat(groups.get(0)).satisfies(group -> {
             assertThat(group.memberCount()).isEqualTo(2);
             assertThat(group.ownerJid()).isEqualTo("919000000009@s.whatsapp.net");
+            assertThat(group.ownerPhone()).isEqualTo("919000000009");
+            assertThat(group.ownerIdentityKind()).isEqualTo(OwnerIdentityKind.PN);
             assertThat(group.admin()).isTrue();
             assertThat(group.announceOnly()).isTrue();
             assertThat(group.createdAt()).isEqualTo(1720000000L);
@@ -88,6 +92,99 @@ class AndroidAccountParticipatingGroupMapperTest {
         });
         assertThat(summaries.get(2).selfRole()).isEqualTo("ADMIN");
         assertThat(summaries.get(2).memberSize()).isEqualTo(2);
+    }
+
+    @Test
+    void classifiesLidBareAndConflictingCreatorsWithoutGuessingPhone() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {
+                  "Count": 3,
+                  "GroupInfos": [{
+                    "group_id": "120363lid@g.us",
+                    "creator": "193088878297313",
+                    "addressing_mode": "lid",
+                    "participants": []
+                  }, {
+                    "group_id": "120363bare@g.us",
+                    "creator": "51943333070",
+                    "participants": []
+                  }, {
+                    "group_id": "120363conflict@g.us",
+                    "creator": "12306742263892@lid",
+                    "addressing_mode": "pn",
+                    "participants": []
+                  }]
+                }
+                """);
+
+        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(
+                data, "51943333070");
+
+        assertThat(groups.get(0)).satisfies(group -> {
+            assertThat(group.ownerJid()).isEqualTo("193088878297313@lid");
+            assertThat(group.ownerPhone()).isNull();
+            assertThat(group.ownerIdentityKind()).isEqualTo(OwnerIdentityKind.LID);
+        });
+        assertThat(groups.get(1)).satisfies(group -> {
+            assertThat(group.ownerJid()).isEqualTo("51943333070");
+            assertThat(group.ownerPhone()).isNull();
+            assertThat(group.ownerIdentityKind()).isEqualTo(OwnerIdentityKind.UNKNOWN);
+        });
+        assertThat(groups.get(2)).satisfies(group -> {
+            assertThat(group.ownerJid()).isEqualTo("12306742263892@lid");
+            assertThat(group.ownerPhone()).isNull();
+            assertThat(group.ownerIdentityKind()).isEqualTo(OwnerIdentityKind.UNKNOWN);
+        });
+    }
+
+    @Test
+    void resolvesLidCreatorOnlyFromExactParticipantPhoneMapping() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {
+                  "Count": 3,
+                  "GroupInfos": [{
+                    "group_id": "120363resolved@g.us",
+                    "creator": "193088878297313",
+                    "addressing_mode": "lid",
+                    "participants": [{
+                      "jid": "193088878297313@lid",
+                      "phone_number": "254713151300@s.whatsapp.net",
+                      "type": "superadmin"
+                    }]
+                  }, {
+                    "group_id": "120363mismatch@g.us",
+                    "creator": "12306742263892",
+                    "addressing_mode": "lid",
+                    "participants": [{
+                      "jid": "193088878297313@lid",
+                      "phone_number": "51943333070@s.whatsapp.net",
+                      "type": "superadmin"
+                    }]
+                  }, {
+                    "group_id": "120363invalid@g.us",
+                    "creator": "55500000000001",
+                    "addressing_mode": "lid",
+                    "participants": [{
+                      "jid": "55500000000001@lid",
+                      "phone_number": "not-a-phone",
+                      "type": "superadmin"
+                    }]
+                  }]
+                }
+                """);
+
+        List<AccountParticipatingGroupResult.Group> groups = mapper.mapGroups(
+                data, "254713151300");
+
+        assertThat(groups.get(0)).satisfies(group -> {
+            assertThat(group.ownerJid()).isEqualTo("254713151300@s.whatsapp.net");
+            assertThat(group.ownerPhone()).isEqualTo("254713151300");
+            assertThat(group.ownerIdentityKind()).isEqualTo(OwnerIdentityKind.PN);
+        });
+        assertThat(groups.get(1).ownerIdentityKind()).isEqualTo(OwnerIdentityKind.LID);
+        assertThat(groups.get(1).ownerPhone()).isNull();
+        assertThat(groups.get(2).ownerIdentityKind()).isEqualTo(OwnerIdentityKind.LID);
+        assertThat(groups.get(2).ownerPhone()).isNull();
     }
 
     @Test

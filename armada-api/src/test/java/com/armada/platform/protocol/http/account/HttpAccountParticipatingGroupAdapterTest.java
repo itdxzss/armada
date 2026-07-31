@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
@@ -36,18 +37,27 @@ class HttpAccountParticipatingGroupAdapterTest {
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
                         {
-                          "total": 2,
+                          "total": 3,
                           "groups": [
                             {
                               "groupJid": "120363first@g.us",
                               "subject": "第一个群",
                               "size": 12,
-                              "owner": "8613800000000",
+                              "owner": "8613800000000@s.whatsapp.net",
                               "isAdmin": true,
                               "announce": false,
                               "creation": 1722470400
                             },
-                            { "groupJid": "120363second@g.us", "subject": null }
+                            {
+                              "groupJid": "120363second@g.us",
+                              "subject": null,
+                              "owner": "193088878297313@lid"
+                            },
+                            {
+                              "groupJid": "120363third@g.us",
+                              "subject": "裸身份群",
+                              "owner": "51943333070"
+                            }
                           ]
                         }
                         """, MediaType.APPLICATION_JSON));
@@ -56,10 +66,17 @@ class HttpAccountParticipatingGroupAdapterTest {
 
         assertThat(groups).containsExactly(
                 new AccountParticipatingGroupResult.Group(
-                        "120363first@g.us", "第一个群", 12, "8613800000000",
-                        true, false, 1722470400L),
+                        "120363first@g.us", "第一个群", 12,
+                        "8613800000000@s.whatsapp.net", "8613800000000",
+                        OwnerIdentityKind.PN, true, false, 1722470400L),
                 new AccountParticipatingGroupResult.Group(
-                        "120363second@g.us", null, null, null, null, null, null));
+                        "120363second@g.us", null, null,
+                        "193088878297313@lid", null,
+                        OwnerIdentityKind.LID, null, null, null),
+                new AccountParticipatingGroupResult.Group(
+                        "120363third@g.us", "裸身份群", null,
+                        "51943333070", null,
+                        OwnerIdentityKind.UNKNOWN, null, null, null));
         server.verify();
     }
 
@@ -214,6 +231,8 @@ class HttpAccountParticipatingGroupAdapterTest {
             assertThat(group.subject()).isEqualTo("新群");
             assertThat(group.memberCount()).isEqualTo(12);
             assertThat(group.ownerJid()).isEqualTo("8613000000000@s.whatsapp.net");
+            assertThat(group.ownerPhone()).isEqualTo("8613000000000");
+            assertThat(group.ownerIdentityKind()).isEqualTo(OwnerIdentityKind.PN);
             assertThat(group.admin()).isTrue();
             assertThat(group.announceOnly()).isFalse();
             assertThat(group.createdAt()).isEqualTo(1710000000L);

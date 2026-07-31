@@ -50,15 +50,15 @@ public interface CountryService {
     Map<String, String> resolveIpRegionsByPhonePrefix(Collection<String> wsPhones);
 
     /**
-     * 批量按 WhatsApp 手机号解析启用国家展示信息。
+     * 批量按已确认的 WhatsApp 国际手机号解析启用国家展示信息。
      *
-     * <p>该方法用于群创建者等通用号码识别,不受国家是否支持 IP 管理的标记限制。
-     * 同时存在多个可匹配区号时取最长前缀。</p>
+     * <p>只接受有效国际号码或明确的 PN JID。无效号码、LID、未知 JID 与未启用国家
+     * 不会出现在返回映射中,也不会回退到区号前缀猜测。</p>
      *
-     * @param wsPhones WhatsApp 手机号或 JID 集合
-     * @return 原手机号到国家展示引用的映射;未匹配时 value 为 null
+     * @param wsPhones WhatsApp 国际手机号或 PN JID 集合
+     * @return 原手机号到国家展示引用的映射
      */
-    Map<String, CountryReferenceVO> resolveActiveCountriesByPhonePrefix(
+    Map<String, CountryReferenceVO> resolveActiveCountriesByPhoneNumbers(
             Collection<String> wsPhones);
 
     /**

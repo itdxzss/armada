@@ -236,28 +236,10 @@ public interface AccountGroupMembershipMapper {
     /**
      * 账号群同步来源的群资料 upsert。
      *
-     * @param groupLinkId  群入口 ID
-     * @param groupJid     WhatsApp 群 JID
-     * @param subject      群名称,可空
-     * @param memberSize   群人数,可空
-     * @param ownerPhone   群主号码,可空
-     * @param announceOnly 是否仅管理员发言,可空
-     * @param groupCreatedAt WhatsApp 群创建时间,Unix 秒;可空
-     * @param avatarUrl    群头像 URL,可空
-     * @param syncAt       同步时间(epoch 毫秒)
-     * @param now          写入时间(epoch 毫秒)
+     * @param row 群资料行，包含本次群主身份是否已观察的非持久化标记
      * @return 影响行数
      */
-    int upsertPreviewFromAccountSync(@Param("groupLinkId") Long groupLinkId,
-                                     @Param("groupJid") String groupJid,
-                                     @Param("subject") String subject,
-                                     @Param("memberSize") Integer memberSize,
-                                     @Param("ownerPhone") String ownerPhone,
-                                     @Param("announceOnly") Boolean announceOnly,
-                                     @Param("groupCreatedAt") Long groupCreatedAt,
-                                     @Param("avatarUrl") String avatarUrl,
-                                     @Param("syncAt") long syncAt,
-                                     @Param("now") long now);
+    int upsertPreviewFromAccountSync(GroupLinkPreview row);
 
     /**
      * 更新账号群同步已存在的群资料，避免存量行进入自增 INSERT 候选锁路径。

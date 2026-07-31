@@ -14,6 +14,7 @@ import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.HistoricalGroupProtocolPorts;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
@@ -77,11 +78,13 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
         AccountParticipatingGroupResult.Group adminGroup =
                 new AccountParticipatingGroupResult.Group(
                         "120363admin@g.us", "管理群", 20,
-                        "8699@s.whatsapp.net", true, false, 1720000000L);
+                        "8699@s.whatsapp.net", "8699", OwnerIdentityKind.PN,
+                        true, false, 1720000000L);
         AccountParticipatingGroupResult.Group memberGroup =
                 new AccountParticipatingGroupResult.Group(
                         "120363member@g.us", "成员群", 10,
-                        "8688@s.whatsapp.net", false, true, 1710000000L);
+                        "193088878297313@lid", null, OwnerIdentityKind.LID,
+                        false, true, 1710000000L);
         when(participatingGroups.listCurrent(first))
                 .thenReturn(List.of(adminGroup, memberGroup));
         when(participatingGroups.listCurrent(second))
@@ -104,6 +107,19 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 eq("HISTORICAL_GROUP_MANUAL_REFRESH"),
                 org.mockito.ArgumentMatchers.any(ProtocolBackend.class));
+        org.assertj.core.api.Assertions.assertThat(groupsCaptor.getAllValues().get(0))
+                .satisfiesExactly(
+                        group -> {
+                            org.assertj.core.api.Assertions.assertThat(group.ownerJid())
+                                    .isEqualTo("8699@s.whatsapp.net");
+                            org.assertj.core.api.Assertions.assertThat(group.ownerPhone())
+                                    .isEqualTo("8699");
+                        },
+                        group -> {
+                            org.assertj.core.api.Assertions.assertThat(group.ownerJid())
+                                    .isEqualTo("193088878297313@lid");
+                            org.assertj.core.api.Assertions.assertThat(group.ownerPhone()).isNull();
+                        });
         verify(invitePort, times(1)).getInvite(first, "120363admin@g.us");
         verify(previewMapper).updateInviteCodeByGroupJid(
                 eq("120363admin@g.us"),
@@ -129,7 +145,8 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
         when(participatingGroups.listCurrent(healthy)).thenReturn(List.of(
                 new AccountParticipatingGroupResult.Group(
                         "120363healthy@g.us", "可用管理群", 20,
-                        "8622@s.whatsapp.net", true, false, 1720000000L)));
+                        "8622@s.whatsapp.net", "8622", OwnerIdentityKind.PN,
+                        true, false, 1720000000L)));
         when(invitePort.getInvite(healthy, "120363healthy@g.us"))
                 .thenThrow(new ProtocolException(
                         ProtocolErrorCode.GROUP_UNAVAILABLE,
@@ -173,11 +190,13 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
         when(participatingGroups.listCurrent(failed)).thenReturn(List.of(
                 new AccountParticipatingGroupResult.Group(
                         "120363failed@g.us", "写库失败群", 10,
-                        "8611@s.whatsapp.net", true, false, 1720000000L)));
+                        "8611@s.whatsapp.net", "8611", OwnerIdentityKind.PN,
+                        true, false, 1720000000L)));
         when(participatingGroups.listCurrent(healthy)).thenReturn(List.of(
                 new AccountParticipatingGroupResult.Group(
                         "120363healthy@g.us", "可用管理群", 20,
-                        "8622@s.whatsapp.net", true, false, 1720000000L)));
+                        "8622@s.whatsapp.net", "8622", OwnerIdentityKind.PN,
+                        true, false, 1720000000L)));
         when(snapshotService.replaceVisibleGroups(
                 eq(1L),
                 org.mockito.ArgumentMatchers.anyList(),
@@ -213,10 +232,12 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
         when(participatingGroups.listCurrent(account)).thenReturn(List.of(
                 new AccountParticipatingGroupResult.Group(
                         "120363first@g.us", "第一群", 10,
-                        "8611@s.whatsapp.net", true, false, 1720000000L),
+                        "8611@s.whatsapp.net", "8611", OwnerIdentityKind.PN,
+                        true, false, 1720000000L),
                 new AccountParticipatingGroupResult.Group(
                         "120363second@g.us", "第二群", 20,
-                        "8611@s.whatsapp.net", true, false, 1720000000L)));
+                        "8611@s.whatsapp.net", "8611", OwnerIdentityKind.PN,
+                        true, false, 1720000000L)));
         when(invitePort.getInvite(account, "120363first@g.us"))
                 .thenReturn(new GroupInviteResult(
                         "120363first@g.us", "FirstCode", null));

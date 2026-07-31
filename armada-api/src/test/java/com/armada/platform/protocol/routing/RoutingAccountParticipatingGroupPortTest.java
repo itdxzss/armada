@@ -3,6 +3,7 @@ package com.armada.platform.protocol.routing;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
@@ -75,7 +76,8 @@ class RoutingAccountParticipatingGroupPortTest {
                 ProtocolAccountRef account) {
             calls++;
             return List.of(new AccountParticipatingGroupResult.Group(
-                    "120363android@g.us", "历史群", null, null, null, null, null));
+                    "120363android@g.us", "历史群", null, null, null,
+                    OwnerIdentityKind.UNKNOWN, null, null, null));
         }
 
         @Override

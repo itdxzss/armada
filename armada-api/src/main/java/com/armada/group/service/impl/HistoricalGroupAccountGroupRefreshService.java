@@ -144,6 +144,8 @@ public class HistoricalGroupAccountGroupRefreshService {
                     firstText(summary.subject(), group.subject()),
                     summary.memberSize() == null ? group.memberCount() : summary.memberSize(),
                     group.ownerJid(),
+                    group.ownerPhone(),
+                    group.ownerIdentityKind(),
                     "OWNER".equals(summary.selfRole()) || "ADMIN".equals(summary.selfRole()),
                     summary.announceOnly() == null ? group.announceOnly() : summary.announceOnly(),
                     group.createdAt()));
@@ -160,7 +162,7 @@ public class HistoricalGroupAccountGroupRefreshService {
                         text(group.subject()),
                         group.memberCount(),
                         text(group.ownerJid()),
-                        null,
+                        text(group.ownerPhone()),
                         group.admin(),
                         group.announceOnly(),
                         null,

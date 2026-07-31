@@ -11,6 +11,7 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.GroupLinkRegistryService;
@@ -210,10 +211,58 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         Mockito.verify(healthMapper).updateFromAccountGroupSync(
                 org.mockito.ArgumentMatchers.argThat(row -> row.getGroupLinkId().equals(30L)
                         && row.getLastCheckAt().equals(4_000L)));
-        Mockito.verify(membershipMapper, Mockito.never()).upsertPreviewFromAccountSync(
-                any(), any(), any(), any(), any(), any(), any(), any(), any(Long.class), any(Long.class));
+        Mockito.verify(membershipMapper, Mockito.never()).upsertPreviewFromAccountSync(any());
         Mockito.verify(healthMapper, Mockito.never()).upsertFromAccountGroupSync(any());
         Mockito.verify(membershipMapper, Mockito.never()).upsertMembership(any());
+    }
+
+    @Test
+    void replaceVisibleGroups_marksExplicitOwnerPhoneAsObserved() {
+        GroupLinkPreview preview = capturePreview(new AccountGroupsReportedEvent.Group(
+                "120363-owner-pn@g.us",
+                "号码群主",
+                null,
+                "51943333070@s.whatsapp.net",
+                "51943333070",
+                false,
+                false,
+                null));
+
+        org.assertj.core.api.Assertions.assertThat(preview.getOwnerPhone())
+                .isEqualTo("51943333070");
+        org.assertj.core.api.Assertions.assertThat(preview.getOwnerPhoneObserved()).isTrue();
+    }
+
+    @Test
+    void replaceVisibleGroups_marksLidOwnerAsObservedWithoutPhone() {
+        GroupLinkPreview preview = capturePreview(new AccountGroupsReportedEvent.Group(
+                "120363-owner-lid@g.us",
+                "LID 群主",
+                null,
+                "193088878297313@lid",
+                null,
+                false,
+                false,
+                null));
+
+        org.assertj.core.api.Assertions.assertThat(preview.getOwnerPhone()).isNull();
+        org.assertj.core.api.Assertions.assertThat(preview.getOwnerPhoneObserved()).isTrue();
+    }
+
+    @Test
+    void replaceVisibleGroups_keepsUnknownOwnerUnobservedWithoutGuessingPhone() {
+        GroupLinkPreview preview = capturePreview(new AccountGroupsReportedEvent.Group(
+                "120363-owner-unknown@g.us",
+                "未知群主",
+                null,
+                "193088878297313",
+                null,
+                false,
+                false,
+                null));
+
+        org.assertj.core.api.Assertions.assertThat(preview.getOwnerPhone()).isNull();
+        org.assertj.core.api.Assertions.assertThat(preview.getOwnerPhoneObserved()).isFalse();
     }
 
     @Test
@@ -314,9 +363,29 @@ class AccountGroupMembershipSnapshotServiceImplTest {
 
     private void verifyPreviewPersist(InOrder inOrder, Long groupLinkId, String groupJid) {
         inOrder.verify(membershipMapper).upsertPreviewFromAccountSync(
-                org.mockito.ArgumentMatchers.eq(groupLinkId),
-                org.mockito.ArgumentMatchers.eq(groupJid),
-                any(), any(), any(), any(), any(), any(), any(Long.class), any(Long.class));
+                org.mockito.ArgumentMatchers.argThat(row -> row.getGroupLinkId().equals(groupLinkId)
+                        && row.getGroupJid().equals(groupJid)));
+    }
+
+    private GroupLinkPreview capturePreview(AccountGroupsReportedEvent.Group group) {
+        when(registryService.registerAccountObservedGroup(
+                org.mockito.ArgumentMatchers.eq(group.groupJid()),
+                org.mockito.ArgumentMatchers.eq(group.subject()),
+                org.mockito.ArgumentMatchers.eq(OBSERVED_BACKEND),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(40L);
+
+        service.replaceVisibleGroups(
+                10L,
+                List.of(group),
+                false,
+                5_000L,
+                "evt-owner-observation",
+                "android_online_group_sync",
+                OBSERVED_BACKEND);
+
+        ArgumentCaptor<GroupLinkPreview> captor = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        Mockito.verify(membershipMapper).upsertPreviewFromAccountSync(captor.capture());
+        return captor.getValue();
     }
 
     private void verifyHealthPersist(InOrder inOrder, Long groupLinkId) {

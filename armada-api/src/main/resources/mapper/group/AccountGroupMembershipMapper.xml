@@ -360,14 +360,18 @@
       group_link_id, group_jid, wa_subject, member_size, owner_phone,
       announce_only, group_created_at, avatar_url, last_preview_at, created_at, updated_at
     ) VALUES (
-      #{groupLinkId}, #{groupJid}, #{subject}, #{memberSize}, #{ownerPhone},
-      #{announceOnly}, #{groupCreatedAt}, #{avatarUrl}, #{syncAt}, #{now}, #{now}
+      #{groupLinkId}, #{groupJid}, #{waSubject}, #{memberSize}, #{ownerPhone},
+      #{announceOnly}, #{groupCreatedAt}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
     )
     ON DUPLICATE KEY UPDATE
       group_jid = VALUES(group_jid),
       wa_subject = COALESCE(NULLIF(TRIM(VALUES(wa_subject)), ''), wa_subject),
       member_size = COALESCE(VALUES(member_size), member_size),
-      owner_phone = COALESCE(NULLIF(TRIM(VALUES(owner_phone)), ''), owner_phone),
+      owner_phone = CASE
+        WHEN #{ownerPhoneObserved} = TRUE
+          THEN NULLIF(TRIM(VALUES(owner_phone)), '')
+        ELSE owner_phone
+      END,
       announce_only = COALESCE(VALUES(announce_only), announce_only),
       group_created_at = COALESCE(VALUES(group_created_at), group_created_at),
       avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
@@ -380,7 +384,11 @@
     SET group_jid = #{groupJid},
         wa_subject = COALESCE(NULLIF(TRIM(#{waSubject}), ''), wa_subject),
         member_size = COALESCE(#{memberSize}, member_size),
-        owner_phone = COALESCE(NULLIF(TRIM(#{ownerPhone}), ''), owner_phone),
+        owner_phone = CASE
+          WHEN #{ownerPhoneObserved} = TRUE
+            THEN NULLIF(TRIM(#{ownerPhone}), '')
+          ELSE owner_phone
+        END,
         announce_only = COALESCE(#{announceOnly}, announce_only),
         group_created_at = COALESCE(#{groupCreatedAt}, group_created_at),
         avatar_url = COALESCE(NULLIF(TRIM(#{avatarUrl}), ''), avatar_url),

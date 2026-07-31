@@ -14,7 +14,9 @@ import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
@@ -243,17 +245,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                     && membershipMapper.updatePreviewFromAccountSync(preview) > 0) {
                 continue;
             }
-            membershipMapper.upsertPreviewFromAccountSync(
-                    preview.getGroupLinkId(),
-                    preview.getGroupJid(),
-                    preview.getWaSubject(),
-                    preview.getMemberSize(),
-                    preview.getOwnerPhone(),
-                    preview.getAnnounceOnly(),
-                    preview.getGroupCreatedAt(),
-                    preview.getAvatarUrl(),
-                    preview.getLastPreviewAt(),
-                    preview.getUpdatedAt());
+            membershipMapper.upsertPreviewFromAccountSync(preview);
         }
     }
 
@@ -264,7 +256,9 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         preview.setGroupJid(resolved.groupJid());
         preview.setWaSubject(clamp(blankToNull(group.subject()), SUBJECT_MAX_LENGTH));
         preview.setMemberSize(group.memberCount());
-        preview.setOwnerPhone(clamp(ownerPhone(group), OWNER_PHONE_MAX_LENGTH));
+        OwnerPhoneObservation owner = ownerPhoneObservation(group);
+        preview.setOwnerPhone(clamp(owner.phone(), OWNER_PHONE_MAX_LENGTH));
+        preview.setOwnerPhoneObserved(owner.observed());
         preview.setAnnounceOnly(group.announceOnly());
         preview.setGroupCreatedAt(group.groupCreatedAt());
         preview.setAvatarUrl(clamp(blankToNull(group.avatarUrl()), AVATAR_URL_MAX_LENGTH));
@@ -366,17 +360,20 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         return ACCOUNT_SYNC_LINK_PREFIX + groupJid;
     }
 
-    private static String ownerPhone(AccountGroupsReportedEvent.Group group) {
-        String ownerPhone = blankToNull(group.ownerPhone());
-        if (ownerPhone != null) {
-            return ownerPhone;
+    private static OwnerPhoneObservation ownerPhoneObservation(
+            AccountGroupsReportedEvent.Group group) {
+        WhatsappJids.OwnerIdentity explicitPhone = WhatsappJids.ownerIdentity(group.ownerPhone(), "pn");
+        if (explicitPhone.kind() == OwnerIdentityKind.PN) {
+            return new OwnerPhoneObservation(explicitPhone.ownerPhone(), true);
         }
-        String ownerJid = blankToNull(group.ownerJid());
-        if (ownerJid == null) {
-            return null;
+        WhatsappJids.OwnerIdentity owner = WhatsappJids.ownerIdentity(group.ownerJid(), null);
+        if (owner.kind() == OwnerIdentityKind.LID) {
+            return new OwnerPhoneObservation(null, true);
         }
-        int at = ownerJid.indexOf('@');
-        return at <= 0 ? ownerJid : ownerJid.substring(0, at);
+        return new OwnerPhoneObservation(null, false);
+    }
+
+    private record OwnerPhoneObservation(String phone, boolean observed) {
     }
 
     private static String normalizeJid(String value) {

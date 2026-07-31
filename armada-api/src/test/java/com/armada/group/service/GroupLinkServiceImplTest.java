@@ -405,6 +405,7 @@ class GroupLinkServiceImplTest {
         assertThat(previewCaptor.getValue().getWaSubject()).isEqualTo("预览群");
         assertThat(previewCaptor.getValue().getMemberSize()).isEqualTo(12);
         assertThat(previewCaptor.getValue().getOwnerPhone()).isEqualTo("8613999999999");
+        assertThat(previewCaptor.getValue().getOwnerPhoneObserved()).isTrue();
         assertThat(previewCaptor.getValue().getAnnounceOnly()).isTrue();
 
         ArgumentCaptor<GroupLinkHealth> healthCaptor = ArgumentCaptor.forClass(GroupLinkHealth.class);
@@ -415,6 +416,59 @@ class GroupLinkServiceImplTest {
         assertThat(healthCaptor.getValue().getCurrentCount()).isEqualTo(12);
         assertThat(healthCaptor.getValue().getLastHealthError()).isNull();
         assertThat(healthCaptor.getValue().getHealthFailureCount()).isZero();
+    }
+
+    @Test
+    void previewBatch_clearsPhoneIntentForLidOwner() {
+        OwnerPreviewOutcome outcome = previewOwner("193088878297313@lid");
+
+        assertThat(outcome.responsePhone()).isNull();
+        assertThat(outcome.persisted().getOwnerPhone()).isNull();
+        assertThat(outcome.persisted().getOwnerPhoneObserved()).isTrue();
+    }
+
+    @Test
+    void previewBatch_preservesPhoneIntentForUnknownOwner() {
+        OwnerPreviewOutcome outcome = previewOwner("193088878297313");
+
+        assertThat(outcome.responsePhone()).isNull();
+        assertThat(outcome.persisted().getOwnerPhone()).isNull();
+        assertThat(outcome.persisted().getOwnerPhoneObserved()).isFalse();
+    }
+
+    private OwnerPreviewOutcome previewOwner(String ownerJid) {
+        Account account = new Account();
+        account.setId(7L);
+        account.setProtocolAccountId("acc_owner_identity");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+
+        GroupLink link = new GroupLink();
+        link.setId(10L);
+        link.setLinkUrl("https://chat.whatsapp.com/OwnerIdentity");
+        when(groupLinkMapper.selectActiveByIds(List.of(10L))).thenReturn(List.of(link));
+        when(groupPreviewPort.preview("acc_owner_identity", link.getLinkUrl()))
+                .thenReturn(new GroupPreviewResult(
+                        "120363-owner@g.us",
+                        "群主身份群",
+                        12,
+                        false,
+                        ownerJid,
+                        null,
+                        false,
+                        false,
+                        "OwnerIdentity",
+                        Instant.parse("2026-07-31T08:00:00Z")));
+
+        GroupLinkPreviewBatchVO result = service.previewBatch(
+                new GroupLinkPreviewDTO(7L, List.of(10L)));
+        ArgumentCaptor<GroupLinkPreview> captor = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(previewMapper).upsert(captor.capture());
+        return new OwnerPreviewOutcome(
+                result.items().get(0).ownerPhone(),
+                captor.getValue());
+    }
+
+    private record OwnerPreviewOutcome(String responsePhone, GroupLinkPreview persisted) {
     }
 
     private static GroupLink activeLink(Long id, String groupName, String remark) {

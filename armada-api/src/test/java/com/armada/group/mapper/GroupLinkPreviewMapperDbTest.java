@@ -29,6 +29,7 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         row.setWaSubject("预览群");
         row.setMemberSize(12);
         row.setOwnerPhone("919999999999");
+        row.setOwnerPhoneObserved(true);
         row.setAnnounceOnly(Boolean.TRUE);
         row.setAvatarUrl("https://example.test/avatar.jpg");
         row.setLastPreviewAt(now);
@@ -50,6 +51,7 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         update.setWaSubject("预览群-更新");
         update.setMemberSize(18);
         update.setOwnerPhone("918888888888");
+        update.setOwnerPhoneObserved(true);
         update.setAnnounceOnly(Boolean.FALSE);
         update.setAvatarUrl("https://example.test/avatar2.jpg");
         update.setLastPreviewAt(now + 1_000);
@@ -77,6 +79,7 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         row.setWaSubject("头像群");
         row.setMemberSize(20);
         row.setOwnerPhone("917777777777");
+        row.setOwnerPhoneObserved(true);
         row.setAnnounceOnly(Boolean.FALSE);
         row.setAvatarUrl("https://example.test/protocol.jpg");
         row.setLastPreviewAt(now);
@@ -98,6 +101,7 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         protocolRefresh.setWaSubject("头像群-协议刷新");
         protocolRefresh.setMemberSize(21);
         protocolRefresh.setOwnerPhone("916666666666");
+        protocolRefresh.setOwnerPhoneObserved(true);
         protocolRefresh.setAnnounceOnly(Boolean.TRUE);
         protocolRefresh.setLastPreviewAt(now + 2_000);
         protocolRefresh.setCreatedAt(now);
@@ -114,6 +118,43 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         GroupLinkPreview cleared = previewMapper.selectByGroupLinkId(link.getId());
         assertThat(cleared.getGroupJid()).isEqualTo("120363-avatar-updated@g.us");
         assertThat(cleared.getAvatarUrl()).isNull();
+    }
+
+    @Test
+    void upsert_appliesOwnerPhoneObservationThreeState() {
+        GroupLink link = insertLink("chat.whatsapp.com/PreviewOwnerObservation");
+        long now = System.currentTimeMillis();
+
+        previewMapper.upsert(ownerPreview(link.getId(), "8613800000000", true, now));
+
+        previewMapper.upsert(ownerPreview(link.getId(), null, false, now + 1_000));
+        assertThat(previewMapper.selectByGroupLinkId(link.getId()).getOwnerPhone())
+                .isEqualTo("8613800000000");
+
+        previewMapper.upsert(ownerPreview(link.getId(), null, true, now + 2_000));
+        assertThat(previewMapper.selectByGroupLinkId(link.getId()).getOwnerPhone()).isNull();
+
+        previewMapper.upsert(ownerPreview(link.getId(), "51943333070", true, now + 3_000));
+        assertThat(previewMapper.selectByGroupLinkId(link.getId()).getOwnerPhone())
+                .isEqualTo("51943333070");
+    }
+
+    private static GroupLinkPreview ownerPreview(
+            Long groupLinkId,
+            String ownerPhone,
+            boolean ownerPhoneObserved,
+            long now) {
+        GroupLinkPreview row = new GroupLinkPreview();
+        row.setGroupLinkId(groupLinkId);
+        row.setGroupJid("120363-owner-observation@g.us");
+        row.setInviteCode("PreviewOwnerObservation");
+        row.setWaSubject("群主观察态群");
+        row.setOwnerPhone(ownerPhone);
+        row.setOwnerPhoneObserved(ownerPhoneObserved);
+        row.setLastPreviewAt(now);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
     }
 
     private GroupLink insertLink(String url) {

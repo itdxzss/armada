@@ -99,22 +99,44 @@ class CountryServiceImplTest {
     }
 
     @Test
-    void resolveActiveCountriesByPhonePrefix_usesAllActiveCountriesAndLongestPrefix() {
+    void resolveActiveCountriesByPhoneNumbers_requiresValidInternationalNumbers() {
         when(mapper.selectActive()).thenReturn(List.of(
+                country("CA", "加拿大", "+1", "🇨🇦"),
                 country("US", "美国", "+1", "🇺🇸"),
-                country("AS", "美属萨摩亚", "+1-684", "🇦🇸"),
-                country("CN", "中国", "+86", "🇨🇳")));
+                country("PE", "秘鲁", "+51", "🇵🇪"),
+                country("KE", "肯尼亚", "+254", "🇰🇪")));
 
-        Map<String, CountryReferenceVO> result = service.resolveActiveCountriesByPhonePrefix(
-                List.of("16841234567@s.whatsapp.net", "+86 13800000000", "999"));
+        Map<String, CountryReferenceVO> result = service.resolveActiveCountriesByPhoneNumbers(
+                List.of(
+                        "14165550123@s.whatsapp.net",
+                        "12025550123",
+                        "51943333070",
+                        "254713151300",
+                        "193088878297313",
+                        "12306742263892",
+                        "193088878297313@lid"));
 
-        assertThat(result.get("16841234567@s.whatsapp.net"))
-                .extracting(CountryReferenceVO::iso2, CountryReferenceVO::nameZh)
-                .containsExactly("AS", "美属萨摩亚");
-        assertThat(result.get("+86 13800000000"))
-                .extracting(CountryReferenceVO::iso2, CountryReferenceVO::flag)
-                .containsExactly("CN", "🇨🇳");
-        assertThat(result).containsEntry("999", null);
+        assertThat(result.get("14165550123@s.whatsapp.net").iso2()).isEqualTo("CA");
+        assertThat(result.get("12025550123").iso2()).isEqualTo("US");
+        assertThat(result.get("51943333070").iso2()).isEqualTo("PE");
+        assertThat(result.get("254713151300").iso2()).isEqualTo("KE");
+        assertThat(result).doesNotContainKeys(
+                "193088878297313", "12306742263892", "193088878297313@lid");
+        verify(mapper).selectActive();
+    }
+
+    @Test
+    void resolveActiveCountriesByPhoneNumbers_omitsUnknownInputsAndDisabledCountries() {
+        assertThat(service.resolveActiveCountriesByPhoneNumbers(null)).isEmpty();
+        assertThat(service.resolveActiveCountriesByPhoneNumbers(List.of())).isEmpty();
+        when(mapper.selectActive()).thenReturn(List.of(
+                country("US", "美国", "+1", "🇺🇸")));
+
+        Map<String, CountryReferenceVO> result = service.resolveActiveCountriesByPhoneNumbers(
+                List.of("", "12A34", "4915123456789@lid", "4915123456789", "+12025550123"));
+
+        assertThat(result).containsOnlyKeys("+12025550123");
+        assertThat(result.get("+12025550123").iso2()).isEqualTo("US");
         verify(mapper).selectActive();
     }
 

@@ -10,7 +10,10 @@
 
 - 历史群列表的“国家”表示群主/创建者号码所属国家，不表示关联账号国家。
 - 只有已确认的真实群主手机号可以参与国家识别。
-- creator 是 LID、内部身份、无效手机号、身份类型未知或无法转换时，国家统一返回空，前端继续显示 `--`。
+- creator 是 LID 时不能直接当手机号；但同一份协议响应若存在
+  `participants[].jid == creator LID` 且该成员携带明确的 `phone_number`，允许把这组
+  服务端同时返回的身份对解析为真实 PN。无法精确匹配、手机号格式无效、身份类型未知时，
+  国家返回空，前端继续显示 `--`。
 - 不允许回退到关联账号国家，也不允许仅凭数字开头猜测国家。
 - 前端列名、列顺序和空值展示保持不变。
 
@@ -35,6 +38,7 @@ Android mapper 根据 `addressing_mode` 区分 PN 和 LID，只为 PN 输出群�
 ```text
 WhatsApp creator
   -> 协议 backend 识别 PN / LID / UNKNOWN
+  -> LID creator 在同一响应内精确匹配 participant JID 与 phone_number
   -> 稳定结果分别携带 ownerJid、ownerPhone、ownerIdentityKind
   -> 群预览按观察态更新、清空或保留 owner_phone
   -> 历史群查询严格校验 owner_phone 并解析 ISO2
@@ -54,12 +58,18 @@ Android 当前群响应已经包含 `creator` 和 `addressing_mode`。`AndroidAc
 2. `addressing_mode=pn/lid` 分别得到 PN/LID；`@s.whatsapp.net`、`@lid` 后缀分别得到 PN/LID。
 3. addressing mode 与后缀同时存在但结论冲突时返回 UNKNOWN，不任选其一。
 4. 只有一方能确认身份时采用该结论；两方都不能确认时返回 UNKNOWN。
-5. 最终身份为 LID 时，`ownerJid` 保留或规范为完整 LID JID，`ownerPhone=null`。
-6. 最终身份为 PN 时，`ownerJid` 规范为完整 PN JID，`ownerPhone` 只保留规范化的纯数字 user 部分。
+5. 最终身份为 LID 时，先在同一群的 `participants` 中按规范化 LID 精确匹配 `jid`；
+   只在身份相等且该项存在合法 `phone_number` 时，把结果提升为已确认 PN。
+6. LID 无匹配、匹配项无合法 `phone_number` 时，`ownerJid` 保留为完整 LID JID，
+   `ownerPhone=null`。
+7. 最终身份为 PN 或由精确 LID/PN 身份对确认时，`ownerJid` 规范为完整 PN JID，
+   `ownerPhone` 只保留规范化的纯数字 user 部分。
 
 UNKNOWN 始终令 `ownerPhone=null`，不猜测身份。
 
-Android Zhuan 服务当前已经把 `addressing_mode` 序列化到 `GroupInfos`，优先在 Armada Android backend mapper 完成防腐，不要求为本次修复新增 Zhuan HTTP 接口。
+第一套环境只读核对确认，当前三个在线群均为 LID 寻址；每个 creator 都能与同一
+`GroupInfos[].participants[].jid` 精确匹配，且匹配项均带 `phone_number`。因此优先在
+Armada Android backend mapper 完成防腐，不要求新增 Zhuan HTTP 接口，也不依赖关联账号国家。
 
 ### Web/Baileys
 
@@ -67,7 +77,8 @@ Web 响应中的 owner 若带 `@s.whatsapp.net`，映射为 PN；若带 `@lid`�
 
 ### 稳定结果模型
 
-`AccountParticipatingGroupResult.Group` 增加明确的 `ownerPhone` 和 `ownerIdentityKind`，避免业务服务通过字符串后缀反推协议身份。`ownerIdentityKind` 取值为 `PN`、`LID`、`UNKNOWN`。
+`AccountParticipatingGroupResult.Group` 增加明确的 `ownerPhone` 和 `ownerIdentityKind`，避免业务服务通过字符串后缀反推协议身份。`ownerIdentityKind` 取值为 `PN`、`LID`、`UNKNOWN`；
+LID 经同响应中的精确身份对解析成功后，稳定结果按 PN 输出。
 
 Kafka 账号群快照若没有 creator 身份信息，继续映射为 UNKNOWN；不扩展与本次问题无关的事件载荷。后续协议事件显式提供 `ownerPhone` 时可以自然映射为 PN。
 
@@ -106,8 +117,9 @@ Kafka 账号群快照若没有 creator 身份信息，继续映射为 UNKNOWN；
 
 ## 存量数据
 
-- 部署后，历史群列表查询会先严格校验存量 `owner_phone`。当前两个异常值无法通过有效号码校验，因此无需修改数据库即可显示 `--`。
-- 用户再次点击“加载群列表”后，若协议明确确认 creator 为 LID，预览更新会清空对应旧 `owner_phone`。
+- 部署后，历史群列表查询会先严格校验存量 `owner_phone`。当前两个异常值无法通过有效号码校验，因此在重新取得真实 PN 前显示 `--`。
+- 用户再次点击“加载群列表”后，若 creator LID 能与同响应 participant 的 PN 精确匹配，
+  预览写入真实 PN；明确 LID 但没有可用映射时清空对应旧 `owner_phone`。
 - 不执行全表批量清理，因为旧数据没有身份类型字段，批量猜测可能误删真实 PN。
 - 旧值即使暂时保留在数据库，只要无法通过严格解析，就不会再形成国家展示结果。
 
@@ -135,7 +147,10 @@ Kafka 账号群快照若没有 creator 身份信息，继续映射为 UNKNOWN；
 ### 协议映射测试
 
 - Android PN creator 输出 `ownerPhone` 和 PN 身份。
-- Android LID creator 只输出 LID 身份，`ownerPhone=null`。
+- Android LID creator 与同群 participant JID/phone_number 精确匹配时输出 PN 身份与
+  `ownerPhone`。
+- Android LID creator 找不到匹配成员、匹配成员没有合法 `phone_number` 时只输出 LID
+  身份，`ownerPhone=null`。
 - Android 缺失或冲突的 addressing mode 输出 UNKNOWN。
 - Web `@s.whatsapp.net`、`@lid`、空 owner 分别映射为 PN、LID、UNKNOWN。
 
@@ -159,7 +174,9 @@ Kafka 账号群快照若没有 creator 身份信息，继续映射为 UNKNOWN；
 - 存量无效 owner 值返回空国家字段。
 - 有效 PN 返回国家名称、ISO2 和国旗。
 - 国家解析失败不影响该群其他展示字段。
-- 第一套环境“混合劫持”四行在部署后显示 `--`；刷新后数据库不再把相关 LID 保存为 `owner_phone`。
+- 第一套环境“混合劫持”当前在线响应覆盖的三行在刷新后展示真实群主国家；第四个未出现在
+  在线账号实时群响应中的历史群保持 `--`，直到后续取得可确认 PN。
+- 刷新后数据库不再把相关 LID 保存为 `owner_phone`：精确匹配成功写真实 PN，无法匹配则清空。
 
 ## 发布与回滚
 
@@ -171,7 +188,7 @@ Kafka 账号群快照若没有 creator 身份信息，继续映射为 UNKNOWN；
 
 - 不把“国家”改为关联账号国家。
 - 不增加“关联账号国家”列或第二个国家列。
-- 不为 LID 强制发起额外网络请求获取手机号。
+- 不为 LID 强制发起额外网络请求；只消费当前群响应已经携带的 participant 身份对。
 - 不批量修改第一套或其他环境的数据库数据。
 - 不改变 IP 代理国家分配算法。
 - 不修改历史群详情、成员管理、拉人或营销执行语义。

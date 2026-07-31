@@ -27,7 +27,8 @@ public class MyBatisConfig {
      * 否则租户上下文下查询会被注入非法的 {@code AND tenant_id = ?} 而抛 Unknown column。
      * 新增此类表时记得同步登记。
      */
-    private static final Set<String> IGNORED_TABLES = Set.of("tenant", "country");
+    private static final Set<String> IGNORED_TABLES =
+            Set.of("tenant", "country", "country_phone_prefix_mapping");
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor(TenantLineHandler tenantLineHandler) {

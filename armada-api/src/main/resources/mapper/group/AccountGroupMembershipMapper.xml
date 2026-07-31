@@ -401,10 +401,12 @@
     INSERT INTO account_group_membership (
       account_id, group_link_id, group_jid, is_admin,
       membership_status, status_source, status_updated_at,
+      last_exit_type, last_exited_at,
       joined_at, last_seen_at, created_at, updated_at
     ) VALUES (
       #{accountId}, #{groupLinkId}, #{groupJid}, #{admin},
       #{membershipStatus}, #{statusSource}, #{statusUpdatedAt},
+      #{lastExitType}, #{lastExitedAt},
       #{joinedAt}, #{lastSeenAt}, #{createdAt}, #{updatedAt}
     )
     ON DUPLICATE KEY UPDATE
@@ -533,6 +535,20 @@
         account_group_membership.status_updated_at,
         VALUES(status_updated_at)
       ),
+      last_exit_type = CASE
+        WHEN VALUES(membership_status) IN (3, 4)
+             AND (account_group_membership.last_exited_at IS NULL
+                  OR VALUES(last_exited_at) &gt;= account_group_membership.last_exited_at)
+          THEN VALUES(last_exit_type)
+        ELSE account_group_membership.last_exit_type
+      END,
+      last_exited_at = CASE
+        WHEN VALUES(membership_status) IN (3, 4)
+             AND (account_group_membership.last_exited_at IS NULL
+                  OR VALUES(last_exited_at) &gt;= account_group_membership.last_exited_at)
+          THEN VALUES(last_exited_at)
+        ELSE account_group_membership.last_exited_at
+      END,
       deleted_at = NULL,
       updated_at = GREATEST(account_group_membership.updated_at, VALUES(updated_at))
   </insert>
@@ -606,6 +622,18 @@
           ELSE status_source
         END,
         status_updated_at = GREATEST(status_updated_at, #{statusUpdatedAt}),
+        last_exit_type = CASE
+          WHEN #{membershipStatus} IN (3, 4)
+               AND (last_exited_at IS NULL OR #{lastExitedAt} &gt;= last_exited_at)
+            THEN #{lastExitType}
+          ELSE last_exit_type
+        END,
+        last_exited_at = CASE
+          WHEN #{membershipStatus} IN (3, 4)
+               AND (last_exited_at IS NULL OR #{lastExitedAt} &gt;= last_exited_at)
+            THEN #{lastExitedAt}
+          ELSE last_exited_at
+        END,
         deleted_at = NULL,
         updated_at = GREATEST(updated_at, #{updatedAt})
     WHERE account_id = #{accountId}

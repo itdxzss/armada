@@ -30,6 +30,12 @@ public class AccountGroupMembership {
     /** 当前关系状态事实时间(epoch毫秒)。 */
     private Long statusUpdatedAt;
 
+    /** 最近一次精确退群方式:3被踢 4主动退出。 */
+    private Integer lastExitType;
+
+    /** 最近一次精确退群事件时间(epoch毫秒)。 */
+    private Long lastExitedAt;
+
     /** 账号上控后首次探测到进入该群的时间(epoch毫秒)。 */
     private Long joinedAt;
 
@@ -115,6 +121,22 @@ public class AccountGroupMembership {
 
     public void setStatusUpdatedAt(Long statusUpdatedAt) {
         this.statusUpdatedAt = statusUpdatedAt;
+    }
+
+    public Integer getLastExitType() {
+        return lastExitType;
+    }
+
+    public void setLastExitType(Integer lastExitType) {
+        this.lastExitType = lastExitType;
+    }
+
+    public Long getLastExitedAt() {
+        return lastExitedAt;
+    }
+
+    public void setLastExitedAt(Long lastExitedAt) {
+        this.lastExitedAt = lastExitedAt;
     }
 
     public Long getJoinedAt() {

@@ -2,12 +2,14 @@ package com.armada.marketing.mapper;
 
 import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 /**
- * 营销模板数据访问。tenant_id 由租户行隔离拦截器自动注入,SQL 不手写 tenant_id 过滤。
+ * 营销模板数据访问。普通 SQL 的 tenant_id 由租户行隔离拦截器自动注入；
+ * MySQL 锁行语句显式传入 tenantId，避免租户 SQL 改写破坏锁子句顺序。
  */
 @Mapper
 public interface MarketingTemplateMapper {
@@ -34,9 +36,16 @@ public interface MarketingTemplateMapper {
     /**
      * 按升序查询并锁定一组未删除模板 ID。
      *
-     * <p>调用方必须传入去重、升序 ID；固定锁顺序可以降低并发批量删除时的死锁概率。</p>
+     * <p>调用方必须传入当前租户 ID 及去重、升序模板 ID；固定锁顺序可以降低并发批量删除时的
+     * 死锁概率。该查询关闭自动租户改写，SQL 必须显式限定 tenant_id。</p>
+     *
+     * @param tenantId 当前租户 ID，必须来自租户上下文
+     * @param ids 去重并按升序排列的模板 ID
+     * @return 当前租户内已锁定的未删除模板 ID
      */
-    List<Long> selectExistingIdsForUpdate(@Param("ids") List<Long> ids);
+    @InterceptorIgnore(tenantLine = "true")
+    List<Long> selectExistingIdsForUpdate(@Param("tenantId") Long tenantId,
+                                          @Param("ids") List<Long> ids);
 
     /** 名称是否已存在(可排除指定 ID,用于修改场景)。 */
     boolean existsByName(@Param("name") String name, @Param("excludeId") Long excludeId);

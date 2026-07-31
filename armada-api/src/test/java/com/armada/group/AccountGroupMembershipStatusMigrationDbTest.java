@@ -19,6 +19,8 @@ class AccountGroupMembershipStatusMigrationDbTest extends DbTestBase {
         assertColumn("membership_status", "tinyint", false);
         assertColumn("status_source", "varchar", true);
         assertColumn("status_updated_at", "bigint", false);
+        assertColumn("last_exit_type", "tinyint", true);
+        assertColumn("last_exited_at", "bigint", true);
         assertColumn("last_seen_at", "bigint", true);
 
         String columns = jdbc.queryForObject("""

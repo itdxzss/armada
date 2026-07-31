@@ -22,9 +22,10 @@ public class CountryController {
     }
 
     /**
-     * 国家下拉选项。scope=ip 时返回 MIXED 虚拟项 + 启用且 IP 可展示的真实国家。
+     * 国家下拉选项。scope=ip 时返回 MIXED + IP 可展示国家；scope=marketing-export
+     * 时只返回全部启用的真实国家/地区，并包含中英文名、ISO2、区号和旗帜。
      *
-     * @param scope 选项范围,当前支持 ip;为空时按 ip 处理
+     * @param scope 选项范围，支持 ip、marketing-export；为空时按 ip 处理
      * @return 国家选项列表
      */
     @GetMapping("/options")

@@ -405,7 +405,7 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
     [ -f "${destination}/${archive}" ] || fail "expected compressed archive to be preserved: ${archive}"
   done
   [ -f "${destination}/logs/runtime.log" ] || fail "expected runtime log to be preserved"
-  mode="$(stat -f '%Lp' "${destination}/deploy/configs" 2>/dev/null || stat -c '%a' "${destination}/deploy/configs")"
+  mode="$(stat -c '%a' "${destination}/deploy/configs" 2>/dev/null || stat -f '%Lp' "${destination}/deploy/configs")"
   [ "${mode}" = 700 ] || fail "expected protected config directory mode 700, got ${mode}"
   rm -rf "${root}"
 }
@@ -1067,7 +1067,7 @@ test_armada_compose_passes_android_base_url_to_backend() {
 
 test_armada_compose_passes_promotion_token_encryption_config_to_backend() {
   local compose_content example_content modular_chmod_line modular_required_line modular_script
-  local win_chmod_line win_required_line win_script
+  local win_script
   compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
   example_content="$(cat "${SCRIPT_DIR}/.env.example")"
   modular_script="$(cat "${SCRIPT_DIR}/lib/armada.sh")"
@@ -1080,18 +1080,12 @@ test_armada_compose_passes_promotion_token_encryption_config_to_backend() {
   assert_contains "${modular_script}" 'DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID'
   assert_contains "${modular_script}" 'base64 --decode'
   assert_contains "${modular_script}" 'chmod 600 .env'
-  assert_contains "${win_script}" 'DB_URL DB_USER DB_PASSWORD PROMOTION_TRACKING_ENCRYPTION_KEY PROMOTION_TRACKING_ENCRYPTION_KEY_ID'
-  assert_contains "${win_script}" 'base64 --decode'
-  assert_contains "${win_script}" 'chmod 600 .env'
+  assert_contains "${win_script}" 'source_lf "${SCRIPT_DIR}/lib/armada.sh"'
 
   modular_chmod_line="$(grep -n 'chmod 600 .env' "${SCRIPT_DIR}/lib/armada.sh" | head -1 | cut -d: -f1)"
   modular_required_line="$(grep -n 'for key in DB_URL' "${SCRIPT_DIR}/lib/armada.sh" | head -1 | cut -d: -f1)"
-  win_chmod_line="$(grep -n 'chmod 600 .env' "${SCRIPT_DIR}/deploy-test-win.sh" | head -1 | cut -d: -f1)"
-  win_required_line="$(grep -n 'for key in DB_URL' "${SCRIPT_DIR}/deploy-test-win.sh" | head -1 | cut -d: -f1)"
   [ "${modular_chmod_line}" -lt "${modular_required_line}" ] \
     || fail "expected modular deploy to protect .env before validation"
-  [ "${win_chmod_line}" -lt "${win_required_line}" ] \
-    || fail "expected Windows deploy to protect .env before validation"
 }
 
 test_kafka_checker_redacts_connection_errors() {

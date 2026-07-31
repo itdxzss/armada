@@ -136,6 +136,23 @@ armada_init_colors
 WINDOWS_ASSET_DIR=""
 WINDOWS_MAVEN_BIN=""
 WINDOWS_MAVEN_ARGS=()
+WINDOWS_BACKEND_CONTAINER_ID_BEFORE=""
+
+capture_windows_backend_container_id() {
+  WINDOWS_BACKEND_CONTAINER_ID_BEFORE="$(
+    ssh_run "docker inspect -f '{{.Id}}' armada-backend 2>/dev/null || true" | tr -d '\r\n'
+  )"
+}
+
+verify_windows_backend_recreated() {
+  local current_container_id
+  current_container_id="$(ssh_run "docker inspect -f '{{.Id}}' armada-backend" | tr -d '\r\n')"
+  [ -n "${current_container_id}" ] || die "Armada backend 容器不存在"
+  if [ -n "${WINDOWS_BACKEND_CONTAINER_ID_BEFORE}" ] \
+    && [ "${current_container_id}" = "${WINDOWS_BACKEND_CONTAINER_ID_BEFORE}" ]; then
+    die "Armada backend 容器未被重新创建"
+  fi
+}
 
 is_wsl() {
   [ -n "${WSL_DISTRO_NAME:-}" ] \
@@ -207,6 +224,13 @@ prepare_windows_deploy_assets() {
     # Dockerfile、Compose 和容器入口脚本都统一转 LF，避免 Linux 容器 exit 127。
     sed -i 's/\r$//' "${WINDOWS_ASSET_DIR}/${asset}"
   done
+  # Windows 部署把动态版本 JAR 统一同步为稳定文件名；只改临时副本，不影响 Linux 部署资产。
+  sed -i -E \
+    's#^COPY armada-api/target/[^[:space:]]+\.jar /app/app\.jar$#COPY armada-api/target/armada-api-deploy.jar /app/app.jar#' \
+    "${WINDOWS_ASSET_DIR}/backend.prebuilt.Dockerfile"
+  grep -Fx 'COPY armada-api/target/armada-api-deploy.jar /app/app.jar' \
+    "${WINDOWS_ASSET_DIR}/backend.prebuilt.Dockerfile" >/dev/null \
+    || die "Windows 后端 Dockerfile 未生成稳定 JAR 路径"
   chmod +x "${WINDOWS_ASSET_DIR}/render-platform-config.sh"
   DEPLOY_ASSET_DIR="${WINDOWS_ASSET_DIR}"
 }
@@ -592,6 +616,9 @@ if [ "${SCOPE}" != "all" ] && [ "${SCOPE}" != "full" ]; then
   COMPOSE_UP_EXTRA="--no-deps"
 fi
 COMPOSE_UP_ARGS="up -d --build"
+if [ "${BUILD_BE}" = 1 ]; then
+  COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} --force-recreate"
+fi
 [ -n "${COMPOSE_UP_EXTRA}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${COMPOSE_UP_EXTRA}"
 [ -n "${SERVICES}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${SERVICES}"
 COMPOSE_UP_COMMAND="docker compose ${COMPOSE_UP_ARGS}"
@@ -937,7 +964,13 @@ fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   info "启动 Armada 容器..."
+  if [ "${BUILD_BE}" = 1 ]; then
+    capture_windows_backend_container_id
+  fi
   armada_start
+  if [ "${BUILD_BE}" = 1 ]; then
+    verify_windows_backend_recreated
+  fi
   info "检查 Armada 容器状态..."
   armada_verify_selected "${BUILD_BE}" "${BUILD_FE}"
   if [ "${BUILD_BE}" = 1 ]; then STATUS_BACKEND=SUCCESS; fi

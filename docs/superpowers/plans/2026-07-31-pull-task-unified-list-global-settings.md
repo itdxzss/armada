@@ -12,13 +12,17 @@
 
 ## Execution prerequisite
 
-The current Armada checkout contains unrelated uncommitted group/protocol work. Before Task 1, ask the user for worktree permission and create isolated `codex/pull-task-unified-list-settings` worktrees under each repository's ignored `.worktrees/` directory. Run backend commands from the Armada worktree and frontend commands from the frontend worktree. Do not copy or clean changes from either primary checkout. `V087` is the latest migration while writing this plan; immediately before Task 1, run `find armada-api/src/main/resources/db/migration -maxdepth 1 -name 'V*.sql' | sort -V | tail` and rename the planned migration and its contract-test path string together if `V088` has since been claimed.
+The user explicitly approved implementation in the current backend and frontend checkouts and explicitly prohibited commits. This overrides every later worktree/commit instruction: keep all feature changes unstaged and uncommitted, do not clean or overwrite unrelated changes, and treat each stated commit point only as a verification checkpoint. `V087` is the latest migration while writing this plan; immediately before Task 1, run `find armada-api/src/main/resources/db/migration -maxdepth 1 -name 'V*.sql' | sort -V | tail` and rename the planned migration and its contract-test path string together if `V088` has since been claimed.
+
+Armada's repository rules additionally require guarded `ALTER TABLE` statements, a migration companion and rollback script, and generated schema documentation. Do not hand-edit `.harness/wiki/数据模型.md`; regenerate it only from an authorized schema dump. If no local dump is available, record that documentation regeneration remains blocked on environment confirmation rather than connecting to a shared database.
 
 ## File map
 
 ### Armada backend
 
 - Create `armada-api/src/main/resources/db/migration/V088__pull_task_unified_list_and_global_settings.sql` for common metadata, aggregate/setting tables, indexes, and permission.
+- Create `.harness/changes/pull-task-unified-list-global-settings/db-migrations.sql` and `.harness/changes/pull-task-unified-list-global-settings/rollback.sql` as reviewed execution/rollback companions.
+- Create `.harness/changes/pull-task-unified-list-global-settings/summary.md` and link the existing dated decision record.
 - Create `com.armada.task` entities, DTOs, enums, VOs, mappers, services, and controllers for list/settings/deletion.
 - Create mapper XML under `armada-api/src/main/resources/mapper/task/`.
 - Modify `com.armada.pulltask.PullTaskController` only to remove list and batch-delete mappings superseded by typed services.
@@ -43,8 +47,11 @@ The current Armada checkout contains unrelated uncommitted group/protocol work. 
 
 - Create: `armada-api/src/test/java/com/armada/task/mapper/PullTaskUnifiedListMigrationTest.java`
 - Create: `armada-api/src/main/resources/db/migration/V088__pull_task_unified_list_and_global_settings.sql`
+- Create: `.harness/changes/pull-task-unified-list-global-settings/summary.md`
+- Create: `.harness/changes/pull-task-unified-list-global-settings/db-migrations.sql`
+- Create: `.harness/changes/pull-task-unified-list-global-settings/rollback.sql`
 
-- [ ] **Step 1: Write the failing migration contract test**
+- [x] **Step 1: Write the failing migration contract test**
 
 Read the migration file and assert the common columns, both new tables, composite summary primary key, tenant setting primary key, and dedicated permission:
 
@@ -84,15 +91,15 @@ class PullTaskUnifiedListMigrationTest {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run `cd armada-api && mvn -Dtest=PullTaskUnifiedListMigrationTest test`.
 
 Expected: FAIL because the migration file does not exist.
 
-- [ ] **Step 3: Add the migration**
+- [x] **Step 3: Add the migration**
 
-Add these common fields and indexes:
+Add these common fields and indexes. Guard every added column through `information_schema.columns` and every added index through `information_schema.statistics`, following the repository's `PREPARE`/`EXECUTE` pattern:
 
 ```sql
 ALTER TABLE pull_task
@@ -140,15 +147,17 @@ banned_account_count
 available_puller_count
 ```
 
-Also add five `TINYINT(1) NOT NULL DEFAULT 0` shortage flags named `target_data_shortage`, `puller_shortage`, `water_army_shortage`, `admin_shortage`, `marketing_admin_shortage`, plus required `created_at` and `updated_at`.
+Also add five `TINYINT(1) NOT NULL DEFAULT 0` shortage flags named `is_target_data_shortage`, `is_puller_shortage`, `is_water_army_shortage`, `is_admin_shortage`, `is_marketing_admin_shortage`, plus required `created_at` and `updated_at`.
 
 Create `pull_task_group_marketing_setting` with primary key `tenant_id`; `marketing_silence_minutes INT NOT NULL`, `group_lockdown_minutes INT NOT NULL`, `max_marketing_accounts_per_group INT NOT NULL`; nullable `created_by` and `updated_by`; and non-null epoch-millisecond `created_at` and `updated_at`. Do not add business defaults.
 
 Seed a `TaskPullSettings` button permission with `tenant:pull_task:settings` beneath every active tenant's `TaskPull` menu using the existing `INSERT IGNORE ... SELECT tenant ... JOIN sys_menu` migration pattern.
 
-- [ ] **Step 4: Verify GREEN and commit**
+Copy the forward DDL into `db-migrations.sql`. Put the exact reverse order into `rollback.sql`: delete only the seeded `TaskPullSettings` button rows, drop the setting and summary tables, drop both new indexes, then drop the five common columns. The rollback is review material only and must not be executed locally.
 
-Run the focused test and `git diff --check`, then commit only the migration and its test as `feat: add pull task unified list schema`.
+- [x] **Step 4: Verify GREEN and record the checkpoint**
+
+Run the focused test and `git diff --check`. Leave all files unstaged and uncommitted.
 
 ## Task 2: Implement the common task page mapper
 
@@ -164,7 +173,7 @@ Run the focused test and `git diff --check`, then commit only the migration and 
 - Create: `armada-api/src/main/resources/mapper/task/PullTaskMapper.xml`
 - Create: `armada-api/src/test/java/com/armada/task/mapper/PullTaskMapperInMemoryTest.java`
 
-- [ ] **Step 1: Write a failing H2 MySQL-mode mapper test**
+- [x] **Step 1: Write a failing H2 MySQL-mode mapper test**
 
 Configure the production tenant plugin and real `PullTaskMapper.xml` against an H2 MySQL-mode schema. Seed tenants 7 and 8, then assert SQL-backed filtering and tenant isolation:
 
@@ -180,13 +189,13 @@ assertThat(mapper.selectPage(filter, 0, 10))
 
 Also test exact ID, standard type, mixed source, page limit, and ID-desc ordering.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run `mvn -Dtest=PullTaskMapperInMemoryTest test`.
 
 Expected: compilation fails because the entity, filter, and mapper do not exist.
 
-- [ ] **Step 3: Add exact enums and query conversion**
+- [x] **Step 3: Add exact enums and query conversion**
 
 ```java
 public enum PullTaskType { STANDARD, GROUP_MARKETING }
@@ -199,7 +208,7 @@ public enum PullTaskMarketingStatus {
 
 `PullTaskQuery extends PageQuery` and exposes mutable `id`, `keyword`, `status`, `taskType`, `groupSource`, and `operator` fields. `taskType` and `groupSource` use their enums; `status` remains a string because ordinary and marketing tasks have different status sets. Its `toFilter()` trims blank strings to `null`. `PullTaskFilter` is a record with the same six typed fields.
 
-- [ ] **Step 4: Implement the entity and mapper**
+- [x] **Step 4: Implement the entity and mapper**
 
 `PullTask` maps `id`, enum-valued `taskType`, enum-valued nullable `groupSource`, `taskName`, `groupName`, `mode`, `status`, `primaryStage`, `blockingReason`, `groupCount`, `expectedPullCount`, `operatorName`, `createdAt`, `updatedAt`, `lastBusinessExecutedAt`, `remark`, and `deletedAt`.
 
@@ -224,9 +233,9 @@ AND (
 )
 ```
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and record the checkpoint**
 
-Run the focused H2 test and `git diff --check`; commit Task 2 files as `feat: add pull task list mapper`.
+Run the focused H2 test and `git diff --check`; leave the checkpoint unstaged and uncommitted.
 
 ## Task 3: Implement the marketing aggregate mapper
 
@@ -237,17 +246,17 @@ Run the focused H2 test and `git diff --check`; commit Task 2 files as `feat: ad
 - Create: `armada-api/src/main/resources/mapper/task/PullTaskGroupMarketingSummaryMapper.xml`
 - Modify: `armada-api/src/test/java/com/armada/task/mapper/PullTaskMapperInMemoryTest.java`
 
-- [ ] **Step 1: Add failing aggregate assertions**
+- [x] **Step 1: Add failing aggregate assertions**
 
 Seed a summary for tenant 7/task 12 and a cross-tenant summary for task 13. Assert `selectByTaskIds(List.of(12L, 13L))` returns only task 12 and preserves `message_unknown_count=0` as zero.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run `mvn -Dtest=PullTaskMapperInMemoryTest test`.
 
 Expected: compilation fails because summary types do not exist.
 
-- [ ] **Step 3: Implement the entity and batch mapper**
+- [x] **Step 3: Implement the entity and batch mapper**
 
 Give the entity a getter/setter field for every summary column from Task 1. The mapper exposes only:
 
@@ -258,9 +267,9 @@ List<PullTaskGroupMarketingSummary> selectByTaskIds(
 
 The service must skip the mapper call when IDs are empty. The XML uses one current-tenant `task_id IN (...)` query; do not add N+1 single-task reads.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and record the checkpoint**
 
-Run the H2 test and commit the entity, mapper, XML, and test change as `feat: add pull task marketing summary mapper`.
+Run the H2 test; leave the checkpoint unstaged and uncommitted.
 
 ## Task 4: Build the typed list service and controller
 
@@ -276,17 +285,17 @@ Run the H2 test and commit the entity, mapper, XML, and test change as `feat: ad
 - Create: `armada-api/src/test/java/com/armada/task/service/PullTaskListServiceTest.java`
 - Create: `armada-api/src/test/java/com/armada/task/controller/PullTaskListControllerTest.java`
 
-- [ ] **Step 1: Write failing formula tests**
+- [x] **Step 1: Write failing formula tests**
 
 Mock both mappers. Build a summary where terminal transfer counts are `50,10,5,3`, joined success is `7_260`, and effective target is `10_000`. Assert processed groups are `68`, effective success rate is `72.6`, missing summary records stay null, and a true puller shortage produces only a `PULLER` shortage entry.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run `mvn -Dtest=PullTaskListServiceTest,PullTaskListControllerTest test`.
 
 Expected: compilation fails because service, VO, and controller do not exist.
 
-- [ ] **Step 3: Define the typed response**
+- [x] **Step 3: Define the typed response**
 
 Create `PullTaskListVO` as a record with these exact top-level fields:
 
@@ -318,7 +327,7 @@ ResourceStats(remainingTargetCount, availablePullerCount,
 
 All counts use `Integer`, the rate uses `BigDecimal`, and missing marketing summary means all six marketing-specific nested groups are `null`. Do not return a `Map`.
 
-- [ ] **Step 4: Implement mapping formulas**
+- [x] **Step 4: Implement mapping formulas**
 
 The service must:
 
@@ -330,7 +339,7 @@ The service must:
 6. Never fall back from `lastBusinessExecutedAt` to created/updated time.
 7. Always include `DETAIL`; include `DELETE` for group-marketing `DRAFT` and standard `WAIT_START`/`COMPLETED`/`ENDED`. Do not return `START`, `PAUSE`, `RESUME`, or `STOP` in this slice because the current lifecycle endpoints explicitly reject execution while the executor is unconnected.
 
-- [ ] **Step 5: Add the thin controller and remove the old list mapping**
+- [x] **Step 5: Add the thin controller and remove the old list mapping**
 
 ```java
 @RestController
@@ -353,9 +362,9 @@ public class PullTaskListController {
 
 Delete only the old controller's list method, nested query class, and unused list helpers/imports. Keep legacy create/detail/groups/lifecycle/export behavior unchanged.
 
-- [ ] **Step 6: Verify GREEN and commit**
+- [x] **Step 6: Verify GREEN and record the checkpoint**
 
-Run list service/controller and mapper tests, then commit as `feat: expose typed pull task unified list`.
+Run list service/controller and mapper tests; leave the checkpoint unstaged and uncommitted.
 
 ## Task 5: Implement tenant global settings
 
@@ -373,7 +382,7 @@ Run list service/controller and mapper tests, then commit as `feat: expose typed
 - Create: `armada-api/src/test/java/com/armada/task/service/PullTaskGroupMarketingSettingServiceTest.java`
 - Create: `armada-api/src/test/java/com/armada/task/controller/PullTaskGroupMarketingSettingControllerTest.java`
 
-- [ ] **Step 1: Write failing mapper/service/controller tests**
+- [x] **Step 1: Write failing mapper/service/controller tests**
 
 Cover unconfigured reads, first save, update, validation, and tenant isolation:
 
@@ -393,13 +402,13 @@ assertThat(service.save(
 
 The H2 test switches `TenantContext` between tenants 7 and 8 and proves one tenant cannot read or overwrite the other tenant's row.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run `mvn -Dtest=PullTaskMapperInMemoryTest,PullTaskGroupMarketingSettingServiceTest,PullTaskGroupMarketingSettingControllerTest test`.
 
 Expected: compilation fails because setting classes do not exist.
 
-- [ ] **Step 3: Implement mapper upsert and validation**
+- [x] **Step 3: Implement mapper upsert and validation**
 
 Mapper contract:
 
@@ -427,13 +436,13 @@ if (request == null
 
 `get()` returns `configured=false` without inserting a default row.
 
-- [ ] **Step 4: Implement GET/PUT endpoints**
+- [x] **Step 4: Implement GET/PUT endpoints**
 
 Use path `/api/pull-tasks/group-marketing-setting`. GET inherits `tenant:pull_task:view`; PUT requires `tenant:pull_task:settings`, accepts the typed DTO, passes `principal.userId()` to the service, and returns the saved VO.
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and record the checkpoint**
 
-Run the three focused tests and `git diff --check`; commit Task 5 files as `feat: add pull task group marketing settings`.
+Run the three focused tests and `git diff --check`; leave the checkpoint unstaged and uncommitted.
 
 ## Task 6: Move batch deletion to the typed task service
 
@@ -447,7 +456,7 @@ Run the three focused tests and `git diff --check`; commit Task 5 files as `feat
 - Modify: `armada-api/src/test/java/com/armada/task/mapper/PullTaskMapperInMemoryTest.java`
 - Create: `armada-api/src/test/java/com/armada/task/service/PullTaskMutationServiceTest.java`
 
-- [ ] **Step 1: Write failing deletion-policy tests**
+- [x] **Step 1: Write failing deletion-policy tests**
 
 Seed and assert:
 
@@ -461,13 +470,13 @@ GROUP_MARKETING / WAIT_START -> retained
 
 Also assert empty IDs return zero without a mapper call and duplicate IDs are deduplicated.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run `mvn -Dtest=PullTaskMapperInMemoryTest,PullTaskMutationServiceTest test`.
 
 Expected: mutation service/DTO are missing.
 
-- [ ] **Step 3: Implement service and endpoint**
+- [x] **Step 3: Implement service and endpoint**
 
 The service calls `batchSoftDeleteAllowed(distinctIds, System.currentTimeMillis())`. Add the typed endpoint to `PullTaskListController`:
 
@@ -481,7 +490,7 @@ public ApiResponse<Integer> batchDelete(@RequestBody PullTaskIdsDTO request) {
 
 Remove the old batch-delete mapping and `longList` helper from `com.armada.pulltask.PullTaskController`. Leave every other endpoint intact.
 
-- [ ] **Step 4: Verify backend slice and commit**
+- [x] **Step 4: Verify the backend slice and record the checkpoint**
 
 Run:
 
@@ -491,7 +500,7 @@ mvn -DskipTests compile
 git diff --check
 ```
 
-Expected: focused H2/unit/source-contract tests pass without shared MySQL access. Commit as `refactor: enforce pull task delete policy`.
+Expected: focused H2/unit/source-contract tests pass without shared MySQL access. Leave the checkpoint unstaged and uncommitted.
 
 ## Task 7: Define the frontend API and display domain
 
@@ -504,11 +513,11 @@ Expected: focused H2/unit/source-contract tests pass without shared MySQL access
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/constants.ts`
 - Create: `wheel-saas-pure-web/.harness/changes/pull-task-unified-list-global-settings/summary.md`
 
-- [ ] **Step 1: Create the frontend change record**
+- [x] **Step 1: Create the frontend change record**
 
 Record the design link, two-repository scope, nine columns, three global fields, no legacy-menu merge, and no group-marketing submission/executor work. Leave implementation and verification unchecked.
 
-- [ ] **Step 2: Write failing API tests**
+- [x] **Step 2: Write failing API tests**
 
 Use the Armada test double and call:
 
@@ -533,7 +542,7 @@ await updatePullTaskGroupMarketingSetting({
 
 Assert exact URLs and that list params contain trimmed `keyword/operator` but no `orderState`, `banState`, or `mode` task-type alias.
 
-- [ ] **Step 3: Write failing pure display tests**
+- [x] **Step 3: Write failing pure display tests**
 
 ```ts
 assert.equal(displayMetric(null), "--");
@@ -552,7 +561,7 @@ Read `constants.ts` and assert the exact labels are:
 任务信息｜任务状态｜群组处理进度｜拉人结果｜营销进度｜消息发送｜异常情况｜剩余资源｜时间/操作
 ```
 
-- [ ] **Step 4: Run and verify RED**
+- [x] **Step 4: Run and verify RED**
 
 Run:
 
@@ -565,7 +574,7 @@ node --test --experimental-strip-types \
 
 Expected: setting methods, query keys, helper, and nine-column contract are missing.
 
-- [ ] **Step 5: Implement the TypeScript contracts**
+- [x] **Step 5: Implement the TypeScript contracts**
 
 Define:
 
@@ -610,9 +619,9 @@ export interface PullTaskGroupMarketingSetting {
 
 Add nested metric interfaces matching backend `PullTaskListVO`, update `PullTaskQuery`, and add GET/PUT setting functions. Update the status/source option constants and make status labelling accept both status and task type so the ten PRD marketing labels do not overwrite legacy ordinary-task wording. Preserve existing standard create/detail interfaces and endpoints.
 
-- [ ] **Step 6: Verify GREEN and commit**
+- [x] **Step 6: Verify GREEN and record the checkpoint**
 
-Run the API/display tests and commit frontend Task 7 files as `feat: add pull task list and setting contracts`.
+Run the API/display tests; leave the checkpoint unstaged and uncommitted.
 
 ## Task 8: Render the nine-column unified table
 
@@ -624,13 +633,13 @@ Run the API/display tests and commit frontend Task 7 files as `feat: add pull ta
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/composables/usePullTaskPage.ts`
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/PullTaskIndex.test.ts`
 
-- [ ] **Step 1: Write failing table/page tests**
+- [x] **Step 1: Write failing table/page tests**
 
 Assert `PullTaskTable.vue` has exactly nine labels, uses `el-tooltip` for group/pull/marketing detail, hides unknown-message zero through `shouldShowUnknownMessage`, displays `blockingReason` before `primaryStage`, and contains one `时间/操作` column. Assert `index.vue` no longer embeds ten columns.
 
 Assert page query state contains only ID, keyword, status, task type, group source, operator, page, and page size.
 
-- [ ] **Step 2: Run and verify RED**
+- [x] **Step 2: Run and verify RED**
 
 Run:
 
@@ -644,7 +653,7 @@ node --test --experimental-strip-types \
 
 Expected: the component is missing and the old page still contains ten columns and invalid filters.
 
-- [ ] **Step 3: Implement `PullTaskTable.vue`**
+- [x] **Step 3: Implement `PullTaskTable.vue`**
 
 The component receives `columns`, `loading`, and `rows`; emits `action`, `refresh`, and `selection-change`; and renders:
 
@@ -658,15 +667,15 @@ The component receives `columns`, `loading`, and `rows`; emits `action`, `refres
 
 Do not render created time or demo fallbacks. Use `--` for null and `0` for zero.
 
-- [ ] **Step 4: Simplify the page and query state**
+- [x] **Step 4: Simplify the page and query state**
 
 Replace embedded table markup with `<PullTaskTable>`. Search fields become ID, task name, status, task type, group source, and operator. Remove `orderState`, `banState`, and task-mode filtering from types, defaults, reset, query construction, and template.
 
 Map table `DETAIL/START/PAUSE/STOP` actions to the existing handlers so the component remains forward-compatible, although the backend does not return lifecycle actions in this slice. `DELETE` selects that row and invokes typed deletion. Do not create a group-marketing executor success path.
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and record the checkpoint**
 
-Run focused tests and `pnpm typecheck`; commit as `feat: render pull task unified list`.
+Run focused tests and `pnpm typecheck`; leave the checkpoint unstaged and uncommitted.
 
 ## Task 9: Add the pull-task global-setting dialog
 
@@ -678,7 +687,7 @@ Run focused tests and `pnpm typecheck`; commit as `feat: render pull task unifie
 - Create: `wheel-saas-pure-web/src/views/task/pull-task/composables/usePullTaskGlobalSetting.test.ts`
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/index.vue`
 
-- [ ] **Step 1: Write failing dialog and composable tests**
+- [x] **Step 1: Write failing dialog and composable tests**
 
 Cover these exact behaviors:
 
@@ -689,7 +698,7 @@ Cover these exact behaviors:
 - save submits all three fields and closes only after the request succeeds;
 - the list-page entry is labelled `全局设置` and guarded by `tenant:pull_task:settings`.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -702,7 +711,7 @@ node --test --experimental-strip-types \
 
 Confirm they fail because the composable and dialog do not exist.
 
-- [ ] **Step 3: Implement `usePullTaskGlobalSetting`**
+- [x] **Step 3: Implement `usePullTaskGlobalSetting`**
 
 Expose `visible`, `loading`, `saving`, `form`, `open`, `cancel`, and `save`. Refetch the setting every time `open` is called. Keep all three form fields nullable until the API returns configured values. Validate:
 
@@ -712,13 +721,13 @@ Expose `visible`, `loading`, `saving`, `form`, `open`, `cancel`, and `save`. Ref
 
 Use the existing `apiErrorMessage` helper and `ElMessage` for request failures. Do not introduce frontend fallback values.
 
-- [ ] **Step 4: Implement and mount the dialog**
+- [x] **Step 4: Implement and mount the dialog**
 
 Build the form with Element Plus, including explicit units and validation messages. Add the top-level `全局设置` button to `index.vue`, wrap it with `v-auth="'tenant:pull_task:settings'"`, and mount one dialog instance. Opening it must always show the current tenant's persisted values.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and record the checkpoint**
 
-Run the focused tests and `pnpm typecheck`; commit as `feat: add pull task global settings`.
+Run the focused tests and `pnpm typecheck`; leave the checkpoint unstaged and uncommitted.
 
 ## Task 10: Add task-type selection and restore standard-task creation
 
@@ -732,11 +741,11 @@ Run the focused tests and `pnpm typecheck`; commit as `feat: add pull task globa
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/index.vue`
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/PullTaskIndex.test.ts`
 
-- [ ] **Step 1: Write failing task-type routing tests**
+- [x] **Step 1: Write failing task-type routing tests**
 
 Assert that clicking `新建拉群任务` first opens a selector with `普通拉群` and `拉群营销`. Choosing ordinary task opens the standard-task drawer. Choosing group marketing navigates to `/task/pull-task/create`; it must not navigate to or expose the former independent group-marketing menu route.
 
-- [ ] **Step 2: Write failing standard-create tests**
+- [x] **Step 2: Write failing standard-create tests**
 
 Cover the preserved ordinary-task rules:
 
@@ -745,7 +754,7 @@ Cover the preserved ordinary-task rules:
 - puller accounts and material are required;
 - a valid form posts to `/api/pull-tasks` using the existing standard-task payload and refreshes the unified list after success.
 
-- [ ] **Step 3: Run the focused tests and verify RED**
+- [x] **Step 3: Run the focused tests and verify RED**
 
 Run:
 
@@ -759,7 +768,7 @@ node --test --experimental-strip-types \
 
 Confirm failures are caused by the missing selector, drawer, and composable.
 
-- [ ] **Step 4: Recover the ordinary-create behavior from repository history**
+- [x] **Step 4: Recover the ordinary-create behavior from repository history**
 
 Use these read-only references as the deterministic source:
 
@@ -770,13 +779,13 @@ git show e402b177^:src/views/task/pull-task/composables/usePullTaskPage.ts
 
 Recreate the drawer through `apply_patch`, but move its form defaults, validation, option loading, material/file handling, and create request into `useStandardPullTaskCreate.ts`. Preserve the historical request contract exactly. Do not add group-marketing global-setting fields to the ordinary task form.
 
-- [ ] **Step 5: Integrate the selector**
+- [x] **Step 5: Integrate the selector**
 
 Keep one `PullTaskTypeDialog` and one ordinary-create drawer in `index.vue`. On successful ordinary creation, close both flows and reload the table. Route group-marketing selection to the existing standalone configuration page at `/task/pull-task/create`.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and record the checkpoint**
 
-Run the focused tests and `pnpm typecheck`; commit as `feat: select pull task creation type`.
+Run the focused tests and `pnpm typecheck`; leave the checkpoint unstaged and uncommitted.
 
 ## Task 11: Load and display global settings on the group-marketing create page
 
@@ -792,7 +801,7 @@ Run the focused tests and `pnpm typecheck`; commit as `feat: select pull task cr
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/create/index.vue`
 - Modify: `wheel-saas-pure-web/src/views/task/pull-task/create/PullTaskCreatePage.test.ts`
 
-- [ ] **Step 1: Write failing setting-state and validation tests**
+- [x] **Step 1: Write failing setting-state and validation tests**
 
 Add these draft fields:
 
@@ -805,7 +814,7 @@ globalMaxMarketingAccountsPerGroup: number | null;
 
 Test that a configured response maps all three global fields and initializes the task-level maximum from `maxMarketingAccountsPerGroup`. Test that an unconfigured response keeps every value `null` and yields `请先在拉群任务列表完成全局设置`. Test that a task-level maximum outside `1..globalMaxMarketingAccountsPerGroup` yields `单群营销账号上限必须在1到全局上限之间`.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -820,19 +829,19 @@ node --test --experimental-strip-types \
 
 Confirm failure is caused by the absent setting loader and draft fields.
 
-- [ ] **Step 3: Implement the create-page setting loader**
+- [x] **Step 3: Implement the create-page setting loader**
 
 Call `GET /api/pull-tasks/group-marketing-setting` on page mount. Expose a configured flag and validation hook. Never substitute defaults when the response is unconfigured. Make the setting validation run before any future submission hook.
 
-- [ ] **Step 4: Render the PRD fields without pretending task execution is connected**
+- [x] **Step 4: Render the PRD fields without pretending task execution is connected**
 
 In `CreateMarketingSection.vue`, render marketing silence and lockdown duration as disabled global values. Render the per-task marketing-account maximum as an editable integer constrained to `1..globalMaxMarketingAccountsPerGroup`. Show a blocking alert and disable the page's continue/create entry when settings are unconfigured.
 
 Keep the existing explicit boundary: this slice does not implement group-marketing task submission or executor integration. Do not add a fake success path or fabricate an execution result.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and record the checkpoint**
 
-Run the focused create-page tests and `pnpm typecheck`; commit as `feat: apply settings to marketing task draft`.
+Run the focused create-page tests and `pnpm typecheck`; leave the checkpoint unstaged and uncommitted.
 
 ## Task 12: Run cross-repository verification and finish the records
 
@@ -842,7 +851,7 @@ Run the focused create-page tests and `pnpm typecheck`; commit as `feat: apply s
 - Modify: `docs/superpowers/specs/2026-07-31-pull-task-unified-list-global-settings-design.md`
 - Modify: `wheel-saas-pure-web/.harness/changes/pull-task-unified-list-global-settings/summary.md`
 
-- [ ] **Step 1: Verify the backend slice**
+- [x] **Step 1: Verify the backend slice**
 
 From `armada/armada-api`, run:
 
@@ -853,7 +862,7 @@ mvn -DskipTests compile
 
 Record the exact command results. A failing existing unrelated test is not evidence that this feature passes; isolate and document it before deciding whether a separate fix is in scope.
 
-- [ ] **Step 2: Verify the frontend slice**
+- [x] **Step 2: Verify the frontend slice**
 
 From `wheel-saas-pure-web`, run `node --test --experimental-strip-types --loader ./src/api/__tests__/node-test-loader.mjs` over:
 
@@ -896,9 +905,9 @@ pnpm build
 
 Record the exact command results.
 
-- [ ] **Step 3: Audit scope and repository boundaries**
+- [x] **Step 3: Audit scope and repository boundaries**
 
-Review `git diff --stat`, `git diff --check`, and the full diff in each worktree. Confirm that implementation did not modify:
+Review `git diff --stat`, `git diff --check`, and the full diff in each current checkout. Confirm that implementation did not modify:
 
 - `wheel-saas-pure-web/src/views/task/group-pull-marketing/`;
 - existing backend `marketing` or `grouppull` business tables/services;
@@ -906,10 +915,10 @@ Review `git diff --stat`, `git diff --check`, and the full diff in each worktree
 
 Confirm that missing summary rows render as `--`, present zero values render as `0`, the list has exactly nine columns, settings have no defaults, and group-marketing creation remains blocked while unconfigured.
 
-- [ ] **Step 4: Update the change records and design status**
+- [x] **Step 4: Update the change records and design status**
 
 Add implemented file paths, schema/API/UI decisions, exact verification evidence, and the explicitly deferred group-marketing submission/executor work. Mark the design status implemented only after every required verification succeeds.
 
-- [ ] **Step 5: Commit documentation and stop before external changes**
+- [x] **Step 5: Leave documentation uncommitted and stop before external changes**
 
-Commit the record updates in their respective repositories. Do not deploy, run a shared-database migration, SSH to an environment, or modify remote data without a separate environment confirmation from the user.
+Leave the record updates unstaged and uncommitted. Do not deploy, run a shared-database migration, SSH to an environment, or modify remote data without a separate environment confirmation from the user.

@@ -1,8 +1,9 @@
 # 变更记录：拉群任务统一列表与全局设置
 
-- 日期 / 分支 / worktree: 2026-07-31 / `1.0.2-snapshot` / 当前 checkout（仅本地设计与实施计划，未开始代码）
+- 日期 / 分支 / worktree: 2026-07-31 / `1.0.2-snapshot` / 当前 checkout（本地实施）
 - 需求来源: 用户确认口径、《拉群营销 PRD V1.2》第 2、3、4、20.2、20.13 节
-- 状态: 进行中
+- 状态: 本地实施完成，未提交、未部署
+- 执行约束: 用户明确要求直接在当前前后端 checkout 编码，不创建 worktree，不提交 commit。
 
 ## 目标（一句话）
 
@@ -16,8 +17,8 @@
 - [x] 形成设计文档。
 - [x] 用户审核并确认书面设计。
 - [x] 编写前后端实施计划。
-- [ ] 通过 TDD 实施数据库、后端接口和前端页面。
-- [ ] 完成前后端验证与评审。
+- [x] 通过 TDD 实施数据库、后端接口和前端页面。
+- [x] 完成前后端验证与范围审计。
 
 ## 关键设计决策
 
@@ -30,14 +31,29 @@
 
 ## 验证（evidence-before-done）
 
-- 当前仅完成本地设计与实施计划，尚未执行代码测试。
+- 后端 `mvn -Dtest='PullTask*' test`：23 项通过，0 失败、0 错误、0 跳过。
+- 后端 `mvn -DskipTests compile`：`BUILD SUCCESS`。
+- 前端计划内 Node 测试：38 项通过，0 失败、0 跳过。
+- 前端 `pnpm typecheck`：通过。
+- 前端 `pnpm build`：通过，Vite 生产构建完成。
+- 本次前端文件 ESLint、Stylelint、Prettier 检查：通过。
+- 两个仓库 `git diff --check`：通过。
+
+## 已实施路径
+
+- 数据库：`armada-api/src/main/resources/db/migration/V088__pull_task_unified_list_and_global_settings.sql`。
+- 后端：`armada-api/src/main/java/com/armada/task/` 下的统一列表、聚合统计、全局设置和删除策略。
+- 后端 Mapper：`armada-api/src/main/resources/mapper/task/PullTask*.xml`。
+- 前端 API：`wheel-saas-pure-web/src/api/pull-task.ts`。
+- 前端页面：`wheel-saas-pure-web/src/views/task/pull-task/`。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 未实施、未部署。
+- commit / 环境 / 部署后验证结果: 按用户要求未提交；未连接远程或真实数据库，未执行迁移，未部署。
 
 ## 遗留 / 跟进
 
 - 书面设计：`docs/superpowers/specs/2026-07-31-pull-task-unified-list-global-settings-design.md`
 - 实施计划：`docs/superpowers/plans/2026-07-31-pull-task-unified-list-global-settings.md`
-- 开始实施前需先征得用户同意，在后端和前端仓库创建隔离 worktree，避免混入当前主 checkout 的无关改动。
+- 拉群营销任务提交、任务配置快照、执行器接入和聚合统计生产者仍需后续独立实施。
+- 目标环境确认后再执行 Flyway，并从真实结构重新生成 `.harness/wiki/数据模型.md`。

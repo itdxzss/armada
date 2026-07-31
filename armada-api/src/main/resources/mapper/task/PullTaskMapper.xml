@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskMapper">
+
+  <!-- tenant_id 由生产租户拦截器注入；count 与分页复用同一筛选口径。 -->
+  <sql id="filter">
+    deleted_at IS NULL
+    <if test="filter.id != null">AND id = #{filter.id}</if>
+    <if test="filter.keyword != null">
+      AND (task_name LIKE CONCAT('%', #{filter.keyword}, '%')
+        OR group_name LIKE CONCAT('%', #{filter.keyword}, '%'))
+    </if>
+    <if test="filter.status != null">AND status = #{filter.status}</if>
+    <if test="filter.taskType != null">AND task_type = #{filter.taskType}</if>
+    <if test="filter.groupSource != null">AND group_source = #{filter.groupSource}</if>
+    <if test="filter.operator != null">
+      AND operator_name LIKE CONCAT('%', #{filter.operator}, '%')
+    </if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*) FROM pull_task WHERE <include refid="filter"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.task.model.entity.PullTask">
+    SELECT
+      id, tenant_id, task_type, group_source, task_name, group_name, mode, status,
+      primary_stage, blocking_reason, group_count, expected_pull_count, operator_name,
+      created_at, updated_at, last_business_executed_at, remark, deleted_at
+    FROM pull_task
+    WHERE <include refid="filter"/>
+    ORDER BY id DESC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <!-- 删除条件在数据库层重复校验，防止前端按钮或 Service 状态过期。 -->
+  <update id="batchSoftDeleteAllowed">
+    UPDATE pull_task
+    SET deleted_at = #{deletedAt}, updated_at = #{deletedAt}
+    WHERE deleted_at IS NULL
+      AND id IN
+      <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+      AND (
+        (task_type = 'GROUP_MARKETING' AND status = 'DRAFT')
+        OR
+        (task_type = 'STANDARD' AND status IN ('WAIT_START', 'COMPLETED', 'ENDED'))
+      )
+  </update>
+
+</mapper>

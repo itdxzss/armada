@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingSettingMapper">
+
+  <!-- tenant_id 由生产租户拦截器注入。 -->
+  <select id="selectCurrent"
+          resultType="com.armada.task.model.entity.PullTaskGroupMarketingSetting">
+    SELECT
+      tenant_id, marketing_silence_minutes, group_lockdown_minutes,
+      max_marketing_accounts_per_group, created_by, updated_by, created_at, updated_at
+    FROM pull_task_group_marketing_setting
+    LIMIT 1
+  </select>
+
+  <!-- tenant_id 由生产租户拦截器注入；更新时保留首次创建审计字段。 -->
+  <insert id="upsert">
+    INSERT INTO pull_task_group_marketing_setting (
+      marketing_silence_minutes, group_lockdown_minutes,
+      max_marketing_accounts_per_group, created_by, updated_by, created_at, updated_at
+    ) VALUES (
+      #{marketingSilenceMinutes}, #{groupLockdownMinutes},
+      #{maxMarketingAccountsPerGroup}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      marketing_silence_minutes = VALUES(marketing_silence_minutes),
+      group_lockdown_minutes = VALUES(group_lockdown_minutes),
+      max_marketing_accounts_per_group = VALUES(max_marketing_accounts_per_group),
+      updated_by = VALUES(updated_by),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+</mapper>

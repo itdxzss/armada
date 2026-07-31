@@ -8,7 +8,6 @@ import com.armada.shared.security.AuthPrincipal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +18,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -47,52 +45,6 @@ public class PullTaskController {
     public PullTaskController(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
-    }
-
-    /** 分页查询当前租户真实保存的拉群任务。 */
-    @GetMapping
-    public ApiResponse<PageResult<Map<String, Object>>> list(
-            @ModelAttribute PullTaskQuery query,
-            @AuthenticationPrincipal AuthPrincipal principal) {
-        int page = Math.max(1, query.page == null ? 1 : query.page);
-        int pageSize = Math.min(200, Math.max(1, query.pageSize == null ? 10 : query.pageSize));
-        StringBuilder where = new StringBuilder(" WHERE tenant_id=? AND deleted_at IS NULL");
-        List<Object> args = new ArrayList<>();
-        args.add(principal.tenantId());
-        append(where, args, query.id != null, " AND id=?", query.id);
-        append(where, args, hasText(query.status), " AND status=?", query.status);
-        append(where, args, hasText(query.mode), " AND mode=?", query.mode);
-        if (hasText(query.keyword)) {
-            where.append(" AND (task_name LIKE ? OR group_name LIKE ?)");
-            String keyword = "%" + query.keyword.trim() + "%";
-            args.add(keyword);
-            args.add(keyword);
-        }
-        if (hasText(query.operator)) {
-            where.append(" AND operator_name LIKE ?");
-            args.add("%" + query.operator.trim() + "%");
-        }
-        long total = jdbc.queryForObject("SELECT COUNT(*) FROM pull_task" + where,
-                Long.class, args.toArray());
-        if (total == 0) {
-            return ApiResponse.ok(PageResult.of(List.of(), page, pageSize, 0));
-        }
-        List<Object> pageArgs = new ArrayList<>(args);
-        pageArgs.add(pageSize);
-        pageArgs.add((page - 1) * pageSize);
-        List<Map<String, Object>> rows = jdbc.query(
-                "SELECT id,task_name,group_name,mode,status,group_count,expected_pull_count," +
-                        "operator_name,created_at,updated_at,remark FROM pull_task" + where +
-                        " ORDER BY id DESC LIMIT ? OFFSET ?",
-                (rs, n) -> row(rs.getLong("id"), rs.getString("task_name"),
-                        rs.getString("group_name"), rs.getString("mode"), rs.getString("status"),
-                        rs.getInt("group_count"), rs.getInt("expected_pull_count"),
-                        rs.getString("operator_name"), rs.getLong("created_at"),
-                        rs.getLong("updated_at"), rs.getString("remark")),
-                pageArgs.toArray());
-        log.info("拉群任务列表查询 tenantId={} page={} pageSize={} total={}",
-                principal.tenantId(), page, pageSize, total);
-        return ApiResponse.ok(PageResult.of(rows, page, pageSize, total));
     }
 
     /** 保存页面配置快照，不触碰其他任务业务表。 */
@@ -178,31 +130,6 @@ public class PullTaskController {
         throw new BusinessException(ErrorCode.VALIDATION, "拉群任务执行器尚未接入，当前只能保存和查看任务配置");
     }
 
-    @PostMapping("/batch-delete")
-    @PreAuthorize("hasAuthority('tenant:pull_task:delete')")
-    @Transactional(rollbackFor = Exception.class)
-    public ApiResponse<Integer> batchDelete(
-            @RequestBody Map<String, Object> request,
-            @AuthenticationPrincipal AuthPrincipal principal) {
-        List<Long> ids = longList(request.get("ids"));
-        if (ids.isEmpty()) {
-            return ApiResponse.ok(0);
-        }
-        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
-        List<Object> args = new ArrayList<>();
-        long now = System.currentTimeMillis();
-        args.add(now);
-        args.add(now);
-        args.add(principal.tenantId());
-        args.addAll(ids);
-        int affected = jdbc.update("UPDATE pull_task SET deleted_at=?,updated_at=? " +
-                "WHERE tenant_id=? AND deleted_at IS NULL AND status IN ('WAIT_START','COMPLETED','ENDED') " +
-                "AND id IN (" + placeholders + ")", args.toArray());
-        log.info("拉群任务批量删除 tenantId={} requested={} affected={} operator={}",
-                principal.tenantId(), ids.size(), affected, principal.username());
-        return ApiResponse.ok(affected);
-    }
-
     @PostMapping({"/{id}/groups/supplement-pullers", "/{id}/groups/operations",
             "/{id}/groups/task-operations"})
     @PreAuthorize("hasAuthority('tenant:pull_task:operate')")
@@ -280,14 +207,6 @@ public class PullTaskController {
         return summary;
     }
 
-    private static void append(StringBuilder sql, List<Object> args, boolean enabled,
-                               String fragment, Object value) {
-        if (enabled) {
-            sql.append(fragment);
-            args.add(value);
-        }
-    }
-
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
@@ -321,35 +240,4 @@ public class PullTaskController {
         return hasText(principal.nickname()) ? principal.nickname() : principal.username();
     }
 
-    private static List<Long> longList(Object value) {
-        if (!(value instanceof List<?> list)) {
-            return List.of();
-        }
-        List<Long> result = new ArrayList<>();
-        for (Object item : list) {
-            if (item instanceof Number number) {
-                result.add(number.longValue());
-            }
-        }
-        return result.stream().distinct().toList();
-    }
-
-    /** 页面筛选参数。 */
-    public static final class PullTaskQuery {
-        private Integer page;
-        private Integer pageSize;
-        private Long id;
-        private String keyword;
-        private String status;
-        private String mode;
-        private String operator;
-
-        public void setPage(Integer page) { this.page = page; }
-        public void setPageSize(Integer pageSize) { this.pageSize = pageSize; }
-        public void setId(Long id) { this.id = id; }
-        public void setKeyword(String keyword) { this.keyword = keyword; }
-        public void setStatus(String status) { this.status = status; }
-        public void setMode(String mode) { this.mode = mode; }
-        public void setOperator(String operator) { this.operator = operator; }
-    }
 }

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingSummaryMapper">
+
+  <!-- tenant_id 由生产租户拦截器注入；缺失行保持缺失，不使用 COALESCE 伪造零值。 -->
+  <select id="selectByTaskIds"
+          resultType="com.armada.task.model.entity.PullTaskGroupMarketingSummary">
+    SELECT
+      tenant_id, task_id, target_group_count,
+      transfer_success_count, transfer_pending_close_count, transfer_partial_count,
+      transfer_failed_count, transfer_running_count, transfer_waiting_count,
+      planned_target_count, effective_target_count, joined_success_count,
+      already_in_group_count, privacy_restricted_count, invalid_number_count,
+      unregistered_count, pull_result_unknown_count, remaining_target_count,
+      marketing_waiting_count, marketing_running_count, marketing_paused_count,
+      marketing_completed_count, marketing_abnormal_stopped_count,
+      message_success_count, message_failed_count, message_unknown_count,
+      abnormal_group_count, puller_shortage_group_count, banned_account_count,
+      available_puller_count,
+      is_target_data_shortage AS target_data_shortage,
+      is_puller_shortage AS puller_shortage,
+      is_water_army_shortage AS water_army_shortage,
+      is_admin_shortage AS admin_shortage,
+      is_marketing_admin_shortage AS marketing_admin_shortage,
+      created_at, updated_at
+    FROM pull_task_group_marketing_summary
+    WHERE task_id IN
+    <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+      #{taskId}
+    </foreach>
+    ORDER BY task_id DESC
+  </select>
+
+</mapper>

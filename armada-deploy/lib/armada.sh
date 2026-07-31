@@ -112,7 +112,7 @@ armada_sync_frontend() {
 }
 
 armada_start() {
-  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' AUTH_SESSION_KEY_PREFIX='armada:${ENV_ID}:' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
 }
 
 armada_wait_backend_ready() {

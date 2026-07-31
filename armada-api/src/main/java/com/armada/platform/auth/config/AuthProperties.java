@@ -12,12 +12,14 @@ public final class AuthProperties implements InitializingBean {
     private Duration captchaTtl = Duration.ofMinutes(2);
     private Duration sessionIdleTimeout = Duration.ofMinutes(30);
     private Duration sessionMaxLifetime = Duration.ofHours(24);
+    private String sessionKeyPrefix = "armada:default:";
 
     @Override
     public void afterPropertiesSet() {
         if (defaultTenantId <= 0 || captchaTtl.isNegative() || captchaTtl.isZero()
                 || sessionIdleTimeout.isNegative() || sessionIdleTimeout.isZero()
-                || sessionMaxLifetime.compareTo(sessionIdleTimeout) < 0) {
+                || sessionMaxLifetime.compareTo(sessionIdleTimeout) < 0
+                || sessionKeyPrefix == null || sessionKeyPrefix.isBlank()) {
             throw new IllegalStateException("登录认证配置不正确");
         }
     }
@@ -30,4 +32,6 @@ public final class AuthProperties implements InitializingBean {
     public void setSessionIdleTimeout(Duration value) { this.sessionIdleTimeout = value; }
     public Duration getSessionMaxLifetime() { return sessionMaxLifetime; }
     public void setSessionMaxLifetime(Duration value) { this.sessionMaxLifetime = value; }
+    public String getSessionKeyPrefix() { return sessionKeyPrefix; }
+    public void setSessionKeyPrefix(String value) { this.sessionKeyPrefix = value; }
 }

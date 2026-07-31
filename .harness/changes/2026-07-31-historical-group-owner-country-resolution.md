@@ -31,12 +31,12 @@
 
 ## 验证（evidence-before-done）
 
-- 最终聚焦回归：11 个测试类、94 个测试，0 failure / 0 error。
+- 合并远端最新代码后的最终聚焦回归：11 个测试类、98 个测试，0 failure / 0 error。
 - LID/PN 增量严格按 RED/GREEN 验证：新增单测在实现前因实际结果仍为 LID 而失败，
   实现后单测 1/1 通过；随后扩展相关链路回归 8 个测试类、52 个测试全部通过。
 - H2 MySQL mode：`MysqlModeMapperInMemoryTest` 15 个测试通过；真实加载
   `AccountGroupMembershipMapper.xml` 与 `GroupLinkPreviewMapper.xml`，覆盖 update 和 duplicate-key 三态。
-- 本地安全全量：1397 个测试，1394 通过；3 个失败均位于本次未修改的
+- 合并远端后的本地安全全量：1437 个测试，1434 通过；3 个失败均位于本次未修改的
   `HistoricalGroupPullWorkerImplTest`（2 个旧接口参数断言）和
   `GroupCreationMarketingTaskMapperSqlShapeTest`（1 个旧 SQL 参数路径断言）。
 - 构建：`mvn -q -DskipTests package` 通过。

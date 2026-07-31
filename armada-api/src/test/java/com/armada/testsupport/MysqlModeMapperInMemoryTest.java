@@ -909,6 +909,8 @@ class MysqlModeMapperInMemoryTest {
                     membership_status TINYINT NOT NULL,
                     status_source VARCHAR(64),
                     status_updated_at BIGINT NOT NULL,
+                    last_exit_type TINYINT,
+                    last_exited_at BIGINT,
                     joined_at BIGINT,
                     last_seen_at BIGINT,
                     created_at BIGINT NOT NULL,

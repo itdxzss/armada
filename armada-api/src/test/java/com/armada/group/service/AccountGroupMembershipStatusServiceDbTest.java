@@ -40,6 +40,9 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
         apply(accountId, "remove", 2000L, "evt-remove");
 
         assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+        assertThat(lastExitType(accountId, GROUP_JID))
+                .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+        assertThat(lastExitedAt(accountId, GROUP_JID)).isEqualTo(2000L);
         assertThat(joinedAt(accountId, GROUP_JID)).isNull();
         assertThat(lastSeenAt(accountId, GROUP_JID)).isNull();
         assertThat(deletedAt(accountId, GROUP_JID)).isNull();
@@ -52,6 +55,9 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
         assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.IN_GROUP.code());
         assertThat(joinedAt(accountId, GROUP_JID)).isEqualTo(3000L);
         assertThat(lastSeenAt(accountId, GROUP_JID)).isEqualTo(3000L);
+        assertThat(lastExitType(accountId, GROUP_JID))
+                .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+        assertThat(lastExitedAt(accountId, GROUP_JID)).isEqualTo(2000L);
     }
 
     @Test
@@ -194,6 +200,14 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
 
     private Long lastSeenAt(long accountId, String groupJid) {
         return column(accountId, groupJid, "last_seen_at", Long.class);
+    }
+
+    private Integer lastExitType(long accountId, String groupJid) {
+        return column(accountId, groupJid, "last_exit_type", Integer.class);
+    }
+
+    private Long lastExitedAt(long accountId, String groupJid) {
+        return column(accountId, groupJid, "last_exited_at", Long.class);
     }
 
     private Long deletedAt(long accountId, String groupJid) {

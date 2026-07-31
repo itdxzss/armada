@@ -11,6 +11,19 @@ import java.util.Map;
  */
 public interface CountryService {
 
+    /** 已加载国家主数据的只读手机号前缀解析器；解析过程不再访问数据库。 */
+    @FunctionalInterface
+    interface PhonePrefixResolver {
+
+        /**
+         * 按国际区号解析启用国家/地区。
+         *
+         * @param phone 手机号或 WhatsApp JID
+         * @return 匹配的国家选项；无法唯一匹配时返回 null
+         */
+        CountryOptionVO resolve(String phone);
+    }
+
     /**
      * 查询国家下拉选项。
      *
@@ -18,6 +31,24 @@ public interface CountryService {
      * @return 国家选项列表
      */
     CountryOptionsVO options(String scope);
+
+    /**
+     * 批量按手机号国际前缀匹配启用国家/地区。
+     *
+     * <p>结果以入参原值为 key；无法匹配的号码不放入结果。组合展示区号会拆成独立规则，
+     * 完全相同的共享区号按 {@code country_phone_prefix_mapping} 的唯一映射选择国家。</p>
+     *
+     * @param phones 手机号或 WhatsApp JID 集合
+     * @return 已匹配号码到国家选项的映射
+     */
+    Map<String, CountryOptionVO> resolveActiveOptionsByPhonePrefix(Collection<String> phones);
+
+    /**
+     * 一次加载启用国家和共享区号配置，创建可在流式结果处理中复用的解析器。
+     *
+     * @return 不再访问数据库的只读手机号前缀解析器
+     */
+    PhonePrefixResolver activePhonePrefixResolver();
 
     /**
      * 把前端提交的国家值解析为现有 IP 代理池 region 中文快照。

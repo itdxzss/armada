@@ -1,6 +1,7 @@
 package com.armada.platform.country.mapper;
 
 import com.armada.platform.country.model.entity.Country;
+import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
 import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -27,7 +28,24 @@ public interface CountryMapper {
     List<Country> selectIpSupported();
 
     /**
+     * 查询全部启用的真实国家/地区，不受 IP 管理可见范围限制。
+     *
+     * @return 按 sort_order、id 排序的国家列表
+     */
+    List<Country> selectEnabled();
+
+    /**
+     * 查询共享国际区号到唯一展示国家的配置。
+     *
+     * @return 规范化区号唯一映射
+     */
+    List<CountryPhonePrefixMapping> selectPhonePrefixMappings();
+
+    /**
      * 查询全部启用国家/地区,不受 IP 管理支持标记限制。
+     *
+     * <p>保留既有方法以兼容国家管理等现有调用；营销导出使用语义更明确的
+     * {@link #selectEnabled()}。</p>
      *
      * @return 按 sort_order,id 排序的启用国家列表
      */

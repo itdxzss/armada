@@ -1,15 +1,35 @@
 #!/usr/bin/env bash
 
 armada_find_jdk17() {
-  local candidate=""
+  local candidate javac_path
+  local candidates=()
+
   if command -v /usr/libexec/java_home >/dev/null 2>&1; then
     candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+    [ -z "${candidate}" ] || candidates+=("${candidate}")
   fi
-  if [ -z "${candidate}" ]; then
-    candidate="${JAVA17_HOME:-${JAVA_HOME:-}}"
-  fi
-  if [ -n "${candidate}" ] && [ -x "${candidate}/bin/javac" ]; then
-    printf '%s\n' "${candidate}"
+
+  candidates+=(
+    "${JAVA17_HOME:-}"
+    "${JAVA_HOME:-}"
+    /usr/lib/jvm/java-17-openjdk-*
+    /usr/lib/jvm/temurin-17-*
+    /usr/lib/jvm/jdk-17*
+  )
+  for candidate in "${candidates[@]}"; do
+    [ -n "${candidate}" ] || continue
+    [ -x "${candidate}/bin/javac" ] || continue
+    if "${candidate}/bin/javac" -version 2>&1 | grep -Eq '^javac 17([. ]|$)'; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+
+  # 兼容发行版只把 javac 注册到 PATH、但 JDK 目录名称不在上方列表中的情况。
+  javac_path="$(command -v javac 2>/dev/null || true)"
+  if [ -n "${javac_path}" ] && javac_path="$(readlink -f "${javac_path}")" \
+    && "${javac_path}" -version 2>&1 | grep -Eq '^javac 17([. ]|$)'; then
+    printf '%s\n' "${javac_path%/bin/javac}"
     return 0
   fi
   return 1

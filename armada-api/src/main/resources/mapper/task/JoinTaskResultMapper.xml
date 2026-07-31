@@ -50,6 +50,7 @@
       status = 'SUCCESS',
       reason = '',
       group_jid = #{groupJid},
+      joined_at = COALESCE(joined_at, #{updatedAt}),
       updated_at = #{updatedAt}
     WHERE id = #{id}
       AND status = 'PENDING'
@@ -181,7 +182,7 @@
   <update id="markTerminalSuccess">
     UPDATE join_task_result
     SET status = 'SUCCESS', dispatch_state = 'TERMINAL', reason = '', group_jid = #{groupJid},
-        next_execute_at = NULL, updated_at = #{now}
+        joined_at = COALESCE(joined_at, #{now}), next_execute_at = NULL, updated_at = #{now}
     WHERE id = #{id} AND status = 'PENDING' AND dispatch_state = 'SUBMITTED'
   </update>
 

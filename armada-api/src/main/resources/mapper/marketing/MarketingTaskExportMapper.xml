@@ -1,0 +1,760 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.export.mapper.MarketingTaskExportMapper">
+
+    <resultMap id="JobResultMap" type="com.armada.marketing.export.model.entity.MarketingTaskExportJob">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="exportMode" column="export_mode"/>
+        <result property="taskIdsJson" column="task_ids_json"/>
+        <result property="countryIso2sJson" column="country_iso2s_json"/>
+        <result property="requestHash" column="request_hash"/>
+        <result property="status" column="status"/>
+        <result property="snapshotAt" column="snapshot_at"/>
+        <result property="leaseUntil" column="lease_until"/>
+        <result property="claimToken" column="claim_token"/>
+        <result property="attemptCount" column="attempt_count"/>
+        <result property="storageKey" column="storage_key"/>
+        <result property="fileName" column="file_name"/>
+        <result property="contentType" column="content_type"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="summaryRowCount" column="summary_row_count"/>
+        <result property="detailRowCount" column="detail_row_count"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="finishedAt" column="finished_at"/>
+        <result property="expiresAt" column="expires_at"/>
+    </resultMap>
+
+    <sql id="JobColumns">
+        id, tenant_id, created_by, export_mode, task_ids_json, country_iso2s_json,
+        request_hash, status, snapshot_at, lease_until, claim_token, attempt_count, storage_key,
+        file_name, content_type, file_size, summary_row_count, detail_row_count,
+        error_message, created_at, updated_at, finished_at, expires_at
+    </sql>
+
+    <select id="selectTasksByIds" resultType="com.armada.marketing.model.entity.MarketingTask">
+        SELECT id,
+               tenant_id AS tenantId,
+               task_name AS taskName,
+               business_type AS businessType,
+               status,
+               started_at AS startedAt,
+               finished_at AS finishedAt,
+               created_at AS createdAt
+        FROM marketing_task
+        WHERE deleted_at IS NULL
+          AND id IN
+        <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+            #{taskId}
+        </foreach>
+        ORDER BY FIELD(id,
+        <foreach collection="taskIds" item="taskId" separator=",">
+            #{taskId}
+        </foreach>
+        )
+    </select>
+
+    <insert id="insertJob" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_task_export_job
+            (tenant_id, created_by, export_mode, task_ids_json, country_iso2s_json,
+             request_hash, status, snapshot_at, attempt_count, summary_row_count,
+             detail_row_count, created_at, updated_at)
+        VALUES
+            (#{tenantId}, #{createdBy}, #{exportMode}, #{taskIdsJson}, #{countryIso2sJson},
+             #{requestHash}, #{status}, #{snapshotAt}, #{attemptCount}, #{summaryRowCount},
+             #{detailRowCount}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectJobByIdForUser" resultMap="JobResultMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE id = #{id}
+          AND created_by = #{createdBy}
+    </select>
+
+    <select id="selectActiveJob" resultMap="JobResultMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE tenant_id = #{tenantId}
+          AND created_by = #{createdBy}
+          AND request_hash = #{requestHash}
+          AND status IN ('PENDING', 'PROCESSING')
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectProcessableJobs" resultMap="JobResultMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE attempt_count &lt; 3
+          AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markExhaustedJobs">
+        UPDATE marketing_task_export_job
+        SET status = 'FAILED',
+            error_message = #{errorMessage},
+            lease_until = NULL,
+            claim_token = NULL,
+            finished_at = #{now},
+            updated_at = #{now}
+        WHERE status = 'PROCESSING'
+          AND lease_until &lt; #{now}
+          AND attempt_count &gt;= 3
+    </update>
+
+    <select id="selectExpiredFiles" resultMap="JobResultMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE status = 'SUCCESS'
+          AND expires_at &lt;= #{now}
+          AND storage_key IS NOT NULL
+        ORDER BY expires_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="clearExpiredStorage">
+        UPDATE marketing_task_export_job
+        SET storage_key = NULL,
+            content_type = NULL,
+            file_size = NULL,
+            updated_at = #{now}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = 'SUCCESS'
+          AND expires_at &lt;= #{now}
+          AND storage_key = #{storageKey}
+    </update>
+
+    <update id="claimJob">
+        UPDATE marketing_task_export_job
+        SET status = 'PROCESSING',
+            lease_until = #{leaseUntil},
+            claim_token = #{claimToken},
+            attempt_count = attempt_count + 1,
+            error_message = NULL,
+            updated_at = #{now}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND attempt_count &lt; 3
+          AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
+    </update>
+
+    <update id="renewJobLease">
+        UPDATE marketing_task_export_job
+        SET lease_until = #{leaseUntil},
+            updated_at = #{now}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = 'PROCESSING'
+          AND claim_token = #{claimToken}
+    </update>
+
+    <update id="markJobSuccess">
+        UPDATE marketing_task_export_job
+        SET status = 'SUCCESS',
+            storage_key = #{storageKey},
+            file_name = #{fileName},
+            content_type = #{contentType},
+            file_size = #{fileSize},
+            summary_row_count = #{summaryRowCount},
+            detail_row_count = #{detailRowCount},
+            error_message = NULL,
+            lease_until = NULL,
+            claim_token = NULL,
+            finished_at = #{finishedAt},
+            expires_at = #{expiresAt},
+            updated_at = #{finishedAt}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = 'PROCESSING'
+          AND claim_token = #{claimToken}
+    </update>
+
+    <update id="markJobFailed">
+        UPDATE marketing_task_export_job
+        SET status = 'FAILED',
+            error_message = #{errorMessage},
+            lease_until = NULL,
+            claim_token = NULL,
+            finished_at = #{finishedAt},
+            updated_at = #{finishedAt}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = 'PROCESSING'
+          AND claim_token = #{claimToken}
+    </update>
+
+    <sql id="ExportGroupStatusCase">
+        CASE
+            WHEN UPPER(TRIM(COALESCE(protocol.reason_code, ''))) = 'CHAT_TERMINATED'
+                 OR UPPER(TRIM(COALESCE(protocol.group_status_reason, ''))) = 'CHAT_TERMINATED'
+                THEN '已解散'
+            WHEN UPPER(TRIM(COALESCE(protocol.reason_code, ''))) IN
+                     ('GROUP_BANNED', 'BANNED', 'CHAT_SUSPENDED')
+                 OR UPPER(TRIM(COALESCE(protocol.group_status_reason, ''))) = 'CHAT_SUSPENDED'
+                 OR UPPER(TRIM(COALESCE(protocol.group_status, ''))) IN ('BANNED', 'GROUP_BANNED')
+                THEN '已封禁'
+            WHEN UPPER(TRIM(COALESCE(protocol.reason_code, ''))) IN
+                     ('KICKED_OUT', 'ACCOUNT_NOT_PARTICIPANT')
+                 OR UPPER(TRIM(COALESCE(protocol.group_status_reason, ''))) = 'ACCOUNT_NOT_PARTICIPANT'
+                THEN '账号已被移出'
+            WHEN UPPER(TRIM(COALESCE(protocol.reason_code, ''))) IN
+                     ('NO_PERMISSION', 'ANNOUNCE_ONLY_NON_ADMIN')
+                 OR UPPER(TRIM(COALESCE(protocol.group_status_reason, ''))) = 'ANNOUNCE_ONLY_NON_ADMIN'
+                 OR UPPER(TRIM(COALESCE(protocol.group_status, ''))) = 'NO_PERMISSION'
+                THEN '无发言权限'
+            WHEN UPPER(TRIM(COALESCE(protocol.reason_code, ''))) = 'ACCOUNT_BANNED'
+                THEN '账号封禁'
+            WHEN protocol.projected_status = 1
+                 OR UPPER(TRIM(COALESCE(protocol.group_status, ''))) = 'NORMAL'
+                 OR UPPER(TRIM(COALESCE(protocol.group_status_reason, ''))) = 'GROUP_SEND_ALLOWED'
+                THEN '正常'
+            WHEN health.is_banned = 1 THEN '已封禁'
+            WHEN health.health_status = 1 THEN '正常'
+            WHEN health.health_status = 2 THEN '链接失效'
+            WHEN health.health_status = 3 THEN '不可用'
+            ELSE '未确认'
+        END
+    </sql>
+
+    <select id="selectCountryEntryRows"
+            resultType="com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow">
+        WITH successful_marketing_source AS (
+            SELECT a.id AS attempt_id,
+                   a.tenant_id,
+                   a.marketing_task_id,
+                   TRIM(a.group_jid) AS group_jid,
+                   a.group_link_id,
+                   NULLIF(TRIM(a.group_name), '') AS group_name,
+                   t.account_id AS sender_account_id,
+                   NULLIF(TRIM(t.account_phone), '') AS sender_phone,
+                   COALESCE(a.result_at, a.attempted_at, a.created_at) AS event_at
+            FROM marketing_task_send_attempt a
+            JOIN marketing_task_target t ON t.id = a.target_id
+                                        AND t.marketing_task_id = a.marketing_task_id
+                                        AND t.tenant_id = a.tenant_id
+            WHERE a.tenant_id = #{tenantId}
+              AND a.status = 1
+              AND a.group_jid IS NOT NULL
+              AND TRIM(a.group_jid) &lt;&gt; ''
+              AND ((a.result_at IS NOT NULL AND a.result_at &lt;= #{snapshotAt})
+                   OR (a.result_at IS NULL AND a.submitted_at IS NULL
+                       AND COALESCE(a.attempted_at, a.created_at) &lt;= #{snapshotAt}))
+              AND a.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+        ),
+        successful_marketing AS (
+            SELECT ranked.*
+            FROM (
+                SELECT source.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, marketing_task_id, group_jid
+                           ORDER BY event_at DESC, attempt_id DESC) AS sender_rank,
+                       COUNT(*) OVER (
+                           PARTITION BY tenant_id, marketing_task_id, group_jid) AS marketing_count
+                FROM successful_marketing_source source
+            ) ranked
+            WHERE ranked.sender_rank = 1
+        ),
+        group_status_source AS (
+            SELECT a.id AS attempt_id,
+                   a.tenant_id,
+                   a.marketing_task_id,
+                   COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) AS group_jid,
+                   a.status AS projected_status,
+                   a.reason_code,
+                   a.group_status,
+                   a.group_status_reason,
+                   a.round_no,
+                   a.attempt_no,
+                   CASE
+                       WHEN a.status = 1 THEN 1
+                       WHEN a.status = 2 AND (
+                           UPPER(TRIM(COALESCE(a.group_status, ''))) IN ('NORMAL', 'BANNED', 'NO_PERMISSION')
+                           OR UPPER(TRIM(COALESCE(a.reason_code, ''))) IN (
+                               'ACCOUNT_BANNED', 'KICKED_OUT', 'ACCOUNT_NOT_PARTICIPANT',
+                               'GROUP_BANNED', 'BANNED', 'CHAT_SUSPENDED', 'CHAT_TERMINATED',
+                               'NO_PERMISSION', 'ANNOUNCE_ONLY_NON_ADMIN')
+                           OR UPPER(TRIM(COALESCE(a.group_status_reason, ''))) IN (
+                               'GROUP_SEND_ALLOWED', 'ACCOUNT_NOT_PARTICIPANT',
+                               'CHAT_SUSPENDED', 'CHAT_TERMINATED', 'ANNOUNCE_ONLY_NON_ADMIN')) THEN 1
+                       ELSE 0
+                   END AS effective_group_status
+            FROM marketing_task_send_attempt a
+            JOIN marketing_task_target t ON t.id = a.target_id
+                                        AND t.marketing_task_id = a.marketing_task_id
+                                        AND t.tenant_id = a.tenant_id
+            WHERE a.tenant_id = #{tenantId}
+              AND a.status IN (1, 2)
+              AND COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) IS NOT NULL
+              AND ((a.result_at IS NOT NULL AND a.result_at &lt;= #{snapshotAt})
+                   OR (a.result_at IS NULL AND a.submitted_at IS NULL
+                       AND COALESCE(a.attempted_at, a.created_at) &lt;= #{snapshotAt}))
+              AND a.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+        ),
+        latest_group_status AS (
+            SELECT ranked.*
+            FROM (
+                SELECT source.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, marketing_task_id, group_jid
+                           ORDER BY effective_group_status DESC,
+                                    round_no DESC, attempt_no DESC, attempt_id DESC) AS status_rank
+                FROM group_status_source source
+            ) ranked
+            WHERE ranked.status_rank = 1
+        )
+        SELECT MIN(COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at)) AS joinedAt,
+               mt.id AS taskId,
+               mt.task_name AS taskName,
+               REGEXP_REPLACE(
+                   COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
+                   '[^0-9]', '') AS actualPhone,
+               COALESCE(sm.group_name, NULLIF(TRIM(preview.wa_subject), ''), sm.group_jid) AS groupName,
+               group_link_data.link_url AS groupLink,
+               <include refid="ExportGroupStatusCase"/> AS groupStatus,
+               CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
+                        THEN '仅管理员可发言（发送账号可发言）'
+                    WHEN preview.announce_only = 1 THEN '无发言权限'
+                    WHEN preview.announce_only = 0 THEN '所有成员可发言'
+                    ELSE '未确认' END AS speechPermission,
+               sm.sender_phone AS senderPhone,
+               sm.marketing_count AS marketingCount
+        FROM successful_marketing sm
+        JOIN marketing_task mt ON mt.id = sm.marketing_task_id
+                              AND mt.tenant_id = sm.tenant_id
+                              AND mt.business_type = 1
+                              AND mt.deleted_at IS NULL
+        JOIN join_task_result jtr ON jtr.group_jid = sm.group_jid
+                                 AND jtr.tenant_id = sm.tenant_id
+                                 AND jtr.status = 'SUCCESS'
+                                 AND COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}
+        LEFT JOIN account joined_account ON joined_account.id = jtr.account_id
+                                        AND joined_account.tenant_id = jtr.tenant_id
+                                        AND joined_account.deleted_at IS NULL
+        LEFT JOIN group_link_preview preview ON preview.group_link_id = sm.group_link_id
+                                            AND preview.tenant_id = sm.tenant_id
+                                            AND (preview.group_jid IS NULL OR preview.group_jid = sm.group_jid)
+        LEFT JOIN group_link_health health ON health.group_link_id = sm.group_link_id
+                                          AND health.tenant_id = sm.tenant_id
+        LEFT JOIN group_link group_link_data ON group_link_data.id = sm.group_link_id
+                                             AND group_link_data.tenant_id = sm.tenant_id
+        LEFT JOIN latest_group_status protocol ON protocol.tenant_id = sm.tenant_id
+                                              AND protocol.marketing_task_id = sm.marketing_task_id
+                                              AND protocol.group_jid = sm.group_jid
+        LEFT JOIN account_group_membership membership
+               ON membership.tenant_id = sm.tenant_id
+              AND membership.account_id = sm.sender_account_id
+              AND membership.group_jid = sm.group_jid
+              AND membership.deleted_at IS NULL
+        GROUP BY mt.id, mt.task_name,
+                 REGEXP_REPLACE(
+                     COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
+                     '[^0-9]', ''),
+                 sm.group_jid, sm.group_name, preview.wa_subject, group_link_data.link_url,
+                 health.is_banned, health.health_status,
+                 protocol.projected_status, protocol.reason_code,
+                 protocol.group_status, protocol.group_status_reason,
+                 preview.announce_only, membership.is_admin,
+                 sm.sender_phone, sm.marketing_count
+        HAVING actualPhone IS NOT NULL AND actualPhone &lt;&gt; ''
+        ORDER BY mt.id ASC, sm.group_jid ASC, actualPhone ASC
+    </select>
+
+    <sql id="ExportGroupCtes">
+        attempt_source AS (
+            SELECT a.id AS attempt_id,
+                   a.tenant_id,
+                   a.marketing_task_id,
+                   a.target_id,
+                   t.account_id,
+                   NULLIF(TRIM(t.account_phone), '') AS account_phone,
+                   COALESCE(a.group_link_id, t.group_link_id) AS group_link_id,
+                   COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) AS group_jid,
+                   COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(t.group_name), '')) AS group_name,
+                   COALESCE(
+                       NULLIF(TRIM(a.group_jid), ''),
+                       NULLIF(TRIM(t.group_jid), ''),
+                       CONCAT('link:', COALESCE(a.group_link_id, t.group_link_id)),
+                       CONCAT('target:', t.id)) AS group_key,
+                   a.status AS raw_status,
+                   a.reason_code,
+                   a.reason_message,
+                   a.group_status,
+                   a.group_status_reason,
+                   a.round_no,
+                   a.attempt_no,
+                   a.attempted_at,
+                   a.submitted_at,
+                   a.result_at,
+                   a.created_at AS attempt_created_at,
+                   CASE WHEN a.status = 3
+                        THEN COALESCE(a.attempted_at, a.created_at)
+                        ELSE COALESCE(a.submitted_at, a.attempted_at, a.created_at)
+                   END AS entered_at
+            FROM marketing_task_send_attempt a
+            JOIN marketing_task_target t ON t.id = a.target_id
+                                        AND t.marketing_task_id = a.marketing_task_id
+                                        AND t.tenant_id = a.tenant_id
+            WHERE a.tenant_id = #{tenantId}
+              AND (CASE WHEN a.status = 3
+                        THEN COALESCE(a.attempted_at, a.created_at)
+                        ELSE COALESCE(a.submitted_at, a.attempted_at, a.created_at)
+                   END) &lt;= #{snapshotAt}
+              AND a.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+        ),
+        projected_attempts AS (
+            SELECT source.*,
+                   CASE
+                       WHEN raw_status IN (1, 2) AND result_at IS NOT NULL
+                            AND result_at &lt;= #{snapshotAt} THEN raw_status
+                       WHEN raw_status = 3 THEN 3
+                       WHEN raw_status IN (1, 2) AND submitted_at &lt;= #{snapshotAt}
+                            AND (result_at IS NULL OR result_at &gt; #{snapshotAt}) THEN 0
+                       WHEN raw_status IN (1, 2) AND result_at IS NULL AND submitted_at IS NULL
+                            THEN raw_status
+                       ELSE 0
+                   END AS projected_status,
+                   CASE
+                       WHEN result_at IS NOT NULL AND result_at &lt;= #{snapshotAt} THEN result_at
+                       WHEN raw_status = 3 THEN COALESCE(attempted_at, attempt_created_at)
+                       ELSE entered_at
+                   END AS event_at
+            FROM attempt_source source
+        ),
+        attempt_facts AS (
+            SELECT projected.*,
+                   CASE
+                       WHEN projected_status = 1 THEN 1
+                       WHEN projected_status = 2 AND (
+                           UPPER(TRIM(COALESCE(group_status, ''))) IN ('NORMAL', 'BANNED', 'NO_PERMISSION')
+                           OR UPPER(TRIM(COALESCE(reason_code, ''))) IN (
+                               'ACCOUNT_BANNED', 'KICKED_OUT', 'ACCOUNT_NOT_PARTICIPANT',
+                               'GROUP_BANNED', 'BANNED', 'CHAT_SUSPENDED', 'CHAT_TERMINATED',
+                               'NO_PERMISSION', 'ANNOUNCE_ONLY_NON_ADMIN')
+                           OR UPPER(TRIM(COALESCE(group_status_reason, ''))) IN (
+                               'GROUP_SEND_ALLOWED', 'ACCOUNT_NOT_PARTICIPANT',
+                               'CHAT_SUSPENDED', 'CHAT_TERMINATED', 'ANNOUNCE_ONLY_NON_ADMIN')) THEN 1
+                       ELSE 0
+                   END AS effective_group_status
+            FROM projected_attempts projected
+        ),
+        fixed_target_groups AS (
+            SELECT t.tenant_id,
+                   t.marketing_task_id,
+                   COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''),
+                            CONCAT('link:', t.group_link_id), CONCAT('target:', t.id)) AS group_key,
+                   MIN(t.created_at) AS joined_task_at,
+                   MAX(t.group_link_id) AS group_link_id,
+                   MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''))) AS group_jid,
+                   MAX(COALESCE(NULLIF(TRIM(t.group_name), ''), NULLIF(TRIM(g.group_name), ''),
+                                NULLIF(TRIM(p.wa_subject), ''))) AS group_name,
+                   CAST(SUBSTRING_INDEX(GROUP_CONCAT(
+                       t.account_id ORDER BY t.created_at DESC, t.id DESC SEPARATOR '\n'), '\n', 1)
+                       AS UNSIGNED) AS sender_account_id,
+                   SUBSTRING_INDEX(GROUP_CONCAT(
+                       t.account_phone ORDER BY t.created_at DESC, t.id DESC SEPARATOR '\n'), '\n', 1)
+                       AS sender_phone
+            FROM marketing_task_target t
+            LEFT JOIN group_link g ON g.id = t.group_link_id AND g.tenant_id = t.tenant_id
+            LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
+                                          AND p.tenant_id = t.tenant_id
+            WHERE t.tenant_id = #{tenantId}
+              AND COALESCE(t.target_scope, 1) = 1
+              AND t.created_at &lt;= #{snapshotAt}
+              AND t.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+            GROUP BY t.tenant_id, t.marketing_task_id, group_key
+        ),
+        attempt_dimensions AS (
+            SELECT tenant_id,
+                   marketing_task_id,
+                   group_key,
+                   MIN(attempt_created_at) AS joined_task_at,
+                   SUM(CASE WHEN projected_status IN (0, 1, 2) THEN 1 ELSE 0 END) AS planned_count,
+                   SUM(CASE WHEN projected_status = 1 THEN 1 ELSE 0 END) AS success_count,
+                   SUM(CASE WHEN projected_status = 2 THEN 1 ELSE 0 END) AS failed_count,
+                   SUM(CASE WHEN projected_status = 0 THEN 1 ELSE 0 END) AS unknown_count,
+                   MIN(CASE WHEN projected_status &lt;&gt; 3 AND attempted_at &lt;= #{snapshotAt}
+                            THEN attempted_at END) AS first_sent_at,
+                   MAX(CASE WHEN projected_status &lt;&gt; 3 AND attempted_at &lt;= #{snapshotAt}
+                            THEN attempted_at END) AS last_sent_at
+            FROM attempt_facts
+            GROUP BY tenant_id, marketing_task_id, group_key
+        ),
+        group_dimensions AS (
+            SELECT tenant_id, marketing_task_id, group_key FROM fixed_target_groups
+            UNION
+            SELECT tenant_id, marketing_task_id, group_key FROM attempt_dimensions
+        ),
+        selected_group_jids AS (
+            SELECT DISTINCT tenant_id, group_jid
+            FROM fixed_target_groups
+            WHERE group_jid IS NOT NULL AND TRIM(group_jid) &lt;&gt; ''
+            UNION
+            SELECT DISTINCT tenant_id, group_jid
+            FROM attempt_source
+            WHERE group_jid IS NOT NULL AND TRIM(group_jid) &lt;&gt; ''
+        ),
+        latest_any AS (
+            SELECT ranked.*
+            FROM (
+                SELECT af.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, marketing_task_id, group_key
+                           ORDER BY round_no DESC, attempt_no DESC, attempt_id DESC) AS row_rank
+                FROM attempt_facts af
+            ) ranked
+            WHERE ranked.row_rank = 1
+        ),
+        latest_protocol AS (
+            SELECT ranked.*
+            FROM (
+                SELECT af.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, marketing_task_id, group_key
+                           ORDER BY effective_group_status DESC,
+                                    round_no DESC, attempt_no DESC, attempt_id DESC) AS protocol_rank
+                FROM attempt_facts af
+                WHERE projected_status IN (1, 2)
+            ) ranked
+            WHERE ranked.protocol_rank = 1
+        ),
+        latest_ended AS (
+            SELECT ranked.*
+            FROM (
+                SELECT af.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY tenant_id, marketing_task_id, group_key
+                           ORDER BY round_no DESC, attempt_no DESC, attempt_id DESC) AS ended_rank
+                FROM attempt_facts af
+                WHERE projected_status IN (1, 2, 3)
+            ) ranked
+            WHERE ranked.ended_rank = 1
+        ),
+        latest_failure_round AS (
+            SELECT tenant_id, marketing_task_id, group_key, MAX(round_no) AS round_no
+            FROM attempt_facts
+            WHERE projected_status = 2
+            GROUP BY tenant_id, marketing_task_id, group_key
+        ),
+        failure_reasons AS (
+            SELECT af.tenant_id,
+                   af.marketing_task_id,
+                   af.group_key,
+                   GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(af.reason_message), ''),
+                                                  NULLIF(TRIM(af.reason_code), ''), '未知原因')
+                                ORDER BY af.attempt_id ASC SEPARATOR '；') AS failure_reasons
+            FROM attempt_facts af
+            JOIN latest_failure_round latest
+              ON latest.tenant_id = af.tenant_id
+             AND latest.marketing_task_id = af.marketing_task_id
+             AND latest.group_key = af.group_key
+             AND latest.round_no = af.round_no
+            WHERE af.projected_status = 2
+            GROUP BY af.tenant_id, af.marketing_task_id, af.group_key
+        ),
+        joined_counts AS (
+            SELECT selected.tenant_id,
+                   jtr.group_jid,
+                   COUNT(DISTINCT NULLIF(REGEXP_REPLACE(
+                       COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
+                       '[^0-9]', ''), '')) AS joined_count
+            FROM selected_group_jids selected
+            JOIN join_task_result jtr ON jtr.tenant_id = selected.tenant_id
+                                     AND jtr.group_jid = selected.group_jid
+            LEFT JOIN account joined_account ON joined_account.id = jtr.account_id
+                                            AND joined_account.tenant_id = jtr.tenant_id
+            WHERE jtr.status = 'SUCCESS'
+              AND COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}
+            GROUP BY selected.tenant_id, jtr.group_jid
+        ),
+        group_rows AS (
+            SELECT COALESCE(fixed.joined_task_at, attempts.joined_task_at) AS joinedTaskAt,
+                   mt.id AS taskId,
+                   mt.task_name AS taskName,
+                   COALESCE(NULLIF(TRIM(latest.group_name), ''), NULLIF(TRIM(fixed.group_name), ''),
+                            NULLIF(TRIM(preview.wa_subject), ''),
+                            COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName,
+                   COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
+                   group_link.link_url AS groupLink,
+                   d.group_key AS groupKey,
+                   <include refid="ExportGroupStatusCase"/> AS groupStatus,
+                   CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
+                            THEN '仅管理员可发言（发送账号可发言）'
+                        WHEN preview.announce_only = 1 THEN '无发言权限'
+                        WHEN preview.announce_only = 0 THEN '所有成员可发言'
+                        ELSE '未确认' END AS speechPermission,
+                   COALESCE(health.current_count, preview.member_size) AS groupMemberCount,
+                   COALESCE(joined.joined_count, 0) AS joinedPhoneCount,
+                   COALESCE(attempts.planned_count, 0) AS plannedCount,
+                   COALESCE(attempts.success_count, 0) AS successCount,
+                   COALESCE(attempts.failed_count, 0) AS failedCount,
+                   COALESCE(attempts.unknown_count, 0) AS unknownCount,
+                   COALESCE(latest.account_phone, fixed.sender_phone) AS senderPhone,
+                   CASE
+                       WHEN account_state.mute_status = 1 THEN '禁言6小时'
+                       WHEN account_state.mute_status = 2 THEN '禁言24小时'
+                       WHEN account_state.account_state = 1 THEN '新增'
+                       WHEN account_state.account_state = 2 THEN '正常'
+                       WHEN account_state.account_state = 3 THEN '封禁'
+                       WHEN account_state.account_state = 4 THEN '导出'
+                       WHEN account_state.account_state = 5 THEN '解绑'
+                       WHEN account_state.account_state = 6 THEN '被抢登'
+                       WHEN account_state.account_state = 7 THEN '抢登中'
+                       WHEN account_state.account_state = 8 THEN '账号受限'
+                       ELSE '—'
+                   END AS accountStatus,
+                   attempts.first_sent_at AS firstSentAt,
+                   attempts.last_sent_at AS lastSentAt,
+                   CASE
+                       WHEN COALESCE(attempts.planned_count, 0) = 0 THEN '未发送'
+                       WHEN COALESCE(attempts.unknown_count, 0) &gt; 0 AND mt.status = 2 THEN '发送中'
+                       WHEN COALESCE(attempts.success_count, 0) &gt; 0
+                            AND COALESCE(attempts.failed_count, 0) = 0
+                            AND COALESCE(attempts.unknown_count, 0) = 0 THEN '成功'
+                       WHEN COALESCE(attempts.success_count, 0) = 0
+                            AND COALESCE(attempts.failed_count, 0) &gt; 0
+                            AND COALESCE(attempts.unknown_count, 0) = 0 THEN '失败'
+                       WHEN COALESCE(attempts.success_count, 0) &gt; 0 THEN '部分成功'
+                       WHEN COALESCE(attempts.unknown_count, 0) &gt; 0 THEN '结果未知'
+                       ELSE '未发送'
+                   END AS sendStatus,
+                   COALESCE(failures.failure_reasons,
+                       CASE WHEN ended.projected_status = 3
+                            THEN COALESCE(NULLIF(TRIM(ended.reason_message), ''),
+                                          NULLIF(TRIM(ended.reason_code), ''), '本轮已跳过') END) AS failureReason,
+                   group_link.remark AS remark
+            FROM group_dimensions d
+            JOIN marketing_task mt ON mt.id = d.marketing_task_id
+                                  AND mt.tenant_id = d.tenant_id
+                                  AND mt.business_type = 1
+                                  AND mt.deleted_at IS NULL
+            LEFT JOIN fixed_target_groups fixed
+              ON fixed.tenant_id = d.tenant_id
+             AND fixed.marketing_task_id = d.marketing_task_id
+             AND fixed.group_key = d.group_key
+            LEFT JOIN attempt_dimensions attempts
+              ON attempts.tenant_id = d.tenant_id
+             AND attempts.marketing_task_id = d.marketing_task_id
+             AND attempts.group_key = d.group_key
+            LEFT JOIN latest_any latest
+              ON latest.tenant_id = d.tenant_id
+             AND latest.marketing_task_id = d.marketing_task_id
+             AND latest.group_key = d.group_key
+            LEFT JOIN latest_protocol protocol
+              ON protocol.tenant_id = d.tenant_id
+             AND protocol.marketing_task_id = d.marketing_task_id
+             AND protocol.group_key = d.group_key
+            LEFT JOIN latest_ended ended
+              ON ended.tenant_id = d.tenant_id
+             AND ended.marketing_task_id = d.marketing_task_id
+             AND ended.group_key = d.group_key
+            LEFT JOIN failure_reasons failures
+              ON failures.tenant_id = d.tenant_id
+             AND failures.marketing_task_id = d.marketing_task_id
+             AND failures.group_key = d.group_key
+            LEFT JOIN group_link_preview preview
+              ON preview.tenant_id = d.tenant_id
+             AND preview.group_link_id = COALESCE(latest.group_link_id, fixed.group_link_id)
+            LEFT JOIN group_link_health health
+              ON health.tenant_id = d.tenant_id
+             AND health.group_link_id = COALESCE(latest.group_link_id, fixed.group_link_id)
+            LEFT JOIN group_link
+              ON group_link.tenant_id = d.tenant_id
+             AND group_link.id = COALESCE(latest.group_link_id, fixed.group_link_id)
+            LEFT JOIN joined_counts joined
+              ON joined.tenant_id = d.tenant_id
+             AND joined.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+            LEFT JOIN account_group_membership membership
+              ON membership.tenant_id = d.tenant_id
+             AND membership.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
+             AND membership.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+             AND membership.deleted_at IS NULL
+            LEFT JOIN account_state account_state
+              ON account_state.tenant_id = d.tenant_id
+             AND account_state.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
+        )
+    </sql>
+
+    <select id="selectGroupRows"
+            resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow">
+        WITH <include refid="ExportGroupCtes"/>
+        SELECT joinedTaskAt, taskId, taskName, groupName, groupLink, groupStatus, speechPermission,
+               groupMemberCount, joinedPhoneCount, plannedCount, successCount, failedCount, unknownCount,
+               senderPhone, accountStatus, firstSentAt, lastSentAt, sendStatus, failureReason, remark
+        FROM group_rows
+        ORDER BY taskId ASC, groupKey ASC
+    </select>
+
+    <select id="selectGroupMemberRows"
+            resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow">
+        WITH <include refid="ExportGroupCtes"/>
+        SELECT group_data.taskId,
+               group_data.taskName,
+               group_data.groupName,
+               group_data.groupLink,
+               group_data.groupStatus,
+               group_data.groupMemberCount,
+               member_account.ws_phone AS memberPhone,
+               CASE WHEN membership.is_admin = 1 THEN '管理员'
+                    WHEN membership.is_admin = 0 THEN '群成员'
+                    ELSE '未知' END AS role,
+               NULL AS countryName,
+               CASE WHEN membership.membership_status = 1 THEN '是'
+                    WHEN membership.membership_status IN (3, 4, 5) THEN '否'
+                    ELSE '未知' END AS inGroup,
+               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
+                          AND membership.last_exit_type = 3 THEN '被移出群'
+                    WHEN membership.last_exited_at &lt;= #{snapshotAt}
+                          AND membership.last_exit_type = 4 THEN '主动退群'
+                    ELSE '' END AS exitType,
+               CASE WHEN membership.joined_at &lt;= #{snapshotAt}
+                    THEN membership.joined_at END AS joinedAt,
+               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
+                    THEN membership.last_exited_at END AS exitedAt,
+               CASE WHEN EXISTS (
+                   SELECT 1
+                   FROM join_task_result member_join
+                   WHERE member_join.tenant_id = #{tenantId}
+                     AND member_join.group_jid = group_data.groupJid
+                     AND member_join.account_id = membership.account_id
+                     AND member_join.status = 'SUCCESS'
+                     AND COALESCE(member_join.joined_at,
+                                  member_join.updated_at,
+                                  member_join.created_at) BETWEEN
+                         COALESCE(group_data.joinedTaskAt, 0) AND #{snapshotAt}
+               ) THEN '本任务成功进群'
+                 ELSE '原群成员' END AS taskJoinStatus
+        FROM group_rows group_data
+        JOIN account_group_membership membership
+          ON membership.tenant_id = #{tenantId}
+         AND membership.group_jid = group_data.groupJid
+         AND membership.deleted_at IS NULL
+         AND membership.created_at &lt;= #{snapshotAt}
+        JOIN account member_account
+          ON member_account.tenant_id = membership.tenant_id
+         AND member_account.id = membership.account_id
+         AND member_account.deleted_at IS NULL
+        WHERE group_data.groupJid IS NOT NULL
+          AND TRIM(group_data.groupJid) &lt;&gt; ''
+        ORDER BY group_data.taskId ASC, group_data.groupKey ASC, membership.account_id ASC
+    </select>
+</mapper>

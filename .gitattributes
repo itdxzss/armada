@@ -1,5 +1,9 @@
+# 属性文件自身固定为 LF，避免 Windows Git 反复转换规则文件。
+.gitattributes text eol=lf
+
 # 强制源码按文本处理:防 UTF-8 中文注释偶发被 git 误判为 binary,保证 diff/代码审查可读。
 *.java text
 *.xml  text
 *.sql  text
 *.sh   text eol=lf
+*.conf text eol=lf

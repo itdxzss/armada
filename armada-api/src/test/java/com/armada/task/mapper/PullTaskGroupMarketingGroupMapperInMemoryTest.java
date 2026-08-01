@@ -541,6 +541,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                 MybatisPlusInterceptor mybatisPlusInterceptor) throws Exception {
             MybatisConfiguration configuration = new MybatisConfiguration();
             configuration.setMapUnderscoreToCamelCase(true);
+            configuration.setDatabaseId("h2");
 
             MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
             factoryBean.setDataSource(dataSource);

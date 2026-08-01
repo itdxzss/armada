@@ -2,6 +2,43 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper">
 
+  <!--
+    MySQL 先展开同租户 baseline JSON 并按 JID 去重，避免每条当前群关系扫描全部 JSON。
+    H2 不支持 JSON_TABLE，真实 Mapper 测试保留等价的 JSON_CONTAINS 集合构造。
+  -->
+  <sql id="historicalBaselineGroups">
+    <choose>
+      <when test="_databaseId == 'h2'">
+        SELECT b0.tenant_id,
+               baseline_relation.group_jid
+        FROM account_group_baseline b0
+        INNER JOIN (
+          SELECT DISTINCT tenant_id, group_jid
+          FROM account_group_membership
+          WHERE tenant_id = #{tenantId}
+        ) baseline_relation
+          ON baseline_relation.tenant_id = b0.tenant_id
+         AND JSON_CONTAINS(
+               b0.baseline_group_jids,
+               JSON_QUOTE(baseline_relation.group_jid)
+             ) = 1
+        WHERE b0.tenant_id = #{tenantId}
+        GROUP BY b0.tenant_id, baseline_relation.group_jid
+      </when>
+      <otherwise>
+        SELECT b0.tenant_id,
+               MIN(baseline_group.group_jid) AS group_jid
+        FROM account_group_baseline b0
+        INNER JOIN JSON_TABLE(
+          b0.baseline_group_jids,
+          '$[*]' COLUMNS (group_jid VARCHAR(512) PATH '$')
+        ) baseline_group
+        WHERE b0.tenant_id = #{tenantId}
+        GROUP BY b0.tenant_id, BINARY baseline_group.group_jid
+      </otherwise>
+    </choose>
+  </sql>
+
   <sql id="candidateFacts">
     SELECT MAX(COALESCE(m.group_link_id, p.group_link_id)) AS groupLinkId,
            m.group_jid AS groupJid,
@@ -18,7 +55,7 @@
            MAX(h.health_status) AS healthStatus,
            MAX(h.is_banned) AS banned,
            MAX(NULLIF(TRIM(h.last_health_error), '')) AS healthError,
-           MAX(CASE WHEN b.id IS NOT NULL THEN 1 ELSE 0 END) AS historical,
+           MAX(CASE WHEN history.group_jid IS NOT NULL THEN 1 ELSE 0 END) AS historical,
            MAX(CASE WHEN jr.id IS NOT NULL THEN 1 ELSE 0 END) AS selfCollected,
            COUNT(DISTINCT CASE
              WHEN m.is_admin = 1
@@ -69,8 +106,18 @@
     LEFT JOIN group_link_health h
       ON h.tenant_id = m.tenant_id
      AND h.group_link_id = COALESCE(m.group_link_id, p.group_link_id)
-    LEFT JOIN account_group_baseline b
-      ON JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)) = 1
+    LEFT JOIN (
+      <include refid="historicalBaselineGroups"/>
+    ) history
+      ON history.tenant_id = m.tenant_id
+    <choose>
+      <when test="_databaseId == 'h2'">
+       AND history.group_jid = m.group_jid
+      </when>
+      <otherwise>
+       AND BINARY history.group_jid = BINARY m.group_jid
+      </otherwise>
+    </choose>
     LEFT JOIN (
       SELECT ranked.tenant_id,
              ranked.group_jid,
@@ -96,7 +143,8 @@
           ON t.tenant_id = r.tenant_id
          AND t.id = r.join_task_id
          AND t.deleted_at IS NULL
-        WHERE r.status = 'SUCCESS'
+        WHERE r.tenant_id = #{tenantId}
+          AND r.status = 'SUCCESS'
           AND r.is_admin = 1
       ) ranked
       WHERE ranked.source_rank = 1
@@ -107,9 +155,10 @@
       ON o.tenant_id = m.tenant_id
      AND o.group_jid = m.group_jid
      AND o.released_at IS NULL
-    WHERE m.deleted_at IS NULL
+    WHERE m.tenant_id = #{tenantId}
+      AND m.deleted_at IS NULL
       AND m.membership_status = 1
-      AND (b.id IS NOT NULL OR jr.id IS NOT NULL)
+      AND (history.group_jid IS NOT NULL OR jr.id IS NOT NULL)
     <if test="_parameter.containsKey('query') and query != null
               and (query.managerPhone != null or query.accountGroupId != null)">
       AND EXISTS (
@@ -126,7 +175,8 @@
         LEFT JOIN group_link_preview fp
           ON fp.tenant_id = fm.tenant_id
          AND fp.group_jid = fm.group_jid
-        WHERE fm.group_jid = m.group_jid
+        WHERE fm.tenant_id = m.tenant_id
+          AND fm.group_jid = m.group_jid
           AND fm.deleted_at IS NULL
           AND fm.membership_status = 1
           AND (fm.is_admin = 1
@@ -171,13 +221,14 @@
     </if>
   </sql>
 
-  <select id="countPage" resultType="long">
+  <select id="countPageByTenant" resultType="long">
     SELECT COUNT(*)
     FROM (<include refid="candidateFacts"/>) candidate
     WHERE <include refid="candidateFilter"/>
   </select>
 
-  <select id="selectPage" resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow">
+  <select id="selectPageByTenant"
+          resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow">
     SELECT candidate.*
     FROM (<include refid="candidateFacts"/>) candidate
     WHERE <include refid="candidateFilter"/>
@@ -185,7 +236,8 @@
     LIMIT #{limit} OFFSET #{offset}
   </select>
 
-  <select id="selectByGroupJids" resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow">
+  <select id="selectByGroupJidsByTenant"
+          resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow">
     SELECT candidate.*
     FROM (<include refid="candidateFacts"/>) candidate
     WHERE candidate.groupJid IN

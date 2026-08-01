@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper">
+
+  <sql id="candidateFacts">
+    SELECT MAX(COALESCE(m.group_link_id, p.group_link_id)) AS groupLinkId,
+           m.group_jid AS groupJid,
+           COALESCE(MAX(NULLIF(TRIM(p.wa_subject), '')),
+                    MAX(NULLIF(TRIM(g.group_name), ''))) AS groupName,
+           MAX(NULLIF(TRIM(p.owner_phone), '')) AS ownerPhone,
+           MAX(p.group_created_at) AS groupCreatedAt,
+           COALESCE(MAX(h.current_count), MAX(p.member_size)) AS memberSize,
+           MAX(p.announce_only) AS announceOnly,
+           MAX(p.avatar_url) AS avatarUrl,
+           GREATEST(COALESCE(MAX(p.last_preview_at), 0),
+                    COALESCE(MAX(h.last_check_at), 0),
+                    COALESCE(MAX(m.last_seen_at), 0)) AS lastSyncedAt,
+           MAX(h.health_status) AS healthStatus,
+           MAX(h.is_banned) AS banned,
+           MAX(NULLIF(TRIM(h.last_health_error), '')) AS healthError,
+           MAX(CASE WHEN b.id IS NOT NULL THEN 1 ELSE 0 END) AS historical,
+           MAX(CASE WHEN jr.id IS NOT NULL THEN 1 ELSE 0 END) AS selfCollected,
+           COUNT(DISTINCT CASE
+             WHEN m.is_admin = 1
+               OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                  = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+             THEN a.id
+           END) AS adminRelationCount,
+           COUNT(DISTINCT CASE
+             WHEN s.account_state = 2
+              AND (m.is_admin = 1
+                OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                   = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', ''))
+             THEN a.id
+           END) AS eligibleAccountCount,
+           COUNT(DISTINCT CASE
+             WHEN s.account_state = 2 AND s.login_state = 1
+              AND (m.is_admin = 1
+                OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                   = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', ''))
+             THEN a.id
+           END) AS onlineAccountCount,
+           MAX(jr.join_task_id) AS sourceJoinTaskId,
+           MAX(jr.join_task_name) AS sourceJoinTaskName,
+           MAX(jr.joined_at) AS sourceJoinedAt,
+           MAX(jr.promoted_at) AS sourcePromotedAt,
+           MAX(o.occupancy_type) AS occupancyType,
+           MAX(o.reservation_token) AS reservationToken,
+           MAX(o.task_id) AS occupiedTaskId,
+           MAX(o.task_name_snapshot) AS occupiedTaskName,
+           MAX(o.created_by) AS occupiedBy,
+           MAX(o.last_validated_at) AS lastValidatedAt,
+           MAX(o.last_validation_reason) AS lastValidationReason
+    FROM account_group_membership m
+    INNER JOIN account a
+      ON a.tenant_id = m.tenant_id
+     AND a.id = m.account_id
+     AND a.deleted_at IS NULL
+    LEFT JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = m.tenant_id
+     AND p.group_jid = m.group_jid
+    LEFT JOIN group_link g
+      ON g.tenant_id = m.tenant_id
+     AND g.id = COALESCE(m.group_link_id, p.group_link_id)
+     AND g.deleted_at IS NULL
+    LEFT JOIN group_link_health h
+      ON h.tenant_id = m.tenant_id
+     AND h.group_link_id = COALESCE(m.group_link_id, p.group_link_id)
+    LEFT JOIN account_group_baseline b
+      ON JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)) = 1
+    LEFT JOIN (
+      SELECT ranked.tenant_id,
+             ranked.group_jid,
+             ranked.join_task_id,
+             ranked.join_task_name,
+             ranked.joined_at,
+             ranked.promoted_at,
+             ranked.id
+      FROM (
+        SELECT r.tenant_id,
+               r.group_jid,
+               r.join_task_id,
+               t.name AS join_task_name,
+               r.joined_at,
+               r.promoted_at,
+               r.id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY r.tenant_id, r.group_jid
+                 ORDER BY COALESCE(r.promoted_at, r.joined_at), r.id
+               ) AS source_rank
+        FROM join_task_result r
+        INNER JOIN join_task t
+          ON t.tenant_id = r.tenant_id
+         AND t.id = r.join_task_id
+         AND t.deleted_at IS NULL
+        WHERE r.status = 'SUCCESS'
+          AND r.is_admin = 1
+      ) ranked
+      WHERE ranked.source_rank = 1
+    ) jr
+      ON jr.tenant_id = m.tenant_id
+     AND jr.group_jid = m.group_jid
+    LEFT JOIN pull_task_group_marketing_group_occupancy o
+      ON o.tenant_id = m.tenant_id
+     AND o.group_jid = m.group_jid
+     AND o.released_at IS NULL
+    WHERE m.deleted_at IS NULL
+      AND m.membership_status = 1
+      AND (b.id IS NOT NULL OR jr.id IS NOT NULL)
+    <if test="_parameter.containsKey('query') and query != null
+              and (query.managerPhone != null or query.accountGroupId != null)">
+      AND EXISTS (
+        SELECT 1
+        FROM account_group_membership fm
+        INNER JOIN account fa
+          ON fa.tenant_id = fm.tenant_id
+         AND fa.id = fm.account_id
+         AND fa.deleted_at IS NULL
+        INNER JOIN account_state fs
+          ON fs.tenant_id = fa.tenant_id
+         AND fs.account_id = fa.id
+         AND fs.account_state = 2
+        LEFT JOIN group_link_preview fp
+          ON fp.tenant_id = fm.tenant_id
+         AND fp.group_jid = fm.group_jid
+        WHERE fm.group_jid = m.group_jid
+          AND fm.deleted_at IS NULL
+          AND fm.membership_status = 1
+          AND (fm.is_admin = 1
+            OR REPLACE(SUBSTRING_INDEX(fa.ws_phone, '@', 1), '+', '')
+               = REPLACE(SUBSTRING_INDEX(fp.owner_phone, '@', 1), '+', ''))
+        <if test="query.managerPhone != null">
+          AND fa.ws_phone LIKE CONCAT('%', #{query.managerPhone}, '%')
+        </if>
+        <if test="query.accountGroupId != null">
+          AND fa.account_group_id = #{query.accountGroupId}
+        </if>
+      )
+    </if>
+    GROUP BY m.group_jid
+  </sql>
+
+  <sql id="candidateFilter">
+    1 = 1
+    <if test="query != null and !query.showRegularGroups">
+      AND candidate.adminRelationCount &gt; 0
+    </if>
+    <if test="query != null and query.source != null and query.source.name() == 'HISTORICAL'">
+      AND candidate.historical = 1
+    </if>
+    <if test="query != null and query.source != null and query.source.name() == 'SELF_COLLECTED'">
+      AND candidate.historical = 0 AND candidate.selfCollected = 1
+    </if>
+    <if test="query != null and query.keyword != null">
+      AND candidate.groupName LIKE CONCAT('%', #{query.keyword}, '%')
+    </if>
+    <if test="query != null and query.groupJid != null">
+      AND candidate.groupJid = #{query.groupJid}
+    </if>
+    <if test="query != null and query.minMemberCount != null">
+      AND candidate.memberSize &gt;= #{query.minMemberCount}
+    </if>
+    <if test="query != null and query.maxMemberCount != null">
+      AND candidate.memberSize &lt;= #{query.maxMemberCount}
+    </if>
+    <if test="query != null and query.announceOnly != null">
+      AND candidate.announceOnly = #{query.announceOnly}
+    </if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM (<include refid="candidateFacts"/>) candidate
+    WHERE <include refid="candidateFilter"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow">
+    SELECT candidate.*
+    FROM (<include refid="candidateFacts"/>) candidate
+    WHERE <include refid="candidateFilter"/>
+    ORDER BY candidate.groupJid ASC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="selectByGroupJids" resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow">
+    SELECT candidate.*
+    FROM (<include refid="candidateFacts"/>) candidate
+    WHERE candidate.groupJid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+    ORDER BY candidate.groupJid ASC
+  </select>
+
+  <select id="selectAccountsByGroupJids"
+          resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateAccountRow">
+    SELECT m.group_jid AS groupJid,
+           a.id AS accountId,
+           a.ws_phone AS accountPhone,
+           CASE
+             WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                  = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+             THEN 'CREATOR' ELSE 'ADMIN'
+           END AS groupRole,
+           s.login_state AS loginState,
+           s.account_state AS accountState,
+           m.last_seen_at AS lastSeenAt
+    FROM account_group_membership m
+    INNER JOIN account a
+      ON a.tenant_id = m.tenant_id
+     AND a.id = m.account_id
+     AND a.deleted_at IS NULL
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+     AND s.account_state = 2
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = m.tenant_id
+     AND p.group_jid = m.group_jid
+    WHERE m.deleted_at IS NULL
+      AND m.membership_status = 1
+      AND m.group_jid IN
+      <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+        #{groupJid}
+      </foreach>
+      AND (m.is_admin = 1
+        OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+           = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', ''))
+    ORDER BY m.group_jid ASC,
+             CASE WHEN s.login_state = 1 THEN 0 ELSE 1 END,
+             COALESCE(m.last_seen_at, 0) DESC,
+             a.id ASC
+  </select>
+
+</mapper>

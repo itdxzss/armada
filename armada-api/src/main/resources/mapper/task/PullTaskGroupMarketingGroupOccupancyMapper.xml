@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingGroupOccupancyMapper">
+
+  <insert id="insertWaiting" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_group_marketing_group_occupancy (
+      group_link_id, group_jid, group_source, occupancy_type, reservation_token, task_id,
+      task_name_snapshot, planned_start_at, last_validation_reason, last_validated_at,
+      created_by, created_at, updated_at, expires_at, released_at
+    ) VALUES (
+      #{groupLinkId}, #{groupJid}, #{groupSource}, 'WAITING', #{reservationToken}, NULL,
+      #{taskNameSnapshot}, #{plannedStartAt}, #{lastValidationReason}, #{lastValidatedAt},
+      #{createdBy}, #{createdAt}, #{updatedAt}, #{expiresAt}, NULL
+    )
+  </insert>
+
+  <select id="selectActiveByGroupJids"
+          resultType="com.armada.task.model.entity.PullTaskGroupMarketingGroupOccupancy">
+    SELECT *
+    FROM pull_task_group_marketing_group_occupancy
+    WHERE released_at IS NULL
+      AND group_jid IN
+      <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+        #{groupJid}
+      </foreach>
+    ORDER BY id ASC
+  </select>
+
+  <update id="renewWaiting">
+    UPDATE pull_task_group_marketing_group_occupancy
+    SET expires_at = #{expiresAt}, updated_at = #{now}
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND reservation_token = #{reservationToken}
+      AND created_by = #{createdBy}
+      AND expires_at &gt; #{now}
+  </update>
+
+  <update id="updateWaitingSnapshot">
+    UPDATE pull_task_group_marketing_group_occupancy
+    SET task_name_snapshot = #{taskName},
+        planned_start_at = #{plannedStartAt},
+        updated_at = #{now}
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND reservation_token = #{reservationToken}
+      AND created_by = #{createdBy}
+  </update>
+
+  <update id="releaseExpiredWaiting">
+    UPDATE pull_task_group_marketing_group_occupancy
+    SET released_at = #{now}, updated_at = #{now}
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND expires_at IS NOT NULL
+      AND expires_at &lt;= #{now}
+  </update>
+
+  <select id="selectWaitingByToken"
+          resultType="com.armada.task.model.entity.PullTaskGroupMarketingGroupOccupancy">
+    SELECT *
+    FROM pull_task_group_marketing_group_occupancy
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND reservation_token = #{reservationToken}
+      AND created_by = #{createdBy}
+    ORDER BY id ASC
+  </select>
+
+  <select id="selectCreatorByToken" resultType="long">
+    SELECT created_by
+    FROM pull_task_group_marketing_group_occupancy
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND reservation_token = #{reservationToken}
+    ORDER BY id ASC
+    LIMIT 1
+  </select>
+
+  <update id="releaseWaiting">
+    UPDATE pull_task_group_marketing_group_occupancy
+    SET released_at = #{releasedAt}, updated_at = #{releasedAt}
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND reservation_token = #{reservationToken}
+      AND group_jid = #{groupJid}
+      AND created_by = #{createdBy}
+  </update>
+
+  <update id="releaseWaitingByToken">
+    UPDATE pull_task_group_marketing_group_occupancy
+    SET released_at = #{releasedAt}, updated_at = #{releasedAt}
+    WHERE released_at IS NULL
+      AND occupancy_type = 'WAITING'
+      AND reservation_token = #{reservationToken}
+      AND created_by = #{createdBy}
+  </update>
+
+</mapper>

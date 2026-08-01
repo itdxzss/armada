@@ -98,7 +98,16 @@ zhuan_prepare_remote() {
 
 zhuan_sync_source() {
   rsync -rltz --delete -e "${ZHUAN_RSYNC_SSH}" \
-    --exclude-from="${ZHUAN_DIR}/.dockerignore" \
+    --exclude='/.git/' \
+    --exclude='/.idea/' \
+    --exclude='/.gocache/' \
+    --exclude='/.gomodcache/' \
+    --exclude='/docs/' \
+    --exclude='/main' \
+    --exclude='/ws-go' \
+    --exclude='/server' \
+    --exclude='/migrate' \
+    --exclude='/mock-callback' \
     --exclude=deploy/.env \
     --exclude=deploy/configs/prod_configs.toml \
     --exclude=deploy/logs/ \

@@ -358,9 +358,12 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   root="$(mktemp -d)"
   source="${root}/source"
   destination="${root}/destination"
-  mkdir -p "${source}/deploy/configs" "${destination}/deploy/configs" "${destination}/logs"
-  : >"${source}/.dockerignore"
+  mkdir -p "${source}/cmd/server" "${source}/deploy/configs" \
+    "${destination}/cmd/server" "${destination}/deploy/configs" "${destination}/logs"
   printf 'package main\n' >"${source}/main.go"
+  printf 'current server source\n' >"${source}/cmd/server/main.go"
+  printf 'root build artifact\n' >"${source}/server"
+  printf 'stale server source\n' >"${destination}/cmd/server/main.go"
   printf 'stale\n' >"${destination}/stale.txt"
   printf 'root-env\n' >"${destination}/.env"
   printf 'root-env-local\n' >"${destination}/.env.local"
@@ -379,7 +382,16 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   chmod 700 "${destination}/deploy/configs"
 
   rsync -rltz --delete \
-    --exclude-from="${source}/.dockerignore" \
+    --exclude='/.git/' \
+    --exclude='/.idea/' \
+    --exclude='/.gocache/' \
+    --exclude='/.gomodcache/' \
+    --exclude='/docs/' \
+    --exclude='/main' \
+    --exclude='/ws-go' \
+    --exclude='/server' \
+    --exclude='/migrate' \
+    --exclude='/mock-callback' \
     --exclude=deploy/.env \
     --exclude=deploy/configs/prod_configs.toml \
     --exclude=deploy/logs/ \
@@ -404,6 +416,8 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
     "${source}/" "${destination}/"
 
   [ -f "${destination}/main.go" ] || fail "expected source file to be synchronized"
+  assert_contains "$(cat "${destination}/cmd/server/main.go")" "current server source"
+  [ ! -e "${destination}/server" ] || fail "expected root server build artifact to be excluded"
   [ ! -e "${destination}/stale.txt" ] || fail "expected unprotected stale file to be deleted"
   [ -f "${destination}/.env" ] || fail "expected root .env to be preserved"
   [ -f "${destination}/.env.local" ] || fail "expected root .env variant to be preserved"
@@ -896,7 +910,11 @@ test_zhuan_sync_preserves_remote_runtime_files() {
   script_content="$(cat "${SCRIPT_DIR}/lib/zhuan.sh")"
 
   assert_contains "${script_content}" 'rsync -rltz --delete -e "${ZHUAN_RSYNC_SSH}"'
-  assert_contains "${script_content}" '--exclude-from="${ZHUAN_DIR}/.dockerignore"'
+  assert_not_contains "${script_content}" '--exclude-from="${ZHUAN_DIR}/.dockerignore"'
+  assert_contains "${script_content}" "--exclude='/.git/'"
+  assert_contains "${script_content}" "--exclude='/server'"
+  assert_contains "${script_content}" "--exclude='/migrate'"
+  assert_contains "${script_content}" "--exclude='/mock-callback'"
   assert_contains "${script_content}" "--exclude=deploy/.env"
   assert_contains "${script_content}" "--exclude=deploy/configs/prod_configs.toml"
   assert_contains "${script_content}" "--exclude=deploy/logs/"

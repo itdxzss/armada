@@ -43,7 +43,7 @@
 
 ### Armada 后端
 
-- Flyway V089 新增当前状态表 `whatsapp_group_member`、追加式事实表
+- Flyway V090 新增当前状态表 `whatsapp_group_member`、追加式事实表
   `whatsapp_group_member_fact` 和完整快照水位表 `whatsapp_group_member_snapshot_fact`；事实表使异步导出能按
   `snapshotAt` 回放，任务排队期间的新事件不会污染旧快照。
 - participant 列表只要非空即可保存已观察事实；只有 `participantsComplete=true`，且协议声明人数等于

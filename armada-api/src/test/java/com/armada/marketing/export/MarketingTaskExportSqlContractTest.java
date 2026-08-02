@@ -21,7 +21,7 @@ class MarketingTaskExportSqlContractTest {
     private static final Path JOB_MIGRATION = Path.of(
             "src/main/resources/db/migration/V083__marketing_task_export_job.sql");
     private static final Path MEMBER_MIGRATION = Path.of(
-            "src/main/resources/db/migration/V089__whatsapp_group_member_snapshot.sql");
+            "src/main/resources/db/migration/V090__whatsapp_group_member_snapshot.sql");
     private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskExportMapper.xml";
 
     @Test

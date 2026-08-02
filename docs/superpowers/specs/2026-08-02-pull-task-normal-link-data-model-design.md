@@ -327,13 +327,16 @@ occupancy_key BIGINT GENERATED ALWAYS AS (
 
 ## 10. 验证门禁
 
-关于测试基座的事实：**Flyway 只对真实 MySQL 生效**（`DbTestBase` 启动完整上下文连测试库，凭据经 `armada-api/dbtest.sh` 从 gitignored 的 `.env` 注入）。H2 内存测试（`MysqlModeMapperInMemoryTest` 等，`MODE=MySQL`）的建表语句是在测试类里手工维护的，不跑迁移脚本。
+测试基座的事实（已核对仓库现状）：Flyway 迁移脚本不在 H2 上执行，H2 内存测试（`MysqlModeMapperInMemoryTest`、`MarketingTaskExportMapperH2Test` 等，`MODE=MySQL`）的建表语句在测试类里手工维护；真库 `DbTestBase` 连测试库并跑 Flyway，凭据经 `armada-api/dbtest.sh` 从 gitignored 的 `.env` 注入。
 
-因此：
+`.harness/rules/编码规范.md` 定的门禁是：**Flyway 优先在 H2 MySQL 模式验证；无法兼容的部分至少做脚本结构与关键约束测试；真库 DbTest 只作可选补充，不是本地完成门禁。** 本设计沿用该门禁，据此分三层：
 
-1. **排序规则、生成列和唯一键语义必须由真库 DbTest 断言**，H2 复现不了——H2 默认大小写敏感，会让 `ai_ci` 造成的重复判定问题静默通过。至少要覆盖：邀请码仅大小写不同的两条链接可以共存、同一拉手被第二条执行行占用时唯一键抛错、释放后可重新占用。
-2. 新增 6 张表意味着 H2 测试类里要同步 6 段手写 DDL，这部分只用于 Mapper SQL 与租户拦截器的验证。
-3. 每张表都要有跨租户不可见、不可更新的租户隔离测试。
-4. 分阶段门禁沿用需求文档的 M1～M4；每阶段保存实际命令、退出码和 Playwright trace/截图，没有真实输出不声明通过。
+1. **H2 MySQL 模式可以覆盖的（必做，本地门禁）**：生成列和"NULL 不参与唯一键"的部分唯一索引语义在 H2 MySQL 模式下可以复现——`PullTaskGroupMarketingGroupMapperInMemoryTest` 已经用 `active_key TINYINT GENERATED ALWAYS AS (CASE WHEN released_at IS NULL THEN 1 ELSE NULL END)` + `UNIQUE (tenant_id, group_jid, active_key)` 建过同款表。因此必须在 H2 里覆盖：同一拉手被第二条执行行占用时唯一键抛错、释放后可重新占用、草稿期执行行不占用链接、`WAIT_START` 后同一链接被第二个任务占用时抛错。另外每张表都要有跨租户不可见、不可更新的租户隔离测试，以及 Mapper XML 的真实加载与执行。
+2. **H2 复现不了的（必做，改为脚本结构测试）**：**排序规则**。H2 不支持列级 `CHARACTER SET` / `COLLATE`，且默认大小写敏感，会让 `utf8mb4_0900_ai_ci` 造成的"仅大小写不同即判重复"问题静默通过。因此改为对 `V090` 迁移脚本做结构断言，逐列断言 `normalized_link`、`invite_code`、`group_jid`、`normalized_phone`、`account_phone`、`command_id`、`idempotency_key` 都带 `COLLATE ascii_bin`，写法参照 `AccountGroupMembershipLastExitMigrationSqlTest`。
+3. **真库 DbTest（可选补充，需先确认目标环境）**：只有真库能端到端证明"仅大小写不同的两条邀请码可以共存"。这一条作为可选补充测试提供，执行前必须确认目标环境，不作为本地完成门禁。
+
+分阶段门禁沿用需求文档的 M1～M4；每阶段保存实际命令、退出码和 Playwright trace/截图，没有真实输出不声明通过。
+
+新增 6 张表意味着 H2 测试类里要同步 6 段手写 DDL；这些 DDL 省略列级排序规则（H2 不支持），排序规则由第 2 层保证。
 
 M1 需要全部 6 张表：最小闭环要跑通“管理入群 → 管理—拉手好友 → 邀请拉手 → 拉手—站台好友 → 批量拉人 → 逐号码回写”，每一步都落在其中一张表上。

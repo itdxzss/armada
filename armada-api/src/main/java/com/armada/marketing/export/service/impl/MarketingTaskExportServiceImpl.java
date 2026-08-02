@@ -1,5 +1,7 @@
 package com.armada.marketing.export.service.impl;
 
+import com.armada.account.model.vo.AccountGroupTargetSyncRequest;
+import com.armada.account.service.AccountGroupSyncCommandService;
 import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
 import com.armada.marketing.export.model.dto.MarketingTaskExportRequestDTO;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
@@ -51,6 +53,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 基于数据库作业和本地持久化目录实现普通营销任务异步导出。 */
 @Service
@@ -65,6 +68,9 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
     private static final int MAX_COUNTRY_ISO2S = 249;
     private static final long LEASE_MILLIS = 30 * 60 * 1000L;
     private static final long LEASE_RENEW_INTERVAL_MILLIS = 5 * 60 * 1000L;
+    private static final long GROUP_SNAPSHOT_INITIAL_WAIT_MILLIS = 15_000L;
+    private static final long GROUP_SNAPSHOT_RETRY_WAIT_MILLIS = 30_000L;
+    private static final long GROUP_SNAPSHOT_TIMEOUT_MILLIS = 3 * 60 * 1000L;
     private static final long FILE_TTL_MILLIS = 7L * 24 * 60 * 60 * 1000;
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter FILE_TIME_FORMAT =
@@ -76,6 +82,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
     private final CountryService countryService;
     private final MarketingTaskExportWorkbookWriter workbookWriter;
     private final ObjectMapper objectMapper;
+    private final AccountGroupSyncCommandService accountGroupSyncCommandService;
     private final TaskScheduler taskScheduler;
     private final Clock clock;
     private final Path storageRoot;
@@ -86,17 +93,20 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
             CountryService countryService,
             MarketingTaskExportWorkbookWriter workbookWriter,
             ObjectMapper objectMapper,
+            AccountGroupSyncCommandService accountGroupSyncCommandService,
             MarketingTaskExportRuntime runtime) {
         this.mapper = mapper;
         this.countryService = countryService;
         this.workbookWriter = workbookWriter;
         this.objectMapper = objectMapper;
+        this.accountGroupSyncCommandService = accountGroupSyncCommandService;
         this.taskScheduler = runtime.taskScheduler();
         this.clock = runtime.clock();
         this.storageRoot = runtime.storageRoot();
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public MarketingTaskExportJobVO createJob(MarketingTaskExportRequestDTO request, AuthPrincipal principal) {
         if (principal == null) {
             throw new BusinessException(ErrorCode.AUTH_INVALID);
@@ -117,6 +127,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         job.setRequestHash(sha256(mode + '|' + job.getTaskIdsJson() + '|' + job.getCountryIso2sJson()));
         job.setStatus(STATUS_PENDING);
         job.setSnapshotAt(now);
+        job.setLeaseUntil(now + GROUP_SNAPSHOT_INITIAL_WAIT_MILLIS);
         job.setAttemptCount(0);
         job.setSummaryRowCount(0);
         job.setDetailRowCount(0);
@@ -132,6 +143,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
             }
             throw new BusinessException(ErrorCode.CONFLICT, "已有导出作业正在生成，请完成后再发起导出");
         }
+        enqueueTaskGroupSync(job.getTenantId(), taskIds);
         return toVO(job);
     }
 
@@ -205,6 +217,9 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
             List<Long> taskIds = readJson(job.getTaskIdsJson(), LONG_LIST);
             List<MarketingTask> tasks = mapper.selectTasksByIds(taskIds);
             requireSameTaskSelection(taskIds, tasks);
+            if (!prepareFreshWhatsappSnapshot(job, taskIds, claimToken)) {
+                return;
+            }
             heartbeat.start();
 
             Instant snapshotAt = Instant.ofEpochMilli(job.getSnapshotAt());
@@ -283,6 +298,53 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
             if (previousTenant != null) {
                 TenantContext.set(previousTenant);
             }
+        }
+    }
+
+    private boolean prepareFreshWhatsappSnapshot(
+            MarketingTaskExportJob job,
+            List<Long> taskIds,
+            String claimToken) {
+        long now = clock.millis();
+        int missingGroups = mapper.countGroupsMissingFreshSnapshot(
+                job.getTenantId(), taskIds, job.getCreatedAt());
+        if (missingGroups == 0) {
+            job.setSnapshotAt(now);
+            return true;
+        }
+        if (now < job.getCreatedAt() + GROUP_SNAPSHOT_TIMEOUT_MILLIS) {
+            int requeued = mapper.requeueJobWaitingForSnapshot(
+                    job.getTenantId(),
+                    job.getId(),
+                    claimToken,
+                    now + GROUP_SNAPSHOT_RETRY_WAIT_MILLIS,
+                    now);
+            if (requeued != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "导出作业已被其他实例接管");
+            }
+            // 先释放长租约，再补发缺失群命令。若补发期间实例退出，作业仍会按30秒水位恢复，不会卡住30分钟处理租约。
+            enqueueMissingTaskGroupSync(job.getTenantId(), taskIds, job.getCreatedAt());
+            log.info("营销任务导出等待 WhatsApp 完整群快照 tenantId={} jobId={} missingGroups={}",
+                    job.getTenantId(), job.getId(), missingGroups);
+            return false;
+        }
+        throw new BusinessException(
+                ErrorCode.CONFLICT,
+                "仍有 " + missingGroups + " 个营销群无法读取完整 WhatsApp 群成员，请确认对应发送账号在线并在群后重试");
+    }
+
+    private void enqueueTaskGroupSync(Long tenantId, List<Long> taskIds) {
+        List<AccountGroupTargetSyncRequest> targets = mapper.selectTaskGroupSyncTargets(tenantId, taskIds);
+        if (targets != null && !targets.isEmpty()) {
+            accountGroupSyncCommandService.enqueueMarketingExportSyncCommands(targets);
+        }
+    }
+
+    private void enqueueMissingTaskGroupSync(Long tenantId, List<Long> taskIds, long freshAfter) {
+        List<AccountGroupTargetSyncRequest> targets =
+                mapper.selectTaskGroupSyncTargetsMissingFreshSnapshot(tenantId, taskIds, freshAfter);
+        if (targets != null && !targets.isEmpty()) {
+            accountGroupSyncCommandService.enqueueMarketingExportSyncCommands(targets);
         }
     }
 

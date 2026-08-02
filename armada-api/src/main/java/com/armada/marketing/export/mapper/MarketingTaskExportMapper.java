@@ -5,6 +5,7 @@ import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
 import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
 import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.account.model.vo.AccountGroupTargetSyncRequest;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -22,6 +23,23 @@ public interface MarketingTaskExportMapper {
      * @return 当前租户可见且未删除的任务
      */
     List<MarketingTask> selectTasksByIds(@Param("taskIds") List<Long> taskIds);
+
+    /**
+     * 查询任务实际涉及的群 JID 及其协议观察账号，不把控端账号本身当成导出成员范围。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountGroupTargetSyncRequest> selectTaskGroupSyncTargets(
+            @Param("tenantId") Long tenantId,
+            @Param("taskIds") List<Long> taskIds);
+
+    /**
+     * 查询任务群中尚未产生本次完整成员快照的群及其协议观察账号。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountGroupTargetSyncRequest> selectTaskGroupSyncTargetsMissingFreshSnapshot(
+            @Param("tenantId") Long tenantId,
+            @Param("taskIds") List<Long> taskIds,
+            @Param("freshAfter") long freshAfter);
 
     /**
      * @param job 待持久化的导出作业
@@ -115,6 +133,24 @@ public interface MarketingTaskExportMapper {
                       @Param("claimToken") String claimToken,
                       @Param("now") long now,
                       @Param("leaseUntil") long leaseUntil);
+
+    /**
+     * 把仍缺少完整 WhatsApp 群快照的作业放回等待队列，不消耗失败重试次数。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int requeueJobWaitingForSnapshot(@Param("tenantId") Long tenantId,
+                                     @Param("id") Long id,
+                                     @Param("claimToken") String claimToken,
+                                     @Param("readyAt") long readyAt,
+                                     @Param("now") long now);
+
+    /**
+     * 按任务真实 45 个等目标群 JID 逐群检查本次导出请求后的完整成员快照。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int countGroupsMissingFreshSnapshot(@Param("tenantId") Long tenantId,
+                                        @Param("taskIds") List<Long> taskIds,
+                                        @Param("freshAfter") long freshAfter);
 
     /**
      * @param job 已填充领取令牌和文件结果的作业

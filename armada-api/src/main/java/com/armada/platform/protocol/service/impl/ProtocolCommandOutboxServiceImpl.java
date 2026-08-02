@@ -469,10 +469,12 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_GROUPS_SYNC_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(masterCommandProperties.getTopic());
+        row.setKafkaTopic(command.protocolBackend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getLifecycleTopic()
+                : masterCommandProperties.getTopic());
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
-        row.setProtocolBackend(ProtocolBackend.WEB.name());
+        row.setProtocolBackend(command.protocolBackend().name());
         row.setPayloadJson(payloadJson(command));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
@@ -649,6 +651,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 command.tenantId(),
                 command.accountId(),
                 command.protocolAccountId(),
+                command.protocolBackend(),
+                command.phone(),
+                command.groupJids(),
                 command.source());
         try {
             return objectMapper.writeValueAsString(payload);
@@ -827,7 +832,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         if (command == null
                 || command.tenantId() == null
                 || command.accountId() == null
+                || command.protocolBackend() == null
                 || isBlank(command.protocolAccountId())
+                || (command.protocolBackend() == ProtocolBackend.ANDROID && isBlank(command.phone()))
                 || isBlank(command.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号群同步命令缺少必要字段");
         }
@@ -990,6 +997,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             Long tenantId,
             Long accountId,
             String protocolAccountId,
+            ProtocolBackend protocolBackend,
+            String phone,
+            List<String> groupJids,
             String source
     ) {
     }

@@ -256,7 +256,9 @@
   <select id="selectGroupSyncCandidates" resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
     SELECT a.tenant_id AS tenantId,
            a.id AS accountId,
-           a.protocol_account_id AS protocolAccountId
+           a.protocol_account_id AS protocolAccountId,
+           a.protocol_id AS protocolId,
+           a.ws_phone AS phone
     FROM account a
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
@@ -276,6 +278,26 @@
              COALESCE(s.last_state_sync_time, a.updated_at, a.created_at, 0) ASC,
              a.id ASC
     LIMIT #{limit}
+  </select>
+
+  <select id="selectGroupSyncCandidatesByIds"
+          resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
+    SELECT a.tenant_id AS tenantId,
+           a.id AS accountId,
+           a.protocol_account_id AS protocolAccountId,
+           a.protocol_id AS protocolId,
+           a.ws_phone AS phone
+    FROM account a
+    WHERE a.deleted_at IS NULL
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND a.id IN
+      <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+        #{accountId}
+      </foreach>
+    ORDER BY a.id ASC
   </select>
 
   <insert id="markGroupSyncRequested">

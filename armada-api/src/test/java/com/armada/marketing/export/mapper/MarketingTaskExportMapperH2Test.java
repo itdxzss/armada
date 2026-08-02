@@ -2,6 +2,7 @@ package com.armada.marketing.export.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.account.model.vo.AccountGroupTargetSyncRequest;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
 import com.armada.shared.tenant.TenantContext;
@@ -71,6 +72,39 @@ class MarketingTaskExportMapperH2Test {
                     expires_at BIGINT,
                     active_request_hash CHAR(64)
                 )
+                """, """
+                CREATE TABLE marketing_task_target (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    marketing_task_id BIGINT NOT NULL,
+                    account_id BIGINT,
+                    target_scope INT,
+                    group_link_id BIGINT,
+                    group_jid VARCHAR(128)
+                )
+                """, """
+                CREATE TABLE group_link_preview (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128)
+                )
+                """, """
+                CREATE TABLE marketing_task_send_attempt (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    marketing_task_id BIGINT NOT NULL,
+                    target_id BIGINT NOT NULL,
+                    group_link_id BIGINT,
+                    group_jid VARCHAR(128)
+                )
+                """, """
+                CREATE TABLE whatsapp_group_member_snapshot_fact (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL,
+                    snapshot_at BIGINT NOT NULL
+                )
                 """);
         TenantContext.set(7L);
     }
@@ -130,6 +164,80 @@ class MarketingTaskExportMapperH2Test {
                 mapperName + ".selectGroupMemberRows")).isTrue();
     }
 
+    @Test
+    void freshSnapshotCoverageIsCheckedForEveryDistinctMarketingGroup() throws SQLException {
+        executeSql("""
+                INSERT INTO marketing_task_target
+                    (id, tenant_id, marketing_task_id, account_id, target_scope, group_link_id, group_jid)
+                VALUES (1, 7, 179, 1957, 2, NULL, NULL)
+                """, """
+                INSERT INTO marketing_task_send_attempt
+                    (id, tenant_id, marketing_task_id, target_id, group_link_id, group_jid)
+                VALUES (1, 7, 179, 1, 11, 'group-a@g.us'),
+                       (2, 7, 179, 1, 12, 'group-b@g.us'),
+                       (3, 7, 179, 1, 13, 'group-c@g.us')
+                """, """
+                INSERT INTO whatsapp_group_member_snapshot_fact
+                    (tenant_id, group_jid, snapshot_at)
+                VALUES (7, 'group-a@g.us', 1100),
+                       (7, 'group-b@g.us', 1200),
+                       (7, 'group-c@g.us', 900)
+                """);
+
+        assertThat(mapper.countGroupsMissingFreshSnapshot(7L, List.of(179L), 1_000L))
+                .isEqualTo(1);
+        assertThat(mapper.selectTaskGroupSyncTargetsMissingFreshSnapshot(
+                7L, List.of(179L), 1_000L))
+                .containsExactly(new AccountGroupTargetSyncRequest(1957L, "group-c@g.us"));
+
+        executeSql("""
+                INSERT INTO whatsapp_group_member_snapshot_fact
+                    (tenant_id, group_jid, snapshot_at)
+                VALUES (7, 'group-c@g.us', 1300)
+                """);
+        assertThat(mapper.countGroupsMissingFreshSnapshot(7L, List.of(179L), 1_000L))
+                .isZero();
+        assertThat(mapper.selectTaskGroupSyncTargetsMissingFreshSnapshot(
+                7L, List.of(179L), 1_000L)).isEmpty();
+    }
+
+    @Test
+    void unresolvedFixedTaskGroupIsCountedAsMissingInsteadOfSilentlySkipped() throws SQLException {
+        executeSql("""
+                INSERT INTO marketing_task_target
+                    (id, tenant_id, marketing_task_id, account_id, target_scope, group_link_id, group_jid)
+                VALUES (9, 7, 179, 1957, 1, 99, NULL)
+                """);
+
+        assertThat(mapper.countGroupsMissingFreshSnapshot(7L, List.of(179L), 1_000L))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void taskGroupSyncTargetsUseTheActualAttemptGroupsAndTheirObserverAccounts() throws SQLException {
+        executeSql("""
+                INSERT INTO marketing_task_target
+                    (id, tenant_id, marketing_task_id, account_id, target_scope, group_link_id, group_jid)
+                VALUES (1, 7, 179, 1957, 2, NULL, NULL),
+                       (2, 7, 179, 1958, 1, 20, NULL)
+                """, """
+                INSERT INTO group_link_preview (tenant_id, group_link_id, group_jid)
+                VALUES (7, 20, 'group-fixed@g.us')
+                """, """
+                INSERT INTO marketing_task_send_attempt
+                    (id, tenant_id, marketing_task_id, target_id, group_link_id, group_jid)
+                VALUES (1, 7, 179, 1, 11, 'group-a@g.us'),
+                       (2, 7, 179, 1, 12, 'group-b@g.us'),
+                       (3, 7, 179, 1, 12, 'group-b@g.us')
+                """);
+
+        assertThat(mapper.selectTaskGroupSyncTargets(7L, List.of(179L)))
+                .containsExactly(
+                        new AccountGroupTargetSyncRequest(1957L, "group-a@g.us"),
+                        new AccountGroupTargetSyncRequest(1957L, "group-b@g.us"),
+                        new AccountGroupTargetSyncRequest(1958L, "group-fixed@g.us"));
+    }
+
     private static MarketingTaskExportJob completion(Long id, String claimToken) {
         MarketingTaskExportJob job = new MarketingTaskExportJob();
         job.setTenantId(7L);
@@ -139,6 +247,7 @@ class MarketingTaskExportMapperH2Test {
         job.setFileName("任务.xlsx");
         job.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         job.setFileSize(3L);
+        job.setSnapshotAt(1_050L);
         job.setSummaryRowCount(1);
         job.setDetailRowCount(2);
         job.setFinishedAt(1_100L);

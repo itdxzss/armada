@@ -32,6 +32,9 @@
 
 ### Android 协议层
 
+- 营销导出命令携带任务实际涉及的 `groupJids`；Android 通过已在线的受控账号逐群
+  调用现有 `GetGroupMember(groupJID)`，只查询这些任务群的完整 participant，不再扫描
+  账号所有可见群后与任务群做大范围比对。空 `groupJids` 仍保留原定时全账号同步语义。
 - 兼容扩展 `account.groups_reported`：每个群新增 `memberCount`、`announceOnly` 和完整
   `participants`（JID、号码、角色、管理员/群主），并用 `participantsComplete` 明确声明成员列表完整。
   现有字段和事件名不变。
@@ -43,6 +46,12 @@
 
 ### Armada 后端
 
+- 导出作业从 `marketing_task_target` 和实际 `marketing_task_send_attempt` 提取任务群 JID
+  与可用查询账号，定向下发刷新命令。账号只是 WhatsApp 查询入口，导出范围以
+  任务涉及的群 JID 为准；例如任务显示 45 群，就等待这 45 个任务群分别产生
+  完整成员快照，与在线受控账号数量无关。
+- 导出作业在任务群快照水位全部刷新后才生成文件；单群查询失败时不发布空快照、
+  不误判退群，只重试缺失快照，超时后明确报错而不生成部分文件。
 - Flyway V090 新增当前状态表 `whatsapp_group_member`、追加式事实表
   `whatsapp_group_member_fact` 和完整快照水位表 `whatsapp_group_member_snapshot_fact`；事实表使异步导出能按
   `snapshotAt` 回放，任务排队期间的新事件不会污染旧快照。
@@ -77,5 +86,5 @@
 ## 发布与回滚
 
 - 先发布 Flyway 与兼容消费者，再发布 Android 事件生产者；旧生产者与新消费者可共存。
-- 应用回滚时保留 V089 表，不删除已采集事实；Android 可独立回滚到旧事件载荷。
+- 应用回滚时保留 V090 表，不删除已采集事实；Android 可独立回滚到旧事件载荷。
 - 历史准确时间受 WhatsApp 实际下发的历史范围约束；没有事件事实的时间字段保持空，不用抓取时间冒充。

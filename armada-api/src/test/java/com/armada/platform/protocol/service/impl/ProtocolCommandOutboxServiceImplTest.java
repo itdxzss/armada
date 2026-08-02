@@ -153,6 +153,31 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void enqueueAccountGroupSyncCommands_androidCommandUsesLifecycleTopic() {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-android-groups"), List.of());
+        ProtocolAccountGroupSyncCommandRequest command = new ProtocolAccountGroupSyncCommandRequest(
+                1L,
+                100L,
+                "acc_100",
+                ProtocolBackend.ANDROID,
+                "14155550100",
+                List.of("group-a@g.us", "group-b@g.us"),
+                "marketing_task_export_group_sync");
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueAccountGroupSyncCommands(List.of(command));
+
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.lifecycle.commands.v1");
+        assertThat(row.getProtocolBackend()).isEqualTo("ANDROID");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_100");
+        assertThat(row.getPayloadJson())
+                .contains("\"protocolBackend\":\"ANDROID\"")
+                .contains("\"phone\":\"14155550100\"")
+                .contains("\"groupJids\":[\"group-a@g.us\",\"group-b@g.us\"]");
+    }
+
+    @Test
     void enqueueOnlineCommands_customCommandTopic_usesConfiguredTopic() {
         TestableProtocolCommandOutboxService service =
                 newService(List.of("cmd-custom-topic"), List.of(), "protocol.account.commands.test",
@@ -759,6 +784,9 @@ class ProtocolCommandOutboxServiceImplTest {
                 tenantId,
                 accountId,
                 protocolAccountId,
+                ProtocolBackend.WEB,
+                null,
+                List.of(),
                 "scheduled_account_group_sync");
     }
 

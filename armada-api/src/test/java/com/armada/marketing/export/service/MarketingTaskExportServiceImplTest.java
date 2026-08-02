@@ -1,5 +1,7 @@
 package com.armada.marketing.export.service;
 
+import com.armada.account.model.vo.AccountGroupTargetSyncRequest;
+import com.armada.account.service.AccountGroupSyncCommandService;
 import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
 import com.armada.marketing.export.model.dto.MarketingTaskExportRequestDTO;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
@@ -43,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -63,6 +66,8 @@ class MarketingTaskExportServiceImplTest {
     private MarketingTaskExportWorkbookWriter workbookWriter;
     @Mock
     private TaskScheduler taskScheduler;
+    @Mock
+    private AccountGroupSyncCommandService accountGroupSyncCommandService;
 
     @TempDir
     private Path tempDir;
@@ -76,6 +81,7 @@ class MarketingTaskExportServiceImplTest {
                 countryService,
                 workbookWriter,
                 new ObjectMapper(),
+                accountGroupSyncCommandService,
                 new MarketingTaskExportRuntime(taskScheduler, FIXED_CLOCK, tempDir));
     }
 
@@ -92,6 +98,11 @@ class MarketingTaskExportServiceImplTest {
             job.setId(88L);
             return 1;
         });
+        List<AccountGroupTargetSyncRequest> syncTargets = List.of(
+                new AccountGroupTargetSyncRequest(101L, "group-a@g.us"),
+                new AccountGroupTargetSyncRequest(102L, "group-b@g.us"));
+        when(mapper.selectTaskGroupSyncTargets(3L, List.of(7L, 9L)))
+                .thenReturn(syncTargets);
 
         var result = service.createJob(
                 new MarketingTaskExportRequestDTO(
@@ -109,11 +120,58 @@ class MarketingTaskExportServiceImplTest {
         assertThat(job.getTaskIdsJson()).isEqualTo("[7,9]");
         assertThat(job.getCountryIso2sJson()).isEqualTo("[\"ID\",\"MY\"]");
         assertThat(job.getSnapshotAt()).isEqualTo(FIXED_CLOCK.millis());
+        assertThat(job.getLeaseUntil()).isEqualTo(FIXED_CLOCK.millis() + 15_000L);
         assertThat(job.getStatus()).isEqualTo("PENDING");
         assertThat(result.id()).isEqualTo(88L);
         assertThat(result.snapshotAt()).isEqualTo(FIXED_CLOCK.millis());
         verify(countryService).requireActiveOption("ID", false);
         verify(countryService).requireActiveOption("MY", false);
+        verify(accountGroupSyncCommandService)
+                .enqueueMarketingExportSyncCommands(syncTargets);
+    }
+
+    @Test
+    void processPendingJobRequeuesUntilEveryTaskGroupHasFreshWhatsappSnapshot() throws Exception {
+        MarketingTaskExportJob pending = pendingJob(92L, "FULL");
+        when(mapper.selectExpiredFiles(FIXED_CLOCK.millis(), 20)).thenReturn(List.of());
+        when(mapper.selectProcessableJobs(FIXED_CLOCK.millis(), 1)).thenReturn(List.of(pending));
+        when(mapper.claimJob(
+                eq(3L), eq(92L), eq(FIXED_CLOCK.millis()),
+                eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), anyString()))
+                .thenReturn(1);
+        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.countGroupsMissingFreshSnapshot(
+                3L, List.of(9L), FIXED_CLOCK.millis()))
+                .thenReturn(2);
+        List<AccountGroupTargetSyncRequest> syncTargets = List.of(
+                new AccountGroupTargetSyncRequest(101L, "group-a@g.us"),
+                new AccountGroupTargetSyncRequest(101L, "group-b@g.us"));
+        when(mapper.selectTaskGroupSyncTargetsMissingFreshSnapshot(
+                3L, List.of(9L), FIXED_CLOCK.millis())).thenReturn(syncTargets);
+        when(mapper.requeueJobWaitingForSnapshot(
+                eq(3L), eq(92L), anyString(),
+                eq(FIXED_CLOCK.millis() + 30_000L), eq(FIXED_CLOCK.millis())))
+                .thenReturn(1);
+
+        service.processPendingJobs(1);
+
+        verify(mapper).requeueJobWaitingForSnapshot(
+                eq(3L), eq(92L), anyString(),
+                eq(FIXED_CLOCK.millis() + 30_000L), eq(FIXED_CLOCK.millis()));
+        verify(accountGroupSyncCommandService).enqueueMarketingExportSyncCommands(syncTargets);
+        org.mockito.InOrder retryOrder = inOrder(mapper, accountGroupSyncCommandService);
+        retryOrder.verify(mapper).requeueJobWaitingForSnapshot(
+                eq(3L), eq(92L), anyString(),
+                eq(FIXED_CLOCK.millis() + 30_000L), eq(FIXED_CLOCK.millis()));
+        retryOrder.verify(accountGroupSyncCommandService)
+                .enqueueMarketingExportSyncCommands(syncTargets);
+        verify(workbookWriter, never()).writeFull(
+                any(Path.class),
+                org.mockito.Mockito.<MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskGroupExportRow>>any(),
+                org.mockito.Mockito.<MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskGroupMemberExportRow>>any(),
+                any(Instant.class),
+                any(Instant.class));
+        verify(mapper, never()).markJobSuccess(any());
     }
 
     @Test

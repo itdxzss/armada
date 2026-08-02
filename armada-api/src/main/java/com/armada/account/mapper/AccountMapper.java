@@ -204,6 +204,15 @@ public interface AccountMapper {
             @Param("baselineCapturedState") int baselineCapturedState);
 
     /**
+     * 查询当前租户指定账号中的群快照观察者。
+     *
+     * @param accountIds 任务实际使用的发送账号 ID，调用方按 500 个分片
+     * @return 协议身份完整的活跃账号，按账号 ID 排序
+     */
+    List<AccountGroupSyncCandidate> selectGroupSyncCandidatesByIds(
+            @Param("accountIds") List<Long> accountIds);
+
+    /**
      * 标记账号当前群同步命令已入队。
      *
      * <p>该水位只用于后台调度轮转,不覆盖登录前群 baseline JSON。调用方必须先恢复

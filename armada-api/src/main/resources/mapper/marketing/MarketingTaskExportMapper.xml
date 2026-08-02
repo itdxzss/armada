@@ -58,14 +58,107 @@
         )
     </select>
 
+    <select id="selectTaskGroupSyncTargets"
+            resultType="com.armada.account.model.vo.AccountGroupTargetSyncRequest">
+        SELECT DISTINCT candidates.account_id AS accountId,
+                        candidates.group_jid AS groupJid
+        FROM (
+            SELECT target.account_id,
+                   COALESCE(NULLIF(TRIM(target.group_jid), ''),
+                            NULLIF(TRIM(preview.group_jid), '')) AS group_jid
+            FROM marketing_task_target target
+            LEFT JOIN group_link_preview preview
+              ON preview.tenant_id = target.tenant_id
+             AND preview.group_link_id = target.group_link_id
+            WHERE target.tenant_id = #{tenantId}
+              AND target.target_scope = 1
+              AND target.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+            UNION ALL
+            SELECT target.account_id,
+                   COALESCE(NULLIF(TRIM(attempt.group_jid), ''),
+                            NULLIF(TRIM(target.group_jid), ''),
+                            NULLIF(TRIM(preview.group_jid), '')) AS group_jid
+            FROM marketing_task_send_attempt attempt
+            JOIN marketing_task_target target
+              ON target.tenant_id = attempt.tenant_id
+             AND target.marketing_task_id = attempt.marketing_task_id
+             AND target.id = attempt.target_id
+            LEFT JOIN group_link_preview preview
+              ON preview.tenant_id = target.tenant_id
+             AND preview.group_link_id = COALESCE(attempt.group_link_id, target.group_link_id)
+            WHERE attempt.tenant_id = #{tenantId}
+              AND attempt.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+        ) candidates
+        WHERE candidates.account_id IS NOT NULL
+          AND candidates.group_jid IS NOT NULL
+          AND TRIM(candidates.group_jid) &lt;&gt; ''
+        ORDER BY accountId ASC, groupJid ASC
+    </select>
+
+    <select id="selectTaskGroupSyncTargetsMissingFreshSnapshot"
+            resultType="com.armada.account.model.vo.AccountGroupTargetSyncRequest">
+        SELECT DISTINCT candidates.account_id AS accountId,
+                        candidates.group_jid AS groupJid
+        FROM (
+            SELECT target.account_id,
+                   COALESCE(NULLIF(TRIM(target.group_jid), ''),
+                            NULLIF(TRIM(preview.group_jid), '')) AS group_jid
+            FROM marketing_task_target target
+            LEFT JOIN group_link_preview preview
+              ON preview.tenant_id = target.tenant_id
+             AND preview.group_link_id = target.group_link_id
+            WHERE target.tenant_id = #{tenantId}
+              AND target.target_scope = 1
+              AND target.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+            UNION ALL
+            SELECT target.account_id,
+                   COALESCE(NULLIF(TRIM(attempt.group_jid), ''),
+                            NULLIF(TRIM(target.group_jid), ''),
+                            NULLIF(TRIM(preview.group_jid), '')) AS group_jid
+            FROM marketing_task_send_attempt attempt
+            JOIN marketing_task_target target
+              ON target.tenant_id = attempt.tenant_id
+             AND target.marketing_task_id = attempt.marketing_task_id
+             AND target.id = attempt.target_id
+            LEFT JOIN group_link_preview preview
+              ON preview.tenant_id = target.tenant_id
+             AND preview.group_link_id = COALESCE(attempt.group_link_id, target.group_link_id)
+            WHERE attempt.tenant_id = #{tenantId}
+              AND attempt.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+        ) candidates
+        WHERE candidates.account_id IS NOT NULL
+          AND candidates.group_jid IS NOT NULL
+          AND TRIM(candidates.group_jid) &lt;&gt; ''
+          AND NOT EXISTS (
+              SELECT 1
+              FROM whatsapp_group_member_snapshot_fact snapshot
+              WHERE snapshot.tenant_id = #{tenantId}
+                AND snapshot.group_jid = candidates.group_jid
+                AND snapshot.snapshot_at &gt;= #{freshAfter}
+          )
+        ORDER BY accountId ASC, groupJid ASC
+    </select>
+
     <insert id="insertJob" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_task_export_job
             (tenant_id, created_by, export_mode, task_ids_json, country_iso2s_json,
-             request_hash, status, snapshot_at, attempt_count, summary_row_count,
+             request_hash, status, snapshot_at, lease_until, attempt_count, summary_row_count,
              detail_row_count, created_at, updated_at)
         VALUES
             (#{tenantId}, #{createdBy}, #{exportMode}, #{taskIdsJson}, #{countryIso2sJson},
-             #{requestHash}, #{status}, #{snapshotAt}, #{attemptCount}, #{summaryRowCount},
+             #{requestHash}, #{status}, #{snapshotAt}, #{leaseUntil}, #{attemptCount}, #{summaryRowCount},
              #{detailRowCount}, #{createdAt}, #{updatedAt})
     </insert>
 
@@ -91,7 +184,8 @@
         SELECT <include refid="JobColumns"/>
         FROM marketing_task_export_job
         WHERE attempt_count &lt; 3
-          AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
+          AND ((status = 'PENDING' AND (lease_until IS NULL OR lease_until &lt;= #{now}))
+               OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
         ORDER BY id ASC
         LIMIT #{limit}
     </select>
@@ -143,7 +237,8 @@
         WHERE tenant_id = #{tenantId}
           AND id = #{id}
           AND attempt_count &lt; 3
-          AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
+          AND ((status = 'PENDING' AND (lease_until IS NULL OR lease_until &lt;= #{now}))
+               OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
     </update>
 
     <update id="renewJobLease">
@@ -156,9 +251,77 @@
           AND claim_token = #{claimToken}
     </update>
 
+    <update id="requeueJobWaitingForSnapshot">
+        UPDATE marketing_task_export_job
+        SET status = 'PENDING',
+            lease_until = #{readyAt},
+            claim_token = NULL,
+            attempt_count = GREATEST(attempt_count - 1, 0),
+            error_message = NULL,
+            updated_at = #{now}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = 'PROCESSING'
+          AND claim_token = #{claimToken}
+    </update>
+
+    <select id="countGroupsMissingFreshSnapshot" resultType="int">
+        WITH selected_group_jids AS (
+            SELECT DISTINCT t.tenant_id,
+                   COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''),
+                            CONCAT('link:', t.group_link_id), CONCAT('target:', t.id)) AS group_key,
+                   COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), '')) AS group_jid
+            FROM marketing_task_target t
+            LEFT JOIN group_link_preview p
+              ON p.tenant_id = t.tenant_id
+             AND p.group_link_id = t.group_link_id
+            WHERE t.tenant_id = #{tenantId}
+              AND t.target_scope = 1
+              AND t.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+            UNION
+            SELECT DISTINCT attempt.tenant_id,
+                   COALESCE(NULLIF(TRIM(attempt.group_jid), ''),
+                            NULLIF(TRIM(target.group_jid), ''),
+                            NULLIF(TRIM(preview.group_jid), ''),
+                            CONCAT('link:', COALESCE(attempt.group_link_id, target.group_link_id)),
+                            CONCAT('target:', target.id)) AS group_key,
+                   COALESCE(NULLIF(TRIM(attempt.group_jid), ''),
+                            NULLIF(TRIM(target.group_jid), ''),
+                            NULLIF(TRIM(preview.group_jid), '')) AS group_jid
+            FROM marketing_task_send_attempt attempt
+            JOIN marketing_task_target target
+              ON target.tenant_id = attempt.tenant_id
+             AND target.marketing_task_id = attempt.marketing_task_id
+             AND target.id = attempt.target_id
+            LEFT JOIN group_link_preview preview
+              ON preview.tenant_id = target.tenant_id
+             AND preview.group_link_id = COALESCE(attempt.group_link_id, target.group_link_id)
+            WHERE attempt.tenant_id = #{tenantId}
+              AND attempt.marketing_task_id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+                #{taskId}
+            </foreach>
+        )
+        SELECT COUNT(*)
+        FROM selected_group_jids selected
+        WHERE selected.group_jid IS NULL
+           OR TRIM(selected.group_jid) = ''
+           OR NOT EXISTS (
+              SELECT 1
+              FROM whatsapp_group_member_snapshot_fact snapshot
+              WHERE snapshot.tenant_id = selected.tenant_id
+                AND snapshot.group_jid = selected.group_jid
+                AND snapshot.snapshot_at &gt;= #{freshAfter}
+          )
+    </select>
+
     <update id="markJobSuccess">
         UPDATE marketing_task_export_job
         SET status = 'SUCCESS',
+            snapshot_at = #{snapshotAt},
             storage_key = #{storageKey},
             file_name = #{fileName},
             content_type = #{contentType},
@@ -230,9 +393,13 @@
             SELECT a.id AS attempt_id,
                    a.tenant_id,
                    a.marketing_task_id,
-                   TRIM(a.group_jid) AS group_jid,
+                   COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                            NULLIF(TRIM(t.group_jid), ''),
+                            NULLIF(TRIM(source_preview.group_jid), '')) AS group_jid,
                    a.group_link_id,
-                   NULLIF(TRIM(a.group_name), '') AS group_name,
+                   COALESCE(NULLIF(TRIM(a.group_name), ''),
+                            NULLIF(TRIM(t.group_name), ''),
+                            NULLIF(TRIM(source_preview.wa_subject), '')) AS group_name,
                    t.account_id AS sender_account_id,
                    NULLIF(TRIM(t.account_phone), '') AS sender_phone,
                    COALESCE(a.result_at, a.attempted_at, a.created_at) AS event_at
@@ -240,10 +407,14 @@
             JOIN marketing_task_target t ON t.id = a.target_id
                                         AND t.marketing_task_id = a.marketing_task_id
                                         AND t.tenant_id = a.tenant_id
+            LEFT JOIN group_link_preview source_preview
+              ON source_preview.tenant_id = a.tenant_id
+             AND source_preview.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
             WHERE a.tenant_id = #{tenantId}
               AND a.status = 1
-              AND a.group_jid IS NOT NULL
-              AND TRIM(a.group_jid) &lt;&gt; ''
+              AND COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                           NULLIF(TRIM(t.group_jid), ''),
+                           NULLIF(TRIM(source_preview.group_jid), '')) IS NOT NULL
               AND ((a.result_at IS NOT NULL AND a.result_at &lt;= #{snapshotAt})
                    OR (a.result_at IS NULL AND a.submitted_at IS NULL
                        AND COALESCE(a.attempted_at, a.created_at) &lt;= #{snapshotAt}))
@@ -269,7 +440,9 @@
             SELECT a.id AS attempt_id,
                    a.tenant_id,
                    a.marketing_task_id,
-                   COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) AS group_jid,
+                   COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                            NULLIF(TRIM(t.group_jid), ''),
+                            NULLIF(TRIM(status_preview.group_jid), '')) AS group_jid,
                    a.status AS projected_status,
                    a.reason_code,
                    a.group_status,
@@ -293,9 +466,14 @@
             JOIN marketing_task_target t ON t.id = a.target_id
                                         AND t.marketing_task_id = a.marketing_task_id
                                         AND t.tenant_id = a.tenant_id
+            LEFT JOIN group_link_preview status_preview
+              ON status_preview.tenant_id = a.tenant_id
+             AND status_preview.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
             WHERE a.tenant_id = #{tenantId}
               AND a.status IN (1, 2)
-              AND COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) IS NOT NULL
+              AND COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                           NULLIF(TRIM(t.group_jid), ''),
+                           NULLIF(TRIM(status_preview.group_jid), '')) IS NOT NULL
               AND ((a.result_at IS NOT NULL AND a.result_at &lt;= #{snapshotAt})
                    OR (a.result_at IS NULL AND a.submitted_at IS NULL
                        AND COALESCE(a.attempted_at, a.created_at) &lt;= #{snapshotAt}))
@@ -534,13 +712,16 @@
                    a.target_id,
                    t.account_id,
                    NULLIF(TRIM(t.account_phone), '') AS account_phone,
-                   COALESCE(a.group_link_id, t.group_link_id) AS group_link_id,
-                   COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), '')) AS group_jid,
-                   COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(t.group_name), '')) AS group_name,
-                   COALESCE(
-                       NULLIF(TRIM(a.group_jid), ''),
-                       NULLIF(TRIM(t.group_jid), ''),
-                       CONCAT('link:', COALESCE(a.group_link_id, t.group_link_id)),
+                    COALESCE(a.group_link_id, t.group_link_id) AS group_link_id,
+                    COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), ''),
+                             NULLIF(TRIM(attempt_preview.group_jid), '')) AS group_jid,
+                    COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(t.group_name), ''),
+                             NULLIF(TRIM(attempt_preview.wa_subject), '')) AS group_name,
+                    COALESCE(
+                        NULLIF(TRIM(a.group_jid), ''),
+                        NULLIF(TRIM(t.group_jid), ''),
+                        NULLIF(TRIM(attempt_preview.group_jid), ''),
+                        CONCAT('link:', COALESCE(a.group_link_id, t.group_link_id)),
                        CONCAT('target:', t.id)) AS group_key,
                    a.status AS raw_status,
                    a.reason_code,
@@ -561,6 +742,9 @@
             JOIN marketing_task_target t ON t.id = a.target_id
                                         AND t.marketing_task_id = a.marketing_task_id
                                         AND t.tenant_id = a.tenant_id
+            LEFT JOIN group_link_preview attempt_preview
+              ON attempt_preview.tenant_id = a.tenant_id
+             AND attempt_preview.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
             WHERE a.tenant_id = #{tenantId}
               AND (CASE WHEN a.status = 3
                         THEN COALESCE(a.attempted_at, a.created_at)
@@ -628,7 +812,7 @@
             LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
                                           AND p.tenant_id = t.tenant_id
             WHERE t.tenant_id = #{tenantId}
-              AND COALESCE(t.target_scope, 1) = 1
+              AND t.target_scope = 1
               AND t.created_at &lt;= #{snapshotAt}
               AND t.marketing_task_id IN
             <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">

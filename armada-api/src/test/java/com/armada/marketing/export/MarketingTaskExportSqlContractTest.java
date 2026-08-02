@@ -135,7 +135,7 @@ class MarketingTaskExportSqlContractTest {
                 .containsOnlyOnce("WHERE a.tenant_id = #{tenantId}\n              AND a.status IN (1, 2)");
         assertThat(groupCtes)
                 .contains("WHERE a.tenant_id = #{tenantId}\n              AND (CASE WHEN a.status = 3")
-                .contains("WHERE t.tenant_id = #{tenantId}\n              AND COALESCE(t.target_scope, 1) = 1");
+                .contains("WHERE t.tenant_id = #{tenantId}\n              AND t.target_scope = 1");
         assertThat(memberRows)
                 .contains("member.tenant_id = #{tenantId}")
                 .contains("JOIN member_state member")
@@ -154,6 +154,22 @@ class MarketingTaskExportSqlContractTest {
                 Long.class, List.class, long.class, ResultHandler.class);
         assertTenantInterceptorIgnored("selectGroupMemberRows",
                 Long.class, List.class, long.class, ResultHandler.class);
+    }
+
+    @Test
+    void taskGroupJidResolutionUsesPreviewFallbackInBothExportModes() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
+        String countryRows = selectBlock(xml, "selectCountryEntryRows");
+        String groupCtes = sqlBlock(xml, "ExportGroupCtes");
+
+        assertThat(countryRows)
+                .contains("LEFT JOIN group_link_preview")
+                .contains("NULLIF(TRIM(source_preview.group_jid), '')");
+        assertThat(groupCtes)
+                .contains("LEFT JOIN group_link_preview")
+                .contains("NULLIF(TRIM(attempt_preview.group_jid), '')");
     }
 
     @Test

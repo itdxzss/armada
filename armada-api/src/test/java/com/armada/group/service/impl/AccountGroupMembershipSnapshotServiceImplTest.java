@@ -9,12 +9,14 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.WhatsappGroupParticipant;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.service.WhatsappGroupMemberService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -33,9 +35,12 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     private final GroupLinkMapper groupLinkMapper = Mockito.mock(GroupLinkMapper.class);
     private final GroupLinkHealthMapper healthMapper = Mockito.mock(GroupLinkHealthMapper.class);
     private final GroupLinkRegistryService registryService = Mockito.mock(GroupLinkRegistryService.class);
+    private final WhatsappGroupMemberService whatsappGroupMemberService =
+            Mockito.mock(WhatsappGroupMemberService.class);
     private final AccountGroupMembershipSnapshotServiceImpl service =
             new AccountGroupMembershipSnapshotServiceImpl(
-                    membershipMapper, groupLinkMapper, healthMapper, registryService);
+                    membershipMapper, groupLinkMapper, healthMapper, registryService,
+                    whatsappGroupMemberService);
 
     @Test
     void replaceVisibleGroupsUsesOneTransactionForAllSnapshotTables() throws Exception {
@@ -82,6 +87,38 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                         org.mockito.ArgumentMatchers.isNull(),
                         org.mockito.ArgumentMatchers.eq(OBSERVED_BACKEND),
                         org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void replaceVisibleGroups_persistsWhatsappParticipantsWhenProducerSuppliesSnapshot() {
+        String groupJid = "120363-all-members@g.us";
+        List<WhatsappGroupParticipant> participants = List.of(
+                new WhatsappGroupParticipant(
+                        "123456789@lid", "123456789@lid", "14155550100",
+                        "admin", true, false),
+                new WhatsappGroupParticipant(
+                        "5511987654321@s.whatsapp.net", "5511987654321@s.whatsapp.net",
+                        "5511987654321", "member", false, false));
+        when(registryService.registerAccountObservedGroup(
+                org.mockito.ArgumentMatchers.eq(groupJid),
+                org.mockito.ArgumentMatchers.eq("全成员群"),
+                org.mockito.ArgumentMatchers.eq(OBSERVED_BACKEND),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(55L);
+
+        service.replaceVisibleGroups(
+                10L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        groupJid, "全成员群", 2, null, null, true, false,
+                        null, null, participants, true)),
+                true,
+                5_000L,
+                "evt-all-members",
+                "android_online_group_sync",
+                OBSERVED_BACKEND);
+
+        Mockito.verify(whatsappGroupMemberService).replaceCurrentMembers(
+                10L, 55L, groupJid, participants, 2, true, false, true,
+                5_000L, "evt-all-members");
     }
 
     @Test

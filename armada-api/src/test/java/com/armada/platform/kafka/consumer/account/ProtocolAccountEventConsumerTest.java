@@ -36,6 +36,9 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
 
+    @Mock
+    private ProtocolGroupParticipantsChangedSink participantsChangedSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
@@ -45,7 +48,8 @@ class ProtocolAccountEventConsumerTest {
                 sink,
                 groupsReportedSink,
                 offlineDiagnosedSink,
-                membershipChangedSink);
+                membershipChangedSink,
+                participantsChangedSink);
     }
 
     @Test
@@ -211,6 +215,67 @@ class ProtocolAccountEventConsumerTest {
                 .hasMessage("协议账号群关系事件路由账号不一致");
 
         verifyNoInteractions(membershipChangedSink);
+    }
+
+    @Test
+    void onGroupSyncMessage_groupSnapshotKeepsAllWhatsappParticipants() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"evt-groups-members","event":"account.groups_reported","version":"v1",
+                 "accountId":"acc_android_1","occurredAt":"2026-08-02T02:00:00Z","workerId":"android-1",
+                 "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
+                         "source":"android_online_group_sync","snapshotComplete":true,"skippedGroupCount":0,
+                          "groups":[{"groupJid":"120363001@g.us","subject":"目标群","memberCount":2,
+                                     "announceOnly":false,"admin":true,"participantsComplete":true,
+                                    "participants":[
+                                      {"memberJid":"123456789@lid","jid":"123456789@lid",
+                                       "phone":"16614936542","role":"superadmin","admin":true,"owner":true},
+                                      {"memberJid":"987654321@lid","jid":"987654321@lid",
+                                       "phone":"5511987654321","role":"participant","admin":false,"owner":false}
+                                    ]}]}}
+                """);
+
+        ArgumentCaptor<ProtocolAccountGroupsReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountGroupsReportedEvent.class);
+        verify(groupsReportedSink).handleGroupsReported(captor.capture());
+        ProtocolAccountGroupsReportedEvent.Group group = captor.getValue().groups().get(0);
+        assertThat(group.memberCount()).isEqualTo(2);
+        assertThat(group.announceOnly()).isFalse();
+        assertThat(group.participantsComplete()).isTrue();
+        assertThat(group.participants()).hasSize(2);
+        assertThat(group.participants().get(0).memberJid()).isEqualTo("123456789@lid");
+        assertThat(group.participants().get(0).phone()).isEqualTo("16614936542");
+        assertThat(group.participants().get(0).owner()).isTrue();
+    }
+
+    @Test
+    void onGroupSyncMessage_participantsChangedDispatchesAllWhatsappMembers() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"evt-participants-1","event":"group.participants_changed","version":"v1",
+                 "accountId":"acc_android_1","occurredAt":"2026-08-02T02:00:00Z","workerId":"android-1",
+                 "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
+                         "groupJid":"120363001@g.us","action":"remove","source":"android_wgp2",
+                         "sourceEventId":"server-event-1","participants":[
+                           {"memberJid":"987654321@lid","jid":"987654321@lid","phone":"5511987654321"}
+                         ]}}
+                """);
+
+        ArgumentCaptor<ProtocolGroupParticipantsChangedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupParticipantsChangedEvent.class);
+        verify(participantsChangedSink).handleParticipantsChanged(captor.capture());
+        ProtocolGroupParticipantsChangedEvent event = captor.getValue();
+        assertThat(event.eventId()).isEqualTo("evt-participants-1");
+        assertThat(event.tenantId()).isEqualTo(7L);
+        assertThat(event.accountId()).isEqualTo(100L);
+        assertThat(event.protocolAccountId()).isEqualTo("acc_android_1");
+        assertThat(event.groupJid()).isEqualTo("120363001@g.us");
+        assertThat(event.action()).isEqualTo("remove");
+        assertThat(event.occurredAt()).isEqualTo(1785636000000L);
+        assertThat(event.sourceEventId()).isEqualTo("server-event-1");
+        assertThat(event.participants()).singleElement().satisfies(participant -> {
+            assertThat(participant.memberJid()).isEqualTo("987654321@lid");
+            assertThat(participant.jid()).isEqualTo("987654321@lid");
+            assertThat(participant.phone()).isEqualTo("5511987654321");
+        });
     }
 
     @Test

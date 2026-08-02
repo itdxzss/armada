@@ -44,7 +44,17 @@ public class AccountGroupsReportedSinkAdapter implements ProtocolAccountGroupsRe
                         group.admin(),
                         group.announceOnly(),
                         group.avatarUrl(),
-                        group.creation())).toList(),
+                        group.creation(),
+                        group.participants() == null ? null : group.participants().stream()
+                                .map(participant -> new com.armada.group.model.dto.WhatsappGroupParticipant(
+                                        participant.memberJid(),
+                                        participant.jid(),
+                                        participant.phone(),
+                                        participant.role(),
+                                        participant.admin(),
+                                        participant.owner()))
+                                .toList(),
+                        group.participantsComplete())).toList(),
                 event.eventId(),
                 event.source(),
                 event.snapshotComplete(),

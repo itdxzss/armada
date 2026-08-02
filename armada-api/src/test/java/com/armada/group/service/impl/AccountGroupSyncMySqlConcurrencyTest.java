@@ -118,8 +118,9 @@ class AccountGroupSyncMySqlConcurrencyTest {
         GroupLinkHealthMapper healthMapper = sqlSessionTemplate.getMapper(GroupLinkHealthMapper.class);
         GroupLinkRegistryServiceImpl registryService =
                 new GroupLinkRegistryServiceImpl(groupLinkMapper, membershipMapper);
-        snapshotService = new AccountGroupMembershipSnapshotServiceImpl(
-                membershipMapper, groupLinkMapper, healthMapper, registryService);
+          snapshotService = new AccountGroupMembershipSnapshotServiceImpl(
+                  membershipMapper, groupLinkMapper, healthMapper, registryService,
+                  org.mockito.Mockito.mock(com.armada.group.service.WhatsappGroupMemberService.class));
     }
 
     @AfterAll

@@ -315,20 +315,155 @@
                 FROM group_status_source source
             ) ranked
             WHERE ranked.status_rank = 1
+        ),
+        country_member_fact_ranked AS (
+            SELECT fact.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.tenant_id, fact.group_jid, fact.member_jid
+                       ORDER BY fact.occurred_at DESC,
+                                CASE fact.status_source
+                                    WHEN 'PARTICIPANT_LEAVE' THEN 4
+                                    WHEN 'PARTICIPANT_REMOVE' THEN 3
+                                    WHEN 'PARTICIPANT_ADD' THEN 2
+                                    WHEN 'MEMBER_SNAPSHOT' THEN 1
+                                    ELSE 0 END DESC,
+                                fact.source_event_id DESC,
+                                fact.id DESC) AS state_rank,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.tenant_id, fact.group_jid, fact.member_jid
+                       ORDER BY CASE WHEN fact.phone IS NOT NULL AND TRIM(fact.phone) &lt;&gt; ''
+                                          THEN 0 ELSE 1 END,
+                                fact.occurred_at DESC,
+                                fact.source_event_id DESC,
+                                fact.id DESC) AS identity_rank,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.tenant_id, fact.group_jid, fact.member_jid
+                       ORDER BY CASE WHEN fact.role IS NOT NULL
+                                          OR fact.is_admin IS NOT NULL
+                                          OR fact.is_owner IS NOT NULL
+                                          THEN 0 ELSE 1 END,
+                                fact.occurred_at DESC,
+                                fact.source_event_id DESC,
+                                fact.id DESC) AS role_rank
+            FROM whatsapp_group_member_fact fact
+            JOIN (
+                SELECT DISTINCT tenant_id, group_jid
+                FROM successful_marketing
+            ) selected
+              ON selected.tenant_id = fact.tenant_id
+             AND selected.group_jid = fact.group_jid
+            WHERE fact.occurred_at &lt;= #{snapshotAt}
+        ),
+        country_member_state AS (
+            SELECT * FROM country_member_fact_ranked WHERE state_rank = 1
+        ),
+        country_member_identity AS (
+            SELECT tenant_id, group_jid, member_jid, phone
+            FROM country_member_fact_ranked
+            WHERE identity_rank = 1 AND phone IS NOT NULL AND TRIM(phone) &lt;&gt; ''
+        ),
+        country_member_role AS (
+            SELECT tenant_id, group_jid, member_jid, is_admin
+            FROM country_member_fact_ranked
+            WHERE role_rank = 1
+        ),
+        country_current_member_roles AS (
+            SELECT state.tenant_id,
+                   state.group_jid,
+                   identity.phone,
+                   MAX(member_role.is_admin) AS is_admin
+            FROM country_member_state state
+            JOIN country_member_identity identity
+              ON identity.tenant_id = state.tenant_id
+             AND identity.group_jid = state.group_jid
+             AND identity.member_jid = state.member_jid
+            LEFT JOIN country_member_role member_role
+              ON member_role.tenant_id = state.tenant_id
+             AND member_role.group_jid = state.group_jid
+             AND member_role.member_jid = state.member_jid
+            WHERE state.membership_status = 1
+            GROUP BY state.tenant_id, state.group_jid, identity.phone
+        ),
+        country_member_history AS (
+            SELECT tenant_id,
+                   group_jid,
+                   member_jid,
+                   MAX(CASE WHEN status_source = 'PARTICIPANT_ADD' THEN occurred_at END) AS joined_at,
+                   MAX(CASE WHEN status_source IN ('PARTICIPANT_REMOVE', 'PARTICIPANT_LEAVE')
+                            THEN occurred_at END) AS exited_at
+            FROM country_member_fact_ranked
+            GROUP BY tenant_id, group_jid, member_jid
+        ),
+        country_group_setting_ranked AS (
+            SELECT snapshot.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY snapshot.tenant_id, snapshot.group_jid
+                       ORDER BY snapshot.snapshot_at DESC,
+                                snapshot.source_event_id DESC,
+                                snapshot.id DESC) AS setting_rank
+            FROM whatsapp_group_member_snapshot_fact snapshot
+            JOIN (
+                SELECT DISTINCT tenant_id, group_jid
+                FROM successful_marketing
+            ) selected
+              ON selected.tenant_id = snapshot.tenant_id
+             AND selected.group_jid = snapshot.group_jid
+            WHERE snapshot.snapshot_at &lt;= #{snapshotAt}
+        ),
+        country_group_setting AS (
+            SELECT * FROM country_group_setting_ranked WHERE setting_rank = 1
+        ),
+        country_sender_setting_ranked AS (
+            SELECT selected.marketing_task_id,
+                   selected.sender_account_id,
+                   snapshot.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY snapshot.tenant_id,
+                                    selected.marketing_task_id,
+                                    snapshot.group_jid,
+                                    selected.sender_account_id
+                       ORDER BY snapshot.snapshot_at DESC,
+                                snapshot.source_event_id DESC,
+                                snapshot.id DESC) AS sender_setting_rank
+            FROM whatsapp_group_member_snapshot_fact snapshot
+            JOIN successful_marketing selected
+              ON selected.tenant_id = snapshot.tenant_id
+             AND selected.group_jid = snapshot.group_jid
+             AND selected.sender_account_id = snapshot.observer_account_id
+            WHERE snapshot.snapshot_at &lt;= #{snapshotAt}
+        ),
+        country_sender_setting AS (
+            SELECT * FROM country_sender_setting_ranked WHERE sender_setting_rank = 1
         )
-        SELECT MIN(COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at)) AS joinedAt,
+        SELECT CASE WHEN member.membership_status IN (1, 5)
+                          AND history.exited_at IS NOT NULL
+                          AND (history.joined_at IS NULL OR history.joined_at &lt;= history.exited_at)
+                         THEN NULL
+                    ELSE history.joined_at END AS joinedAt,
                mt.id AS taskId,
                mt.task_name AS taskName,
-               REGEXP_REPLACE(
-                   COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
-                   '[^0-9]', '') AS actualPhone,
+               REGEXP_REPLACE(identity.phone, '[^0-9]', '') AS actualPhone,
                COALESCE(sm.group_name, NULLIF(TRIM(preview.wa_subject), ''), sm.group_jid) AS groupName,
                group_link_data.link_url AS groupLink,
                <include refid="ExportGroupStatusCase"/> AS groupStatus,
-               CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
+               CASE WHEN group_setting.announce_only = 1
+                              AND COALESCE(
+                                        sender_member.is_admin,
+                                        CASE WHEN sender_setting.observer_is_admin = 1
+                                                   AND ((sender_relation.membership_status = 1
+                                                         AND (sender_relation.joined_at IS NULL
+                                                              OR (sender_relation.joined_at &lt;= #{snapshotAt}
+                                                                  AND sender_setting.snapshot_at
+                                                                      &gt;= sender_relation.joined_at)))
+                                                        OR (sender_relation.membership_status &lt;&gt; 1
+                                                            AND sender_relation.status_updated_at &gt; #{snapshotAt}
+                                                            AND (sender_relation.joined_at IS NULL
+                                                                 OR sender_setting.snapshot_at
+                                                                    &gt;= sender_relation.joined_at)))
+                                              THEN 1 ELSE 0 END) = 1
                         THEN '仅管理员可发言（发送账号可发言）'
-                    WHEN preview.announce_only = 1 THEN '无发言权限'
-                    WHEN preview.announce_only = 0 THEN '所有成员可发言'
+                    WHEN group_setting.announce_only = 1 THEN '无发言权限'
+                    WHEN group_setting.announce_only = 0 THEN '所有成员可发言'
                     ELSE '未确认' END AS speechPermission,
                sm.sender_phone AS senderPhone,
                sm.marketing_count AS marketingCount
@@ -337,13 +472,31 @@
                               AND mt.tenant_id = sm.tenant_id
                               AND mt.business_type = 1
                               AND mt.deleted_at IS NULL
-        JOIN join_task_result jtr ON jtr.group_jid = sm.group_jid
-                                 AND jtr.tenant_id = sm.tenant_id
-                                 AND jtr.status = 'SUCCESS'
-                                 AND COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}
-        LEFT JOIN account joined_account ON joined_account.id = jtr.account_id
-                                        AND joined_account.tenant_id = jtr.tenant_id
-                                        AND joined_account.deleted_at IS NULL
+        JOIN country_member_state member ON member.tenant_id = sm.tenant_id
+                                        AND member.group_jid = sm.group_jid
+        JOIN country_member_identity identity ON identity.tenant_id = member.tenant_id
+                                             AND identity.group_jid = member.group_jid
+                                             AND identity.member_jid = member.member_jid
+        LEFT JOIN country_member_history history ON history.tenant_id = member.tenant_id
+                                                AND history.group_jid = member.group_jid
+                                                AND history.member_jid = member.member_jid
+        LEFT JOIN country_group_setting group_setting
+               ON group_setting.tenant_id = sm.tenant_id
+              AND group_setting.group_jid = sm.group_jid
+        LEFT JOIN country_sender_setting sender_setting
+               ON sender_setting.tenant_id = sm.tenant_id
+              AND sender_setting.marketing_task_id = sm.marketing_task_id
+              AND sender_setting.group_jid = sm.group_jid
+              AND sender_setting.sender_account_id = sm.sender_account_id
+        LEFT JOIN country_current_member_roles sender_member
+               ON sender_member.tenant_id = sm.tenant_id
+              AND sender_member.group_jid = sm.group_jid
+              AND sender_member.phone = REGEXP_REPLACE(sm.sender_phone, '[^0-9]', '')
+        LEFT JOIN account_group_membership sender_relation
+               ON sender_relation.tenant_id = sm.tenant_id
+              AND sender_relation.account_id = sm.sender_account_id
+              AND sender_relation.group_jid = sm.group_jid
+              AND sender_relation.deleted_at IS NULL
         LEFT JOIN group_link_preview preview ON preview.group_link_id = sm.group_link_id
                                             AND preview.tenant_id = sm.tenant_id
                                             AND (preview.group_jid IS NULL OR preview.group_jid = sm.group_jid)
@@ -354,20 +507,20 @@
         LEFT JOIN latest_group_status protocol ON protocol.tenant_id = sm.tenant_id
                                               AND protocol.marketing_task_id = sm.marketing_task_id
                                               AND protocol.group_jid = sm.group_jid
-        LEFT JOIN account_group_membership membership
-               ON membership.tenant_id = sm.tenant_id
-              AND membership.account_id = sm.sender_account_id
-              AND membership.group_jid = sm.group_jid
-              AND membership.deleted_at IS NULL
         GROUP BY mt.id, mt.task_name,
-                 REGEXP_REPLACE(
-                     COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
-                     '[^0-9]', ''),
+                 member.member_jid,
+                 member.membership_status,
+                 history.joined_at,
+                 history.exited_at,
+                 REGEXP_REPLACE(identity.phone, '[^0-9]', ''),
                  sm.group_jid, sm.group_name, preview.wa_subject, group_link_data.link_url,
                  health.is_banned, health.health_status,
                  protocol.projected_status, protocol.reason_code,
                  protocol.group_status, protocol.group_status_reason,
-                 preview.announce_only, membership.is_admin,
+                 group_setting.announce_only, sender_member.is_admin,
+                 sender_setting.observer_is_admin, sender_setting.snapshot_at,
+                 sender_relation.id, sender_relation.membership_status,
+                 sender_relation.joined_at, sender_relation.status_updated_at,
                  sm.sender_phone, sm.marketing_count
         HAVING actualPhone IS NOT NULL AND actualPhone &lt;&gt; ''
         ORDER BY mt.id ASC, sm.group_jid ASC, actualPhone ASC
@@ -513,6 +666,115 @@
             FROM attempt_source
             WHERE group_jid IS NOT NULL AND TRIM(group_jid) &lt;&gt; ''
         ),
+        member_fact_ranked AS (
+            SELECT fact.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.tenant_id, fact.group_jid, fact.member_jid
+                       ORDER BY fact.occurred_at DESC,
+                                CASE fact.status_source
+                                    WHEN 'PARTICIPANT_LEAVE' THEN 4
+                                    WHEN 'PARTICIPANT_REMOVE' THEN 3
+                                    WHEN 'PARTICIPANT_ADD' THEN 2
+                                    WHEN 'MEMBER_SNAPSHOT' THEN 1
+                                    ELSE 0 END DESC,
+                                fact.source_event_id DESC,
+                                fact.id DESC) AS state_rank,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.tenant_id, fact.group_jid, fact.member_jid
+                       ORDER BY CASE WHEN fact.phone IS NOT NULL AND TRIM(fact.phone) &lt;&gt; ''
+                                          THEN 0 ELSE 1 END,
+                                fact.occurred_at DESC,
+                                fact.source_event_id DESC,
+                                fact.id DESC) AS identity_rank,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fact.tenant_id, fact.group_jid, fact.member_jid
+                       ORDER BY CASE WHEN fact.role IS NOT NULL
+                                          OR fact.is_admin IS NOT NULL
+                                          OR fact.is_owner IS NOT NULL
+                                          THEN 0 ELSE 1 END,
+                                fact.occurred_at DESC,
+                                fact.source_event_id DESC,
+                                fact.id DESC) AS role_rank
+            FROM whatsapp_group_member_fact fact
+            JOIN selected_group_jids selected
+              ON selected.tenant_id = fact.tenant_id
+             AND selected.group_jid = fact.group_jid
+            WHERE fact.occurred_at &lt;= #{snapshotAt}
+        ),
+        member_state AS (
+            SELECT * FROM member_fact_ranked WHERE state_rank = 1
+        ),
+        member_identity AS (
+            SELECT tenant_id, group_jid, member_jid, phone
+            FROM member_fact_ranked
+            WHERE identity_rank = 1
+        ),
+        member_role AS (
+            SELECT tenant_id, group_jid, member_jid, role, is_admin, is_owner
+            FROM member_fact_ranked
+            WHERE role_rank = 1
+        ),
+        member_history AS (
+            SELECT tenant_id,
+                   group_jid,
+                   member_jid,
+                   MAX(CASE WHEN status_source = 'PARTICIPANT_ADD' THEN occurred_at END) AS joined_at,
+                   MAX(CASE WHEN status_source IN ('PARTICIPANT_REMOVE', 'PARTICIPANT_LEAVE')
+                            THEN occurred_at END) AS exited_at
+            FROM member_fact_ranked
+            GROUP BY tenant_id, group_jid, member_jid
+        ),
+        current_member_roles AS (
+            SELECT state.tenant_id,
+                   state.group_jid,
+                   identity.phone,
+                   MAX(member_role.is_admin) AS is_admin
+            FROM member_state state
+            JOIN member_identity identity
+              ON identity.tenant_id = state.tenant_id
+             AND identity.group_jid = state.group_jid
+             AND identity.member_jid = state.member_jid
+            LEFT JOIN member_role member_role
+              ON member_role.tenant_id = state.tenant_id
+             AND member_role.group_jid = state.group_jid
+             AND member_role.member_jid = state.member_jid
+            WHERE state.membership_status = 1
+            GROUP BY state.tenant_id, state.group_jid, identity.phone
+        ),
+        group_setting_ranked AS (
+            SELECT snapshot.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY snapshot.tenant_id, snapshot.group_jid
+                       ORDER BY snapshot.snapshot_at DESC,
+                                snapshot.source_event_id DESC,
+                                snapshot.id DESC) AS setting_rank
+            FROM whatsapp_group_member_snapshot_fact snapshot
+            JOIN selected_group_jids selected
+              ON selected.tenant_id = snapshot.tenant_id
+             AND selected.group_jid = snapshot.group_jid
+            WHERE snapshot.snapshot_at &lt;= #{snapshotAt}
+        ),
+        latest_group_setting AS (
+            SELECT * FROM group_setting_ranked WHERE setting_rank = 1
+        ),
+        sender_group_setting_ranked AS (
+            SELECT snapshot.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY snapshot.tenant_id,
+                                    snapshot.group_jid,
+                                    snapshot.observer_account_id
+                       ORDER BY snapshot.snapshot_at DESC,
+                                snapshot.source_event_id DESC,
+                                snapshot.id DESC) AS sender_setting_rank
+            FROM whatsapp_group_member_snapshot_fact snapshot
+            JOIN selected_group_jids selected
+              ON selected.tenant_id = snapshot.tenant_id
+             AND selected.group_jid = snapshot.group_jid
+            WHERE snapshot.snapshot_at &lt;= #{snapshotAt}
+        ),
+        sender_group_setting AS (
+            SELECT * FROM sender_group_setting_ranked WHERE sender_setting_rank = 1
+        ),
         latest_any AS (
             SELECT ranked.*
             FROM (
@@ -571,20 +833,51 @@
             WHERE af.projected_status = 2
             GROUP BY af.tenant_id, af.marketing_task_id, af.group_key
         ),
-        joined_counts AS (
+        successful_join_members AS (
+            SELECT member_join.tenant_id,
+                   member_join.group_jid,
+                   REGEXP_REPLACE(
+                       COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''),
+                                NULLIF(TRIM(member_join.account), '')),
+                       '[^0-9]', '') AS phone,
+                   MAX(COALESCE(member_join.joined_at,
+                                member_join.updated_at,
+                                member_join.created_at)) AS joined_at
+            FROM join_task_result member_join
+            LEFT JOIN account joined_account
+              ON joined_account.tenant_id = member_join.tenant_id
+             AND joined_account.id = member_join.account_id
+             AND joined_account.deleted_at IS NULL
+            JOIN selected_group_jids selected
+              ON selected.tenant_id = member_join.tenant_id
+             AND selected.group_jid = member_join.group_jid
+            WHERE member_join.status = 'SUCCESS'
+              AND COALESCE(member_join.joined_at,
+                           member_join.updated_at,
+                           member_join.created_at) &lt;= #{snapshotAt}
+            GROUP BY member_join.tenant_id,
+                     member_join.group_jid,
+                     REGEXP_REPLACE(
+                         COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''),
+                                  NULLIF(TRIM(member_join.account), '')),
+                         '[^0-9]', '')
+        ),
+        member_counts AS (
             SELECT selected.tenant_id,
-                   jtr.group_jid,
-                   COUNT(DISTINCT NULLIF(REGEXP_REPLACE(
-                       COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
-                       '[^0-9]', ''), '')) AS joined_count
+                   selected.group_jid,
+                   CASE WHEN complete.group_jid IS NULL THEN NULL
+                        ELSE COUNT(DISTINCT CASE WHEN member.membership_status = 1
+                                                 THEN member.member_jid END)
+                   END AS current_count,
+                   COUNT(DISTINCT member.member_jid) AS joined_count
             FROM selected_group_jids selected
-            JOIN join_task_result jtr ON jtr.tenant_id = selected.tenant_id
-                                     AND jtr.group_jid = selected.group_jid
-            LEFT JOIN account joined_account ON joined_account.id = jtr.account_id
-                                            AND joined_account.tenant_id = jtr.tenant_id
-            WHERE jtr.status = 'SUCCESS'
-              AND COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}
-            GROUP BY selected.tenant_id, jtr.group_jid
+            LEFT JOIN latest_group_setting complete
+              ON complete.tenant_id = selected.tenant_id
+             AND complete.group_jid = selected.group_jid
+            LEFT JOIN member_state member
+              ON member.tenant_id = selected.tenant_id
+             AND member.group_jid = selected.group_jid
+            GROUP BY selected.tenant_id, selected.group_jid, complete.group_jid
         ),
         group_rows AS (
             SELECT COALESCE(fixed.joined_task_at, attempts.joined_task_at) AS joinedTaskAt,
@@ -597,13 +890,27 @@
                    group_link.link_url AS groupLink,
                    d.group_key AS groupKey,
                    <include refid="ExportGroupStatusCase"/> AS groupStatus,
-                   CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
+                   CASE WHEN group_setting.announce_only = 1
+                                  AND COALESCE(
+                                        sender_member.is_admin,
+                                        CASE WHEN sender_setting.observer_is_admin = 1
+                                                       AND ((sender_relation.membership_status = 1
+                                                             AND (sender_relation.joined_at IS NULL
+                                                                  OR (sender_relation.joined_at &lt;= #{snapshotAt}
+                                                                      AND sender_setting.snapshot_at
+                                                                          &gt;= sender_relation.joined_at)))
+                                                            OR (sender_relation.membership_status &lt;&gt; 1
+                                                                AND sender_relation.status_updated_at &gt; #{snapshotAt}
+                                                                AND (sender_relation.joined_at IS NULL
+                                                                     OR sender_setting.snapshot_at
+                                                                        &gt;= sender_relation.joined_at)))
+                                                  THEN 1 ELSE 0 END) = 1
                             THEN '仅管理员可发言（发送账号可发言）'
-                        WHEN preview.announce_only = 1 THEN '无发言权限'
-                        WHEN preview.announce_only = 0 THEN '所有成员可发言'
+                        WHEN group_setting.announce_only = 1 THEN '无发言权限'
+                        WHEN group_setting.announce_only = 0 THEN '所有成员可发言'
                         ELSE '未确认' END AS speechPermission,
-                   COALESCE(health.current_count, preview.member_size) AS groupMemberCount,
-                   COALESCE(joined.joined_count, 0) AS joinedPhoneCount,
+                   members.current_count AS groupMemberCount,
+                   COALESCE(members.joined_count, 0) AS joinedPhoneCount,
                    COALESCE(attempts.planned_count, 0) AS plannedCount,
                    COALESCE(attempts.success_count, 0) AS successCount,
                    COALESCE(attempts.failed_count, 0) AS failedCount,
@@ -680,14 +987,26 @@
             LEFT JOIN group_link
               ON group_link.tenant_id = d.tenant_id
              AND group_link.id = COALESCE(latest.group_link_id, fixed.group_link_id)
-            LEFT JOIN joined_counts joined
-              ON joined.tenant_id = d.tenant_id
-             AND joined.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
-            LEFT JOIN account_group_membership membership
-              ON membership.tenant_id = d.tenant_id
-             AND membership.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
-             AND membership.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
-             AND membership.deleted_at IS NULL
+            LEFT JOIN member_counts members
+              ON members.tenant_id = d.tenant_id
+             AND members.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+            LEFT JOIN latest_group_setting group_setting
+              ON group_setting.tenant_id = d.tenant_id
+             AND group_setting.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+            LEFT JOIN sender_group_setting sender_setting
+              ON sender_setting.tenant_id = d.tenant_id
+             AND sender_setting.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+             AND sender_setting.observer_account_id = COALESCE(latest.account_id, fixed.sender_account_id)
+            LEFT JOIN current_member_roles sender_member
+              ON sender_member.tenant_id = d.tenant_id
+             AND sender_member.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+             AND sender_member.phone = REGEXP_REPLACE(
+                   COALESCE(latest.account_phone, fixed.sender_phone), '[^0-9]', '')
+            LEFT JOIN account_group_membership sender_relation
+              ON sender_relation.tenant_id = d.tenant_id
+             AND sender_relation.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
+             AND sender_relation.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
+             AND sender_relation.deleted_at IS NULL
             LEFT JOIN account_state account_state
               ON account_state.tenant_id = d.tenant_id
              AND account_state.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
@@ -713,48 +1032,54 @@
                group_data.groupLink,
                group_data.groupStatus,
                group_data.groupMemberCount,
-               member_account.ws_phone AS memberPhone,
-               CASE WHEN membership.is_admin = 1 THEN '管理员'
-                    WHEN membership.is_admin = 0 THEN '群成员'
+               identity.phone AS memberPhone,
+               CASE WHEN member_role.is_owner = 1 THEN '群主'
+                    WHEN member_role.is_admin = 1 THEN '管理员'
+                    WHEN member_role.is_admin = 0 THEN '群成员'
                     ELSE '未知' END AS role,
                NULL AS countryName,
-               CASE WHEN membership.membership_status = 1 THEN '是'
-                    WHEN membership.membership_status IN (3, 4, 5) THEN '否'
+               CASE WHEN member.membership_status = 1 THEN '是'
+                    WHEN member.membership_status IN (3, 4, 5) THEN '否'
                     ELSE '未知' END AS inGroup,
-               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                          AND membership.last_exit_type = 3 THEN '被移出群'
-                    WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                          AND membership.last_exit_type = 4 THEN '主动退群'
+               CASE WHEN member.membership_status IN (3, 4)
+                          AND member.status_source = 'PARTICIPANT_REMOVE' THEN '被移出群'
+                    WHEN member.membership_status IN (3, 4)
+                          AND member.status_source = 'PARTICIPANT_LEAVE' THEN '主动退群'
                     ELSE '' END AS exitType,
-               CASE WHEN membership.joined_at &lt;= #{snapshotAt}
-                    THEN membership.joined_at END AS joinedAt,
-               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                    THEN membership.last_exited_at END AS exitedAt,
-               CASE WHEN EXISTS (
-                   SELECT 1
-                   FROM join_task_result member_join
-                   WHERE member_join.tenant_id = #{tenantId}
-                     AND member_join.group_jid = group_data.groupJid
-                     AND member_join.account_id = membership.account_id
-                     AND member_join.status = 'SUCCESS'
-                     AND COALESCE(member_join.joined_at,
-                                  member_join.updated_at,
-                                  member_join.created_at) BETWEEN
+               CASE WHEN member.membership_status IN (1, 5)
+                          AND history.exited_at IS NOT NULL
+                          AND (history.joined_at IS NULL OR history.joined_at &lt;= history.exited_at)
+                         THEN NULL
+                    ELSE history.joined_at END AS joinedAt,
+               CASE WHEN member.membership_status IN (3, 4)
+                          AND member.status_source IN ('PARTICIPANT_REMOVE', 'PARTICIPANT_LEAVE')
+                    THEN member.occurred_at END AS exitedAt,
+               CASE WHEN successful_join.joined_at BETWEEN
                          COALESCE(group_data.joinedTaskAt, 0) AND #{snapshotAt}
-               ) THEN '本任务成功进群'
+                    THEN '本任务成功进群'
                  ELSE '原群成员' END AS taskJoinStatus
         FROM group_rows group_data
-        JOIN account_group_membership membership
-          ON membership.tenant_id = #{tenantId}
-         AND membership.group_jid = group_data.groupJid
-         AND membership.deleted_at IS NULL
-         AND membership.created_at &lt;= #{snapshotAt}
-        JOIN account member_account
-          ON member_account.tenant_id = membership.tenant_id
-         AND member_account.id = membership.account_id
-         AND member_account.deleted_at IS NULL
+        JOIN member_state member
+          ON member.tenant_id = #{tenantId}
+         AND member.group_jid = group_data.groupJid
+        LEFT JOIN member_identity identity
+          ON identity.tenant_id = member.tenant_id
+         AND identity.group_jid = member.group_jid
+         AND identity.member_jid = member.member_jid
+        LEFT JOIN member_role member_role
+          ON member_role.tenant_id = member.tenant_id
+         AND member_role.group_jid = member.group_jid
+         AND member_role.member_jid = member.member_jid
+        LEFT JOIN member_history history
+          ON history.tenant_id = member.tenant_id
+         AND history.group_jid = member.group_jid
+         AND history.member_jid = member.member_jid
+        LEFT JOIN successful_join_members successful_join
+          ON successful_join.tenant_id = member.tenant_id
+         AND successful_join.group_jid = member.group_jid
+         AND successful_join.phone = identity.phone
         WHERE group_data.groupJid IS NOT NULL
           AND TRIM(group_data.groupJid) &lt;&gt; ''
-        ORDER BY group_data.taskId ASC, group_data.groupKey ASC, membership.account_id ASC
+        ORDER BY group_data.taskId ASC, group_data.groupKey ASC, member.member_jid ASC
     </select>
 </mapper>

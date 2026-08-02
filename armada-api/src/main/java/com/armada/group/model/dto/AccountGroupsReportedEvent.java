@@ -64,6 +64,8 @@ public record AccountGroupsReportedEvent(
      * @param announceOnly 是否仅管理员发言,可空
      * @param avatarUrl    群头像 URL,可空
      * @param groupCreatedAt WhatsApp 群创建时间,Unix 秒;可空
+     * @param participants  WhatsApp 当前成员快照；null 表示旧协议未上报
+     * @param participantsComplete 协议是否明确确认 participant 列表完整
      */
     public record Group(
             String groupJid,
@@ -74,7 +76,9 @@ public record AccountGroupsReportedEvent(
             Boolean admin,
             Boolean announceOnly,
             String avatarUrl,
-            Long groupCreatedAt
+            Long groupCreatedAt,
+            List<WhatsappGroupParticipant> participants,
+            Boolean participantsComplete
     ) {
 
         /** 兼容尚未上报群创建时间的调用方。 */
@@ -88,7 +92,38 @@ public record AccountGroupsReportedEvent(
                 Boolean announceOnly,
                 String avatarUrl) {
             this(groupJid, subject, memberCount, ownerJid, ownerPhone,
-                    admin, announceOnly, avatarUrl, null);
+                    admin, announceOnly, avatarUrl, null, null, null);
+        }
+
+        /** 兼容尚未上报 participant 明细的调用方。 */
+        public Group(
+                String groupJid,
+                String subject,
+                Integer memberCount,
+                String ownerJid,
+                String ownerPhone,
+                Boolean admin,
+                Boolean announceOnly,
+                String avatarUrl,
+                Long groupCreatedAt) {
+            this(groupJid, subject, memberCount, ownerJid, ownerPhone,
+                    admin, announceOnly, avatarUrl, groupCreatedAt, null, null);
+        }
+
+        /** 兼容尚未携带 participant 完整性标记的调用方。 */
+        public Group(
+                String groupJid,
+                String subject,
+                Integer memberCount,
+                String ownerJid,
+                String ownerPhone,
+                Boolean admin,
+                Boolean announceOnly,
+                String avatarUrl,
+                Long groupCreatedAt,
+                List<WhatsappGroupParticipant> participants) {
+            this(groupJid, subject, memberCount, ownerJid, ownerPhone,
+                    admin, announceOnly, avatarUrl, groupCreatedAt, participants, null);
         }
     }
 }

@@ -28,6 +28,7 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
                         {"Code":0,"Data":{
                           "Subject":"安卓历史群",
                           "GroupId":"120363001@g.us",
+                          "Announce":false,
                           "Count":2,
                           "Participants":[
                             {"phone":"919000000001","type":"admin"},
@@ -40,7 +41,7 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
 
         assertThat(result.groupJid()).isEqualTo("120363001@g.us");
         assertThat(result.subject()).isEqualTo("安卓历史群");
-        assertThat(result.announce()).isNull();
+        assertThat(result.announce()).isFalse();
         assertThat(result.stateAbnormal()).isFalse();
         assertThat(result.participantMutationSupported()).isTrue();
         assertThat(result.participants()).hasSize(2);

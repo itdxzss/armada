@@ -37,6 +37,9 @@ public class ProtocolAccountEventConsumer {
     public static final String EVENT_ACCOUNT_GROUP_MEMBERSHIP_CHANGED =
             "account.group_membership_changed";
 
+    /** 协议层普通 WhatsApp 群成员精确变更事件类型。 */
+    public static final String EVENT_GROUP_PARTICIPANTS_CHANGED = "group.participants_changed";
+
     /** 协议层账号离线诊断事件类型。 */
     public static final String EVENT_ACCOUNT_OFFLINE_DIAGNOSED = "account.offline_diagnosed";
 
@@ -45,6 +48,7 @@ public class ProtocolAccountEventConsumer {
     private final ProtocolAccountGroupsReportedSink groupsReportedSink;
     private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
     private final ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
+    private final ProtocolGroupParticipantsChangedSink participantsChangedSink;
 
     /**
      * 创建协议账号事件 consumer。
@@ -59,12 +63,14 @@ public class ProtocolAccountEventConsumer {
                                         ProtocolAccountStateChangedSink stateChangedSink,
                                         ProtocolAccountGroupsReportedSink groupsReportedSink,
                                         ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
-                                        ProtocolAccountGroupMembershipChangedSink membershipChangedSink) {
+                                        ProtocolAccountGroupMembershipChangedSink membershipChangedSink,
+                                        ProtocolGroupParticipantsChangedSink participantsChangedSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
         this.groupsReportedSink = groupsReportedSink;
         this.offlineDiagnosedSink = offlineDiagnosedSink;
         this.membershipChangedSink = membershipChangedSink;
+        this.participantsChangedSink = participantsChangedSink;
     }
 
     /**
@@ -131,6 +137,13 @@ public class ProtocolAccountEventConsumer {
             log.info("协议账号群关系事件收到 eventId={} accountId={} action={} source={} workerId={}",
                     event.eventId(), event.accountId(), event.action(), event.source(), event.workerId());
             membershipChangedSink.handleMembershipChanged(event);
+            return;
+        }
+        if (EVENT_GROUP_PARTICIPANTS_CHANGED.equals(eventType)) {
+            ProtocolGroupParticipantsChangedEvent event = toParticipantsChangedEvent(envelope);
+            log.info("WhatsApp 群成员事件收到 eventId={} accountId={} action={} participantCount={} workerId={}",
+                    event.eventId(), event.accountId(), event.action(), event.participants().size(), event.workerId());
+            participantsChangedSink.handleParticipantsChanged(event);
             return;
         }
         throw new BusinessException(ErrorCode.VALIDATION,
@@ -252,6 +265,35 @@ public class ProtocolAccountEventConsumer {
                 evidenceJson);
     }
 
+    private ProtocolGroupParticipantsChangedEvent toParticipantsChangedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "WhatsApp 群成员事件缺少 accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "WhatsApp 群成员事件缺少 data.protocolAccountId");
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "WhatsApp 群成员事件路由账号不一致");
+        }
+        Long occurredAt = occurredAt(envelope);
+        if (occurredAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "WhatsApp 群成员事件缺少 occurredAt");
+        }
+        List<ProtocolGroupParticipantsChangedEvent.Participant> participants =
+                changedParticipants(data.path("participants"));
+        return new ProtocolGroupParticipantsChangedEvent(
+                requiredText(envelope, "eventId", "WhatsApp 群成员事件缺少 eventId"),
+                requiredLong(data, "tenantId", "WhatsApp 群成员事件缺少 data.tenantId"),
+                requiredLong(data, "accountId", "WhatsApp 群成员事件缺少 data.accountId"),
+                protocolAccountId,
+                requiredText(data, "groupJid", "WhatsApp 群成员事件缺少 data.groupJid"),
+                requiredText(data, "action", "WhatsApp 群成员事件缺少 data.action"),
+                occurredAt,
+                text(data, "source"),
+                text(data, "sourceEventId"),
+                text(envelope, "workerId"),
+                participants);
+    }
+
     private static JsonNode dataNode(JsonNode envelope) {
         return envelope.path("data").isObject() ? envelope.path("data") : envelope;
     }
@@ -270,9 +312,46 @@ public class ProtocolAccountEventConsumer {
                     anyText(node, "ownerPhone"),
                     boolAny(node, "isAdmin", "admin"),
                     boolAny(node, "announceOnly", "announce"),
-                    anyText(node, "avatarUrl", "pictureUrl")));
+                    anyText(node, "avatarUrl", "pictureUrl"),
+                    longValue(node, "creation"),
+                    snapshotParticipants(node.get("participants")),
+                    boolAny(node, "participantsComplete")));
         }
         return groups;
+    }
+
+    private static List<ProtocolAccountGroupsReportedEvent.Participant> snapshotParticipants(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (!node.isArray()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群列表 participants 不是数组");
+        }
+        List<ProtocolAccountGroupsReportedEvent.Participant> participants = new ArrayList<>(node.size());
+        for (JsonNode item : node) {
+            participants.add(new ProtocolAccountGroupsReportedEvent.Participant(
+                    requiredText(item, "memberJid", "协议账号群列表成员缺少 memberJid"),
+                    anyText(item, "jid", "participantJid"),
+                    anyText(item, "phone", "phoneNumber", "phone_number"),
+                    text(item, "role"),
+                    boolAny(item, "admin", "isAdmin"),
+                    boolAny(item, "owner", "isOwner")));
+        }
+        return List.copyOf(participants);
+    }
+
+    private static List<ProtocolGroupParticipantsChangedEvent.Participant> changedParticipants(JsonNode node) {
+        if (!node.isArray() || node.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "WhatsApp 群成员事件缺少 participants");
+        }
+        List<ProtocolGroupParticipantsChangedEvent.Participant> participants = new ArrayList<>(node.size());
+        for (JsonNode item : node) {
+            participants.add(new ProtocolGroupParticipantsChangedEvent.Participant(
+                    requiredText(item, "memberJid", "WhatsApp 群成员事件 participant 缺少 memberJid"),
+                    anyText(item, "jid", "participantJid"),
+                    anyText(item, "phone", "phoneNumber", "phone_number")));
+        }
+        return List.copyOf(participants);
     }
 
     private static Long occurredAt(JsonNode envelope) {

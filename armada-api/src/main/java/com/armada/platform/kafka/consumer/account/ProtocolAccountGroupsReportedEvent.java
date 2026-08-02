@@ -44,6 +44,8 @@ public record ProtocolAccountGroupsReportedEvent(
      * @param announceOnly 是否仅管理员发言,可空
      * @param avatarUrl    群头像 URL,可空
      * @param creation     WhatsApp 群创建时间,Unix 秒;可空
+     * @param participants WhatsApp 当前成员快照；null 表示旧协议未上报
+     * @param participantsComplete 协议是否明确确认 participant 列表完整
      */
     public record Group(
             String groupJid,
@@ -54,7 +56,9 @@ public record ProtocolAccountGroupsReportedEvent(
             Boolean admin,
             Boolean announceOnly,
             String avatarUrl,
-            Long creation
+            Long creation,
+            List<Participant> participants,
+            Boolean participantsComplete
     ) {
 
         /** 兼容旧协议事件不带 creation 的构造方式。 */
@@ -68,7 +72,48 @@ public record ProtocolAccountGroupsReportedEvent(
                 Boolean announceOnly,
                 String avatarUrl) {
             this(groupJid, subject, memberCount, ownerJid, ownerPhone,
-                    admin, announceOnly, avatarUrl, null);
+                    admin, announceOnly, avatarUrl, null, null, null);
         }
+
+        /** 兼容尚未上报 participant 明细的调用方。 */
+        public Group(
+                String groupJid,
+                String subject,
+                Integer memberCount,
+                String ownerJid,
+                String ownerPhone,
+                Boolean admin,
+                Boolean announceOnly,
+                String avatarUrl,
+                Long creation) {
+            this(groupJid, subject, memberCount, ownerJid, ownerPhone,
+                    admin, announceOnly, avatarUrl, creation, null, null);
+        }
+
+        /** 兼容尚未携带 participant 完整性标记的调用方。 */
+        public Group(
+                String groupJid,
+                String subject,
+                Integer memberCount,
+                String ownerJid,
+                String ownerPhone,
+                Boolean admin,
+                Boolean announceOnly,
+                String avatarUrl,
+                Long creation,
+                List<Participant> participants) {
+            this(groupJid, subject, memberCount, ownerJid, ownerPhone,
+                    admin, announceOnly, avatarUrl, creation, participants, null);
+        }
+    }
+
+    /** WhatsApp 当前群成员身份与角色。 */
+    public record Participant(
+            String memberJid,
+            String jid,
+            String phone,
+            String role,
+            Boolean admin,
+            Boolean owner) {
     }
 }

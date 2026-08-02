@@ -14,6 +14,7 @@ import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.service.WhatsappGroupMemberService;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.util.WhatsappJids;
@@ -53,6 +54,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkHealthMapper healthMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
+    private final WhatsappGroupMemberService whatsappGroupMemberService;
 
     /**
      * 创建账号可见群关系快照写入服务。
@@ -65,11 +67,13 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     public AccountGroupMembershipSnapshotServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                      GroupLinkMapper groupLinkMapper,
                                                      GroupLinkHealthMapper healthMapper,
-                                                     GroupLinkRegistryService groupLinkRegistryService) {
+                                                     GroupLinkRegistryService groupLinkRegistryService,
+                                                     WhatsappGroupMemberService whatsappGroupMemberService) {
         this.membershipMapper = membershipMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.healthMapper = healthMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.whatsappGroupMemberService = whatsappGroupMemberService;
     }
 
     @Override
@@ -116,6 +120,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         persistPreviews(groupsByLinkId, existingPreviewIds, syncAt, now);
         persistHealthRows(groupsByLinkId, existingHealthIds, syncAt, now);
         persistMemberships(accountId, groupsByJid, existingMembershipJids, syncAt, now);
+        persistWhatsappMembers(accountId, groupsByJid, syncAt, eventId);
         List<AccountGroupMembershipSnapshot> snapshots = groupsByJid.stream()
                 .map(resolved -> toSnapshot(
                         resolved.groupLinkId(), resolved.groupJid(), resolved.group()))
@@ -157,6 +162,29 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                         added.stream().map(AccountGroupMembershipSnapshot::groupJid).toList()),
                 jidSample(visibleGroups.keySet()), snapshotComplete, markedMissing, syncAt);
         return new AccountGroupMembershipChangeSet(snapshots, added);
+    }
+
+    private void persistWhatsappMembers(
+            Long accountId,
+            List<ResolvedGroup> resolvedGroups,
+            long syncAt,
+            String eventId) {
+        for (ResolvedGroup resolved : resolvedGroups) {
+            if (resolved.group().participants() == null) {
+                continue;
+            }
+            whatsappGroupMemberService.replaceCurrentMembers(
+                    accountId,
+                    resolved.groupLinkId(),
+                    resolved.groupJid(),
+                    resolved.group().participants(),
+                    resolved.group().memberCount(),
+                    Boolean.TRUE.equals(resolved.group().participantsComplete()),
+                    resolved.group().announceOnly(),
+                    resolved.group().admin(),
+                    syncAt,
+                    eventId);
+        }
     }
 
     private static Set<String> normalizeJids(List<String> groupJids) {

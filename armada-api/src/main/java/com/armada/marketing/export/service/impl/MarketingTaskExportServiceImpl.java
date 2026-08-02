@@ -229,7 +229,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                         generatedAt);
                 if (writeResult.detailRowCount() == 0) {
                     throw new BusinessException(
-                            ErrorCode.VALIDATION, "所选任务和国家没有符合条件的成功进群数据");
+                            ErrorCode.VALIDATION, "所选任务的 WhatsApp 群成员中没有符合国家条件的数据");
                 }
             } else {
                 CountryService.PhonePrefixResolver countryResolver =

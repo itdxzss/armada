@@ -20,6 +20,8 @@ class MarketingTaskExportSqlContractTest {
 
     private static final Path JOB_MIGRATION = Path.of(
             "src/main/resources/db/migration/V083__marketing_task_export_job.sql");
+    private static final Path MEMBER_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V089__whatsapp_group_member_snapshot.sql");
     private static final String MAPPER_XML = "/mapper/marketing/MarketingTaskExportMapper.xml";
 
     @Test
@@ -54,17 +56,29 @@ class MarketingTaskExportSqlContractTest {
         assertThat(countryRows)
                 .contains("a.tenant_id")
                 .contains("mt.tenant_id = sm.tenant_id")
-                .contains("jtr.tenant_id = sm.tenant_id")
-                .contains("joined_account.tenant_id = jtr.tenant_id")
+                .contains("member.tenant_id = sm.tenant_id")
+                .contains("member.group_jid = sm.group_jid")
                 .contains("a.result_at &lt;= #{snapshotAt}")
-                .contains("COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}")
-                .contains("jtr.status = 'SUCCESS'")
+                .contains("fact.occurred_at &lt;= #{snapshotAt}")
+                .contains("country_member_state")
+                .contains("member.member_jid")
                 .contains("REGEXP_REPLACE")
                 .contains("ROW_NUMBER() OVER")
                 .contains("COUNT(*) OVER")
                 .contains("sender_rank = 1")
                 .contains("latest_group_status AS")
                 .contains("status_rank = 1")
+                .contains("country_sender_setting_ranked AS")
+                .contains("selected.sender_account_id = snapshot.observer_account_id")
+                .contains("sender_relation.account_id = sm.sender_account_id")
+                .contains("AND COALESCE(")
+                .contains("sender_member.is_admin,")
+                .contains("sender_setting.observer_is_admin = 1")
+                .contains("sender_relation.status_updated_at &gt; #{snapshotAt}")
+                .contains("sender_setting.observer_is_admin, sender_setting.snapshot_at,")
+                .contains("sender_relation.id, sender_relation.membership_status,")
+                .contains("sender_relation.joined_at, sender_relation.status_updated_at,")
+                .contains("member.membership_status IN (1, 5)")
                 .contains("ORDER BY effective_group_status DESC,")
                 .contains("round_no DESC, attempt_no DESC, attempt_id DESC")
                 .contains("CHAT_TERMINATED")
@@ -73,21 +87,35 @@ class MarketingTaskExportSqlContractTest {
                 .contains("health.health_status = 2")
                 .contains("health.health_status = 3")
                 .contains("sm.marketing_count AS marketingCount")
+                .doesNotContain("JOIN join_task_result jtr")
+                .doesNotContain("JOIN account joined_account")
                 .doesNotContain("COUNT(DISTINCT sm.attempt_id) AS marketingCount")
                 .doesNotContain("MAX(membership.is_admin)");
         assertThat(groupRows)
                 .contains("t.tenant_id = a.tenant_id")
                 .contains("mt.tenant_id = d.tenant_id")
                 .contains("attempts.tenant_id = d.tenant_id")
-                .contains("joined.tenant_id = d.tenant_id")
+                .contains("members.tenant_id = d.tenant_id")
                 .contains("account_state.tenant_id = d.tenant_id")
                 .contains("submitted_at &lt;= #{snapshotAt}")
                 .contains("result_at &gt; #{snapshotAt}")
-                .contains("COALESCE(jtr.joined_at, jtr.updated_at, jtr.created_at) &lt;= #{snapshotAt}")
-                .contains("REGEXP_REPLACE")
+                .contains("whatsapp_group_member_fact")
+                .contains("whatsapp_group_member_snapshot_fact")
                 .contains("selected_group_jids AS")
-                .contains("FROM selected_group_jids selected")
-                .contains("COUNT(DISTINCT NULLIF(REGEXP_REPLACE")
+                .contains("fact.occurred_at &lt;= #{snapshotAt}")
+                .contains("COUNT(DISTINCT member.member_jid)")
+                .contains("CASE WHEN complete.group_jid IS NULL THEN NULL")
+                .contains("latest_group_setting AS")
+                .contains("sender_group_setting_ranked AS")
+                .contains("sender_setting.observer_account_id = COALESCE(latest.account_id, fixed.sender_account_id)")
+                .contains("sender_relation.account_id = COALESCE(latest.account_id, fixed.sender_account_id)")
+                .contains("AND COALESCE(")
+                .contains("sender_member.is_admin,")
+                .contains("sender_setting.observer_is_admin = 1")
+                .contains("sender_relation.status_updated_at &gt; #{snapshotAt}")
+                .contains("current_member_roles AS")
+                .contains("members.current_count AS groupMemberCount")
+                .doesNotContain("health.current_count, preview.member_size")
                 .doesNotContain("GROUP BY mt.id, mt.task_name, mt.remark, target.id")
                 .doesNotContain("HAVING groupJid IS NOT NULL");
     }
@@ -109,13 +137,16 @@ class MarketingTaskExportSqlContractTest {
                 .contains("WHERE a.tenant_id = #{tenantId}\n              AND (CASE WHEN a.status = 3")
                 .contains("WHERE t.tenant_id = #{tenantId}\n              AND COALESCE(t.target_scope, 1) = 1");
         assertThat(memberRows)
-                .contains("membership.tenant_id = #{tenantId}")
-                .contains("member_account.tenant_id = membership.tenant_id")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
-                        + "                          AND membership.last_exit_type = 3")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
-                        + "                          AND membership.last_exit_type = 4")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}");
+                .contains("member.tenant_id = #{tenantId}")
+                .contains("JOIN member_state member")
+                .contains("member.membership_status IN (3, 4)\n"
+                        + "                          AND member.status_source = 'PARTICIPANT_REMOVE'")
+                .contains("member.membership_status IN (3, 4)\n"
+                        + "                          AND member.status_source = 'PARTICIPANT_LEAVE'")
+                .contains("identity.phone AS memberPhone")
+                .contains("member.membership_status IN (1, 5)")
+                .contains("successful_join.joined_at BETWEEN")
+                .doesNotContain("JOIN account member_account");
 
         assertTenantInterceptorIgnored("selectCountryEntryRows",
                 Long.class, List.class, long.class, ResultHandler.class);
@@ -123,6 +154,30 @@ class MarketingTaskExportSqlContractTest {
                 Long.class, List.class, long.class, ResultHandler.class);
         assertTenantInterceptorIgnored("selectGroupMemberRows",
                 Long.class, List.class, long.class, ResultHandler.class);
+    }
+
+    @Test
+    void whatsappMemberMigrationDefinesTenantIdentityAndExportIndexes() throws IOException {
+        String sql = Files.readString(MEMBER_MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(sql)
+                .contains("CREATE TABLE IF NOT EXISTS whatsapp_group_member")
+                .contains("tenant_id BIGINT NOT NULL")
+                .contains("member_jid VARCHAR(128) NOT NULL")
+                .contains("membership_status TINYINT NOT NULL")
+                .contains("status_updated_at BIGINT NOT NULL")
+                .contains("joined_at BIGINT")
+                .contains("last_exited_at BIGINT")
+                .contains("status_source_event_id VARCHAR(191) NOT NULL")
+                .contains("announce_only TINYINT(1)")
+                .contains("observer_is_admin TINYINT(1)")
+                .contains("UNIQUE KEY uq_whatsapp_group_member_identity (tenant_id, group_jid, member_jid)")
+                .contains("KEY idx_whatsapp_group_member_group_status")
+                .contains("KEY idx_whatsapp_group_member_phone")
+                .contains("CREATE TABLE IF NOT EXISTS whatsapp_group_member_fact")
+                .contains("UNIQUE KEY uq_whatsapp_group_member_fact_event")
+                .contains("CREATE TABLE IF NOT EXISTS whatsapp_group_member_snapshot_fact")
+                .contains("KEY idx_whatsapp_group_member_snapshot_time");
     }
 
     @Test

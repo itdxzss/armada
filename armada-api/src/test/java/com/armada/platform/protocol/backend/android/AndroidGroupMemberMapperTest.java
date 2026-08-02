@@ -106,6 +106,21 @@ class AndroidGroupMemberMapperTest {
         });
     }
 
+    @Test
+    void preservesLidJidWhileUsingPhoneNumberForCountryResolution() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {"Participants":[
+                  {"jid":"123456789012345@lid","phone":"16614936542","type":"admin"}
+                ]}
+                """);
+
+        assertThat(mapper.map(data)).singleElement().satisfies(participant -> {
+            assertThat(participant.jid()).isEqualTo("123456789012345@lid");
+            assertThat(participant.phone()).isEqualTo("16614936542");
+            assertThat(participant.admin()).isTrue();
+        });
+    }
+
     private void assertUnrecognized(JsonNode data) {
         assertThatThrownBy(() -> mapper.map(data))
                 .isInstanceOfSatisfying(ProtocolException.class,

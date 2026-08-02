@@ -16,8 +16,8 @@ public final class AndroidGroupMemberMapper {
     private static final String PARTICIPANTS_FIELD = "Participants";
     private static final String GROUP_LIST_PARTICIPANTS_FIELD = "participants";
 
-    private static final List<String> IDENTITY_FIELDS = List.of(
-            "phone", "phone_number", "phoneNumber", "jid");
+    private static final List<String> PHONE_FIELDS = List.of(
+            "phone", "phone_number", "phoneNumber");
 
     /**
      * 解析 Android 群成员数组并归一化号码与角色。
@@ -39,11 +39,12 @@ public final class AndroidGroupMemberMapper {
         List<GroupParticipantResult> results = new ArrayList<>();
         for (JsonNode participant : participants) {
             String phone = participantPhone(participant);
+            String jid = participantJid(participant);
             String role = text(participant.path("type"));
             boolean owner = "superadmin".equalsIgnoreCase(role);
             boolean admin = owner || "admin".equalsIgnoreCase(role);
             results.add(new GroupParticipantResult(
-                    phone == null ? null : phone + "@s.whatsapp.net",
+                    jid == null && phone != null ? phone + "@s.whatsapp.net" : jid,
                     phone,
                     admin,
                     owner,
@@ -53,7 +54,7 @@ public final class AndroidGroupMemberMapper {
     }
 
     private static String participantPhone(JsonNode participant) {
-        for (String field : IDENTITY_FIELDS) {
+        for (String field : PHONE_FIELDS) {
             String value = text(participant.path(field));
             if (value != null) {
                 String phone = normalizePhone(value);
@@ -62,7 +63,24 @@ public final class AndroidGroupMemberMapper {
                 }
             }
         }
+        String jid = text(participant.path("jid"));
+        if (jid != null && !jid.endsWith("@lid")) {
+            return normalizePhone(jid);
+        }
         return null;
+    }
+
+    private static String participantJid(JsonNode participant) {
+        String value = text(participant.path("jid"));
+        if (value == null) {
+            return null;
+        }
+        int device = value.indexOf(':');
+        int at = value.indexOf('@');
+        if (device >= 0 && at > device) {
+            return value.substring(0, device) + value.substring(at);
+        }
+        return value;
     }
 
     private static String normalizePhone(String value) {

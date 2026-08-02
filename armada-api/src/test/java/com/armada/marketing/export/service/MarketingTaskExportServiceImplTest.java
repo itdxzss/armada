@@ -327,13 +327,17 @@ class MarketingTaskExportServiceImplTest {
     }
 
     @Test
-    void processPendingCountryJobResolvesSelectedCountryBeforeWritingRows() throws Exception {
+    void processPendingCountryJobFiltersWhatsappMembersBySelectedCountry() throws Exception {
         MarketingTaskExportJob pending = pendingJob(89L, "COUNTRY_ENTRY");
-        pending.setCountryIso2sJson("[\"ID\"]");
-        MarketingTaskCountryEntryExportRow sourceRow = new MarketingTaskCountryEntryExportRow();
-        sourceRow.setActualPhone("628123456789");
-        CountryOptionVO indonesia = new CountryOptionVO(
-                "IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false);
+        pending.setCountryIso2sJson("[\"US\"]");
+        MarketingTaskCountryEntryExportRow usMember = new MarketingTaskCountryEntryExportRow();
+        usMember.setActualPhone("14155550100");
+        MarketingTaskCountryEntryExportRow brazilMember = new MarketingTaskCountryEntryExportRow();
+        brazilMember.setActualPhone("5511987654321");
+        CountryOptionVO unitedStates = new CountryOptionVO(
+                "US", "US", "美国", "United States", "+1", "🇺🇸", false);
+        CountryOptionVO brazil = new CountryOptionVO(
+                "BR", "BR", "巴西", "Brazil", "+55", "🇧🇷", false);
         List<MarketingTaskCountryEntryExportRow> writtenRows = new ArrayList<>();
 
         when(mapper.selectExpiredFiles(FIXED_CLOCK.millis(), 20)).thenReturn(List.of());
@@ -346,12 +350,15 @@ class MarketingTaskExportServiceImplTest {
         when(mapper.renewJobLease(eq(3L), eq(89L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1);
-        when(countryService.activePhonePrefixResolver()).thenReturn(phone -> indonesia);
+        when(countryService.activePhonePrefixResolver()).thenReturn(phone ->
+                phone.startsWith("1") ? unitedStates : brazil);
         doAnswer(invocation -> {
             ResultHandler<MarketingTaskCountryEntryExportRow> handler = invocation.getArgument(3);
-            ResultContext<MarketingTaskCountryEntryExportRow> context = mock(ResultContext.class);
-            when(context.getResultObject()).thenReturn(sourceRow);
-            handler.handleResult(context);
+            for (MarketingTaskCountryEntryExportRow sourceRow : List.of(usMember, brazilMember)) {
+                ResultContext<MarketingTaskCountryEntryExportRow> context = mock(ResultContext.class);
+                when(context.getResultObject()).thenReturn(sourceRow);
+                handler.handleResult(context);
+            }
             return null;
         }).when(mapper).selectCountryEntryRows(
                 eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
@@ -373,9 +380,10 @@ class MarketingTaskExportServiceImplTest {
 
         service.processPendingJobs(1);
 
-        assertThat(writtenRows).containsExactly(sourceRow);
-        assertThat(sourceRow.getCountryName()).isEqualTo("印度尼西亚");
-        assertThat(sourceRow.getCountryPhonePrefix()).isEqualTo("+62");
+        assertThat(writtenRows).containsExactly(usMember);
+        assertThat(usMember.getCountryName()).isEqualTo("美国");
+        assertThat(usMember.getCountryPhonePrefix()).isEqualTo("+1");
+        assertThat(brazilMember.getCountryName()).isNull();
         verify(countryService).activePhonePrefixResolver();
         verify(mapper).selectCountryEntryRows(
                 eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
@@ -433,7 +441,7 @@ class MarketingTaskExportServiceImplTest {
     }
 
     @Test
-    void processCountryJobUsesProductErrorWhenNoSuccessfulJoinRowsExist() throws Exception {
+    void processCountryJobUsesProductErrorWhenNoWhatsappMembersMatchCountry() throws Exception {
         MarketingTaskExportJob pending = pendingJob(91L, "COUNTRY_ENTRY");
         pending.setCountryIso2sJson("[\"ID\"]");
         when(mapper.selectExpiredFiles(FIXED_CLOCK.millis(), 20)).thenReturn(List.of());
@@ -457,7 +465,7 @@ class MarketingTaskExportServiceImplTest {
 
         verify(mapper).markJobFailed(
                 eq(3L), eq(91L), anyString(),
-                eq("所选任务和国家没有符合条件的成功进群数据"),
+                eq("所选任务的 WhatsApp 群成员中没有符合国家条件的数据"),
                 eq(FIXED_CLOCK.millis()));
     }
 

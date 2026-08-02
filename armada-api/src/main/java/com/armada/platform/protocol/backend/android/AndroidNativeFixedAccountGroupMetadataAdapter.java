@@ -104,7 +104,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         return new GroupMetadataResult(
                 responseGroupJid,
                 text(data.get("Subject")),
-                null,
+                bool(data.get("Announce")),
                 null,
                 null,
                 null,
@@ -148,6 +148,26 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         }
         String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    private static Boolean bool(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        if (node.isIntegralNumber()) {
+            return node.intValue() != 0;
+        }
+        String value = node.asText("").trim();
+        if ("true".equalsIgnoreCase(value) || "1".equals(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value) || "0".equals(value)) {
+            return false;
+        }
+        throw unrecognized("Android 群成员响应 Announce 无效");
     }
 
     private static ProtocolException unrecognized(String message) {

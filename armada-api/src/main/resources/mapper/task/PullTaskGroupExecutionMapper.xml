@@ -47,6 +47,14 @@
       <foreach collection="links" item="link" open="(" separator="," close=")">#{link}</foreach>
   </select>
 
+  <update id="updateGroupLinkId">
+    UPDATE pull_task_group_execution
+    SET group_link_id = #{groupLinkId},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND execution_status = 0
+  </update>
+
   <!-- 推进为待启动后生成列取到链接值，跨任务占用随之生效；冲突由唯一键抛出。 -->
   <update id="freezeDraftRows">
     UPDATE pull_task_group_execution

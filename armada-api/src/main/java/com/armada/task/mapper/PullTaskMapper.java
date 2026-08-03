@@ -108,6 +108,10 @@ public interface PullTaskMapper {
     /**
      * 读取任务生命周期字段，供 Service 在推进状态前取当前状态与版本号。
      *
+     * <p>同时带上计数列（{@code groupCount}/{@code expectedPullCount}）与创建人
+     * {@code createdBy}：普通群链接任务的提交冻结需要在同一次读取里完成归属校验、
+     * 幂等判定与结果组装，多查一次没有必要。</p>
+     *
      * @param id 任务 ID
      * @return 生命周期视图；任务不存在、已软删或不属于当前租户时为 null
      */

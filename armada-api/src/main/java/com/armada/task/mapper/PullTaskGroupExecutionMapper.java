@@ -70,6 +70,19 @@ public interface PullTaskGroupExecutionMapper {
     List<String> selectOccupiedLinks(@Param("links") List<String> links);
 
     /**
+     * 回填执行行的群入口 ID。
+     *
+     * <p>只在提交冻结的事务里调用，带 {@code execution_status = 0} 守卫保证不改已冻结行。</p>
+     *
+     * @param id          执行行 ID
+     * @param groupLinkId 群入口 ID
+     * @param now         更新时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int updateGroupLinkId(@Param("id") long id, @Param("groupLinkId") long groupLinkId,
+                          @Param("now") long now);
+
+    /**
      * 任务由草稿冻结为待启动时，把本任务的草稿执行行整体推进为待启动。
      *
      * <p>推进后生成列 {@code link_occupancy_key} 取到链接值，占用随之生效；

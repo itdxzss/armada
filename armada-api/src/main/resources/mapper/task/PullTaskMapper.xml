@@ -111,6 +111,7 @@
   <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">
     SELECT id, tenant_id, task_type, task_name, mode, status,
            primary_stage, blocking_reason, started_at, finished_at, version,
+           group_count, expected_pull_count, created_by, remark,
            created_at, updated_at
     FROM pull_task
     WHERE id = #{id}

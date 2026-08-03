@@ -3,6 +3,7 @@ package com.armada.group.service;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 群组池内部登记服务。
@@ -18,6 +19,20 @@ public interface GroupLinkRegistryService {
      * @param rawLinks 进群任务输入中的候选群链接
      */
     void registerJoinTaskTargets(List<String> rawLinks);
+
+    /**
+     * 把拉群任务冻结的群邀请链接登记为群组池目标，并回填群入口 ID。
+     *
+     * <p>与 {@link #registerJoinTaskTargets(List)} 的差别只有两点：来源记为
+     * {@code PULL_TASK}，以及返回每条链接对应的 {@code group_link.id}——拉群任务的执行行
+     * 需要这个 ID 才能建立与群组池的关联。本方法只做本地登记/复活，不调用协议层；
+     * 格式不合格的链接静默跳过，由调用方自己的逐行结果记录原因。</p>
+     *
+     * @param normalizedLinks 已冻结的群邀请链接
+     * @param now             登记时间（epoch 毫秒）
+     * @return 归一化链接到 {@code group_link.id} 的映射；非法链接不出现在结果里
+     */
+    Map<String, Long> registerPullTaskTargets(List<String> normalizedLinks, long now);
 
     /**
      * 登记账号快照或精确事件观察到的群，并返回统一群组池 ID。

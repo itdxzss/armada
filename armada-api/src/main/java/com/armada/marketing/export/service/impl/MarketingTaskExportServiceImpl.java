@@ -284,6 +284,9 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                 published = true;
             }
         } catch (BusinessException ex) {
+            log.warn("营销任务导出业务失败 tenantId={} jobId={} exportMode={} taskIds={} errorCode={} message={}",
+                    job.getTenantId(), job.getId(), job.getExportMode(), job.getTaskIdsJson(),
+                    ex.getCode(), ex.getMessage(), ex);
             markFailed(job, claimToken, ex.getMessage());
         } catch (RuntimeException | IOException ex) {
             log.error("营销任务导出失败 tenantId={} jobId={}", job.getTenantId(), job.getId(), ex);

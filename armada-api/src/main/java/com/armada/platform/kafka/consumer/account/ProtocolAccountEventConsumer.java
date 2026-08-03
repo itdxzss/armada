@@ -26,6 +26,7 @@ import org.springframework.stereotype.Component;
 public class ProtocolAccountEventConsumer {
 
     private static final int MAX_DEPARTURE_PARTICIPANTS = 5_000;
+    private static final int MAX_JOIN_PARTICIPANTS = 5_000;
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolAccountEventConsumer.class);
 
@@ -46,6 +47,10 @@ public class ProtocolAccountEventConsumer {
     /** Android 实时群成员退群上报。 */
     public static final String EVENT_ACCOUNT_GROUP_PARTICIPANT_DEPARTED =
             "account.group_participant_departed";
+
+    /** Android 实时群成员进群上报。 */
+    public static final String EVENT_ACCOUNT_GROUP_PARTICIPANT_JOINED =
+            "account.group_participant_joined";
 
     /** 协议层账号离线诊断事件类型。 */
     public static final String EVENT_ACCOUNT_OFFLINE_DIAGNOSED = "account.offline_diagnosed";
@@ -149,6 +154,13 @@ public class ProtocolAccountEventConsumer {
             log.info("协议群退群事实收到 eventId={} accountId={} source={} participantCount={}",
                     event.eventId(), event.accountId(), event.sourceType(), event.participants().size());
             groupEventSinks.handleDepartures(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_GROUP_PARTICIPANT_JOINED.equals(eventType)) {
+            ProtocolGroupJoinEvent event = toGroupJoinEvent(envelope);
+            log.info("协议群进群事实收到 eventId={} accountId={} source={} participantCount={}",
+                    event.eventId(), event.accountId(), event.sourceType(), event.participants().size());
+            groupEventSinks.handleJoins(event);
             return;
         }
         throw new BusinessException(ErrorCode.VALIDATION,
@@ -340,6 +352,85 @@ public class ProtocolAccountEventConsumer {
                 source,
                 occurredAt(envelope),
                 List.copyOf(participants));
+    }
+
+    private ProtocolGroupJoinEvent toGroupJoinEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "协议群进群事件缺少 accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群进群事件缺少 data.protocolAccountId");
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件路由账号不一致");
+        }
+        String source = requiredText(data, "source", "协议群进群事件缺少 data.source");
+        if (!"WGP2_NOTIFICATION".equals(source)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件来源非法");
+        }
+        JsonNode participantNodes = data.path("joinedParticipants");
+        if (!participantNodes.isArray() || participantNodes.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件缺少 data.joinedParticipants");
+        }
+        if (participantNodes.size() > MAX_JOIN_PARTICIPANTS) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件 joinedParticipants 数量超限");
+        }
+        String groupJid = requiredJoinText(
+                        data, "groupJid", 128, "协议群进群事件缺少 data.groupJid")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+        if (!groupJid.matches("^[^@\\s]+@g\\.us$")) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件 groupJid 非法");
+        }
+        List<ProtocolGroupJoinEvent.Participant> participants = new ArrayList<>();
+        for (JsonNode participant : participantNodes) {
+            String participantJid = requiredJoinText(
+                            participant, "participantJid", 191,
+                            "协议群进群事件缺少 participantJid")
+                    .trim()
+                    .toLowerCase(java.util.Locale.ROOT);
+            if (!participantJid.matches("^[0-9]+(?::[0-9]+)?@(s\\.whatsapp\\.net|lid)$")) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件 participantJid 非法");
+            }
+            String phone = boundedText(participant, "phone", 32, "协议群进群事件 phone 长度超限");
+            if (phone != null) {
+                String phoneDigits = phone.replaceAll("[^0-9]", "");
+                if (phoneDigits.length() < 5 || phoneDigits.length() > 20) {
+                    throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件 phone 非法");
+                }
+            }
+            Long joinedAt = requiredLong(participant, "joinedAt", "协议群进群事件缺少 joinedAt");
+            if (joinedAt <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件 joinedAt 非法");
+            }
+            participants.add(new ProtocolGroupJoinEvent.Participant(
+                    participantJid,
+                    phone,
+                    joinedAt,
+                    requiredJoinText(
+                            participant, "sourceEventId", 255,
+                            "协议群进群事件缺少 sourceEventId")));
+        }
+        return new ProtocolGroupJoinEvent(
+                requiredText(envelope, "eventId", "协议群进群事件缺少 eventId"),
+                requiredLong(data, "tenantId", "协议群进群事件缺少 data.tenantId"),
+                requiredLong(data, "accountId", "协议群进群事件缺少 data.accountId"),
+                protocolAccountId,
+                groupJid,
+                source,
+                occurredAt(envelope),
+                List.copyOf(participants));
+    }
+
+    private static String requiredJoinText(
+            JsonNode node,
+            String field,
+            int maxLength,
+            String missingMessage) {
+        String value = requiredText(node, field, missingMessage);
+        if (value.length() > maxLength) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群进群事件 " + field + " 长度超限");
+        }
+        return value;
     }
 
     private static String requiredBoundedText(

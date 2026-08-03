@@ -39,6 +39,9 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolGroupDepartureSink groupDepartureSink;
 
+    @Mock
+    private ProtocolGroupJoinSink groupJoinSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
@@ -48,7 +51,8 @@ class ProtocolAccountEventConsumerTest {
                 sink,
                 groupsReportedSink,
                 offlineDiagnosedSink,
-                new ProtocolAccountGroupEventSinks(membershipChangedSink, groupDepartureSink));
+                new ProtocolAccountGroupEventSinks(
+                        membershipChangedSink, groupDepartureSink, groupJoinSink));
     }
 
     @Test
@@ -202,6 +206,30 @@ class ProtocolAccountEventConsumerTest {
             assertThat(participant.participantJid()).isEqualTo("15550000001@s.whatsapp.net");
             assertThat(participant.exitType()).isEqualTo("LEFT");
             assertThat(participant.exitedAt()).isEqualTo(1785722400000L);
+        });
+    }
+
+    @Test
+    void onGroupSyncMessageDispatchesJoinedParticipants() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"join-1","event":"account.group_participant_joined","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"120363-test@g.us","source":"WGP2_NOTIFICATION",
+                         "joinedParticipants":[
+                           {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
+                            "joinedAt":1785722400000,"sourceEventId":"source-add-1"}]}}
+                """);
+
+        ArgumentCaptor<ProtocolGroupJoinEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupJoinEvent.class);
+        verify(groupJoinSink).handleJoins(captor.capture());
+        assertThat(captor.getValue().groupJid()).isEqualTo("120363-test@g.us");
+        assertThat(captor.getValue().sourceType()).isEqualTo("WGP2_NOTIFICATION");
+        assertThat(captor.getValue().participants()).singleElement().satisfies(participant -> {
+            assertThat(participant.participantJid()).isEqualTo("15550000001@s.whatsapp.net");
+            assertThat(participant.joinedAt()).isEqualTo(1785722400000L);
+            assertThat(participant.sourceEventId()).isEqualTo("source-add-1");
         });
     }
 

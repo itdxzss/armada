@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupFolderMapper">
+
+  <sql id="activeFilter">
+    f.deleted_at IS NULL
+    <if test="keyword != null and keyword != ''">
+      AND f.name LIKE CONCAT('%', #{keyword}, '%')
+    </if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM group_folder f
+    WHERE <include refid="activeFilter"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.group.model.vo.GroupFolderVoRow">
+    SELECT f.id,
+           f.name,
+           (SELECT COUNT(*)
+              FROM group_link g
+             WHERE g.folder_id = f.id
+               AND g.tenant_id = f.tenant_id
+               AND g.deleted_at IS NULL) AS groupCount,
+           f.created_at AS createdAt,
+           f.updated_at AS updatedAt
+    FROM group_folder f
+    WHERE <include refid="activeFilter"/>
+    ORDER BY f.created_at DESC, f.id DESC
+    LIMIT #{offset}, #{pageSize}
+  </select>
+
+  <select id="selectOptions" resultType="com.armada.group.model.entity.GroupFolder">
+    SELECT id, name
+    FROM group_folder
+    WHERE deleted_at IS NULL
+    ORDER BY name ASC, id ASC
+  </select>
+
+  <select id="selectActiveByName" resultType="com.armada.group.model.entity.GroupFolder">
+    SELECT * FROM group_folder WHERE name = #{name} AND deleted_at IS NULL LIMIT 1
+  </select>
+
+  <select id="selectDeletedByName" resultType="com.armada.group.model.entity.GroupFolder">
+    SELECT * FROM group_folder WHERE name = #{name} AND deleted_at IS NOT NULL LIMIT 1
+  </select>
+
+  <select id="selectAnyByName" resultType="com.armada.group.model.entity.GroupFolder">
+    SELECT * FROM group_folder WHERE name = #{name} LIMIT 1
+  </select>
+
+  <select id="selectById" resultType="com.armada.group.model.entity.GroupFolder">
+    SELECT * FROM group_folder WHERE id = #{id} AND deleted_at IS NULL
+  </select>
+
+  <select id="selectByTenantAndIdsForUpdate" resultType="com.armada.group.model.entity.GroupFolder">
+    SELECT *
+    FROM group_folder
+    WHERE tenant_id = #{tenantId}
+      AND deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id
+    FOR UPDATE
+  </select>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_folder (name, created_at, updated_at, created_by)
+    VALUES (#{name}, #{createdAt}, #{updatedAt}, #{createdBy})
+  </insert>
+
+  <update id="reviveById">
+    UPDATE group_folder
+    SET deleted_at = NULL,
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NOT NULL
+  </update>
+
+  <update id="updateName">
+    UPDATE group_folder
+    SET name = #{name},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+
+  <update id="softDeleteByIds">
+    UPDATE group_folder
+    SET deleted_at = #{deletedAt},
+        updated_at = #{deletedAt}
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+</mapper>

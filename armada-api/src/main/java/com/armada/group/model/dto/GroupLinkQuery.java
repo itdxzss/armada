@@ -10,6 +10,12 @@ public class GroupLinkQuery extends PageQuery {
     /** 所属WS链接分组 ID;群组列表主查询可为空,导入链接分组下钻时传入。 */
     private Long labelId;
 
+    /** 群组列表运营分组 ID；与 withoutFolder 互斥。 */
+    private Long folderId;
+
+    /** 是否只查询未绑定运营分组的群组。 */
+    private Boolean withoutFolder;
+
     /** 关键字模糊搜索(匹配群名称、真实群名、链接、管理员、群主、来源文件)。 */
     private String keyword;
 
@@ -31,6 +37,22 @@ public class GroupLinkQuery extends PageQuery {
 
     public void setLabelId(Long labelId) {
         this.labelId = labelId;
+    }
+
+    public Long getFolderId() {
+        return folderId;
+    }
+
+    public void setFolderId(Long folderId) {
+        this.folderId = folderId;
+    }
+
+    public Boolean getWithoutFolder() {
+        return withoutFolder;
+    }
+
+    public void setWithoutFolder(Boolean withoutFolder) {
+        this.withoutFolder = withoutFolder;
     }
 
     public String getKeyword() {

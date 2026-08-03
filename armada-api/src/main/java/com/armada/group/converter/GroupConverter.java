@@ -1,8 +1,12 @@
 package com.armada.group.converter;
 
+import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.GroupFolderOptionVO;
+import com.armada.group.model.vo.GroupFolderVO;
+import com.armada.group.model.vo.GroupFolderVoRow;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVO;
@@ -20,6 +24,17 @@ import org.mapstruct.Mapping;
  */
 @Mapper(componentModel = "spring")
 public interface GroupConverter {
+
+    /** 将运营分组分页投影转换为管理出参。 */
+    GroupFolderVO toFolderVO(GroupFolderVoRow row);
+
+    /** 批量转换运营分组分页投影。 */
+    List<GroupFolderVO> toFolderVOList(List<GroupFolderVoRow> rows);
+
+    /** 将运营分组实体转换为选择项。 */
+    default GroupFolderOptionVO toFolderOptionVO(GroupFolder row) {
+        return new GroupFolderOptionVO(row.getId(), row.getName());
+    }
 
     /**
      * Mapper 投影行 → 出参 VO。
@@ -57,6 +72,8 @@ public interface GroupConverter {
                 row.getWaSubject(),
                 row.getGroupJid(),
                 row.getSourceFileName(),
+                row.getFolderId(),
+                row.getFolderName(),
                 status.code(),
                 status.label(),
                 row.getHealthStatus(),

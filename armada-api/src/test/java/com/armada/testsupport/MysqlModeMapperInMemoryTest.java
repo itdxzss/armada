@@ -7,10 +7,14 @@ import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.GroupFolderMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupFolderQuery;
+import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -86,6 +90,8 @@ class MysqlModeMapperInMemoryTest {
     @Autowired
     private GroupLinkMapper groupLinkMapper;
     @Autowired
+    private GroupFolderMapper groupFolderMapper;
+    @Autowired
     private AccountGroupMembershipMapper membershipMapper;
     @Autowired
     private GroupLinkHealthMapper healthMapper;
@@ -124,6 +130,145 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groups).extracting(AccountGroup::getId).containsExactly(11L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 AccountGroupMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void groupFolderMapperExecutesRealXmlAndKeepsTenantBoundary() throws SQLException {
+        executeSql(
+                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
+                        + "VALUES (101, 7, '印度组', 100, 100)",
+                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
+                        + "VALUES (102, 8, '其他租户组', 100, 100)",
+                "INSERT INTO group_link "
+                        + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
+                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)");
+
+        GroupFolderQuery query = new GroupFolderQuery();
+        query.setPage(1);
+        query.setPageSize(10);
+
+        assertThat(groupFolderMapper.countPage(query)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectPage(query))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getName()).isEqualTo("印度组");
+                    assertThat(row.getGroupCount()).isEqualTo(1L);
+                });
+        assertThat(groupFolderMapper.selectOptions())
+                .extracting(GroupFolder::getId)
+                .containsExactly(101L);
+    }
+
+    @Test
+    void groupFolderMapperWritesLocksSoftDeletesAndRevives() {
+        GroupFolder row = new GroupFolder();
+        row.setName("待运营组");
+        row.setCreatedAt(100L);
+        row.setUpdatedAt(100L);
+
+        assertThat(groupFolderMapper.insert(row)).isEqualTo(1);
+        assertThat(row.getId()).isNotNull();
+        assertThat(groupFolderMapper.selectActiveByName("待运营组").getId()).isEqualTo(row.getId());
+
+        assertThat(groupFolderMapper.updateName(row.getId(), "已改名组", 200L)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectAnyByName("已改名组").getUpdatedAt()).isEqualTo(200L);
+
+        List<GroupFolder> locked = transactionTemplate.execute(status -> {
+            List<GroupFolder> result = groupFolderMapper.selectActiveByIdsForUpdate(List.of(row.getId()));
+            status.setRollbackOnly();
+            return result;
+        });
+        assertThat(locked).isNotNull();
+        assertThat(locked).extracting(GroupFolder::getId).containsExactly(row.getId());
+
+        assertThat(groupFolderMapper.softDeleteByIds(List.of(row.getId()), 300L)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectById(row.getId())).isNull();
+        assertThat(groupFolderMapper.selectDeletedByName("已改名组").getDeletedAt()).isEqualTo(300L);
+        assertThat(groupFolderMapper.reviveById(row.getId(), 400L)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectById(row.getId()).getUpdatedAt()).isEqualTo(400L);
+
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                GroupFolderMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void deletingGroupFolderOnlyClearsFolderRelation() throws SQLException {
+        executeSql(
+                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
+                        + "VALUES (101, 7, '印度组', 100, 100)",
+                "INSERT INTO group_link "
+                        + "(id, tenant_id, link_url, label_id, folder_id, origin, membership_state, "
+                        + "created_at, updated_at) "
+                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderDelete', 55, 101, 1, 1, 100, 100)");
+
+        assertThat(groupLinkMapper.countActiveByFolderIds(List.of(101L))).isEqualTo(1);
+        assertThat(groupLinkMapper.clearFolderByFolderIds(List.of(101L), 200L)).isEqualTo(1);
+        assertThat(groupFolderMapper.softDeleteByIds(List.of(101L), 200L)).isEqualTo(1);
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT folder_id, label_id, deleted_at, updated_at FROM group_link WHERE id = 201");
+        assertThat(row.get("folder_id")).isNull();
+        assertThat(((Number) row.get("label_id")).longValue()).isEqualTo(55L);
+        assertThat(row.get("deleted_at")).isNull();
+        assertThat(((Number) row.get("updated_at")).longValue()).isEqualTo(200L);
+    }
+
+    @Test
+    void groupListFiltersByFolderAndProjectsFolderName() throws SQLException {
+        executeSql(
+                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
+                        + "VALUES (101, 7, '印度组', 100, 100)",
+                "INSERT INTO group_link "
+                        + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
+                        + "VALUES (201, 7, 'chat.whatsapp.com/Assigned', 101, 1, 1, 100, 100)",
+                "INSERT INTO group_link "
+                        + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
+                        + "VALUES (202, 7, 'chat.whatsapp.com/Unassigned', NULL, 1, 1, 100, 100)");
+
+        GroupLinkQuery assigned = new GroupLinkQuery();
+        assigned.setFolderId(101L);
+        assertThat(groupLinkMapper.countByLabel(assigned)).isEqualTo(1L);
+        assertThat(groupLinkMapper.selectPageByLabel(assigned))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getFolderId()).isEqualTo(101L);
+                    assertThat(row.getFolderName()).isEqualTo("印度组");
+                });
+
+        GroupLinkQuery unassigned = new GroupLinkQuery();
+        unassigned.setWithoutFolder(true);
+        assertThat(groupLinkMapper.countByLabel(unassigned)).isEqualTo(1L);
+        assertThat(groupLinkMapper.selectPageByLabel(unassigned))
+                .singleElement()
+                .satisfies(row -> assertThat(row.getFolderId()).isNull());
+    }
+
+    @Test
+    void groupFolderAssignmentLocksAndUpdatesOnlyCurrentTenantGroups() throws SQLException {
+        executeSql(
+                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
+                        + "VALUES (101, 7, '印度组', 100, 100)",
+                "INSERT INTO group_link "
+                        + "(id, tenant_id, link_url, origin, membership_state, created_at, updated_at) "
+                        + "VALUES (201, 7, 'chat.whatsapp.com/Current', 1, 1, 100, 100)",
+                "INSERT INTO group_link "
+                        + "(id, tenant_id, link_url, origin, membership_state, created_at, updated_at) "
+                        + "VALUES (202, 8, 'chat.whatsapp.com/Other', 1, 1, 100, 100)");
+
+        List<GroupLink> locked = transactionTemplate.execute(status -> {
+            List<GroupLink> rows = groupLinkMapper.selectActiveByIdsForUpdate(List.of(201L, 202L));
+            assertThat(groupLinkMapper.assignFolder(List.of(201L, 202L), 101L, 200L)).isEqualTo(1);
+            return rows;
+        });
+
+        assertThat(locked).isNotNull();
+        assertThat(locked).extracting(GroupLink::getId).containsExactly(201L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT folder_id FROM group_link WHERE id = 201", Long.class)).isEqualTo(101L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT folder_id FROM group_link WHERE id = 202", Long.class)).isNull();
+        assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
+                GroupLinkMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
     }
 
     @Test
@@ -847,16 +992,46 @@ class MysqlModeMapperInMemoryTest {
                 )
                 """,
                 """
+                CREATE TABLE group_folder (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    name VARCHAR(64) NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    created_by BIGINT,
+                    deleted_at BIGINT,
+                    CONSTRAINT uq_group_folder_name UNIQUE (tenant_id, name)
+                )
+                """,
+                """
+                CREATE TABLE group_link_import_batch (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    source_file_name VARCHAR(255)
+                )
+                """,
+                """
+                CREATE TABLE join_task_result (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(64),
+                    account VARCHAR(64),
+                    is_admin BOOLEAN
+                )
+                """,
+                """
                 CREATE TABLE group_link (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     link_url VARCHAR(255) NOT NULL,
                     group_name VARCHAR(128),
                     label_id BIGINT,
+                    folder_id BIGINT,
                     import_batch_id BIGINT,
                     origin TINYINT NOT NULL,
                     membership_state TINYINT NOT NULL,
                     sync_protocol_mask TINYINT NOT NULL DEFAULT 0,
+                    remark VARCHAR(255),
                     deleted_at BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
@@ -1204,6 +1379,7 @@ class MysqlModeMapperInMemoryTest {
             factoryBean.setPlugins(mybatisPlusInterceptor);
             factoryBean.setMapperLocations(
                     new ClassPathResource("mapper/account/AccountGroupMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupFolderMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
                     new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkPreviewMapper.xml"),
@@ -1226,6 +1402,11 @@ class MysqlModeMapperInMemoryTest {
         @Bean
         GroupLinkMapper groupLinkMapper(SqlSessionTemplate sqlSessionTemplate) {
             return sqlSessionTemplate.getMapper(GroupLinkMapper.class);
+        }
+
+        @Bean
+        GroupFolderMapper groupFolderMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(GroupFolderMapper.class);
         }
 
         @Bean

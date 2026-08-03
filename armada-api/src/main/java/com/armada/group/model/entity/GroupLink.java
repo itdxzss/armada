@@ -20,6 +20,9 @@ public class GroupLink {
     /** 所属WS链接分组(关联 group_link_label.id;只导入链接菜单写)。 */
     private Long labelId;
 
+    /** 群组列表运营分组(关联 group_folder.id);NULL 表示未分组。 */
+    private Long folderId;
+
     /** 来源导入批次(关联 group_link_import_batch.id)。 */
     private Long importBatchId;
 
@@ -85,6 +88,14 @@ public class GroupLink {
 
     public void setLabelId(Long labelId) {
         this.labelId = labelId;
+    }
+
+    public Long getFolderId() {
+        return folderId;
+    }
+
+    public void setFolderId(Long folderId) {
+        this.folderId = folderId;
     }
 
     public Long getImportBatchId() {

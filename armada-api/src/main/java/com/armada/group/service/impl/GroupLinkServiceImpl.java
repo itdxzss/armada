@@ -4,6 +4,7 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.group.converter.GroupConverter;
+import com.armada.group.mapper.GroupFolderMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -76,6 +78,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             "UNCHECKED", "AVAILABLE", "BANNED", "LINK_INVALID", "UNAVAILABLE");
 
     private final GroupLinkMapper groupLinkMapper;
+    private final GroupFolderMapper folderMapper;
     private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkHealthMapper healthMapper;
     private final GroupLinkLabelMapper labelMapper;
@@ -85,6 +88,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupProfilePort groupProfilePort;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
+                                GroupFolderMapper folderMapper,
                                 GroupLinkPreviewMapper previewMapper,
                                 GroupLinkHealthMapper healthMapper,
                                 GroupLinkLabelMapper labelMapper,
@@ -93,6 +97,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 GroupPreviewPort groupPreviewPort,
                                 GroupProfilePort groupProfilePort) {
         this.groupLinkMapper = groupLinkMapper;
+        this.folderMapper = folderMapper;
         this.previewMapper = previewMapper;
         this.healthMapper = healthMapper;
         this.labelMapper = labelMapper;
@@ -110,6 +115,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
      */
     @Override
     public PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query) {
+        validateFolderFilter(query);
         validateStatus(query.getStatus());
         long total = groupLinkMapper.countByLabel(query);
         List<GroupLinkVO> rows = total == 0
@@ -234,6 +240,17 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         }
         if (!ALLOWED_STATUSES.contains(status.trim().toUpperCase(Locale.ROOT))) {
             throw new BusinessException(ErrorCode.VALIDATION, "status 非法: " + status);
+        }
+    }
+
+    private static void validateFolderFilter(GroupLinkQuery query) {
+        if (query == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "查询参数不能为空");
+        }
+        if (query.getFolderId() != null && Boolean.TRUE.equals(query.getWithoutFolder())) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION,
+                    "folderId 与 withoutFolder 不能同时使用");
         }
     }
 
@@ -404,6 +421,50 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         int n = groupLinkMapper.softDeleteByIds(ids, System.currentTimeMillis());
         log.info("群链接批量删除 count={} ids={}", n, ids);
         return n;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>绑定时按“运营分组、群组”顺序加锁，与删除分组保持一致的锁顺序；取消分组只锁群组。
+     * 所有 ID 均按当前租户查询，任一缺失则整批失败。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int assignFolder(List<Long> ids, Long folderId) {
+        List<Long> normalizedIds = normalizeFolderAssignmentIds(ids);
+        if (folderId != null) {
+            if (folderId <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION, "目标群组分组 ID 必须为正整数");
+            }
+            if (folderMapper.selectActiveByIdsForUpdate(List.of(folderId)).size() != 1) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "目标群组分组不存在或已删除");
+            }
+        }
+
+        List<GroupLink> groups = groupLinkMapper.selectActiveByIdsForUpdate(normalizedIds);
+        if (groups.size() != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组不存在或已删除，请刷新后重试");
+        }
+        int updated = groupLinkMapper.assignFolder(
+                normalizedIds, folderId, System.currentTimeMillis());
+        log.info("群组批量设置运营分组 count={} folderId={} ids={}",
+                updated, folderId, normalizedIds);
+        return updated;
+    }
+
+    private static List<Long> normalizeFolderAssignmentIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
+        }
+        if (ids.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群组 ID 必须为正整数");
+        }
+        List<Long> normalizedIds = List.copyOf(new TreeSet<>(ids));
+        if (normalizedIds.size() > BATCH_MAX) {
+            throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
+        }
+        return normalizedIds;
     }
 
     /**

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -14,6 +15,7 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.Account;
 import com.armada.group.converter.GroupConverter;
+import com.armada.group.mapper.GroupFolderMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
@@ -25,6 +27,7 @@ import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.dto.GroupPictureCommandDTO;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -43,6 +46,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -54,6 +58,9 @@ class GroupLinkServiceImplTest {
 
     @Mock
     private GroupLinkMapper groupLinkMapper;
+
+    @Mock
+    private GroupFolderMapper folderMapper;
 
     @Mock
     private GroupLinkPreviewMapper previewMapper;
@@ -81,7 +88,7 @@ class GroupLinkServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new GroupLinkServiceImpl(
-                groupLinkMapper, previewMapper, healthMapper, labelMapper,
+                groupLinkMapper, folderMapper, previewMapper, healthMapper, labelMapper,
                 converter, accountMapper, groupPreviewPort, groupProfilePort);
     }
 
@@ -125,6 +132,7 @@ class GroupLinkServiceImplTest {
         GroupLinkVoRow row = new GroupLinkVoRow();
         GroupLinkVO vo = new GroupLinkVO(
                 1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
+                null, null,
                 "UNCHECKED", "未检测", null, null, null, null,
                 3, null, null, null, null, null, null, null, null, null, null, 1000L);
         when(groupLinkMapper.countByLabel(q)).thenReturn(1L);
@@ -148,6 +156,65 @@ class GroupLinkServiceImplTest {
                 .hasMessageContaining("status");
         verify(groupLinkMapper, never()).countByLabel(any());
         verify(groupLinkMapper, never()).selectPageByLabel(any());
+    }
+
+    @Test
+    void listByLabelRejectsFolderIdTogetherWithWithoutFolder() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setFolderId(10L);
+        query.setWithoutFolder(true);
+
+        assertThatThrownBy(() -> service.listByLabel(query))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("folderId 与 withoutFolder 不能同时使用");
+        verify(groupLinkMapper, never()).countByLabel(any());
+    }
+
+    @Test
+    void assignFolderLocksFolderAndAllGroupsThenUpdates() {
+        GroupFolder folder = new GroupFolder();
+        folder.setId(10L);
+        GroupLink first = new GroupLink();
+        first.setId(101L);
+        GroupLink second = new GroupLink();
+        second.setId(102L);
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L))).thenReturn(List.of(folder));
+        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L, 102L)))
+                .thenReturn(List.of(first, second));
+        when(groupLinkMapper.assignFolder(eq(List.of(101L, 102L)), eq(10L), anyLong()))
+                .thenReturn(2);
+
+        int updated = service.assignFolder(List.of(102L, 101L, 101L), 10L);
+
+        assertThat(updated).isEqualTo(2);
+        InOrder order = inOrder(folderMapper, groupLinkMapper);
+        order.verify(folderMapper).selectActiveByIdsForUpdate(List.of(10L));
+        order.verify(groupLinkMapper).selectActiveByIdsForUpdate(List.of(101L, 102L));
+        order.verify(groupLinkMapper).assignFolder(eq(List.of(101L, 102L)), eq(10L), anyLong());
+    }
+
+    @Test
+    void assignFolderAllowsUnassignedAndRejectsMissingGroups() {
+        GroupLink first = new GroupLink();
+        first.setId(101L);
+        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L, 102L)))
+                .thenReturn(List.of(first));
+
+        assertThatThrownBy(() -> service.assignFolder(List.of(101L, 102L), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("部分群组不存在");
+        verify(folderMapper, never()).selectActiveByIdsForUpdate(any());
+        verify(groupLinkMapper, never()).assignFolder(any(), any(), anyLong());
+    }
+
+    @Test
+    void assignFolderRejectsMissingTargetFolder() {
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L))).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.assignFolder(List.of(101L), 10L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("目标群组分组不存在");
+        verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any());
     }
 
     // ---- updateProfile ----

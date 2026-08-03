@@ -147,6 +147,19 @@ class GroupLinkControllerTest {
     }
 
     @Test
+    void batchAssignFolderDelegatesNullableFolderId() throws Exception {
+        when(groupLinkService.assignFolder(List.of(101L, 102L), null)).thenReturn(2);
+
+        mockMvc.perform(post("/api/group-links/batch-assign-folder")
+                        .contentType("application/json")
+                        .content("{\"ids\":[101,102],\"folderId\":null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(2));
+
+        verify(groupLinkService).assignFolder(List.of(101L, 102L), null);
+    }
+
+    @Test
     void postSubject_delegatesToServiceAndReturnsApiResponse() throws Exception {
         mockMvc.perform(post("/api/group-links/10/subject")
                         .contentType("application/json")

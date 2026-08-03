@@ -1,9 +1,12 @@
 package com.armada.group.mapper;
 
-import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.vo.GroupLinkVoRow;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -199,4 +202,35 @@ public interface GroupLinkMapper {
      * @return 活跃链接数
      */
     int countActiveByIds(@Param("ids") List<Long> ids);
+
+    /** 统计指定运营分组下的活跃群组数。 */
+    int countActiveByFolderIds(@Param("folderIds") List<Long> folderIds);
+
+    /** 删除运营分组前将关联活跃群组移入未分组。 */
+    int clearFolderByFolderIds(@Param("folderIds") List<Long> folderIds,
+                               @Param("updatedAt") long updatedAt);
+
+    /**
+     * 按 ID 升序锁定当前租户的活跃群组。
+     *
+     * @param ids 已去重并排序的群组 ID
+     * @return 当前租户内存在的活跃群组
+     */
+    default List<GroupLink> selectActiveByIdsForUpdate(List<Long> ids) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectByTenantAndIdsForUpdate(tenantId, ids);
+    }
+
+    /** 使用显式租户执行锁行查询，避免租户插件改写 FOR UPDATE 尾句。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupLink> selectByTenantAndIdsForUpdate(@Param("tenantId") Long tenantId,
+                                                   @Param("ids") List<Long> ids);
+
+    /** 批量设置或清空群组的运营分组。 */
+    int assignFolder(@Param("ids") List<Long> ids,
+                     @Param("folderId") Long folderId,
+                     @Param("updatedAt") long updatedAt);
 }

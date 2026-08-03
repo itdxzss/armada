@@ -2,6 +2,7 @@ package com.armada.group.controller;
 
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
 import com.armada.group.model.dto.GroupDescriptionCommandDTO;
+import com.armada.group.model.dto.GroupFolderAssignDTO;
 import com.armada.group.model.dto.GroupIdsDTO;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkMigrateDTO;
@@ -288,5 +289,16 @@ public class GroupLinkController {
     @PostMapping("/batch-delete")
     public ApiResponse<Integer> batchDelete(@RequestBody GroupIdsDTO request) {
         return ApiResponse.ok(groupLinkService.batchDelete(request.ids()));
+    }
+
+    /**
+     * 批量设置或取消群组列表运营分组。
+     *
+     * @param dto 群组 ID 与可空目标分组 ID
+     * @return 数据库实际更新行数
+     */
+    @PostMapping("/batch-assign-folder")
+    public ApiResponse<Integer> assignFolder(@RequestBody GroupFolderAssignDTO dto) {
+        return ApiResponse.ok(groupLinkService.assignFolder(dto.ids(), dto.folderId()));
     }
 }

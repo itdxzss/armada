@@ -14,6 +14,8 @@ public class GroupLinkVoRow {
     private String waSubject;
     private String groupJid;
     private String sourceFileName;
+    private Long folderId;
+    private String folderName;
     private Integer healthStatus;
     private Boolean banned;
     private Integer memberSize;
@@ -77,6 +79,22 @@ public class GroupLinkVoRow {
 
     public void setSourceFileName(String sourceFileName) {
         this.sourceFileName = sourceFileName;
+    }
+
+    public Long getFolderId() {
+        return folderId;
+    }
+
+    public void setFolderId(Long folderId) {
+        this.folderId = folderId;
+    }
+
+    public String getFolderName() {
+        return folderName;
+    }
+
+    public void setFolderName(String folderName) {
+        this.folderName = folderName;
     }
 
     public Integer getHealthStatus() {

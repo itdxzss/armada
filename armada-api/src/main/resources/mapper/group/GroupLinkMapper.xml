@@ -88,6 +88,12 @@
     <if test="labelId != null">
       AND g.label_id = #{labelId}
     </if>
+    <if test="folderId != null">
+      AND g.folder_id = #{folderId}
+    </if>
+    <if test="withoutFolder != null and withoutFolder">
+      AND g.folder_id IS NULL
+    </if>
     <if test="sourceFileName != null and sourceFileName != ''">
       AND b.source_file_name LIKE CONCAT('%', #{sourceFileName}, '%')
     </if>
@@ -168,6 +174,10 @@
 
   <sql id="groupListFromJoin">
     <include refid="groupListBaseFromJoin"/>
+    LEFT JOIN group_folder f
+      ON f.id = g.folder_id
+     AND f.tenant_id = g.tenant_id
+     AND f.deleted_at IS NULL
     <include refid="groupListAdminJoin"/>
   </sql>
 
@@ -186,6 +196,8 @@
            p.wa_subject AS waSubject,
            p.group_jid AS groupJid,
            b.source_file_name AS sourceFileName,
+           g.folder_id AS folderId,
+           f.name AS folderName,
            h.health_status AS healthStatus,
            h.is_banned AS banned,
            p.member_size AS memberSize,
@@ -320,5 +332,42 @@
     SELECT COUNT(*) FROM group_link WHERE deleted_at IS NULL AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </select>
+
+  <select id="countActiveByFolderIds" resultType="int">
+    SELECT COUNT(*)
+    FROM group_link
+    WHERE deleted_at IS NULL
+      AND folder_id IN
+    <foreach collection="folderIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+
+  <update id="clearFolderByFolderIds">
+    UPDATE group_link
+    SET folder_id = NULL,
+        updated_at = #{updatedAt}
+    WHERE deleted_at IS NULL
+      AND folder_id IN
+    <foreach collection="folderIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <select id="selectByTenantAndIdsForUpdate" resultType="com.armada.group.model.entity.GroupLink">
+    SELECT *
+    FROM group_link
+    WHERE tenant_id = #{tenantId}
+      AND deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id
+    FOR UPDATE
+  </select>
+
+  <update id="assignFolder">
+    UPDATE group_link
+    SET folder_id = #{folderId},
+        updated_at = #{updatedAt}
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
 
 </mapper>

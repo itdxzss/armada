@@ -23,6 +23,12 @@ public record GroupLinkVO(
         /** 来源文件名(可为 null)。 */
         String sourceFileName,
 
+        /** 群组列表运营分组 ID；未分组时为 null。 */
+        Long folderId,
+
+        /** 群组列表运营分组名称；未分组时为 null。 */
+        String folderName,
+
         /** 群状态码:UNCHECKED/AVAILABLE/BANNED/LINK_INVALID/UNAVAILABLE。 */
         String status,
 

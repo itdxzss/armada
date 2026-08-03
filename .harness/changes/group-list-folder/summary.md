@@ -14,7 +14,7 @@
 - [x] 对账 Armada `group_link_label/label_id`、群组列表后端和前端现状。
 - [x] 确认单分组、允许未分组、独立模型和首期范围。
 - [x] 完成并提交设计文档。
-- [ ] 编写实施计划。
+- [x] 编写实施计划：`docs/superpowers/plans/2026-08-03-group-list-folder.md`。
 - [ ] 后端新增 `group_folder`、`group_link.folder_id`、CRUD、筛选和批量设置能力。
 - [ ] 前端新增筛选、批量分组和分组管理交互。
 - [ ] 完成后端、前端验证并更新本记录。

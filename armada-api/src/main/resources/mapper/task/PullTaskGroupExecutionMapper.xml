@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskGroupExecutionMapper">
+
+  <!-- tenant_id 由租户拦截器注入；link_occupancy_key 是生成列，永不显式写入。 -->
+  <insert id="insertDraft" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_group_execution (
+      task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, group_jid,
+      source_file_index, source_file_name, total_line_count, valid_member_count,
+      invalid_line_count, duplicate_line_count, execution_status, stage, manual_paused,
+      next_manager_index, next_puller_index, next_run_at, version, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{seq}, #{groupLinkId}, #{normalizedLink}, #{inviteCode},
+      #{sourceLinkLineNo}, #{groupJid},
+      #{sourceFileIndex}, #{sourceFileName}, #{totalLineCount}, #{validMemberCount},
+      #{invalidLineCount}, #{duplicateLineCount}, 0, 1, 0,
+      0, 0, 0, 1, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectByTaskId" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT *
+    FROM pull_task_group_execution
+    WHERE task_id = #{taskId}
+    ORDER BY seq ASC
+  </select>
+
+  <delete id="deleteDraftByTaskId">
+    DELETE FROM pull_task_group_execution
+    WHERE task_id = #{taskId}
+      AND execution_status = 0
+  </delete>
+
+  <!-- 推进为待启动后生成列取到链接值，跨任务占用随之生效；冲突由唯一键抛出。 -->
+  <update id="freezeDraftRows">
+    UPDATE pull_task_group_execution
+    SET execution_status = 1,
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND execution_status = 0
+  </update>
+
+  <!-- 调度器跨租户扫描：条件顺序对齐 idx_pull_task_execution_dispatch
+       (execution_status, manual_paused, next_run_at, id)。 -->
+  <update id="claimDue">
+    UPDATE pull_task_group_execution
+    SET lock_owner = #{lockOwner},
+        lock_expires_at = #{lockExpiresAt},
+        updated_at = #{now}
+    WHERE execution_status IN (1, 2)
+      AND manual_paused = 0
+      AND next_run_at &lt;= #{now}
+      AND (lock_owner IS NULL OR lock_expires_at &lt;= #{now})
+    ORDER BY next_run_at ASC, id ASC
+    LIMIT #{limit}
+  </update>
+
+  <select id="selectClaimed" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT *
+    FROM pull_task_group_execution
+    WHERE lock_owner = #{lockOwner}
+    ORDER BY id ASC
+  </select>
+
+  <update id="updateCheckpoint">
+    UPDATE pull_task_group_execution
+    SET next_manager_index = #{nextManagerIndex},
+        next_puller_index = #{nextPullerIndex},
+        stage = #{stage},
+        next_run_at = #{nextRunAt},
+        last_business_executed_at = #{now},
+        version = version + 1,
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND version = #{expectedVersion}
+  </update>
+
+  <update id="releaseLock">
+    UPDATE pull_task_group_execution
+    SET lock_owner = NULL,
+        lock_expires_at = NULL
+    WHERE id = #{id}
+      AND lock_owner = #{lockOwner}
+  </update>
+
+</mapper>

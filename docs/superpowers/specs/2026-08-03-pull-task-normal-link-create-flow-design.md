@@ -119,6 +119,8 @@ ignoredFileCount   本次因剩余链接不足被忽略的文件数
 
 ## 4. 创建配置合同（BE-01）
 
+全仓没有引入 Bean Validation（`jakarta.validation` 零使用），校验一律在 Service 手写并抛 `BusinessException(ErrorCode.VALIDATION, ...)`。本切片沿用该风格，不新引入校验框架。
+
 ### 4.1 字段
 
 | 字段 | 类型 | 约束 | 落库 |
@@ -202,7 +204,11 @@ ignoredFileCount   本次因剩余链接不足被忽略的文件数
 2. 返回时把营销号重排到列表最前，本合同要求保留首次出现顺序；
 3. 只回聚合统计（非法数、重复数），本合同要求逐行错误明细（文件名 + 原始行号 + 原因）。
 
-只复用 `FileLinesExtractor` 读行。
+**也不能复用 `FileLinesExtractor`**：它的 `parseTxt` 在读行时就丢掉空行（`if (!l.isBlank())`），物理行号随之丢失，无法满足"首次有效出现的原始行号"与"非法行回原始行号"。
+
+改为：把上传文件按 UTF-8 读成字符串，交给 `com.armada.shared.util.LineImporter.run`。该工具按 `\R` 切行、`lineNo = i + 1` 保真物理行号、空行 `continue` 不计数、并内建批内去重——与本合同逐条吻合，链接侧与 TXT 侧共用同一套逐行语义。
+
+`LineImporter` 的批内去重把后续重复行标为 `DUPLICATE` 且 `record` 非空，因此 `A/a` 提升规则实现为一次后处理：遍历产出，凡 `DUPLICATE` 且其 `record.adminRequired` 为真，就把该号码首次出现的唯一记录提升为 `adminRequired`。
 
 #### 号码清洗管线（顺序固定）
 
@@ -299,7 +305,7 @@ controller/
   PullTaskStandardController.java          5 个端点
 model/dto/
   PullTaskStandardDraftPlanRequest.java    multipart 绑定
-  PullTaskStandardCreateDTO.java           提交配置 + Bean Validation
+  PullTaskStandardCreateDTO.java           提交配置（record）
 model/vo/
   PullTaskStandardDraftVO.java             草稿视图
   PullTaskStandardExecutionRowVO.java      执行行
@@ -330,6 +336,24 @@ service/
 | `PullTaskMaterialMemberMapper` | `deleteByExecution(groupExecutionId)` | 单行移除连带删料子 |
 
 `deleteDraftRow` 与 `deleteByExecution` 都必须带 `execution_status = 0` 前置条件，防止误删已冻结行。
+
+### 7.2 跨域依赖
+
+工程结构规范要求跨业务域只能调对方 **Service**，禁碰对方 mapper。本切片有两处跨域调用：
+
+**`group` 域** —— 提交时需要按归一化链接拿回 `group_link.id`。现有 `GroupLinkRegistryService.registerJoinTaskTargets(List<String>)` 返回 `void`，拿不到 ID。因此在该接口上**新增一个方法**：
+
+```java
+Map<String, Long> registerPullTaskTargets(List<String> normalizedLinks, long now);
+```
+
+实现复用 `GroupLinkRegistryServiceImpl` 已有的 `registerOne` 内部逻辑（复用活跃行 / 复活软删行 / 新建），`origin` 取已存在的 `GroupLinkOrigin.PULL_TASK`（枚举值 3，已定义），返回归一化链接到 `group_link.id` 的映射。
+
+**`account` 域** —— 三个分组 ID 的存在性与租户校验调 `AccountGroupService.requireExisting(Long)`，它抛业务异常并返回 `AccountGroup`（含 `name`，正好用于三个名称快照列）。`group` 域的 `HistoricalGroupPullCreateValidator` 已是同样用法，沿用该先例。
+
+### 7.3 测试基座可见性
+
+`PullTaskNormalLinkSchema` 与 `PullTaskNormalLinkH2Support` 当前是 `com.armada.task.mapper` 包内的包级私有类。第 4 层服务集成测试位于 `com.armada.task.service`，需要它们提升为 `public`（含 `dataSource` / `sqlSessionFactory` / `resetSchema` 三个方法）。这是纯测试代码的最小放宽，不影响 `src/main`。
 
 ## 8. 测试策略
 

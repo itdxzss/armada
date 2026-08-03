@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.entity.PullTaskGroupExecution;
-import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.List;
@@ -57,7 +56,11 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         mapper.insertDraft(row);
 
         assertThat(row.getId()).isNotNull();
-        assertThat(mapper.selectByTaskId(100L)).hasSize(1);
+        List<PullTaskGroupExecution> saved = mapper.selectByTaskId(100L);
+        assertThat(saved).hasSize(1);
+        // group_link_id/group_jid 是真实绑定的参数（非强制写死列），必须原样回读。
+        assertThat(saved.get(0).getGroupLinkId()).isEqualTo(9000L);
+        assertThat(saved.get(0).getGroupJid()).isEqualTo("120363000000000000@g.us");
     }
 
     @Test
@@ -186,16 +189,17 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setTaskId(taskId);
         row.setSeq(seq);
+        row.setGroupLinkId(9000L);
         row.setNormalizedLink(link);
         row.setInviteCode(link.substring(link.lastIndexOf('/') + 1));
         row.setSourceLinkLineNo(seq);
+        row.setGroupJid("120363000000000000@g.us");
         row.setSourceFileIndex(fileIndex);
         row.setSourceFileName("material-" + fileIndex + ".txt");
         row.setTotalLineCount(10);
         row.setValidMemberCount(8);
         row.setInvalidLineCount(1);
         row.setDuplicateLineCount(1);
-        row.setExecutionStatus(PullTaskExecutionStatus.DRAFT.code());
         row.setCreatedAt(100L);
         row.setUpdatedAt(100L);
         return row;

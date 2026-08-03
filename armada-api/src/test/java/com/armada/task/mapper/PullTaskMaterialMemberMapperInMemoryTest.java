@@ -64,7 +64,10 @@ class PullTaskMaterialMemberMapperInMemoryTest {
                 .containsExactly(1, 2, 3);
         assertThat(unconsumed.get(1).getAdminRequired()).isEqualTo(1);
         // sourceLineNo 与 normalizedPhone 各自回读，避免 INSERT 列清单里位置错位。
-        assertThat(unconsumed.get(1).getSourceLineNo()).isEqualTo(2);
+        // sourceLineNo 用 seq * 10 + 3 构造，与 memberSeq 恒不相等：两者是相邻同类型的
+        // INT 列，若 fixture 让它们总是相等，二者互换也能"回读正确"，测试就失去了意义。
+        assertThat(unconsumed.get(1).getMemberSeq()).isEqualTo(2);
+        assertThat(unconsumed.get(1).getSourceLineNo()).isEqualTo(23);
         assertThat(unconsumed.get(1).getNormalizedPhone()).isEqualTo("8613800000002");
     }
 
@@ -185,7 +188,11 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         PullTaskMaterialMember row = new PullTaskMaterialMember();
         row.setGroupExecutionId(EXECUTION);
         row.setMemberSeq(seq);
-        row.setSourceLineNo(seq);
+        // 与 seq 保持非线性、恒不相等的关系：真实数据里 sourceLineNo(首次出现的原始行号)
+        // 一旦文件里有空行/非法号码/重复号码就会与 memberSeq(去重后顺序)分道扬镳；
+        // 若 fixture 让两者恒等，INSERT 列清单里这两个相邻 INT 列的换位 bug 就无法被
+        // 任何断言捕获。
+        row.setSourceLineNo(seq * 10 + 3);
         row.setNormalizedPhone(phone);
         row.setAdminRequired(adminRequired);
         row.setCreatedAt(100L);

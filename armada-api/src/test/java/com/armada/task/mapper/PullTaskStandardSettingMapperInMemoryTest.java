@@ -51,14 +51,26 @@ class PullTaskStandardSettingMapperInMemoryTest {
 
         PullTaskStandardSetting saved = mapper.selectByTaskId(1L);
         assertThat(saved.getTenantId()).isEqualTo(7L);
+        assertThat(saved.getTaskId()).isEqualTo(1L);
+        assertThat(saved.getAutoStart()).isEqualTo(0);
+        assertThat(saved.getMaterialAdminTiming()).isEqualTo(1);
         assertThat(saved.getPullCountMin()).isEqualTo(3);
         assertThat(saved.getPullCountMax()).isEqualTo(8);
+        assertThat(saved.getPullIntervalSeconds()).isEqualTo(30);
+        assertThat(saved.getPullerCountPerGroup()).isEqualTo(2);
         assertThat(saved.getStationCountPerCall()).isEqualTo(2);
         assertThat(saved.getConcurrentGroupCount()).isEqualTo(1);
-        assertThat(saved.getMaterialAdminTiming()).isEqualTo(1);
-        assertThat(saved.getManagerGroupName()).isEqualTo("管理组");
+        assertThat(saved.getPullerRiskMinutes()).isZero();
         // 启动前 N 尚未冻结。
         assertThat(saved.getRequiredManagerCount()).isZero();
+        assertThat(saved.getManagerGroupId()).isEqualTo(11L);
+        assertThat(saved.getPullerGroupId()).isEqualTo(12L);
+        assertThat(saved.getStationGroupId()).isEqualTo(13L);
+        assertThat(saved.getManagerGroupName()).isEqualTo("管理组");
+        assertThat(saved.getPullerGroupName()).isEqualTo("拉手组");
+        assertThat(saved.getStationGroupName()).isEqualTo("站台组");
+        assertThat(saved.getCreatedAt()).isEqualTo(100L);
+        assertThat(saved.getUpdatedAt()).isEqualTo(100L);
     }
 
     @Test

@@ -14,4 +14,15 @@ public interface GroupInvitePageFetcher {
      * @return 页面可识别出的群名/头像;抓取失败时返回空 profile
      */
     GroupInvitePageMetadata fetch(String normalizedUrl);
+
+    /**
+     * 抓取公开邀请页并区分可达性。
+     *
+     * <p>{@link #fetch(String)} 把所有失败都收敛成空 profile，无法分辨"抓不到"与"没群资料"。
+     * 需要区分二者的调用方用本方法。</p>
+     *
+     * @param normalizedUrl {@code chat.whatsapp.com/<inviteCode>}
+     * @return 群资料与可达性
+     */
+    GroupInvitePageProbe probe(String normalizedUrl);
 }

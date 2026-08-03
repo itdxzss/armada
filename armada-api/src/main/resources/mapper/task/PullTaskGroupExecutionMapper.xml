@@ -55,10 +55,13 @@
     LIMIT #{limit}
   </update>
 
+  <!-- lock_expires_at 必须比对 now，否则租约静默过期后、尚未被别的实例抢占前，
+       本实例仍会把这些行当作自己持有。 -->
   <select id="selectClaimed" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
     SELECT *
     FROM pull_task_group_execution
     WHERE lock_owner = #{lockOwner}
+      AND lock_expires_at &gt; #{now}
     ORDER BY id ASC
   </select>
 
@@ -78,7 +81,8 @@
   <update id="releaseLock">
     UPDATE pull_task_group_execution
     SET lock_owner = NULL,
-        lock_expires_at = NULL
+        lock_expires_at = NULL,
+        updated_at = #{now}
     WHERE id = #{id}
       AND lock_owner = #{lockOwner}
   </update>

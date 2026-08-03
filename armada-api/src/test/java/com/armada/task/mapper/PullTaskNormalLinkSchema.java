@@ -154,7 +154,9 @@ final class PullTaskNormalLinkSchema {
                 updated_at BIGINT NOT NULL,
                 CONSTRAINT uq_pull_task_material_seq UNIQUE (tenant_id, group_execution_id, member_seq),
                 CONSTRAINT uq_pull_task_material_phone
-                    UNIQUE (tenant_id, group_execution_id, normalized_phone)
+                    UNIQUE (tenant_id, group_execution_id, normalized_phone),
+                CONSTRAINT uq_pull_task_material_admin_command
+                    UNIQUE (tenant_id, admin_command_id)
             )
             """;
 

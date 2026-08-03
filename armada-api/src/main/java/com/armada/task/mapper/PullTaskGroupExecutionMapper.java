@@ -77,13 +77,19 @@ public interface PullTaskGroupExecutionMapper {
                  @Param("lockExpiresAt") long lockExpiresAt);
 
     /**
-     * 读取本实例当前持有的执行行。
+     * 读取本实例当前持有且租约仍未过期的执行行。
+     *
+     * <p>只按 {@code lock_owner} 过滤是不够的：租约静默过期后，若尚未有别的实例把它抢走，
+     * 这里仍会把该行当作"本实例持有"返回。因此额外要求 {@code lock_expires_at > now}，
+     * 让过期的持有在被真正抢占之前就已经对原持有者不可见。</p>
      *
      * @param lockOwner 抢占实例标识
-     * @return 该实例持有的执行行
+     * @param now 当前时间(epoch 毫秒)
+     * @return 该实例当前持有且租约未过期的执行行
      */
     @InterceptorIgnore(tenantLine = "true")
-    List<PullTaskGroupExecution> selectClaimed(@Param("lockOwner") String lockOwner);
+    List<PullTaskGroupExecution> selectClaimed(@Param("lockOwner") String lockOwner,
+                                               @Param("now") long now);
 
     /**
      * 用乐观锁推进执行行的检查点。
@@ -116,8 +122,9 @@ public interface PullTaskGroupExecutionMapper {
      *
      * @param id 执行行 ID
      * @param lockOwner 抢占实例标识
+     * @param now 释放时间(epoch 毫秒)，写入 {@code updated_at}
      * @return 实际释放行数
      */
     @InterceptorIgnore(tenantLine = "true")
-    int releaseLock(@Param("id") long id, @Param("lockOwner") String lockOwner);
+    int releaseLock(@Param("id") long id, @Param("lockOwner") String lockOwner, @Param("now") long now);
 }

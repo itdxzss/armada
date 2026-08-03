@@ -62,11 +62,17 @@ class PullTaskLifecycleMapperInMemoryTest {
 
     @Test
     void standardDraftIsHiddenFromListButMarketingDraftStaysVisible() {
-        List<PullTask> rows = mapper.selectPage(new PullTaskQuery().toFilter(), 0, 50);
+        var filter = new PullTaskQuery().toFilter();
+        List<PullTask> rows = mapper.selectPage(filter, 0, 50);
 
         // STANDARD 草稿是创建页未提交的计划,不进列表(ADR-0007);
         // GROUP_MARKETING 的 DRAFT 是既有可见状态,不能被一起隐藏。
         assertThat(rows).extracting(PullTask::getId).containsExactlyInAnyOrder(2L, 3L);
+
+        // selectPage 与 countPage 共享同一个 <sql id="filter"> 片段;这里钉住两者
+        // 口径一致，防止未来有人把其中一条语句的筛选条件内联后与另一条脱节，
+        // 导致分页总数与页内实际行数对不上。
+        assertThat(mapper.countPage(filter)).isEqualTo(rows.size());
     }
 
     @Test

@@ -128,7 +128,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         // 调度器没有租户上下文；@InterceptorIgnore 让它能看到全部租户的待执行行。
         TenantContext.clear();
         assertThat(mapper.claimDue(10, 600L, "worker-1", 660L)).isEqualTo(2);
-        assertThat(mapper.selectClaimed("worker-1"))
+        assertThat(mapper.selectClaimed("worker-1", 600L))
                 .extracting(PullTaskGroupExecution::getTaskId)
                 .containsExactlyInAnyOrder(100L, 300L);
     }
@@ -155,9 +155,38 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         assertThat(mapper.claimDue(10, 600L, "worker-1", 660L)).isEqualTo(1);
         // 锁未过期时别的实例抢不到。
         assertThat(mapper.claimDue(10, 610L, "worker-2", 670L)).isZero();
+        // 租约到期(660)但尚未被任何实例真正抢占时，selectClaimed 也不应再把它
+        // 当作 worker-1 持有——即便 lock_owner 列仍然写着 worker-1。
+        assertThat(mapper.selectClaimed("worker-1", 700L)).isEmpty();
         // 锁过期后可被回收，避免实例崩溃导致执行行永久卡死。
         assertThat(mapper.claimDue(10, 700L, "worker-2", 760L)).isEqualTo(1);
-        assertThat(mapper.selectClaimed("worker-1")).isEmpty();
+        assertThat(mapper.selectClaimed("worker-1", 700L)).isEmpty();
+        assertThat(mapper.selectClaimed("worker-2", 700L))
+                .extracting(PullTaskGroupExecution::getTaskId)
+                .containsExactly(100L);
+    }
+
+    @Test
+    void releaseLockClearsOwnershipAndBumpsUpdatedAt() {
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        mapper.freezeDraftRows(100L, 500L);
+
+        TenantContext.clear();
+        assertThat(mapper.claimDue(10, 600L, "worker-1", 660L)).isEqualTo(1);
+        assertThat(mapper.selectClaimed("worker-1", 600L)).hasSize(1);
+
+        assertThat(mapper.releaseLock(row.getId(), "worker-1", 650L)).isEqualTo(1);
+
+        // 释放后本实例再也看不到这行；lock_owner/lock_expires_at 清空。
+        assertThat(mapper.selectClaimed("worker-1", 650L)).isEmpty();
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution released = mapper.selectByTaskId(100L).get(0);
+        assertThat(released.getLockOwner()).isNull();
+        assertThat(released.getLockExpiresAt()).isNull();
+        // releaseLock 是本文件里唯一曾经遗漏 updated_at 的 UPDATE；这里钉住不能再漏。
+        assertThat(released.getUpdatedAt()).isEqualTo(650L);
     }
 
     @Test

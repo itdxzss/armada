@@ -20,8 +20,17 @@ public interface PullTaskAccountActionMapper {
      * 目标账号自身 ID：MySQL 唯一索引中 NULL 之间互不相等，留空会让同一账号的
      * 踩链接动作可以无限重复插入，幂等键形同虚设。</p>
      *
+     * <p><b>{@code INSERT IGNORE} 的隐患：</b>MySQL 会把不止重复键错误降级为警告——
+     * {@code actor_group_account_id}/{@code target_group_account_id} 为 NULL 这类
+     * NOT NULL 违反会被静默地插成一行受影响数为 0 而不是抛异常，字符串截断也会被静默截断
+     * 而不报错。调用方必须自行保证这两个字段非空，本方法不会在它们为 null 时报错。</p>
+     *
+     * <p>当行因幂等键已存在而被吸收（返回 0）时，{@code useGeneratedKeys} 不会回填
+     * {@code id}：传入的 {@code row} 上 {@code id} 仍是调用前的值（通常为 null）。
+     * 调用方看到返回值为 0 时不能假设 {@code row.getId()} 已经是数据库中既有行的 ID。</p>
+     *
      * @param row 动作行；写入后回填 id
-     * @return 新增行数；0 表示该动作已存在
+     * @return 新增行数；0 表示该动作已存在，此时 row 的 id 未被填充
      */
     int insertIfAbsent(PullTaskAccountAction row);
 

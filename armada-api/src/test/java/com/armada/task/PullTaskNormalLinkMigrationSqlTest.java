@@ -88,10 +88,14 @@ class PullTaskNormalLinkMigrationSqlTest {
 
     @Test
     void callbackLookupIndexesExist() throws IOException {
+        // 三张回调定位索引都必须是 UNIQUE：selectByAdminCommandId/selectByCommandId
+        // 返回单行，若命令 ID 重复，MyBatis 会抛 TooManyResultsException，
+        // 协议回调将永久无法处理。
         assertThat(sql())
                 .contains("UNIQUE KEY uq_pull_task_action_command (tenant_id, command_id)")
                 .contains("UNIQUE KEY uq_pull_task_call_command (tenant_id, command_id)")
-                .contains("KEY idx_pull_task_material_admin_command (tenant_id, admin_command_id)");
+                .contains("UNIQUE KEY uq_pull_task_material_admin_command "
+                        + "(tenant_id, admin_command_id)");
     }
 
     @Test

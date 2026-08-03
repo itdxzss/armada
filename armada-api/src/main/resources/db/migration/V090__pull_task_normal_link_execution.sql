@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS pull_task_material_member (
     UNIQUE KEY uq_pull_task_material_phone (tenant_id, group_execution_id, normalized_phone),
     KEY idx_pull_task_material_pending (tenant_id, group_execution_id, pull_status, member_seq),
     KEY idx_pull_task_material_admin (tenant_id, group_execution_id, admin_required, admin_status, id),
-    KEY idx_pull_task_material_admin_command (tenant_id, admin_command_id)
+    UNIQUE KEY uq_pull_task_material_admin_command (tenant_id, admin_command_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='普通群链接执行行的TXT料子号码与逐号码结果';
 

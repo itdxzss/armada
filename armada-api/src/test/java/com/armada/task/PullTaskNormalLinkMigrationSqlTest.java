@@ -62,7 +62,8 @@ class PullTaskNormalLinkMigrationSqlTest {
                 .contains("account_phone VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin")
                 .contains("command_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin")
                 .contains("idempotency_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin")
-                .contains("wa_jid VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin");
+                .contains("wa_jid VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin")
+                .contains("lock_owner VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin");
     }
 
     @Test

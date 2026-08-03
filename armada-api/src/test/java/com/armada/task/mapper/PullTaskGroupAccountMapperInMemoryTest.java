@@ -186,23 +186,39 @@ class PullTaskGroupAccountMapperInMemoryTest {
 
     @Test
     void insertPersistsEveryScalarColumnAtItsOwnDistinctValue() {
-        // role_seq/source_type/selection_mode/entry_mode 都是相邻小整数,
-        // occupied_at/created_at/updated_at 都是相邻 BIGINT——全部取互不相同的值,
-        // 这样 INSERT 列清单和 VALUES 清单一旦错位绑定,断言就会失败。
-        PullTaskGroupAccount puller = role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
-        mapper.insert(puller);
+        // role_type/role_seq/source_type/selection_mode/entry_mode 全部绑定在同一段 INSERT
+        // 参数游程里,必须两两互异且落在各自列的合法业务取值范围内,任何一对绑定被误换位
+        // 才能被下面的断言抓到。role_type 用 STATION(3):MANAGER(1)/PULLER(2) 的编码会落进
+        // source_type/selection_mode 的 {1,2} 定义域,STATION 是唯一不冲突的选择,代价是
+        // entry_mode 按业务约定必须为 null——这样反而腾出了 role_type 需要的取值 3,
+        // 否则 role_type 和 entry_mode 的定义域都是 {1,2,3},四个整数列无法同时两两互异。
+        // occupied_at 同理只在拉手行才写入,这里保持 null 并不削弱断言:换位发生时
+        // occupied_at/created_at 仍会互相串值,null 与具体数值一样能被观察到差异。
+        PullTaskGroupAccount station = new PullTaskGroupAccount();
+        station.setTaskId(100L);
+        station.setGroupExecutionId(EXEC_A);
+        station.setAccountId(900L);
+        station.setAccountPhone("86138900");
+        station.setRoleType(PullTaskGroupAccountRole.STATION.code());
+        station.setRoleSeq(5);
+        station.setSourceType(1);
+        station.setSelectionMode(2);
+        station.setEntryMode(null);
+        station.setCreatedAt(100L);
+        station.setUpdatedAt(150L);
+        mapper.insert(station);
 
         PullTaskGroupAccount saved =
-                mapper.selectByExecutionAndRole(EXEC_A, PullTaskGroupAccountRole.PULLER.code()).get(0);
+                mapper.selectByExecutionAndRole(EXEC_A, PullTaskGroupAccountRole.STATION.code()).get(0);
         assertThat(saved.getTaskId()).isEqualTo(100L);
         assertThat(saved.getGroupExecutionId()).isEqualTo(EXEC_A);
         assertThat(saved.getAccountId()).isEqualTo(900L);
         assertThat(saved.getAccountPhone()).isEqualTo("86138900");
-        assertThat(saved.getRoleType()).isEqualTo(PullTaskGroupAccountRole.PULLER.code());
-        assertThat(saved.getRoleSeq()).isEqualTo(1);
-        assertThat(saved.getSourceType()).isEqualTo(2);
-        assertThat(saved.getSelectionMode()).isEqualTo(3);
-        assertThat(saved.getEntryMode()).isEqualTo(4);
+        assertThat(saved.getRoleType()).isEqualTo(PullTaskGroupAccountRole.STATION.code());
+        assertThat(saved.getRoleSeq()).isEqualTo(5);
+        assertThat(saved.getSourceType()).isEqualTo(1);
+        assertThat(saved.getSelectionMode()).isEqualTo(2);
+        assertThat(saved.getEntryMode()).isNull();
         assertThat(saved.getMembershipStatus())
                 .isEqualTo(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code());
         assertThat(saved.getAdminStatus()).isEqualTo(0);
@@ -210,7 +226,7 @@ class PullTaskGroupAccountMapperInMemoryTest {
                 .isEqualTo(PullTaskGroupAccountAvailability.AVAILABLE.code());
         assertThat(saved.getCreatedAt()).isEqualTo(100L);
         assertThat(saved.getUpdatedAt()).isEqualTo(150L);
-        assertThat(saved.getOccupiedAt()).isEqualTo(175L);
+        assertThat(saved.getOccupiedAt()).isNull();
         assertThat(saved.getReleasedAt()).isNull();
     }
 
@@ -223,11 +239,13 @@ class PullTaskGroupAccountMapperInMemoryTest {
         row.setAccountPhone("86138" + accountId);
         row.setRoleType(roleType.code());
         row.setRoleSeq(roleSeq);
-        // source_type/selection_mode/entry_mode 故意取互不相同、且与 roleSeq 不同的值,
-        // 防止相邻小整数列在 XML 里被误绑到彼此仍然测不出来。
+        // source_type(域 1/2)/selection_mode(域 1/2)/entry_mode(域 1/2/3,站台为 null)
+        // 都取各自域内、彼此不同的值——不用来做逐列换位检测(那由
+        // insertPersistsEveryScalarColumnAtItsOwnDistinctValue 专门覆盖),这里的行为测试
+        // 不读取这三列,取业务真实存在的编码即可,不取 4 这种任何列都无意义的值。
         row.setSourceType(2);
-        row.setSelectionMode(3);
-        row.setEntryMode(roleType == PullTaskGroupAccountRole.STATION ? null : 4);
+        row.setSelectionMode(1);
+        row.setEntryMode(roleType == PullTaskGroupAccountRole.STATION ? null : 3);
         // created_at/updated_at/occupied_at 同理取互不相同的值。
         row.setCreatedAt(100L);
         row.setUpdatedAt(150L);

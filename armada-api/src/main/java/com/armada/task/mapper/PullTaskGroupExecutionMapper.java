@@ -44,6 +44,32 @@ public interface PullTaskGroupExecutionMapper {
     int deleteDraftByTaskId(@Param("taskId") long taskId);
 
     /**
+     * 删除草稿任务下的单条执行行。
+     *
+     * <p>带 {@code execution_status = 0} 守卫，已冻结的执行行删不掉。
+     * 调用方必须先删该行的料子成员：若本方法返回 0，事务回滚会把料子恢复。</p>
+     *
+     * @param taskId 草稿任务 ID
+     * @param rowId  执行行 ID
+     * @return 实际删除行数；0 表示行不存在、不属于该任务或已冻结
+     */
+    int deleteDraftRow(@Param("taskId") long taskId, @Param("rowId") long rowId);
+
+    /**
+     * 查出这批链接里已被本租户运行中任务占用的部分。
+     *
+     * <p>占用口径与生成列 {@code link_occupancy_key} 一致：{@code execution_status} 为
+     * 1（待启动）、2（运行中）、3（暂停）时占用，草稿与终态不占用。这是创建页的软提示，
+     * 硬互斥由唯一键在提交时承担。</p>
+     *
+     * <p><b>调用方必须保证 links 非空</b>：空集合会让 {@code foreach} 生成非法 SQL。</p>
+     *
+     * @param links 待检查的归一化链接，非空
+     * @return 已被占用的归一化链接；无占用时为空列表
+     */
+    List<String> selectOccupiedLinks(@Param("links") List<String> links);
+
+    /**
      * 任务由草稿冻结为待启动时，把本任务的草稿执行行整体推进为待启动。
      *
      * <p>推进后生成列 {@code link_occupancy_key} 取到链接值，占用随之生效；

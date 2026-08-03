@@ -26,6 +26,18 @@ public interface PullTaskMaterialMemberMapper {
     List<PullTaskMaterialMember> selectByExecution(@Param("groupExecutionId") long groupExecutionId);
 
     /**
+     * 删除某条执行行下的全部料子成员。
+     *
+     * <p>只在创建页的"单行移除"与"清除全部"里使用；执行行是否允许删除由
+     * {@code PullTaskGroupExecutionMapper#deleteDraftRow} 的状态守卫把关，
+     * 本方法不重复判断执行行状态。</p>
+     *
+     * @param groupExecutionId 执行行 ID
+     * @return 实际删除行数
+     */
+    int deleteByExecution(@Param("groupExecutionId") long groupExecutionId);
+
+    /**
      * 取下一批尚未消费的料子。
      *
      * <p>{@code pull_call_id IS NULL} 即"未消费"，这就是料子游标本身，

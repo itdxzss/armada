@@ -31,6 +31,22 @@
       AND execution_status = 0
   </delete>
 
+  <delete id="deleteDraftRow">
+    DELETE FROM pull_task_group_execution
+    WHERE task_id = #{taskId}
+      AND id = #{rowId}
+      AND execution_status = 0
+  </delete>
+
+  <!-- 占用口径与生成列 link_occupancy_key 保持一致：1 待启动 / 2 运行中 / 3 暂停。 -->
+  <select id="selectOccupiedLinks" resultType="java.lang.String">
+    SELECT normalized_link
+    FROM pull_task_group_execution
+    WHERE execution_status IN (1, 2, 3)
+      AND normalized_link IN
+      <foreach collection="links" item="link" open="(" separator="," close=")">#{link}</foreach>
+  </select>
+
   <!-- 推进为待启动后生成列取到链接值，跨任务占用随之生效；冲突由唯一键抛出。 -->
   <update id="freezeDraftRows">
     UPDATE pull_task_group_execution

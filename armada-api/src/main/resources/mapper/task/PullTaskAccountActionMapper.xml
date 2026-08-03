@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskAccountActionMapper">
+
+  <!-- tenant_id 由租户拦截器注入；唯一键即幂等键，重放返回 0 行。 -->
+  <insert id="insertIfAbsent" useGeneratedKeys="true" keyProperty="id">
+    INSERT IGNORE INTO pull_task_account_action (
+      task_id, group_execution_id, action_type,
+      actor_group_account_id, target_group_account_id,
+      action_status, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{groupExecutionId}, #{actionType},
+      #{actorGroupAccountId}, #{targetGroupAccountId},
+      1, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectPending" resultType="com.armada.task.model.entity.PullTaskAccountAction">
+    SELECT *
+    FROM pull_task_account_action
+    WHERE group_execution_id = #{groupExecutionId}
+      AND action_status = 1
+    ORDER BY id ASC
+  </select>
+
+  <select id="selectByExecutionAndType"
+          resultType="com.armada.task.model.entity.PullTaskAccountAction">
+    SELECT *
+    FROM pull_task_account_action
+    WHERE group_execution_id = #{groupExecutionId}
+      AND action_type = #{actionType}
+    ORDER BY id ASC
+  </select>
+
+  <update id="markSubmitted">
+    UPDATE pull_task_account_action
+    SET action_status = 2,
+        command_id = #{commandId},
+        submitted_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND action_status = 1
+  </update>
+
+  <update id="writeBackResult">
+    UPDATE pull_task_account_action
+    SET action_status = #{actionStatus},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+  </update>
+
+  <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskAccountAction">
+    SELECT *
+    FROM pull_task_account_action
+    WHERE command_id = #{commandId}
+  </select>
+
+</mapper>

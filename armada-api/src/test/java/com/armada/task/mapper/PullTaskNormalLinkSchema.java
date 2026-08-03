@@ -4,15 +4,24 @@ package com.armada.task.mapper;
  * 普通群链接执行域在 H2 MySQL 模式下的建表语句。
  *
  * <p>Flyway 脚本不在 H2 上执行，因此这里手工维护与
- * {@code V090__pull_task_normal_link_execution.sql} 等价的 DDL。两点差异是刻意的：</p>
+ * {@code V090__pull_task_normal_link_execution.sql} 新增的 6 张表等价的 DDL。
+ * {@code pull_task} 本身不是由 {@code V090} 创建的——它只在 {@code V090} 里被
+ * {@code ALTER TABLE} 增加 {@code started_at}/{@code finished_at}/{@code version}
+ * 三列；{@code pull_task} 块镜像的是 {@code V078}/{@code V088}/{@code V090} 三个
+ * 脚本共同定义出的线上真实表结构，改动前应对照这三个脚本而不是只看 {@code V090}。
+ * 两点差异是刻意的：</p>
  * <ul>
  *   <li>省略列级 {@code CHARACTER SET ascii COLLATE ascii_bin}——H2 不支持列级排序规则，
  *       该约束由 {@code PullTaskNormalLinkMigrationSqlTest} 对迁移脚本做结构断言来保证。</li>
  *   <li>原样保留生成列与部分唯一索引——H2 MySQL 模式能正确复现
  *       "生成列为 NULL 时不参与唯一约束"的语义，这是拉手互斥和群链接占用的核心机制。</li>
+ *   <li>{@code pull_task.config_json} 在线上（{@code V078}）是 {@code JSON} 类型，这里
+ *       镜像为 {@code VARCHAR(4000)}——H2 的 {@code JSON} 字面量需要显式 {@code CAST}，
+ *       而本测试套件里没有任何测试读取该列的内部结构，用 {@code VARCHAR} 存整段 JSON
+ *       文本足以覆盖现有断言。</li>
  * </ul>
  *
- * <p>改动 V090 的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
+ * <p>改动 V090 新增表的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
  */
 final class PullTaskNormalLinkSchema {
 
@@ -24,12 +33,12 @@ final class PullTaskNormalLinkSchema {
             CREATE TABLE pull_task (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 tenant_id BIGINT NOT NULL,
-                task_type VARCHAR(32) NOT NULL,
+                task_type VARCHAR(32) NOT NULL DEFAULT 'STANDARD',
                 group_source VARCHAR(32),
                 task_name VARCHAR(128) NOT NULL,
                 group_name VARCHAR(128),
                 mode VARCHAR(32) NOT NULL,
-                status VARCHAR(32) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'WAIT_START',
                 primary_stage VARCHAR(64),
                 blocking_reason VARCHAR(255),
                 started_at BIGINT,

@@ -28,10 +28,12 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
                         {"Code":0,"Data":{
                           "Subject":"安卓历史群",
                           "GroupId":"120363001@g.us",
-                          "Count":2,
+                          "Announce":false,
+                          "Count":3,
                           "Participants":[
                             {"phone":"919000000001","type":"admin"},
-                            {"phone":"919000000002","type":"participant"}
+                            {"phone":"919000000002","type":"participant"},
+                            {"jid":"123456789012345@lid","type":"participant"}
                           ]
                         },"Msg":"ok"}
                         """));
@@ -40,11 +42,13 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
 
         assertThat(result.groupJid()).isEqualTo("120363001@g.us");
         assertThat(result.subject()).isEqualTo("安卓历史群");
-        assertThat(result.announce()).isNull();
+        assertThat(result.announce()).isFalse();
         assertThat(result.stateAbnormal()).isFalse();
         assertThat(result.participantMutationSupported()).isTrue();
-        assertThat(result.participants()).hasSize(2);
+        assertThat(result.participants()).hasSize(3);
         assertThat(result.participants().get(0).admin()).isTrue();
+        assertThat(result.participants().get(2).jid()).isEqualTo("123456789012345@lid");
+        assertThat(result.participants().get(2).phone()).isNull();
     }
 
     @Test
@@ -62,6 +66,24 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
         GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
 
         assertThat(result.groupJid()).isEqualTo("120363001@g.us");
+    }
+
+    @Test
+    void mapsAnnounceOnlyGroupPermission() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"仅管理员群",
+                          "GroupId":"120363001@g.us",
+                          "Announce":true,
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.announce()).isTrue();
     }
 
     @Test

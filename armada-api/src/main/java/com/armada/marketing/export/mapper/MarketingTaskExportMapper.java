@@ -170,6 +170,13 @@ public interface MarketingTaskExportMapper {
             @Param("snapshotAt") long snapshotAt,
             ResultHandler<MarketingTaskGroupExportRow> resultHandler);
 
+    /** 读取全部任务群，供协议实时成员提供器使用。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<MarketingTaskGroupExportRow> selectGroupRowsList(
+            @Param("tenantId") Long tenantId,
+            @Param("taskIds") List<Long> taskIds,
+            @Param("snapshotAt") long snapshotAt);
+
     /** 逐行读取全量导出的受控群成员明细。 */
     @InterceptorIgnore(tenantLine = "true")
     @Options(fetchSize = Integer.MIN_VALUE, resultSetType = ResultSetType.FORWARD_ONLY)

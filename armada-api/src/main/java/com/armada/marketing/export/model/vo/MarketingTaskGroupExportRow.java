@@ -6,6 +6,7 @@ public class MarketingTaskGroupExportRow {
     private Long taskId;
     private String taskName;
     private String groupName;
+    private String groupJid;
     private String groupLink;
     private String groupStatus;
     private String speechPermission;
@@ -22,6 +23,8 @@ public class MarketingTaskGroupExportRow {
     private String sendStatus;
     private String failureReason;
     private String remark;
+    private Long observerAccountId;
+    private Integer observerCandidateRank;
 
     public Long getJoinedTaskAt() { return joinedTaskAt; }
     public void setJoinedTaskAt(Long joinedTaskAt) { this.joinedTaskAt = joinedTaskAt; }
@@ -31,6 +34,8 @@ public class MarketingTaskGroupExportRow {
     public void setTaskName(String taskName) { this.taskName = taskName; }
     public String getGroupName() { return groupName; }
     public void setGroupName(String groupName) { this.groupName = groupName; }
+    public String getGroupJid() { return groupJid; }
+    public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
     public String getGroupLink() { return groupLink; }
     public void setGroupLink(String groupLink) { this.groupLink = groupLink; }
     public String getGroupStatus() { return groupStatus; }
@@ -63,4 +68,10 @@ public class MarketingTaskGroupExportRow {
     public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
+    public Long getObserverAccountId() { return observerAccountId; }
+    public void setObserverAccountId(Long observerAccountId) { this.observerAccountId = observerAccountId; }
+    public Integer getObserverCandidateRank() { return observerCandidateRank; }
+    public void setObserverCandidateRank(Integer observerCandidateRank) {
+        this.observerCandidateRank = observerCandidateRank;
+    }
 }

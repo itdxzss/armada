@@ -25,6 +25,8 @@ import org.springframework.stereotype.Component;
 @Profile("kafka")
 public class ProtocolAccountEventConsumer {
 
+    private static final int MAX_DEPARTURE_PARTICIPANTS = 5_000;
+
     private static final Logger log = LoggerFactory.getLogger(ProtocolAccountEventConsumer.class);
 
     /** 现役协议层账号状态变更事件类型。 */
@@ -37,6 +39,14 @@ public class ProtocolAccountEventConsumer {
     public static final String EVENT_ACCOUNT_GROUP_MEMBERSHIP_CHANGED =
             "account.group_membership_changed";
 
+    /** Android HistorySync 历史退群成员上报。 */
+    public static final String EVENT_ACCOUNT_GROUP_PAST_PARTICIPANTS_REPORTED =
+            "account.group_past_participants.reported";
+
+    /** Android 实时群成员退群上报。 */
+    public static final String EVENT_ACCOUNT_GROUP_PARTICIPANT_DEPARTED =
+            "account.group_participant_departed";
+
     /** 协议层账号离线诊断事件类型。 */
     public static final String EVENT_ACCOUNT_OFFLINE_DIAGNOSED = "account.offline_diagnosed";
 
@@ -44,7 +54,7 @@ public class ProtocolAccountEventConsumer {
     private final ProtocolAccountStateChangedSink stateChangedSink;
     private final ProtocolAccountGroupsReportedSink groupsReportedSink;
     private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
-    private final ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
+    private final ProtocolAccountGroupEventSinks groupEventSinks;
 
     /**
      * 创建协议账号事件 consumer。
@@ -53,18 +63,18 @@ public class ProtocolAccountEventConsumer {
      * @param stateChangedSink  账号状态变更下游处理口
      * @param groupsReportedSink 账号当前群列表下游处理口
      * @param offlineDiagnosedSink 账号离线诊断下游处理口
-     * @param membershipChangedSink 账号自身群关系变更下游处理口
+     * @param groupEventSinks 群关系与普通成员退群事实下游处理入口
      */
     public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
-                                        ProtocolAccountStateChangedSink stateChangedSink,
-                                        ProtocolAccountGroupsReportedSink groupsReportedSink,
-                                        ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
-                                        ProtocolAccountGroupMembershipChangedSink membershipChangedSink) {
+                                    ProtocolAccountStateChangedSink stateChangedSink,
+                                    ProtocolAccountGroupsReportedSink groupsReportedSink,
+                                    ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
+                                    ProtocolAccountGroupEventSinks groupEventSinks) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
         this.groupsReportedSink = groupsReportedSink;
         this.offlineDiagnosedSink = offlineDiagnosedSink;
-        this.membershipChangedSink = membershipChangedSink;
+        this.groupEventSinks = groupEventSinks;
     }
 
     /**
@@ -130,7 +140,15 @@ public class ProtocolAccountEventConsumer {
             ProtocolAccountGroupMembershipChangedEvent event = toMembershipChangedEvent(envelope);
             log.info("协议账号群关系事件收到 eventId={} accountId={} action={} source={} workerId={}",
                     event.eventId(), event.accountId(), event.action(), event.source(), event.workerId());
-            membershipChangedSink.handleMembershipChanged(event);
+            groupEventSinks.handleMembershipChanged(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_GROUP_PAST_PARTICIPANTS_REPORTED.equals(eventType)
+                || EVENT_ACCOUNT_GROUP_PARTICIPANT_DEPARTED.equals(eventType)) {
+            ProtocolGroupDepartureEvent event = toGroupDepartureEvent(envelope, eventType);
+            log.info("协议群退群事实收到 eventId={} accountId={} source={} participantCount={}",
+                    event.eventId(), event.accountId(), event.sourceType(), event.participants().size());
+            groupEventSinks.handleDepartures(event);
             return;
         }
         throw new BusinessException(ErrorCode.VALIDATION,
@@ -250,6 +268,98 @@ public class ProtocolAccountEventConsumer {
                 occurredAt(envelope),
                 text(envelope, "workerId"),
                 evidenceJson);
+    }
+
+    private ProtocolGroupDepartureEvent toGroupDepartureEvent(JsonNode envelope, String eventType) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "协议群退群事件缺少 accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群退群事件缺少 data.protocolAccountId");
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件路由账号不一致");
+        }
+        String source = requiredText(data, "source", "协议群退群事件缺少 data.source");
+        String expectedSource = EVENT_ACCOUNT_GROUP_PAST_PARTICIPANTS_REPORTED.equals(eventType)
+                ? "HISTORY_SYNC" : "WGP2_NOTIFICATION";
+        if (!expectedSource.equals(source)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件类型与来源不一致");
+        }
+        JsonNode participantNodes = data.path("participants");
+        if (!participantNodes.isArray() || participantNodes.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件缺少 data.participants");
+        }
+        if (participantNodes.size() > MAX_DEPARTURE_PARTICIPANTS) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件 participants 数量超限");
+        }
+        String groupJid = requiredBoundedText(
+                        data, "groupJid", 128, "协议群退群事件缺少 data.groupJid")
+                .trim()
+                .toLowerCase(java.util.Locale.ROOT);
+        if (!groupJid.matches("^[^@\\s]+@g\\.us$")) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件 groupJid 非法");
+        }
+        List<ProtocolGroupDepartureEvent.Participant> participants = new ArrayList<>();
+        for (JsonNode participant : participantNodes) {
+            String participantJid = requiredBoundedText(
+                            participant, "participantJid", 191, "协议群退群事件缺少 participantJid")
+                    .trim()
+                    .toLowerCase(java.util.Locale.ROOT);
+            if (!participantJid.matches("^[0-9]+(?::[0-9]+)?@(s\\.whatsapp\\.net|lid)$")) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件 participantJid 非法");
+            }
+            String phone = boundedText(participant, "phone", 32, "协议群退群事件 phone 长度超限");
+            if (phone != null) {
+                String phoneDigits = phone.replaceAll("[^0-9]", "");
+                if (phoneDigits.length() < 5 || phoneDigits.length() > 20) {
+                    throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件 phone 非法");
+                }
+            }
+            String exitType = requiredText(participant, "exitType", "协议群退群事件缺少 exitType");
+            if (!"LEFT".equals(exitType) && !"REMOVED".equals(exitType)) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件退出方式非法");
+            }
+            Long exitedAt = requiredLong(participant, "exitedAt", "协议群退群事件缺少 exitedAt");
+            if (exitedAt <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件 exitedAt 非法");
+            }
+            participants.add(new ProtocolGroupDepartureEvent.Participant(
+                    participantJid,
+                    phone,
+                    exitType,
+                    exitedAt,
+                    requiredBoundedText(
+                            participant, "sourceEventId", 255, "协议群退群事件缺少 sourceEventId")));
+        }
+        return new ProtocolGroupDepartureEvent(
+                requiredText(envelope, "eventId", "协议群退群事件缺少 eventId"),
+                requiredLong(data, "tenantId", "协议群退群事件缺少 data.tenantId"),
+                requiredLong(data, "accountId", "协议群退群事件缺少 data.accountId"),
+                protocolAccountId,
+                groupJid,
+                source,
+                occurredAt(envelope),
+                List.copyOf(participants));
+    }
+
+    private static String requiredBoundedText(
+            JsonNode node,
+            String field,
+            int maxLength,
+            String missingMessage) {
+        String value = requiredText(node, field, missingMessage);
+        if (value.length() > maxLength) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件 " + field + " 长度超限");
+        }
+        return value;
+    }
+
+    private static String boundedText(JsonNode node, String field, int maxLength, String message) {
+        String value = text(node, field);
+        if (value != null && value.length() > maxLength) {
+            throw new BusinessException(ErrorCode.VALIDATION, message);
+        }
+        return value;
     }
 
     private static JsonNode dataNode(JsonNode envelope) {

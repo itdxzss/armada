@@ -57,8 +57,10 @@ class MarketingTaskExportWorkbookWriterTest {
 
         writer.writeFull(
                 file,
-                java.util.List.of(group),
-                java.util.List.of(member),
+                (groupConsumer, memberConsumer) -> {
+                    groupConsumer.accept(group);
+                    memberConsumer.accept(member);
+                },
                 Instant.parse("2026-07-29T03:20:00Z"),
                 Instant.parse("2026-07-29T03:21:00Z"));
 

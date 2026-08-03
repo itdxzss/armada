@@ -123,6 +123,35 @@ class MarketingTaskExportSqlContractTest {
                 Long.class, List.class, long.class, ResultHandler.class);
         assertTenantInterceptorIgnored("selectGroupMemberRows",
                 Long.class, List.class, long.class, ResultHandler.class);
+        assertTenantInterceptorIgnored("selectGroupRowsList",
+                Long.class, List.class, long.class);
+    }
+
+    @Test
+    void realtimeMemberProviderQueriesAllTaskGroupsAndRanksTwoActualSenders() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8).replace("\r\n", "\n");
+        String groups = selectBlock(xml, "selectGroupRowsList");
+        String observers = sqlBlock(xml, "ExportGroupObserverCtes")
+                + selectBlock(xml, "selectGroupRowsList");
+
+        assertThat(groups)
+                .contains("groupJid")
+                .contains("FROM group_rows group_data")
+                .contains("ORDER BY group_data.taskId ASC,")
+                .contains("group_data.groupKey ASC");
+        assertThat(observers)
+                .contains("attempts.projected_status = 1")
+                .contains("PARTITION BY taskId, groupJid, accountId")
+                .contains("PARTITION BY taskId, groupJid")
+                .contains("candidateRank &lt;= 2")
+                .contains("attempts.account_id IS NOT NULL")
+                .contains("UPPER(TRIM(observer_account.protocol_id)) = 'ANDROID'")
+                .contains("observer_state.account_state = 2")
+                .contains("observer_state.login_state = 1")
+                .contains("observer_membership.membership_status = 1")
+                .contains("observer_membership.group_jid = source.groupJid");
     }
 
     @Test

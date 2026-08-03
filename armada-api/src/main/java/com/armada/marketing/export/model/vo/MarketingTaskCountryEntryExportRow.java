@@ -6,6 +6,7 @@ public class MarketingTaskCountryEntryExportRow {
     private Long taskId;
     private String taskName;
     private String countryName;
+    private String countryIso2;
     private String countryPhonePrefix;
     private String actualPhone;
     private String groupName;
@@ -23,6 +24,8 @@ public class MarketingTaskCountryEntryExportRow {
     public void setTaskName(String taskName) { this.taskName = taskName; }
     public String getCountryName() { return countryName; }
     public void setCountryName(String countryName) { this.countryName = countryName; }
+    public String getCountryIso2() { return countryIso2; }
+    public void setCountryIso2(String countryIso2) { this.countryIso2 = countryIso2; }
     public String getCountryPhonePrefix() { return countryPhonePrefix; }
     public void setCountryPhonePrefix(String countryPhonePrefix) { this.countryPhonePrefix = countryPhonePrefix; }
     public String getActualPhone() { return actualPhone; }

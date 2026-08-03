@@ -51,7 +51,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
     }
 
     /**
-     * 读取 Android 群名称和成员，并把 Zhuan 未提供的设置状态保持为未知。
+     * 读取 Android 群名称、发言权限和成员，并把 Zhuan 未提供的设置状态保持为未知。
      *
      * @param account 固定操作账号引用
      * @param groupJid 群 JID
@@ -104,7 +104,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         return new GroupMetadataResult(
                 responseGroupJid,
                 text(data.get("Subject")),
-                null,
+                booleanValue(data.get("Announce")),
                 null,
                 null,
                 null,
@@ -115,6 +115,26 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 false,
                 true,
                 participants);
+    }
+
+    private static Boolean booleanValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        if (node.isIntegralNumber()) {
+            return node.intValue() != 0;
+        }
+        String value = node.asText("").trim();
+        if ("true".equalsIgnoreCase(value) || "1".equals(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value) || "0".equals(value)) {
+            return false;
+        }
+        throw unrecognized("Android 群成员响应 Announce 无效");
     }
 
     private static String normalizeGroupJid(String value) {

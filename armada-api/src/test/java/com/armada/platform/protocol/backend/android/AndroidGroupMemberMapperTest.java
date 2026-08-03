@@ -106,6 +106,22 @@ class AndroidGroupMemberMapperTest {
         });
     }
 
+    @Test
+    void preservesLidWithoutTreatingItsLocalPartAsPhone() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {"Participants":[
+                  {"jid":"123456789012345@lid","type":"participant"}
+                ]}
+                """);
+
+        List<GroupParticipantResult> result = mapper.map(data);
+
+        assertThat(result).singleElement().satisfies(participant -> {
+            assertThat(participant.jid()).isEqualTo("123456789012345@lid");
+            assertThat(participant.phone()).isNull();
+        });
+    }
+
     private void assertUnrecognized(JsonNode data) {
         assertThatThrownBy(() -> mapper.map(data))
                 .isInstanceOfSatisfying(ProtocolException.class,

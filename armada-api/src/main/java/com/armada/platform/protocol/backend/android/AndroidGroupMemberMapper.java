@@ -38,13 +38,13 @@ public final class AndroidGroupMemberMapper {
         }
         List<GroupParticipantResult> results = new ArrayList<>();
         for (JsonNode participant : participants) {
-            String phone = participantPhone(participant);
+            ParticipantIdentity identity = participantIdentity(participant);
             String role = text(participant.path("type"));
             boolean owner = "superadmin".equalsIgnoreCase(role);
             boolean admin = owner || "admin".equalsIgnoreCase(role);
             results.add(new GroupParticipantResult(
-                    phone == null ? null : phone + "@s.whatsapp.net",
-                    phone,
+                    identity == null ? null : identity.jid(),
+                    identity == null ? null : identity.phone(),
                     admin,
                     owner,
                     role));
@@ -52,23 +52,27 @@ public final class AndroidGroupMemberMapper {
         return List.copyOf(results);
     }
 
-    private static String participantPhone(JsonNode participant) {
+    private static ParticipantIdentity participantIdentity(JsonNode participant) {
         for (String field : IDENTITY_FIELDS) {
             String value = text(participant.path(field));
             if (value != null) {
-                String phone = normalizePhone(value);
-                if (phone != null) {
-                    return phone;
+                ParticipantIdentity identity = "jid".equals(field)
+                        ? identityFromJid(value) : identityFromPhone(value);
+                if (identity != null) {
+                    return identity;
                 }
             }
         }
         return null;
     }
 
-    private static String normalizePhone(String value) {
+    private static ParticipantIdentity identityFromPhone(String value) {
         String normalized = value.trim();
         int at = normalized.indexOf('@');
         if (at >= 0) {
+            if (!"s.whatsapp.net".equalsIgnoreCase(normalized.substring(at + 1))) {
+                return null;
+            }
             normalized = normalized.substring(0, at);
         }
         int device = normalized.indexOf(':');
@@ -82,7 +86,27 @@ public final class AndroidGroupMemberMapper {
                 || !normalized.chars().allMatch(Character::isDigit)) {
             return null;
         }
-        return normalized;
+        return new ParticipantIdentity(normalized + "@s.whatsapp.net", normalized);
+    }
+
+    private static ParticipantIdentity identityFromJid(String value) {
+        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
+        int at = normalized.indexOf('@');
+        if (at <= 0 || normalized.indexOf('@', at + 1) >= 0) {
+            return null;
+        }
+        String server = normalized.substring(at + 1);
+        if ("s.whatsapp.net".equals(server)) {
+            return identityFromPhone(normalized);
+        }
+        if (!"lid".equals(server)) {
+            return null;
+        }
+        String local = normalized.substring(0, at);
+        if (!local.chars().allMatch(Character::isDigit)) {
+            return null;
+        }
+        return new ParticipantIdentity(normalized, null);
     }
 
     private static String text(JsonNode node) {
@@ -97,5 +121,8 @@ public final class AndroidGroupMemberMapper {
         return new ProtocolException(
                 ProtocolErrorCode.ANDROID_RESPONSE_UNRECOGNIZED,
                 message);
+    }
+
+    private record ParticipantIdentity(String jid, String phone) {
     }
 }

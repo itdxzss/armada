@@ -34,6 +34,13 @@ public class MarketingTaskExportWorkbookWriter {
         void forEach(Consumer<T> consumer);
     }
 
+    /** 一次数据遍历同时向群统计和成员明细工作表推送，避免缓存完整成员集。 */
+    @FunctionalInterface
+    public interface FullRowSource {
+        void forEach(Consumer<MarketingTaskGroupExportRow> groupConsumer,
+                     Consumer<MarketingTaskGroupMemberExportRow> memberConsumer);
+    }
+
     /** 工作簿实际写入的数据行数。 */
     public record WriteResult(int summaryRowCount, int detailRowCount) {
     }
@@ -106,9 +113,21 @@ public class MarketingTaskExportWorkbookWriter {
                                  RowSource<MarketingTaskGroupMemberExportRow> members,
                                  Instant snapshotAt,
                                  Instant generatedAt) throws IOException {
+        return writeFull(output, (groupConsumer, memberConsumer) -> {
+            groups.forEach(groupConsumer);
+            members.forEach(memberConsumer);
+        }, snapshotAt, generatedAt);
+    }
+
+    /** 单次遍历同时逐行写出两个工作表，成员数据不在 JVM 中形成完整集合。 */
+    public WriteResult writeFull(Path output,
+                                 FullRowSource rows,
+                                 Instant snapshotAt,
+                                 Instant generatedAt) throws IOException {
         String snapshotText = TIME_FORMAT.format(snapshotAt);
         try (SXSSFWorkbook workbook = workbook(); OutputStream stream = Files.newOutputStream(output)) {
-            int groupCount = writeSplitSheets(workbook, "营销群组统计", GROUP_HEADERS, groups, row -> List.of(
+            StreamingSheetWriter<MarketingTaskGroupExportRow> groupWriter = new StreamingSheetWriter<>(
+                    workbook, "营销群组统计", GROUP_HEADERS, row -> List.of(
                     value(row.getTaskId()), text(row.getTaskName()), text(row.getGroupName()),
                     text(row.getGroupLink()), time(row.getJoinedTaskAt()), text(row.getGroupStatus()),
                     text(row.getSpeechPermission()), nullableNumber(row.getGroupMemberCount()),
@@ -117,16 +136,19 @@ public class MarketingTaskExportWorkbookWriter {
                     digits(row.getSenderPhone()), text(row.getAccountStatus()), time(row.getFirstSentAt()),
                     time(row.getLastSentAt()), text(row.getSendStatus()), text(row.getFailureReason()),
                     snapshotText, text(row.getRemark())));
-            int memberCount = writeSplitSheets(
-                    workbook, "群组成员明细", MEMBER_HEADERS, members, row -> List.of(
+            StreamingSheetWriter<MarketingTaskGroupMemberExportRow> memberWriter = new StreamingSheetWriter<>(
+                    workbook, "群组成员明细", MEMBER_HEADERS, row -> List.of(
                     value(row.getTaskId()), text(row.getTaskName()), text(row.getGroupName()),
                     text(row.getGroupLink()), text(row.getGroupStatus()),
                     nullableNumber(row.getGroupMemberCount()), digits(row.getMemberPhone()),
                     text(row.getRole()), text(row.getCountryName()), text(row.getInGroup()),
                     text(row.getExitType()), time(row.getJoinedAt()), time(row.getExitedAt()),
                     text(row.getTaskJoinStatus())));
+            rows.forEach(groupWriter, memberWriter);
+            groupWriter.finish();
+            memberWriter.finish();
             workbook.write(stream);
-            return new WriteResult(groupCount, memberCount);
+            return new WriteResult(groupWriter.totalRows(), memberWriter.totalRows());
         }
     }
 

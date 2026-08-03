@@ -1,5 +1,6 @@
 package com.armada.marketing.export.service;
 
+import com.armada.marketing.export.service.impl.MarketingTaskWhatsAppMemberProvider;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.ZoneId;
@@ -18,6 +19,7 @@ public class MarketingTaskExportRuntime {
     private final TaskScheduler taskScheduler;
     private final Clock clock;
     private final Path storageRoot;
+    private final MarketingTaskWhatsAppMemberProvider whatsAppMemberProvider;
 
     /**
      * 使用应用共享调度器和配置目录构建生产运行时。
@@ -28,8 +30,9 @@ public class MarketingTaskExportRuntime {
     @Autowired
     public MarketingTaskExportRuntime(
             @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-            @Value("${armada.marketing.export.storage-dir:/app/data/marketing-exports}") String storageDir) {
-        this(taskScheduler, Clock.system(BUSINESS_ZONE), Path.of(storageDir));
+            @Value("${armada.marketing.export.storage-dir:/app/data/marketing-exports}") String storageDir,
+            MarketingTaskWhatsAppMemberProvider whatsAppMemberProvider) {
+        this(taskScheduler, Clock.system(BUSINESS_ZONE), Path.of(storageDir), whatsAppMemberProvider);
     }
 
     /**
@@ -39,10 +42,15 @@ public class MarketingTaskExportRuntime {
      * @param clock 业务时钟
      * @param storageRoot 导出文件根目录
      */
-    public MarketingTaskExportRuntime(TaskScheduler taskScheduler, Clock clock, Path storageRoot) {
+    public MarketingTaskExportRuntime(
+            TaskScheduler taskScheduler,
+            Clock clock,
+            Path storageRoot,
+            MarketingTaskWhatsAppMemberProvider whatsAppMemberProvider) {
         this.taskScheduler = taskScheduler;
         this.clock = clock;
         this.storageRoot = storageRoot.toAbsolutePath().normalize();
+        this.whatsAppMemberProvider = whatsAppMemberProvider;
     }
 
     /** @return 导出租约心跳使用的共享调度器 */
@@ -58,5 +66,10 @@ public class MarketingTaskExportRuntime {
     /** @return 规范化后的导出文件根目录 */
     public Path storageRoot() {
         return storageRoot;
+    }
+
+    /** @return WhatsApp 实时成员与退群事实提供器 */
+    public MarketingTaskWhatsAppMemberProvider whatsAppMemberProvider() {
+        return whatsAppMemberProvider;
     }
 }

@@ -36,6 +36,9 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
 
+    @Mock
+    private ProtocolGroupDepartureSink groupDepartureSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
@@ -45,7 +48,7 @@ class ProtocolAccountEventConsumerTest {
                 sink,
                 groupsReportedSink,
                 offlineDiagnosedSink,
-                membershipChangedSink);
+                new ProtocolAccountGroupEventSinks(membershipChangedSink, groupDepartureSink));
     }
 
     @Test
@@ -177,6 +180,79 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.occurredAt()).isEqualTo(1784685600000L);
         assertThat(event.source()).isEqualTo("android_wgp2");
         assertThat(event.workerId()).isEqualTo("android-1");
+    }
+
+    @Test
+    void onGroupSyncMessageDispatchesPastParticipants() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"history-1","event":"account.group_past_participants.reported","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"120363-test@g.us","source":"HISTORY_SYNC","participants":[
+                           {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
+                            "exitType":"LEFT","exitedAt":1785722400000,"sourceEventId":"source-1"}]}}
+                """);
+
+        ArgumentCaptor<ProtocolGroupDepartureEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupDepartureEvent.class);
+        verify(groupDepartureSink).handleDepartures(captor.capture());
+        assertThat(captor.getValue().groupJid()).isEqualTo("120363-test@g.us");
+        assertThat(captor.getValue().sourceType()).isEqualTo("HISTORY_SYNC");
+        assertThat(captor.getValue().participants()).singleElement().satisfies(participant -> {
+            assertThat(participant.participantJid()).isEqualTo("15550000001@s.whatsapp.net");
+            assertThat(participant.exitType()).isEqualTo("LEFT");
+            assertThat(participant.exitedAt()).isEqualTo(1785722400000L);
+        });
+    }
+
+    @Test
+    void onGroupSyncMessageRejectsInvalidDepartureParticipantJid() {
+        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+                {"eventId":"history-invalid","event":"account.group_past_participants.reported","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"120363-test@g.us","source":"HISTORY_SYNC","participants":[
+                           {"participantJid":"abc@s.whatsapp.net","phone":"15550000001",
+                            "exitType":"LEFT","exitedAt":1785722400000,"sourceEventId":"source-1"}]}}
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议群退群事件 participantJid 非法");
+
+        verifyNoInteractions(groupDepartureSink);
+    }
+
+    @Test
+    void onGroupSyncMessageRejectsInvalidDepartureGroupJid() {
+        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+                {"eventId":"history-invalid","event":"account.group_past_participants.reported","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"bad@@g.us","source":"HISTORY_SYNC","participants":[
+                           {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
+                            "exitType":"LEFT","exitedAt":1785722400000,"sourceEventId":"source-1"}]}}
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议群退群事件 groupJid 非法");
+
+        verifyNoInteractions(groupDepartureSink);
+    }
+
+    @Test
+    void onGroupSyncMessageRejectsDepartureSourceThatDoesNotMatchEventType() {
+        String raw = """
+                {"eventId":"history-1","event":"account.group_past_participants.reported","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"120363-test@g.us","source":"WGP2_NOTIFICATION","participants":[
+                           {"participantJid":"15550000001@s.whatsapp.net","exitType":"LEFT",
+                            "exitedAt":1785722400000,"sourceEventId":"source-1"}]}}
+                """;
+
+        assertThatThrownBy(() -> consumer.onGroupSyncMessage(raw))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议群退群事件类型与来源不一致");
+
+        verifyNoInteractions(groupDepartureSink);
     }
 
     @Test

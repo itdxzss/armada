@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.WhatsappGroupDepartedMemberMapper">
+
+    <sql id="incomingDepartureIsNewer">
+        (incoming.event_at &gt; whatsapp_group_departed_member.event_at
+         OR (incoming.event_at = whatsapp_group_departed_member.event_at
+             AND CASE incoming.source_type
+                     WHEN 'WGP2_NOTIFICATION' THEN 2
+                     WHEN 'HISTORY_SYNC' THEN 1
+                     ELSE 0
+                 END
+                 &gt; CASE whatsapp_group_departed_member.source_type
+                         WHEN 'WGP2_NOTIFICATION' THEN 2
+                         WHEN 'HISTORY_SYNC' THEN 1
+                         ELSE 0
+                     END)
+         OR (incoming.event_at = whatsapp_group_departed_member.event_at
+             AND CASE incoming.source_type
+                     WHEN 'WGP2_NOTIFICATION' THEN 2
+                     WHEN 'HISTORY_SYNC' THEN 1
+                     ELSE 0
+                 END
+                 = CASE whatsapp_group_departed_member.source_type
+                       WHEN 'WGP2_NOTIFICATION' THEN 2
+                       WHEN 'HISTORY_SYNC' THEN 1
+                       ELSE 0
+                   END
+             AND CAST(incoming.source_event_id AS BINARY)
+                 &gt; CAST(whatsapp_group_departed_member.source_event_id AS BINARY)))
+    </sql>
+
+    <insert id="upsertLatest">
+        INSERT INTO whatsapp_group_departed_member
+            (tenant_id, group_jid, participant_jid, phone, exited_at, exit_type,
+             event_at, source_event_id, source_type, created_at, updated_at)
+        VALUES
+            (#{fact.tenantId}, #{fact.groupJid}, #{fact.participantJid}, #{fact.phone},
+             #{fact.exitedAt}, #{fact.exitType}, #{fact.eventAt}, #{fact.sourceEventId},
+             #{fact.sourceType}, #{now}, #{now})
+        AS incoming
+        ON DUPLICATE KEY UPDATE
+            phone = IF(<include refid="incomingDepartureIsNewer"/>,
+                COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_departed_member.phone),
+                whatsapp_group_departed_member.phone),
+            exited_at = IF(<include refid="incomingDepartureIsNewer"/>,
+                incoming.exited_at, whatsapp_group_departed_member.exited_at),
+            exit_type = IF(<include refid="incomingDepartureIsNewer"/>,
+                incoming.exit_type, whatsapp_group_departed_member.exit_type),
+            updated_at = IF(<include refid="incomingDepartureIsNewer"/>,
+                incoming.updated_at, whatsapp_group_departed_member.updated_at),
+            source_event_id = IF(<include refid="incomingDepartureIsNewer"/>,
+                incoming.source_event_id, whatsapp_group_departed_member.source_event_id),
+            source_type = IF(<include refid="incomingDepartureIsNewer"/>,
+                incoming.source_type, whatsapp_group_departed_member.source_type),
+            event_at = IF(<include refid="incomingDepartureIsNewer"/>,
+                incoming.event_at, whatsapp_group_departed_member.event_at)
+    </insert>
+
+    <select id="selectByGroupJids"
+            resultType="com.armada.group.model.vo.WhatsappGroupDepartedMemberVO">
+        SELECT group_jid AS groupJid,
+               participant_jid AS participantJid,
+               phone,
+               exited_at AS exitedAt,
+               exit_type AS exitType
+        FROM whatsapp_group_departed_member
+        WHERE tenant_id = #{tenantId}
+          AND group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+            #{groupJid}
+        </foreach>
+        ORDER BY group_jid ASC, exited_at ASC, participant_jid ASC
+    </select>
+</mapper>

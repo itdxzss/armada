@@ -43,7 +43,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ScheduledFuture;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +74,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
     private final MarketingTaskExportMapper mapper;
     private final CountryService countryService;
     private final MarketingTaskExportWorkbookWriter workbookWriter;
+    private final MarketingTaskWhatsAppMemberProvider whatsAppMemberProvider;
     private final ObjectMapper objectMapper;
     private final TaskScheduler taskScheduler;
     private final Clock clock;
@@ -90,6 +90,7 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         this.mapper = mapper;
         this.countryService = countryService;
         this.workbookWriter = workbookWriter;
+        this.whatsAppMemberProvider = runtime.whatsAppMemberProvider();
         this.objectMapper = objectMapper;
         this.taskScheduler = runtime.taskScheduler();
         this.clock = runtime.clock();
@@ -168,9 +169,10 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         mapper.markExhaustedJobs(now, "导出处理多次中断，请重新发起导出");
         List<MarketingTaskExportJob> jobs = mapper.selectProcessableJobs(now, Math.max(1, Math.min(limit, 10)));
         for (MarketingTaskExportJob job : jobs) {
+            long claimAt = clock.millis();
             String claimToken = UUID.randomUUID().toString();
             if (mapper.claimJob(
-                    job.getTenantId(), job.getId(), now, now + LEASE_MILLIS, claimToken) == 1) {
+                    job.getTenantId(), job.getId(), claimAt, claimAt + LEASE_MILLIS, claimToken) == 1) {
                 processClaimedJob(job, claimToken);
             }
         }
@@ -219,31 +221,44 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
             Files.deleteIfExists(temporaryFile);
 
             MarketingTaskExportWorkbookWriter.WriteResult writeResult;
+            CountryService.PhonePrefixResolver countryResolver =
+                    countryService.activePhonePrefixResolver();
+            MarketingTaskWhatsAppMemberProvider.ExportRequest exportRequest =
+                    new MarketingTaskWhatsAppMemberProvider.ExportRequest(
+                            job.getTenantId(), taskIds, job.getSnapshotAt(),
+                            countryResolver, heartbeat::renewIfDue);
             if (MODE_COUNTRY_ENTRY.equals(job.getExportMode())) {
                 List<String> selectedCountries = readJson(job.getCountryIso2sJson(), STRING_LIST);
+                Set<String> selected = new LinkedHashSet<>(selectedCountries);
                 writeResult = workbookWriter.writeCountryEntry(
                         temporaryFile,
-                        consumer -> streamCountryRows(
-                                job, taskIds, selectedCountries, heartbeat, consumer),
+                        consumer -> whatsAppMemberProvider.streamCountry(
+                                exportRequest, row -> {
+                                    heartbeat.renewIfDue();
+                                    if (selected.contains(row.getCountryIso2())) {
+                                        consumer.accept(row);
+                                    }
+                                }),
                         snapshotAt,
                         generatedAt);
                 if (writeResult.detailRowCount() == 0) {
                     throw new BusinessException(
-                            ErrorCode.VALIDATION, "所选任务和国家没有符合条件的成功进群数据");
+                            ErrorCode.VALIDATION, "所选任务的 WhatsApp 群成员中没有符合国家条件的数据");
                 }
             } else {
-                CountryService.PhonePrefixResolver countryResolver =
-                        countryService.activePhonePrefixResolver();
                 writeResult = workbookWriter.writeFull(
                         temporaryFile,
-                        consumer -> mapper.selectGroupRows(
-                                job.getTenantId(), taskIds, job.getSnapshotAt(),
-                                context -> {
-                                    heartbeat.renewIfDue();
-                                    consumer.accept(context.getResultObject());
-                                }),
-                        consumer -> streamGroupMemberRows(
-                                job, taskIds, countryResolver, heartbeat, consumer),
+                        (groupConsumer, memberConsumer) -> whatsAppMemberProvider.streamFull(
+                                exportRequest,
+                                new MarketingTaskWhatsAppMemberProvider.FullOutput(
+                                        row -> {
+                                            heartbeat.renewIfDue();
+                                            groupConsumer.accept(row);
+                                        },
+                                        row -> {
+                                            heartbeat.renewIfDue();
+                                            memberConsumer.accept(row);
+                                        })),
                         snapshotAt,
                         generatedAt);
             }
@@ -284,42 +299,6 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                 TenantContext.set(previousTenant);
             }
         }
-    }
-
-    private void streamCountryRows(MarketingTaskExportJob job,
-                                   List<Long> taskIds,
-                                   List<String> selectedCountryIso2s,
-                                   LeaseHeartbeat heartbeat,
-                                   Consumer<MarketingTaskCountryEntryExportRow> consumer) {
-        Set<String> selected = new LinkedHashSet<>(selectedCountryIso2s);
-        CountryService.PhonePrefixResolver countryResolver = countryService.activePhonePrefixResolver();
-        mapper.selectCountryEntryRows(job.getTenantId(), taskIds, job.getSnapshotAt(), context -> {
-            heartbeat.renewIfDue();
-            MarketingTaskCountryEntryExportRow row = context.getResultObject();
-            CountryOptionVO country = countryResolver.resolve(row.getActualPhone());
-            if (country != null && selected.contains(country.iso2())) {
-                row.setCountryName(country.nameZh());
-                row.setCountryPhonePrefix(country.phonePrefix());
-                consumer.accept(row);
-            }
-        });
-    }
-
-    private void streamGroupMemberRows(
-            MarketingTaskExportJob job,
-            List<Long> taskIds,
-            CountryService.PhonePrefixResolver countryResolver,
-            LeaseHeartbeat heartbeat,
-            Consumer<MarketingTaskGroupMemberExportRow> consumer) {
-        mapper.selectGroupMemberRows(job.getTenantId(), taskIds, job.getSnapshotAt(), context -> {
-            heartbeat.renewIfDue();
-            MarketingTaskGroupMemberExportRow row = context.getResultObject();
-            CountryOptionVO country = countryResolver.resolve(row.getMemberPhone());
-            if (country != null) {
-                row.setCountryName(country.nameZh());
-            }
-            consumer.accept(row);
-        });
     }
 
     private void validateTasks(List<Long> taskIds) {

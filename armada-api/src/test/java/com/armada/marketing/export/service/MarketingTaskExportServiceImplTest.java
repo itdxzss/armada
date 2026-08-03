@@ -4,9 +4,8 @@ import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
 import com.armada.marketing.export.model.dto.MarketingTaskExportRequestDTO;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
 import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
-import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
-import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.marketing.export.service.impl.MarketingTaskExportServiceImpl;
+import com.armada.marketing.export.service.impl.MarketingTaskWhatsAppMemberProvider;
 import com.armada.marketing.export.writer.MarketingTaskExportWorkbookWriter;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.enums.MarketingBusinessType;
@@ -26,8 +25,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import org.apache.ibatis.session.ResultContext;
-import org.apache.ibatis.session.ResultHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,11 +38,15 @@ import org.springframework.scheduling.TaskScheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,6 +63,8 @@ class MarketingTaskExportServiceImplTest {
     @Mock
     private MarketingTaskExportWorkbookWriter workbookWriter;
     @Mock
+    private MarketingTaskWhatsAppMemberProvider whatsAppMemberProvider;
+    @Mock
     private TaskScheduler taskScheduler;
 
     @TempDir
@@ -76,7 +79,9 @@ class MarketingTaskExportServiceImplTest {
                 countryService,
                 workbookWriter,
                 new ObjectMapper(),
-                new MarketingTaskExportRuntime(taskScheduler, FIXED_CLOCK, tempDir));
+                new MarketingTaskExportRuntime(
+                        taskScheduler, FIXED_CLOCK, tempDir, whatsAppMemberProvider));
+        lenient().when(countryService.activePhonePrefixResolver()).thenReturn(phone -> null);
     }
 
     @Test
@@ -247,6 +252,34 @@ class MarketingTaskExportServiceImplTest {
     }
 
     @Test
+    void processPendingJobsUsesFreshLeaseTimeForEachClaim() {
+        long scanAt = 1_000L;
+        long secondClaimAt = scanAt + 30L * 60 * 1000 + 1;
+        Clock advancingClock = mock(Clock.class);
+        when(advancingClock.millis()).thenReturn(scanAt, scanAt, secondClaimAt);
+        MarketingTaskExportJob first = pendingJob(88L, "FULL");
+        MarketingTaskExportJob second = pendingJob(89L, "FULL");
+        when(mapper.selectExpiredFiles(scanAt, 20)).thenReturn(List.of());
+        when(mapper.selectProcessableJobs(scanAt, 2)).thenReturn(List.of(first, second));
+        when(mapper.claimJob(anyLong(), anyLong(), anyLong(), anyLong(), anyString())).thenReturn(0);
+        MarketingTaskExportServiceImpl advancingService = new MarketingTaskExportServiceImpl(
+                mapper,
+                countryService,
+                workbookWriter,
+                new ObjectMapper(),
+                new MarketingTaskExportRuntime(
+                        taskScheduler, advancingClock, tempDir, whatsAppMemberProvider));
+
+        advancingService.processPendingJobs(2);
+
+        verify(mapper).claimJob(
+                eq(3L), eq(88L), eq(scanAt), eq(scanAt + 30L * 60 * 1000), anyString());
+        verify(mapper).claimJob(
+                eq(3L), eq(89L), eq(secondClaimAt),
+                eq(secondClaimAt + 30L * 60 * 1000), anyString());
+    }
+
+    @Test
     void processPendingJobsDeletesExpiredFileAndClearsStorageMetadata() throws Exception {
         Path tenantDirectory = Files.createDirectories(tempDir.resolve("3"));
         Path expiredFile = tenantDirectory.resolve("88.xlsx");
@@ -280,18 +313,14 @@ class MarketingTaskExportServiceImplTest {
         when(countryService.activePhonePrefixResolver()).thenReturn(phone -> null);
         when(workbookWriter.writeFull(
                 any(Path.class),
-                any(MarketingTaskExportWorkbookWriter.RowSource.class),
-                any(MarketingTaskExportWorkbookWriter.RowSource.class),
+                any(MarketingTaskExportWorkbookWriter.FullRowSource.class),
                 eq(FIXED_CLOCK.instant()),
                 eq(FIXED_CLOCK.instant())))
                 .thenAnswer(invocation -> {
                     Path output = invocation.getArgument(0);
-                    MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskGroupExportRow> rows =
+                    MarketingTaskExportWorkbookWriter.FullRowSource rows =
                             invocation.getArgument(1);
-                    rows.forEach(ignored -> { });
-                    MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskGroupMemberExportRow> members =
-                            invocation.getArgument(2);
-                    members.forEach(ignored -> { });
+                    rows.forEach(ignored -> { }, ignored -> { });
                     Files.write(output, new byte[] {1, 2, 3});
                     return new MarketingTaskExportWorkbookWriter.WriteResult(1, 0);
                 });
@@ -304,9 +333,11 @@ class MarketingTaskExportServiceImplTest {
         verify(mapper).claimJob(
                 eq(3L), eq(88L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), claimedToken.capture());
-        verify(mapper).selectGroupRows(eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
-        verify(mapper).selectGroupMemberRows(
-                eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        verify(whatsAppMemberProvider).streamFull(
+                argThat(request -> request.tenantId().equals(3L)
+                        && request.taskIds().equals(List.of(9L))
+                        && request.snapshotAt() == FIXED_CLOCK.millis()),
+                any(MarketingTaskWhatsAppMemberProvider.FullOutput.class));
 
         ArgumentCaptor<MarketingTaskExportJob> completedJob =
                 ArgumentCaptor.forClass(MarketingTaskExportJob.class);
@@ -332,6 +363,9 @@ class MarketingTaskExportServiceImplTest {
         pending.setCountryIso2sJson("[\"ID\"]");
         MarketingTaskCountryEntryExportRow sourceRow = new MarketingTaskCountryEntryExportRow();
         sourceRow.setActualPhone("628123456789");
+        sourceRow.setCountryIso2("ID");
+        sourceRow.setCountryName("印度尼西亚");
+        sourceRow.setCountryPhonePrefix("+62");
         CountryOptionVO indonesia = new CountryOptionVO(
                 "IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false);
         List<MarketingTaskCountryEntryExportRow> writtenRows = new ArrayList<>();
@@ -348,13 +382,13 @@ class MarketingTaskExportServiceImplTest {
                 .thenReturn(1);
         when(countryService.activePhonePrefixResolver()).thenReturn(phone -> indonesia);
         doAnswer(invocation -> {
-            ResultHandler<MarketingTaskCountryEntryExportRow> handler = invocation.getArgument(3);
-            ResultContext<MarketingTaskCountryEntryExportRow> context = mock(ResultContext.class);
-            when(context.getResultObject()).thenReturn(sourceRow);
-            handler.handleResult(context);
+            java.util.function.Consumer<MarketingTaskCountryEntryExportRow> consumer =
+                    invocation.getArgument(1);
+            consumer.accept(sourceRow);
             return null;
-        }).when(mapper).selectCountryEntryRows(
-                eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        }).when(whatsAppMemberProvider).streamCountry(
+                any(MarketingTaskWhatsAppMemberProvider.ExportRequest.class),
+                any(java.util.function.Consumer.class));
         when(workbookWriter.writeCountryEntry(
                 any(Path.class),
                 any(MarketingTaskExportWorkbookWriter.RowSource.class),
@@ -377,8 +411,11 @@ class MarketingTaskExportServiceImplTest {
         assertThat(sourceRow.getCountryName()).isEqualTo("印度尼西亚");
         assertThat(sourceRow.getCountryPhonePrefix()).isEqualTo("+62");
         verify(countryService).activePhonePrefixResolver();
-        verify(mapper).selectCountryEntryRows(
-                eq(3L), eq(List.of(9L)), eq(FIXED_CLOCK.millis()), any());
+        verify(whatsAppMemberProvider).streamCountry(
+                argThat(request -> request.tenantId().equals(3L)
+                        && request.taskIds().equals(List.of(9L))
+                        && request.snapshotAt() == FIXED_CLOCK.millis()),
+                any(java.util.function.Consumer.class));
         ArgumentCaptor<MarketingTaskExportJob> completedJob =
                 ArgumentCaptor.forClass(MarketingTaskExportJob.class);
         verify(mapper).markJobSuccess(completedJob.capture());
@@ -416,8 +453,7 @@ class MarketingTaskExportServiceImplTest {
                 });
         when(workbookWriter.writeFull(
                 any(Path.class),
-                any(MarketingTaskExportWorkbookWriter.RowSource.class),
-                any(MarketingTaskExportWorkbookWriter.RowSource.class),
+                any(MarketingTaskExportWorkbookWriter.FullRowSource.class),
                 eq(FIXED_CLOCK.instant()),
                 eq(FIXED_CLOCK.instant())))
                 .thenReturn(new MarketingTaskExportWorkbookWriter.WriteResult(1, 0));
@@ -457,7 +493,7 @@ class MarketingTaskExportServiceImplTest {
 
         verify(mapper).markJobFailed(
                 eq(3L), eq(91L), anyString(),
-                eq("所选任务和国家没有符合条件的成功进群数据"),
+                eq("所选任务的 WhatsApp 群成员中没有符合国家条件的数据"),
                 eq(FIXED_CLOCK.millis()));
     }
 

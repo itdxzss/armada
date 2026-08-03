@@ -593,7 +593,7 @@
                    COALESCE(NULLIF(TRIM(latest.group_name), ''), NULLIF(TRIM(fixed.group_name), ''),
                             NULLIF(TRIM(preview.wa_subject), ''),
                             COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName,
-                   COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
+                    COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
                    group_link.link_url AS groupLink,
                    d.group_key AS groupKey,
                    <include refid="ExportGroupStatusCase"/> AS groupStatus,
@@ -608,7 +608,8 @@
                    COALESCE(attempts.success_count, 0) AS successCount,
                    COALESCE(attempts.failed_count, 0) AS failedCount,
                    COALESCE(attempts.unknown_count, 0) AS unknownCount,
-                   COALESCE(latest.account_phone, fixed.sender_phone) AS senderPhone,
+                    COALESCE(latest.account_phone, fixed.sender_phone) AS senderPhone,
+                    COALESCE(latest.account_id, fixed.sender_account_id) AS observerAccountId,
                    CASE
                        WHEN account_state.mute_status = 1 THEN '禁言6小时'
                        WHEN account_state.mute_status = 2 THEN '禁言24小时'
@@ -697,11 +698,115 @@
     <select id="selectGroupRows"
             resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow">
         WITH <include refid="ExportGroupCtes"/>
-        SELECT joinedTaskAt, taskId, taskName, groupName, groupLink, groupStatus, speechPermission,
+        SELECT joinedTaskAt, taskId, taskName, groupName, groupJid, groupLink, groupStatus, speechPermission,
                groupMemberCount, joinedPhoneCount, plannedCount, successCount, failedCount, unknownCount,
                senderPhone, accountStatus, firstSentAt, lastSentAt, sendStatus, failureReason, remark
         FROM group_rows
         ORDER BY taskId ASC, groupKey ASC
+    </select>
+
+    <sql id="ExportGroupObserverCtes">
+        observer_source AS (
+            SELECT group_data.taskId,
+                   group_data.groupJid,
+                   attempts.account_id AS accountId,
+                   CASE WHEN attempts.projected_status = 1 THEN 1 ELSE 0 END AS successful,
+                   attempts.event_at AS eventAt,
+                   attempts.attempt_id AS sourceId
+            FROM group_rows group_data
+            JOIN attempt_facts attempts
+              ON attempts.tenant_id = #{tenantId}
+             AND attempts.marketing_task_id = group_data.taskId
+             AND attempts.group_jid = group_data.groupJid
+            WHERE group_data.groupJid IS NOT NULL
+              AND attempts.account_id IS NOT NULL
+            UNION ALL
+            SELECT group_data.taskId,
+                   group_data.groupJid,
+                   group_data.observerAccountId AS accountId,
+                   0 AS successful,
+                   COALESCE(group_data.lastSentAt, group_data.joinedTaskAt, 0) AS eventAt,
+                   0 AS sourceId
+            FROM group_rows group_data
+            WHERE group_data.groupJid IS NOT NULL
+              AND group_data.observerAccountId IS NOT NULL
+        ),
+        observer_eligible AS (
+            SELECT source.*
+            FROM observer_source source
+            JOIN account observer_account
+              ON observer_account.tenant_id = #{tenantId}
+             AND observer_account.id = source.accountId
+             AND observer_account.deleted_at IS NULL
+             AND UPPER(TRIM(observer_account.protocol_id)) = 'ANDROID'
+             AND observer_account.protocol_account_id IS NOT NULL
+             AND TRIM(observer_account.protocol_account_id) &lt;&gt; ''
+             AND observer_account.ws_phone IS NOT NULL
+             AND TRIM(observer_account.ws_phone) &lt;&gt; ''
+            JOIN account_state observer_state
+              ON observer_state.tenant_id = observer_account.tenant_id
+             AND observer_state.account_id = observer_account.id
+             AND observer_state.account_state = 2
+             AND observer_state.login_state = 1
+            JOIN account_group_membership observer_membership
+              ON observer_membership.tenant_id = observer_account.tenant_id
+             AND observer_membership.account_id = observer_account.id
+             AND observer_membership.group_jid = source.groupJid
+             AND observer_membership.deleted_at IS NULL
+             AND observer_membership.membership_status = 1
+        ),
+        observer_account_ranked AS (
+            SELECT source.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY taskId, groupJid, accountId
+                       ORDER BY successful DESC, eventAt DESC, sourceId DESC) AS accountRank
+            FROM observer_eligible source
+        ),
+        observer_ranked AS (
+            SELECT distinct_account.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY taskId, groupJid
+                       ORDER BY successful DESC, eventAt DESC, sourceId DESC, accountId ASC) AS candidateRank
+            FROM observer_account_ranked distinct_account
+            WHERE accountRank = 1
+        )
+    </sql>
+
+    <select id="selectGroupRowsList"
+            resultType="com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow">
+        WITH <include refid="ExportGroupCtes"/>,
+             <include refid="ExportGroupObserverCtes"/>
+        SELECT group_data.joinedTaskAt,
+               group_data.taskId,
+               group_data.taskName,
+               group_data.groupName,
+               group_data.groupJid,
+               group_data.groupLink,
+               group_data.groupStatus,
+               group_data.speechPermission,
+               group_data.groupMemberCount,
+               group_data.joinedPhoneCount,
+               group_data.plannedCount,
+               group_data.successCount,
+               group_data.failedCount,
+               group_data.unknownCount,
+               group_data.senderPhone,
+               group_data.accountStatus,
+               group_data.firstSentAt,
+               group_data.lastSentAt,
+               group_data.sendStatus,
+               group_data.failureReason,
+               group_data.remark,
+               observer.accountId AS observerAccountId,
+               observer.candidateRank AS observerCandidateRank
+        FROM group_rows group_data
+        LEFT JOIN observer_ranked observer
+          ON observer.taskId = group_data.taskId
+         AND observer.groupJid = group_data.groupJid
+         AND observer.candidateRank &lt;= 2
+        ORDER BY group_data.taskId ASC,
+                 group_data.groupKey ASC,
+                 observer.candidateRank ASC
     </select>
 
     <select id="selectGroupMemberRows"

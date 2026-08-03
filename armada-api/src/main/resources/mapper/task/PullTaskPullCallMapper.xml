@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskPullCallMapper">
+
+  <!-- tenant_id 由租户拦截器注入；写入即为"计划"状态，命令尚未发出。 -->
+  <insert id="insertPlanned" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_pull_call (
+      task_id, group_execution_id, call_seq,
+      puller_group_account_id, puller_account_id,
+      planned_material_count, planned_station_count,
+      call_status, idempotency_key, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{groupExecutionId}, #{callSeq},
+      #{pullerGroupAccountId}, #{pullerAccountId},
+      #{plannedMaterialCount}, #{plannedStationCount},
+      1, #{idempotencyKey}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectPlannedByExecution" resultType="com.armada.task.model.entity.PullTaskPullCall">
+    SELECT *
+    FROM pull_task_pull_call
+    WHERE group_execution_id = #{groupExecutionId}
+      AND call_status = 1
+    ORDER BY call_seq ASC
+  </select>
+
+  <!-- 走 idx_pull_task_call_puller_time (tenant_id, puller_account_id, submitted_at, id)。 -->
+  <select id="selectLastSubmittedAtByPuller" resultType="java.lang.Long">
+    SELECT MAX(submitted_at)
+    FROM pull_task_pull_call
+    WHERE puller_account_id = #{pullerAccountId}
+      AND submitted_at IS NOT NULL
+  </select>
+
+  <update id="markSubmitted">
+    UPDATE pull_task_pull_call
+    SET call_status = 2,
+        command_id = #{commandId},
+        submitted_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND call_status = 1
+  </update>
+
+  <update id="writeBackResult">
+    UPDATE pull_task_pull_call
+    SET call_status = #{callStatus},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+  </update>
+
+  <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskPullCall">
+    SELECT *
+    FROM pull_task_pull_call
+    WHERE command_id = #{commandId}
+  </select>
+
+</mapper>

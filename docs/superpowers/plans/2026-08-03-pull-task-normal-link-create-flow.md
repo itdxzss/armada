@@ -28,7 +28,11 @@
 - 测试：Mockito 仅限 `src/test`；Mapper / SQL / 租户隔离用 test scope 的 H2 MySQL 模式真跑，加载真实 Mapper XML 与生产 `MyBatisConfig` 拦截器，**禁止用 mock Mapper 冒充 SQL 验证**。
 - 覆盖率 ≥80%，核心逻辑（解析、匹配、状态迁移）100%。
 - 单次改动 diff 只含本任务内容；不顺手重构无关文件；不整文件重写。
-- 验证命令：`cd armada-api && mvn -Dtest='<TestClass>' test`；全量 `cd armada-api && mvn test`。
+- 验证命令：`cd armada-api && mvn -Dtest='<TestClass>' test`。多个测试类用**逗号**分隔（本仓 Surefire 不认 `+`）。
+- **真库 DbTest 不参与本地门禁**：仓库有 75 个 `extends DbTestBase` 的测试，需要 `armada-api/.env` 注入真实 MySQL 凭据（走 `armada-api/dbtest.sh`）。没有 `.env` 时它们**挂死而不是快速失败**。因此：
+  - 任何验证命令都不得包含真库测试；
+  - 全量回归必须排除它们：`mvn test -Dtest='!*DbTest,!GroupLinkRegistryServiceImplTest,!GroupCreationMarketingTaskServiceImplTest' -DfailIfNoTests=false`；
+  - 后两个类名不带 `DbTest` 后缀但 `extends DbTestBase`，靠通配符排不掉，必须逐个点名。
 
 **本切片的固定数值常量**（设计文档 5.1 / 5.3，禁止散落成魔法值）：
 
@@ -2558,10 +2562,12 @@ cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='GroupLinkRegistryPullTask
 - [ ] **Step 5: 运行新测试与既有回归**
 
 ```bash
-cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='GroupLinkRegistryPullTaskTargetTest,GroupLinkRegistryServiceImplUnitTest,GroupLinkRegistryServiceImplTest' test
+cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='GroupLinkRegistryPullTaskTargetTest,GroupLinkRegistryServiceImplUnitTest' test
 ```
 
-预期：三个测试类全部 PASS。后两个证明 `registerOne` 改签名没有改变进群任务路径的行为。
+预期：两个测试类全部 PASS。`GroupLinkRegistryServiceImplUnitTest` 证明 `registerOne` 改签名没有改变进群任务路径的行为。
+
+> **不要**把 `GroupLinkRegistryServiceImplTest` 加进来——它名字不带 `DbTest` 后缀但 `extends DbTestBase`，是需要真实 MySQL 的真库测试，本机没有 `armada-api/.env` 时会挂死而不是快速失败。
 
 - [ ] **Step 6: 提交**
 
@@ -5125,8 +5131,12 @@ git commit -m "feat: 新增普通群链接任务创建接口五个端点
 - [ ] **Step 1: 跑全量测试**
 
 ```bash
-cd /mnt/d/ideaProject/armada/armada-api && mvn test
+cd /mnt/d/ideaProject/armada/armada-api && mvn test \
+  -Dtest='!*DbTest,!GroupLinkRegistryServiceImplTest,!GroupCreationMarketingTaskServiceImplTest' \
+  -DfailIfNoTests=false
 ```
+
+必须带这个排除参数。裸 `mvn test` 会连上 75 个真库 DbTest，本机没有 `armada-api/.env` 时它们挂死而不是快速失败——这不是"测试变慢"，是流水线卡住。真库验证按 AGENTS.md 走 `armada-api/dbtest.sh`，是可选补充而非本地门禁。
 
 预期：BUILD SUCCESS。有失败先修，不得跳过。特别关注三类回归：`GroupLinkPrecheckServiceImplTest`（Task 3 改了抓取实现）、`GroupLinkRegistryServiceImplTest`（Task 7 改了 `registerOne` 签名）、`PullTaskListServiceTest` 与 `PullTaskMapperInMemoryTest`（Task 5 改了 `PullTaskMapper.xml` 与 `PullTask` 实体）。
 

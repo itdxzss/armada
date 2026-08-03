@@ -179,6 +179,30 @@ ignoredFileCount   本次因剩余链接不足被忽略的文件数
 
 **不复用 `GroupLinkPrecheckServiceImpl`**：它是二态口径（非 `AVAILABLE` 即不可用，抓取异常与无群资料合并），且服务于历史群导入弹窗。改动它会改变既有业务行为。本切片新建判定层，只复用底层的 `GroupInvitePageFetcher` 端口。
 
+#### 现有端口无法支撑三态，须先扩展
+
+`GroupInvitePageFetcher.fetch` 把**所有**失败都吞成"空 profile"：`IOException`、超时、线程中断、非 2xx 全部走 `return empty(normalizedUrl)`，与"页面可达但只有 WhatsApp 默认资料"返回完全相同的结果。调用方无法区分 `LINK_EXPIRED` 与 `PROBE_INCOMPLETE`，三态口径在现有端口上不可实现。
+
+在 `group` 域给该端口**增加一个可区分可达性的方法**，而不是在 `task` 域另起一套 HTTP：
+
+```java
+/** 抓取结果，区分"页面不可达"与"页面可达但无群资料"。 */
+public record GroupInvitePageProbe(GroupInvitePageMetadata metadata, boolean reachable) {}
+
+/** 抓取公开邀请页并区分可达性。 */
+GroupInvitePageProbe probe(String normalizedUrl);
+```
+
+`HttpGroupInvitePageFetcher` 把现有 `fetch` 的实现体搬进 `probe`，`reachable` 在 2xx 且解析成功时为 `true`，在 `IOException` / `IllegalArgumentException` / 中断 / 非 2xx 时为 `false`；`fetch` 收敛为 `probe(normalizedUrl).metadata()`。这是委托而不是并行路径，既有调用方 `GroupLinkPrecheckServiceImpl` 行为不变。
+
+`task` 域的三态映射随之确定：
+
+| `probe` 结果 | 判定 |
+|---|---|
+| `reachable && metadata.hasProfile()` | `VALID` |
+| `reachable && !metadata.hasProfile()` | `LINK_EXPIRED` |
+| `!reachable` | `PROBE_INCOMPLETE` |
+
 #### 并发与规模
 
 `HttpGroupInvitePageFetcher` 为 2s 连接超时 / 3s 请求超时，现有调用方为纯串行。本切片改为有界并发抓取。
@@ -348,6 +372,8 @@ Map<String, Long> registerPullTaskTargets(List<String> normalizedLinks, long now
 ```
 
 实现复用 `GroupLinkRegistryServiceImpl` 已有的 `registerOne` 内部逻辑（复用活跃行 / 复活软删行 / 新建），`origin` 取已存在的 `GroupLinkOrigin.PULL_TASK`（枚举值 3，已定义），返回归一化链接到 `group_link.id` 的映射。
+
+**`group` 域（第二处）** —— 三态预检需要 `GroupInvitePageFetcher.probe`，见 5.1「现有端口无法支撑三态」。
 
 **`account` 域** —— 三个分组 ID 的存在性与租户校验调 `AccountGroupService.requireExisting(Long)`，它抛业务异常并返回 `AccountGroup`（含 `name`，正好用于三个名称快照列）。`group` 域的 `HistoricalGroupPullCreateValidator` 已是同样用法，沿用该先例。
 

@@ -5,6 +5,9 @@
   <!-- tenant_id 由生产租户拦截器注入；count 与分页复用同一筛选口径。 -->
   <sql id="filter">
     deleted_at IS NULL
+    <!-- STANDARD 草稿是创建页未提交的计划，不进列表(ADR-0007)；
+         GROUP_MARKETING 的 DRAFT 是既有可见状态，不能一起隐藏。 -->
+    AND NOT (task_type = 'STANDARD' AND status = 'DRAFT')
     <if test="filter.id != null">AND id = #{filter.id}</if>
     <if test="filter.keyword != null">
       AND (task_name LIKE CONCAT('%', #{filter.keyword}, '%')
@@ -25,7 +28,8 @@
   <select id="selectPage" resultType="com.armada.task.model.entity.PullTask">
     SELECT
       id, tenant_id, task_type, group_source, task_name, group_name, mode, status,
-      primary_stage, blocking_reason, group_count, expected_pull_count, operator_name,
+      primary_stage, blocking_reason, started_at, finished_at, version,
+      group_count, expected_pull_count, operator_name,
       created_at, updated_at, last_business_executed_at, remark, deleted_at
     FROM pull_task
     WHERE <include refid="filter"/>
@@ -43,8 +47,31 @@
       AND (
         (task_type = 'GROUP_MARKETING' AND status = 'DRAFT')
         OR
-        (task_type = 'STANDARD' AND status IN ('WAIT_START', 'COMPLETED', 'ENDED'))
+        (task_type = 'STANDARD' AND status IN ('DRAFT', 'WAIT_START', 'COMPLETED', 'ENDED'))
       )
   </update>
+
+  <!-- 状态前置条件与乐观锁版本在数据库层复核，重复提交返回 0 行而不是产生第二次副作用。 -->
+  <update id="updateStatusWithVersion">
+    UPDATE pull_task
+    SET status = #{toStatus},
+        version = version + 1,
+        updated_at = #{now}
+        <if test="startedAt != null">, started_at = #{startedAt}</if>
+        <if test="finishedAt != null">, finished_at = #{finishedAt}</if>
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND status = #{fromStatus}
+      AND version = #{expectedVersion}
+  </update>
+
+  <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">
+    SELECT id, tenant_id, task_type, task_name, mode, status,
+           primary_stage, blocking_reason, started_at, finished_at, version,
+           created_at, updated_at
+    FROM pull_task
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </select>
 
 </mapper>

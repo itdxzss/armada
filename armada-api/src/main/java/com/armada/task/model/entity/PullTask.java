@@ -36,6 +36,15 @@ public class PullTask {
     /** 当前阻塞、暂停或停止原因。 */
     private String blockingReason;
 
+    /** 首次真实启动时间(epoch 毫秒)。 */
+    private Long startedAt;
+
+    /** 进入 COMPLETED 或 ENDED 的时间(epoch 毫秒)。 */
+    private Long finishedAt;
+
+    /** 生命周期更新乐观锁版本号。 */
+    private Integer version;
+
     /** 任务配置群组数。 */
     private int groupCount;
 
@@ -138,6 +147,30 @@ public class PullTask {
 
     public void setBlockingReason(String blockingReason) {
         this.blockingReason = blockingReason;
+    }
+
+    public Long getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(Long startedAt) {
+        this.startedAt = startedAt;
+    }
+
+    public Long getFinishedAt() {
+        return finishedAt;
+    }
+
+    public void setFinishedAt(Long finishedAt) {
+        this.finishedAt = finishedAt;
+    }
+
+    public Integer getVersion() {
+        return version;
+    }
+
+    public void setVersion(Integer version) {
+        this.version = version;
     }
 
     public int getGroupCount() {

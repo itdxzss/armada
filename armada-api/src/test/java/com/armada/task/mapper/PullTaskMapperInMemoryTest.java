@@ -65,6 +65,9 @@ class PullTaskMapperInMemoryTest {
                     status VARCHAR(32) NOT NULL,
                     primary_stage VARCHAR(64),
                     blocking_reason VARCHAR(255),
+                    started_at BIGINT,
+                    finished_at BIGINT,
+                    version INT NOT NULL DEFAULT 1,
                     group_count INT NOT NULL,
                     expected_pull_count INT NOT NULL,
                     operator_name VARCHAR(64),
@@ -129,18 +132,18 @@ class PullTaskMapperInMemoryTest {
                 """, """
                 INSERT INTO pull_task VALUES
                   (11, 7, 'STANDARD', NULL, '普通任务甲', '普通群', 'OLD_LINK',
-                   'WAIT_START', NULL, NULL, 2, 100, '运营甲', 1000, 1000, NULL, NULL, NULL),
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 2, 100, '运营甲', 1000, 1000, NULL, NULL, NULL),
                   (12, 7, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
-                   'OLD_LINK', 'EXECUTING', '拉人中', NULL, 5, 10000, '运营乙',
+                   'OLD_LINK', 'EXECUTING', '拉人中', NULL, NULL, NULL, 1, 5, 10000, '运营乙',
                    2000, 2100, 2050, '重点任务', NULL),
                   (13, 7, 'GROUP_MARKETING', 'MIXED', '混合营销任务', '巴西混合群',
-                   'OLD_LINK', 'EXECUTING', '等待营销', NULL, 3, 5000, '运营丙',
+                   'OLD_LINK', 'EXECUTING', '等待营销', NULL, NULL, NULL, 1, 3, 5000, '运营丙',
                    3000, 3100, NULL, NULL, NULL),
                   (14, 7, 'GROUP_MARKETING', 'HISTORICAL', '已删除印度任务', '印度群',
-                   'OLD_LINK', 'EXECUTING', NULL, NULL, 1, 10, '运营乙',
+                   'OLD_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 1, 10, '运营乙',
                    4000, 4100, NULL, NULL, 4200),
                   (21, 8, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
-                   'OLD_LINK', 'EXECUTING', NULL, NULL, 5, 10000, '运营乙',
+                   'OLD_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 5, 10000, '运营乙',
                    2000, 2100, NULL, NULL, NULL)
                 """, """
                 INSERT INTO pull_task_group_marketing_summary (
@@ -247,13 +250,13 @@ class PullTaskMapperInMemoryTest {
         executeSql("""
                 INSERT INTO pull_task VALUES
                   (15, 7, 'STANDARD', NULL, '已完成普通任务', NULL, 'OLD_LINK',
-                   'COMPLETED', NULL, NULL, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
+                   'COMPLETED', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
                   (16, 7, 'STANDARD', NULL, '执行中普通任务', NULL, 'OLD_LINK',
-                   'EXECUTING', NULL, NULL, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
+                   'EXECUTING', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
                   (17, 7, 'GROUP_MARKETING', 'HISTORICAL', '营销草稿', NULL, 'OLD_LINK',
-                   'DRAFT', NULL, NULL, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
+                   'DRAFT', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
                   (18, 7, 'GROUP_MARKETING', 'HISTORICAL', '营销待开始', NULL, 'OLD_LINK',
-                   'WAIT_START', NULL, NULL, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL)
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL)
                 """);
 
         assertThat(mapper.batchSoftDeleteAllowed(

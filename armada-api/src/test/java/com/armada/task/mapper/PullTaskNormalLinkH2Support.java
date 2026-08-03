@@ -19,7 +19,7 @@ import org.springframework.core.io.Resource;
  * <p>用 H2 MySQL 模式加载真实 Mapper XML 和生产 {@code MyBatisConfig} 的租户拦截器，
  * 让 Mapper SQL、租户隔离、生成列和部分唯一索引在本地就能验证。</p>
  */
-final class PullTaskNormalLinkH2Support {
+public final class PullTaskNormalLinkH2Support {
 
     private PullTaskNormalLinkH2Support() {
     }
@@ -30,7 +30,7 @@ final class PullTaskNormalLinkH2Support {
      * @param dbName 库名；每个测试类用不同的名字避免互相污染
      * @return H2 数据源
      */
-    static DataSource dataSource(String dbName) {
+    public static DataSource dataSource(String dbName) {
         JdbcDataSource h2 = new JdbcDataSource();
         h2.setURL("jdbc:h2:mem:" + dbName
                 + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000");
@@ -48,7 +48,7 @@ final class PullTaskNormalLinkH2Support {
      * @return SqlSessionFactory
      * @throws Exception 构造失败时抛出
      */
-    static SqlSessionFactory sqlSessionFactory(DataSource dataSource,
+    public static SqlSessionFactory sqlSessionFactory(DataSource dataSource,
                                                MybatisPlusInterceptor interceptor,
                                                String... mapperXmlPaths) throws Exception {
         MybatisConfiguration configuration = new MybatisConfiguration();
@@ -74,7 +74,7 @@ final class PullTaskNormalLinkH2Support {
      * @param extraStatements 建表后要执行的 fixture 语句
      * @throws SQLException 执行失败时抛出
      */
-    static void resetSchema(DataSource dataSource, String... extraStatements) throws SQLException {
+    public static void resetSchema(DataSource dataSource, String... extraStatements) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("DROP ALL OBJECTS");

@@ -66,6 +66,12 @@ public class PullTask {
     /** 备注。 */
     private String remark;
 
+    /** 创建人用户 ID；"每用户一条草稿"的查询键。 */
+    private Long createdBy;
+
+    /** 任务配置快照 JSON；草稿期为 {@code {}}，提交时写入完整配置。 */
+    private String configJson;
+
     /** 软删时间(epoch 毫秒)。 */
     private Long deletedAt;
 
@@ -227,6 +233,22 @@ public class PullTask {
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public Long getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(Long createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public String getConfigJson() {
+        return configJson;
+    }
+
+    public void setConfigJson(String configJson) {
+        this.configJson = configJson;
     }
 
     public Long getDeletedAt() {

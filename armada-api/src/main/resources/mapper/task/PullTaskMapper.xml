@@ -65,6 +65,49 @@
       AND version = #{expectedVersion}
   </update>
 
+  <!-- 草稿的 task_type / mode / status / config_json 是固定值，不接受调用方覆盖；
+       tenant_id 由租户拦截器注入。 -->
+  <insert id="insertDraft" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task (
+      task_type, task_name, mode, status, group_count, expected_pull_count,
+      config_json, operator_name, created_by, created_at, updated_at
+    ) VALUES (
+      'STANDARD', #{taskName}, 'NORMAL_LINK', 'DRAFT', 0, 0,
+      '{}', #{operatorName}, #{createdBy}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectLatestDraftByCreator" resultType="com.armada.task.model.entity.PullTask">
+    SELECT id, tenant_id, task_type, task_name, mode, status, version,
+           group_count, expected_pull_count, created_by, remark,
+           created_at, updated_at
+    FROM pull_task
+    WHERE deleted_at IS NULL
+      AND task_type = 'STANDARD'
+      AND status = 'DRAFT'
+      AND created_by = #{createdBy}
+    ORDER BY id DESC
+    LIMIT 1
+  </select>
+
+  <!-- 状态守卫 + 乐观锁在数据库层复核；重复提交返回 0 行而不是产生第二个任务。 -->
+  <update id="submitDraft">
+    UPDATE pull_task
+    SET status = 'WAIT_START',
+        version = version + 1,
+        task_name = #{row.taskName},
+        remark = #{row.remark},
+        config_json = #{row.configJson},
+        group_count = #{row.groupCount},
+        expected_pull_count = #{row.expectedPullCount},
+        updated_at = #{now}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND task_type = 'STANDARD'
+      AND status = 'DRAFT'
+      AND version = #{expectedVersion}
+  </update>
+
   <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">
     SELECT id, tenant_id, task_type, task_name, mode, status,
            primary_stage, blocking_reason, started_at, finished_at, version,

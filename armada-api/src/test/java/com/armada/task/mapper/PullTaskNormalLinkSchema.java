@@ -23,7 +23,7 @@ package com.armada.task.mapper;
  *
  * <p>改动 V090 新增表的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
  */
-final class PullTaskNormalLinkSchema {
+public final class PullTaskNormalLinkSchema {
 
     private PullTaskNormalLinkSchema() {
     }
@@ -253,7 +253,7 @@ final class PullTaskNormalLinkSchema {
      *
      * @return 建表语句数组
      */
-    static String[] all() {
+    public static String[] all() {
         return new String[] {
             PULL_TASK, STANDARD_SETTING, GROUP_EXECUTION,
             MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_CALL,

@@ -961,7 +961,7 @@ public record GroupInvitePageProbe(GroupInvitePageMetadata metadata, boolean rea
 - [ ] **Step 6: 运行新测试与既有回归**
 
 ```bash
-cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='HttpGroupInvitePageFetcherProbeTest+HttpGroupInvitePageFetcherTest+GroupLinkPrecheckServiceImplTest' test
+cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='HttpGroupInvitePageFetcherProbeTest,HttpGroupInvitePageFetcherTest,GroupLinkPrecheckServiceImplTest' test
 ```
 
 预期：三个测试类全部 PASS。`GroupLinkPrecheckServiceImplTest` 必须仍然绿——它 mock 的是接口的 `fetch`，桩不受实现内部委托影响；若它变红说明委托改错了。
@@ -1946,7 +1946,7 @@ cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskDraftMapperInMemo
 ```bash
 cd /mnt/d/ideaProject/armada
 xmllint --noout armada-api/src/main/resources/mapper/task/PullTaskMapper.xml
-cd armada-api && mvn -Dtest='PullTaskDraftMapperInMemoryTest+PullTaskMapperInMemoryTest+PullTaskLifecycleMapperInMemoryTest+PullTaskListServiceTest' test
+cd armada-api && mvn -Dtest='PullTaskDraftMapperInMemoryTest,PullTaskMapperInMemoryTest,PullTaskLifecycleMapperInMemoryTest,PullTaskListServiceTest' test
 ```
 
 预期：`xmllint` 无输出；四个测试类全部 PASS。后三个是回归——它们共用同一份 `PullTaskMapper.xml`，必须证明新增语句没破坏既有查询。
@@ -2289,7 +2289,7 @@ cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskDraftEditMapperIn
 cd /mnt/d/ideaProject/armada
 xmllint --noout armada-api/src/main/resources/mapper/task/PullTaskGroupExecutionMapper.xml \
                armada-api/src/main/resources/mapper/task/PullTaskMaterialMemberMapper.xml
-cd armada-api && mvn -Dtest='PullTaskDraftEditMapperInMemoryTest+PullTaskGroupExecutionMapperInMemoryTest+PullTaskMaterialMemberMapperInMemoryTest' test
+cd armada-api && mvn -Dtest='PullTaskDraftEditMapperInMemoryTest,PullTaskGroupExecutionMapperInMemoryTest,PullTaskMaterialMemberMapperInMemoryTest' test
 ```
 
 预期：`xmllint` 无输出；三个测试类全部 PASS（后两个是共用 XML 的回归）。
@@ -2558,7 +2558,7 @@ cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='GroupLinkRegistryPullTask
 - [ ] **Step 5: 运行新测试与既有回归**
 
 ```bash
-cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='GroupLinkRegistryPullTaskTargetTest+GroupLinkRegistryServiceImplUnitTest+GroupLinkRegistryServiceImplTest' test
+cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='GroupLinkRegistryPullTaskTargetTest,GroupLinkRegistryServiceImplUnitTest,GroupLinkRegistryServiceImplTest' test
 ```
 
 预期：三个测试类全部 PASS。后两个证明 `registerOne` 改签名没有改变进群任务路径的行为。
@@ -4387,7 +4387,7 @@ import org.springframework.web.multipart.MultipartFile;
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskStandardDraftServicePlanTest+PullTaskStandardDraftServiceReadEditTest' test
+cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskStandardDraftServicePlanTest,PullTaskStandardDraftServiceReadEditTest' test
 ```
 
 预期：两个测试类全部 PASS。注意 `PullTaskStandardDraftServiceReadEditTest` 的 `TestConfig` 也要同步改成五参构造器，否则会编译失败——这是本步骤必须一并处理的。
@@ -4772,7 +4772,7 @@ XML：
 ```bash
 cd /mnt/d/ideaProject/armada
 xmllint --noout armada-api/src/main/resources/mapper/task/PullTaskGroupExecutionMapper.xml
-cd armada-api && mvn -Dtest='PullTaskStandardCreateServiceTest+PullTaskDraftEditMapperInMemoryTest' test
+cd armada-api && mvn -Dtest='PullTaskStandardCreateServiceTest,PullTaskDraftEditMapperInMemoryTest' test
 ```
 
 预期：两个测试类全部 PASS。特别确认 `submitRollsBackEntirelyWhenAnyLinkIsAlreadyOccupied` 是绿的——它是本切片最关键的一条断言。
@@ -5101,7 +5101,7 @@ grep -rn "tenant:pull_task:create" armada-api/src/main/resources/db/migration/ |
 - [ ] **Step 5: 运行测试**
 
 ```bash
-cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskStandardControllerTest+PullTaskPermissionContractTest' test
+cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskStandardControllerTest,PullTaskPermissionContractTest' test
 ```
 
 预期：两个测试类 PASS。`PullTaskPermissionContractTest` 是既有的权限契约回归。

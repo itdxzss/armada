@@ -1,11 +1,13 @@
 package com.armada.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.armada.task.service.PullTaskLinkMatcher.MatchResult;
 import com.armada.task.service.PullTaskLinkMatcher.Pairing;
 import java.util.List;
 import java.util.Random;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /** 群链接与 TXT 不放回随机匹配测试。 */
@@ -16,6 +18,19 @@ class PullTaskLinkMatcherTest {
             "chat.whatsapp.com/BBBBBBBBBBBBBBBBBBBBBB",
             "chat.whatsapp.com/CCCCCCCCCCCCCCCCCCCCCC",
             "chat.whatsapp.com/DDDDDDDDDDDDDDDDDDDDDD");
+
+    /** 10 条互不相同的链接，用于验证链接侧确实被打乱（10! 种排列下恒等的概率仅 1/3628800）。 */
+    private static final List<String> TEN_LINKS = List.of(
+            "chat.whatsapp.com/LINK0000000000000000000",
+            "chat.whatsapp.com/LINK1111111111111111111",
+            "chat.whatsapp.com/LINK2222222222222222222",
+            "chat.whatsapp.com/LINK3333333333333333333",
+            "chat.whatsapp.com/LINK4444444444444444444",
+            "chat.whatsapp.com/LINK5555555555555555555",
+            "chat.whatsapp.com/LINK6666666666666666666",
+            "chat.whatsapp.com/LINK7777777777777777777",
+            "chat.whatsapp.com/LINK8888888888888888888",
+            "chat.whatsapp.com/LINK9999999999999999999");
 
     @Test
     void pairsMinimumOfBothSidesAndLeavesTheRestUnmatched() {
@@ -87,5 +102,33 @@ class PullTaskLinkMatcherTest {
                 .pairings()).isEmpty();
         assertThat(PullTaskLinkMatcher.match(FOUR_LINKS, List.of(), 1, new Random(1L))
                 .unmatchedLinks()).hasSize(4);
+    }
+
+    @Test
+    void shufflesLinkSideSoIdentityImplementationWouldFail() {
+        // 固定种子下 10 条链接的配对顺序是确定的，不会 flaky；
+        // 若实现把 Collections.shuffle 删掉（恒等排列），本断言必然失败，从而防止随机被悄悄退化。
+        MatchResult result = PullTaskLinkMatcher.match(
+                TEN_LINKS, TEN_LINKS, 1, new Random(42L));
+
+        List<String> pairedOrder = result.pairings().stream()
+                .map(Pairing::normalizedLink)
+                .collect(Collectors.toList());
+
+        assertThat(pairedOrder).hasSize(TEN_LINKS.size());
+        assertThat(pairedOrder).isNotEqualTo(TEN_LINKS);
+    }
+
+    @Test
+    void throwsNullPointerExceptionWithReadableMessageForNullArguments() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> PullTaskLinkMatcher.match(null, List.of("a.txt"), 1, new Random(1L)))
+                .withMessage("remainingLinks must not be null");
+        assertThatNullPointerException()
+                .isThrownBy(() -> PullTaskLinkMatcher.match(FOUR_LINKS, null, 1, new Random(1L)))
+                .withMessage("incomingFileKeys must not be null");
+        assertThatNullPointerException()
+                .isThrownBy(() -> PullTaskLinkMatcher.match(FOUR_LINKS, List.of("a.txt"), 1, null))
+                .withMessage("random must not be null");
     }
 }

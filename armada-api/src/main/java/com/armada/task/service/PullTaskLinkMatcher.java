@@ -3,6 +3,7 @@ package com.armada.task.service;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 
 /**
@@ -28,9 +29,16 @@ public final class PullTaskLinkMatcher {
      * @param nextSeq         本批第一条执行行的 seq
      * @param random          随机源；生产传 {@code ThreadLocalRandom.current()}，测试传固定种子
      * @return 本批配对、未匹配链接与被忽略的尾部文件
+     * @throws NullPointerException 当 {@code remainingLinks}、{@code incomingFileKeys}
+     *      或 {@code random} 为 null 时抛出——这是调用方的编程错误，不是业务异常，
+     *      因此本纯函数类不依赖 {@code BusinessException}，只做浅层校验让失败可读、可定位。
      */
     public static MatchResult match(List<String> remainingLinks, List<String> incomingFileKeys,
                                     int nextSeq, Random random) {
+        Objects.requireNonNull(remainingLinks, "remainingLinks must not be null");
+        Objects.requireNonNull(incomingFileKeys, "incomingFileKeys must not be null");
+        Objects.requireNonNull(random, "random must not be null");
+
         List<String> shuffledLinks = new ArrayList<>(remainingLinks);
         Collections.shuffle(shuffledLinks, random);
 

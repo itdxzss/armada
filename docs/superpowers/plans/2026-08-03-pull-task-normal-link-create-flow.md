@@ -1957,7 +1957,7 @@ python3 -c "import xml.etree.ElementTree as ET,sys; ET.parse(sys.argv[1]); print
 cd armada-api && mvn -Dtest='PullTaskDraftMapperInMemoryTest,PullTaskMapperInMemoryTest,PullTaskLifecycleMapperInMemoryTest,PullTaskListServiceTest' test
 ```
 
-预期：`xmllint` 无输出；四个测试类全部 PASS。后三个是回归——它们共用同一份 `PullTaskMapper.xml`，必须证明新增语句没破坏既有查询。
+预期：XML 校验打印 `OK`；四个测试类全部 PASS。后三个是回归——它们共用同一份 `PullTaskMapper.xml`，必须证明新增语句没破坏既有查询。
 
 - [ ] **Step 8: 提交**
 
@@ -2302,7 +2302,7 @@ done
 cd armada-api && mvn -Dtest='PullTaskDraftEditMapperInMemoryTest,PullTaskGroupExecutionMapperInMemoryTest,PullTaskMaterialMemberMapperInMemoryTest' test
 ```
 
-预期：`xmllint` 无输出；三个测试类全部 PASS（后两个是共用 XML 的回归）。
+预期：XML 校验打印 `OK`；三个测试类全部 PASS（后两个是共用 XML 的回归）。
 
 - [ ] **Step 7: 提交**
 

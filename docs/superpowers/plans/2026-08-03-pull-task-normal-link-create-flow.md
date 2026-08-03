@@ -29,6 +29,9 @@
 - 覆盖率 ≥80%，核心逻辑（解析、匹配、状态迁移）100%。
 - 单次改动 diff 只含本任务内容；不顺手重构无关文件；不整文件重写。
 - 验证命令：`cd armada-api && mvn -Dtest='<TestClass>' test`。多个测试类用**逗号**分隔（本仓 Surefire 不认 `+`）。
+- **XML 校验**：本机没有 `xmllint`（无 sudo 装不了）。改 Mapper XML 后用 python3 校验良构性：
+  `python3 -c "import xml.etree.ElementTree as ET,sys; ET.parse(sys.argv[1]); print('OK')" <file>`
+  它只查良构性，不查 DTD；MyBatis 语法的真正验证靠随后的 H2 测试加载真实 XML。
 - **真库 DbTest 不参与本地门禁**：仓库有 75 个 `extends DbTestBase` 的测试，需要 `armada-api/.env` 注入真实 MySQL 凭据（走 `armada-api/dbtest.sh`）。没有 `.env` 时它们**挂死而不是快速失败**。因此：
   - 任何验证命令都不得包含真库测试；
   - 全量回归必须排除它们：`mvn test -Dtest='!*DbTest,!GroupLinkRegistryServiceImplTest,!GroupCreationMarketingTaskServiceImplTest' -DfailIfNoTests=false`；
@@ -1949,7 +1952,8 @@ cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskDraftMapperInMemo
 
 ```bash
 cd /mnt/d/ideaProject/armada
-xmllint --noout armada-api/src/main/resources/mapper/task/PullTaskMapper.xml
+python3 -c "import xml.etree.ElementTree as ET,sys; ET.parse(sys.argv[1]); print('OK')" \
+  armada-api/src/main/resources/mapper/task/PullTaskMapper.xml
 cd armada-api && mvn -Dtest='PullTaskDraftMapperInMemoryTest,PullTaskMapperInMemoryTest,PullTaskLifecycleMapperInMemoryTest,PullTaskListServiceTest' test
 ```
 
@@ -2291,8 +2295,10 @@ cd /mnt/d/ideaProject/armada/armada-api && mvn -Dtest='PullTaskDraftEditMapperIn
 
 ```bash
 cd /mnt/d/ideaProject/armada
-xmllint --noout armada-api/src/main/resources/mapper/task/PullTaskGroupExecutionMapper.xml \
-               armada-api/src/main/resources/mapper/task/PullTaskMaterialMemberMapper.xml
+for f in PullTaskGroupExecutionMapper PullTaskMaterialMemberMapper; do
+  python3 -c "import xml.etree.ElementTree as ET,sys; ET.parse(sys.argv[1]); print('OK')" \
+    armada-api/src/main/resources/mapper/task/$f.xml
+done
 cd armada-api && mvn -Dtest='PullTaskDraftEditMapperInMemoryTest,PullTaskGroupExecutionMapperInMemoryTest,PullTaskMaterialMemberMapperInMemoryTest' test
 ```
 
@@ -4777,7 +4783,8 @@ XML：
 
 ```bash
 cd /mnt/d/ideaProject/armada
-xmllint --noout armada-api/src/main/resources/mapper/task/PullTaskGroupExecutionMapper.xml
+python3 -c "import xml.etree.ElementTree as ET,sys; ET.parse(sys.argv[1]); print('OK')" \
+  armada-api/src/main/resources/mapper/task/PullTaskGroupExecutionMapper.xml
 cd armada-api && mvn -Dtest='PullTaskStandardCreateServiceTest,PullTaskDraftEditMapperInMemoryTest' test
 ```
 

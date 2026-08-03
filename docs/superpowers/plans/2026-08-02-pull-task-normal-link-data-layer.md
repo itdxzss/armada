@@ -427,7 +427,7 @@ CREATE TABLE IF NOT EXISTS pull_task_account_action (
     task_id BIGINT NOT NULL COMMENT '拉群任务ID(→pull_task.id)',
     group_execution_id BIGINT NOT NULL COMMENT '所属执行行ID(→pull_task_group_execution.id)',
     action_type TINYINT NOT NULL COMMENT '动作类型:1=保存联系人 2=邀请入群 3=踩链接入群',
-    actor_group_account_id BIGINT DEFAULT NULL COMMENT '动作发起方角色行ID;踩链接时为NULL',
+    actor_group_account_id BIGINT NOT NULL COMMENT '动作发起方角色行ID;踩链接入群时为目标账号自身ID(MySQL唯一索引中NULL互不相等,留空会让幂等键失效)',
     target_group_account_id BIGINT NOT NULL COMMENT '动作对象角色行ID(→pull_task_group_account.id)',
     action_status TINYINT NOT NULL DEFAULT 1 COMMENT '动作结果:1=待执行 2=已提交 3=成功 4=失败 5=结果未知 6=取消',
     command_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL COMMENT '协议命令ID;回调按此定位',
@@ -748,7 +748,7 @@ final class PullTaskNormalLinkSchema {
                 task_id BIGINT NOT NULL,
                 group_execution_id BIGINT NOT NULL,
                 action_type TINYINT NOT NULL,
-                actor_group_account_id BIGINT,
+                actor_group_account_id BIGINT NOT NULL,
                 target_group_account_id BIGINT NOT NULL,
                 action_status TINYINT NOT NULL DEFAULT 1,
                 command_id VARCHAR(64),
@@ -2560,12 +2560,15 @@ git commit -m "feat: 新增群链接执行行 Mapper
   - `PullTaskMaterialAdminStatus.NOT_REQUIRED(0)/PENDING(1)/SUBMITTED(2)/SUCCESS(3)/FAILED(4)/UNKNOWN(5)/CANCELED(6)`
   - `PullTaskMaterialMember`（POJO）
   - `PullTaskMaterialMemberMapper#batchInsert(List<PullTaskMaterialMember> rows)` → `int`
+  - `#selectByExecution(long groupExecutionId)` → `List<PullTaskMaterialMember>`
   - `#selectUnconsumed(long groupExecutionId, int limit)` → `List<PullTaskMaterialMember>`
   - `#assignToCall(List<Long> ids, long pullCallId, long now)` → `int`
   - `#writeBackPullResult(long id, int pullStatus, String reasonCode, String reasonMessage, String waJid, long now)` → `int`
   - `#selectPendingAdmin(long groupExecutionId)` → `List<PullTaskMaterialMember>`
+  - `#markAdminSubmitted(long id, String adminCommandId, long now)` → `int`
   - `#selectByAdminCommandId(String adminCommandId)` → `PullTaskMaterialMember`
-  - `#countByPullStatus(long groupExecutionId)` → `List<Map<String, Object>>`
+
+  不设料子进度汇总方法：详情页的料子进度按 `pull_status` 现算，M1 数据层没有消费方，加了就是死代码。
 
 - [ ] **Step 1: 写两个枚举**
 
@@ -3932,7 +3935,7 @@ public enum PullTaskAccountActionType {
     SAVE_CONTACT(1),
     /** 邀请入群：管理账号邀请拉手，或补充管理员时由现有管理员邀请。 */
     INVITE_TO_GROUP(2),
-    /** 踩链接入群：账号自行通过群链接进入，actor 为空。 */
+    /** 踩链接入群：账号自行通过群链接进入，actor 写目标账号自身 ID。 */
     JOIN_BY_LINK(3);
 
     private final int code;
@@ -4010,7 +4013,7 @@ public enum PullTaskActionStatus {
     /** 动作类型，取值见 PullTaskAccountActionType。 */
     private Integer actionType;
 
-    /** 动作发起方角色行 ID；踩链接时为 null。 */
+    /** 动作发起方角色行 ID；踩链接入群时为目标账号自身 ID(MySQL 唯一索引中 NULL 互不相等，留空会让幂等键失效)。 */
     private Long actorGroupAccountId;
 
     /** 动作对象角色行 ID(→pull_task_group_account.id)。 */
@@ -4121,10 +4124,12 @@ class PullTaskAccountActionMapperInMemoryTest {
     }
 
     @Test
-    void joinByLinkHasNoActorAndStillDeduplicates() {
-        assertThat(mapper.insertIfAbsent(action(PullTaskAccountActionType.JOIN_BY_LINK, null, 33L)))
+    void joinByLinkUsesSelfAsActorSoTheIdempotencyKeyWorks() {
+        // 踩链接没有真正的发起方，但 actor 必须写目标自身 ID：
+        // MySQL 唯一索引中 NULL 互不相等，留空会让同一账号可以无限重复插入。
+        assertThat(mapper.insertIfAbsent(action(PullTaskAccountActionType.JOIN_BY_LINK, 33L, 33L)))
                 .isEqualTo(1);
-        assertThat(mapper.insertIfAbsent(action(PullTaskAccountActionType.JOIN_BY_LINK, null, 33L)))
+        assertThat(mapper.insertIfAbsent(action(PullTaskAccountActionType.JOIN_BY_LINK, 33L, 33L)))
                 .isZero();
     }
 
@@ -4180,7 +4185,7 @@ class PullTaskAccountActionMapperInMemoryTest {
         assertThat(mapper.selectByCommandId("cmd-1")).isNull();
     }
 
-    private PullTaskAccountAction action(PullTaskAccountActionType type, Long actor, long target) {
+    private PullTaskAccountAction action(PullTaskAccountActionType type, long actor, long target) {
         PullTaskAccountAction row = new PullTaskAccountAction();
         row.setTaskId(100L);
         row.setGroupExecutionId(EXECUTION);
@@ -4252,6 +4257,10 @@ public interface PullTaskAccountActionMapper {
      * <p>唯一键 {@code (tenant_id, group_execution_id, action_type,
      * actor_group_account_id, target_group_account_id)} 本身就是幂等键，因此不设
      * requestId 列。服务重启后重放同一步会返回 0，调用方据此跳过，不重复发命令。</p>
+     *
+     * <p>踩链接入群没有真正的发起方，但 {@code actor_group_account_id} 仍必须写
+     * 目标账号自身 ID：MySQL 唯一索引中 NULL 之间互不相等，留空会让同一账号的
+     * 踩链接动作可以无限重复插入，幂等键形同虚设。</p>
      *
      * @param row 动作行；写入后回填 id
      * @return 新增行数；0 表示该动作已存在
@@ -4394,7 +4403,7 @@ cd armada-api && xmllint --noout src/main/resources/mapper/task/PullTaskAccountA
 
 Expected: PASS，7 个测试全绿。
 
-注意 `joinByLinkHasNoActorAndStillDeduplicates`：MySQL 唯一索引中 NULL 之间**互不相等**，所以 `actor_group_account_id IS NULL` 的两行在 MySQL 上其实**不会**冲突。若该测试在 H2 通过而你对 MySQL 行为存疑，把踩链接动作的 `actor_group_account_id` 写成 `target_group_account_id` 的同值（自己对自己）而不是 NULL，并同步改 DDL 注释、实体注释和本测试。**这个决定必须在本任务内做掉，不能留到 Service 层**。
+`joinByLinkUsesSelfAsActorSoTheIdempotencyKeyWorks` 验的是已经定死的口径：`actor_group_account_id` 是 `NOT NULL`，踩链接入群写目标账号自身 ID。**不要**把它改回 NULL——MySQL 唯一索引中 NULL 之间互不相等，留空会让同一账号的踩链接动作无限重复插入，幂等键形同虚设，而 H2 上这个缺陷同样测不出来。
 
 - [ ] **Step 8: 提交**
 
@@ -5058,4 +5067,6 @@ git commit -m "docs: 补齐普通群链接数据层的模型文档与 change 记
 
 **类型一致性检查**：`PullTaskGroupExecution#getId()` 为 `Long`，Task 5 测试用 `row.getId()` 传给 `updateCheckpoint(long, ...)` 自动拆箱，正确；`countAvailableByRole` 返回 `List<PullTaskGroupAccountRoleCount>`，Task 7 Step 2 已定义该投影类；`selectLastSubmittedAtByPuller` 返回装箱 `Long` 以便区分"无记录"与 0；六个 Mapper 的 `command_id` 相关方法命名统一为 `selectByCommandId`（料子表因是提权命令而命名 `selectByAdminCommandId`，与其列名 `admin_command_id` 一致）。
 
-**已知需在实施中当场决策的两处**（都写在对应任务里，不允许拖到 Service 层）：Task 5 Step 7 的 `UPDATE ... ORDER BY ... LIMIT` 在 H2 的兼容性；Task 8 Step 7 的踩链接动作 `actor_group_account_id` 用 NULL 还是自指。
+**已知需在实施中当场决策的一处**：Task 5 Step 7 的 `UPDATE ... ORDER BY ... LIMIT` 在 H2 的兼容性（计划里已附拆两步的降级方案）。
+
+**执行前已裁定的两处计划缺陷**：`actor_group_account_id` 改为 `NOT NULL`、踩链接入群写目标账号自身 ID（原设计用 NULL，而 MySQL 唯一索引中 NULL 互不相等，幂等键会失效）；Task 6 的 Interfaces 块删去无人调用的 `countByPullStatus`，补上测试实际使用的 `selectByExecution` 与 `markAdminSubmitted`。

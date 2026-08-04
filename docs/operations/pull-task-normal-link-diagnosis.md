@@ -209,9 +209,32 @@
 | `next_run_at` 已到，租约为空或过期 | 应具备调度资格 | 调度器是否运行、领取 SQL 是否命中 |
 | `lock_owner` 非空但 `lock_expires_at` 为空 | 租约数据不一致 | 写入租约的事务和相关日志 |
 | 执行行为 `WAIT_RESOURCE` | 资源等待 | `wait_resource_type`、原因码和账号可用性 |
+| 角色账号在群状态为 `JOINING` 或 `UNKNOWN` | 进群结果未收口 | `membership_reason_code`、对应动作的 `commandId` |
+| 业务事实有 `commandId`，Outbox 查不到该行 | 命令链路断在入库 | 业务事实更新时间、Armada 事务异常日志 |
+| 父任务已终态但拉手 `released_at` 为空 | 占用泄漏 | `PullTaskClosingTransactionService`、资源释放日志 |
+| 父任务已终态但执行行仍非终态 | 收口未完成，群链接仍被占用 | 执行行状态与父任务收口日志 |
 | 子执行行全部终态，父任务仍在运行态 | 收口或父任务聚合 | `PullTaskParentCompletionService` 日志和状态更新 |
 
-异常摘要 SQL 输出的是“排查候选”，不是自动故障结论。尤其是 `SENT_WITHOUT_BUSINESS_RESULT`：命令刚发送时短暂存在属于正常现象，必须结合测试时间和事实更新时间判断。
+异常摘要 SQL 输出的是“排查候选”，不是自动故障结论。
+
+## 先排除的正常现象
+
+下面这些情况看起来像卡住，实际是设计行为。判断前先按这一节排除，再进入命令链路。
+
+阈值全部来自 `PullTaskExecutionDispatchProperties` 默认值。环境改过配置时，本节和 SQL 参数块要同步调整。
+
+| 现象 | 为什么正常 | 判据 |
+| --- | --- | --- |
+| 到期但没有持锁 | 调度线程固定延迟 1 秒一轮，租约 30 秒，两轮之间必然存在到期未持锁的瞬间 | 停留小于 60 秒不算异常，异常摘要已按此过滤 |
+| 已提交但没有结果 | 未知结果收敛的保护期是 60 秒，扫描间隔 30 秒，90 秒内属正常 | 超过 180 秒仍是已提交才算 `RECONCILIATION_OVERDUE` |
+| 只有 N 条执行行在跑 | `concurrent_group_count` 冻结了同任务并发上限 | 结果 2 的配置值 |
+| 拉手长时间不发起新调用 | `pull_interval_seconds` 是同一拉手连续调用的最小间隔 | 结果 7 的 `last_submitted_age_seconds` 与配置值比较 |
+| 阶段 6 迟迟不提权 | `material_admin_timing=2` 表示等本群料子全部终态后再提权 | 结果 2 的配置值与结果 8a 的料子聚合 |
+| 料子 `admin_status=1` 大量存在 | 阶段 5 尚未提权，待执行是正常起点 | 结果 8b 已排除该状态 |
+| `LINK_PROBE_INCOMPLETE` | 链接探测暂不可用，会按 30 秒重试延迟自动复查 | `next_run_at` 是否在未来 |
+| 联系人动作 `FAILED` | 保存联系人失败通常不阻断邀请和拉人 | 阶段是否仍在推进 |
+
+反过来，这几个不属于正常现象，看到就要继续查：`UNCLAIMABLE_STATE_COMBO`、`LEASE_INCONSISTENT`、`COMMAND_WITHOUT_OUTBOX`、`PULLER_OCCUPANCY_LEAK`、`LINK_OCCUPANCY_LEAK`。
 
 ## SQL 查询使用方法
 
@@ -221,17 +244,52 @@
 SET @task_id := 123;
 ```
 
-然后执行 `docs/operations/pull-task-normal-link-diagnosis.sql`。按下面顺序阅读：
+然后执行 `docs/operations/pull-task-normal-link-diagnosis.sql`。文件开头的参数块必须整块执行：它统一时间基准 `@now`，保证各组结果可以互相比较，并集中定义判定阈值。
 
-1. 父任务概况。无结果时停止，先确认任务 ID、软删状态或业务模式。
-2. 群执行行概况。选择页面异常对应的 `executionId`。
-3. 角色账号。检查管理、拉手、站台的在群、权限、可用性和占用。
-4. 账号动作及 Outbox。检查联系人、邀请和踩链接。
-5. 拉人调用及 Outbox。检查每次真实批量拉人。
-6. 料子结果。先看聚合，再看处理中或异常明细。
-7. 异常摘要。把候选异常与前六组事实交叉确认。
+需要只看某一条执行行时，把参数块里的 `@execution_id` 改成具体 `executionId`，结果 3 之后的所有查询都会收窄。大任务必须这样做，否则料子明细会返回上万行。
 
-先排除未到排期、人工暂停和资源等待，再进入命令链路。只有拿到 `commandId` 后，才继续查询 Outbox 和协议日志。
+按下面顺序阅读：
+
+| 结果 | 内容 | 读法 |
+| --- | --- | --- |
+| 0 | 参数与时间基准回显 | 抄进排查记录，后面所有"距今多少秒"都以此为准 |
+| 1 | 父任务概况 | 无结果时停止，先确认任务 ID、软删状态或业务模式 |
+| 2 | 冻结执行配置 | 先看这一组，它决定后面哪些等待属于正常 |
+| 3 | 群执行行概况、排期和租约 | 选择页面异常对应的 `executionId`；看 `schedule_state`、`lease_state`、`idle_seconds` |
+| 4 | 角色账号 | 管理、拉手、站台的在群、权限、可用性和占用 |
+| 5 | 账号动作及 Outbox | 联系人、邀请和踩链接；用 `actor_role_type`/`target_role_type` 区分阶段 3 和阶段 5 的联系人 |
+| 6 | 拉人调用及 Outbox | 每次真实批量拉人 |
+| 7 | 拉手拉人间隔 | 判断拉手是冷却中还是卡住 |
+| 8a / 8b | 料子结果 | 先看聚合，再看处理中或异常明细 |
+| 9 | 异常摘要 | 把候选异常与前面各组事实交叉确认 |
+
+先排除未到排期、人工暂停、并发上限、拉手冷却和资源等待，再进入命令链路。只有拿到 `commandId` 后，才继续查询 Outbox 和协议日志。
+
+### 异常摘要候选类别
+
+| 类别 | 含义 |
+| --- | --- |
+| `DUE_EXECUTION_STALLED` | 到期、未持锁且超过宽限期没有更新 |
+| `UNCLAIMABLE_STATE_COMBO` | 状态与阶段的组合不在调度可领取集合内 |
+| `LEASE_INCONSISTENT` | `lock_owner` 非空但 `lock_expires_at` 为空 |
+| `WAIT_RESOURCE` | 资源等待；诊断串里区分 `STALLED` 和 `RETRYING` |
+| `PENDING_ACTION_WITHOUT_COMMAND` | 动作行超过宽限期仍没有 `commandId` |
+| `PENDING_CALL_WITHOUT_COMMAND` | 拉人调用超过宽限期仍没有 `commandId` |
+| `COMMAND_WITHOUT_OUTBOX` | 有 `commandId` 但 Outbox 查不到该行 |
+| `OUTBOX_DEAD` | 发布重试耗尽或不可恢复失败 |
+| `OUTBOX_STUCK` | 长时间停在 `LOCKED`、`DISPATCHING` 或 `CANCEL_REQUESTED` |
+| `OUTBOX_PENDING_OVERDUE` | 仍是 `PENDING`，重试时间已到却没被推进 |
+| `RECONCILIATION_OVERDUE` | 已提交超过保护期仍未转 `UNKNOWN`，说明收敛调度没跑 |
+| `UNKNOWN_RESULT` | 动作、拉人调用、料子入群或料子提权结果无法确认 |
+| `ROLE_MEMBERSHIP_OPEN` | 角色账号在群状态停在 `JOINING` 或 `UNKNOWN` |
+| `ROLE_ADMIN_OPEN` | 角色账号群管理员权限停在已提交或结果未知 |
+| `PULLER_OCCUPANCY_LEAK` | 父任务已终态但拉手占用未释放 |
+| `LINK_OCCUPANCY_LEAK` | 父任务已终态但执行行仍非终态，群链接仍被占用 |
+| `TERMINAL_CHILD_NON_TERMINAL_PARENT` | 子执行行全部终态但父任务仍在运行态 |
+
+`ROLE_MEMBERSHIP_OPEN` 的诊断串会标注是否在收敛范围内。站台由拉人调用兜底收敛；管理和拉手（`pull_call_id` 为空）标为 `NOT_COVERED_BY_RECONCILIATION`，没有任何机制会自动推进它们，长时间停留一定要查。
+
+`RECONCILIATION_OVERDUE` 大批量出现时，先确认是不是候选执行行数超过单轮扫描上限（`resultReconciliationBatchSize` 默认 100），而不是调度线程死了。调度和收敛跑在同一条单线程上，任一环节阻塞会让两者一起停。
 
 ## 日志检索原则
 
@@ -260,6 +318,7 @@ SET @task_id := 123;
 9. 回调处理：协议已有结果，Armada 未关联或落库。
 10. 结果核对：未知结果没有按预期收敛。
 11. 执行收口：单群终态、资源释放或父任务汇总异常。
+12. 占用泄漏：父任务已终态但拉手或群链接仍被占用，影响后续任务。
 
 ## 标准排查回复
 
@@ -282,14 +341,23 @@ SET @task_id := 123;
 - `PullTaskStandardStatus`：父任务状态。
 - `PullTaskExecutionStatus`：群执行行状态。
 - `PullTaskExecutionStage`：七阶段顺序。
+- `PullTaskExecutionReasonCode`：执行行原因码全集。
 - `PullTaskActionStatus`、`PullTaskPullCallStatus`：动作和拉人调用状态。
 - `PullTaskMaterialPullStatus`、`PullTaskMaterialAdminStatus`：料子状态。
+- `PullTaskGroupAccountMembershipStatus`、`PullTaskGroupAccountAdminStatus`、`PullTaskGroupAccountAvailability`：角色账号状态。
 - `ProtocolCommandOutboxStatus`：命令传输状态。
+- `PullTaskExecutionDispatchProperties`：轮询间隔、租约时长、重试延迟、未知结果保护期与扫描间隔；本手册所有时间阈值的唯一来源。
+- `pull_task_standard_setting`（V090）：启动时冻结的并发、间隔、人数和提权时点。
+- `PullTaskExecutionDispatchCoordinator`：调度可领取的状态与阶段组合。
+- `PullTaskPullExecutionProcessor`：阶段 5 内部的调用计划、拉手站台联系人和批量拉人顺序。
+- `PullTaskUnknownResultReconciliationService`：哪些事实会被自动收敛，以及按 `submitted_at` 还是 `updated_at` 判定超时。
 - `PullTaskGroupExecutionMapper.xml`：调度资格、排期和租约条件。
 - `ProtocolCommandOutboxMapper.xml`：Outbox 抢占、发布、重试和死信流转。
 
-代码调整后应先更新状态映射和 SQL，再使用本手册判断新任务。
+代码调整后应先更新状态映射和 SQL，再使用本手册判断新任务。改动 `PullTaskExecutionDispatchProperties` 的默认值时，必须同步“先排除的正常现象”一节和 SQL 参数块里的阈值，否则异常摘要会开始误报或漏报。
 
 ## 验证边界
 
 在没有连接用户确认的测试数据库前，只能完成源码、Mapper、Flyway 和 SQL 的静态核对，不能声称查询已经在真实 MySQL 数据上执行通过。首次实际排查时，应在确认的测试环境执行只读 SQL，并根据真实输出修正文档或查询错误。
+
+阈值类判定还需要一次真实标定：`@stall_grace_ms`、`@reconcile_overdue_ms` 和 `@outbox_stuck_ms` 目前按配置默认值推导，实际环境的数据库延迟和负载可能需要放宽。首次排查时先在健康任务上跑一遍异常摘要，确认它对正常任务输出为空或只有可解释的 `WAIT_RESOURCE`，再用它判断故障任务。

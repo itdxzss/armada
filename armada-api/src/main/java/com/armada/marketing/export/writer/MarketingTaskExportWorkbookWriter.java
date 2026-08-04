@@ -56,7 +56,8 @@ public class MarketingTaskExportWorkbookWriter {
 
     private static final List<String> COUNTRY_HEADERS = List.of(
             "进群时间", "任务 ID", "任务名称", "国家/地区", "国家区号", "实际进群号码",
-            "群名称", "群组链接", "群状态", "发言权限", "发送账号", "营销条数");
+            "群名称", "群组链接", "群状态", "发言权限", "发送账号",
+            "累计成功进群号码数量", "营销条数");
 
     private static final List<String> GROUP_HEADERS = List.of(
             "任务 ID", "任务名称", "群名称", "群组链接", "加入任务时间", "群状态", "发言权限",
@@ -87,7 +88,8 @@ public class MarketingTaskExportWorkbookWriter {
                     time(row.getJoinedAt()), value(row.getTaskId()), text(row.getTaskName()),
                     text(row.getCountryName()), text(row.getCountryPhonePrefix()), digits(row.getActualPhone()),
                     text(row.getGroupName()), text(row.getGroupLink()), text(row.getGroupStatus()),
-                    text(row.getSpeechPermission()), digits(row.getSenderPhone()), number(row.getMarketingCount())));
+                    text(row.getSpeechPermission()), digits(row.getSenderPhone()),
+                    number(row.getJoinedPhoneCount()), number(row.getMarketingCount())));
             workbook.write(stream);
             return new WriteResult(0, detailCount);
         }

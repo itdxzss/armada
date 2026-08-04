@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.group.service.WhatsappGroupMemberJoinFactService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinSink;
@@ -11,6 +12,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 将 Android 实时 add 事件转换为群域进群事实。 */
 @Component
@@ -20,15 +22,19 @@ public class ProtocolGroupJoinSinkImpl implements ProtocolGroupJoinSink {
 
     private final AccountProtocolLookupService accountLookupService;
     private final WhatsappGroupMemberJoinFactService service;
+    private final WhatsappGroupMemberCacheService memberCacheService;
 
     public ProtocolGroupJoinSinkImpl(
             AccountProtocolLookupService accountLookupService,
-            WhatsappGroupMemberJoinFactService service) {
+            WhatsappGroupMemberJoinFactService service,
+            WhatsappGroupMemberCacheService memberCacheService) {
         this.accountLookupService = accountLookupService;
         this.service = service;
+        this.memberCacheService = memberCacheService;
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void handleJoins(ProtocolGroupJoinEvent event) {
         if (event == null || event.tenantId() == null || event.accountId() == null) {
             log.warn("忽略缺少租户或账号的 WhatsApp 进群事件");
@@ -55,6 +61,7 @@ public class ProtocolGroupJoinSinkImpl implements ProtocolGroupJoinSink {
                     })
                     .toList();
             service.saveLatest(facts);
+            memberCacheService.applyJoins(facts);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

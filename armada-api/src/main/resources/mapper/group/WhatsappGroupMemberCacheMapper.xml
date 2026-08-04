@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.WhatsappGroupMemberCacheMapper">
+
+    <sql id="incomingSourcePriority">
+        CASE incoming.state_source
+            WHEN 'LEAVE_EVENT' THEN 4
+            WHEN 'REMOVE_EVENT' THEN 4
+            WHEN 'ADD_EVENT' THEN 3
+            WHEN 'FULL_SNAPSHOT' THEN 2
+            WHEN 'SNAPSHOT_ABSENT' THEN 2
+            ELSE 0
+        END
+    </sql>
+
+    <sql id="storedSourcePriority">
+        CASE whatsapp_group_member_state.state_source
+            WHEN 'LEAVE_EVENT' THEN 4
+            WHEN 'REMOVE_EVENT' THEN 4
+            WHEN 'ADD_EVENT' THEN 3
+            WHEN 'FULL_SNAPSHOT' THEN 2
+            WHEN 'SNAPSHOT_ABSENT' THEN 2
+            ELSE 0
+        END
+    </sql>
+
+    <sql id="incomingStateIsNewer">
+        (incoming.state_updated_at &gt; whatsapp_group_member_state.state_updated_at
+         OR (incoming.state_updated_at = whatsapp_group_member_state.state_updated_at
+             AND (<include refid="incomingSourcePriority"/>
+                  &gt; <include refid="storedSourcePriority"/>
+                  OR (<include refid="incomingSourcePriority"/>
+                      = <include refid="storedSourcePriority"/>
+                      AND CAST(incoming.source_event_id AS BINARY)
+                          &gt; CAST(whatsapp_group_member_state.source_event_id AS BINARY)))))
+    </sql>
+
+    <select id="selectByGroupJids"
+            resultType="com.armada.group.model.vo.WhatsappGroupMemberCacheRow">
+        SELECT cache.group_jid AS groupJid,
+               cache.subject,
+               cache.announce_only AS announce,
+               cache.snapshot_at AS snapshotAt,
+               cache.observer_account_id AS observerAccountId,
+               state.participant_jid AS participantJid,
+               state.phone,
+               state.is_admin AS admin,
+               state.is_owner AS owner,
+               state.role,
+               state.is_in_group AS inGroup,
+               state.state_source AS stateSource,
+               state.state_updated_at AS stateUpdatedAt
+        FROM whatsapp_group_member_cache cache
+        LEFT JOIN whatsapp_group_member_state state
+          ON state.tenant_id = cache.tenant_id
+         AND state.group_jid = cache.group_jid
+        WHERE cache.tenant_id = #{tenantId}
+          AND cache.group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+            #{groupJid}
+        </foreach>
+        ORDER BY cache.group_jid ASC, state.participant_jid ASC
+    </select>
+
+    <insert id="upsertStates">
+        INSERT INTO whatsapp_group_member_state
+            (tenant_id, group_jid, participant_jid, phone, is_admin, is_owner, role,
+             is_in_group, state_source, state_updated_at, source_event_id,
+             snapshot_version, observer_account_id, created_at, updated_at)
+        VALUES
+        <foreach collection="states" item="state" separator=",">
+            (#{state.tenantId}, #{state.groupJid}, #{state.participantJid}, #{state.phone},
+             #{state.admin}, #{state.owner}, #{state.role}, #{state.inGroup},
+             #{state.stateSource}, #{state.stateUpdatedAt}, #{state.sourceEventId},
+             #{state.snapshotVersion}, #{state.observerAccountId}, #{now}, #{now})
+        </foreach>
+        AS incoming
+        ON DUPLICATE KEY UPDATE
+            phone = IF(<include refid="incomingStateIsNewer"/>,
+                COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_member_state.phone),
+                whatsapp_group_member_state.phone),
+            is_admin = IF(<include refid="incomingStateIsNewer"/>,
+                COALESCE(incoming.is_admin, whatsapp_group_member_state.is_admin),
+                whatsapp_group_member_state.is_admin),
+            is_owner = IF(<include refid="incomingStateIsNewer"/>,
+                COALESCE(incoming.is_owner, whatsapp_group_member_state.is_owner),
+                whatsapp_group_member_state.is_owner),
+            role = IF(<include refid="incomingStateIsNewer"/>,
+                COALESCE(NULLIF(TRIM(incoming.role), ''), whatsapp_group_member_state.role),
+                whatsapp_group_member_state.role),
+            is_in_group = IF(<include refid="incomingStateIsNewer"/>,
+                incoming.is_in_group, whatsapp_group_member_state.is_in_group),
+            snapshot_version = IF(<include refid="incomingStateIsNewer"/>,
+                COALESCE(incoming.snapshot_version, whatsapp_group_member_state.snapshot_version),
+                whatsapp_group_member_state.snapshot_version),
+            observer_account_id = IF(<include refid="incomingStateIsNewer"/>,
+                COALESCE(incoming.observer_account_id, whatsapp_group_member_state.observer_account_id),
+                whatsapp_group_member_state.observer_account_id),
+            updated_at = IF(<include refid="incomingStateIsNewer"/>,
+                incoming.updated_at, whatsapp_group_member_state.updated_at),
+            source_event_id = IF(<include refid="incomingStateIsNewer"/>,
+                incoming.source_event_id, whatsapp_group_member_state.source_event_id),
+            state_source = IF(
+                incoming.state_updated_at &gt; whatsapp_group_member_state.state_updated_at
+                OR (incoming.state_updated_at = whatsapp_group_member_state.state_updated_at
+                    AND (<include refid="incomingSourcePriority"/>
+                         &gt; <include refid="storedSourcePriority"/>
+                         OR (<include refid="incomingSourcePriority"/>
+                             = <include refid="storedSourcePriority"/>
+                             AND CAST(incoming.source_event_id AS BINARY)
+                                 &gt;= CAST(whatsapp_group_member_state.source_event_id AS BINARY)))),
+                incoming.state_source, whatsapp_group_member_state.state_source),
+            state_updated_at = GREATEST(
+                incoming.state_updated_at, whatsapp_group_member_state.state_updated_at)
+    </insert>
+
+    <update id="markSnapshotMissing">
+        UPDATE whatsapp_group_member_state
+        SET is_in_group = 0,
+            state_source = 'SNAPSHOT_ABSENT',
+            state_updated_at = #{snapshotAt},
+            source_event_id = #{sourceEventId},
+            snapshot_version = #{snapshotVersion},
+            observer_account_id = #{observerAccountId},
+            updated_at = #{now}
+        WHERE tenant_id = #{tenantId}
+          AND group_jid = #{groupJid}
+          AND is_in_group = 1
+          AND (snapshot_version IS NULL OR snapshot_version != #{snapshotVersion})
+          AND (state_updated_at &lt; #{snapshotAt}
+               OR (state_updated_at = #{snapshotAt}
+                   AND state_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+                   AND CAST(#{snapshotVersion} AS BINARY)
+                       &gt; CAST(COALESCE(snapshot_version, '') AS BINARY)))
+    </update>
+
+    <insert id="upsertHeader">
+        INSERT INTO whatsapp_group_member_cache
+            (tenant_id, group_jid, subject, announce_only, snapshot_at, snapshot_version,
+             observer_account_id, created_at, updated_at)
+        VALUES
+            (#{header.tenantId}, #{header.groupJid}, #{header.subject}, #{header.announceOnly},
+             #{header.snapshotAt}, #{header.snapshotVersion}, #{header.observerAccountId},
+             #{now}, #{now})
+        AS incoming
+        ON DUPLICATE KEY UPDATE
+            subject = IF(incoming.snapshot_at &gt; whatsapp_group_member_cache.snapshot_at
+                         OR (incoming.snapshot_at = whatsapp_group_member_cache.snapshot_at
+                             AND CAST(incoming.snapshot_version AS BINARY)
+                                 &gt; CAST(whatsapp_group_member_cache.snapshot_version AS BINARY)),
+                incoming.subject, whatsapp_group_member_cache.subject),
+            announce_only = IF(incoming.snapshot_at &gt; whatsapp_group_member_cache.snapshot_at
+                         OR (incoming.snapshot_at = whatsapp_group_member_cache.snapshot_at
+                             AND CAST(incoming.snapshot_version AS BINARY)
+                                 &gt; CAST(whatsapp_group_member_cache.snapshot_version AS BINARY)),
+                incoming.announce_only, whatsapp_group_member_cache.announce_only),
+            observer_account_id = IF(incoming.snapshot_at &gt; whatsapp_group_member_cache.snapshot_at
+                         OR (incoming.snapshot_at = whatsapp_group_member_cache.snapshot_at
+                             AND CAST(incoming.snapshot_version AS BINARY)
+                                 &gt; CAST(whatsapp_group_member_cache.snapshot_version AS BINARY)),
+                incoming.observer_account_id, whatsapp_group_member_cache.observer_account_id),
+            updated_at = IF(incoming.snapshot_at &gt; whatsapp_group_member_cache.snapshot_at
+                         OR (incoming.snapshot_at = whatsapp_group_member_cache.snapshot_at
+                             AND CAST(incoming.snapshot_version AS BINARY)
+                                 &gt; CAST(whatsapp_group_member_cache.snapshot_version AS BINARY)),
+                incoming.updated_at, whatsapp_group_member_cache.updated_at),
+            snapshot_version = IF(incoming.snapshot_at &gt; whatsapp_group_member_cache.snapshot_at
+                         OR (incoming.snapshot_at = whatsapp_group_member_cache.snapshot_at
+                             AND CAST(incoming.snapshot_version AS BINARY)
+                                 &gt; CAST(whatsapp_group_member_cache.snapshot_version AS BINARY)),
+                incoming.snapshot_version, whatsapp_group_member_cache.snapshot_version),
+            snapshot_at = GREATEST(incoming.snapshot_at, whatsapp_group_member_cache.snapshot_at)
+    </insert>
+
+    <select id="selectSnapshotVersionForUpdate" resultType="java.lang.String">
+        SELECT snapshot_version
+        FROM whatsapp_group_member_cache
+        WHERE tenant_id = #{tenantId}
+          AND group_jid = #{groupJid}
+        FOR UPDATE
+    </select>
+</mapper>

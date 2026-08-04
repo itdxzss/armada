@@ -14,6 +14,7 @@ public class MarketingTaskCountryEntryExportRow {
     private String groupStatus;
     private String speechPermission;
     private String senderPhone;
+    private Integer joinedPhoneCount;
     private Integer marketingCount;
 
     public Long getJoinedAt() { return joinedAt; }
@@ -40,6 +41,8 @@ public class MarketingTaskCountryEntryExportRow {
     public void setSpeechPermission(String speechPermission) { this.speechPermission = speechPermission; }
     public String getSenderPhone() { return senderPhone; }
     public void setSenderPhone(String senderPhone) { this.senderPhone = senderPhone; }
+    public Integer getJoinedPhoneCount() { return joinedPhoneCount; }
+    public void setJoinedPhoneCount(Integer joinedPhoneCount) { this.joinedPhoneCount = joinedPhoneCount; }
     public Integer getMarketingCount() { return marketingCount; }
     public void setMarketingCount(Integer marketingCount) { this.marketingCount = marketingCount; }
 }

@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.service.WhatsappGroupDepartedMemberService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureSink;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -11,6 +12,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 将 Android 退群事件转换为群域退群事实。 */
 @Component
@@ -20,15 +22,19 @@ public class ProtocolGroupDepartureSinkImpl implements ProtocolGroupDepartureSin
 
     private final AccountProtocolLookupService accountLookupService;
     private final WhatsappGroupDepartedMemberService service;
+    private final WhatsappGroupMemberCacheService memberCacheService;
 
     public ProtocolGroupDepartureSinkImpl(
             AccountProtocolLookupService accountLookupService,
-            WhatsappGroupDepartedMemberService service) {
+            WhatsappGroupDepartedMemberService service,
+            WhatsappGroupMemberCacheService memberCacheService) {
         this.accountLookupService = accountLookupService;
         this.service = service;
+        this.memberCacheService = memberCacheService;
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void handleDepartures(ProtocolGroupDepartureEvent event) {
         if (event == null || event.tenantId() == null || event.accountId() == null) {
             log.warn("忽略缺少租户或账号的 WhatsApp 退群事件");
@@ -55,6 +61,7 @@ public class ProtocolGroupDepartureSinkImpl implements ProtocolGroupDepartureSin
                     })
                     .toList();
             service.saveLatest(facts);
+            memberCacheService.applyDepartures(facts);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

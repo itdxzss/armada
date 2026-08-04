@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.service.WhatsappGroupMemberJoinFactService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -26,6 +27,7 @@ class ProtocolGroupJoinSinkImplTest {
 
     @Mock private AccountProtocolLookupService accountLookupService;
     @Mock private WhatsappGroupMemberJoinFactService joinFactService;
+    @Mock private WhatsappGroupMemberCacheService memberCacheService;
 
     @AfterEach
     void clearTenant() {
@@ -39,13 +41,14 @@ class ProtocolGroupJoinSinkImplTest {
         when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
         TenantContext.set(99L);
         ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
-                accountLookupService, joinFactService);
+                accountLookupService, joinFactService, memberCacheService);
 
         sink.handleJoins(event("android-10"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<WhatsappGroupJoinFact>> captor = ArgumentCaptor.forClass(List.class);
         verify(joinFactService).saveLatest(captor.capture());
+        verify(memberCacheService).applyJoins(captor.getValue());
         assertThat(captor.getValue()).singleElement().satisfies(fact -> {
             assertThat(fact.tenantId()).isEqualTo(7L);
             assertThat(fact.groupJid()).isEqualTo("120363-test@g.us");
@@ -63,7 +66,7 @@ class ProtocolGroupJoinSinkImplTest {
                 10L, ProtocolBackend.ANDROID, "android-current", "15550000001");
         when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
         ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
-                accountLookupService, joinFactService);
+                accountLookupService, joinFactService, memberCacheService);
 
         sink.handleJoins(event("android-stale"));
 

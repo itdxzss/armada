@@ -6,8 +6,11 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.vo.WhatsappGroupDepartedMemberVO;
+import com.armada.group.model.vo.WhatsappGroupMemberCacheSnapshotVO;
+import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.group.model.vo.WhatsappGroupJoinFactVO;
 import com.armada.group.service.WhatsappGroupDepartedMemberService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.group.service.WhatsappGroupMemberJoinFactService;
 import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
 import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
@@ -22,6 +25,8 @@ import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -33,8 +38,34 @@ class MarketingTaskWhatsAppMemberProviderTest {
     @Mock private MarketingTaskExportMapper mapper;
     @Mock private AccountProtocolLookupService accountLookupService;
     @Mock private FixedAccountGroupMetadataPort metadataPort;
+    @Mock private WhatsappGroupMemberCacheService memberCacheService;
     @Mock private WhatsappGroupDepartedMemberService departedMemberService;
     @Mock private WhatsappGroupMemberJoinFactService joinFactService;
+
+    @BeforeEach
+    void returnPersistedSnapshotForLiveMetadata() {
+        org.mockito.Mockito.lenient().when(memberCacheService.replaceCompleteSnapshot(
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(GroupMetadataResult.class),
+                        org.mockito.ArgumentMatchers.anyLong()))
+                .thenAnswer(invocation -> {
+                    String groupJid = invocation.getArgument(2);
+                    GroupMetadataResult metadata = invocation.getArgument(3);
+                    long snapshotAt = invocation.getArgument(4);
+                    Long observerAccountId = invocation.getArgument(1);
+                    List<WhatsappGroupMemberStateVO> members = metadata.participants().stream()
+                            .map(participant -> new WhatsappGroupMemberStateVO(
+                                    participant.jid(), participant.phone(), participant.admin(),
+                                    participant.owner(), participant.role(), true,
+                                    "FULL_SNAPSHOT", snapshotAt))
+                            .toList();
+                    return new WhatsappGroupMemberCacheSnapshotVO(
+                            groupJid, metadata.subject(), metadata.announce(), snapshotAt,
+                            observerAccountId, members);
+                });
+    }
 
     @Test
     void collectUsesWhatsAppMembersAndExcludesRejoinedDeparture() {
@@ -69,7 +100,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
                         "120363-test@g.us", "521100000003@s.whatsapp.net", "521100000003", 900L)));
 
         MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, departedMemberService, joinFactService);
+                mapper, accountLookupService, metadataPort, memberCacheService,
+                departedMemberService, joinFactService);
         CountryService.PhonePrefixResolver countries = phone -> phone.startsWith("55")
                 ? new CountryOptionVO("BR", "BR", "巴西", "Brazil", "+55", "", false)
                 : new CountryOptionVO("US", "US", "美国", "United States", "+1", "", false);
@@ -105,6 +137,48 @@ class MarketingTaskWhatsAppMemberProviderTest {
         assertThat(countryEntries).extracting(row -> row.getCountryIso2())
                 .containsExactlyInAnyOrder("US", "BR", "US");
         assertThat(countryEntries).allSatisfy(row -> assertThat(row.getJoinedAt()).isNotNull());
+        assertThat(countryEntries).allSatisfy(
+                row -> assertThat(row.getJoinedPhoneCount()).isEqualTo(2));
+    }
+
+    @Test
+    void collectUsesCompleteCacheWhenObserverIsUnavailable() {
+        MarketingTaskGroupExportRow group = group();
+        group.setGroupJid("120363-TEST@G.US");
+        group.setObserverAccountId(10L);
+        group.setObserverCandidateRank(1);
+        WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "缓存群名", false, 900L, 10L,
+                List.of(new WhatsappGroupMemberStateVO(
+                        "551100000002@s.whatsapp.net", "551100000002",
+                        false, false, "", true, "FULL_SNAPSHOT", 900L)));
+
+        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", cache));
+        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
+                mapper, accountLookupService, metadataPort, memberCacheService,
+                departedMemberService, joinFactService);
+
+        List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
+        provider.streamFull(
+                request(phone -> null),
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
+
+        assertThat(groups).singleElement().satisfies(row -> {
+            assertThat(row.getGroupName()).isEqualTo("缓存群名");
+            assertThat(row.getGroupMemberCount()).isEqualTo(1);
+            assertThat(row.getSpeechPermission()).isEqualTo("所有成员可发言");
+        });
+        assertThat(members).singleElement()
+                .satisfies(row -> assertThat(row.getMemberPhone()).isEqualTo("551100000002"));
+        org.mockito.Mockito.verifyNoInteractions(metadataPort);
+        org.mockito.Mockito.verifyNoInteractions(accountLookupService);
     }
 
     @Test
@@ -134,7 +208,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
                         null, false, null, false, true, List.of()));
 
         MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, departedMemberService, joinFactService);
+                mapper, accountLookupService, metadataPort, memberCacheService,
+                departedMemberService, joinFactService);
 
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         provider.streamFull(
@@ -169,7 +244,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
                         "120363-test@g.us", "departed@s.whatsapp.net", null, 900L, "LEFT")));
 
         MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, departedMemberService, joinFactService);
+                mapper, accountLookupService, metadataPort, memberCacheService,
+                departedMemberService, joinFactService);
 
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
         provider.streamFull(
@@ -201,7 +277,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
         MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, departedMemberService, joinFactService);
+                mapper, accountLookupService, metadataPort, memberCacheService,
+                departedMemberService, joinFactService);
         List<MarketingTaskCountryEntryExportRow> countryEntries = new java.util.ArrayList<>();
 
         provider.streamCountry(

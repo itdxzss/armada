@@ -2,8 +2,11 @@ package com.armada.marketing.export.service.impl;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.vo.WhatsappGroupDepartedMemberVO;
+import com.armada.group.model.vo.WhatsappGroupMemberCacheSnapshotVO;
+import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.group.model.vo.WhatsappGroupJoinFactVO;
 import com.armada.group.service.WhatsappGroupDepartedMemberService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.group.service.WhatsappGroupMemberJoinFactService;
 import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
 import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
@@ -14,7 +17,6 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -35,7 +37,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** 导出时逐群实时查询 WhatsApp，并与协议已同步的进退群事实合并。 */
+/** 导出时优先复用完整群成员缓存；无缓存时逐群查询 WhatsApp 并落库。 */
 @Component
 public class MarketingTaskWhatsAppMemberProvider {
 
@@ -46,6 +48,7 @@ public class MarketingTaskWhatsAppMemberProvider {
     private final MarketingTaskExportMapper mapper;
     private final AccountProtocolLookupService accountLookupService;
     private final FixedAccountGroupMetadataPort metadataPort;
+    private final WhatsappGroupMemberCacheService memberCacheService;
     private final WhatsappGroupDepartedMemberService departedMemberService;
     private final WhatsappGroupMemberJoinFactService joinFactService;
 
@@ -53,11 +56,13 @@ public class MarketingTaskWhatsAppMemberProvider {
             MarketingTaskExportMapper mapper,
             AccountProtocolLookupService accountLookupService,
             FixedAccountGroupMetadataPort metadataPort,
+            WhatsappGroupMemberCacheService memberCacheService,
             WhatsappGroupDepartedMemberService departedMemberService,
             WhatsappGroupMemberJoinFactService joinFactService) {
         this.mapper = mapper;
         this.accountLookupService = accountLookupService;
         this.metadataPort = metadataPort;
+        this.memberCacheService = memberCacheService;
         this.departedMemberService = departedMemberService;
         this.joinFactService = joinFactService;
     }
@@ -97,18 +102,31 @@ public class MarketingTaskWhatsAppMemberProvider {
             distinctGroups.putIfAbsent(new GroupKey(group.getTaskId(), group.getGroupJid()), group);
         }
         List<MarketingTaskGroupExportRow> groups = List.copyOf(distinctGroups.values());
-        Map<Long, ProtocolAccountRef> accounts = protocolAccounts(observerIds);
+        Map<String, WhatsappGroupMemberCacheSnapshotVO> cachedByGroup = memberCacheService.findByGroupJids(
+                request.tenantId(), groups.stream()
+                        .map(MarketingTaskGroupExportRow::getGroupJid)
+                        .distinct()
+                        .toList());
+        Map<GroupKey, List<Long>> uncachedObserverIds = new LinkedHashMap<>();
+        observerIds.forEach((key, value) -> {
+            if (!cachedByGroup.containsKey(key.groupJid())) {
+                uncachedObserverIds.put(key, value);
+            }
+        });
+        Map<Long, ProtocolAccountRef> accounts = protocolAccounts(uncachedObserverIds);
         Map<Long, Object> accountLocks = new HashMap<>();
         accounts.keySet().forEach(id -> accountLocks.put(id, new Object()));
         QueryContext queryContext = new QueryContext(
-                observerIds, accounts, accountLocks, request.ownershipCheck());
-        queryAndMergeGroups(groups, request.tenantId(), request.snapshotAt(), queryContext, rows);
+                uncachedObserverIds, accounts, accountLocks, request.ownershipCheck());
+        queryAndMergeGroups(
+                groups, request.tenantId(), request.snapshotAt(), cachedByGroup, queryContext, rows);
     }
 
     private void queryAndMergeGroups(
             List<MarketingTaskGroupExportRow> groups,
             Long tenantId,
             long snapshotAt,
+            Map<String, WhatsappGroupMemberCacheSnapshotVO> cachedByGroup,
             QueryContext queryContext,
             ExportSink rows) {
         ExecutorService executor = Executors.newFixedThreadPool(Math.min(MAX_PARALLEL_ACCOUNTS, groups.size()));
@@ -116,13 +134,19 @@ public class MarketingTaskWhatsAppMemberProvider {
             for (int start = 0; start < groups.size(); start += MAX_PARALLEL_ACCOUNTS) {
                 List<MarketingTaskGroupExportRow> batch = groups.subList(
                         start, Math.min(start + MAX_PARALLEL_ACCOUNTS, groups.size()));
+                List<String> batchGroupJids = batch.stream()
+                        .map(MarketingTaskGroupExportRow::getGroupJid)
+                        .distinct()
+                        .toList();
                 Map<String, List<WhatsappGroupDepartedMemberVO>> departedByGroup = departedByGroup(
-                        tenantId, batch.stream().map(MarketingTaskGroupExportRow::getGroupJid).toList());
+                        tenantId, batchGroupJids);
                 Map<String, List<WhatsappGroupJoinFactVO>> joinsByGroup = joinsByGroup(
-                        tenantId, batch.stream().map(MarketingTaskGroupExportRow::getGroupJid).toList());
+                        tenantId, batchGroupJids);
                 List<CompletableFuture<GroupSnapshot>> futures = batch.stream()
                         .map(group -> CompletableFuture.supplyAsync(
-                                () -> queryGroup(group, queryContext), executor))
+                                () -> queryGroup(
+                                        group, cachedByGroup.get(group.getGroupJid()),
+                                        tenantId, snapshotAt, queryContext), executor))
                         .toList();
                 for (CompletableFuture<GroupSnapshot> future : futures) {
                     GroupSnapshot snapshot = future.join();
@@ -149,10 +173,17 @@ public class MarketingTaskWhatsAppMemberProvider {
 
     private GroupSnapshot queryGroup(
             MarketingTaskGroupExportRow group,
+            WhatsappGroupMemberCacheSnapshotVO cached,
+            Long tenantId,
+            long snapshotAt,
             QueryContext context) {
         String groupJid = normalizeGroupJid(group.getGroupJid());
         if (groupJid == null) {
             throw groupFailure(group, "缺少群JID");
+        }
+        if (cached != null) {
+            applyCachedMetadata(group, cached, group.getSenderPhone());
+            return new GroupSnapshot(group, cached);
         }
         List<Long> candidates = context.observerIds()
                 .getOrDefault(new GroupKey(group.getTaskId(), groupJid), List.of());
@@ -176,8 +207,14 @@ public class MarketingTaskWhatsAppMemberProvider {
                     context.ownershipCheck().run();
                     metadata = metadataPort.getMetadata(account, groupJid);
                 }
-                applyLiveMetadata(group, metadata, account);
-                return new GroupSnapshot(group, metadata, account);
+                validateMetadata(metadata);
+                WhatsappGroupMemberCacheSnapshotVO fresh = memberCacheService.replaceCompleteSnapshot(
+                        tenantId, accountId, groupJid, metadata, snapshotAt);
+                if (fresh == null) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "WhatsApp 群成员缓存写入结果为空");
+                }
+                applyCachedMetadata(group, fresh, account.wsPhone());
+                return new GroupSnapshot(group, fresh);
             } catch (RuntimeException ex) {
                 lastFailure = ex;
                 log.warn("WhatsApp群协议查询尝试失败 taskId={} groupJid={} accountId={} attempt={} exceptionType={}",
@@ -193,29 +230,36 @@ public class MarketingTaskWhatsAppMemberProvider {
         throw groupFailure(group, reason, lastFailure);
     }
 
-    private static void applyLiveMetadata(
-            MarketingTaskGroupExportRow group,
-            GroupMetadataResult metadata,
-            ProtocolAccountRef observer) {
+    private static void validateMetadata(GroupMetadataResult metadata) {
         if (metadata == null || metadata.participants() == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "WhatsApp 群详情响应缺少成员列表");
         }
-        if (normalize(metadata.subject()) != null) {
-            group.setGroupName(metadata.subject().trim());
-        }
-        group.setGroupMemberCount(metadata.participants().size());
-        group.setSpeechPermission(speechPermission(metadata, observer));
     }
 
-    private static String speechPermission(GroupMetadataResult metadata, ProtocolAccountRef observer) {
-        if (metadata.announce() == null) {
+    private static void applyCachedMetadata(
+            MarketingTaskGroupExportRow group,
+            WhatsappGroupMemberCacheSnapshotVO cached,
+            String observerPhone) {
+        if (normalize(cached.subject()) != null) {
+            group.setGroupName(cached.subject().trim());
+        }
+        group.setGroupMemberCount(Math.toIntExact(
+                cached.members().stream().filter(WhatsappGroupMemberStateVO::inGroup).count()));
+        group.setSpeechPermission(speechPermission(cached, observerPhone));
+    }
+
+    private static String speechPermission(
+            WhatsappGroupMemberCacheSnapshotVO cached,
+            String observerPhone) {
+        if (cached.announce() == null) {
             return "未确认";
         }
-        if (!metadata.announce()) {
+        if (!cached.announce()) {
             return "所有成员可发言";
         }
-        boolean observerAdmin = metadata.participants().stream()
-                .filter(participant -> samePhone(participant.phone(), observer.wsPhone()))
+        boolean observerAdmin = cached.members().stream()
+                .filter(WhatsappGroupMemberStateVO::inGroup)
+                .filter(participant -> samePhone(participant.phone(), observerPhone))
                 .anyMatch(participant -> Boolean.TRUE.equals(participant.admin())
                         || Boolean.TRUE.equals(participant.owner()));
         return observerAdmin ? "仅管理员可发言（发送账号可发言）" : "无发言权限";
@@ -227,27 +271,26 @@ public class MarketingTaskWhatsAppMemberProvider {
             List<WhatsappGroupJoinFactVO> joins,
             ExportSink rows) {
         Map<String, WhatsappGroupJoinFactVO> latestJoins = latestJoins(joins);
-        Set<String> currentIdentities = new LinkedHashSet<>();
-        for (GroupParticipantResult participant : snapshot.metadata().participants()) {
-            addIdentity(currentIdentities, participant.jid());
-            addIdentity(currentIdentities, participant.phone());
-            WhatsappGroupJoinFactVO join = joinFor(latestJoins, participant.phone(), participant.jid());
-            rows.add(snapshot, participant.phone(), participant.jid(),
-                    new MemberState(role(participant), true, null, join == null ? null : join.joinedAt(), null));
+        Map<String, WhatsappGroupDepartedMemberVO> latestDepartures = latestDepartures(departed);
+        Set<String> cachedIdentities = new LinkedHashSet<>();
+        for (WhatsappGroupMemberStateVO participant : snapshot.cached().members()) {
+            addIdentity(cachedIdentities, participant.participantJid());
+            addIdentity(cachedIdentities, participant.phone());
+            WhatsappGroupJoinFactVO join = joinFor(
+                    latestJoins, participant.phone(), participant.participantJid());
+            WhatsappGroupDepartedMemberVO departure = departureFor(
+                    latestDepartures, participant.phone(), participant.participantJid());
+            boolean inGroup = participant.inGroup();
+            rows.add(snapshot, participant.phone(), participant.participantJid(),
+                    new MemberState(
+                            role(participant), inGroup,
+                            inGroup || departure == null ? null : exitType(departure.exitType()),
+                            join == null ? null : join.joinedAt(),
+                            inGroup || departure == null ? null : departure.exitedAt()));
         }
-        Map<String, WhatsappGroupDepartedMemberVO> latestDepartures = new LinkedHashMap<>();
-        for (WhatsappGroupDepartedMemberVO participant : departed) {
-            String departureIdentity = departureIdentity(participant);
-            if (departureIdentity != null) {
-                latestDepartures.merge(
-                        departureIdentity,
-                        participant,
-                        MarketingTaskWhatsAppMemberProvider::laterDeparture);
-            }
-        }
-        for (WhatsappGroupDepartedMemberVO participant : latestDepartures.values()) {
-            if (containsIdentity(currentIdentities, participant.participantJid())
-                    || containsIdentity(currentIdentities, participant.phone())) {
+        for (WhatsappGroupDepartedMemberVO participant : new LinkedHashSet<>(latestDepartures.values())) {
+            if (containsIdentity(cachedIdentities, participant.participantJid())
+                    || containsIdentity(cachedIdentities, participant.phone())) {
                 continue;
             }
             WhatsappGroupJoinFactVO join = joinFor(
@@ -306,9 +349,28 @@ public class MarketingTaskWhatsAppMemberProvider {
         group.setJoinedPhoneCount(Math.toIntExact(count));
     }
 
-    private static String departureIdentity(WhatsappGroupDepartedMemberVO participant) {
-        String phoneIdentity = identity(participant.phone());
-        return phoneIdentity == null ? identity(participant.participantJid()) : phoneIdentity;
+    private static Map<String, WhatsappGroupDepartedMemberVO> latestDepartures(
+            List<WhatsappGroupDepartedMemberVO> departed) {
+        Map<String, WhatsappGroupDepartedMemberVO> result = new LinkedHashMap<>();
+        for (WhatsappGroupDepartedMemberVO participant : departed) {
+            String phoneIdentity = identity(participant.phone());
+            String jidIdentity = identity(participant.participantJid());
+            if (phoneIdentity != null) {
+                result.merge(phoneIdentity, participant, MarketingTaskWhatsAppMemberProvider::laterDeparture);
+            }
+            if (jidIdentity != null) {
+                result.merge(jidIdentity, participant, MarketingTaskWhatsAppMemberProvider::laterDeparture);
+            }
+        }
+        return result;
+    }
+
+    private static WhatsappGroupDepartedMemberVO departureFor(
+            Map<String, WhatsappGroupDepartedMemberVO> departures,
+            String phone,
+            String jid) {
+        WhatsappGroupDepartedMemberVO byPhone = departures.get(identity(phone));
+        return byPhone == null ? departures.get(identity(jid)) : byPhone;
     }
 
     private static WhatsappGroupDepartedMemberVO laterDeparture(
@@ -360,12 +422,16 @@ public class MarketingTaskWhatsAppMemberProvider {
         row.setGroupStatus(group.getGroupStatus());
         row.setSpeechPermission(group.getSpeechPermission());
         row.setSenderPhone(group.getSenderPhone());
+        row.setJoinedPhoneCount(group.getJoinedPhoneCount());
         row.setMarketingCount(group.getSuccessCount());
         return row;
     }
 
     private Map<Long, ProtocolAccountRef> protocolAccounts(Map<GroupKey, List<Long>> observerIds) {
         List<Long> requested = observerIds.values().stream().flatMap(List::stream).distinct().toList();
+        if (requested.isEmpty()) {
+            return Map.of();
+        }
         Map<Long, ProtocolAccountRef> accounts = new LinkedHashMap<>();
         for (ProtocolAccountRef account : accountLookupService.findActiveProtocolRefs(requested)) {
             if (account.backend() == ProtocolBackend.ANDROID) {
@@ -419,7 +485,7 @@ public class MarketingTaskWhatsAppMemberProvider {
         return result;
     }
 
-    private static String role(GroupParticipantResult participant) {
+    private static String role(WhatsappGroupMemberStateVO participant) {
         if (Boolean.TRUE.equals(participant.owner())) {
             return "群主";
         }
@@ -481,10 +547,11 @@ public class MarketingTaskWhatsAppMemberProvider {
 
     private static String normalizeGroupJid(String value) {
         String normalized = normalize(value);
-        if (normalized == null || normalized.contains("@")) {
+        if (normalized == null) {
             return normalized;
         }
-        return normalized + "@g.us";
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return lower.contains("@") ? lower : lower + "@g.us";
     }
 
     private static String digits(String value) {
@@ -624,7 +691,6 @@ public class MarketingTaskWhatsAppMemberProvider {
 
     private record GroupSnapshot(
             MarketingTaskGroupExportRow group,
-            GroupMetadataResult metadata,
-            ProtocolAccountRef observer) {
+            WhatsappGroupMemberCacheSnapshotVO cached) {
     }
 }

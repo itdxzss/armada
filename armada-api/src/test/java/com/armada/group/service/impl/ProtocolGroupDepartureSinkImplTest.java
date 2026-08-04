@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.service.WhatsappGroupDepartedMemberService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -26,6 +27,7 @@ class ProtocolGroupDepartureSinkImplTest {
 
     @Mock private AccountProtocolLookupService accountLookupService;
     @Mock private WhatsappGroupDepartedMemberService departedMemberService;
+    @Mock private WhatsappGroupMemberCacheService memberCacheService;
 
     @AfterEach
     void clearTenant() {
@@ -42,13 +44,14 @@ class ProtocolGroupDepartureSinkImplTest {
         });
         TenantContext.set(99L);
         ProtocolGroupDepartureSinkImpl sink = new ProtocolGroupDepartureSinkImpl(
-                accountLookupService, departedMemberService);
+                accountLookupService, departedMemberService, memberCacheService);
 
         sink.handleDepartures(event("android-10"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<WhatsappGroupDepartureFact>> captor = ArgumentCaptor.forClass(List.class);
         verify(departedMemberService).saveLatest(captor.capture());
+        verify(memberCacheService).applyDepartures(captor.getValue());
         assertThat(captor.getValue()).singleElement().satisfies(fact -> {
             assertThat(fact.tenantId()).isEqualTo(7L);
             assertThat(fact.groupJid()).isEqualTo("120363-test@g.us");
@@ -65,7 +68,7 @@ class ProtocolGroupDepartureSinkImplTest {
                 10L, ProtocolBackend.ANDROID, "android-current", "15550000001");
         when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
         ProtocolGroupDepartureSinkImpl sink = new ProtocolGroupDepartureSinkImpl(
-                accountLookupService, departedMemberService);
+                accountLookupService, departedMemberService, memberCacheService);
 
         sink.handleDepartures(event("android-stale"));
 
@@ -79,7 +82,7 @@ class ProtocolGroupDepartureSinkImplTest {
                 10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
         when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
         ProtocolGroupDepartureSinkImpl sink = new ProtocolGroupDepartureSinkImpl(
-                accountLookupService, departedMemberService);
+                accountLookupService, departedMemberService, memberCacheService);
         ProtocolGroupDepartureEvent departure = new ProtocolGroupDepartureEvent(
                 "event-2", 7L, 10L, "android-10", "120363-test@g.us",
                 "HISTORY_SYNC", 1_000L,

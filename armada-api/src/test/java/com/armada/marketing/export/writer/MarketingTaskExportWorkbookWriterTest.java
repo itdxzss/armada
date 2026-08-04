@@ -35,10 +35,11 @@ class MarketingTaskExportWorkbookWriterTest {
             assertThat(workbook.getNumberOfSheets()).isEqualTo(1);
             assertThat(workbook.getSheetName(0)).isEqualTo("国家进群数据");
             var header = workbook.getSheetAt(0).getRow(0);
-            assertThat(header.getLastCellNum()).isEqualTo((short) 12);
+            assertThat(header.getLastCellNum()).isEqualTo((short) 13);
             assertThat(header.getCell(0).getStringCellValue()).isEqualTo("进群时间");
             assertThat(header.getCell(5).getStringCellValue()).isEqualTo("实际进群号码");
-            assertThat(header.getCell(11).getStringCellValue()).isEqualTo("营销条数");
+            assertThat(header.getCell(11).getStringCellValue()).isEqualTo("累计成功进群号码数量");
+            assertThat(header.getCell(12).getStringCellValue()).isEqualTo("营销条数");
         }
     }
 

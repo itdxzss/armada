@@ -37,7 +37,7 @@ class WhatsappGroupMemberCacheMapperMysqlTest {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement();
              var migration = getClass().getResourceAsStream(
-                     "/db/migration/V093__whatsapp_group_member_cache.sql")) {
+                     "/db/migration/V096__whatsapp_group_member_cache.sql")) {
             statement.execute("DROP TABLE IF EXISTS whatsapp_group_member_state");
             statement.execute("DROP TABLE IF EXISTS whatsapp_group_member_cache");
             for (String sql : new String(migration.readAllBytes(), StandardCharsets.UTF_8).split(";")) {

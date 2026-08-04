@@ -13,8 +13,10 @@ import com.armada.group.service.GroupLinkUrls;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -116,34 +118,56 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         }
         long now = System.currentTimeMillis();
         for (String url : urls) {
-            registerOne(url, now);
+            registerOne(url, now, GroupLinkOrigin.JOIN_TASK);
         }
+    }
+
+    /**
+     * 把拉群任务冻结的群邀请链接登记为群组池目标，并回填群入口 ID。
+     *
+     * @param normalizedLinks 已冻结的群邀请链接
+     * @param now             登记时间（epoch 毫秒）
+     * @return 归一化链接到 {@code group_link.id} 的映射
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Long> registerPullTaskTargets(List<String> normalizedLinks, long now) {
+        Map<String, Long> idsByUrl = new LinkedHashMap<>();
+        for (String raw : normalizedLinks) {
+            GroupLinkUrls.tryNormalize(raw).ifPresent(url ->
+                    idsByUrl.computeIfAbsent(url, key -> registerOne(key, now,
+                            GroupLinkOrigin.PULL_TASK)));
+        }
+        return idsByUrl;
     }
 
     /**
      * 登记或复活单个规范化邀请链接。
      *
-     * @param url 已按统一规则规范化的群邀请链接
-     * @param now 登记时间（epoch 毫秒）
+     * @param url    已按统一规则规范化的群邀请链接
+     * @param now    登记时间（epoch 毫秒）
+     * @param origin 首次入池来源；仅在新建时写入，已存在的行不改写
+     * @return 复用、复活或新建后的 {@code group_link.id}
      */
-    private void registerOne(String url, long now) {
+    private Long registerOne(String url, long now, GroupLinkOrigin origin) {
         GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
         if (existing == null) {
-            // 全新链接:作为进群任务目标进入群组池,但不归入任何导入链接分组。
+            // 全新链接:作为任务目标进入群组池,但不归入任何导入链接分组。
             GroupLink row = new GroupLink();
             row.setLinkUrl(url);
-            row.setOrigin(GroupLinkOrigin.JOIN_TASK.code());
+            row.setOrigin(origin.code());
             row.setMembershipState(GroupMembershipState.TARGET.code());
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             groupLinkMapper.insert(row);
-            return;
+            return row.getId();
         }
         if (existing.getDeletedAt() != null) {
             // 软删行仍占唯一键,必须复活原行;不复活直接插入会撞唯一键。
             groupLinkMapper.reviveAsStandaloneTarget(existing.getId(), now);
         }
         // 已存在且活跃时故意不改:origin 是首次入池来源,membership_state 只能由后续状态回写升级。
+        return existing.getId();
     }
 
     /**

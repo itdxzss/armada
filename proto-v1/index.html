@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>第一套环境 - 拉群任务</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="logo"></span>
+          <strong>第一套环境</strong>
+        </div>
+        <nav class="menu">
+          <button class="active" data-view="groupView">群组列表</button>
+          <button data-view="taskView">拉群任务</button>
+        </nav>
+        <button class="side-collapse">↤</button>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div class="crumb">任务中心 / <span id="crumbName">群组列表</span></div>
+          <div class="top-actions">
+            <button title="搜索">⌕</button>
+            <button title="全屏">⛶</button>
+            <button title="通知" class="notice">7</button>
+            <span class="avatar"></span>
+            <strong>管理员</strong>
+          </div>
+        </header>
+
+        <div class="tabs">
+          <button class="active" data-view="groupView">群组列表</button>
+          <button data-view="taskView">拉群任务</button>
+        </div>
+
+        <main class="content">
+          <section class="view active" id="groupView">            <section class="filter-strip expanded">
+              <label><span>群信息</span><input placeholder="群名称 / 群链接 / JID" /></label>
+              <label><span>群分组</span><select><option>全部分组</option><option>Test Group 01-02</option><option>Grupo Colombia 07-12</option><option>Mixed Source Pending</option></select></label>
+              <label><span>群状态</span><select><option>全部状态</option><option>正常</option><option>封禁</option></select></label>
+              <label><span>管理员</span><select><option>全部</option><option>有可用</option><option>无可用</option><option>待分配</option></select></label>
+              <label><span>群人数</span><input placeholder="最小 ~ 最大" /></label>
+              <span class="filter-break"></span>
+              <label><span>来源</span><select><option>全部来源</option><option>六段号</option><option>账号同步</option><option>手动导入</option></select></label>
+              <div class="filter-actions right">
+                <button class="history-filter" data-panel="historyFilter">历史群组筛选</button>
+                <button class="primary">查询</button>
+                <button>重置</button>
+              </div>
+            </section>
+
+            <section class="table-panel">
+              <header class="group-list-head">
+                <h1>群组列表</h1>
+                <div class="group-main-actions">
+                  <button>批量获取账号下群组</button>
+                  <button>批量进群</button>
+                  <button>新建社群</button>
+                  <button>新建普群</button>
+                  <button data-panel="groupProjectList">管理群组分组</button>
+                </div>
+              </header>
+              <div class="group-batch-actions">
+                <button data-batch-action disabled>批量设置群权限</button>
+                <button data-batch-action disabled>批量退群</button>
+                <button data-batch-action disabled>批量设置管理</button>
+                <button data-batch-action disabled>批量刷新群链接</button>
+                <button data-batch-action disabled>批量获取最新群信息</button>
+                <button data-batch-action disabled>批量设置群信息</button>
+                <button data-batch-action disabled>批量导出群链接</button>
+                <button data-batch-action disabled>批量分组</button>
+                <button class="danger" data-batch-action disabled>批量删除</button>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" id="groupSelectAll" /></th>
+                    <th>WS群组名称</th>
+                    <th>分组名称</th>
+                    <th>群人数</th>
+                    <th>群组链接</th>
+                    <th>群主号</th>
+                    <th>群状态</th>
+                    <th>可用管理员 <button class="help-icon" data-help="对号代表有可用管理员，并且账号存活在控上；错号代表暂无可用管理员或控上不可用。">?</button></th>
+                    <th>建群信息 <button class="help-icon" data-help="建群信息表示创建该群组的账号对应信息，不是当前在群管理员的信息。">?</button></th>
+                    <th>操作项</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><input type="checkbox" class="group-select" /></td>
+                    <td><b>Test Group 01-02</b><small>历史老群 · 可直接被任务引用</small></td>
+                    <td>7-31建普群90人群组</td>
+                    <td>100</td>
+                    <td><span class="copy-cell">wa.me/group/US623A <button class="copy-btn" data-copy="wa.me/group/US623A" title="复制">⧉</button></span></td>
+                    <td><span class="copy-cell">14156208891 <button class="copy-btn" data-copy="14156208891" title="复制">⧉</button></span></td>
+                    <td><em class="tag ok">正常</em></td>
+                    <td><span class="admin-state no" title="暂无可用管理员">✕</span></td>
+                    <td><div class="build-info"><b>🇺🇸 美国</b><span class="copy-line">14156208891 <button class="copy-btn" data-copy="14156208891" title="复制">⧉</button></span><time>2026-05-18 14:22</time></div></td>
+                    <td><button class="link" data-panel="groupDetail" data-group-id="101">群信息</button></td>
+                  </tr>
+                  <tr>
+                    <td><input type="checkbox" class="group-select" /></td>
+                    <td><b>Grupo Colombia 07-12</b><small>6 个账号 · 已筛选可用群</small></td>
+                    <td>Test Group 07-12</td>
+                    <td>42</td>
+                    <td><span class="copy-cell">wa.me/group/CO712B <button class="copy-btn" data-copy="wa.me/group/CO712B" title="复制">⧉</button></span></td>
+                    <td><span class="copy-cell">573008124501 <button class="copy-btn" data-copy="573008124501" title="复制">⧉</button></span></td>
+                    <td><em class="tag ok">正常</em></td>
+                    <td><span class="admin-state yes" title="有可用管理员，账号存活在控上">✓</span></td>
+                    <td><div class="build-info"><b>🇨🇴 哥伦比亚</b><span class="copy-line">573008124501 <button class="copy-btn" data-copy="573008124501" title="复制">⧉</button></span><time>2026-06-07 09:36</time></div></td>
+                    <td><button class="link" data-panel="groupDetail" data-group-id="102">群信息</button></td>
+                  </tr>
+                  <tr>
+                    <td><input type="checkbox" class="group-select" /></td>
+                    <td><b>Mixed Source Pending</b><small>接口待确认 · 暂不可执行</small></td>
+                    <td>未分组</td>
+                    <td>-</td>
+                    <td><span class="copy-cell">wa.me/group/MIX103 <button class="copy-btn" data-copy="wa.me/group/MIX103" title="复制">⧉</button></span></td>
+                    <td><span class="copy-cell">5521940027788 <button class="copy-btn" data-copy="5521940027788" title="复制">⧉</button></span></td>
+                    <td><em class="tag banned">封禁</em></td>
+                    <td><span class="admin-state no" title="暂无可用管理员或控上不可用">✕</span></td>
+                    <td><div class="build-info"><b>🇧🇷 巴西</b><span class="copy-line">5521940027788 <button class="copy-btn" data-copy="5521940027788" title="复制">⧉</button></span><time>2026-07-12 18:05</time></div></td>
+                    <td><button class="link" data-panel="groupDetail" data-group-id="103">群信息</button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <footer class="pager">
+                <span>共 3 条</span>
+                <select><option>10条/页</option></select>
+                <button disabled>‹</button>
+                <button class="primary">1</button>
+                <button disabled>›</button>
+                <span>前往</span><input value="1" /><span>页</span>
+              </footer>
+            </section>
+          </section>
+
+          <section class="view" id="taskView">
+            <section class="task-filter-card" id="taskFilterCard">
+              <div class="task-filter-summary"><b>拉群任务筛选</b><button class="link" data-filter-toggle>展开⌄</button></div>
+              <div class="task-filter-grid">
+                <label><span>ID：</span><input placeholder="请输入" /></label>
+                <label><span>任务名称：</span><input placeholder="请输入任务名称" /></label>
+                <label><span>群组名称：</span><input placeholder="请输入群组名称" /></label>
+                <label><span>任务分组：</span><select><option>请选择</option><option>默认分组</option><option>菲律宾资源校验</option></select></label>
+                <label><span>任务情况：</span><input placeholder="请输入" /></label>
+                <label><span>任务进度：</span><select><option>全部</option><option>未开始</option><option>进行中</option><option>已完成</option></select></label>
+                <div class="radio-line"><span>是否交单：</span><label><input type="radio" name="submitState" />交单</label><label><input type="radio" name="submitState" />未交单</label></div>
+                <div class="radio-line"><span>是否封禁：</span><label><input type="radio" name="banState" />正常</label><label><input type="radio" name="banState" />封禁</label></div>
+                <label><span>发起合群申请：</span><select><option>请选择</option><option>已发起</option><option>未发起</option></select></label>
+                <label><span>任务备注：</span><input placeholder="请输入" /></label>
+                <div class="switch-line"><span>查询所有：</span><button class="toggle" aria-label="查询所有"></button></div>
+              </div>
+              <div class="task-filter-actions"><button>重置</button><button class="primary">查询</button><button class="link" data-filter-toggle>收起⌃</button></div>
+            </section>
+
+            <section class="task-tool-card">
+              <div class="task-tools">
+                <button class="primary" id="openCreateTask">新建拉群任务</button>
+                <button>任务模板</button>
+                <button data-task-batch="pause">批量暂停</button>
+                <button data-task-batch="resume">批量恢复</button>
+                <button data-task-batch="export">批量导出</button>
+                <button>管理任务分组</button>
+                <button id="openTaskBoard" onclick="document.querySelector('.task-board-panel').classList.add('open');document.body.classList.add('board-open')">任务看板</button>
+              </div>
+              <div class="task-page-tools"><button disabled>‹</button><input value="1" /><span>/ 1</span><span>总数: 5</span><span>每页显示</span><input value="50" /><span>条</span><button class="toggle"></button></div>
+            </section>
+
+            <section class="create-task-panel">
+              <header class="create-head">
+                <div><button id="closeCreateTask" class="create-close" title="关闭">×</button><h1>新建拉群任务</h1></div>
+                <button class="primary">保存配置</button>
+              </header>
+              <nav class="create-tabs">
+                <button class="active" data-create-mode="new">新群模式</button>
+                <button data-create-mode="link">群链接模式</button>
+                <button data-create-mode="fast">速拉模式 <span class="mini-help" data-help="速拉模式用于快速执行低配置拉群流程，当前原型仅预留入口。">?</span></button>
+              </nav>
+
+              <div class="create-scroll">
+                <section class="create-section">
+                  <h2>基本设置</h2>
+                  <div class="basic-blocks">
+                    <div class="basic-block basic-main">
+                      <h3>任务基础</h3>
+                      <div class="block-grid four-cols">
+                        <label class="field required"><span>任务名称</span><input value="任务_81125851" /></label>
+                        <label class="field"><span>自动启动 <button class="help-icon" data-help="开启后，任务创建完成即可进入等待执行队列；关闭则需要手动启动。">?</button></span><button class="switch on" type="button"></button></label>
+                        <label class="field"><span>审核模式 <button class="help-icon" data-help="审核模式开启后，任务关键节点需要人工确认后继续。">?</button></span><button class="switch" type="button"></button></label>
+                        <label class="field"><span>任务完成后开审核 <button class="help-icon" data-help="任务完成后自动打开群审核，避免新成员继续自由进入。">?</button></span><button class="switch" type="button"></button></label>
+                        <label class="field"><span>建立空白群</span><button class="switch" type="button"></button></label>
+                        <label class="field link-version-field"><span>模式选择</span><select data-marketing-version><option value="history" selected>新增历史群组营销版本</option><option value="normal">普通群链接版本</option><option value="notice">公告群链接版本</option></select></label>
+                      </div>
+                    </div>
+
+                    <div class="basic-block">
+                      <h3>执行策略</h3>
+                      <div class="block-grid two-cols">
+                        <label class="field"><span>次管理 <button class="help-icon" data-help="设置是否需要次级管理员参与接管、拉人或踩链接流程。">?</button></span><span class="segmented"><button class="active">不需要</button><button>管理拉进群</button><button>踩链接</button></span></label>
+                        <label class="field"><span>拉手同步料子方式 <button class="help-icon" data-help="单个表示每个拉手按顺序取料；批量表示一次性同步多份料子。">?</button></span><span class="segmented"><button class="active">单个</button><button>批量</button></span></label>
+                        <label class="field"><span>拉手退群方式</span><span class="segmented"><button class="active">不退</button><button>自动退</button><button>管理踢</button></span></label>
+                        <label class="field"><span>管理员退群方式 <button class="help-icon" data-help="控制管理员在完成群接管后的退出策略。">?</button></span><span class="segmented"><button class="active">不退</button><button>自动</button></span></label>
+                        <label class="field"><span>设置料子内管理 <button class="help-icon" data-help="决定料子内标记为管理的账号，在任务开始前或完成后被设置为群管理员。">?</button></span><span class="segmented"><button class="active">任务完成后设置</button><button>任务开始后设置</button></span></label>
+                      </div>
+                    </div>
+
+                    <div class="basic-block">
+                      <h3>拉人参数</h3>
+                      <div class="block-grid four-cols">
+                        <label class="field required range-field"><span>单次拉人数范围 <button class="help-icon" data-help="每个群单次拉入目标成员的最小值和最大值。">?</button></span><em><input value="50" /><b>~</b><input value="50" /></em></label>
+                        <label class="field required unit-field"><span>拉人间隔 <button class="help-icon" data-help="同一执行账号连续拉人之间的等待秒数。">?</button></span><em><input value="6" /><b>秒</b></em></label>
+                        <label class="field required unit-field"><span>拉手数量 <button class="help-icon" data-help="单个群组计划分配的拉手数量。">?</button></span><em><input value="2" /><b>个</b></em></label>
+                        <label class="field unit-field"><span>同时启动任务数</span><em><input placeholder="默认1个" /><b>个</b></em></label>
+                        <label class="field unit-field"><span>前期单次拉人数 <button class="help-icon" data-help="前期预热阶段每次拉入人数，留空表示不启用前期策略。">?</button></span><em><input /><b>个</b></em></label>
+                        <label class="field unit-field"><span>前期拉人执行次数</span><em><input /><b>次</b></em></label>
+                        <label class="field unit-field"><span>拉手风控时间 <button class="help-icon" data-help="拉手触发风控后等待恢复的时间。">?</button></span><em><input placeholder="请输入..." /><b>分钟</b></em></label>
+                      </div>
+                    </div>
+
+                    <div class="basic-block">
+                      <h3>账号分组</h3>
+                      <div class="block-grid three-cols">
+                        <label class="field required tag-field"><span>管理分组 <button class="help-icon" data-help="筛选可作为管理员的账号分组。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                        <label class="field required tag-field"><span>拉手分组 <button class="help-icon" data-help="筛选参与拉人的账号分组，数量会影响任务并发和资源余量。">?</button></span><span class="select-box"><i class="red-tag">7-12 哥伦比亚（6个账号）</i><button>↻</button></span></label>
+                        <label class="field tag-field"><span>站台分组</span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                        <label class="field tag-field marketing-account-field"><span>营销分组 <button class="help-icon" data-help="筛选用于营销消息发送的账号分组。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                      </div>
+                    </div>
+
+                    <div class="basic-block">
+                      <h3>完成归档</h3>
+                      <div class="block-grid three-cols">
+                        <label class="field tag-field"><span>创群成功的号移至分组 <button class="help-icon" data-help="成功创建群组的账号任务完成后移动到指定分组。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                        <label class="field tag-field"><span>任务完成的管理移至分组 <button class="help-icon" data-help="完成管理职责的账号移动到指定分组，便于后续复用或隔离。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                        <label class="field tag-field"><span>任务完成的拉手移至分组 <button class="help-icon" data-help="完成拉人职责的账号移动到指定分组。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                      </div>
+                    </div>
+
+                    <div class="basic-block note-block">
+                      <h3>任务备注(此项非必填项，不影响拉群，只是为了方便用户测试记录，任务备注会在拉群列表显示)</h3>
+                      <textarea class="task-note-long" placeholder="请输入任务备注"></textarea>
+                    </div>
+                  </div>
+
+                  <div class="fast-basic-panel">
+                    <div class="fast-blocks">
+                      <div class="fast-block fast-main">
+                        <h3>任务基础</h3>
+                        <div class="fast-row fast-main-row">
+                          <label class="field required"><span>任务名</span><input value="任务_81125851" /></label>
+                          <label class="field unit-field"><span>拉手风控时间 <button class="help-icon" data-help="拉手触发风控后等待恢复的时间。">?</button></span><em><input /><b>分钟</b></em></label>
+                          <label class="field"><span>审核模式 <button class="help-icon" data-help="审核模式开启后，任务关键节点需要人工确认后继续。">?</button></span><button class="switch" type="button"></button></label>
+                          <label class="field"><span>拉群模式</span><select><option>自定义模式</option><option>标准模式</option></select></label>
+                          <label class="field"><span>任务完成后群主退群</span><button class="switch" type="button"></button></label>
+                        </div>
+                      </div>
+
+                      <div class="fast-block">
+                        <h3>账号分组</h3>
+                        <div class="fast-row fast-group-row">
+                          <label class="field required tag-field"><span>管理分组 <button class="help-icon" data-help="筛选可作为管理员的账号分组。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                          <label class="field tag-field"><span>站台分组</span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                          <label class="field tag-field long"><span>任务完成的建群号迁移到指定分组 <button class="help-icon" data-help="速拉任务完成后，将建群账号移动到指定分组。">?</button></span><span class="select-box muted">请选择分组 <button>↻</button></span></label>
+                        </div>
+                      </div>
+
+                      <div class="fast-block">
+                        <h3>速拉参数</h3>
+                        <div class="fast-row fast-param-row">
+                          <label class="field"><span>单次执行账号数 <button class="help-icon" data-help="单次执行时投入的账号数量。">?</button></span><input value="1" /></label>
+                          <label class="field"><span>单号同时拉群数 <button class="help-icon" data-help="一个账号同时拉取的群数量。">?</button></span><input value="1" /><small>代表一个号将同时拉多少个群</small></label>
+                          <label class="field unit-field"><span>时间间隔</span><em><input value="6" /><b>秒</b></em></label>
+                          <label class="field"><span>站台数量</span><input placeholder="请输入..." /></label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="create-section group-config">
+                  <button class="section-title" data-section-toggle="groupInfo">⌄ 群信息设置</button>
+                  <div class="group-config-body" id="groupInfoCreateBody">
+                    <div class="group-info-blocks">
+                      <div class="group-info-sub order-sub">
+                        <h3>设置顺序 <button class="help-icon" data-help="选择是在拉人前写入群资料，还是拉完人后统一收口设置。">?</button></h3>
+                        <label class="field order-choice"><span class="segmented vertical"><button>拉人之前设置</button><button class="active">拉完人后设置</button></span></label>
+                      </div>
+
+                      <div class="group-info-sub profile-sub">
+                        <h3>基础资料</h3>
+                        <div class="sub-grid profile-grid">
+                          <label class="field"><span>群名称(可选)</span><input placeholder="请输入群名称" /></label>
+                          <label class="field"><span>料子文件名为群名</span><button class="switch" type="button"></button><small>开启此开关才会设置群名称</small></label>
+                          <label class="field upload-field"><span>群头像(可选)</span><button data-upload-action="avatar">⇧ 上传图片</button></label>
+                          <label class="field desc-inline"><span>群描述(可选)</span><textarea class="group-desc-long" placeholder="请输入群描述"></textarea></label>
+                        </div>
+                      </div>
+
+                      <div class="group-info-sub permission-sub">
+                        <h3>权限控制</h3>
+                        <div class="sub-grid permission-grid">
+                          <label class="field wide"><span>是否任务完成后自动关闭禁言</span><span class="segmented"><button>是</button><button class="active">否</button></span></label>
+                          <label class="field wide"><span>是否任务完成后自动关闭拉人权限</span><span class="segmented"><button>是</button><button class="active">否</button></span></label>
+                          <label class="field wide"><span>允许任何人编辑群组设置 <button class="help-icon" data-help="控制群成员是否可编辑群名称、头像、描述等群资料。">?</button></span><span class="segmented wrap"><button class="active">不操作</button><button>允许</button><button>不允许</button></span></label>
+                          <label class="field wide"><span>群禁言</span><span class="segmented"><button class="active">不操作</button><button>禁言</button><button>不禁言</button></span></label>
+                          <label class="field wide"><span>获取群链接权限 <button class="help-icon" data-help="控制邀请链接由所有人可获取，还是仅管理员可获取。">?</button></span><span class="segmented"><button>所有人</button><button class="active">仅管理员</button></span></label>
+                          <label class="field radio-wide timed-inline"><span>限时消息</span><span class="radio-options"><label><input type="radio" name="timed" />24小时</label><label><input type="radio" name="timed" />7天</label><label><input type="radio" name="timed" />90天</label><label><input type="radio" name="timed" />关闭</label><label><input type="radio" name="timed" checked />默认使用群已有设置</label></span></label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+
+                <section class="create-section link-mode-panel" data-mode-panel="link">
+                  <h2>普群链接/公告群链接/社群子群链接(可批量粘贴)</h2>
+                  <div class="link-mode-body link-entry-body">
+                    <label class="field group-list-select"><span>群组列表分组</span><select><option>请选择群组列表分组</option><option>7-31建普群4人群组（可用4个）</option><option>7-31建普群90人群组（可用90个）</option><option>7-30建普群（可用37个）</option><option>7-12小白测试（可用12个）</option></select></label>
+                    <button class="link-paste-entry" data-link-paste="open" type="button">自定义粘贴链接</button>
+                  </div>
+                </section>
+
+                <section class="create-section marketing-config-panel" data-marketing-panel>
+                  <h2>营销配置</h2>
+                  <div class="marketing-blocks">
+                    <div class="marketing-block marketing-source">
+                      <h3>模板与内容</h3>
+                      <div class="marketing-grid template-grid">
+                        <label class="field required unit-field"><span>营销发送间隔</span><em><input value="10" /><b>分钟/次</b></em></label>
+                        <label class="field required"><span>营销模板</span><select><option>暂无可选营销模板</option><option>活动引导模板 A</option><option>老群唤醒模板 B</option></select></label>
+                        <label class="field"><span>模板版本</span><input value="--" /></label>
+                        <label class="field"><span>推广链接</span><input value="--" /></label>
+                        <label class="field preview-field"><span>模板内容预览</span><textarea readonly>--</textarea></label>
+                      </div>
+                    </div>
+
+                    <div class="marketing-block marketing-send">
+                      <h3>发送规则</h3>
+                      <div class="marketing-grid send-grid">
+                        <label class="field"><span>立即发送第一条</span><span class="segmented"><button>否</button><button class="active">是</button></span></label>
+                        <label class="field"><span>发送方式</span><span class="segmented"><button class="active">固定发送轮次</button><button>固定持续时间</button></span></label>
+                        <label class="field unit-field"><span>固定发送轮次</span><em><input value="10" /><b>轮</b></em></label>
+                        <label class="field unit-field"><span>消息发送总上限</span><em><input value="100" /><b>条</b></em></label>
+                        <label class="field unit-field"><span>失败重试次数</span><em><input value="2" /><b>次</b></em></label>
+                        <label class="field"><span>群组异常处理方式</span><select><option>暂停当前群</option><option>跳过当前群</option><option>转人工处理</option></select></label>
+                      </div>
+                    </div>
+
+                    <div class="marketing-block marketing-standard">
+                      <h3>开始与达标</h3>
+                      <div class="marketing-grid standard-grid">
+                        <label class="field"><span>营销开始方式</span><select><option>达到最低拉人标准后开始</option><option>拉人完成后开始</option><option>任务启动后立即开始</option></select></label>
+                        <label class="field metric-field"><span>目标数据最低成功标准</span><span class="segmented"><button>人数</button><button class="active">成功率</button></span><em><input value="70" /><b>%</b></em></label>
+                        <label class="field metric-field"><span>水军最低成功标准</span><span class="segmented"><button class="active">人数</button><button>成功率</button></span><em><input value="8" /><b>人</b></em></label>
+                      </div>
+                    </div>
+
+                    <div class="marketing-block marketing-fallback">
+                      <h3>未达标处理方式</h3>
+                      <div class="checkbox-grid">
+                        <label><input type="checkbox" />继续补充</label>
+                        <label><input type="checkbox" />补充目标数据</label>
+                        <label><input type="checkbox" />允许部分完成</label>
+                        <label><input type="checkbox" />更换拉手</label>
+                        <label><input type="checkbox" />重试</label>
+                        <label><input type="checkbox" />转人工</label>
+                        <label><input type="checkbox" />更换水军</label>
+                        <label><input type="checkbox" />暂停当前群</label>
+                        <label><input type="checkbox" />放弃当前群</label>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+
+
+                <section class="create-bottom-grid">
+                  <div class="resource-panel">
+                    <header><h2>料子资源(可批量)</h2><button class="danger-outline">清除</button></header>
+                    <div class="blue-tip"><b>提示</b><span>1、拖动文件名改变料子执行顺序</span><span>2、料子中需要自动设置为群管理的账号可在对应账号后面加A字母标识即可</span></div>
+                    <button class="dropzone" data-upload-action="txt"><b>⇧</b><span>拖拽或点击上传.txt文件</span></button>
+                  </div>
+                  <div class="order-panel">
+                    <header><h2>进群顺序展示</h2><div><button class="danger-outline">任务清除</button><button>状态清除</button></div></header>
+                    <div class="info-tip">ⓘ 下方存在一个或多个可执行任务时，依次点击底部“开始执行”按钮即可依次执行</div>
+                    <table><thead><tr><th>序号</th><th>进群料子</th><th>状态</th><th>操作</th></tr></thead><tbody><tr><td colspan="4"><div class="empty-box"><b>▱</b><span>暂无数据</span></div></td></tr></tbody></table>
+                    <footer><button disabled>自动依次执行</button><button disabled>开始执行</button></footer>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+
+            <section class="task-board-panel">
+              <header class="board-head"><h1>任务看板</h1><div><span>一级总任务统计 · GROUP_MARKETING</span><button id="closeTaskBoard" title="关闭" onclick="document.querySelector('.task-board-panel').classList.remove('open');document.body.classList.remove('board-open')">×</button></div></header>
+              <div class="board-summary">
+                <div><span>总任务</span><b>5</b><small>含执行、完成、暂停、失败</small></div>
+                <div><span>群组处理</span><b>155/240</b><small>已进入转移终态 / 目标群组</small></div>
+                <div><span>成功入群</span><b>10,850</b><small>有效成功率 48.8%</small></div>
+                <div><span>消息发送</span><b>9,800</b><small>失败 140 · 未知 5</small></div>
+                <div><span>异常</span><b class="red-text">7</b><small>含缺少拉手、账号封禁</small></div>
+              </div>
+              <div class="board-guide">
+                <div class="guide-copy"><b>状态口径</b><span id="boardStatusNote">任务状态、当前步骤、转移状态、营销状态独立存储；看板合并展示用于快速判断总任务能否继续推进。</span></div>
+                <div class="guide-tags">
+                  <button data-board-note="执行中：至少一个群组处于接管、拉人或营销流程中；只要仍有群组未进入终态，任务不得自动完成。">执行中</button>
+                  <button data-board-note="等待资源：目标数据、拉手、水军、管理员账号或营销账号不足，资源满足后可继续。">等待资源</button>
+                  <button data-board-note="部分完成：部分群组完成，部分群组失败或等待人工处理；可进入明细处理异常。">部分完成</button>
+                  <button data-board-note="执行失败：关键资源或系统异常导致任务整体无法继续，通常需要人工介入或停止。">执行失败</button>
+                  <button data-board-note="已完成：全部群组接管与营销均完成，且没有未收口执行。">已完成</button>
+                </div>
+              </div>
+              <div class="board-scroll">
+                <table class="task-board-table">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" /></th>
+                      <th>任务信息 <button class="help-icon" data-help="展示任务名称、任务编号、任务类型和群组来源，用于识别这是哪一个总任务。">?</button></th>
+                      <th>任务状态 <button class="help-icon" data-help="任务状态包括草稿、待开始、校验中、等待资源、执行中、部分完成、已暂停、已停止、已完成、执行失败；当前阶段或阻塞原因合并展示。">?</button></th>
+                      <th>群组处理进度 <button class="help-icon" data-help="已进入转移终态的群组数 ÷ 目标群组总数；转移终态不等于任务终态，还需结合营销状态。">?</button></th>
+                      <th>拉人结果 <button class="help-icon" data-help="新增成功人数 / 计划人数，并展示有效成功率；隐私、无效、未注册等细项暂不在任务统计明细中拆分。">?</button></th>
+                      <th>营销进度 <button class="help-icon" data-help="展示营销进行中群组和营销完成群组；营销状态包括未开始、等待开始、静默中、执行中、暂停、完成、异常停止。">?</button></th>
+                      <th>消息发送 <button class="help-icon" data-help="成功、失败、结果未知分别统计；结果未知不计入成功率分母，重试记录下沉到发送记录。">?</button></th>
+                      <th>异常情况 <button class="help-icon" data-help="汇总异常群组、缺少拉手群组和封禁账号；缺少拉手是异常群组子集，不与异常群组相加。">?</button></th>
+                      <th>剩余资源 <button class="help-icon" data-help="一级看板只展示目标数据和可用拉手；管理员、营销账号、水军等仅在不足时以标签提示，完整数量下沉到详情。">?</button></th>
+                      <th>时间/操作 <button class="help-icon" data-help="展示最近执行时间和可执行动作；普通轮询、页面刷新、未触发业务变化的同步不计入最近执行时间。">?</button></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><input type="checkbox" /></td>
+                      <td><b>Philippines Resource Check</b><small>#GM20260729010</small><span class="pill green">拉群营销</span><span class="pill gray">历史老群</span></td>
+                      <td><em class="state failed">● 执行失败</em><small>阻塞：管理员接管失败</small><small>阶段：设置管理员中</small></td>
+                      <td><b>39/56 · 70%</b><span class="progress"><i style="width:70%"></i></span><small>终态群组 39</small></td>
+                      <td><b>2790/5280</b><small>有效成功率 55.2%</small></td>
+                      <td><em class="pill green">进行中 1</em><small>完成 16 · 静默 3</small></td>
+                      <td><em class="pill green">成功 2520</em><small class="red-text">失败 36</small><small>未知 0</small></td>
+                      <td><b>异常群组 1</b><small>缺少拉手 0 · 封禁账号 0</small></td>
+                      <td><b>目标数据 2420</b><small>可用拉手 0</small><em class="pill red">管理员账号不足</em><em class="pill red">营销账号不足</em></td>
+                      <td><b>最近 2026-07-29 11:40</b><small>下次执行 --</small><button class="link">明细</button><button class="link danger-text">停止</button></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" /></td>
+                      <td><b>Malaysia Client Ops</b><small>#GM20260729009</small><span class="pill green">拉群营销</span><span class="pill gray">混合来源</span></td>
+                      <td><em class="state done">● 已完成</em><small>阶段：全部完成</small></td>
+                      <td><b>35/52 · 67%</b><span class="progress"><i style="width:67%"></i></span><small>终态群组 35</small></td>
+                      <td><b>2480/4960</b><small>有效成功率 52.1%</small></td>
+                      <td><em class="pill green">进行中 0</em><small>完成 14</small></td>
+                      <td><em class="pill green">成功 2240</em><small class="red-text">失败 32</small><small>未知 2</small></td>
+                      <td><b>异常群组 0</b><small>缺少拉手 0 · 封禁账号 2</small></td>
+                      <td><b>目标数据 2840</b><small>可用拉手 0</small></td>
+                      <td><b>最近 2026-07-29 10:16</b><small>完成 2026-07-29 10:30</small><button class="link">明细</button></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" /></td>
+                      <td><b>Indonesia Group Reuse</b><small>#GM20260729008</small><span class="pill green">拉群营销</span><span class="pill gray">自收群</span></td>
+                      <td><em class="state failed">● 已停止</em><small>阶段：永久停止</small></td>
+                      <td><b>31/48 · 65%</b><span class="progress orange"><i style="width:65%"></i></span><small>终态群组 31</small></td>
+                      <td><b>2170/4640</b><small>有效成功率 48.6%</small></td>
+                      <td><em class="pill green">进行中 3</em><small>完成 12</small></td>
+                      <td><em class="pill green">成功 1960</em><small class="red-text">失败 28</small><small>未知 1</small></td>
+                      <td><b>异常群组 3</b><small>缺少拉手 0 · 封禁账号 1</small></td>
+                      <td><b>目标数据 3260</b><small>可用拉手 3</small></td>
+                      <td><b>最近 2026-07-28 18:22</b><small>停止 2026-07-28 18:40</small><button class="link">明细</button></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" /></td>
+                      <td><b>Brazil Member Activate</b><small>#GM20260729007</small><span class="pill green">拉群营销</span><span class="pill gray">历史老群</span></td>
+                      <td><em class="state paused">● 已暂停</em><small>阻塞：用户手动暂停</small></td>
+                      <td><b>27/44 · 61%</b><span class="progress orange"><i style="width:61%"></i></span><small>终态群组 27</small></td>
+                      <td><b>1860/4320</b><small>有效成功率 44.6%</small></td>
+                      <td><em class="pill green">进行中 2</em><small>完成 10</small></td>
+                      <td><em class="pill green">成功 1680</em><small class="red-text">失败 24</small><small>未知 0</small></td>
+                      <td><b>异常群组 2</b><small>缺少拉手 0 · 封禁账号 0</small></td>
+                      <td><b>目标数据 3680</b><small>可用拉手 6</small></td>
+                      <td><b>最近 2026-07-27 22:18</b><small>暂停 2026-07-27 22:30</small><button class="link">恢复</button><button class="link">明细</button></td>
+                    </tr>
+                    <tr>
+                      <td><input type="checkbox" /></td>
+                      <td><b>India Product Promo</b><small>#GM20260729006</small><span class="pill green">拉群营销</span><span class="pill gray">混合来源</span></td>
+                      <td><em class="state partial">● 部分完成</em><small>阻塞：部分群组待人工</small></td>
+                      <td><b>23/40 · 57%</b><span class="progress"><i style="width:57%"></i></span><small>终态群组 23</small></td>
+                      <td><b>1550/4000</b><small>有效成功率 40%</small></td>
+                      <td><em class="pill green">进行中 1</em><small>完成 8</small></td>
+                      <td><em class="pill green">成功 1400</em><small class="red-text">失败 20</small><small>未知 2</small></td>
+                      <td><b>异常群组 1</b><em class="pill orange">缺少拉手 1</em><small>封禁账号 2</small></td>
+                      <td><b>目标数据 4100</b><small>可用拉手 9</small><em class="pill red">目标数据不足</em><em class="pill red">水军不足</em></td>
+                      <td><b>最近 2026-07-27 16:05</b><small>下次 2026-07-27 17:00</small><button class="link">重试</button><button class="link">明细</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="task-detail-panel task-list-panel">
+              <header class="single-detail-head">
+                <div><h1>任务列表</h1><span>任务列表负责定位任务，群组资源处理统一进入任务详情</span></div>
+                <span class="task-statistics-note">共 5 条任务</span>
+              </header>
+              <table class="task-list-table">
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" id="taskSelectAll" aria-label="全选任务" /></th>
+                    <th>ID</th><th>任务名称</th><th>任务状态</th><th>当前阶段</th>
+                    <th>群组进度</th><th>拉人结果</th><th>营销状态</th><th>异常群组</th><th>创建时间</th><th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-task-row="GM20260729010">
+                    <td><input class="task-select" type="checkbox" /></td><td><b>#GM20260729010</b></td>
+                    <td><b>Philippines Resource Check</b><small>拉群营销 · 历史老群</small></td>
+                    <td><em class="state failed">执行失败</em><small>管理员接管失败</small></td><td><b>设置管理员</b></td>
+                    <td><b>39 / 56</b><span class="progress"><i style="width:70%"></i></span><small>70%</small></td>
+                    <td><b>2,790 / 5,280</b><small>成功 / 目标</small></td><td><em class="pill green">进行中 1</em><small>完成 16</small></td>
+                    <td><b class="red-text">1</b><small>需人工处理</small></td><td><b>2026-07-29</b><small>09:18</small></td>
+                    <td class="task-row-actions"><button class="link" data-open-workbench="GM20260729010">任务详情</button><button class="link danger-text" data-task-action="pause">暂停</button><details><summary>更多</summary><div><button data-task-action="export">导出</button><button data-task-action="copy">复制任务</button></div></details></td>
+                  </tr>
+                  <tr data-task-row="GM20260729009">
+                    <td><input class="task-select" type="checkbox" /></td><td><b>#GM20260729009</b></td>
+                    <td><b>Malaysia Client Ops</b><small>拉群营销 · 混合来源</small></td>
+                    <td><em class="state done">已完成</em><small>全部任务已完成</small></td><td><b>全部完成</b></td>
+                    <td><b>35 / 52</b><span class="progress"><i style="width:67%"></i></span><small>67%</small></td>
+                    <td><b>2,480 / 4,960</b><small>成功 / 目标</small></td><td><em class="pill green">已完成</em><small>完成 14</small></td>
+                    <td><b>0</b><small>封禁账号 2</small></td><td><b>2026-07-29</b><small>08:42</small></td>
+                    <td class="task-row-actions"><button class="link" data-open-workbench="GM20260729009">任务详情</button><details><summary>更多</summary><div><button data-task-action="export">导出</button><button data-task-action="copy">复制任务</button></div></details></td>
+                  </tr>
+                  <tr data-task-row="GM20260729008">
+                    <td><input class="task-select" type="checkbox" /></td><td><b>#GM20260729008</b></td>
+                    <td><b>Indonesia Group Reuse</b><small>拉群营销 · 自收群</small></td>
+                    <td><em class="state failed">已停止</em><small>用户手动停止</small></td><td><b>永久停止</b></td>
+                    <td><b>31 / 48</b><span class="progress orange"><i style="width:65%"></i></span><small>65%</small></td>
+                    <td><b>2,170 / 4,640</b><small>成功 / 目标</small></td><td><em class="pill orange">已停止</em><small>完成 12</small></td>
+                    <td><b class="red-text">3</b><small>封禁账号 1</small></td><td><b>2026-07-28</b><small>17:30</small></td>
+                    <td class="task-row-actions"><button class="link" data-open-workbench="GM20260729008">任务详情</button><details><summary>更多</summary><div><button data-task-action="export">导出</button><button data-task-action="copy">复制任务</button></div></details></td>
+                  </tr>
+                  <tr data-task-row="GM20260729007">
+                    <td><input class="task-select" type="checkbox" /></td><td><b>#GM20260729007</b></td>
+                    <td><b>Brazil Member Activate</b><small>拉群营销 · 历史老群</small></td>
+                    <td><em class="state paused">已暂停</em><small>用户手动暂停</small></td><td><b>暂停中</b></td>
+                    <td><b>27 / 44</b><span class="progress orange"><i style="width:61%"></i></span><small>61%</small></td>
+                    <td><b>1,860 / 4,320</b><small>成功 / 目标</small></td><td><em class="pill orange">已暂停</em><small>完成 10</small></td>
+                    <td><b class="red-text">2</b><small>等待恢复</small></td><td><b>2026-07-27</b><small>21:06</small></td>
+                    <td class="task-row-actions"><button class="link" data-open-workbench="GM20260729007">任务详情</button><button class="link" data-task-action="resume">恢复</button><details><summary>更多</summary><div><button data-task-action="export">导出</button><button data-task-action="copy">复制任务</button></div></details></td>
+                  </tr>
+                  <tr data-task-row="GM20260729006">
+                    <td><input class="task-select" type="checkbox" /></td><td><b>#GM20260729006</b></td>
+                    <td><b>India Product Promo</b><small>拉群营销 · 混合来源</small></td>
+                    <td><em class="state partial">部分完成</em><small>部分群组待人工</small></td><td><b>异常处理中</b></td>
+                    <td><b>23 / 40</b><span class="progress"><i style="width:57%"></i></span><small>57%</small></td>
+                    <td><b>1,550 / 4,000</b><small>成功 / 目标</small></td><td><em class="pill orange">部分完成</em><small>完成 8</small></td>
+                    <td><b class="red-text">1</b><small>缺少拉手 1</small></td><td><b>2026-07-27</b><small>14:35</small></td>
+                    <td class="task-row-actions"><button class="link" data-open-workbench="GM20260729006">任务详情</button><button class="link" data-task-action="retry">重试</button><details><summary>更多</summary><div><button data-task-action="export">导出</button><button data-task-action="copy">复制任务</button></div></details></td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+          </section>
+
+          <section class="view task-workbench-view" id="taskWorkbenchView">
+            <div class="workbench-breadcrumb"><button class="link" data-back-task-list>拉群任务</button><span>/</span><b>任务详情</b></div>
+
+            <section class="workbench-header-card">
+              <div class="workbench-title">
+                <div><span class="task-summary-kicker">群组执行工作台</span><h1 id="workbenchTaskName">Philippines Resource Check</h1><small id="workbenchTaskId">#GM20260729010</small></div>
+                <em class="state failed" id="workbenchTaskStatus">● 执行失败</em>
+              </div>
+              <div class="workbench-task-actions">
+                <button data-workbench-action="refresh">刷新</button><button data-workbench-action="pause">暂停任务</button><button data-workbench-action="resume">恢复任务</button><button class="danger-text" data-workbench-action="finish">结束任务</button><button data-workbench-action="export">导出明细</button>
+              </div>
+            </section>
+
+            <section class="workbench-summary" aria-label="任务群组统计">
+              <article><span>群组总数</span><b>56</b></article><article><span>执行中</span><b>8</b></article><article><span>待处理</span><b>4</b></article><article><span>已完成</span><b>39</b></article><article class="danger"><span>执行失败</span><b>5</b></article>
+            </section>
+
+            <section class="workbench-filter-card">
+              <div class="workbench-status-tabs" role="tablist">
+                <button class="active" data-workbench-filter="all">全部 <b>56</b></button><button data-workbench-filter="running">执行中 <b>8</b></button><button data-workbench-filter="puller">需要补充拉手 <b>1</b></button><button data-workbench-filter="admin">需要补充管理员 <b>1</b></button><button data-workbench-filter="water">需要补充水军 <b>1</b></button><button data-workbench-filter="marketing">需要切换营销账号 <b>1</b></button><button data-workbench-filter="done">已完成 <b>39</b></button><button data-workbench-filter="failed">执行失败 <b>5</b></button>
+              </div>
+              <div class="workbench-filter-grid">
+                <label><span>群组名称 / 链接</span><input placeholder="请输入群组名称或链接" /></label>
+                <label><span>群组状态</span><select><option>全部状态</option><option>正常</option><option>禁言</option><option>封禁</option><option>退出</option><option>解散</option></select></label>
+                <label><span>当前阶段</span><select><option>全部阶段</option><option>拉手进群</option><option>添加成员</option><option>设置管理员</option><option>营销执行</option></select></label>
+                <label><span>资源异常</span><select><option>全部异常</option><option>拉手不足</option><option>管理员不足</option><option>水军不足</option><option>营销账号异常</option></select></label>
+                <div><button data-workbench-query="reset">重置</button><button class="primary" data-workbench-query="query">查询</button></div>
+              </div>
+            </section>
+
+            <section class="group-workbench-panel">
+              <header><div><h2>群组执行明细</h2><span>每个群组仅展示当前最重要操作；账号明细点击资源数量查看</span></div><small>当前为静态 Mock · 执行接口待确认</small></header>
+              <div class="group-workbench-scroll">
+                <table class="group-workbench-table">
+                  <thead><tr><th>群组信息</th><th>群组状态</th><th>当前阶段</th><th>拉群进度</th><th>账号资源</th><th>当前异常</th><th>最近执行</th><th>操作</th></tr></thead>
+                  <tbody>
+                    <tr data-workbench-group="g1" data-filter-tags="admin failed">
+                      <td><button class="group-title-button" data-expand-group="g1"><b class="workbench-group-name">Philippines Resource Check · 群组 A</b><small>G-PH-001 · 168 人</small></button><button class="link mini-copy" data-copy="wa.me/group/PH-A001">复制群链接</button></td>
+                      <td><em class="tag ok">正常</em><small>允许发言</small></td><td><b>设置管理员</b><small>拉人已完成</small></td>
+                      <td><b>39 / 56</b><span class="progress"><i style="width:70%"></i></span><small>70%</small></td>
+                      <td class="resource-stack"><button data-resource-group="g1" data-resource-type="admin">管理员 1/2 <em>不足</em></button><button data-resource-group="g1" data-resource-type="puller">拉手 2/2 <i>正常</i></button><button data-resource-group="g1" data-resource-type="water">水军 8/10 <em>不足</em></button><button data-resource-group="g1" data-resource-type="marketing">营销号 1/1 <i>正常</i></button></td>
+                      <td><em class="issue-text">管理员接管失败</em><small>缺少管理员 1</small></td><td><b>11:40</b><small>2026-07-29</small></td>
+                      <td class="group-row-actions"><button class="primary small" data-group-action="supplementAdmin" data-group-id="g1">补充管理员</button><details><summary>更多</summary><div class="group-more-menu"><button data-expand-group="g1" data-expand-default-tab="records">查看执行记录</button><button data-group-action="viewAccounts" data-group-id="g1">查看账号资源</button><button class="menu-section-start" data-group-action="supplementAdmin" data-group-id="g1">补充管理员</button><button data-group-action="supplementPuller" data-group-id="g1">补充拉手</button><button data-group-action="supplementWater" data-group-id="g1">补充水军</button><button data-group-action="supplementMarketing" data-group-id="g1">补充营销号</button><button data-group-action="viewMembers" data-group-id="g1">查看群成员</button><button data-group-action="refreshGroup" data-group-id="g1">刷新群组状态</button><button data-group-action="pauseGroup" data-group-id="g1">暂停该群组</button><button data-group-action="abandonGroup" data-group-id="g1" class="danger-text">放弃该群组</button><button data-copy="wa.me/group/PH-A001">复制群链接</button></div></details></td>
+                    </tr>
+                    <tr class="group-expand-row" data-expand-for="g1" hidden><td colspan="8"></td></tr>
+                    <tr data-workbench-group="g2" data-filter-tags="puller running">
+                      <td><button class="group-title-button" data-expand-group="g2"><b class="workbench-group-name">Philippines Resource Check · 群组 B</b><small>G-PH-002 · 126 人</small></button><button class="link mini-copy" data-copy="wa.me/group/PH-B002">复制群链接</button></td>
+                      <td><em class="tag ok">正常</em><small>允许发言</small></td><td><b>添加成员</b><small>等待拉手</small></td>
+                      <td><b>22 / 50</b><span class="progress orange"><i style="width:44%"></i></span><small>44%</small></td>
+                      <td class="resource-stack"><button data-resource-group="g2" data-resource-type="admin">管理员 2/2 <i>正常</i></button><button data-resource-group="g2" data-resource-type="puller">拉手 0/2 <em>不足</em></button><button data-resource-group="g2" data-resource-type="water">水军 10/10 <i>正常</i></button><button data-resource-group="g2" data-resource-type="marketing">营销号 1/1 <i>正常</i></button></td>
+                      <td><em class="issue-text">拉手不足</em><small>剩余目标 28</small></td><td><b>11:32</b><small>2026-07-29</small></td>
+                      <td class="group-row-actions"><button class="primary small" data-group-action="supplementPuller" data-group-id="g2">补充拉手</button><details><summary>更多</summary><div class="group-more-menu"><button data-expand-group="g2" data-expand-default-tab="records">查看执行记录</button><button data-group-action="viewAccounts" data-group-id="g2">查看账号资源</button><button class="menu-section-start" data-group-action="supplementAdmin" data-group-id="g2">补充管理员</button><button data-group-action="supplementPuller" data-group-id="g2">补充拉手</button><button data-group-action="supplementWater" data-group-id="g2">补充水军</button><button data-group-action="supplementMarketing" data-group-id="g2">补充营销号</button><button data-group-action="refreshGroup" data-group-id="g2">刷新群组状态</button><button data-group-action="pauseGroup" data-group-id="g2">暂停该群组</button><button data-copy="wa.me/group/PH-B002">复制群链接</button></div></details></td>
+                    </tr>
+                    <tr class="group-expand-row" data-expand-for="g2" hidden><td colspan="8"></td></tr>
+                    <tr data-workbench-group="g3" data-filter-tags="marketing failed">
+                      <td><button class="group-title-button" data-expand-group="g3"><b class="workbench-group-name">Philippines Resource Check · 群组 C</b><small>G-PH-003 · 205 人</small></button><button class="link mini-copy" data-copy="wa.me/group/PH-C003">复制群链接</button></td>
+                      <td><em class="tag ok">正常</em><small>允许发言</small></td><td><b>营销执行</b><small>第 3 / 8 轮</small></td>
+                      <td><b>50 / 50</b><span class="progress"><i style="width:100%"></i></span><small>100%</small></td>
+                      <td class="resource-stack"><button data-resource-group="g3" data-resource-type="admin">管理员 2/2 <i>正常</i></button><button data-resource-group="g3" data-resource-type="puller">拉手 2/2 <i>正常</i></button><button data-resource-group="g3" data-resource-type="water">水军 10/10 <i>正常</i></button><button data-resource-group="g3" data-resource-type="marketing">营销号 0/1 <em>异常</em></button></td>
+                      <td><em class="issue-text">营销账号离线</em><small>原账号仍保持绑定</small></td><td><b>11:18</b><small>2026-07-29</small></td>
+                      <td class="group-row-actions"><button class="primary small" data-group-action="switchMarketing" data-group-id="g3">切换营销账号</button><details><summary>更多</summary><div class="group-more-menu"><button data-expand-group="g3" data-expand-default-tab="records">查看执行记录</button><button data-group-action="viewAccounts" data-group-id="g3">查看账号资源</button><button class="menu-section-start" data-group-action="supplementAdmin" data-group-id="g3">补充管理员</button><button data-group-action="supplementPuller" data-group-id="g3">补充拉手</button><button data-group-action="supplementWater" data-group-id="g3">补充水军</button><button data-group-action="supplementMarketing" data-group-id="g3">补充营销号</button><button data-group-action="refreshGroup" data-group-id="g3">刷新群组状态</button><button data-group-action="pauseGroup" data-group-id="g3">暂停该群组</button><button data-copy="wa.me/group/PH-C003">复制群链接</button></div></details></td>
+                    </tr>
+                    <tr class="group-expand-row" data-expand-for="g3" hidden><td colspan="8"></td></tr>
+                    <tr data-workbench-group="g4" data-filter-tags="water failed">
+                      <td><button class="group-title-button" data-expand-group="g4"><b class="workbench-group-name">Philippines Resource Check · 群组 D</b><small>G-PH-004 · 142 人</small></button><button class="link mini-copy" data-copy="wa.me/group/PH-D004">复制群链接</button></td>
+                      <td><em class="tag warn">禁言</em><small>管理员可发言</small></td><td><b>添加水军</b><small>当前步骤失败</small></td>
+                      <td><b>32 / 60</b><span class="progress orange"><i style="width:53%"></i></span><small>53%</small></td>
+                      <td class="resource-stack"><button data-resource-group="g4" data-resource-type="admin">管理员 2/2 <i>正常</i></button><button data-resource-group="g4" data-resource-type="puller">拉手 2/2 <i>正常</i></button><button data-resource-group="g4" data-resource-type="water">水军 4/10 <em>不足</em></button><button data-resource-group="g4" data-resource-type="marketing">营销号 1/1 <i>正常</i></button></td>
+                      <td><em class="issue-text">水军资源不足</em><small>上次执行已停止</small></td><td><b>10:56</b><small>2026-07-29</small></td>
+                      <td class="group-row-actions"><button class="primary small" data-group-action="supplementWater" data-group-id="g4">补充水军</button><details><summary>更多</summary><div class="group-more-menu"><button data-group-action="retryGroup" data-group-id="g4">重新执行</button><button data-expand-group="g4" data-expand-default-tab="records">查看执行记录</button><button data-group-action="viewAccounts" data-group-id="g4">查看账号资源</button><button class="menu-section-start" data-group-action="supplementAdmin" data-group-id="g4">补充管理员</button><button data-group-action="supplementPuller" data-group-id="g4">补充拉手</button><button data-group-action="supplementWater" data-group-id="g4">补充水军</button><button data-group-action="supplementMarketing" data-group-id="g4">补充营销号</button><button data-copy="wa.me/group/PH-D004">复制群链接</button></div></details></td>
+                    </tr>
+                    <tr class="group-expand-row" data-expand-for="g4" hidden><td colspan="8"></td></tr>
+                    <tr data-workbench-group="g5" data-filter-tags="done">
+                      <td><button class="group-title-button" data-expand-group="g5"><b class="workbench-group-name">Philippines Resource Check · 群组 E</b><small>G-PH-005 · 188 人</small></button><button class="link mini-copy" data-copy="wa.me/group/PH-E005">复制群链接</button></td>
+                      <td><em class="tag ok">正常</em><small>允许发言</small></td><td><b>已完成</b><small>营销收口完成</small></td>
+                      <td><b>56 / 56</b><span class="progress"><i style="width:100%"></i></span><small>100%</small></td>
+                      <td class="resource-stack"><button data-resource-group="g5" data-resource-type="admin">管理员 2/2 <i>正常</i></button><button data-resource-group="g5" data-resource-type="puller">拉手 2/2 <i>正常</i></button><button data-resource-group="g5" data-resource-type="water">水军 10/10 <i>正常</i></button><button data-resource-group="g5" data-resource-type="marketing">营销号 1/1 <i>正常</i></button></td>
+                      <td><span class="muted-text">无</span><small>全部步骤完成</small></td><td><b>10:30</b><small>2026-07-29</small></td>
+                      <td class="group-row-actions"><button class="small" data-expand-group="g5">查看详情</button><details><summary>更多</summary><div class="group-more-menu"><button data-expand-group="g5" data-expand-default-tab="records">查看执行记录</button><button data-group-action="viewAccounts" data-group-id="g5">查看账号资源</button><button class="menu-section-start" data-group-action="supplementAdmin" data-group-id="g5">补充管理员</button><button data-group-action="supplementPuller" data-group-id="g5">补充拉手</button><button data-group-action="supplementWater" data-group-id="g5">补充水军</button><button data-group-action="supplementMarketing" data-group-id="g5">补充营销号</button><button data-copy="wa.me/group/PH-E005">复制群链接</button></div></details></td>
+                    </tr>
+                    <tr class="group-expand-row" data-expand-for="g5" hidden><td colspan="8"></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <footer class="workbench-pager"><span>共 56 个群组 · 当前展示 5 条 Mock 样例</span><button disabled>‹</button><button class="primary">1</button><button>2</button><button>›</button><select><option>10 条 / 页</option><option>20 条 / 页</option></select></footer>
+            </section>
+          </section>
+        </main>
+      </section>
+    </div>
+
+    <aside class="drawer">
+      <div class="drawer-head">
+        <h2 id="drawerTitle">明细</h2>
+        <button id="closeDrawer">×</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+    </aside>
+    <div class="mask" id="mask"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

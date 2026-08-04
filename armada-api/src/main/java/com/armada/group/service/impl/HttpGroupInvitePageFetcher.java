@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupInvitePageMetadata;
+import com.armada.group.service.GroupInvitePageProbe;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,6 +34,10 @@ public class HttpGroupInvitePageFetcher implements GroupInvitePageFetcher {
             "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
     private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int AVATAR_MAX_LENGTH = 512;
+    /** HTTP 成功状态码下界。 */
+    private static final int HTTP_OK = 200;
+    /** HTTP 成功状态码上界（不含）。 */
+    private static final int HTTP_MULTIPLE_CHOICES = 300;
     private static final Pattern META_TAG = Pattern.compile("<meta\\b([^>]*)>",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     private static final Pattern ATTRIBUTE = Pattern.compile(
@@ -55,6 +60,11 @@ public class HttpGroupInvitePageFetcher implements GroupInvitePageFetcher {
 
     @Override
     public GroupInvitePageMetadata fetch(String normalizedUrl) {
+        return probe(normalizedUrl).metadata();
+    }
+
+    @Override
+    public GroupInvitePageProbe probe(String normalizedUrl) {
         try {
             HttpRequest request = HttpRequest.newBuilder(inviteUri(normalizedUrl))
                     .timeout(REQUEST_TIMEOUT)
@@ -64,20 +74,31 @@ public class HttpGroupInvitePageFetcher implements GroupInvitePageFetcher {
                     .build();
             HttpResponse<String> response = httpClient.send(
                     request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            if (response.statusCode() < HTTP_OK || response.statusCode() >= HTTP_MULTIPLE_CHOICES) {
                 log.debug("WhatsApp 邀请页返回非 2xx normalizedUrl={} status={}",
                         normalizedUrl, response.statusCode());
-                return empty(normalizedUrl);
+                return unreachable(normalizedUrl);
             }
-            return metadataFromHtml(normalizedUrl, response.body());
+            return new GroupInvitePageProbe(
+                    metadataFromHtml(normalizedUrl, response.body()), true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("WhatsApp 邀请页抓取被中断 normalizedUrl={}", normalizedUrl);
-            return empty(normalizedUrl);
+            return unreachable(normalizedUrl);
         } catch (IllegalArgumentException | IOException e) {
             log.warn("WhatsApp 邀请页抓取失败 normalizedUrl={} error={}", normalizedUrl, e.getMessage());
-            return empty(normalizedUrl);
+            return unreachable(normalizedUrl);
         }
+    }
+
+    /**
+     * 构造不可达结果。
+     *
+     * @param normalizedUrl 归一化群邀请链接
+     * @return 空 profile 且 reachable 为 false
+     */
+    private static GroupInvitePageProbe unreachable(String normalizedUrl) {
+        return new GroupInvitePageProbe(empty(normalizedUrl), false);
     }
 
     static GroupInvitePageMetadata metadataFromHtml(String normalizedUrl, String html) {

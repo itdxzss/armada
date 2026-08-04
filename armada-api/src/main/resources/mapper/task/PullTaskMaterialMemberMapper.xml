@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskMaterialMemberMapper">
+
+  <!-- tenant_id 由租户拦截器注入。 -->
+  <insert id="batchInsertInitialized">
+    INSERT INTO pull_task_material_member (
+      group_execution_id, member_seq, source_line_no, normalized_phone, admin_required,
+      pull_status, admin_status, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (#{row.groupExecutionId}, #{row.memberSeq}, #{row.sourceLineNo},
+       #{row.normalizedPhone}, #{row.adminRequired},
+       #{row.pullStatus}, #{row.adminStatus},
+       #{row.createdAt}, #{row.updatedAt})
+    </foreach>
+  </insert>
+
+  <select id="selectByExecution" resultType="com.armada.task.model.entity.PullTaskMaterialMember">
+    SELECT *
+    FROM pull_task_material_member
+    WHERE group_execution_id = #{groupExecutionId}
+    ORDER BY member_seq ASC
+  </select>
+
+  <delete id="deleteByExecution">
+    DELETE FROM pull_task_material_member
+    WHERE group_execution_id = #{groupExecutionId}
+  </delete>
+
+  <!-- pull_call_id IS NULL 即未消费，这就是料子游标；走
+       idx_pull_task_material_pending (tenant_id, group_execution_id, pull_status, member_seq)。 -->
+  <select id="selectUnconsumedByStatus"
+          resultType="com.armada.task.model.entity.PullTaskMaterialMember">
+    SELECT *
+    FROM pull_task_material_member
+    WHERE group_execution_id = #{groupExecutionId}
+      AND pull_status = #{pullStatus}
+      AND pull_call_id IS NULL
+    ORDER BY member_seq ASC
+    LIMIT #{limit}
+  </select>
+
+  <!-- 只绑定仍未消费的行；返回行数不足时调用方必须放弃本次调用重新取料。 -->
+  <update id="assignToCallIfStatus">
+    UPDATE pull_task_material_member
+    SET pull_call_id = #{pullCallId},
+        pull_status = #{targetStatus},
+        updated_at = #{now}
+    WHERE pull_call_id IS NULL
+      AND pull_status = #{expectedStatus}
+      AND id IN
+      <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <update id="transitionPullResult">
+    UPDATE pull_task_material_member
+    SET pull_status = #{transition.targetStatus},
+        pull_reason_code = #{transition.result.reasonCode},
+        pull_reason_message = #{transition.result.reasonMessage},
+        wa_jid = COALESCE(#{transition.result.resultJid}, wa_jid),
+        pull_result_at = #{transition.now},
+        updated_at = #{transition.now}
+    WHERE id = #{transition.id}
+      AND pull_status IN
+      <foreach collection="transition.expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <select id="countByPullCallAndStatuses" resultType="java.lang.Integer">
+    SELECT COUNT(*)
+    FROM pull_task_material_member
+    WHERE pull_call_id = #{criteria.ownerId}
+      AND pull_status IN
+      <foreach collection="criteria.statuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </select>
+
+  <!-- 入群失败或结果未知的标记料子不提权(pull_status = 2 才进)。 -->
+  <select id="selectPendingAdmin" resultType="com.armada.task.model.entity.PullTaskMaterialMember">
+    SELECT *
+    FROM pull_task_material_member
+    WHERE group_execution_id = #{groupExecutionId}
+      AND admin_required = #{adminRequired}
+      AND pull_status = #{pullStatus}
+      AND admin_status = #{adminStatus}
+    ORDER BY member_seq ASC
+  </select>
+
+  <update id="markAdminSubmitted">
+    UPDATE pull_task_material_member
+    SET admin_status = #{submittedAdminStatus},
+        admin_command_id = #{adminCommandId},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND admin_status = #{expectedAdminStatus}
+  </update>
+
+  <update id="writeBackAdminResult">
+    UPDATE pull_task_material_member
+    SET admin_status = #{adminStatus},
+        admin_reason_code = #{reasonCode},
+        admin_result_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND admin_status = #{expectedAdminStatus}
+  </update>
+
+  <update id="transitionAdminResult">
+    UPDATE pull_task_material_member
+    SET admin_status = #{transition.targetStatus},
+        admin_reason_code = #{transition.result.reasonCode},
+        admin_result_at = #{transition.now},
+        updated_at = #{transition.now}
+    WHERE id = #{transition.id}
+      AND admin_status IN
+      <foreach collection="transition.expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="returnAdminToPending">
+    UPDATE pull_task_material_member
+    SET admin_status = #{pendingAdminStatus},
+        admin_command_id = NULL,
+        admin_reason_code = #{reasonCode},
+        admin_result_at = NULL,
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND admin_status = #{expectedAdminStatus}
+  </update>
+
+  <select id="selectByAdminCommandId"
+          resultType="com.armada.task.model.entity.PullTaskMaterialMember">
+    SELECT *
+    FROM pull_task_material_member
+    WHERE admin_command_id = #{adminCommandId}
+  </select>
+
+  <update id="cancelUnconsumedByTask">
+    UPDATE pull_task_material_member
+    SET pull_status = #{targetStatus},
+        pull_result_at = #{now},
+        updated_at = #{now}
+    WHERE pull_status = #{expectedStatus}
+      AND pull_call_id IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_group_execution execution_row
+        WHERE execution_row.id = pull_task_material_member.group_execution_id
+          AND execution_row.task_id = #{taskId}
+      )
+  </update>
+
+  <update id="cancelPlannedByTask">
+    UPDATE pull_task_material_member
+    SET pull_status = #{targetPullStatus},
+        pull_result_at = #{now},
+        updated_at = #{now}
+    WHERE pull_status = #{expectedPullStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call planned_call
+        WHERE planned_call.id = pull_task_material_member.pull_call_id
+          AND planned_call.task_id = #{taskId}
+          AND planned_call.call_status = #{plannedCallStatus}
+      )
+  </update>
+
+  <update id="cancelPendingAdminByTask">
+    UPDATE pull_task_material_member
+    SET admin_status = #{targetStatus},
+        admin_result_at = #{now},
+        updated_at = #{now}
+    WHERE admin_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_group_execution execution_row
+        WHERE execution_row.id = pull_task_material_member.group_execution_id
+          AND execution_row.task_id = #{taskId}
+      )
+  </update>
+
+  <update id="cancelUnconsumedByExecution">
+    UPDATE pull_task_material_member
+    SET pull_status = #{targetStatus},
+        pull_result_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND pull_status = #{expectedStatus}
+      AND pull_call_id IS NULL
+  </update>
+
+  <update id="cancelPlannedByExecution">
+    UPDATE pull_task_material_member
+    SET pull_status = #{targetPullStatus},
+        pull_result_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND pull_status = #{expectedPullStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call planned_call
+        WHERE planned_call.id = pull_task_material_member.pull_call_id
+          AND planned_call.group_execution_id = #{groupExecutionId}
+          AND planned_call.call_status = #{plannedCallStatus}
+      )
+  </update>
+
+  <update id="cancelPendingAdminByExecution">
+    UPDATE pull_task_material_member
+    SET admin_status = #{targetStatus},
+        admin_result_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND admin_status = #{expectedStatus}
+  </update>
+
+  <update id="cancelUnpublishedSubmittedPull">
+    UPDATE pull_task_material_member
+    SET pull_status = #{targetStatus},
+        pull_result_at = #{now},
+        updated_at = #{now}
+    WHERE pull_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        JOIN protocol_command_outbox outbox_row
+          ON outbox_row.command_id = call_row.command_id
+        WHERE call_row.id = pull_task_material_member.pull_call_id
+          AND call_row.task_id = #{taskId}
+          <if test="groupExecutionId != null">
+            AND call_row.group_execution_id = #{groupExecutionId}
+          </if>
+          AND outbox_row.status = #{canceledOutboxStatus}
+          AND outbox_row.deleted_at IS NULL
+      )
+  </update>
+
+  <update id="cancelUnpublishedSubmittedAdmin">
+    UPDATE pull_task_material_member
+    SET admin_status = #{targetStatus},
+        admin_result_at = #{now},
+        updated_at = #{now}
+    WHERE admin_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_group_execution execution_row
+        JOIN protocol_command_outbox outbox_row
+          ON outbox_row.command_id = pull_task_material_member.admin_command_id
+        WHERE execution_row.id = pull_task_material_member.group_execution_id
+          AND execution_row.task_id = #{taskId}
+          <if test="groupExecutionId != null">
+            AND execution_row.id = #{groupExecutionId}
+          </if>
+          AND outbox_row.status = #{canceledOutboxStatus}
+          AND outbox_row.deleted_at IS NULL
+      )
+  </update>
+
+</mapper>

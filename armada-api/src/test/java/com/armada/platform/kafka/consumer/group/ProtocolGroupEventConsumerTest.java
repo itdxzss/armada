@@ -30,11 +30,19 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolGroupJoinResultReportedSink joinResultSink;
 
+    @Mock
+    private ProtocolGroupActionResultReportedSink actionResultSink;
+
+    @Mock
+    private ProtocolPullTaskBatchParticipantResultReportedSink batchParticipantResultSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new ProtocolGroupEventConsumer(new ObjectMapper(), sink, joinResultSink);
+        consumer = new ProtocolGroupEventConsumer(
+                new ObjectMapper(), sink, joinResultSink, actionResultSink,
+                batchParticipantResultSink);
     }
 
     @Test
@@ -69,9 +77,242 @@ class ProtocolGroupEventConsumerTest {
                 ArgumentCaptor.forClass(ProtocolGroupJoinResultReportedEvent.class);
         verify(joinResultSink).handleJoinResultReported(captor.capture());
         assertThat(captor.getValue()).isEqualTo(new ProtocolGroupJoinResultReportedEvent(
-                "acc-1:group.join_result_reported:cmd-1", 1L, 9L, 26L, 382L,
+                "acc-1:group.join_result_reported:cmd-1", 1L,
+                new ProtocolJoinTaskGroupJoinCorrelation(9L, 26L), 382L,
                 "acc-1", "cmd-1", 2, "FAILED", null,
                 "TEMPORARY_FAILURE", "temporary", true, 1782712801000L, "worker-a"));
+    }
+
+    @Test
+    void onMessage_pullTaskJoinResultDispatchesExplicitCorrelation() {
+        String raw = """
+                {
+                  "eventId": "acc-1:group.join_result_reported:cmd-pull-1",
+                  "event": "group.join_result_reported",
+                  "accountId": "acc-1",
+                  "workerId": "worker-a",
+                  "data": {
+                    "tenantId": 1,
+                    "pullTaskId": 100,
+                    "groupExecutionId": 11,
+                    "actionId": 601,
+                    "source": "pull_task_manager_join",
+                    "accountId": 382,
+                    "protocolAccountId": "acc-1",
+                    "commandId": "cmd-pull-1",
+                    "attemptNo": 1,
+                    "outcome": "JOINED",
+                    "groupJid": "120363group@g.us",
+                    "reasonCode": "",
+                    "reasonMessage": "",
+                    "retryable": false,
+                    "timestamp": 1782712801000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupJoinResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupJoinResultReportedEvent.class);
+        verify(joinResultSink).handleJoinResultReported(captor.capture());
+        assertThat(captor.getValue().correlation()).isEqualTo(
+                new ProtocolPullTaskGroupJoinCorrelation(100L, 11L, 601L));
+        assertThat(captor.getValue().groupJid()).isEqualTo("120363group@g.us");
+        assertThat(captor.getValue().commandId()).isEqualTo("cmd-pull-1");
+    }
+
+    @Test
+    void onMessage_contactSaveResultDispatchesStrongCorrelation() {
+        String raw = """
+                {
+                  "eventId": "manager-901:group.action_result_reported:cmd-contact-1",
+                  "event": "group.action_result_reported",
+                  "accountId": "manager-901",
+                  "workerId": "worker-a",
+                  "data": {
+                    "tenantId": 7,
+                    "pullTaskId": 100,
+                    "groupExecutionId": 11,
+                    "actionId": 601,
+                    "source": "pull_task_contact_save",
+                    "operation": "CONTACT_SAVE",
+                    "accountId": 901,
+                    "protocolAccountId": "manager-901",
+                    "commandId": "cmd-contact-1",
+                    "attemptNo": 1,
+                    "outcome": "SUCCESS",
+                    "reasonCode": "",
+                    "reasonMessage": "",
+                    "retryable": false,
+                    "timestamp": 1782712801000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupActionResultReportedEvent(
+                "manager-901:group.action_result_reported:cmd-contact-1",
+                7L, 100L, 11L, 601L, "pull_task_contact_save", "CONTACT_SAVE",
+                901L, "manager-901", "cmd-contact-1", 1, "SUCCESS",
+                null, "", "", false, 1782712801000L, "worker-a"));
+    }
+
+    @Test
+    void onMessage_contactSaveUnknownResultIsDispatchedAsIndependentTerminalFact() {
+        String raw = """
+                {
+                  "eventId":"manager-901:group.action_result_reported:cmd-contact-1",
+                  "event":"group.action_result_reported",
+                  "accountId":"manager-901",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":601,
+                    "source":"pull_task_contact_save","operation":"CONTACT_SAVE",
+                    "accountId":901,"protocolAccountId":"manager-901",
+                    "commandId":"cmd-contact-1","attemptNo":1,
+                    "outcome":"UNKNOWN","reasonCode":"ACCOUNT_BUSY",
+                    "reasonMessage":"busy","retryable":true,"timestamp":5000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue().outcome()).isEqualTo("UNKNOWN");
+        assertThat(captor.getValue().reasonCode()).isEqualTo("ACCOUNT_BUSY");
+    }
+
+    @Test
+    void onMessage_pullerInviteUnknownResultDispatchesTargetJid() {
+        String raw = """
+                {
+                  "eventId":"manager-901:group.action_result_reported:cmd-invite-1",
+                  "event":"group.action_result_reported",
+                  "accountId":"manager-901",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":701,
+                    "source":"pull_task_puller_invite","operation":"PARTICIPANT_ADD",
+                    "accountId":901,"protocolAccountId":"manager-901",
+                    "commandId":"cmd-invite-1","attemptNo":1,
+                    "targetJid":"8613800000902@s.whatsapp.net",
+                    "outcome":"UNKNOWN","reasonCode":"PARTICIPANT_ADD_TIMEOUT",
+                    "reasonMessage":"timed out","retryable":true,"timestamp":5000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupActionResultReportedEvent(
+                "manager-901:group.action_result_reported:cmd-invite-1",
+                7L, 100L, 11L, 701L, "pull_task_puller_invite", "PARTICIPANT_ADD",
+                901L, "manager-901", "cmd-invite-1", 1, "UNKNOWN",
+                "8613800000902@s.whatsapp.net", "PARTICIPANT_ADD_TIMEOUT", "timed out",
+                true, 5_000L, "worker-a"));
+    }
+
+    @Test
+    void onMessage_materialAdminResultDispatchesStrongCorrelation() {
+        String raw = """
+                {
+                  "eventId":"manager-901:group.action_result_reported:cmd-admin-1",
+                  "event":"group.action_result_reported",
+                  "accountId":"manager-901",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":601,
+                    "source":"pull_task_material_admin","operation":"PARTICIPANT_PROMOTE",
+                    "accountId":901,"protocolAccountId":"manager-901",
+                    "commandId":"cmd-admin-1","attemptNo":1,
+                    "targetJid":"8613900000001@s.whatsapp.net",
+                    "outcome":"SUCCESS","reasonCode":"",
+                    "reasonMessage":"","retryable":false,"timestamp":5000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupActionResultReportedEvent(
+                "manager-901:group.action_result_reported:cmd-admin-1",
+                7L, 100L, 11L, 601L, "pull_task_material_admin", "PARTICIPANT_PROMOTE",
+                901L, "manager-901", "cmd-admin-1", 1, "SUCCESS",
+                "8613900000001@s.whatsapp.net", "", "", false, 5_000L, "worker-a"));
+    }
+
+    @Test
+    void onMessage_batchAddResultDispatchesPerParticipantCorrelation() {
+        String raw = """
+                {
+                  "eventId":"puller-902:group.action_result_reported:cmd-batch-1:8613800000903_s_whatsapp_net",
+                  "event":"group.action_result_reported",
+                  "accountId":"puller-902",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"pullCallId":801,
+                    "source":"pull_task_batch_add","operation":"PARTICIPANT_ADD",
+                    "accountId":902,"protocolAccountId":"puller-902",
+                    "commandId":"cmd-batch-1","attemptNo":1,
+                    "targetJid":"8613800000903@s.whatsapp.net",
+                    "outcome":"UNKNOWN","reasonCode":"PARTICIPANT_ADD_TIMEOUT",
+                    "reasonMessage":"timed out","retryable":true,"timestamp":5000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolPullTaskBatchParticipantResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolPullTaskBatchParticipantResultReportedEvent.class);
+        verify(batchParticipantResultSink).handleBatchParticipantResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(
+                new ProtocolPullTaskBatchParticipantResultReportedEvent(
+                        "puller-902:group.action_result_reported:cmd-batch-1:8613800000903_s_whatsapp_net",
+                        7L, 100L, 11L, 801L, 902L, "puller-902", "cmd-batch-1", 1,
+                        "8613800000903@s.whatsapp.net", "UNKNOWN",
+                        "PARTICIPANT_ADD_TIMEOUT", "timed out", true, 5_000L, "worker-a"));
+        verifyNoInteractions(actionResultSink);
+    }
+
+    @Test
+    void onMessage_contactSaveResultRejectsWrongSourceOperationOrEnvelopeAccount() {
+        String wrongOperation = """
+                {"event":"group.action_result_reported","accountId":"manager-901","data":{
+                  "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":601,
+                  "source":"pull_task_contact_save","operation":"PARTICIPANT_ADD",
+                  "accountId":901,"protocolAccountId":"manager-901","commandId":"cmd-1",
+                  "attemptNo":1,"outcome":"FAILED","retryable":false
+                }}
+                """;
+        String wrongAccount = """
+                {"event":"group.action_result_reported","accountId":"other-account","data":{
+                  "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":601,
+                  "source":"pull_task_contact_save","operation":"CONTACT_SAVE",
+                  "accountId":901,"protocolAccountId":"manager-901","commandId":"cmd-1",
+                  "attemptNo":1,"outcome":"FAILED","retryable":false
+                }}
+                """;
+
+        assertThatThrownBy(() -> consumer.onMessage(wrongOperation))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(wrongAccount))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(actionResultSink);
     }
 
     @Test
@@ -149,7 +390,7 @@ class ProtocolGroupEventConsumerTest {
 
         consumer.onMessage(raw);
 
-        verifyNoInteractions(sink, joinResultSink);
+        verifyNoInteractions(sink, joinResultSink, actionResultSink);
     }
 
     @Test

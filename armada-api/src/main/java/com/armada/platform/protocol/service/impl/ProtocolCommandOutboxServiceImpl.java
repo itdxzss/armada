@@ -13,6 +13,11 @@ import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandReques
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
@@ -61,6 +66,12 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 批量进群命令类型。 */
     public static final String COMMAND_TYPE_GROUP_JOIN_REQUESTED = "group.join.requested";
 
+    /** 联系人保存命令类型。 */
+    public static final String COMMAND_TYPE_CONTACT_SAVE_REQUESTED = "contact.save.requested";
+
+    /** 群成员变更命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED = "group.participants.requested";
+
     /** 营销消息发送命令类型。 */
     public static final String COMMAND_TYPE_MESSAGE_SEND_REQUESTED = "message.send.requested";
 
@@ -72,6 +83,16 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     /** 进群任务明细聚合类型。 */
     public static final String AGGREGATE_TYPE_JOIN_TASK_RESULT = "JOIN_TASK_RESULT";
+
+    /** 普通拉群账号动作聚合类型。 */
+    public static final String AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION = "PULL_TASK_ACCOUNT_ACTION";
+
+    /** 普通拉群单次拉人调用聚合类型。 */
+    public static final String AGGREGATE_TYPE_PULL_TASK_PULL_CALL = "PULL_TASK_PULL_CALL";
+
+    /** 普通拉群料子成员聚合类型。 */
+    public static final String AGGREGATE_TYPE_PULL_TASK_MATERIAL_MEMBER =
+            "PULL_TASK_MATERIAL_MEMBER";
 
     /** 营销发送尝试聚合类型。 */
     public static final String AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT = "MARKETING_SEND_ATTEMPT";
@@ -198,6 +219,28 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 System.currentTimeMillis());
     }
 
+    /** 结束普通拉群任务或单群时阻止尚未发布的真实协议副作用。 */
+    @Override
+    public int cancelPendingPullTaskCommands(long taskId, Long executionId, long now) {
+        if (taskId <= 0 || executionId != null && executionId <= 0 || now <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "待取消的普通拉群命令范围非法");
+        }
+        return mapper.cancelPendingPullTaskCommandsInternal(
+                taskId,
+                executionId,
+                AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION,
+                AGGREGATE_TYPE_PULL_TASK_PULL_CALL,
+                AGGREGATE_TYPE_PULL_TASK_MATERIAL_MEMBER,
+                List.of(
+                        ProtocolCommandOutboxStatus.PENDING.code(),
+                        ProtocolCommandOutboxStatus.LOCKED.code()),
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(),
+                ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(),
+                "PULL_TASK_ENDED",
+                now);
+    }
+
     /**
      * 批量写入群链接健康检查 outbox 命令。
      *
@@ -283,6 +326,134 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         Long firstTaskId = commands.get(0).joinTaskId();
         String commonBatchId = commands.stream().allMatch(command -> firstTaskId.equals(command.joinTaskId()))
                 ? joinTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupJoinCommands(
+            List<ProtocolPullTaskGroupJoinCommandRequest> commands) {
+        validatePullTaskGroupJoinCommands(commands);
+
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskGroupJoinCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskGroupJoinOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskContactSaveCommands(
+            List<ProtocolPullTaskContactSaveCommandRequest> commands) {
+        validatePullTaskContactSaveCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskContactSaveCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskContactSaveOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskPullerInviteCommands(
+            List<ProtocolPullTaskPullerInviteCommandRequest> commands) {
+        validatePullTaskPullerInviteCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskPullerInviteCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskPullerInviteOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskBatchAddCommands(
+            List<ProtocolPullTaskBatchAddCommandRequest> commands) {
+        validatePullTaskBatchAddCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskBatchAddCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskBatchAddOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskMaterialAdminCommands(
+            List<ProtocolPullTaskMaterialAdminCommandRequest> commands) {
+        validatePullTaskMaterialAdminCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskMaterialAdminCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskMaterialAdminOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
         return insertPendingRows(commonBatchId, commandIds, rows);
     }
 
@@ -517,6 +688,136 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    /** 把普通拉群管理员踩链接引用转换为待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskGroupJoinOutboxRow(
+            ProtocolPullTaskGroupJoinCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_JOIN_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION);
+        row.setAggregateId(command.actionId());
+        row.setKafkaTopic(command.account().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupJoinTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.account().protocolAccountId());
+        row.setProtocolAccountId(command.account().protocolAccountId());
+        row.setProtocolBackend(command.account().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把普通拉群联系人动作引用转换为待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskContactSaveOutboxRow(
+            ProtocolPullTaskContactSaveCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_CONTACT_SAVE_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION);
+        row.setAggregateId(command.actionId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把普通拉群管理员邀请动作引用转换为待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskPullerInviteOutboxRow(
+            ProtocolPullTaskPullerInviteCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION);
+        row.setAggregateId(command.actionId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把普通拉群批量拉人调用引用转换为待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskBatchAddOutboxRow(
+            ProtocolPullTaskBatchAddCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_PULL_CALL);
+        row.setAggregateId(command.pullCallId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把普通拉群料子提权引用转换为待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskMaterialAdminOutboxRow(
+            ProtocolPullTaskMaterialAdminCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_MATERIAL_MEMBER);
+        row.setAggregateId(command.materialId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
     /**
      * 生成进群任务稳定批次 ID，便于跨多轮随机间隔派发时按任务排查。
      *
@@ -525,6 +826,11 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      */
     private static String joinTaskBatchId(Long joinTaskId) {
         return "join-task:" + joinTaskId;
+    }
+
+    /** 生成普通拉群任务稳定批次 ID。 */
+    private static String pullTaskBatchId(Long pullTaskId) {
+        return "pull-task:" + pullTaskId;
     }
 
     private ProtocolCommandOutbox toMessageOutboxRow(
@@ -863,6 +1169,147 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                     || command.attemptNo() <= 0
                     || !ProtocolGroupJoinCommandRequest.SOURCE_JOIN_TASK.equals(command.source())) {
                 throw new BusinessException(ErrorCode.VALIDATION, "进群协议命令缺少必要字段");
+            }
+        }
+    }
+
+    /** 校验普通群链接管理员踩链接命令和当前租户。 */
+    private void validatePullTaskGroupJoinCommands(
+            List<ProtocolPullTaskGroupJoinCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群进群协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群进群协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskGroupJoinCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null
+                    || command.groupExecutionId() == null
+                    || command.actionId() == null
+                    || command.account() == null
+                    || command.account().armadaAccountId() <= 0
+                    || isBlank(command.account().protocolAccountId())
+                    || isBlank(command.account().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "普通拉群进群协议命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验普通拉群联系人保存命令和当前租户。 */
+    private void validatePullTaskContactSaveCommands(
+            List<ProtocolPullTaskContactSaveCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群联系人协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群联系人协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskContactSaveCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null
+                    || command.groupExecutionId() == null
+                    || command.actionId() == null
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "普通拉群联系人协议命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验普通拉群管理员邀请命令和当前租户。 */
+    private void validatePullTaskPullerInviteCommands(
+            List<ProtocolPullTaskPullerInviteCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群邀请协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群邀请协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskPullerInviteCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null
+                    || command.groupExecutionId() == null
+                    || command.actionId() == null
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "普通拉群邀请协议命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验普通拉群站台和料子批量入群命令。 */
+    private void validatePullTaskBatchAddCommands(
+            List<ProtocolPullTaskBatchAddCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群批量入群协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群批量入群协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskBatchAddCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null
+                    || command.groupExecutionId() == null
+                    || command.pullCallId() == null
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "普通拉群批量入群协议命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验普通拉群料子提权命令。 */
+    private void validatePullTaskMaterialAdminCommands(
+            List<ProtocolPullTaskMaterialAdminCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群料子提权协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群料子提权协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskMaterialAdminCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null
+                    || command.groupExecutionId() == null
+                    || command.materialId() == null
+                    || command.managerGroupAccountId() == null
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "普通拉群料子提权协议命令缺少必要字段或租户不一致");
             }
         }
     }

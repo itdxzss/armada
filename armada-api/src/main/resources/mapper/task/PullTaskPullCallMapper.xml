@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskPullCallMapper">
+
+  <!-- tenant_id 由租户拦截器注入；写入即为"计划"状态，命令尚未发出。 -->
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_pull_call (
+      task_id, group_execution_id, call_seq,
+      puller_group_account_id, puller_account_id,
+      planned_material_count, planned_station_count,
+      call_status, idempotency_key, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{groupExecutionId}, #{callSeq},
+      #{pullerGroupAccountId}, #{pullerAccountId},
+      #{plannedMaterialCount}, #{plannedStationCount},
+      #{callStatus}, #{idempotencyKey}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectByExecution" resultType="com.armada.task.model.entity.PullTaskPullCall">
+    SELECT *
+    FROM pull_task_pull_call
+    WHERE group_execution_id = #{groupExecutionId}
+    ORDER BY call_seq ASC
+  </select>
+
+  <select id="selectByExecutionAndStatus"
+          resultType="com.armada.task.model.entity.PullTaskPullCall">
+    SELECT *
+    FROM pull_task_pull_call
+    WHERE group_execution_id = #{groupExecutionId}
+      AND call_status = #{callStatus}
+    ORDER BY call_seq ASC
+  </select>
+
+  <!-- 走 idx_pull_task_call_puller_time (tenant_id, puller_account_id, submitted_at, id)。 -->
+  <select id="selectLastSubmittedAtByPuller" resultType="java.lang.Long">
+    SELECT MAX(submitted_at)
+    FROM pull_task_pull_call
+    WHERE puller_account_id = #{pullerAccountId}
+      AND submitted_at IS NOT NULL
+  </select>
+
+  <update id="transitionSubmitted">
+    UPDATE pull_task_pull_call
+    SET call_status = #{targetStatus},
+        command_id = #{commandId},
+        submitted_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND call_status = #{expectedStatus}
+  </update>
+
+  <update id="reassignPuller">
+    UPDATE pull_task_pull_call
+    SET puller_group_account_id = #{reassignment.target.groupAccountId},
+        puller_account_id = #{reassignment.target.accountId},
+        updated_at = #{reassignment.now}
+    WHERE id = #{reassignment.id}
+      AND puller_group_account_id = #{reassignment.expectedPullerGroupAccountId}
+      AND call_status = #{reassignment.expectedStatus}
+  </update>
+
+  <update id="rescheduleSubmitted">
+    UPDATE pull_task_pull_call
+    SET call_status = #{change.status.target},
+        command_id = NULL,
+        submitted_at = NULL,
+        reason_code = #{change.reasonCode},
+        reason_message = #{change.reasonMessage},
+        result_at = NULL,
+        updated_at = #{change.scope.now}
+    WHERE id = #{change.scope.callId}
+      AND command_id = #{change.scope.expectedCommandId}
+      AND call_status = #{change.status.expected}
+  </update>
+
+  <update id="transitionResult">
+    UPDATE pull_task_pull_call
+    SET call_status = #{transition.targetStatus},
+        reason_code = #{transition.result.reasonCode},
+        reason_message = #{transition.result.reasonMessage},
+        result_at = #{transition.now},
+        updated_at = #{transition.now}
+    WHERE id = #{transition.id}
+      AND call_status IN
+      <foreach collection="transition.expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskPullCall">
+    SELECT *
+    FROM pull_task_pull_call
+    WHERE command_id = #{commandId}
+  </select>
+
+  <update id="cancelPlannedByTask">
+    UPDATE pull_task_pull_call
+    SET call_status = #{targetStatus},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND call_status = #{expectedStatus}
+  </update>
+
+  <update id="cancelPlannedByExecution">
+    UPDATE pull_task_pull_call
+    SET call_status = #{targetStatus},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND call_status = #{expectedStatus}
+  </update>
+
+  <update id="cancelUnpublishedSubmitted">
+    UPDATE pull_task_pull_call
+    SET call_status = #{targetStatus},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      <if test="groupExecutionId != null">
+        AND group_execution_id = #{groupExecutionId}
+      </if>
+      AND call_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM protocol_command_outbox outbox_row
+        WHERE outbox_row.command_id = pull_task_pull_call.command_id
+          AND outbox_row.status = #{canceledOutboxStatus}
+          AND outbox_row.deleted_at IS NULL
+      )
+  </update>
+
+</mapper>

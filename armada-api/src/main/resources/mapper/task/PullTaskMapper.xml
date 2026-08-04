@@ -5,6 +5,10 @@
   <!-- tenant_id 由生产租户拦截器注入；count 与分页复用同一筛选口径。 -->
   <sql id="filter">
     deleted_at IS NULL
+    <!-- STANDARD 草稿是创建页未提交的计划，不进列表(ADR-0007)；
+         GROUP_MARKETING 的 DRAFT 是既有可见状态，不能一起隐藏。 -->
+    AND NOT (task_type = #{filter.hiddenTaskType}
+      AND status = #{filter.hiddenStatus})
     <if test="filter.id != null">AND id = #{filter.id}</if>
     <if test="filter.keyword != null">
       AND (task_name LIKE CONCAT('%', #{filter.keyword}, '%')
@@ -25,7 +29,8 @@
   <select id="selectPage" resultType="com.armada.task.model.entity.PullTask">
     SELECT
       id, tenant_id, task_type, group_source, task_name, group_name, mode, status,
-      primary_stage, blocking_reason, group_count, expected_pull_count, operator_name,
+      primary_stage, blocking_reason, started_at, finished_at, version,
+      group_count, expected_pull_count, operator_name,
       created_at, updated_at, last_business_executed_at, remark, deleted_at
     FROM pull_task
     WHERE <include refid="filter"/>
@@ -34,17 +39,139 @@
   </select>
 
   <!-- 删除条件在数据库层重复校验，防止前端按钮或 Service 状态过期。 -->
-  <update id="batchSoftDeleteAllowed">
+  <update id="batchSoftDeleteByCriteria">
     UPDATE pull_task
-    SET deleted_at = #{deletedAt}, updated_at = #{deletedAt}
+    SET deleted_at = #{criteria.deletedAt}, updated_at = #{criteria.deletedAt}
     WHERE deleted_at IS NULL
       AND id IN
-      <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-      AND (
-        (task_type = 'GROUP_MARKETING' AND status = 'DRAFT')
-        OR
-        (task_type = 'STANDARD' AND status IN ('WAIT_START', 'COMPLETED', 'ENDED'))
+      <foreach collection="criteria.taskIds" item="id"
+               open="(" separator="," close=")">#{id}</foreach>
+      AND
+      <foreach collection="criteria.rules" item="rule"
+               open="(" separator=" OR " close=")">
+        (task_type = #{rule.taskType} AND status IN
+          <foreach collection="rule.statuses" item="status"
+                   open="(" separator="," close=")">#{status}</foreach>)
+      </foreach>
+  </update>
+
+  <!-- 状态前置条件与乐观锁版本在数据库层复核，重复提交返回 0 行而不是产生第二次副作用。 -->
+  <update id="updateStatusWithVersion">
+    UPDATE pull_task
+    SET status = #{toStatus},
+        version = version + 1,
+        updated_at = #{now}
+        <if test="startedAt != null">, started_at = #{startedAt}</if>
+        <if test="finishedAt != null">, finished_at = #{finishedAt}</if>
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND status = #{fromStatus}
+      AND version = #{expectedVersion}
+  </update>
+
+  <!-- 业务前置状态和目标状态均由 Java 状态机传入；XML 只执行条件更新。 -->
+  <update id="transitionLifecycle">
+    UPDATE pull_task
+    SET status = #{transition.targetStatus},
+        blocking_reason = #{transition.blockingReason},
+        version = version + 1,
+        updated_at = #{transition.now}
+        <if test="transition.startedAt != null">
+          , started_at = COALESCE(started_at, #{transition.startedAt})
+        </if>
+        <if test="transition.finishedAt != null">
+          , finished_at = #{transition.finishedAt}
+        </if>
+    WHERE id = #{transition.taskId}
+      AND deleted_at IS NULL
+      AND status = #{transition.expectedStatus}
+      AND version = #{transition.expectedVersion}
+  </update>
+
+  <!-- 草稿的 task_type / mode / status / config_json 是固定值，不接受调用方覆盖；
+       tenant_id 由租户拦截器注入。 -->
+  <insert id="insertDraftRow" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task (
+      task_type, task_name, mode, status, group_count, expected_pull_count,
+      config_json, operator_name, created_by, created_at, updated_at
+    ) VALUES (
+      #{taskType}, #{taskName}, #{mode}, #{status}, #{groupCount}, #{expectedPullCount},
+      #{configJson}, #{operatorName}, #{createdBy}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectLatestDraft" resultType="com.armada.task.model.entity.PullTask">
+    SELECT id, tenant_id, task_type, task_name, mode, status, version,
+           group_count, expected_pull_count, created_by, remark,
+           created_at, updated_at
+    FROM pull_task
+    WHERE deleted_at IS NULL
+      AND task_type = #{taskType}
+      AND status = #{status}
+      AND created_by = #{createdBy}
+    ORDER BY id DESC
+    LIMIT 1
+  </select>
+
+  <!-- 状态守卫 + 乐观锁在数据库层复核；重复提交返回 0 行而不是产生第二个任务。 -->
+  <update id="submitDraftTransition">
+    UPDATE pull_task
+    SET status = #{row.status},
+        version = version + 1,
+        task_name = #{row.taskName},
+        remark = #{row.remark},
+        config_json = #{row.configJson},
+        group_count = #{row.groupCount},
+        expected_pull_count = #{row.expectedPullCount},
+        updated_at = #{now}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND task_type = #{expectedTaskType}
+      AND status = #{expectedStatus}
+      AND version = #{expectedVersion}
+  </update>
+
+  <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">
+    SELECT id, tenant_id, task_type, task_name, mode, status,
+           primary_stage, blocking_reason, started_at, finished_at, version,
+           group_count, expected_pull_count, created_by, remark,
+           created_at, updated_at
+    FROM pull_task
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </select>
+
+  <!-- 条件 UPDATE 同时承担父任务串行化与槽位复核；不使用显式悲观锁查询。 -->
+  <update id="acquireExecutionSlot">
+    UPDATE pull_task
+    SET version = version + 1,
+        updated_at = #{claim.now}
+    WHERE id = #{claim.candidate.taskId}
+      AND deleted_at IS NULL
+      AND task_type = #{claim.parent.taskType}
+      AND mode = #{claim.parent.taskMode}
+      AND status = #{claim.parent.taskStatus}
+      AND version = #{claim.parent.expectedVersion}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_group_execution candidate_execution
+        WHERE candidate_execution.tenant_id = pull_task.tenant_id
+          AND candidate_execution.task_id = pull_task.id
+          AND candidate_execution.id = #{claim.candidate.executionId}
+          AND candidate_execution.execution_status = #{claim.candidate.executionStatus}
+          AND candidate_execution.stage = #{claim.candidate.executionStage}
+          AND candidate_execution.version = #{claim.candidate.lease.expectedVersion}
+          AND candidate_execution.lock_owner = #{claim.candidate.lease.lockOwner}
+          AND candidate_execution.lock_expires_at &gt; #{claim.now}
       )
+      AND (
+        SELECT COUNT(*)
+        FROM pull_task_group_execution running_execution
+        WHERE running_execution.tenant_id = pull_task.tenant_id
+          AND running_execution.task_id = pull_task.id
+          AND running_execution.id != #{claim.candidate.executionId}
+          AND running_execution.execution_status = #{claim.policy.runningExecutionStatus}
+      ) &lt; #{claim.policy.concurrentLimit}
   </update>
 
 </mapper>

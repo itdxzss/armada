@@ -16,8 +16,9 @@ import org.springframework.stereotype.Service;
 /**
  * 协议命令 Kafka dispatch 编排器。
  *
- * <p>本类按批次短事务抢占 PENDING 行,随后在事务外调用 Kafka publisher,最后按发送结果
- * 标记 SENT/PENDING/DEAD。</p>
+ * <p>本类按批次短事务预抢占 PENDING 行，发送前再以 CAS 将 LOCKED 提交为
+ * DISPATCHING，随后在事务外调用 Kafka publisher，最后按发送结果标记
+ * SENT/PENDING/DEAD。</p>
  *
  * <p>正常路径来自 {@link ProtocolCommandDispatchTrigger}:outbox 写入事务提交后,直接把本次刚插入
  * 的 rows 传进来。dispatcher 只按这些 command_id 做状态抢占,不再先全局扫描 outbox。
@@ -29,6 +30,9 @@ public class ProtocolCommandDispatcher {
     private static final Logger log = LoggerFactory.getLogger(ProtocolCommandDispatcher.class);
     private static final String DEFAULT_PUBLISHER_ID_PREFIX = "protocol-command-publisher-";
     private static final String LOCK_EXPIRED_ERROR = "publisher lock expired";
+    private static final String DISPATCH_OUTCOME_UNKNOWN_ERROR = "publisher dispatch outcome unknown";
+    private static final String DISPATCH_CANCELED_ERROR = "publisher dispatch canceled after task end";
+    private static final long DISPATCH_TIMEOUT_MARGIN_MS = 1_000L;
     private static final int MAX_ERROR_LENGTH = 1024;
 
     private final ProtocolCommandOutboxMapper mapper;
@@ -92,7 +96,7 @@ public class ProtocolCommandDispatcher {
         RowDispatchCounts counts = sendLockedRows(lockedRows);
         ProtocolCommandDispatchResult result = new ProtocolCommandDispatchResult(
                 rows.size(),
-                lockedRows.size(),
+                counts.committed(),
                 counts.sent(),
                 counts.retried(),
                 counts.dead());
@@ -131,21 +135,32 @@ public class ProtocolCommandDispatcher {
     }
 
     /**
-     * 释放过期 LOCKED 行,供低频兜底 scheduler 调用。
+     * 收敛过期发送状态，供低频兜底 scheduler 调用。
      *
-     * @return 恢复成 PENDING 的行数
+     * <p>LOCKED 还未提交发送，可安全回到 PENDING；DISPATCHING/CANCEL_REQUESTED 至少保留一个
+     * Kafka send timeout 加安全余量，超时后分别收敛为 DEAD/CANCELED，避免仍在发送时被提前处理。</p>
+     *
+     * @return 本次收敛的 LOCKED 与 DISPATCHING 总行数
      */
     public int recoverExpiredLocks() {
         long now = now();
-        long lockedBefore = now - positiveOrDefault(
+        long lockTimeoutMs = positiveOrDefault(
                 properties.getLockedTimeoutMs(),
                 ProtocolCommandDispatcherProperties.DEFAULT_LOCKED_TIMEOUT_MS);
+        long lockedBefore = now - lockTimeoutMs;
+        long dispatchingBefore = now - dispatchTimeoutMs(lockTimeoutMs);
         int recovered = mapper.releaseExpiredLocks(lockedBefore, now, LOCK_EXPIRED_ERROR, batchSize());
-        if (recovered > 0) {
-            log.warn("协议命令 outbox 兜底恢复过期 LOCKED recovered={} lockedBefore={} publisherId={}",
-                    recovered, lockedBefore, publisherId);
+        int unknown = mapper.markExpiredDispatchingDead(
+                dispatchingBefore, now, DISPATCH_OUTCOME_UNKNOWN_ERROR, batchSize());
+        int canceled = mapper.markExpiredCancelRequestedCanceled(
+                dispatchingBefore, now, DISPATCH_CANCELED_ERROR, batchSize());
+        if (recovered > 0 || unknown > 0 || canceled > 0) {
+            log.warn("协议命令 outbox 兜底收敛过期状态 recoveredLocked={} deadDispatching={} "
+                            + "canceledRequested={} "
+                            + "lockedBefore={} dispatchingBefore={} publisherId={}",
+                    recovered, unknown, canceled, lockedBefore, dispatchingBefore, publisherId);
         }
-        return recovered;
+        return recovered + unknown + canceled;
     }
 
     private ProtocolCommandDispatchResult dispatchOneBatch() {
@@ -171,15 +186,51 @@ public class ProtocolCommandDispatcher {
         RowDispatchCounts counts = sendLockedRows(lockedRows);
         return new ProtocolCommandDispatchResult(
                 candidates.size(),
-                lockedRows.size(),
+                counts.committed(),
                 counts.sent(),
                 counts.retried(),
                 counts.dead());
     }
 
+    private List<ProtocolCommandOutbox> commitDispatching(List<ProtocolCommandOutbox> lockedRows) {
+        if (lockedRows == null || lockedRows.isEmpty()) {
+            return List.of();
+        }
+        long now = now();
+        int updated = mapper.markDispatching(lockedRows, now);
+        if (updated == 0) {
+            log.info("协议命令 outbox 发送前已被业务取消 requested={} publisherId={}",
+                    lockedRows.size(), publisherId);
+            return List.of();
+        }
+        if (updated == lockedRows.size()) {
+            lockedRows.forEach(row -> row.setStatus(ProtocolCommandOutboxStatus.DISPATCHING.code()));
+            return lockedRows;
+        }
+        ProtocolCommandOutbox first = lockedRows.get(0);
+        List<String> commandIds = lockedRows.stream()
+                .map(ProtocolCommandOutbox::getCommandId)
+                .toList();
+        log.warn("协议命令 outbox 发送前部分已被业务取消 requested={} dispatching={} "
+                        + "publisherId={}",
+                lockedRows.size(), updated, publisherId);
+        return mapper.selectDispatchingByCommandIds(
+                commandIds, first.getLockedBy(), first.getLockedAt());
+    }
+
     private RowDispatchCounts sendLockedRows(List<ProtocolCommandOutbox> rows) {
+        if (rows.isEmpty()) {
+            return new RowDispatchCounts(0, 0, 0, 0);
+        }
         RowDispatchAccumulator accumulator = new RowDispatchAccumulator();
-        publisher.publishBatchByWindow(rows, outcomes -> dispatchWindow(outcomes, accumulator));
+        publisher.publishBatchByWindow(
+                rows,
+                window -> {
+                    List<ProtocolCommandOutbox> dispatchingRows = commitDispatching(window);
+                    accumulator.committed += dispatchingRows.size();
+                    return dispatchingRows;
+                },
+                outcomes -> dispatchWindow(outcomes, accumulator));
         return accumulator.toCounts();
     }
 
@@ -278,6 +329,15 @@ public class ProtocolCommandDispatcher {
                 ProtocolCommandDispatcherProperties.DEFAULT_RETRY_DELAY_MS);
     }
 
+    private long dispatchTimeoutMs(long lockTimeoutMs) {
+        long maximumWindowSendDurationMs = positiveOrDefault(
+                publisher.maximumWindowSendDurationMs(), lockTimeoutMs);
+        long protectedSendTimeout = maximumWindowSendDurationMs > Long.MAX_VALUE - DISPATCH_TIMEOUT_MARGIN_MS
+                ? Long.MAX_VALUE
+                : maximumWindowSendDurationMs + DISPATCH_TIMEOUT_MARGIN_MS;
+        return Math.max(lockTimeoutMs, protectedSendTimeout);
+    }
+
     private int batchSize() {
         return positiveOrDefault(
                 properties.getBatchSize(),
@@ -333,17 +393,18 @@ public class ProtocolCommandDispatcher {
         return value > 0 ? value : defaultValue;
     }
 
-    private record RowDispatchCounts(int sent, int retried, int dead) {
+    private record RowDispatchCounts(int committed, int sent, int retried, int dead) {
     }
 
     private static final class RowDispatchAccumulator {
 
+        private int committed;
         private int sent;
         private int retried;
         private int dead;
 
         private RowDispatchCounts toCounts() {
-            return new RowDispatchCounts(sent, retried, dead);
+            return new RowDispatchCounts(committed, sent, retried, dead);
         }
     }
 }

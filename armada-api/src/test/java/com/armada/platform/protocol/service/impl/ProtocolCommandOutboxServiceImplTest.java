@@ -23,6 +23,11 @@ import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandReques
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.MessageType;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -100,6 +105,225 @@ class ProtocolCommandOutboxServiceImplTest {
                 "inviteCode", "ANDROID-CODE",
                 "attemptNo", 1,
                 "source", "join_task"));
+    }
+
+    @Test
+    void enqueuePullTaskGroupJoinCommands_persistsReferencesAndRoutesByFrozenBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-pull-web"), List.of(),
+                ProtocolAccountCommandProperties.DEFAULT_TOPIC,
+                "protocol.master.commands.test",
+                ProtocolAndroidCommandProperties.DEFAULT_LIFECYCLE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC,
+                ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result = service.enqueuePullTaskGroupJoinCommands(List.of(
+                    new ProtocolPullTaskGroupJoinCommandRequest(
+                            1L, 9L, 11L, 601L,
+                            new ProtocolAccountRef(
+                                    382L, ProtocolBackend.WEB, "acc-web", "911"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            assertThat(result.commandIds()).containsExactly("cmd-pull-web");
+            ProtocolCommandOutbox row = capturedRows().get(0);
+            assertThat(row.getAggregateType()).isEqualTo("PULL_TASK_ACCOUNT_ACTION");
+            assertThat(row.getAggregateId()).isEqualTo(601L);
+            assertThat(row.getKafkaTopic()).isEqualTo("protocol.master.commands.test");
+            assertThat(row.getKafkaKey()).isEqualTo("acc-web");
+            assertThat(row.getProtocolAccountId()).isEqualTo("acc-web");
+            assertThat(row.getProtocolBackend()).isEqualTo("WEB");
+            assertThat(row.getCommandType()).isEqualTo("group.join.requested");
+
+            Map<String, Object> payload = objectMapper.readValue(
+                    row.getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "actionId", 601,
+                    "source", "pull_task_manager_join"));
+            assertThat(row.getPayloadJson())
+                    .doesNotContain("inviteCode")
+                    .doesNotContain("wsPhone")
+                    .doesNotContain("accountId")
+                    .doesNotContain("credential");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskContactSaveCommandsPersistsOnlyReferencesAndRoutesByBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-contact-web", "cmd-contact-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskContactSaveCommands(List.of(
+                            new ProtocolPullTaskContactSaveCommandRequest(
+                                    1L, 9L, 11L, 601L,
+                                    new ProtocolAccountRef(
+                                            382L, ProtocolBackend.WEB, "acc-web", "911")),
+                            new ProtocolPullTaskContactSaveCommandRequest(
+                                    1L, 9L, 11L, 602L,
+                                    new ProtocolAccountRef(
+                                            383L, ProtocolBackend.ANDROID, "acc-android", "922"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("contact.save.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                    .containsExactly(601L, 602L);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(0).getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "actionId", 601,
+                    "source", "pull_task_contact_save"));
+            assertThat(rows.get(0).getPayloadJson())
+                    .doesNotContain("wsPhone")
+                    .doesNotContain("\"contact\":")
+                    .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskPullerInviteCommandsPersistsOnlyReferencesAndRoutesByBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-invite-web", "cmd-invite-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskPullerInviteCommands(List.of(
+                            new ProtocolPullTaskPullerInviteCommandRequest(
+                                    1L, 9L, 11L, 701L,
+                                    new ProtocolAccountRef(
+                                            382L, ProtocolBackend.WEB, "acc-web", "911")),
+                            new ProtocolPullTaskPullerInviteCommandRequest(
+                                    1L, 9L, 11L, 702L,
+                                    new ProtocolAccountRef(
+                                            383L, ProtocolBackend.ANDROID, "acc-android", "922"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.participants.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(0).getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "actionId", 701,
+                    "source", "pull_task_puller_invite"));
+            assertThat(rows.get(0).getPayloadJson())
+                    .doesNotContain("groupJid")
+                    .doesNotContain("participants")
+                    .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskBatchAddPersistsCallReferenceAndRoutesByPullerBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-batch-add"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskBatchAddCommands(List.of(
+                            new ProtocolPullTaskBatchAddCommandRequest(
+                                    1L, 9L, 11L, 801L,
+                                    new ProtocolAccountRef(
+                                            382L, ProtocolBackend.WEB, "puller-web", "911"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            ProtocolCommandOutbox row = capturedRows().get(0);
+            assertThat(row.getCommandType()).isEqualTo("group.participants.requested");
+            assertThat(row.getAggregateType()).isEqualTo("PULL_TASK_PULL_CALL");
+            assertThat(row.getAggregateId()).isEqualTo(801L);
+            assertThat(row.getKafkaTopic())
+                    .isEqualTo(ProtocolMasterCommandProperties.DEFAULT_TOPIC);
+            Map<String, Object> payload = objectMapper.readValue(
+                    row.getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "pullCallId", 801,
+                    "source", "pull_task_batch_add"));
+            assertThat(row.getPayloadJson())
+                    .doesNotContain("groupJid")
+                    .doesNotContain("participants")
+                    .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskMaterialAdminPersistsMaterialReferenceAndRoutesByManagerBackend()
+            throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-material-admin"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskMaterialAdminCommands(List.of(
+                            new ProtocolPullTaskMaterialAdminCommandRequest(
+                                    1L, 9L, 11L, 601L, 501L,
+                                    new ProtocolAccountRef(
+                                            382L, ProtocolBackend.WEB,
+                                            "manager-web", "911"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            ProtocolCommandOutbox row = capturedRows().get(0);
+            assertThat(row.getCommandType()).isEqualTo("group.participants.requested");
+            assertThat(row.getAggregateType()).isEqualTo("PULL_TASK_MATERIAL_MEMBER");
+            assertThat(row.getAggregateId()).isEqualTo(601L);
+            assertThat(row.getKafkaTopic())
+                    .isEqualTo(ProtocolMasterCommandProperties.DEFAULT_TOPIC);
+            Map<String, Object> payload = objectMapper.readValue(
+                    row.getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "materialId", 601,
+                    "managerGroupAccountId", 501,
+                    "source", "pull_task_material_admin"));
+            assertThat(row.getPayloadJson())
+                    .doesNotContain("groupJid")
+                    .doesNotContain("participants")
+                    .doesNotContain("protocolAccountId");
+        } finally {
+            TenantContext.clear();
+        }
     }
 
     @Test
@@ -671,6 +895,39 @@ class ProtocolCommandOutboxServiceImplTest {
                 eq(ProtocolCommandOutboxStatus.PENDING.code()),
                 eq(ProtocolCommandOutboxStatus.CANCELED.code()),
                 anyLong());
+    }
+
+    @Test
+    void cancelPendingPullTaskCommands_passesScopeAndBusinessTypesToMapper() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        when(mapper.cancelPendingPullTaskCommandsInternal(
+                eq(9L), eq(11L),
+                eq("PULL_TASK_ACCOUNT_ACTION"),
+                eq("PULL_TASK_PULL_CALL"),
+                eq("PULL_TASK_MATERIAL_MEMBER"),
+                eq(List.of(
+                        ProtocolCommandOutboxStatus.PENDING.code(),
+                        ProtocolCommandOutboxStatus.LOCKED.code())),
+                eq(ProtocolCommandOutboxStatus.DISPATCHING.code()),
+                eq(ProtocolCommandOutboxStatus.CANCELED.code()),
+                eq(ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code()),
+                eq("PULL_TASK_ENDED"), eq(900L))).thenReturn(3);
+
+        int canceled = service.cancelPendingPullTaskCommands(9L, 11L, 900L);
+
+        assertThat(canceled).isEqualTo(3);
+        verify(mapper).cancelPendingPullTaskCommandsInternal(
+                9L, 11L,
+                "PULL_TASK_ACCOUNT_ACTION",
+                "PULL_TASK_PULL_CALL",
+                "PULL_TASK_MATERIAL_MEMBER",
+                List.of(
+                        ProtocolCommandOutboxStatus.PENDING.code(),
+                        ProtocolCommandOutboxStatus.LOCKED.code()),
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(),
+                ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(),
+                "PULL_TASK_ENDED", 900L);
     }
 
     private TestableProtocolCommandOutboxService newService(List<String> commandIds, List<String> batchIds) {

@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import com.armada.shared.response.PageResult;
 import com.armada.task.mapper.PullTaskGroupMarketingSummaryMapper;
 import com.armada.task.mapper.PullTaskMapper;
+import com.armada.task.mapper.PullTaskStandardReadMapper;
 import com.armada.task.model.dto.PullTaskFilter;
 import com.armada.task.model.dto.PullTaskQuery;
 import com.armada.task.model.entity.PullTask;
@@ -13,6 +14,7 @@ import com.armada.task.model.enums.PullTaskResourceShortageType;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.vo.PullTaskListVO;
+import com.armada.task.model.vo.PullTaskStandardTaskAggregate;
 import com.armada.task.service.PullTaskListService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -44,6 +46,9 @@ public class PullTaskListServiceImpl implements PullTaskListService {
     /** 拉群营销任务级聚合统计批量查询入口。 */
     private final PullTaskGroupMarketingSummaryMapper summaryMapper;
 
+    /** 普通群链接任务的执行、料子和资源事实批量聚合入口。 */
+    private final PullTaskStandardReadMapper standardReadMapper;
+
     /**
      * 装配拉群任务统一列表读服务。
      *
@@ -52,9 +57,11 @@ public class PullTaskListServiceImpl implements PullTaskListService {
      */
     public PullTaskListServiceImpl(
             PullTaskMapper taskMapper,
-            PullTaskGroupMarketingSummaryMapper summaryMapper) {
+            PullTaskGroupMarketingSummaryMapper summaryMapper,
+            PullTaskStandardReadMapper standardReadMapper) {
         this.taskMapper = taskMapper;
         this.summaryMapper = summaryMapper;
+        this.standardReadMapper = standardReadMapper;
     }
 
     /**
@@ -77,8 +84,11 @@ public class PullTaskListServiceImpl implements PullTaskListService {
         List<PullTask> tasks = taskMapper.selectPage(
                 filter, safeQuery.getOffset(), safeQuery.getPageSize());
         Map<Long, PullTaskGroupMarketingSummary> summaries = loadSummaries(tasks);
+        Map<Long, PullTaskStandardTaskAggregate> standardAggregates =
+                loadStandardAggregates(tasks);
         List<PullTaskListVO> rows = tasks.stream()
-                .map(task -> toVO(task, summaries.get(task.getId())))
+                .map(task -> toVO(
+                        task, summaries.get(task.getId()), standardAggregates.get(task.getId())))
                 .toList();
         return PageResult.of(rows, safeQuery.getPage(), safeQuery.getPageSize(), total);
     }
@@ -104,6 +114,23 @@ public class PullTaskListServiceImpl implements PullTaskListService {
                         PullTaskGroupMarketingSummary::getTaskId, Function.identity()));
     }
 
+    /** 当前页普通群链接任务一次批量读取，避免按任务查询明细形成 N+1。 */
+    private Map<Long, PullTaskStandardTaskAggregate> loadStandardAggregates(
+            List<PullTask> tasks) {
+        List<Long> taskIds = tasks.stream()
+                .filter(PullTaskListServiceImpl::normalLink)
+                .map(PullTask::getId)
+                .toList();
+        if (taskIds.isEmpty()) {
+            return Map.of();
+        }
+        return standardReadMapper.selectTaskAggregates(
+                        com.armada.task.model.dto.PullTaskStandardAggregateCriteria
+                                .fromEnums(taskIds)).stream()
+                .collect(Collectors.toMap(
+                        PullTaskStandardTaskAggregate::getTaskId, Function.identity()));
+    }
+
     /**
      * 将公共任务与可选的营销聚合统计装配为统一列表行。
      *
@@ -113,14 +140,20 @@ public class PullTaskListServiceImpl implements PullTaskListService {
      */
     private static PullTaskListVO toVO(
             PullTask task,
-            PullTaskGroupMarketingSummary summary) {
+            PullTaskGroupMarketingSummary summary,
+            PullTaskStandardTaskAggregate standard) {
         return new PullTaskListVO(
                 task.getId(), task.getTaskName(), task.getGroupName(), task.getMode(),
                 task.getTaskType(), task.getGroupSource(), task.getStatus(), task.getPrimaryStage(),
                 task.getBlockingReason(), task.getOperatorName(), task.getGroupCount(),
-                task.getExpectedPullCount(), task.getRemark(), groupProgress(summary),
-                pullResult(summary), marketingProgress(summary), messageStats(summary),
-                exceptionStats(summary), resourceStats(summary), task.getLastBusinessExecutedAt(),
+                task.getExpectedPullCount(), task.getRemark(),
+                standard == null ? groupProgress(summary) : groupProgress(standard),
+                standard == null ? pullResult(summary) : pullResult(standard),
+                marketingProgress(summary), messageStats(summary),
+                standard == null ? exceptionStats(summary) : exceptionStats(standard),
+                standard == null ? resourceStats(summary) : resourceStats(standard),
+                task.getCreatedAt(),
+                standard == null ? task.getLastBusinessExecutedAt() : standard.getLastExecutedAt(),
                 allowedActions(task));
     }
 
@@ -163,7 +196,10 @@ public class PullTaskListServiceImpl implements PullTaskListService {
                 summary.getPlannedTargetCount(), summary.getEffectiveTargetCount(),
                 summary.getJoinedSuccessCount(), summary.getAlreadyInGroupCount(),
                 summary.getPrivacyRestrictedCount(), summary.getInvalidNumberCount(),
-                summary.getUnregisteredCount(), summary.getPullResultUnknownCount(),
+                summary.getUnregisteredCount(),
+                summary.getPrivacyRestrictedCount() + summary.getInvalidNumberCount()
+                        + summary.getUnregisteredCount(),
+                summary.getPullResultUnknownCount(),
                 summary.getRemainingTargetCount(), successRate(summary));
     }
 
@@ -230,7 +266,7 @@ public class PullTaskListServiceImpl implements PullTaskListService {
             return null;
         }
         return new PullTaskListVO.ExceptionStats(
-                summary.getAbnormalGroupCount(), summary.getPullerShortageGroupCount(),
+                summary.getAbnormalGroupCount(), null, summary.getPullerShortageGroupCount(), null,
                 summary.getBannedAccountCount());
     }
 
@@ -275,19 +311,89 @@ public class PullTaskListServiceImpl implements PullTaskListService {
         }
     }
 
+    private static PullTaskListVO.GroupProgress groupProgress(
+            PullTaskStandardTaskAggregate aggregate) {
+        int terminal = aggregate.getCompletedGroupCount()
+                + aggregate.getFailedGroupCount() + aggregate.getAbandonedGroupCount();
+        return new PullTaskListVO.GroupProgress(
+                terminal, aggregate.getTotalGroupCount(), aggregate.getCompletedGroupCount(),
+                null, null,
+                aggregate.getFailedGroupCount() + aggregate.getAbandonedGroupCount(),
+                aggregate.getExecutingGroupCount(), aggregate.getWaitingGroupCount());
+    }
+
+    private static PullTaskListVO.PullResult pullResult(
+            PullTaskStandardTaskAggregate aggregate) {
+        int total = aggregate.getTotalMemberCount();
+        int success = aggregate.getSuccessfulMemberCount();
+        BigDecimal rate = total == 0 ? null : BigDecimal.valueOf(success)
+                .multiply(BigDecimal.valueOf(PERCENT_FACTOR))
+                .divide(BigDecimal.valueOf(total), RATE_SCALE, RoundingMode.HALF_UP);
+        return new PullTaskListVO.PullResult(
+                total, total, success, null, null, null, null,
+                aggregate.getFailedMemberCount(), aggregate.getUnknownMemberCount(),
+                aggregate.getUnconsumedMemberCount(), rate);
+    }
+
+    private static PullTaskListVO.ExceptionStats exceptionStats(
+            PullTaskStandardTaskAggregate aggregate) {
+        int abnormal = aggregate.getFailedGroupCount() + aggregate.getAbandonedGroupCount()
+                + aggregate.getManagerShortageGroupCount()
+                + aggregate.getPullerShortageGroupCount()
+                + aggregate.getStationShortageGroupCount();
+        return new PullTaskListVO.ExceptionStats(
+                abnormal, aggregate.getManagerShortageGroupCount(),
+                aggregate.getPullerShortageGroupCount(),
+                aggregate.getStationShortageGroupCount(), null);
+    }
+
+    private static PullTaskListVO.ResourceStats resourceStats(
+            PullTaskStandardTaskAggregate aggregate) {
+        List<PullTaskListVO.ResourceShortage> shortages = new ArrayList<>();
+        addShortage(shortages, aggregate.getManagerShortageGroupCount() > 0,
+                PullTaskResourceShortageType.ADMIN);
+        addShortage(shortages, aggregate.getPullerShortageGroupCount() > 0,
+                PullTaskResourceShortageType.PULLER);
+        addShortage(shortages, aggregate.getStationShortageGroupCount() > 0,
+                PullTaskResourceShortageType.STATION);
+        return new PullTaskListVO.ResourceStats(
+                aggregate.getUnconsumedMemberCount(), aggregate.getAvailablePullerCount(),
+                List.copyOf(shortages));
+    }
+
     /**
      * 返回当前后端真实支持且符合任务状态的列表行操作。
      *
-     * <p>尚未接入执行器的启动、暂停和停止动作不会出现在响应中。</p>
+     * <p>普通群链接任务的生命周期动作只按后端真实状态返回；旧普通任务和营销任务
+     * 不借用这组接口。</p>
      *
      * @param task 公共任务主表记录
      * @return 至少包含详情操作的不可变操作集合
      */
     private static List<PullTaskListAction> allowedActions(PullTask task) {
+        if (normalLink(task)) {
+            if (PullTaskStandardStatus.WAIT_START.name().equals(task.getStatus())) {
+                return List.of(PullTaskListAction.DETAIL,
+                        PullTaskListAction.START, PullTaskListAction.DELETE);
+            }
+            if (PullTaskStandardStatus.EXECUTING.name().equals(task.getStatus())) {
+                return List.of(PullTaskListAction.DETAIL,
+                        PullTaskListAction.PAUSE, PullTaskListAction.END);
+            }
+            if (PullTaskStandardStatus.PAUSED.name().equals(task.getStatus())) {
+                return List.of(PullTaskListAction.DETAIL,
+                        PullTaskListAction.RESUME, PullTaskListAction.END);
+            }
+        }
         if (deletable(task)) {
             return List.of(PullTaskListAction.DETAIL, PullTaskListAction.DELETE);
         }
         return List.of(PullTaskListAction.DETAIL);
+    }
+
+    private static boolean normalLink(PullTask task) {
+        return task.getTaskType() == PullTaskType.STANDARD
+                && "NORMAL_LINK".equals(task.getMode());
     }
 
     /**

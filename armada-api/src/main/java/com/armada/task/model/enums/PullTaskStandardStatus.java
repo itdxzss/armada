@@ -3,6 +3,9 @@ package com.armada.task.model.enums;
 /** 现有普通拉群任务状态。 */
 public enum PullTaskStandardStatus {
 
+    /** 创建人可见的内部草稿；不进入统一任务列表。 */
+    DRAFT,
+
     /** 待开始。 */
     WAIT_START,
 

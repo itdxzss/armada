@@ -36,6 +36,15 @@ public class PullTask {
     /** 当前阻塞、暂停或停止原因。 */
     private String blockingReason;
 
+    /** 首次真实启动时间(epoch 毫秒)。 */
+    private Long startedAt;
+
+    /** 进入 COMPLETED 或 ENDED 的时间(epoch 毫秒)。 */
+    private Long finishedAt;
+
+    /** 生命周期更新乐观锁版本号。 */
+    private Integer version;
+
     /** 任务配置群组数。 */
     private int groupCount;
 
@@ -56,6 +65,12 @@ public class PullTask {
 
     /** 备注。 */
     private String remark;
+
+    /** 创建人用户 ID；"每用户一条草稿"的查询键。 */
+    private Long createdBy;
+
+    /** 任务配置快照 JSON；草稿期为 {@code {}}，提交时写入完整配置。 */
+    private String configJson;
 
     /** 软删时间(epoch 毫秒)。 */
     private Long deletedAt;
@@ -140,6 +155,30 @@ public class PullTask {
         this.blockingReason = blockingReason;
     }
 
+    public Long getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(Long startedAt) {
+        this.startedAt = startedAt;
+    }
+
+    public Long getFinishedAt() {
+        return finishedAt;
+    }
+
+    public void setFinishedAt(Long finishedAt) {
+        this.finishedAt = finishedAt;
+    }
+
+    public Integer getVersion() {
+        return version;
+    }
+
+    public void setVersion(Integer version) {
+        this.version = version;
+    }
+
     public int getGroupCount() {
         return groupCount;
     }
@@ -194,6 +233,22 @@ public class PullTask {
 
     public void setRemark(String remark) {
         this.remark = remark;
+    }
+
+    public Long getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(Long createdBy) {
+        this.createdBy = createdBy;
+    }
+
+    public String getConfigJson() {
+        return configJson;
+    }
+
+    public void setConfigJson(String configJson) {
+        this.configJson = configJson;
     }
 
     public Long getDeletedAt() {

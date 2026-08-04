@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskStandardSettingMapper">
+
+  <!-- tenant_id 由租户拦截器注入，列清单里不写。 -->
+  <insert id="insert">
+    INSERT INTO pull_task_standard_setting (
+      task_id, auto_start, material_admin_timing, pull_count_min, pull_count_max,
+      pull_interval_seconds, puller_count_per_group, station_count_per_call,
+      concurrent_group_count, puller_risk_minutes, required_manager_count,
+      manager_group_id, puller_group_id, station_group_id,
+      manager_group_name, puller_group_name, station_group_name,
+      created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{autoStart}, #{materialAdminTiming}, #{pullCountMin}, #{pullCountMax},
+      #{pullIntervalSeconds}, #{pullerCountPerGroup}, #{stationCountPerCall},
+      #{concurrentGroupCount}, #{pullerRiskMinutes}, #{requiredManagerCount},
+      #{managerGroupId}, #{pullerGroupId}, #{stationGroupId},
+      #{managerGroupName}, #{pullerGroupName}, #{stationGroupName},
+      #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectByTaskId" resultType="com.armada.task.model.entity.PullTaskStandardSetting">
+    SELECT *
+    FROM pull_task_standard_setting
+    WHERE task_id = #{taskId}
+  </select>
+
+  <update id="freezeRequiredManagerCount">
+    UPDATE pull_task_standard_setting
+    SET required_manager_count = #{requiredManagerCount},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+  </update>
+
+</mapper>

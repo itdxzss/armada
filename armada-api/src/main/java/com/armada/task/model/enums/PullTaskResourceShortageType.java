@@ -15,6 +15,9 @@ public enum PullTaskResourceShortageType {
     /** 管理员账号不足。 */
     ADMIN,
 
+    /** 普通群链接任务的站台账号不足。 */
+    STATION,
+
     /** 营销账号不足。 */
     MARKETING_ADMIN
 }

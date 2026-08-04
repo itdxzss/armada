@@ -20,6 +20,7 @@ import com.armada.platform.protocol.model.command.ProtocolCommandEnvelope;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.result.ProtocolCommandPublishResult;
 import com.armada.platform.protocol.model.result.ProtocolCommandPublishOutcome;
+import com.armada.platform.protocol.service.ProtocolCommandPayloadHydrator;
 import com.armada.platform.proxy.ProxyResolver;
 import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
@@ -29,20 +30,23 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.SendResult;
 import org.slf4j.LoggerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.support.SendResult;
 
 /**
  * 协议命令 Kafka publisher 单测。
@@ -94,6 +98,46 @@ class ProtocolCommandPublisherTest {
         assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
         assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_100");
         assertThat(envelope.payload().get("source").asText()).isEqualTo("scheduled_account_group_sync");
+    }
+
+    @Test
+    void publish_pullTaskGroupJoinHydratesReferenceBeforeKafkaSend() {
+        ProtocolCommandPayloadHydrator hydrator = org.mockito.Mockito.mock(
+                ProtocolCommandPayloadHydrator.class);
+        ProtocolCommandPublisher hydratedPublisher = publisherWithMaxInFlight(
+                ProtocolCommandPublisherProperties.DEFAULT_MAX_IN_FLIGHT,
+                List.of(hydrator));
+        ProtocolCommandOutbox row = outboxRow(
+                "cmd_pull_1", 1L, 601L, "acc_100",
+                "{\"tenantId\":1,\"pullTaskId\":9,\"groupExecutionId\":11,"
+                        + "\"actionId\":601,\"source\":\"pull_task_manager_join\"}");
+        row.setCommandType("group.join.requested");
+        row.setAggregateType("PULL_TASK_ACCOUNT_ACTION");
+        row.setKafkaTopic("protocol.master.commands.v1");
+        when(hydrator.supports(row)).thenReturn(true);
+        when(hydrator.hydrate(eq(row), any())).thenReturn(new ObjectMapper().valueToTree(java.util.Map.ofEntries(
+                java.util.Map.entry("tenantId", 1L),
+                java.util.Map.entry("pullTaskId", 9L),
+                java.util.Map.entry("groupExecutionId", 11L),
+                java.util.Map.entry("actionId", 601L),
+                java.util.Map.entry("accountId", 100L),
+                java.util.Map.entry("protocolAccountId", "acc_100"),
+                java.util.Map.entry("wsPhone", "8613800000100"),
+                java.util.Map.entry("protocolBackend", "WEB"),
+                java.util.Map.entry("inviteCode", "AbCdEfGhIjKlMnOpQrStUv"),
+                java.util.Map.entry("attemptNo", 1),
+                java.util.Map.entry("source", "pull_task_manager_join"))));
+        when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        hydratedPublisher.publish(row);
+
+        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
+        verify(kafkaTemplate).send(eq("protocol.master.commands.v1"), eq("acc_100"), captor.capture());
+        assertThat(captor.getValue().payload().get("inviteCode").asText())
+                .isEqualTo("AbCdEfGhIjKlMnOpQrStUv");
+        assertThat(captor.getValue().payload().get("actionId").asLong()).isEqualTo(601L);
+        verify(hydrator).hydrate(eq(row), any());
     }
 
     @Test
@@ -253,6 +297,38 @@ class ProtocolCommandPublisherTest {
                 "window:acc_100,acc_101",
                 "send:acc_102",
                 "window:acc_102");
+    }
+
+    @Test
+    void publishBatchByWindow_commitsEachWindowImmediatelyBeforeKafkaSend() {
+        ProtocolCommandPublisher boundedPublisher = publisherWithMaxInFlight(2);
+        List<ProtocolCommandOutbox> rows = List.of(
+                passthroughOutboxRow("cmd_100", 100L, "acc_100"),
+                passthroughOutboxRow("cmd_101", 101L, "acc_101"),
+                passthroughOutboxRow("cmd_102", 102L, "acc_102"));
+        List<String> events = new ArrayList<>();
+        when(kafkaTemplate.send(any(), any(), any())).thenAnswer(invocation -> {
+            events.add("send:" + invocation.getArgument(1, String.class));
+            return CompletableFuture.completedFuture(null);
+        });
+
+        boundedPublisher.publishBatchByWindow(
+                rows,
+                window -> {
+                    events.add("commit:" + window.stream()
+                            .map(ProtocolCommandOutbox::getKafkaKey)
+                            .collect(Collectors.joining(",")));
+                    return window.size() == 1 ? List.of() : window;
+                },
+                outcomes -> events.add("complete:" + outcomes.size()));
+
+        assertThat(events).containsExactly(
+                "commit:acc_100,acc_101",
+                "send:acc_100",
+                "send:acc_101",
+                "complete:2",
+                "commit:acc_102");
+        verify(kafkaTemplate, never()).send(eq("protocol.master.commands.v1"), eq("acc_102"), any());
     }
 
     @Test
@@ -427,6 +503,19 @@ class ProtocolCommandPublisherTest {
                 .hasMessageNotContaining("scheduled_account_group_sync");
     }
 
+    @Test
+    void maximumWindowSendDuration_coversEachSynchronousSendAndAsyncAckTimeout() {
+        @SuppressWarnings("unchecked")
+        ProducerFactory<String, ProtocolCommandEnvelope> producerFactory =
+                org.mockito.Mockito.mock(ProducerFactory.class);
+        when(kafkaTemplate.getProducerFactory()).thenReturn(producerFactory);
+        when(producerFactory.getConfigurationProperties()).thenReturn(
+                Map.of(ProducerConfig.MAX_BLOCK_MS_CONFIG, "12000"));
+        ProtocolCommandPublisher boundedPublisher = publisherWithMaxInFlight(3);
+
+        assertThat(boundedPublisher.maximumWindowSendDurationMs()).isEqualTo(41_000L);
+    }
+
     private static ProtocolCommandOutbox outboxRow(String payloadJson) {
         return outboxRow("cmd_100", 1L, 100L, "acc_100", payloadJson);
     }
@@ -454,6 +543,12 @@ class ProtocolCommandPublisherTest {
     }
 
     private ProtocolCommandPublisher publisherWithMaxInFlight(int maxInFlight) {
+        return publisherWithMaxInFlight(maxInFlight, List.of());
+    }
+
+    private ProtocolCommandPublisher publisherWithMaxInFlight(
+            int maxInFlight,
+            List<ProtocolCommandPayloadHydrator> hydrators) {
         ProtocolCommandPublisherProperties properties = new ProtocolCommandPublisherProperties();
         properties.setSendTimeoutMs(5_000);
         properties.setMaxInFlight(maxInFlight);
@@ -463,7 +558,8 @@ class ProtocolCommandPublisherTest {
                 properties,
                 credentialMapper,
                 ipProxyMapper,
-                new ProxyResolver());
+                new ProxyResolver(),
+                hydrators);
     }
 
     private static ProtocolCommandOutbox outboxRow(String commandId,

@@ -32,6 +32,7 @@ public record PullTaskListVO(
         MessageStats messageStats,
         ExceptionStats exceptionStats,
         ResourceStats resourceStats,
+        Long createdAt,
         Long lastExecutedAt,
         List<PullTaskListAction> allowedActions
 ) {
@@ -58,6 +59,7 @@ public record PullTaskListVO(
             Integer privacyRestrictedCount,
             Integer invalidNumberCount,
             Integer unregisteredCount,
+            Integer failedCount,
             Integer unknownCount,
             Integer remainingTargetCount,
             BigDecimal effectiveSuccessRate
@@ -85,7 +87,9 @@ public record PullTaskListVO(
     /** 异常群组和封禁账号统计。 */
     public record ExceptionStats(
             Integer abnormalGroupCount,
+            Integer managerShortageGroupCount,
             Integer pullerShortageGroupCount,
+            Integer stationShortageGroupCount,
             Integer bannedAccountCount
     ) {
     }

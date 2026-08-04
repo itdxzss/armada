@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -63,6 +64,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(found.getKafkaTopic()).isEqualTo("protocol.account.commands.v1");
         assertThat(found.getKafkaKey()).isEqualTo("acc_1001");
         assertThat(found.getProtocolAccountId()).isEqualTo("acc_1001");
+        assertThat(found.getProtocolBackend()).isEqualTo(ProtocolBackend.WEB.name());
         Map<String, Long> payload = objectMapper.readValue(found.getPayloadJson(), new TypeReference<>() {
         });
         assertThat(payload).containsEntry("accountId", 1001L)
@@ -172,6 +174,11 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(lockedState.lockedBy()).isEqualTo("publisher-a");
         assertThat(lockedState.lockedAt()).isEqualTo(now + 1);
 
+        assertThat(mapper.markDispatching(
+                List.of(lockedRow(id, row.getCommandId(), "publisher-a", now + 2)), now + 2)).isZero();
+        assertThat(mapper.markDispatching(
+                List.of(lockedRow(id, row.getCommandId(), "publisher-a", now + 1)), now + 2)).isEqualTo(1);
+
         int staleLockSent = mapper.markSentBatch(
                 List.of(lockedRow(id, row.getCommandId(), "publisher-a", now + 2)), now + 3);
         int sent = mapper.markSentBatch(
@@ -202,6 +209,10 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
                 insertedId(third.getCommandId(), now));
         long lockedAt = now + 1;
         assertThat(mapper.markLocked(ids, "publisher-batch", lockedAt)).isEqualTo(3);
+        assertThat(mapper.markDispatching(List.of(
+                lockedRow(ids.get(0), first.getCommandId(), "publisher-batch", lockedAt),
+                lockedRow(ids.get(1), second.getCommandId(), "publisher-batch", lockedAt),
+                lockedRow(ids.get(2), third.getCommandId(), "publisher-batch", lockedAt)), now + 2)).isEqualTo(3);
 
         int stale = mapper.markSentBatch(List.of(
                 lockedRow(ids.get(0), first.getCommandId(), "publisher-batch", lockedAt + 1),
@@ -214,7 +225,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(updated).isEqualTo(2);
         assertThat(state(ids.get(0)).status()).isEqualTo(ProtocolCommandOutboxStatus.SENT.code());
         assertThat(state(ids.get(1)).status()).isEqualTo(ProtocolCommandOutboxStatus.SENT.code());
-        assertThat(state(ids.get(2)).status()).isEqualTo(ProtocolCommandOutboxStatus.LOCKED.code());
+        assertThat(state(ids.get(2)).status()).isEqualTo(ProtocolCommandOutboxStatus.DISPATCHING.code());
         assertThat(mapper.markSentBatch(List.of(
                 lockedRow(ids.get(0), first.getCommandId(), "publisher-batch", lockedAt),
                 lockedRow(ids.get(1), second.getCommandId(), "publisher-batch", lockedAt)), now + 4)).isZero();
@@ -229,6 +240,9 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         Long retryId = insertedId(retry.getCommandId(), now);
         Long deadId = insertedId(dead.getCommandId(), now);
         assertThat(mapper.markLocked(List.of(retryId, deadId), "publisher-a", now + 1)).isEqualTo(2);
+        assertThat(mapper.markDispatching(List.of(
+                lockedRow(retryId, retry.getCommandId(), "publisher-a", now + 1),
+                lockedRow(deadId, dead.getCommandId(), "publisher-a", now + 1)), now + 2)).isEqualTo(2);
 
         int staleRetry = mapper.markRetry(
                 lockedRow(retryId, retry.getCommandId(), "publisher-a", now + 2),
@@ -303,6 +317,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(staleLockSent).isZero();
         assertThat(lockedRows).extracting(ProtocolCommandOutbox::getCommandId)
                 .containsExactly(sent.getCommandId(), retry.getCommandId(), dead.getCommandId());
+        assertThat(mapper.markDispatching(lockedRows, now + 2)).isEqualTo(3);
 
         int sentMarked = mapper.markSentBatch(List.of(
                 lockedRow(null, sent.getCommandId(), "publisher-direct", lockedAt)), now + 3);
@@ -397,6 +412,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         row.setKafkaTopic("protocol.account.commands.v1");
         row.setKafkaKey("acc_" + accountId);
         row.setProtocolAccountId("acc_" + accountId);
+        row.setProtocolBackend(ProtocolBackend.WEB.name());
         row.setPayloadJson("{\"accountId\":" + accountId + ",\"proxyId\":" + (accountId + 6000) + "}");
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);

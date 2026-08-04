@@ -6,6 +6,11 @@ import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandReques
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
@@ -49,6 +54,16 @@ public interface ProtocolCommandOutboxService {
     int cancelPendingAccountOnlineCommands(List<Long> accountIds);
 
     /**
+     * 取消普通拉群任务或单条执行行尚未提交发送的命令。
+     *
+     * @param taskId 普通拉群任务 ID
+     * @param executionId 单群执行行 ID；为空时取消整个任务
+     * @param now 取消时间(epoch 毫秒)
+     * @return 实际处理的命令数；PENDING/LOCKED 进入 CANCELED，DISPATCHING 进入 CANCEL_REQUESTED
+     */
+    int cancelPendingPullTaskCommands(long taskId, Long executionId, long now);
+
+    /**
      * 批量写入群链接健康检查 outbox 命令。
      *
      * @param commands 待 enqueue 的群健康检查命令,最多 500 条
@@ -80,6 +95,45 @@ public interface ProtocolCommandOutboxService {
      */
     ProtocolCommandOutboxEnqueueResult enqueueGroupJoinCommands(
             List<ProtocolGroupJoinCommandRequest> commands);
+
+    /**
+     * 批量写入普通群链接管理员踩链接 Outbox 命令。
+     *
+     * <p>调用方必须在同一事务内把对应动作改为 SUBMITTED，并把返回的真实 commandId 写回动作行。
+     * Outbox payload 仅保存业务引用，协议执行参数由发布器从冻结事实补全。</p>
+     *
+     * @param commands 普通拉群管理员踩链接命令，最多 500 条
+     * @return 稳定任务批次、命令 ID 与插入数量
+     * @throws BusinessException 字段非法、租户不一致或 Outbox 写入失败时抛出
+     */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupJoinCommands(
+            List<ProtocolPullTaskGroupJoinCommandRequest> commands);
+
+    /**
+     * 批量写入普通拉群单方向联系人保存命令。
+     *
+     * @param commands 联系人动作引用，最多 500 条
+     * @return 稳定任务批次、命令 ID 与插入数量
+     */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskContactSaveCommands(
+            List<ProtocolPullTaskContactSaveCommandRequest> commands);
+
+    /**
+     * 批量写入普通拉群管理员单人邀请拉手命令。
+     *
+     * @param commands 邀请动作引用，最多 500 条
+     * @return 稳定任务批次、命令 ID 与插入数量
+     */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskPullerInviteCommands(
+            List<ProtocolPullTaskPullerInviteCommandRequest> commands);
+
+    /** 批量写入普通拉群站台和料子同批入群命令。 */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskBatchAddCommands(
+            List<ProtocolPullTaskBatchAddCommandRequest> commands);
+
+    /** 批量写入普通拉群单个 A/a 料子提权命令。 */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskMaterialAdminCommands(
+            List<ProtocolPullTaskMaterialAdminCommandRequest> commands);
 
     /**
      * 批量写入已经由协议 backend 编码的营销消息 outbox 命令。

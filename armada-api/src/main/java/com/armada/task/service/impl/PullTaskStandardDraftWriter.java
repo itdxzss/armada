@@ -8,6 +8,10 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
+import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionStatus;
+import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
+import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,6 +84,13 @@ public class PullTaskStandardDraftWriter {
         for (AppendRow row : rows) {
             PullTaskGroupExecution execution = row.execution();
             execution.setTaskId(taskId);
+            execution.setExecutionStatus(PullTaskExecutionStatus.DRAFT.code());
+            execution.setStage(PullTaskExecutionStage.LINK_VALIDATION.code());
+            execution.setManualPaused(0);
+            execution.setNextManagerIndex(0);
+            execution.setNextPullerIndex(0);
+            execution.setNextRunAt(0L);
+            execution.setVersion(1);
             execution.setCreatedAt(now);
             execution.setUpdatedAt(now);
             executionMapper.insertDraft(execution);
@@ -131,6 +142,10 @@ public class PullTaskStandardDraftWriter {
         }
         for (PullTaskMaterialMember member : members) {
             member.setGroupExecutionId(executionId);
+            member.setPullStatus(PullTaskMaterialPullStatus.UNCONSUMED.code());
+            member.setAdminStatus(Integer.valueOf(1).equals(member.getAdminRequired())
+                    ? PullTaskMaterialAdminStatus.PENDING.code()
+                    : PullTaskMaterialAdminStatus.NOT_REQUIRED.code());
             member.setCreatedAt(now);
             member.setUpdatedAt(now);
         }

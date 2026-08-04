@@ -3,7 +3,7 @@
 <mapper namespace="com.armada.task.mapper.PullTaskGroupExecutionMapper">
 
   <!-- tenant_id 由租户拦截器注入；link_occupancy_key 是生成列，永不显式写入。 -->
-  <insert id="insertDraft" useGeneratedKeys="true" keyProperty="id">
+  <insert id="insertDraftInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_execution (
       task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, group_jid,
       source_file_index, source_file_name, total_line_count, valid_member_count,
@@ -13,8 +13,9 @@
       #{taskId}, #{seq}, #{groupLinkId}, #{normalizedLink}, #{inviteCode},
       #{sourceLinkLineNo}, #{groupJid},
       #{sourceFileIndex}, #{sourceFileName}, #{totalLineCount}, #{validMemberCount},
-      #{invalidLineCount}, #{duplicateLineCount}, 0, 1, 0,
-      0, 0, 0, 1, #{createdAt}, #{updatedAt}
+      #{invalidLineCount}, #{duplicateLineCount}, #{executionStatus}, #{stage},
+      #{manualPaused}, #{nextManagerIndex}, #{nextPullerIndex}, #{nextRunAt},
+      #{version}, #{createdAt}, #{updatedAt}
     )
   </insert>
 
@@ -25,24 +26,32 @@
     ORDER BY seq ASC
   </select>
 
+  <select id="selectById" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT *
+    FROM pull_task_group_execution
+    WHERE id = #{id}
+  </select>
+
   <delete id="deleteDraftByTaskId">
     DELETE FROM pull_task_group_execution
     WHERE task_id = #{taskId}
-      AND execution_status = 0
+      AND execution_status = #{expectedExecutionStatus}
   </delete>
 
   <delete id="deleteDraftRow">
     DELETE FROM pull_task_group_execution
     WHERE task_id = #{taskId}
       AND id = #{rowId}
-      AND execution_status = 0
+      AND execution_status = #{expectedExecutionStatus}
   </delete>
 
   <!-- 占用口径与生成列 link_occupancy_key 保持一致：1 待启动 / 2 运行中 / 3 暂停。 -->
   <select id="selectOccupiedLinks" resultType="java.lang.String">
     SELECT normalized_link
     FROM pull_task_group_execution
-    WHERE execution_status IN (1, 2, 3)
+    WHERE execution_status IN
+      <foreach collection="executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
       AND normalized_link IN
       <foreach collection="links" item="link" open="(" separator="," close=")">#{link}</foreach>
   </select>
@@ -52,31 +61,49 @@
     SET group_link_id = #{groupLinkId},
         updated_at = #{now}
     WHERE id = #{id}
-      AND execution_status = 0
+      AND execution_status = #{expectedExecutionStatus}
   </update>
 
   <!-- 推进为待启动后生成列取到链接值，跨任务占用随之生效；冲突由唯一键抛出。 -->
   <update id="freezeDraftRows">
     UPDATE pull_task_group_execution
-    SET execution_status = 1,
+    SET execution_status = #{targetExecutionStatus},
         updated_at = #{now}
     WHERE task_id = #{taskId}
-      AND execution_status = 0
+      AND execution_status = #{expectedExecutionStatus}
   </update>
 
   <!-- 调度器跨租户扫描：条件顺序对齐 idx_pull_task_execution_dispatch
        (execution_status, manual_paused, next_run_at, id)。 -->
   <update id="claimDue">
     UPDATE pull_task_group_execution
-    SET lock_owner = #{lockOwner},
-        lock_expires_at = #{lockExpiresAt},
-        updated_at = #{now}
-    WHERE execution_status IN (1, 2)
-      AND manual_paused = 0
-      AND next_run_at &lt;= #{now}
-      AND (lock_owner IS NULL OR lock_expires_at &lt;= #{now})
+    SET lock_owner = #{criteria.lease.lockOwner},
+        lock_expires_at = #{criteria.lease.lockExpiresAt},
+        updated_at = #{criteria.lease.now}
+    WHERE (
+      <foreach collection="criteria.eligibleStates" item="state" separator=" OR ">
+        (execution_status = #{state.executionStatus}
+         AND stage IN
+         <foreach collection="state.stages" item="stage" open="(" separator="," close=")">
+           #{stage}
+         </foreach>)
+      </foreach>
+    )
+      AND manual_paused = #{criteria.eligibleManualPaused}
+      AND next_run_at &lt;= #{criteria.lease.now}
+      AND (lock_owner IS NULL OR lock_expires_at &lt;= #{criteria.lease.now})
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task parent_task
+        WHERE parent_task.id = pull_task_group_execution.task_id
+          AND parent_task.tenant_id = pull_task_group_execution.tenant_id
+          AND parent_task.deleted_at IS NULL
+          AND parent_task.task_type = #{criteria.parent.taskType}
+          AND parent_task.mode = #{criteria.parent.taskMode}
+          AND parent_task.status = #{criteria.parent.taskStatus}
+      )
     ORDER BY next_run_at ASC, id ASC
-    LIMIT #{limit}
+    LIMIT #{criteria.lease.limit}
   </update>
 
   <!-- lock_expires_at 必须比对 now，否则租约静默过期后、尚未被别的实例抢占前，
@@ -89,6 +116,120 @@
     ORDER BY id ASC
   </select>
 
+  <select id="selectUnknownResultCandidates"
+          resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT execution_row.*
+    FROM pull_task_group_execution execution_row
+    WHERE execution_row.execution_status IN
+      <foreach collection="criteria.executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task parent_task
+        WHERE parent_task.id = execution_row.task_id
+          AND parent_task.tenant_id = execution_row.tenant_id
+          AND parent_task.deleted_at IS NULL
+          AND parent_task.task_type = #{criteria.parent.taskType}
+          AND parent_task.mode = #{criteria.parent.taskMode}
+      )
+      AND (
+        EXISTS (
+          SELECT 1
+          FROM pull_task_account_action action_row
+          WHERE action_row.tenant_id = execution_row.tenant_id
+            AND action_row.group_execution_id = execution_row.id
+            AND (action_row.action_status = #{criteria.facts.action.unknown}
+              OR (action_row.action_status = #{criteria.facts.action.submitted}
+                AND action_row.submitted_at &lt;= #{criteria.scope.submittedCutoff}))
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM pull_task_pull_call call_row
+          WHERE call_row.tenant_id = execution_row.tenant_id
+            AND call_row.group_execution_id = execution_row.id
+            AND (call_row.call_status = #{criteria.facts.call.unknown}
+              OR (call_row.call_status = #{criteria.facts.call.submitted}
+                AND call_row.submitted_at &lt;= #{criteria.scope.submittedCutoff}))
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM pull_task_material_member material_row
+          WHERE material_row.tenant_id = execution_row.tenant_id
+            AND material_row.group_execution_id = execution_row.id
+            AND (
+              material_row.pull_status = #{criteria.facts.material.pullUnknown}
+              OR material_row.admin_status = #{criteria.facts.material.adminUnknown}
+              OR (material_row.admin_status = #{criteria.facts.material.adminSubmitted}
+                AND material_row.updated_at &lt;= #{criteria.scope.submittedCutoff})
+              OR (material_row.pull_status = #{criteria.facts.material.pullSubmitted}
+                AND EXISTS (
+                  SELECT 1
+                  FROM pull_task_pull_call material_call
+                  WHERE material_call.tenant_id = material_row.tenant_id
+                    AND material_call.id = material_row.pull_call_id
+                    AND material_call.submitted_at &lt;= #{criteria.scope.submittedCutoff}
+                ))
+            )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM pull_task_group_account account_row
+          WHERE account_row.tenant_id = execution_row.tenant_id
+            AND account_row.group_execution_id = execution_row.id
+            AND (
+              account_row.membership_status = #{criteria.facts.account.membershipUnknown}
+              OR account_row.admin_status = #{criteria.facts.account.adminUnknown}
+              OR (account_row.admin_status = #{criteria.facts.account.adminSubmitted}
+                AND account_row.updated_at &lt;= #{criteria.scope.submittedCutoff})
+              OR (account_row.membership_status = #{criteria.facts.account.membershipSubmitted}
+                AND account_row.updated_at &lt;= #{criteria.scope.submittedCutoff})
+            )
+        )
+      )
+    ORDER BY execution_row.id ASC
+    LIMIT #{criteria.scope.limit}
+  </select>
+
+  <update id="startClaimed">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{targetExecutionStatus},
+        started_at = COALESCE(started_at, #{row.startedAt}),
+        version = version + 1,
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND execution_status = #{expectedExecutionStatus}
+      AND stage = #{expectedStage}
+      AND version = #{row.version}
+      AND lock_owner = #{row.lockOwner}
+      AND lock_expires_at &gt; #{row.updatedAt}
+  </update>
+
+  <update id="transitionClaimed">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{row.executionStatus},
+        stage = #{row.stage},
+        group_jid = COALESCE(#{row.groupJid}, group_jid),
+        next_manager_index = COALESCE(#{row.nextManagerIndex}, next_manager_index),
+        next_puller_index = COALESCE(#{row.nextPullerIndex}, next_puller_index),
+        wait_resource_type = #{row.waitResourceType},
+        reason_code = #{row.reasonCode},
+        reason_message = #{row.reasonMessage},
+        next_run_at = #{row.nextRunAt},
+        finished_at = #{row.finishedAt},
+        last_business_executed_at = COALESCE(
+          #{row.lastBusinessExecutedAt}, last_business_executed_at),
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND execution_status = #{expectedExecutionStatus}
+      AND stage = #{expectedStage}
+      AND version = #{row.version}
+      AND lock_owner = #{row.lockOwner}
+      AND lock_expires_at &gt; #{row.updatedAt}
+  </update>
+
   <update id="updateCheckpoint">
     UPDATE pull_task_group_execution
     SET next_manager_index = #{nextManagerIndex},
@@ -100,6 +241,159 @@
         updated_at = #{now}
     WHERE id = #{id}
       AND version = #{expectedVersion}
+  </update>
+
+  <update id="transitionManagerJoinResult">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{transition.target.executionStatus},
+        stage = #{transition.target.stage},
+        group_jid = COALESCE(#{transition.target.groupJid}, group_jid),
+        wait_resource_type = #{transition.target.waitResourceType},
+        reason_code = #{transition.target.reasonCode},
+        reason_message = #{transition.target.reasonMessage},
+        next_run_at = #{transition.target.nextRunAt},
+        finished_at = #{transition.target.finishedAt},
+        last_business_executed_at = #{transition.now},
+        version = version + 1,
+        updated_at = #{transition.now}
+    WHERE id = #{transition.executionId}
+      AND task_id = #{transition.taskId}
+      AND version = #{transition.expectedVersion}
+      AND execution_status = #{transition.expected.executionStatus}
+      AND stage = #{transition.expected.stage}
+      AND lock_owner IS NULL
+  </update>
+
+  <update id="transitionProtocolResult">
+    UPDATE pull_task_group_execution
+    SET stage = #{transition.targetStage},
+        next_puller_index = COALESCE(#{transition.nextPullerIndex}, next_puller_index),
+        next_run_at = #{transition.nextRunAt},
+        last_business_executed_at = #{transition.now},
+        version = version + 1,
+        updated_at = #{transition.now}
+    WHERE id = #{transition.executionId}
+      AND task_id = #{transition.taskId}
+      AND version = #{transition.expectedVersion}
+      AND execution_status = #{transition.expectedExecutionStatus}
+      AND stage = #{transition.expectedStage}
+      AND lock_owner IS NULL
+  </update>
+
+  <update id="applyManualChange">
+    UPDATE pull_task_group_execution
+    SET updated_at = #{change.now}
+        <if test="change.manualPaused != null">
+          , manual_paused = #{change.manualPaused}
+        </if>
+        <if test="change.clearLock">
+          , lock_owner = NULL,
+          lock_expires_at = NULL
+        </if>
+    WHERE task_id = #{change.taskId}
+      AND execution_status IN
+      <foreach collection="change.eligibleExecutionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="abandonByTask">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{change.targetExecutionStatus},
+        manual_paused = #{change.manualPaused},
+        wait_resource_type = NULL,
+        next_run_at = 0,
+        finished_at = #{change.finishedAt},
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{change.now}
+    WHERE task_id = #{change.taskId}
+      AND execution_status IN
+      <foreach collection="change.eligibleExecutionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="transitionManual">
+    UPDATE pull_task_group_execution
+    SET manual_paused = #{transition.targetManualPaused},
+        version = version + 1,
+        updated_at = #{transition.now}
+        <if test="transition.clearLock">
+          , lock_owner = NULL,
+          lock_expires_at = NULL
+        </if>
+    WHERE id = #{transition.executionId}
+      AND task_id = #{transition.taskId}
+      AND execution_status = #{transition.expectedExecutionStatus}
+      AND manual_paused = #{transition.expectedManualPaused}
+      AND version = #{transition.expectedVersion}
+  </update>
+
+  <update id="transitionTerminal">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{transition.targetExecutionStatus},
+        manual_paused = #{transition.targetManualPaused},
+        wait_resource_type = NULL,
+        next_run_at = 0,
+        finished_at = #{transition.finishedAt},
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{transition.now}
+    WHERE id = #{transition.executionId}
+      AND task_id = #{transition.taskId}
+      AND execution_status = #{transition.expectedExecutionStatus}
+      AND version = #{transition.expectedVersion}
+  </update>
+
+  <update id="activateManagerSupplement">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{transition.target.executionStatus},
+        stage = #{transition.target.stage},
+        wait_resource_type = NULL,
+        reason_code = NULL,
+        reason_message = NULL,
+        next_run_at = 0,
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.executionId}
+      AND task_id = #{transition.scope.taskId}
+      AND execution_status IN
+      <foreach collection="transition.expected.executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND wait_resource_type = #{transition.expected.waitResourceType}
+      AND stage IN
+      <foreach collection="transition.expected.stages" item="stage"
+               open="(" separator="," close=")">#{stage}</foreach>
+      AND version = #{transition.scope.expectedVersion}
+      AND (lock_owner IS NULL OR lock_expires_at &lt;= #{transition.scope.now})
+  </update>
+
+  <update id="activateResourceSupplement">
+    UPDATE pull_task_group_execution
+    SET execution_status = #{transition.target.executionStatus},
+        stage = #{transition.target.stage},
+        wait_resource_type = NULL,
+        reason_code = NULL,
+        reason_message = NULL,
+        next_run_at = 0,
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.executionId}
+      AND task_id = #{transition.scope.taskId}
+      AND execution_status IN
+      <foreach collection="transition.expected.executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND wait_resource_type = #{transition.expected.waitResourceType}
+      AND stage IN
+      <foreach collection="transition.expected.stages" item="stage"
+               open="(" separator="," close=")">#{stage}</foreach>
+      AND version = #{transition.scope.expectedVersion}
+      AND (lock_owner IS NULL OR lock_expires_at &lt;= #{transition.scope.now})
   </update>
 
   <update id="releaseLock">

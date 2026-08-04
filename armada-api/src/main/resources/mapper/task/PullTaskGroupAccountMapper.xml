@@ -2,17 +2,23 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskGroupAccountMapper">
 
+  <select id="selectById" resultType="com.armada.task.model.entity.PullTaskGroupAccount">
+    SELECT *
+    FROM pull_task_group_account
+    WHERE id = #{id}
+  </select>
+
   <!-- tenant_id 由租户拦截器注入；occupancy_key 是生成列，永不显式写入。 -->
-  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_account (
       task_id, group_execution_id, account_id, account_phone, role_type, role_seq,
       source_type, selection_mode, entry_mode, membership_status, admin_status,
-      availability_status, occupied_at, created_at, updated_at
+      availability_status, pull_call_id, occupied_at, created_at, updated_at
     ) VALUES (
       #{taskId}, #{groupExecutionId}, #{accountId}, #{accountPhone}, #{roleType}, #{roleSeq},
-      #{sourceType}, #{selectionMode}, #{entryMode}, 0,
-      <choose><when test="roleType == 1">1</when><otherwise>0</otherwise></choose>,
-      1, #{occupiedAt}, #{createdAt}, #{updatedAt}
+      #{sourceType}, #{selectionMode}, #{entryMode}, #{membershipStatus},
+      #{adminStatus}, #{availabilityStatus}, #{pullCallId}, #{occupiedAt},
+      #{createdAt}, #{updatedAt}
     )
   </insert>
 
@@ -31,7 +37,7 @@
     SELECT role_type AS roleType, COUNT(*) AS availableCount
     FROM pull_task_group_account
     WHERE group_execution_id = #{groupExecutionId}
-      AND availability_status = 1
+      AND availability_status = #{availabilityStatus}
     GROUP BY role_type
   </select>
 
@@ -40,7 +46,7 @@
     SET released_at = #{now},
         updated_at = #{now}
     WHERE id = #{id}
-      AND role_type = 2
+      AND role_type = #{roleType}
       AND released_at IS NULL
   </update>
 
@@ -52,7 +58,7 @@
         occupied_at = #{now},
         updated_at = #{now}
     WHERE id = #{id}
-      AND role_type = 2
+      AND role_type = #{roleType}
       AND released_at IS NOT NULL
   </update>
 
@@ -61,7 +67,16 @@
     SET released_at = #{now},
         updated_at = #{now}
     WHERE group_execution_id = #{groupExecutionId}
-      AND role_type = 2
+      AND role_type = #{roleType}
+      AND released_at IS NULL
+  </update>
+
+  <update id="releaseAllPullersOfTask">
+    UPDATE pull_task_group_account
+    SET released_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND role_type = #{roleType}
       AND released_at IS NULL
   </update>
 
@@ -74,12 +89,117 @@
     WHERE id = #{id}
   </update>
 
+  <select id="selectAccountIdsByAvailability" resultType="java.lang.Long">
+    SELECT DISTINCT account_id
+    FROM pull_task_group_account
+    WHERE role_type = #{roleType}
+      AND availability_status = #{availabilityStatus}
+      AND account_id IN
+      <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+        #{accountId}
+      </foreach>
+    ORDER BY account_id ASC
+  </select>
+
+  <select id="selectOccupiedAccountIds" resultType="java.lang.Long">
+    SELECT DISTINCT account_id
+    FROM pull_task_group_account
+    WHERE role_type = #{roleType}
+      AND released_at IS NULL
+      AND account_id IN
+      <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+        #{accountId}
+      </foreach>
+    ORDER BY account_id ASC
+  </select>
+
+  <!-- 到期只是必要条件；accountIds 必须由调用方先通过实时在线正常校验后传入。 -->
+  <update id="restoreExpiredPullerCooldowns">
+    UPDATE pull_task_group_account
+    SET availability_status = #{targetAvailabilityStatus},
+        unavailable_reason_code = NULL,
+        cooldown_until = NULL,
+        updated_at = #{now}
+    WHERE role_type = #{roleType}
+      AND availability_status = #{expectedAvailabilityStatus}
+      AND cooldown_until IS NOT NULL
+      AND cooldown_until &lt;= #{now}
+      AND account_id IN
+      <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+        #{accountId}
+      </foreach>
+  </update>
+
+  <update id="restoreValidatedAvailability">
+    UPDATE pull_task_group_account
+    SET availability_status = #{targetAvailabilityStatus},
+        unavailable_reason_code = NULL,
+        cooldown_until = NULL,
+        updated_at = #{now}
+    WHERE role_type = #{roleType}
+      AND availability_status IN
+      <foreach collection="expectedAvailabilityStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND account_id IN
+      <foreach collection="accountIds" item="accountId"
+               open="(" separator="," close=")">#{accountId}</foreach>
+  </update>
+
   <update id="updateMembership">
     UPDATE pull_task_group_account
     SET membership_status = #{membershipStatus},
         joined_at = #{joinedAt},
         updated_at = #{now}
     WHERE id = #{id}
+  </update>
+
+  <update id="transitionMembership">
+    UPDATE pull_task_group_account
+    SET membership_status = #{transition.targetStatus},
+        membership_reason_code = #{transition.result.reasonCode},
+        membership_reason_message = #{transition.result.reasonMessage},
+        membership_result_at =
+        <choose>
+          <when test="transition.result.occurredAt != null
+                  or transition.result.reasonCode != null">#{transition.now}</when>
+          <otherwise>membership_result_at</otherwise>
+        </choose>,
+        joined_at = COALESCE(#{transition.result.occurredAt}, joined_at),
+        updated_at = #{transition.now}
+    WHERE id = #{transition.id}
+      AND membership_status IN
+      <foreach collection="transition.expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="bindStationToPullCall">
+    UPDATE pull_task_group_account
+    SET pull_call_id = #{binding.scope.pullCallId},
+        updated_at = #{binding.scope.now}
+    WHERE id = #{binding.scope.roleRowId}
+      AND role_type = #{binding.expected.roleType}
+      AND source_type = #{binding.expected.sourceType}
+      AND availability_status = #{binding.expected.availabilityStatus}
+      AND pull_call_id IS NULL
+  </update>
+
+  <select id="countByPullCallAndMembershipStatuses" resultType="java.lang.Integer">
+    SELECT COUNT(*)
+    FROM pull_task_group_account
+    WHERE pull_call_id = #{criteria.ownerId}
+      AND membership_status IN
+      <foreach collection="criteria.statuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </select>
+
+  <update id="transitionAdminStatus">
+    UPDATE pull_task_group_account
+    SET admin_status = #{adminStatus},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND admin_status IN
+      <foreach collection="expectedAdminStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
   </update>
 
 </mapper>

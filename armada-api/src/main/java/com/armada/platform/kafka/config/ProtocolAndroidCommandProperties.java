@@ -20,6 +20,9 @@ public class ProtocolAndroidCommandProperties implements InitializingBean {
     /** 默认 Android 进群命令 topic。 */
     public static final String DEFAULT_GROUP_JOIN_TOPIC = "protocol.android.group-join.commands.v1";
 
+    /** 默认 Android 群业务动作命令 topic。 */
+    public static final String DEFAULT_GROUP_ACTION_TOPIC = "protocol.android.group-action.commands.v1";
+
     /** Android 生命周期命令 topic。 */
     private String lifecycleTopic = DEFAULT_LIFECYCLE_TOPIC;
 
@@ -29,17 +32,25 @@ public class ProtocolAndroidCommandProperties implements InitializingBean {
     /** Android 进群命令 topic。 */
     private String groupJoinTopic = DEFAULT_GROUP_JOIN_TOPIC;
 
+    /** Android 群业务动作命令 topic。 */
+    private String groupActionTopic = DEFAULT_GROUP_ACTION_TOPIC;
+
     @Override
     public void afterPropertiesSet() {
-        if (isBlank(lifecycleTopic) || isBlank(messageTopic) || isBlank(groupJoinTopic)) {
+        if (isBlank(lifecycleTopic) || isBlank(messageTopic)
+                || isBlank(groupJoinTopic) || isBlank(groupActionTopic)) {
             throw new IllegalArgumentException("Android 命令 topic 不能为空");
         }
         lifecycleTopic = lifecycleTopic.trim();
         messageTopic = messageTopic.trim();
         groupJoinTopic = groupJoinTopic.trim();
+        groupActionTopic = groupActionTopic.trim();
         if (lifecycleTopic.equals(messageTopic)
                 || lifecycleTopic.equals(groupJoinTopic)
-                || messageTopic.equals(groupJoinTopic)) {
+                || lifecycleTopic.equals(groupActionTopic)
+                || messageTopic.equals(groupJoinTopic)
+                || messageTopic.equals(groupActionTopic)
+                || groupJoinTopic.equals(groupActionTopic)) {
             throw new IllegalArgumentException("Android 命令 topic 必须互不重复");
         }
     }
@@ -100,5 +111,15 @@ public class ProtocolAndroidCommandProperties implements InitializingBean {
      */
     public void setGroupJoinTopic(String groupJoinTopic) {
         this.groupJoinTopic = groupJoinTopic;
+    }
+
+    /** 获取 Android 群业务动作命令 topic。 */
+    public String getGroupActionTopic() {
+        return groupActionTopic;
+    }
+
+    /** 设置 Android 群业务动作命令 topic。 */
+    public void setGroupActionTopic(String groupActionTopic) {
+        this.groupActionTopic = groupActionTopic;
     }
 }

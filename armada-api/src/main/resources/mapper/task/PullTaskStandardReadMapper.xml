@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskStandardReadMapper">
+
+  <sql id="taskIds">
+    <foreach collection="criteria.taskIds" item="taskId"
+             open="(" separator="," close=")">#{taskId}</foreach>
+  </sql>
+
+  <!-- 所有业务状态由 criteria 传入；IS NULL 仅表示结构性的未释放租约。 -->
+  <select id="selectTaskAggregates"
+          resultType="com.armada.task.model.vo.PullTaskStandardTaskAggregate">
+    SELECT execution_facts.task_id AS taskId,
+           execution_facts.total_group_count AS totalGroupCount,
+           execution_facts.completed_group_count AS completedGroupCount,
+           execution_facts.failed_group_count AS failedGroupCount,
+           execution_facts.abandoned_group_count AS abandonedGroupCount,
+           execution_facts.executing_group_count AS executingGroupCount,
+           execution_facts.waiting_group_count AS waitingGroupCount,
+           execution_facts.manager_shortage_group_count AS managerShortageGroupCount,
+           execution_facts.puller_shortage_group_count AS pullerShortageGroupCount,
+           execution_facts.station_shortage_group_count AS stationShortageGroupCount,
+           COALESCE(material_facts.total_member_count, 0) AS totalMemberCount,
+           COALESCE(material_facts.unconsumed_member_count, 0) AS unconsumedMemberCount,
+           COALESCE(material_facts.submitted_member_count, 0) AS submittedMemberCount,
+           COALESCE(material_facts.successful_member_count, 0) AS successfulMemberCount,
+           COALESCE(material_facts.failed_member_count, 0) AS failedMemberCount,
+           COALESCE(material_facts.unknown_member_count, 0) AS unknownMemberCount,
+           COALESCE(material_facts.canceled_member_count, 0) AS canceledMemberCount,
+           COALESCE(account_facts.available_puller_count, 0) AS availablePullerCount,
+           execution_facts.last_executed_at AS lastExecutedAt
+    FROM (
+      SELECT execution_row.task_id,
+             COUNT(*) AS total_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.completed}
+                      THEN 1 ELSE 0 END) AS completed_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.failed}
+                      THEN 1 ELSE 0 END) AS failed_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.abandoned}
+                      THEN 1 ELSE 0 END) AS abandoned_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.executing}
+                      THEN 1 ELSE 0 END) AS executing_group_count,
+             SUM(CASE WHEN execution_row.execution_status IN
+                          (#{criteria.execution.waitStart}, #{criteria.execution.waitResource})
+                      THEN 1 ELSE 0 END) AS waiting_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.waitResource}
+                           AND execution_row.wait_resource_type =
+                               #{criteria.execution.managerResource}
+                      THEN 1 ELSE 0 END) AS manager_shortage_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.waitResource}
+                           AND execution_row.wait_resource_type =
+                               #{criteria.execution.pullerResource}
+                      THEN 1 ELSE 0 END) AS puller_shortage_group_count,
+             SUM(CASE WHEN execution_row.execution_status = #{criteria.execution.waitResource}
+                           AND execution_row.wait_resource_type =
+                               #{criteria.execution.stationResource}
+                      THEN 1 ELSE 0 END) AS station_shortage_group_count,
+             MAX(execution_row.last_business_executed_at) AS last_executed_at
+      FROM pull_task_group_execution execution_row
+      WHERE execution_row.task_id IN <include refid="taskIds"/>
+      GROUP BY execution_row.task_id
+    ) execution_facts
+    LEFT JOIN (
+      SELECT material_execution.task_id,
+             COUNT(*) AS total_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.unconsumed}
+                      THEN 1 ELSE 0 END) AS unconsumed_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.submitted}
+                      THEN 1 ELSE 0 END) AS submitted_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.success}
+                      THEN 1 ELSE 0 END) AS successful_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.failed}
+                      THEN 1 ELSE 0 END) AS failed_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.unknown}
+                      THEN 1 ELSE 0 END) AS unknown_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.canceled}
+                      THEN 1 ELSE 0 END) AS canceled_member_count
+      FROM pull_task_material_member material_row
+      JOIN pull_task_group_execution material_execution
+        ON material_execution.id = material_row.group_execution_id
+       AND material_execution.tenant_id = material_row.tenant_id
+      WHERE material_execution.task_id IN <include refid="taskIds"/>
+      GROUP BY material_execution.task_id
+    ) material_facts ON material_facts.task_id = execution_facts.task_id
+    LEFT JOIN (
+      SELECT account_row.task_id,
+             COUNT(*) AS available_puller_count
+      FROM pull_task_group_account account_row
+      WHERE account_row.task_id IN <include refid="taskIds"/>
+        AND account_row.role_type = #{criteria.account.pullerRole}
+        AND account_row.availability_status = #{criteria.account.available}
+        AND account_row.released_at IS NULL
+      GROUP BY account_row.task_id
+    ) account_facts ON account_facts.task_id = execution_facts.task_id
+    ORDER BY execution_facts.task_id DESC
+  </select>
+
+  <sql id="executionFilter">
+    execution_row.task_id = #{filter.taskId}
+    <if test="filter.keyword != null">
+      AND (execution_row.normalized_link LIKE CONCAT('%', #{filter.keyword}, '%')
+        OR execution_row.group_jid LIKE CONCAT('%', #{filter.keyword}, '%'))
+    </if>
+    <if test="filter.executionStatus != null">
+      AND execution_row.execution_status = #{filter.executionStatus}
+    </if>
+    <if test="filter.stage != null">
+      AND execution_row.stage = #{filter.stage}
+    </if>
+    <if test="filter.waitResourceType != null">
+      AND execution_row.wait_resource_type = #{filter.waitResourceType}
+    </if>
+    <if test="filter.manualPaused != null">
+      AND execution_row.manual_paused = #{filter.manualPaused}
+    </if>
+  </sql>
+
+  <select id="countExecutions" resultType="long">
+    SELECT COUNT(*)
+    FROM pull_task_group_execution execution_row
+    WHERE <include refid="executionFilter"/>
+  </select>
+
+  <select id="selectExecutionPage"
+          resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT execution_row.*
+    FROM pull_task_group_execution execution_row
+    WHERE <include refid="executionFilter"/>
+    ORDER BY execution_row.seq ASC, execution_row.id ASC
+    LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <sql id="executionIds">
+    <foreach collection="criteria.executionIds" item="executionId"
+             open="(" separator="," close=")">#{executionId}</foreach>
+  </sql>
+
+  <select id="selectExecutionAggregates"
+          resultType="com.armada.task.model.vo.PullTaskStandardExecutionAggregate">
+    SELECT execution_row.id AS executionId,
+           COALESCE(material_facts.total_member_count, 0) AS totalMemberCount,
+           COALESCE(material_facts.unconsumed_member_count, 0) AS unconsumedMemberCount,
+           COALESCE(material_facts.submitted_member_count, 0) AS submittedMemberCount,
+           COALESCE(material_facts.successful_member_count, 0) AS successfulMemberCount,
+           COALESCE(material_facts.failed_member_count, 0) AS failedMemberCount,
+           COALESCE(material_facts.unknown_member_count, 0) AS unknownMemberCount,
+           COALESCE(material_facts.canceled_member_count, 0) AS canceledMemberCount,
+           setting_row.required_manager_count AS requiredManagerCount,
+           setting_row.puller_count_per_group AS plannedPullerCount,
+           setting_row.station_count_per_call AS plannedStationCount,
+           COALESCE(account_facts.current_manager_count, 0) AS currentManagerCount,
+           COALESCE(account_facts.current_puller_count, 0) AS currentPullerCount,
+           COALESCE(account_facts.current_station_count, 0) AS currentStationCount
+    FROM pull_task_group_execution execution_row
+    JOIN pull_task_standard_setting setting_row
+      ON setting_row.task_id = execution_row.task_id
+     AND setting_row.tenant_id = execution_row.tenant_id
+    LEFT JOIN (
+      SELECT material_row.group_execution_id,
+             COUNT(*) AS total_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.unconsumed}
+                      THEN 1 ELSE 0 END) AS unconsumed_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.submitted}
+                      THEN 1 ELSE 0 END) AS submitted_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.success}
+                      THEN 1 ELSE 0 END) AS successful_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.failed}
+                      THEN 1 ELSE 0 END) AS failed_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.unknown}
+                      THEN 1 ELSE 0 END) AS unknown_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.canceled}
+                      THEN 1 ELSE 0 END) AS canceled_member_count
+      FROM pull_task_material_member material_row
+      WHERE material_row.group_execution_id IN <include refid="executionIds"/>
+      GROUP BY material_row.group_execution_id
+    ) material_facts ON material_facts.group_execution_id = execution_row.id
+    LEFT JOIN (
+      SELECT account_row.group_execution_id,
+             SUM(CASE WHEN account_row.role_type = #{criteria.account.managerRole}
+                           AND account_row.availability_status = #{criteria.account.available}
+                           AND account_row.membership_status = #{criteria.account.inGroup}
+                      THEN 1 ELSE 0 END) AS current_manager_count,
+             SUM(CASE WHEN account_row.role_type = #{criteria.account.pullerRole}
+                           AND account_row.availability_status = #{criteria.account.available}
+                           AND account_row.membership_status = #{criteria.account.inGroup}
+                           AND account_row.released_at IS NULL
+                      THEN 1 ELSE 0 END) AS current_puller_count,
+             SUM(CASE WHEN account_row.role_type = #{criteria.account.stationRole}
+                           AND account_row.availability_status = #{criteria.account.available}
+                           AND account_row.membership_status = #{criteria.account.inGroup}
+                      THEN 1 ELSE 0 END) AS current_station_count
+      FROM pull_task_group_account account_row
+      WHERE account_row.group_execution_id IN <include refid="executionIds"/>
+      GROUP BY account_row.group_execution_id
+    ) account_facts ON account_facts.group_execution_id = execution_row.id
+    WHERE execution_row.id IN <include refid="executionIds"/>
+    ORDER BY execution_row.id ASC
+  </select>
+
+</mapper>

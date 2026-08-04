@@ -20,6 +20,9 @@ class PullTaskNormalLinkMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
             "src/main/resources/db/migration/V090__pull_task_normal_link_execution.sql");
+    private static final Path MEMBERSHIP_RESULT_MIGRATION = Path.of(
+            "src/main/resources/db/migration/"
+                    + "V091__pull_task_group_account_membership_result.sql");
 
     private String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);
@@ -105,5 +108,18 @@ class PullTaskNormalLinkMigrationSqlTest {
                         + "(tenant_id, link_occupancy_key)")
                 .contains("UNIQUE KEY uq_pull_task_group_account_occupancy "
                         + "(tenant_id, occupancy_key)");
+    }
+
+    @Test
+    void membershipResultReasonsUseAnIncrementalMigration() throws IOException {
+        String resultSql = Files.readString(
+                MEMBERSHIP_RESULT_MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(resultSql)
+                .contains("ALTER TABLE pull_task_group_account")
+                .contains("ADD COLUMN membership_reason_code VARCHAR(64)")
+                .contains("ADD COLUMN membership_reason_message VARCHAR(255)")
+                .contains("ADD COLUMN membership_result_at BIGINT");
+        assertThat(sql()).doesNotContain("membership_reason_code");
     }
 }

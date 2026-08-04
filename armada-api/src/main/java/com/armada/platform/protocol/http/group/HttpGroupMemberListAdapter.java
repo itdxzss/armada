@@ -62,10 +62,21 @@ public class HttpGroupMemberListAdapter implements GroupMemberListBackend {
         String jid = blankToNull(response.id());
         return new GroupParticipantResult(
                 jid,
-                phone(jid),
+                phone(response),
                 ROLE_ADMIN.equals(role) || ROLE_SUPERADMIN.equals(role),
                 ROLE_SUPERADMIN.equals(role),
                 role);
+    }
+
+    private static String phone(ParticipantResponse response) {
+        String explicitPhone = blankToNull(response.phoneNumber());
+        if (explicitPhone != null) {
+            return phone(explicitPhone);
+        }
+        String jid = blankToNull(response.id());
+        return jid != null && jid.toLowerCase(java.util.Locale.ROOT).endsWith("@lid")
+                ? null
+                : phone(jid);
     }
 
     private static String phone(String jid) {
@@ -88,6 +99,6 @@ public class HttpGroupMemberListAdapter implements GroupMemberListBackend {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    private record ParticipantResponse(String id, String admin) {
+    private record ParticipantResponse(String id, String phoneNumber, String lid, String admin) {
     }
 }

@@ -4,12 +4,11 @@ package com.armada.platform.kafka.consumer.group;
  * Web/Android 协议层统一进群结果事件。
  *
  * <p>该模型属于 Kafka 消费边界，保留协议信封中的排查字段；任务域是否接受事件由
- * {@code joinTaskResultId + commandId + attemptNo} 联合匹配决定，迟到或重复事件不会覆盖新尝试。</p>
+ * {@code correlation + commandId + attemptNo} 联合匹配决定，迟到或重复事件不会覆盖新尝试。</p>
  *
  * @param eventId 协议事件 ID，用于日志关联
  * @param tenantId 任务所属租户 ID
- * @param joinTaskId 进群任务 ID
- * @param joinTaskResultId 本次执行对应的进群明细 ID
+ * @param correlation 按业务来源区分的强类型关联
  * @param accountId Armada 账号 ID
  * @param protocolAccountId 协议层账号 ID，必须与事件信封账号一致
  * @param commandId 触发本次执行的 outbox 命令 ID
@@ -25,8 +24,7 @@ package com.armada.platform.kafka.consumer.group;
 public record ProtocolGroupJoinResultReportedEvent(
         String eventId,
         Long tenantId,
-        Long joinTaskId,
-        Long joinTaskResultId,
+        ProtocolGroupJoinCorrelation correlation,
         Long accountId,
         String protocolAccountId,
         String commandId,

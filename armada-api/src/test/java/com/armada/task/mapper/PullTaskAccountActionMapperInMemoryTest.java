@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
+import java.util.List;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
@@ -123,6 +126,47 @@ class PullTaskAccountActionMapperInMemoryTest {
 
         assertThat(mapper.selectByCommandId("cmd-2").getActionStatus())
                 .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
+    }
+
+    @Test
+    void terminalResultCannotBeOverwrittenByLateWriteBack() {
+        mapper.insertIfAbsent(action(PullTaskAccountActionType.SAVE_CONTACT, 11L, 22L));
+        Long id = mapper.selectPending(EXECUTION).get(0).getId();
+        mapper.markSubmitted(id, "cmd-terminal", 800L);
+
+        assertThat(mapper.writeBackResult(id, PullTaskActionStatus.SUCCESS.code(),
+                null, null, 850L)).isEqualTo(1);
+        assertThat(mapper.writeBackResult(id, PullTaskActionStatus.FAILED.code(),
+                "LATE", "迟到结果", 900L)).isZero();
+        assertThat(mapper.selectByCommandId("cmd-terminal").getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUCCESS.code());
+    }
+
+    @Test
+    void unknownResultConvergesByCallerSuppliedCasStates() {
+        mapper.insertIfAbsent(action(PullTaskAccountActionType.INVITE_TO_GROUP, 11L, 22L));
+        Long id = mapper.selectPending(EXECUTION).get(0).getId();
+        mapper.markSubmitted(id, "cmd-converge", 800L);
+        mapper.writeBackResult(id, PullTaskActionStatus.UNKNOWN.code(),
+                "TIMEOUT", "协议超时", 850L);
+
+        PullTaskFactTransition transition = new PullTaskFactTransition(
+                id, List.of(PullTaskActionStatus.SUBMITTED.code(),
+                        PullTaskActionStatus.UNKNOWN.code()),
+                PullTaskActionStatus.SUCCESS.code(),
+                PullTaskFactResult.success(null, 900L), 900L);
+        assertThat(mapper.transitionResult(transition)).isEqualTo(1);
+        assertThat(mapper.transitionResult(new PullTaskFactTransition(
+                id, List.of(PullTaskActionStatus.UNKNOWN.code()),
+                PullTaskActionStatus.FAILED.code(),
+                PullTaskFactResult.reason("LATE", "迟到失败"), 950L))).isZero();
+        assertThat(mapper.selectByExecutionAndStatuses(
+                EXECUTION, List.of(PullTaskActionStatus.SUCCESS.code())))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getActionStatus())
+                            .isEqualTo(PullTaskActionStatus.SUCCESS.code());
+                    assertThat(row.getReasonCode()).isNull();
+                });
     }
 
     @Test

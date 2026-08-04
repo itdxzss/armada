@@ -53,4 +53,32 @@ class HttpGroupMemberListAdapterTest {
                         "8613700000000@s.whatsapp.net", "8613700000000", false, false, null));
         server.verify();
     }
+
+    @Test
+    void usesPhoneNumberForLidAddressedParticipants() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupMemberListBackend backend = new HttpGroupMemberListAdapter(
+                new ProtocolHttpExecutor(builder.build()));
+        server.expect(requestTo(
+                        "http://protocol-master.internal/v1/groups/120363lid@g.us/participants?accountId=acc_7"))
+                .andRespond(withSuccess("""
+                        [
+                          {
+                            "id": "1234567890@lid",
+                            "phoneNumber": "8613800000000@s.whatsapp.net",
+                            "lid": "1234567890@lid",
+                            "admin": null
+                          }
+                        ]
+                        """, MediaType.APPLICATION_JSON));
+
+        List<GroupParticipantResult> result = backend.list(new GroupMemberListQuery(
+                new ProtocolAccountRef(7L, ProtocolBackend.WEB, "acc_7", "8613800000000"),
+                "120363lid@g.us",
+                "pull-task-manager-join:1:verify"));
+
+        assertThat(result.get(0).phone()).isEqualTo("8613800000000");
+        server.verify();
+    }
 }

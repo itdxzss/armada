@@ -5,6 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.model.dto.PullTaskFactStatusCriteria;
+import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskMaterialPullResult;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -114,10 +118,12 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         List<PullTaskMaterialMember> rows = mapper.selectUnconsumed(EXECUTION, 10);
         mapper.assignToCall(rows.stream().map(PullTaskMaterialMember::getId).toList(), 900L, 900L);
 
-        mapper.writeBackPullResult(rows.get(0).getId(),
-                PullTaskMaterialPullStatus.SUCCESS.code(), null, null, "8613800000001@s.whatsapp.net", 950L);
-        mapper.writeBackPullResult(rows.get(1).getId(),
-                PullTaskMaterialPullStatus.UNKNOWN.code(), "TIMEOUT", "协议超时", null, 950L);
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                rows.get(0).getId(), PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskFactResult.success("8613800000001@s.whatsapp.net", 950L), 950L));
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                rows.get(1).getId(), PullTaskMaterialPullStatus.UNKNOWN.code(),
+                PullTaskFactResult.reason("TIMEOUT", "协议超时"), 950L));
 
         List<PullTaskMaterialMember> after = mapper.selectByExecution(EXECUTION);
         assertThat(after.get(0).getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code());
@@ -144,15 +150,20 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         List<PullTaskMaterialMember> rows = mapper.selectUnconsumed(EXECUTION, 10);
         mapper.assignToCall(rows.stream().map(PullTaskMaterialMember::getId).toList(), 900L, 900L);
 
-        mapper.writeBackPullResult(rows.get(0).getId(),
-                PullTaskMaterialPullStatus.SUCCESS.code(), null, null, "jid1", 950L);
-        mapper.writeBackPullResult(rows.get(1).getId(),
-                PullTaskMaterialPullStatus.FAILED.code(), "PRIVACY", "隐私限制", null, 950L);
-        mapper.writeBackPullResult(rows.get(2).getId(),
-                PullTaskMaterialPullStatus.SUCCESS.code(), null, null, "jid3", 950L);
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                rows.get(0).getId(), PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskFactResult.success("jid1", 950L), 950L));
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                rows.get(1).getId(), PullTaskMaterialPullStatus.FAILED.code(),
+                PullTaskFactResult.reason("PRIVACY", "隐私限制"), 950L));
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                rows.get(2).getId(), PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskFactResult.success("jid3", 950L), 950L));
 
         // 入群失败或结果未知的标记料子不提权；未标记的成功料子也不提权。
-        assertThat(mapper.selectPendingAdmin(EXECUTION))
+        assertThat(mapper.selectPendingAdmin(
+                EXECUTION, 1, PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskMaterialAdminStatus.PENDING.code()))
                 .extracting(PullTaskMaterialMember::getNormalizedPhone)
                 .containsExactly("8613800000001");
     }
@@ -162,9 +173,13 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         mapper.batchInsert(List.of(member(1, "8613800000001", 1)));
         Long id = mapper.selectUnconsumed(EXECUTION, 1).get(0).getId();
         mapper.assignToCall(List.of(id), 900L, 900L);
-        mapper.writeBackPullResult(id, PullTaskMaterialPullStatus.SUCCESS.code(), null, null, "jid1", 950L);
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                id, PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskFactResult.success("jid1", 950L), 950L));
 
-        mapper.markAdminSubmitted(id, "cmd-admin-1", 960L);
+        mapper.markAdminSubmitted(
+                id, PullTaskMaterialAdminStatus.PENDING.code(),
+                PullTaskMaterialAdminStatus.SUBMITTED.code(), "cmd-admin-1", 960L);
 
         PullTaskMaterialMember found = mapper.selectByAdminCommandId("cmd-admin-1");
         assertThat(found).isNotNull();
@@ -173,6 +188,67 @@ class PullTaskMaterialMemberMapperInMemoryTest {
                 .isEqualTo(PullTaskMaterialAdminStatus.SUBMITTED.code());
         // 命令 ID 本身也要原样回读，避免和 pull 结果块的字段串位。
         assertThat(found.getAdminCommandId()).isEqualTo("cmd-admin-1");
+    }
+
+    @Test
+    void adminResultUsesExpectedStatusCasAndCannotBeOverwritten() {
+        mapper.batchInsert(List.of(member(1, "8613800000001", 1)));
+        Long id = mapper.selectUnconsumed(EXECUTION, 1).get(0).getId();
+        mapper.assignToCall(List.of(id), 900L, 900L);
+        mapper.writeBackPullResult(new PullTaskMaterialPullResult(
+                id, PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskFactResult.success("jid1", 950L), 950L));
+        mapper.markAdminSubmitted(
+                id, PullTaskMaterialAdminStatus.PENDING.code(),
+                PullTaskMaterialAdminStatus.SUBMITTED.code(), "cmd-admin-1", 960L);
+
+        assertThat(mapper.writeBackAdminResult(
+                id, PullTaskMaterialAdminStatus.SUBMITTED.code(),
+                PullTaskMaterialAdminStatus.SUCCESS.code(), null, 970L)).isEqualTo(1);
+        assertThat(mapper.writeBackAdminResult(
+                id, PullTaskMaterialAdminStatus.SUBMITTED.code(),
+                PullTaskMaterialAdminStatus.FAILED.code(), "LATE_FAILURE", 980L)).isZero();
+
+        PullTaskMaterialMember saved = mapper.selectByExecution(EXECUTION).get(0);
+        assertThat(saved.getAdminStatus()).isEqualTo(PullTaskMaterialAdminStatus.SUCCESS.code());
+        assertThat(saved.getAdminReasonCode()).isNull();
+        assertThat(saved.getAdminResultAt()).isEqualTo(970L);
+    }
+
+    @Test
+    void submittedAndUnknownPullFactsConvergeByCasAndAreCountedPerCall() {
+        mapper.batchInsert(List.of(member(1, "8613800000001", 1)));
+        Long id = mapper.selectUnconsumed(EXECUTION, 1).get(0).getId();
+        mapper.assignToCall(List.of(id), 900L, 900L);
+        List<Integer> open = List.of(PullTaskMaterialPullStatus.SUBMITTED.code(),
+                PullTaskMaterialPullStatus.UNKNOWN.code());
+        PullTaskFactStatusCriteria criteria = new PullTaskFactStatusCriteria(900L, open);
+        assertThat(mapper.countByPullCallAndStatuses(criteria)).isEqualTo(1);
+
+        assertThat(mapper.transitionPullResult(new PullTaskFactTransition(
+                id, List.of(PullTaskMaterialPullStatus.SUBMITTED.code()),
+                PullTaskMaterialPullStatus.UNKNOWN.code(),
+                PullTaskFactResult.reason("TIMEOUT", "协议超时"), 950L))).isEqualTo(1);
+        assertThat(mapper.transitionPullResult(new PullTaskFactTransition(
+                id, open, PullTaskMaterialPullStatus.SUCCESS.code(),
+                PullTaskFactResult.success(
+                        "8613800000001@s.whatsapp.net", 980L), 980L)))
+                .isEqualTo(1);
+        assertThat(mapper.countByPullCallAndStatuses(criteria)).isZero();
+        PullTaskMaterialMember saved = mapper.selectByExecution(EXECUTION).get(0);
+        assertThat(saved.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code());
+        assertThat(saved.getWaJid()).isEqualTo("8613800000001@s.whatsapp.net");
+
+        mapper.markAdminSubmitted(id, PullTaskMaterialAdminStatus.PENDING.code(),
+                PullTaskMaterialAdminStatus.SUBMITTED.code(), "cmd-admin", 990L);
+        assertThat(mapper.transitionAdminResult(new PullTaskFactTransition(
+                id, List.of(PullTaskMaterialAdminStatus.SUBMITTED.code(),
+                        PullTaskMaterialAdminStatus.UNKNOWN.code()),
+                PullTaskMaterialAdminStatus.SUCCESS.code(),
+                PullTaskFactResult.success(saved.getWaJid(), 1_000L), 1_000L)))
+                .isEqualTo(1);
+        assertThat(mapper.selectByExecution(EXECUTION).get(0).getAdminStatus())
+                .isEqualTo(PullTaskMaterialAdminStatus.SUCCESS.code());
     }
 
     @Test

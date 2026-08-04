@@ -25,10 +25,13 @@ import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
+import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.service.impl.PullTaskStandardCreateServiceImpl;
 import com.armada.task.service.impl.PullTaskStandardDraftServiceImpl;
 import com.armada.task.service.impl.PullTaskStandardDraftWriter;
 import com.armada.task.service.impl.PullTaskStandardDraftWriter.AppendRow;
+import com.armada.task.service.impl.PullTaskStandardSettingWriter;
+import com.armada.task.service.impl.PullTaskStandardStartServiceImpl;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
@@ -115,6 +118,17 @@ class PullTaskStandardCreateServiceTest {
                     assertThat(row.getGroupLinkId()).isNotNull();
                 });
         assertThat(settingMapper.selectByTaskId(taskId).getRequiredManagerCount()).isZero();
+    }
+
+    @Test
+    void autoStartUsesTheSharedStartServiceAfterFreezingTheTask() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+
+        PullTaskStandardCreatedVO created = service.create(
+                withAutoStart(validRequest(taskId, 1), 1), CREATOR);
+
+        assertThat(created.status()).isEqualTo("EXECUTING");
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("EXECUTING");
     }
 
     @Test
@@ -263,6 +277,15 @@ class PullTaskStandardCreateServiceTest {
                 managerGroupId, base.pullerGroupId(), base.stationGroupId());
     }
 
+    private static PullTaskStandardCreateDTO withAutoStart(PullTaskStandardCreateDTO base,
+                                                            int autoStart) {
+        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.version(), base.taskName(),
+                base.remark(), autoStart, base.materialAdminTiming(), base.pullCountMin(),
+                base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
+                base.stationCountPerCall(), base.concurrentGroupCount(), base.pullerRiskMinutes(),
+                base.managerGroupId(), base.pullerGroupId(), base.stationGroupId());
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement
     @Import(MyBatisConfig.class)
@@ -370,13 +393,32 @@ class PullTaskStandardCreateServiceTest {
         }
 
         @Bean
+        PullTaskStandardSettingWriter settingWriter(PullTaskStandardSettingMapper settingMapper,
+                                                     AccountGroupService accountGroupService) {
+            return new PullTaskStandardSettingWriter(settingMapper, accountGroupService);
+        }
+
+        @Bean
+        PullTaskExecutionDispatchTrigger dispatchTrigger() {
+            return mock(PullTaskExecutionDispatchTrigger.class);
+        }
+
+        @Bean
+        PullTaskStandardStartService startService(PullTaskMapper pullTaskMapper,
+                                                  PullTaskStandardSettingMapper settingMapper,
+                                                  PullTaskExecutionDispatchTrigger trigger) {
+            return new PullTaskStandardStartServiceImpl(
+                    pullTaskMapper, settingMapper, trigger, () -> 900L);
+        }
+
+        @Bean
         PullTaskStandardCreateService createService(PullTaskMapper pullTaskMapper,
                                                      PullTaskGroupExecutionMapper executionMapper,
-                                                     PullTaskStandardSettingMapper settingMapper,
+                                                     PullTaskStandardSettingWriter settingWriter,
                                                      GroupLinkRegistryService groupLinkRegistryService,
-                                                     AccountGroupService accountGroupService) {
+                                                     PullTaskStandardStartService startService) {
             return new PullTaskStandardCreateServiceImpl(pullTaskMapper, executionMapper,
-                    settingMapper, groupLinkRegistryService, accountGroupService);
+                    settingWriter, groupLinkRegistryService, startService);
         }
     }
 }

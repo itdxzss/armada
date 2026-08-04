@@ -3,7 +3,7 @@
 <mapper namespace="com.armada.task.mapper.PullTaskAccountActionMapper">
 
   <!-- tenant_id 由租户拦截器注入；唯一键即幂等键，重放返回 0 行。 -->
-  <insert id="insertIfAbsent" useGeneratedKeys="true" keyProperty="id">
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT IGNORE INTO pull_task_account_action (
       task_id, group_execution_id, action_type,
       actor_group_account_id, target_group_account_id,
@@ -11,17 +11,9 @@
     ) VALUES (
       #{taskId}, #{groupExecutionId}, #{actionType},
       #{actorGroupAccountId}, #{targetGroupAccountId},
-      1, #{createdAt}, #{updatedAt}
+      #{actionStatus}, #{createdAt}, #{updatedAt}
     )
   </insert>
-
-  <select id="selectPending" resultType="com.armada.task.model.entity.PullTaskAccountAction">
-    SELECT *
-    FROM pull_task_account_action
-    WHERE group_execution_id = #{groupExecutionId}
-      AND action_status = 1
-    ORDER BY id ASC
-  </select>
 
   <select id="selectByExecutionAndType"
           resultType="com.armada.task.model.entity.PullTaskAccountAction">
@@ -32,24 +24,48 @@
     ORDER BY id ASC
   </select>
 
-  <update id="markSubmitted">
+  <select id="selectByExecutionAndStatuses"
+          resultType="com.armada.task.model.entity.PullTaskAccountAction">
+    SELECT *
+    FROM pull_task_account_action
+    WHERE group_execution_id = #{groupExecutionId}
+      AND action_status IN
+      <foreach collection="statuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+    ORDER BY id ASC
+  </select>
+
+  <update id="transitionSubmitted">
     UPDATE pull_task_account_action
-    SET action_status = 2,
-        command_id = #{commandId},
-        submitted_at = #{now},
-        updated_at = #{now}
-    WHERE id = #{id}
-      AND action_status = 1
+    SET action_status = #{submission.targetStatus},
+        command_id = #{submission.commandId},
+        submitted_at = #{submission.now},
+        updated_at = #{submission.now}
+    WHERE id = #{submission.actionId}
+      AND action_status = #{submission.expectedStatus}
   </update>
 
-  <update id="writeBackResult">
+  <update id="reopenForVerification">
     UPDATE pull_task_account_action
-    SET action_status = #{actionStatus},
-        reason_code = #{reasonCode},
-        reason_message = #{reasonMessage},
-        result_at = #{now},
+    SET action_status = #{submittedStatus},
+        submitted_at = #{now},
+        result_at = NULL,
         updated_at = #{now}
     WHERE id = #{id}
+      AND action_status = #{expectedStatus}
+  </update>
+
+  <update id="transitionResult">
+    UPDATE pull_task_account_action
+    SET action_status = #{transition.targetStatus},
+        reason_code = #{transition.result.reasonCode},
+        reason_message = #{transition.result.reasonMessage},
+        result_at = #{transition.now},
+        updated_at = #{transition.now}
+    WHERE id = #{transition.id}
+      AND action_status IN
+      <foreach collection="transition.expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
   </update>
 
   <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskAccountAction">
@@ -57,5 +73,42 @@
     FROM pull_task_account_action
     WHERE command_id = #{commandId}
   </select>
+
+  <update id="cancelPendingByTask">
+    UPDATE pull_task_account_action
+    SET action_status = #{targetStatus},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND action_status = #{expectedStatus}
+  </update>
+
+  <update id="cancelPendingByExecution">
+    UPDATE pull_task_account_action
+    SET action_status = #{targetStatus},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND action_status = #{expectedStatus}
+  </update>
+
+  <update id="cancelUnpublishedSubmitted">
+    UPDATE pull_task_account_action
+    SET action_status = #{targetStatus},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      <if test="groupExecutionId != null">
+        AND group_execution_id = #{groupExecutionId}
+      </if>
+      AND action_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM protocol_command_outbox outbox_row
+        WHERE outbox_row.command_id = pull_task_account_action.command_id
+          AND outbox_row.status = #{canceledOutboxStatus}
+          AND outbox_row.deleted_at IS NULL
+      )
+  </update>
 
 </mapper>

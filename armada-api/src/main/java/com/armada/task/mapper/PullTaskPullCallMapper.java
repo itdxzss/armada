@@ -1,6 +1,12 @@
 package com.armada.task.mapper;
 
+import com.armada.task.model.dto.PullTaskCallReassignment;
+import com.armada.task.model.dto.PullTaskCallReschedule;
+import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskPullerAssignment;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.enums.PullTaskPullCallStatus;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -19,7 +25,22 @@ public interface PullTaskPullCallMapper {
      * @param row 调用行；写入后回填 id
      * @return 新增行数
      */
-    int insertPlanned(PullTaskPullCall row);
+    int insertInitialized(PullTaskPullCall row);
+
+    /** 兼容业务入口；初始状态由 Java 枚举设置后再交给 XML 持久化。 */
+    default int insertPlanned(PullTaskPullCall row) {
+        row.setCallStatus(PullTaskPullCallStatus.PLANNED.code());
+        return insertInitialized(row);
+    }
+
+    /**
+     * 读取执行行的全部拉人调用，按调用序号升序。
+     *
+     * @param groupExecutionId 执行行 ID
+     * @return 全部调用
+     */
+    List<PullTaskPullCall> selectByExecution(
+            @Param("groupExecutionId") long groupExecutionId);
 
     /**
      * 取执行行下仍处于"计划"状态的调用，供服务重启后重投。
@@ -27,8 +48,15 @@ public interface PullTaskPullCallMapper {
      * @param groupExecutionId 执行行 ID
      * @return 计划中的调用，按 callSeq 升序
      */
-    List<PullTaskPullCall> selectPlannedByExecution(
-            @Param("groupExecutionId") long groupExecutionId);
+    List<PullTaskPullCall> selectByExecutionAndStatus(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("callStatus") int callStatus);
+
+    /** 兼容业务入口；计划态由 Java 枚举传入查询。 */
+    default List<PullTaskPullCall> selectPlannedByExecution(long groupExecutionId) {
+        return selectByExecutionAndStatus(
+                groupExecutionId, PullTaskPullCallStatus.PLANNED.code());
+    }
 
     /**
      * 取某个拉手账号最近一次调用的提交时间，用于校验账号级拉人间隔。
@@ -48,9 +76,55 @@ public interface PullTaskPullCallMapper {
      * @param now 提交时间(epoch 毫秒)
      * @return 实际更新行数；0 表示该调用已不在计划状态
      */
-    int markSubmitted(@Param("id") long id,
-                      @Param("commandId") String commandId,
-                      @Param("now") long now);
+    int transitionSubmitted(@Param("id") long id,
+                            @Param("expectedStatus") int expectedStatus,
+                            @Param("targetStatus") int targetStatus,
+                            @Param("commandId") String commandId,
+                            @Param("now") long now);
+
+    /** 兼容业务入口；前置态和目标态由 Java 枚举传入 CAS。 */
+    default int markSubmitted(long id, String commandId, long now) {
+        return transitionSubmitted(
+                id,
+                PullTaskPullCallStatus.PLANNED.code(),
+                PullTaskPullCallStatus.SUBMITTED.code(),
+                commandId,
+                now);
+    }
+
+    /**
+     * 协议命令尚未提交时，把完整冻结计划改派给另一个实时可用拉手。
+     *
+     * @param id 调用行 ID
+     * @param expectedPullerGroupAccountId 原拉手角色行 ID
+     * @param pullerGroupAccountId 新拉手角色行 ID
+     * @param pullerAccountId 新拉手账号 ID
+     * @param now 更新时间(epoch 毫秒)
+     * @return 1 表示改派成功；0 表示调用或原拉手已变化
+     */
+    int reassignPuller(@Param("reassignment") PullTaskCallReassignment reassignment);
+
+    /**
+     * 拉手账号未上线时按原命令 ID CAS 退回计划态，保留已经冻结的料子和站台。
+     *
+     * @param change 调用、命令和状态条件
+     * @return 1 表示退回成功；0 表示命令已被其他结果收敛
+     */
+    int rescheduleSubmitted(@Param("change") PullTaskCallReschedule change);
+
+    /** 兼容业务入口；只有计划态调用允许改派。 */
+    default int reassignPlannedPuller(long id,
+                                      long expectedPullerGroupAccountId,
+                                      long pullerGroupAccountId,
+                                      long pullerAccountId,
+                                      long now) {
+        return reassignPuller(new PullTaskCallReassignment(
+                id,
+                expectedPullerGroupAccountId,
+                new PullTaskPullerAssignment(pullerGroupAccountId, pullerAccountId),
+                PullTaskPullCallStatus.PLANNED.code(),
+                now));
+    }
 
     /**
      * 回写调用整体结果。
@@ -63,13 +137,23 @@ public interface PullTaskPullCallMapper {
      * @param reasonCode 失败原因码
      * @param reasonMessage 失败原因描述(已脱敏)
      * @param now 回写时间(epoch 毫秒)
-     * @return 实际更新行数
+     * @return 实际更新行数；0 表示调用已不在已提交状态
      */
-    int writeBackResult(@Param("id") long id,
-                        @Param("callStatus") int callStatus,
-                        @Param("reasonCode") String reasonCode,
-                        @Param("reasonMessage") String reasonMessage,
-                        @Param("now") long now);
+    default int writeBackResult(long id,
+                                int callStatus,
+                                String reasonCode,
+                                String reasonMessage,
+                                long now) {
+        return transitionResult(new PullTaskFactTransition(
+                id,
+                List.of(PullTaskPullCallStatus.SUBMITTED.code()),
+                callStatus,
+                PullTaskFactResult.reason(reasonCode, reasonMessage),
+                now));
+    }
+
+    /** 从已提交/未知等允许状态 CAS 收敛调用结果。 */
+    int transitionResult(@Param("transition") PullTaskFactTransition transition);
 
     /**
      * 协议回调按命令 ID 定位调用行。
@@ -78,4 +162,25 @@ public interface PullTaskPullCallMapper {
      * @return 调用行；不存在或不属于当前租户时为 null
      */
     PullTaskPullCall selectByCommandId(@Param("commandId") String commandId);
+
+    /** 任务结束时取消仍处于计划态、尚未提交协议命令的调用。 */
+    int cancelPlannedByTask(@Param("taskId") long taskId,
+                            @Param("expectedStatus") int expectedStatus,
+                            @Param("targetStatus") int targetStatus,
+                            @Param("now") long now);
+
+    /** 单群结束时取消该执行行尚未提交的拉人调用。 */
+    int cancelPlannedByExecution(@Param("groupExecutionId") long groupExecutionId,
+                                 @Param("expectedStatus") int expectedStatus,
+                                 @Param("targetStatus") int targetStatus,
+                                 @Param("now") long now);
+
+    /** 把 Outbox 已取消但已标为提交的批量拉人调用收敛为取消。 */
+    int cancelUnpublishedSubmitted(
+            @Param("taskId") long taskId,
+            @Param("groupExecutionId") Long groupExecutionId,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("canceledOutboxStatus") int canceledOutboxStatus,
+            @Param("now") long now);
 }

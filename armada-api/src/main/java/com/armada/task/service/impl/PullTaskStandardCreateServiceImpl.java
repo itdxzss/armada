@@ -1,19 +1,18 @@
 package com.armada.task.service.impl;
 
-import com.armada.account.model.entity.AccountGroup;
-import com.armada.account.service.AccountGroupService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
-import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
-import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.enums.PullTaskMaterialAdminTiming;
+import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
 import com.armada.task.service.PullTaskStandardCreateService;
+import com.armada.task.service.PullTaskStandardStartService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -36,9 +35,6 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
 
     private static final Logger log = LoggerFactory.getLogger(PullTaskStandardCreateServiceImpl.class);
 
-    /** 启动时才按管理分组可用账号数冻结 N，创建时先写 0。 */
-    private static final int REQUIRED_MANAGER_COUNT_PENDING = 0;
-
     /** 任务名最大长度。 */
     private static final int TASK_NAME_MAX_LENGTH = 128;
 
@@ -51,12 +47,6 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
     /** 创建后是否自动启动：是。 */
     private static final int AUTO_START_YES = 1;
 
-    /** 料子内管理员设置时点合法取值：入群后立即。 */
-    private static final int ADMIN_TIMING_IMMEDIATE = 1;
-
-    /** 料子内管理员设置时点合法取值：本群料子全部终态后。 */
-    private static final int ADMIN_TIMING_AFTER_GROUP_DONE = 2;
-
     /** 单次拉人料子人数下限的最小允许值。 */
     private static final int PULL_COUNT_MIN_FLOOR = 1;
 
@@ -68,9 +58,9 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
 
     private final PullTaskMapper pullTaskMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
-    private final PullTaskStandardSettingMapper settingMapper;
+    private final PullTaskStandardSettingWriter settingWriter;
     private final GroupLinkRegistryService groupLinkRegistryService;
-    private final AccountGroupService accountGroupService;
+    private final PullTaskStandardStartService startService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -78,20 +68,20 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
      *
      * @param pullTaskMapper           任务主表数据访问
      * @param executionMapper          执行行数据访问
-     * @param settingMapper            冻结执行配置数据访问
+     * @param settingWriter            冻结执行配置写入服务
      * @param groupLinkRegistryService 群入口登记服务
-     * @param accountGroupService      账号分组服务
+     * @param startService             手动与自动共用的启动服务
      */
     public PullTaskStandardCreateServiceImpl(PullTaskMapper pullTaskMapper,
                                              PullTaskGroupExecutionMapper executionMapper,
-                                             PullTaskStandardSettingMapper settingMapper,
+                                             PullTaskStandardSettingWriter settingWriter,
                                              GroupLinkRegistryService groupLinkRegistryService,
-                                             AccountGroupService accountGroupService) {
+                                             PullTaskStandardStartService startService) {
         this.pullTaskMapper = pullTaskMapper;
         this.executionMapper = executionMapper;
-        this.settingMapper = settingMapper;
+        this.settingWriter = settingWriter;
         this.groupLinkRegistryService = groupLinkRegistryService;
-        this.accountGroupService = accountGroupService;
+        this.startService = startService;
     }
 
     @Override
@@ -99,7 +89,8 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
     public PullTaskStandardCreatedVO create(PullTaskStandardCreateDTO request, long userId) {
         validate(request);
         PullTask task = requireOwnTask(request.draftTaskId(), userId);
-        if (STATUS_WAIT_START.equals(task.getStatus())) {
+        if (STATUS_WAIT_START.equals(task.getStatus())
+                || PullTaskStandardStatus.EXECUTING.name().equals(task.getStatus())) {
             // 幂等分支：已经提交过。必须在写 setting 之前短路返回，
             // 否则重复提交会撞 pull_task_standard_setting 的主键。
             log.info("普通群链接任务重复提交，返回既有任务 taskId={}", task.getId());
@@ -115,10 +106,11 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
             throw new BusinessException(ErrorCode.VALIDATION, "至少需要一条群链接与 TXT 的匹配");
         }
 
-        settingMapper.insert(toSetting(request, task.getId()));
+        settingWriter.insert(request, task.getId());
         fillGroupLinkIds(rows);
         freezeRows(task.getId());
-        return submit(task, request, rows);
+        PullTaskStandardCreatedVO created = submit(task, request, rows);
+        return autoStart(request, created);
     }
 
     /**
@@ -191,8 +183,10 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
             throw new BusinessException(ErrorCode.VALIDATION, "自动启动取值只能是 0 或 1");
         }
         if (request.materialAdminTiming() == null
-                || (request.materialAdminTiming() != ADMIN_TIMING_IMMEDIATE
-                    && request.materialAdminTiming() != ADMIN_TIMING_AFTER_GROUP_DONE)) {
+                || (request.materialAdminTiming()
+                != PullTaskMaterialAdminTiming.IMMEDIATE.code()
+                && request.materialAdminTiming()
+                != PullTaskMaterialAdminTiming.AFTER_GROUP_DONE.code())) {
             throw new BusinessException(ErrorCode.VALIDATION, "料子内管理员设置时点取值不合法");
         }
         if (request.managerGroupId() == null || request.pullerGroupId() == null
@@ -232,42 +226,6 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
     private static PullTaskStandardCreatedVO toCreatedVO(PullTask task) {
         return new PullTaskStandardCreatedVO(task.getId(), task.getTaskName(), task.getStatus(),
                 task.getGroupCount(), task.getExpectedPullCount());
-    }
-
-    /**
-     * 组装待写入的冻结执行配置，三个分组名称在此刻拍快照。
-     *
-     * @param request 提交入参
-     * @param taskId  草稿任务 ID
-     * @return 待插入的冻结配置
-     */
-    private PullTaskStandardSetting toSetting(PullTaskStandardCreateDTO request, long taskId) {
-        AccountGroup managerGroup = accountGroupService.requireExisting(request.managerGroupId());
-        AccountGroup pullerGroup = accountGroupService.requireExisting(request.pullerGroupId());
-        AccountGroup stationGroup = accountGroupService.requireExisting(request.stationGroupId());
-
-        PullTaskStandardSetting setting = new PullTaskStandardSetting();
-        setting.setTaskId(taskId);
-        setting.setAutoStart(request.autoStart());
-        setting.setMaterialAdminTiming(request.materialAdminTiming());
-        setting.setPullCountMin(request.pullCountMin());
-        setting.setPullCountMax(request.pullCountMax());
-        setting.setPullIntervalSeconds(request.pullIntervalSeconds());
-        setting.setPullerCountPerGroup(request.pullerCountPerGroup());
-        setting.setStationCountPerCall(request.stationCountPerCall());
-        setting.setConcurrentGroupCount(request.concurrentGroupCount());
-        setting.setPullerRiskMinutes(request.pullerRiskMinutes());
-        setting.setRequiredManagerCount(REQUIRED_MANAGER_COUNT_PENDING);
-        setting.setManagerGroupId(request.managerGroupId());
-        setting.setPullerGroupId(request.pullerGroupId());
-        setting.setStationGroupId(request.stationGroupId());
-        setting.setManagerGroupName(managerGroup.getName());
-        setting.setPullerGroupName(pullerGroup.getName());
-        setting.setStationGroupName(stationGroup.getName());
-        long now = System.currentTimeMillis();
-        setting.setCreatedAt(now);
-        setting.setUpdatedAt(now);
-        return setting;
     }
 
     /**
@@ -335,6 +293,16 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
         PullTask saved = pullTaskMapper.selectLifecycle(task.getId());
         return new PullTaskStandardCreatedVO(saved.getId(), saved.getTaskName(),
                 saved.getStatus(), update.getGroupCount(), update.getExpectedPullCount());
+    }
+
+    private PullTaskStandardCreatedVO autoStart(PullTaskStandardCreateDTO request,
+                                                PullTaskStandardCreatedVO created) {
+        if (request.autoStart() != AUTO_START_YES) {
+            return created;
+        }
+        startService.start(created.id());
+        PullTask started = pullTaskMapper.selectLifecycle(created.id());
+        return toCreatedVO(started);
     }
 
     /**

@@ -5,10 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskCallReschedule;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
+import java.util.List;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
@@ -124,6 +128,51 @@ class PullTaskPullCallMapperInMemoryTest {
         assertThat(found.getId()).isEqualTo(call.getId());
         assertThat(found.getCallStatus()).isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
         assertThat(found.getResultAt()).isEqualTo(1100L);
+    }
+
+    @Test
+    void unknownCallConvergesWithoutReturningToPlanned() {
+        PullTaskPullCall call = planned(1, "idem-1");
+        mapper.insertPlanned(call);
+        mapper.markSubmitted(call.getId(), "cmd-1", 1000L);
+        mapper.writeBackResult(call.getId(), PullTaskPullCallStatus.UNKNOWN.code(),
+                "TIMEOUT", "协议超时", 1100L);
+
+        assertThat(mapper.transitionResult(new PullTaskFactTransition(
+                call.getId(), List.of(PullTaskPullCallStatus.SUBMITTED.code(),
+                        PullTaskPullCallStatus.UNKNOWN.code()),
+                PullTaskPullCallStatus.WRITTEN_BACK.code(),
+                PullTaskFactResult.success(null, 1200L), 1200L))).isEqualTo(1);
+        assertThat(mapper.selectByCommandId("cmd-1").getCallStatus())
+                .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
+        assertThat(mapper.selectPlannedByExecution(EXECUTION)).isEmpty();
+    }
+
+    @Test
+    void offlinePullerResetUsesCommandAndStatusCasWhileKeepingFrozenPlan() {
+        PullTaskPullCall call = planned(1, "idem-1");
+        mapper.insertPlanned(call);
+        mapper.markSubmitted(call.getId(), "cmd-1", 1000L);
+        PullTaskCallReschedule.Status status = new PullTaskCallReschedule.Status(
+                PullTaskPullCallStatus.SUBMITTED.code(),
+                PullTaskPullCallStatus.PLANNED.code());
+
+        assertThat(mapper.rescheduleSubmitted(new PullTaskCallReschedule(
+                new PullTaskCallReschedule.Scope(call.getId(), "stale-command", 1100L),
+                status, "ACCOUNT_NOT_ONLINE", "offline"))).isZero();
+        assertThat(mapper.rescheduleSubmitted(new PullTaskCallReschedule(
+                new PullTaskCallReschedule.Scope(call.getId(), "cmd-1", 1200L),
+                status, "ACCOUNT_NOT_ONLINE", "offline"))).isEqualTo(1);
+
+        assertThat(mapper.selectByCommandId("cmd-1")).isNull();
+        assertThat(mapper.selectPlannedByExecution(EXECUTION))
+                .singleElement()
+                .satisfies(saved -> {
+                    assertThat(saved.getId()).isEqualTo(call.getId());
+                    assertThat(saved.getIdempotencyKey()).isEqualTo("idem-1");
+                    assertThat(saved.getReasonCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
+                    assertThat(saved.getSubmittedAt()).isNull();
+                });
     }
 
     @Test

@@ -93,6 +93,33 @@
     ORDER BY id ASC
   </select>
 
+  <!-- 发送前最后一跳 CAS：只有当前 dispatcher 仍持有的 LOCKED 行才能提交发送。 -->
+  <update id="markDispatchingByCommandIdsInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{dispatchingStatus},
+        updated_at = #{now}
+    WHERE deleted_at IS NULL
+      AND status = #{lockedStatus}
+      AND locked_by = #{lockedBy}
+      AND locked_at = #{lockedAt}
+      AND command_id IN
+    <foreach collection="commandIds" item="commandId" open="(" separator="," close=")">#{commandId}</foreach>
+  </update>
+
+  <!-- 与结束操作并发时，只发送本次 CAS 实际提交成功的行。 -->
+  <select id="selectDispatchingByCommandIdsInternal"
+          resultType="com.armada.platform.protocol.model.entity.ProtocolCommandOutbox">
+    SELECT <include refid="Columns"/>
+    FROM protocol_command_outbox
+    WHERE deleted_at IS NULL
+      AND status = #{dispatchingStatus}
+      AND locked_by = #{lockedBy}
+      AND locked_at = #{lockedAt}
+      AND command_id IN
+    <foreach collection="commandIds" item="commandId" open="(" separator="," close=")">#{commandId}</foreach>
+    ORDER BY id ASC
+  </select>
+
   <!-- 一个 Kafka ACK 窗口只做一次 SENT 回写；锁上下文避免旧 dispatcher 覆盖重新抢占的行。 -->
   <update id="markSentBatchByCommandIdsInternal">
     UPDATE protocol_command_outbox
@@ -101,7 +128,8 @@
         last_error = NULL,
         updated_at = #{row.updatedAt}
     WHERE deleted_at IS NULL
-      AND status = #{lockedStatus}
+      AND status IN
+    <foreach collection="expectedStatuses" item="status" open="(" separator="," close=")">#{status}</foreach>
       AND locked_by = #{row.lockedBy}
       AND locked_at = #{row.lockedAt}
       AND command_id IN
@@ -175,6 +203,52 @@
       AND deleted_at IS NULL
   </update>
 
+  <!-- 普通拉群结束取消未提交发送的命令；业务类型和状态由 Java 传入。 -->
+  <update id="cancelPendingPullTaskCommandsInternal">
+    UPDATE protocol_command_outbox
+    SET status = CASE
+          WHEN status = #{dispatchingStatus} THEN #{cancelRequestedStatus}
+          ELSE #{canceledStatus}
+        END,
+        last_error = #{lastError},
+        updated_at = #{now}
+    WHERE (status IN
+    <foreach collection="cancelableStatuses" item="status" open="(" separator="," close=")">#{status}</foreach>
+      OR status = #{dispatchingStatus})
+      AND deleted_at IS NULL
+      AND (
+        (aggregate_type = #{accountActionAggregateType} AND EXISTS (
+          SELECT 1
+          FROM pull_task_account_action action_row
+          WHERE action_row.id = protocol_command_outbox.aggregate_id
+            AND action_row.task_id = #{taskId}
+            <if test="executionId != null">
+              AND action_row.group_execution_id = #{executionId}
+            </if>
+        ))
+        OR (aggregate_type = #{pullCallAggregateType} AND EXISTS (
+          SELECT 1
+          FROM pull_task_pull_call call_row
+          WHERE call_row.id = protocol_command_outbox.aggregate_id
+            AND call_row.task_id = #{taskId}
+            <if test="executionId != null">
+              AND call_row.group_execution_id = #{executionId}
+            </if>
+        ))
+        OR (aggregate_type = #{materialAggregateType} AND EXISTS (
+          SELECT 1
+          FROM pull_task_material_member material_row
+          JOIN pull_task_group_execution execution_row
+            ON execution_row.id = material_row.group_execution_id
+          WHERE material_row.id = protocol_command_outbox.aggregate_id
+            AND execution_row.task_id = #{taskId}
+            <if test="executionId != null">
+              AND execution_row.id = #{executionId}
+            </if>
+        ))
+      )
+  </update>
+
   <!-- 当前锁确认不可恢复失败时进入 DEAD,不再被 PENDING 扫描捞起。 -->
   <update id="markDeadInternal">
     UPDATE protocol_command_outbox
@@ -218,6 +292,65 @@
       AND status = #{lockedStatus}
       AND locked_at IS NOT NULL
       AND locked_at &lt; #{row.lockedAt}
+    ORDER BY id ASC
+    LIMIT #{limit}
+  </update>
+
+  <!-- 结束请求已经截断重试；发送线程丢失后收敛为 CANCELED。 -->
+  <update id="markExpiredCancelRequestedCanceledInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{canceledStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE deleted_at IS NULL
+      AND status = #{cancelRequestedStatus}
+      AND updated_at &lt; #{requestedBefore}
+    ORDER BY id ASC
+    LIMIT #{limit}
+  </update>
+
+  <!-- 发送失败时，已请求结束的命令直接取消，不回到 PENDING。 -->
+  <update id="cancelRequestedInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{canceledStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND deleted_at IS NULL
+      AND status = #{cancelRequestedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <update id="cancelRequestedByCommandIdInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{canceledStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE command_id = #{row.commandId}
+      AND deleted_at IS NULL
+      AND status = #{cancelRequestedStatus}
+      AND locked_by = #{row.lockedBy}
+      AND locked_at = #{row.lockedAt}
+  </update>
+
+  <!-- DISPATCHING 崩溃后发送结果不可判定，保守进入 DEAD，不自动重发真实协议命令。 -->
+  <update id="markExpiredDispatchingDeadInternal">
+    UPDATE protocol_command_outbox
+    SET status = #{deadStatus},
+        locked_by = NULL,
+        locked_at = NULL,
+        last_error = #{row.lastError},
+        updated_at = #{row.updatedAt}
+    WHERE deleted_at IS NULL
+      AND status = #{dispatchingStatus}
+      AND updated_at &lt; #{dispatchingBefore}
     ORDER BY id ASC
     LIMIT #{limit}
   </update>

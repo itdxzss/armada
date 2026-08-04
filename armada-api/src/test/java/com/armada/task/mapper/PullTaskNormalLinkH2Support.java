@@ -86,4 +86,14 @@ public final class PullTaskNormalLinkH2Support {
             }
         }
     }
+
+    /** 重建普通拉群表，并为涉及命令取消的测试按需追加平台 Outbox 表。 */
+    public static void resetSchemaWithProtocolOutbox(
+            DataSource dataSource,
+            String... extraStatements) throws SQLException {
+        String[] statements = new String[extraStatements.length + 1];
+        statements[0] = PullTaskNormalLinkSchema.protocolCommandOutbox();
+        System.arraycopy(extraStatements, 0, statements, 1, extraStatements.length);
+        resetSchema(dataSource, statements);
+    }
 }

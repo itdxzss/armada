@@ -37,7 +37,8 @@ class ProtocolAndroidCommandPropertiesTest {
                 .withPropertyValues(
                         "armada.protocol.kafka.android-commands.lifecycle-topic=lifecycle.test",
                         "armada.protocol.kafka.android-commands.message-topic=message.test",
-                        "armada.protocol.kafka.android-commands.group-join-topic=group-join.test")
+                        "armada.protocol.kafka.android-commands.group-join-topic=group-join.test",
+                        "armada.protocol.kafka.android-commands.group-action-topic=group-action.test")
                 .run(context -> {
                     ProtocolAndroidCommandProperties properties =
                             context.getBean(ProtocolAndroidCommandProperties.class);
@@ -45,6 +46,7 @@ class ProtocolAndroidCommandPropertiesTest {
                     assertThat(properties.getLifecycleTopic()).isEqualTo("lifecycle.test");
                     assertThat(properties.getMessageTopic()).isEqualTo("message.test");
                     assertThat(properties.getGroupJoinTopic()).isEqualTo("group-join.test");
+                    assertThat(properties.getGroupActionTopic()).isEqualTo("group-action.test");
                 });
     }
 
@@ -60,6 +62,9 @@ class ProtocolAndroidCommandPropertiesTest {
             assertThat(context.getEnvironment()
                             .containsProperty("armada.protocol.kafka.android-commands.group-join-topic"))
                     .isTrue();
+            assertThat(context.getEnvironment()
+                            .containsProperty("armada.protocol.kafka.android-commands.group-action-topic"))
+                    .isTrue();
             ProtocolAndroidCommandProperties properties =
                     context.getBean(ProtocolAndroidCommandProperties.class);
             assertThat(properties.getLifecycleTopic())
@@ -68,6 +73,8 @@ class ProtocolAndroidCommandPropertiesTest {
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC);
             assertThat(properties.getGroupJoinTopic())
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
+            assertThat(properties.getGroupActionTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
         });
     }
 
@@ -96,6 +103,19 @@ class ProtocolAndroidCommandPropertiesTest {
     }
 
     @Test
+    void rejectsGroupActionTopicDuplicatingAnotherCommandLane() {
+        contextRunner
+                .withPropertyValues(
+                        "armada.protocol.kafka.android-commands.group-join-topic=duplicate.test",
+                        "armada.protocol.kafka.android-commands.group-action-topic=duplicate.test")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(rootCause(context.getStartupFailure()).getMessage())
+                            .contains("Android 命令 topic 必须互不重复");
+                });
+    }
+
+    @Test
     void ignoresRemovedSharedAndroidCommandTopicProperty() {
         contextRunner
                 .withPropertyValues("armada.protocol.kafka.android-commands.topic=legacy.test")
@@ -108,6 +128,8 @@ class ProtocolAndroidCommandPropertiesTest {
                             .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC);
                     assertThat(properties.getGroupJoinTopic())
                             .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
+                    assertThat(properties.getGroupActionTopic())
+                            .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
                 });
     }
 

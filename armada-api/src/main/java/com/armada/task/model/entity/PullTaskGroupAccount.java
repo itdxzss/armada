@@ -39,6 +39,15 @@ public class PullTaskGroupAccount {
     /** 在群状态，取值见 PullTaskGroupAccountMembershipStatus。 */
     private Integer membershipStatus;
 
+    /** 进群失败或不确定原因码。 */
+    private String membershipReasonCode;
+
+    /** 进群失败或不确定原因描述（已脱敏）。 */
+    private String membershipReasonMessage;
+
+    /** 进群结果回写时间(epoch 毫秒)。 */
+    private Long membershipResultAt;
+
     /** 确认在群时间(epoch 毫秒)。 */
     private Long joinedAt;
 
@@ -163,6 +172,30 @@ public class PullTaskGroupAccount {
 
     public void setMembershipStatus(Integer membershipStatus) {
         this.membershipStatus = membershipStatus;
+    }
+
+    public String getMembershipReasonCode() {
+        return membershipReasonCode;
+    }
+
+    public void setMembershipReasonCode(String membershipReasonCode) {
+        this.membershipReasonCode = membershipReasonCode;
+    }
+
+    public String getMembershipReasonMessage() {
+        return membershipReasonMessage;
+    }
+
+    public void setMembershipReasonMessage(String membershipReasonMessage) {
+        this.membershipReasonMessage = membershipReasonMessage;
+    }
+
+    public Long getMembershipResultAt() {
+        return membershipResultAt;
+    }
+
+    public void setMembershipResultAt(Long membershipResultAt) {
+        this.membershipResultAt = membershipResultAt;
     }
 
     public Long getJoinedAt() {

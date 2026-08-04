@@ -3,6 +3,7 @@ package com.armada.boot.config;
 import com.armada.boot.security.JsonAccessDeniedHandler;
 import com.armada.boot.security.JsonAuthenticationEntryPoint;
 import com.armada.boot.security.TokenAuthenticationFilter;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -18,6 +19,7 @@ public class SecurityConfig {
 
     /** 公开推广与登录接口保持免认证，其余 API 默认必须登录。 */
     @Bean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             TokenAuthenticationFilter tokenFilter,

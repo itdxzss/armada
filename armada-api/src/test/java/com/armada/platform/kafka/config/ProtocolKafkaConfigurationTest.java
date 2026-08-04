@@ -39,6 +39,8 @@ class ProtocolKafkaConfigurationTest {
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC);
             assertThat(androidProperties.getGroupJoinTopic())
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
+            assertThat(androidProperties.getGroupActionTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
             assertThat(context.getBean(ProtocolMasterCommandProperties.class).getTopic())
                     .isEqualTo(ProtocolMasterCommandProperties.DEFAULT_TOPIC);
             ProtocolAccountStateEventConsumerProperties stateProperties =

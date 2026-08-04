@@ -1,6 +1,13 @@
 package com.armada.task.mapper;
 
 import com.armada.task.model.entity.PullTaskGroupAccount;
+import com.armada.task.model.dto.PullTaskFactStatusCriteria;
+import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskStationBinding;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
+import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.vo.PullTaskGroupAccountRoleCount;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -9,6 +16,9 @@ import org.apache.ibatis.annotations.Param;
 /** 执行行角色账号数据访问层。 */
 @Mapper
 public interface PullTaskGroupAccountMapper {
+
+    /** 按主键读取当前租户的角色账号事实。 */
+    PullTaskGroupAccount selectById(@Param("id") long id);
 
     /**
      * 为执行行选中一个角色账号。
@@ -22,7 +32,17 @@ public interface PullTaskGroupAccountMapper {
      * @param row 角色账号；写入后回填 id
      * @return 新增行数
      */
-    int insert(PullTaskGroupAccount row);
+    int insertInitialized(PullTaskGroupAccount row);
+
+    /** 初始化角色事实；角色判断留在 Java，XML 只持久化明确值。 */
+    default int insert(PullTaskGroupAccount row) {
+        row.setMembershipStatus(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code());
+        row.setAdminStatus(row.getRoleType() == PullTaskGroupAccountRole.MANAGER.code()
+                ? PullTaskGroupAccountAdminStatus.PENDING.code()
+                : PullTaskGroupAccountAdminStatus.NOT_APPLICABLE.code());
+        row.setAvailabilityStatus(PullTaskGroupAccountAvailability.AVAILABLE.code());
+        return insertInitialized(row);
+    }
 
     /**
      * 读取执行行内某个角色的全部账号，按 roleSeq 升序。
@@ -42,7 +62,15 @@ public interface PullTaskGroupAccountMapper {
      * @return 每个角色一行；没有可用账号的角色不出现在结果里
      */
     List<PullTaskGroupAccountRoleCount> countAvailableByRole(
-            @Param("groupExecutionId") long groupExecutionId);
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("availabilityStatus") int availabilityStatus);
+
+    /** 详情读模型兼容入口；可用状态码由 Java 枚举传入 XML。 */
+    default List<PullTaskGroupAccountRoleCount> countAvailableByRole(long groupExecutionId) {
+        return countAvailableByRole(
+                groupExecutionId,
+                com.armada.task.model.enums.PullTaskGroupAccountAvailability.AVAILABLE.code());
+    }
 
     /**
      * 释放单个拉手的跨任务占用。
@@ -51,7 +79,15 @@ public interface PullTaskGroupAccountMapper {
      * @param now 释放时间(epoch 毫秒)
      * @return 实际释放行数
      */
-    int releasePuller(@Param("id") long id, @Param("now") long now);
+    int releasePuller(@Param("id") long id,
+                      @Param("roleType") int roleType,
+                      @Param("now") long now);
+
+    /** 执行域兼容入口；角色码由 Java 枚举传给 XML。 */
+    default int releasePuller(long id, long now) {
+        return releasePuller(
+                id, com.armada.task.model.enums.PullTaskGroupAccountRole.PULLER.code(), now);
+    }
 
     /**
      * 执行行恢复时重新占用原拉手。
@@ -64,7 +100,15 @@ public interface PullTaskGroupAccountMapper {
      * @param now 重新占用时间(epoch 毫秒)
      * @return 实际更新行数
      */
-    int reoccupyPuller(@Param("id") long id, @Param("now") long now);
+    int reoccupyPuller(@Param("id") long id,
+                       @Param("roleType") int roleType,
+                       @Param("now") long now);
+
+    /** 执行域兼容入口；角色码由 Java 枚举传给 XML。 */
+    default int reoccupyPuller(long id, long now) {
+        return reoccupyPuller(
+                id, com.armada.task.model.enums.PullTaskGroupAccountRole.PULLER.code(), now);
+    }
 
     /**
      * 释放执行行下全部仍在占用中的拉手。
@@ -73,11 +117,26 @@ public interface PullTaskGroupAccountMapper {
      * 不受影响。</p>
      *
      * @param groupExecutionId 执行行 ID
+     * @param roleType 拉手角色码，由 Java 枚举传入
      * @param now 释放时间(epoch 毫秒)
      * @return 实际释放行数
      */
     int releaseAllPullersOfExecution(@Param("groupExecutionId") long groupExecutionId,
+                                     @Param("roleType") int roleType,
                                      @Param("now") long now);
+
+    /** 执行域兼容入口；角色码仍由 Java 枚举传入 XML。 */
+    default int releaseAllPullersOfExecution(long groupExecutionId, long now) {
+        return releaseAllPullersOfExecution(
+                groupExecutionId,
+                com.armada.task.model.enums.PullTaskGroupAccountRole.PULLER.code(),
+                now);
+    }
+
+    /** 任务暂停或结束时释放其全部拉手占用。 */
+    int releaseAllPullersOfTask(@Param("taskId") long taskId,
+                                @Param("roleType") int roleType,
+                                @Param("now") long now);
 
     /**
      * 标记账号在本执行行不可用。
@@ -96,6 +155,60 @@ public interface PullTaskGroupAccountMapper {
                         @Param("now") long now);
 
     /**
+     * 查询指定候选中仍带某种账号级不可用事实的拉手账号。
+     *
+     * <p>查询不要求角色行仍占用：执行行进入资源等待后会释放租约，但尚未完成真实校验的
+     * 风控账号仍不能被另一个父任务重新选中。</p>
+     *
+     * @param accountIds 候选账号 ID，调用方保证非空
+     * @param roleType 拉手角色码
+     * @param availabilityStatus 要排除的可用性状态
+     * @return 命中账号 ID，已去重
+     */
+    List<Long> selectAccountIdsByAvailability(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("roleType") int roleType,
+            @Param("availabilityStatus") int availabilityStatus);
+
+    /** 从候选集合中查询当前仍被拉手角色占用的账号 ID。 */
+    List<Long> selectOccupiedAccountIds(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("roleType") int roleType);
+
+    /**
+     * 对已经通过实时在线正常校验的账号恢复到期冷却事实。
+     *
+     * <p>只有调用方显式传入的账号、预期状态匹配且冷却时间已到才更新；
+     * {@code cooldown_until IS NULL} 代表不定时恢复，永远不会被本方法命中。</p>
+     *
+     * @param accountIds 已通过真实可用性校验的账号 ID，调用方保证非空
+     * @param roleType 拉手角色码
+     * @param expectedAvailabilityStatus 预期风控冷却状态
+     * @param targetAvailabilityStatus 恢复后的可用状态
+     * @param now 当前时间(epoch 毫秒)
+     * @return 恢复的角色事实行数
+     */
+    int restoreExpiredPullerCooldowns(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("roleType") int roleType,
+            @Param("expectedAvailabilityStatus") int expectedAvailabilityStatus,
+            @Param("targetAvailabilityStatus") int targetAvailabilityStatus,
+            @Param("now") long now);
+
+    /**
+     * 对已通过实时在线正常校验的账号恢复指定可用性事实。
+     *
+     * <p>调用方只应把已完成真实校验的账号 ID 传入；风控冷却仍使用带到期条件的专用
+     * 方法，不能通过本入口绕过冷却时长。</p>
+     */
+    int restoreValidatedAvailability(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("roleType") int roleType,
+            @Param("expectedAvailabilityStatuses") List<Integer> expectedAvailabilityStatuses,
+            @Param("targetAvailabilityStatus") int targetAvailabilityStatus,
+            @Param("now") long now);
+
+    /**
      * 回写账号的在群状态。
      *
      * @param id 角色账号行 ID
@@ -108,4 +221,21 @@ public interface PullTaskGroupAccountMapper {
                          @Param("membershipStatus") int membershipStatus,
                          @Param("joinedAt") Long joinedAt,
                          @Param("now") long now);
+
+    /** 从入群中/未知等允许状态 CAS 收敛角色账号的在群结果。 */
+    int transitionMembership(@Param("transition") PullTaskFactTransition transition);
+
+    /** 把未分配的补充站台按角色、来源和可用性 CAS 绑定到一次调用。 */
+    int bindStationToPullCall(@Param("binding") PullTaskStationBinding binding);
+
+    /** 统计一次拉人调用中仍处于指定在群状态的站台数量。 */
+    int countByPullCallAndMembershipStatuses(
+            @Param("criteria") PullTaskFactStatusCriteria criteria);
+
+    /** 以允许的原状态集合 CAS 更新管理账号实时权限事实。 */
+    int transitionAdminStatus(
+            @Param("id") long id,
+            @Param("expectedAdminStatuses") List<Integer> expectedAdminStatuses,
+            @Param("adminStatus") int adminStatus,
+            @Param("now") long now);
 }

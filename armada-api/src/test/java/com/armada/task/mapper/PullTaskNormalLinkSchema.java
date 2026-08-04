@@ -175,6 +175,9 @@ public final class PullTaskNormalLinkSchema {
                 selection_mode TINYINT NOT NULL DEFAULT 1,
                 entry_mode TINYINT,
                 membership_status TINYINT NOT NULL DEFAULT 0,
+                membership_reason_code VARCHAR(64),
+                membership_reason_message VARCHAR(255),
+                membership_result_at BIGINT,
                 joined_at BIGINT,
                 pull_call_id BIGINT,
                 admin_status TINYINT NOT NULL DEFAULT 0,
@@ -247,6 +250,30 @@ public final class PullTaskNormalLinkSchema {
                 CONSTRAINT uq_pull_task_call_command UNIQUE (tenant_id, command_id)
             )
             """;
+
+    /** 生命周期测试需要验证普通拉群命令取消与业务事实同事务收敛。 */
+    static final String PROTOCOL_COMMAND_OUTBOX = """
+            CREATE TABLE protocol_command_outbox (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id BIGINT NOT NULL,
+                command_id VARCHAR(64) NOT NULL,
+                aggregate_type VARCHAR(64) NOT NULL,
+                aggregate_id BIGINT NOT NULL,
+                status TINYINT NOT NULL,
+                locked_by VARCHAR(64),
+                locked_at BIGINT,
+                sent_at BIGINT,
+                last_error VARCHAR(255),
+                updated_at BIGINT NOT NULL,
+                deleted_at BIGINT,
+                CONSTRAINT uq_protocol_command_outbox_command UNIQUE (command_id)
+            )
+            """;
+
+    /** 仅供涉及协议命令取消的测试按需追加，不属于普通拉群自己的七张表。 */
+    public static String protocolCommandOutbox() {
+        return PROTOCOL_COMMAND_OUTBOX;
+    }
 
     /**
      * 按依赖顺序返回全部建表语句。

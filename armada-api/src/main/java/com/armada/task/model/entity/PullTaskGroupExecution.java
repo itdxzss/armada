@@ -69,7 +69,7 @@ public class PullTaskGroupExecution {
     /** 管理账号轮询游标。 */
     private Integer nextManagerIndex;
 
-    /** 拉手轮询游标。 */
+    /** 下一拉手角色序号游标；按角色稳定顺序轮询。 */
     private Integer nextPullerIndex;
 
     /** 下次可调度时间(epoch 毫秒)；0 表示立即可调度。 */

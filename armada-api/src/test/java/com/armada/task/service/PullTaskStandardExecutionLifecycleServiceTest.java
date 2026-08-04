@@ -1,0 +1,324 @@
+package com.armada.task.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+
+import com.armada.boot.config.MyBatisConfig;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.tenant.TenantContext;
+import com.armada.task.mapper.PullTaskAccountActionMapper;
+import com.armada.task.mapper.PullTaskGroupAccountMapper;
+import com.armada.task.mapper.PullTaskGroupExecutionMapper;
+import com.armada.task.mapper.PullTaskMapper;
+import com.armada.task.mapper.PullTaskMaterialMemberMapper;
+import com.armada.task.mapper.PullTaskNormalLinkH2Support;
+import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.model.entity.PullTask;
+import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
+import com.armada.task.scheduler.PullTaskParentCompletionService;
+import com.armada.task.service.impl.PullTaskStandardExecutionLifecycleResources;
+import com.armada.task.service.impl.PullTaskStandardExecutionLifecycleServiceImpl;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import java.sql.SQLException;
+import javax.sql.DataSource;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+/** LC-02 单群暂停、恢复、结束及资源释放的真实 Mapper 事务测试。 */
+@SpringJUnitConfig(PullTaskStandardExecutionLifecycleServiceTest.TestConfig.class)
+@TestExecutionListeners(
+        listeners = DependencyInjectionTestExecutionListener.class,
+        inheritListeners = false)
+class PullTaskStandardExecutionLifecycleServiceTest {
+
+    @Autowired private DataSource dataSource;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private PullTaskMapper taskMapper;
+    @Autowired private PullTaskStandardExecutionLifecycleService lifecycleService;
+    @Autowired private PullTaskExecutionDispatchTrigger dispatchTrigger;
+    @Autowired private ProtocolCommandOutboxService outboxService;
+
+    @BeforeEach
+    void setUp() throws SQLException {
+        TenantContext.set(7L);
+        PullTaskNormalLinkH2Support.resetSchemaWithProtocolOutbox(dataSource,
+                task(1L, 7L, "EXECUTING"),
+                task(2L, 7L, "EXECUTING"),
+                task(3L, 7L, "COMPLETED"),
+                task(4L, 8L, "EXECUTING"),
+                task(5L, 7L, "PAUSED"),
+                execution(11L, 7L, 1L, 1, 2, 4, 0),
+                execution(12L, 7L, 1L, 2, 3, 5, 0),
+                execution(13L, 7L, 1L, 3, 4, 7, 0),
+                execution(21L, 7L, 2L, 1, 2, 5, 1),
+                execution(31L, 7L, 3L, 1, 4, 7, 0),
+                execution(41L, 8L, 4L, 1, 2, 5, 0),
+                execution(51L, 7L, 5L, 1, 2, 5, 1),
+                puller(101L, 7L, 1L, 11L, 501L, null),
+                puller(102L, 7L, 1L, 12L, 502L, null),
+                puller(201L, 7L, 2L, 21L, 601L, 700L));
+        reset(dispatchTrigger);
+        reset(outboxService);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void pauseOnlyStopsRequestedExecutionAndReleasesItsPullers() {
+        lifecycleService.pause(1L, 11L);
+
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isEqualTo(1);
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 11L)).isEqualTo(2);
+        assertThat(intColumn("stage", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(stringColumn("lock_owner", 11L)).isNull();
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 12L)).isZero();
+        assertThat(longColumn("released_at", "pull_task_group_account", 101L)).isEqualTo(900L);
+        assertThat(longColumn("released_at", "pull_task_group_account", 102L)).isNull();
+        assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+    }
+
+    @Test
+    void resumeClearsOnlyGroupPauseAndKeepsLeaseForValidatedRecovery() {
+        lifecycleService.resume(2L, 21L);
+
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 21L)).isZero();
+        assertThat(longColumn("released_at", "pull_task_group_account", 201L)).isEqualTo(700L);
+        verify(dispatchTrigger).dispatchAfterCommit();
+    }
+
+    @Test
+    void endCancelsOnlyRequestedExecutionAndLeavesSubmittedFactsForWriteBack()
+            throws SQLException {
+        insertEndFacts();
+
+        lifecycleService.end(1L, 11L);
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 11L)).isEqualTo(6);
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 12L)).isEqualTo(3);
+        assertThat(intColumn("action_status", "pull_task_account_action", 301L)).isEqualTo(6);
+        assertThat(intColumn("action_status", "pull_task_account_action", 302L)).isEqualTo(1);
+        assertThat(intColumn("action_status", "pull_task_account_action", 303L)).isEqualTo(2);
+        assertThat(intColumn("call_status", "pull_task_pull_call", 401L)).isEqualTo(5);
+        assertThat(intColumn("call_status", "pull_task_pull_call", 402L)).isEqualTo(2);
+        assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        verify(outboxService).cancelPendingPullTaskCommands(1L, 11L, 900L);
+    }
+
+    @Test
+    void endingLastGroupCompletesRunningParentButPausedParentWaitsForTaskResume() {
+        lifecycleService.end(5L, 51L);
+        assertThat(taskMapper.selectLifecycle(5L).getStatus()).isEqualTo("PAUSED");
+
+        lifecycleService.end(1L, 11L);
+        lifecycleService.end(1L, 12L);
+        PullTask completed = taskMapper.selectLifecycle(1L);
+        assertThat(completed.getStatus()).isEqualTo("COMPLETED");
+        assertThat(completed.getFinishedAt()).isEqualTo(900L);
+    }
+
+    @Test
+    void repeatedOperationsAreIdempotentAndOwnershipOrStateViolationsFail() {
+        lifecycleService.pause(1L, 11L);
+        int version = intColumn("version", "pull_task_group_execution", 11L);
+        lifecycleService.pause(1L, 11L);
+        assertThat(intColumn("version", "pull_task_group_execution", 11L)).isEqualTo(version);
+
+        assertThatThrownBy(() -> lifecycleService.resume(1L, 13L))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> lifecycleService.pause(1L, 41L))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> lifecycleService.pause(3L, 31L))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    private void insertEndFacts() throws SQLException {
+        execute("INSERT INTO pull_task_account_action "
+                + "(id, tenant_id, task_id, group_execution_id, action_type, "
+                + "actor_group_account_id, target_group_account_id, action_status, created_at, updated_at) "
+                + "VALUES (301, 7, 1, 11, 1, 101, 102, 1, 100, 100), "
+                + "(302, 7, 1, 12, 1, 102, 101, 1, 100, 100), "
+                + "(303, 7, 1, 11, 2, 101, 102, 2, 100, 100)");
+        execute("INSERT INTO pull_task_pull_call "
+                + "(id, tenant_id, task_id, group_execution_id, call_seq, puller_group_account_id, "
+                + "puller_account_id, planned_material_count, planned_station_count, call_status, "
+                + "idempotency_key, created_at, updated_at) VALUES "
+                + "(401, 7, 1, 11, 1, 101, 501, 1, 0, 1, 'planned', 100, 100), "
+                + "(402, 7, 1, 11, 2, 101, 501, 1, 0, 2, 'submitted', 100, 100)");
+        execute("INSERT INTO pull_task_material_member "
+                + "(id, tenant_id, group_execution_id, member_seq, source_line_no, normalized_phone, "
+                + "admin_required, pull_call_id, pull_status, admin_status, created_at, updated_at) VALUES "
+                + "(501, 7, 11, 1, 1, '861001', 0, 401, 1, 0, 100, 100), "
+                + "(502, 7, 11, 2, 2, '861002', 0, 402, 1, 0, 100, 100), "
+                + "(503, 7, 12, 1, 1, '861003', 0, NULL, 0, 0, 100, 100)");
+    }
+
+    private int intColumn(String column, String table, long id) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM " + table + " WHERE id = ?", Integer.class, id);
+    }
+
+    private Long longColumn(String column, String table, long id) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM " + table + " WHERE id = ?", Long.class, id);
+    }
+
+    private String stringColumn(String column, long executionId) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM pull_task_group_execution WHERE id = ?",
+                String.class, executionId);
+    }
+
+    private static String task(long id, long tenantId, String status) {
+        return "INSERT INTO pull_task "
+                + "(id, tenant_id, task_type, task_name, mode, status, version, "
+                + "config_json, created_at, updated_at) VALUES (" + id + ", " + tenantId
+                + ", 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                + "', 1, '{}', 100, 100)";
+    }
+
+    private static String execution(long id, long tenantId, long taskId, int seq,
+                                    int status, int stage, int paused) {
+        return "INSERT INTO pull_task_group_execution "
+                + "(id, tenant_id, task_id, seq, normalized_link, invite_code, source_link_line_no, "
+                + "source_file_index, source_file_name, execution_status, stage, manual_paused, "
+                + "next_run_at, lock_owner, lock_expires_at, version, created_at, updated_at) VALUES ("
+                + id + ", " + tenantId + ", " + taskId + ", " + seq
+                + ", 'chat.whatsapp.com/" + taskId + "-" + seq + "', 'code" + seq
+                + "', " + seq + ", " + seq + ", 'a.txt', " + status + ", " + stage + ", "
+                + paused + ", 0, 'worker', 5000, 1, 100, 100)";
+    }
+
+    private static String puller(long id, long tenantId, long taskId, long executionId,
+                                 long accountId, Long releasedAt) {
+        String released = releasedAt == null ? "NULL" : releasedAt.toString();
+        return "INSERT INTO pull_task_group_account "
+                + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, role_type, "
+                + "role_seq, membership_status, availability_status, occupied_at, released_at, "
+                + "created_at, updated_at) VALUES (" + id + ", " + tenantId + ", " + taskId
+                + ", " + executionId + ", " + accountId + ", '861" + accountId
+                + "', 2, 1, 2, 1, 100, " + released + ", 100, 100)";
+    }
+
+    private void execute(String sql) throws SQLException {
+        try (var connection = dataSource.getConnection();
+             var statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableTransactionManagement
+    @Import(MyBatisConfig.class)
+    static class TestConfig {
+
+        @Bean DataSource dataSource() {
+            return PullTaskNormalLinkH2Support.dataSource("pull_task_execution_lifecycle_test");
+        }
+
+        @Bean JdbcTemplate jdbcTemplate(DataSource dataSource) {
+            return new JdbcTemplate(dataSource);
+        }
+
+        @Bean PlatformTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
+        }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(DataSource dataSource,
+                                            MybatisPlusInterceptor interceptor) throws Exception {
+            return PullTaskNormalLinkH2Support.sqlSessionFactory(dataSource, interceptor,
+                    "mapper/task/PullTaskMapper.xml",
+                    "mapper/task/PullTaskGroupExecutionMapper.xml",
+                    "mapper/task/PullTaskGroupAccountMapper.xml",
+                    "mapper/task/PullTaskAccountActionMapper.xml",
+                    "mapper/task/PullTaskPullCallMapper.xml",
+                    "mapper/task/PullTaskMaterialMemberMapper.xml");
+        }
+
+        @Bean SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {
+            return new SqlSessionTemplate(factory);
+        }
+
+        @Bean PullTaskMapper taskMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskMapper.class);
+        }
+
+        @Bean PullTaskGroupExecutionMapper executionMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskGroupExecutionMapper.class);
+        }
+
+        @Bean PullTaskGroupAccountMapper accountMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskGroupAccountMapper.class);
+        }
+
+        @Bean PullTaskAccountActionMapper actionMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskAccountActionMapper.class);
+        }
+
+        @Bean PullTaskPullCallMapper pullCallMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullCallMapper.class);
+        }
+
+        @Bean PullTaskMaterialMemberMapper materialMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskMaterialMemberMapper.class);
+        }
+
+        @Bean PullTaskExecutionDispatchTrigger dispatchTrigger() {
+            return mock(PullTaskExecutionDispatchTrigger.class);
+        }
+
+        @Bean ProtocolCommandOutboxService outboxService() {
+            return mock(ProtocolCommandOutboxService.class);
+        }
+
+        @Bean
+        PullTaskParentCompletionService completionService(
+                PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper) {
+            return new PullTaskParentCompletionService(taskMapper, executionMapper);
+        }
+
+        @Bean
+        PullTaskStandardExecutionLifecycleResources lifecycleResources(
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskAccountActionMapper actionMapper,
+                PullTaskPullCallMapper pullCallMapper,
+                PullTaskMaterialMemberMapper materialMapper,
+                ProtocolCommandOutboxService outboxService) {
+            return new PullTaskStandardExecutionLifecycleResources(
+                    executionMapper, accountMapper, actionMapper, pullCallMapper,
+                    materialMapper, outboxService);
+        }
+
+        @Bean
+        PullTaskStandardExecutionLifecycleService lifecycleService(
+                PullTaskMapper taskMapper,
+                PullTaskStandardExecutionLifecycleResources resources,
+                PullTaskParentCompletionService completionService,
+                PullTaskExecutionDispatchTrigger dispatchTrigger) {
+            return new PullTaskStandardExecutionLifecycleServiceImpl(
+                    taskMapper, resources, completionService, dispatchTrigger, () -> 900L);
+        }
+    }
+}

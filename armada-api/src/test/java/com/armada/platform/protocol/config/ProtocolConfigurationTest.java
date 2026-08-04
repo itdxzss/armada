@@ -151,6 +151,8 @@ class ProtocolConfigurationTest {
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_MESSAGE_TOPIC);
             assertThat(androidProperties.getGroupJoinTopic())
                     .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_JOIN_TOPIC);
+            assertThat(androidProperties.getGroupActionTopic())
+                    .isEqualTo(ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
 
             ProtocolProperties properties = context.getBean(ProtocolProperties.class);
             assertThat(properties.getBaseUrl()).isEqualTo("http://localhost:3000");

@@ -31,7 +31,7 @@ public interface PullTaskStandardSettingMapper {
      * 互不相同的 N，导致各群的"缺少管理员人数"口径不一致。</p>
      *
      * @param taskId 拉群任务 ID
-     * @param requiredManagerCount 按管理分组可用账号数算出的 N
+     * @param requiredManagerCount 当前需求冻结为一个管理员
      * @param now 更新时间(epoch 毫秒)
      * @return 实际更新行数
      */

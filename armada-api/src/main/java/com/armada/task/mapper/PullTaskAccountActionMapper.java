@@ -1,6 +1,10 @@
 package com.armada.task.mapper;
 
+import com.armada.task.model.dto.PullTaskActionSubmission;
+import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.enums.PullTaskActionStatus;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -32,7 +36,13 @@ public interface PullTaskAccountActionMapper {
      * @param row 动作行；写入后回填 id
      * @return 新增行数；0 表示该动作已存在，此时 row 的 id 未被填充
      */
-    int insertIfAbsent(PullTaskAccountAction row);
+    int insertInitialized(PullTaskAccountAction row);
+
+    /** 兼容业务入口；初始状态由 Java 枚举设置后再交给 XML 持久化。 */
+    default int insertIfAbsent(PullTaskAccountAction row) {
+        row.setActionStatus(PullTaskActionStatus.PENDING.code());
+        return insertInitialized(row);
+    }
 
     /**
      * 取执行行内待执行的动作，按 id 升序。
@@ -40,7 +50,10 @@ public interface PullTaskAccountActionMapper {
      * @param groupExecutionId 执行行 ID
      * @return 待执行动作
      */
-    List<PullTaskAccountAction> selectPending(@Param("groupExecutionId") long groupExecutionId);
+    default List<PullTaskAccountAction> selectPending(long groupExecutionId) {
+        return selectByExecutionAndStatuses(
+                groupExecutionId, List.of(PullTaskActionStatus.PENDING.code()));
+    }
 
     /**
      * 读取执行行内某一类动作的全部记录。
@@ -53,6 +66,11 @@ public interface PullTaskAccountActionMapper {
             @Param("groupExecutionId") long groupExecutionId,
             @Param("actionType") int actionType);
 
+    /** 读取执行行内需要查询或回调收敛的动作，状态集合由业务层传入。 */
+    List<PullTaskAccountAction> selectByExecutionAndStatuses(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("statuses") List<Integer> statuses);
+
     /**
      * 标记动作命令已提交。
      *
@@ -61,9 +79,31 @@ public interface PullTaskAccountActionMapper {
      * @param now 提交时间(epoch 毫秒)
      * @return 实际更新行数；0 表示该动作已不在待执行状态
      */
-    int markSubmitted(@Param("id") long id,
-                      @Param("commandId") String commandId,
-                      @Param("now") long now);
+    default int markSubmitted(long id, String commandId, long now) {
+        return transitionSubmitted(new PullTaskActionSubmission(
+                id,
+                PullTaskActionStatus.PENDING.code(),
+                PullTaskActionStatus.SUBMITTED.code(),
+                commandId,
+                now));
+    }
+
+    /** 由 Java 明确传入前置态和目标态，CAS 提交账号动作。 */
+    int transitionSubmitted(@Param("submission") PullTaskActionSubmission submission);
+
+    /**
+     * 把结果未知的动作重新置为已提交，以便只做事实复核并允许结果 CAS 收敛。
+     *
+     * @param id 动作行 ID
+     * @param expectedStatus 允许的当前状态
+     * @param submittedStatus 已提交状态
+     * @param now 更新时间(epoch 毫秒)
+     * @return 1 表示取得复核资格；0 表示动作状态已变化
+     */
+    int reopenForVerification(@Param("id") long id,
+                              @Param("expectedStatus") int expectedStatus,
+                              @Param("submittedStatus") int submittedStatus,
+                              @Param("now") long now);
 
     /**
      * 回写动作结果。
@@ -73,13 +113,23 @@ public interface PullTaskAccountActionMapper {
      * @param reasonCode 失败原因码
      * @param reasonMessage 失败原因描述(已脱敏)
      * @param now 回写时间(epoch 毫秒)
-     * @return 实际更新行数
+     * @return 实际更新行数；0 表示动作已不在已提交状态，迟到结果不得覆盖终态
      */
-    int writeBackResult(@Param("id") long id,
-                        @Param("actionStatus") int actionStatus,
-                        @Param("reasonCode") String reasonCode,
-                        @Param("reasonMessage") String reasonMessage,
-                        @Param("now") long now);
+    default int writeBackResult(long id,
+                                int actionStatus,
+                                String reasonCode,
+                                String reasonMessage,
+                                long now) {
+        return transitionResult(new PullTaskFactTransition(
+                id,
+                List.of(PullTaskActionStatus.SUBMITTED.code()),
+                actionStatus,
+                PullTaskFactResult.reason(reasonCode, reasonMessage),
+                now));
+    }
+
+    /** 从已提交/未知等允许状态 CAS 收敛动作结果。 */
+    int transitionResult(@Param("transition") PullTaskFactTransition transition);
 
     /**
      * 协议回调按命令 ID 定位动作行。
@@ -88,4 +138,25 @@ public interface PullTaskAccountActionMapper {
      * @return 动作行；不存在或不属于当前租户时为 null
      */
     PullTaskAccountAction selectByCommandId(@Param("commandId") String commandId);
+
+    /** 任务结束时取消尚未提交协议命令的账号动作。 */
+    int cancelPendingByTask(@Param("taskId") long taskId,
+                            @Param("expectedStatus") int expectedStatus,
+                            @Param("targetStatus") int targetStatus,
+                            @Param("now") long now);
+
+    /** 单群结束时取消该执行行尚未提交的账号动作。 */
+    int cancelPendingByExecution(@Param("groupExecutionId") long groupExecutionId,
+                                 @Param("expectedStatus") int expectedStatus,
+                                 @Param("targetStatus") int targetStatus,
+                                 @Param("now") long now);
+
+    /** 把 Outbox 已取消但业务行已标为提交的动作收敛为取消。 */
+    int cancelUnpublishedSubmitted(
+            @Param("taskId") long taskId,
+            @Param("groupExecutionId") Long groupExecutionId,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("canceledOutboxStatus") int canceledOutboxStatus,
+            @Param("now") long now);
 }

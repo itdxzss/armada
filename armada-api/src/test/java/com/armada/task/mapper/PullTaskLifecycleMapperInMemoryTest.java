@@ -7,6 +7,9 @@ import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskQuery;
 import com.armada.task.model.entity.PullTask;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.List;
 import javax.sql.DataSource;
@@ -123,6 +126,15 @@ class PullTaskLifecycleMapperInMemoryTest {
         assertThat(mapper.updateStatusWithVersion(4L, "WAIT_START", "EXECUTING", 1, 700L, null, 700L))
                 .isZero();
         assertThat(mapper.selectLifecycle(4L)).isNull();
+    }
+
+    @Test
+    void lifecycleMapperDoesNotUseExplicitForUpdate() throws IOException {
+        String xml = Files.readString(
+                Path.of("src/main/resources/mapper/task/PullTaskMapper.xml"));
+
+        assertThat(xml).doesNotContainIgnoringCase("FOR UPDATE");
+        assertThat(xml).doesNotContain("selectLifecycleForUpdate");
     }
 
     @Configuration(proxyBeanMethods = false)

@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,9 +25,11 @@ import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandPublishOutcome;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -59,6 +62,9 @@ class ProtocolCommandDispatcherTest {
         properties.setMaxRetryCount(2);
         properties.setLockedTimeoutMs(60_000);
         dispatcher = new ProtocolCommandDispatcher(mapper, publisher, properties);
+        lenient().when(publisher.maximumWindowSendDurationMs()).thenReturn(70_000L);
+        lenient().when(mapper.markDispatching(anyList(), anyLong()))
+                .thenAnswer(invocation -> ((List<?>) invocation.getArgument(0)).size());
     }
 
     @Test
@@ -83,7 +89,7 @@ class ProtocolCommandDispatcherTest {
         assertThat(second.getLockedAt()).isEqualTo(first.getLockedAt());
         verify(mapper, never()).selectDispatchable(anyInt(), anyLong(), anyInt());
         verify(mapper, never()).selectLockedByCommandIds(anyList(), eq("publisher-test"), anyLong());
-        verify(publisher).publishBatchByWindow(eq(List.of(first, second)), any());
+        verify(publisher).publishBatchByWindow(eq(List.of(first, second)), any(), any());
         verify(mapper).markSentBatch(eq(List.of(first, second)), anyLong());
     }
 
@@ -97,11 +103,15 @@ class ProtocolCommandDispatcherTest {
                 eq(List.of("cmd-301", "cmd-302", "cmd-303")), eq("publisher-test"), anyLong()))
                 .thenReturn(3);
         doAnswer(invocation -> {
-            Consumer<List<ProtocolCommandPublishOutcome>> consumer = invocation.getArgument(1);
+            Function<List<ProtocolCommandOutbox>, List<ProtocolCommandOutbox>> selector =
+                    invocation.getArgument(1);
+            Consumer<List<ProtocolCommandPublishOutcome>> consumer = invocation.getArgument(2);
+            assertThat(selector.apply(List.of(first, second))).containsExactly(first, second);
             consumer.accept(List.of(success(first), success(second)));
+            assertThat(selector.apply(List.of(third))).containsExactly(third);
             consumer.accept(List.of(success(third)));
             return null;
-        }).when(publisher).publishBatchByWindow(eq(rows), any());
+        }).when(publisher).publishBatchByWindow(eq(rows), any(), any());
         when(mapper.markSentBatch(eq(List.of(first, second)), anyLong())).thenReturn(2);
         when(mapper.markSentBatch(eq(List.of(third)), anyLong())).thenReturn(1);
 
@@ -136,6 +146,46 @@ class ProtocolCommandDispatcherTest {
     }
 
     @Test
+    void dispatchInsertedRows_taskEndWinsBeforeSendCommit_doesNotPublishCanceledLock() {
+        ProtocolCommandOutbox row = insertedOutboxRow("cmd-canceled", 204L);
+        when(mapper.markLockedByCommandIds(eq(List.of("cmd-canceled")), eq("publisher-test"), anyLong()))
+                .thenReturn(1);
+        when(mapper.markDispatching(eq(List.of(row)), anyLong())).thenReturn(0);
+        publishWindow(List.of(row), List.of());
+
+        ProtocolCommandDispatchResult result = dispatcher.dispatchInsertedRows(List.of(row));
+
+        assertThat(result.selected()).isEqualTo(1);
+        assertThat(result.locked()).isZero();
+        assertThat(result.sent()).isZero();
+        verify(publisher).publishBatchByWindow(eq(List.of(row)), any(), any());
+        verify(mapper, never()).markSentBatch(anyList(), anyLong());
+    }
+
+    @Test
+    void dispatchInsertedRows_partialSendCommit_publishesOnlyRowsThatWonCas() {
+        ProtocolCommandOutbox canceled = insertedOutboxRow("cmd-canceled-partial", 205L);
+        ProtocolCommandOutbox dispatching = insertedOutboxRow("cmd-dispatching-partial", 206L);
+        List<ProtocolCommandOutbox> rows = List.of(canceled, dispatching);
+        when(mapper.markLockedByCommandIds(
+                eq(List.of("cmd-canceled-partial", "cmd-dispatching-partial")),
+                eq("publisher-test"), anyLong())).thenReturn(2);
+        when(mapper.markDispatching(eq(rows), anyLong())).thenReturn(1);
+        when(mapper.selectDispatchingByCommandIds(
+                eq(List.of("cmd-canceled-partial", "cmd-dispatching-partial")),
+                eq("publisher-test"), anyLong())).thenReturn(List.of(dispatching));
+        publishWindow(rows, List.of(success(dispatching)));
+        when(mapper.markSentBatch(eq(List.of(dispatching)), anyLong())).thenReturn(1);
+
+        ProtocolCommandDispatchResult result = dispatcher.dispatchInsertedRows(rows);
+
+        assertThat(result.selected()).isEqualTo(2);
+        assertThat(result.locked()).isEqualTo(1);
+        assertThat(result.sent()).isEqualTo(1);
+        verify(publisher).publishBatchByWindow(eq(rows), any(), any());
+    }
+
+    @Test
     void dispatchPendingNow_locksSendsAndMarksSentOutsideSelectionTransaction() {
         ProtocolCommandOutbox row = outboxRow(101L, "cmd-101", 0);
         when(mapper.selectDispatchable(eq(ProtocolCommandOutboxStatus.PENDING.code()), anyLong(), eq(10)))
@@ -152,7 +202,7 @@ class ProtocolCommandDispatcherTest {
         assertThat(result.sent()).isEqualTo(1);
         assertThat(result.retried()).isZero();
         assertThat(result.dead()).isZero();
-        verify(publisher).publishBatchByWindow(eq(List.of(row)), any());
+        verify(publisher).publishBatchByWindow(eq(List.of(row)), any(), any());
         verify(mapper).markSentBatch(eq(List.of(row)), anyLong());
         verify(mapper, never()).markRetry(same(row), anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
         verify(mapper, never()).markDead(same(row), org.mockito.ArgumentMatchers.anyString(), anyLong());
@@ -226,11 +276,34 @@ class ProtocolCommandDispatcherTest {
     void recoverExpiredLocks_releasesOnlyRowsOlderThanConfiguredTimeout() {
         when(mapper.releaseExpiredLocks(anyLong(), anyLong(), eq("publisher lock expired"), eq(10)))
                 .thenReturn(3);
+        when(mapper.markExpiredDispatchingDead(
+                anyLong(), anyLong(), eq("publisher dispatch outcome unknown"), eq(10)))
+                .thenReturn(2);
 
         int recovered = dispatcher.recoverExpiredLocks();
 
-        assertThat(recovered).isEqualTo(3);
+        assertThat(recovered).isEqualTo(5);
         verify(mapper).releaseExpiredLocks(anyLong(), anyLong(), eq("publisher lock expired"), eq(10));
+        verify(mapper).markExpiredDispatchingDead(
+                anyLong(), anyLong(), eq("publisher dispatch outcome unknown"), eq(10));
+    }
+
+    @Test
+    void recoverExpiredLocks_keepsDispatchingAliveLongerThanMaximumWindowDuration() {
+        when(publisher.maximumWindowSendDurationMs()).thenReturn(180_000L);
+
+        dispatcher.recoverExpiredLocks();
+
+        ArgumentCaptor<Long> lockedBefore = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<Long> dispatchingBefore = ArgumentCaptor.forClass(Long.class);
+        verify(mapper).releaseExpiredLocks(
+                lockedBefore.capture(), anyLong(), eq("publisher lock expired"), eq(10));
+        verify(mapper).markExpiredDispatchingDead(
+                dispatchingBefore.capture(), anyLong(), eq("publisher dispatch outcome unknown"), eq(10));
+        assertThat(lockedBefore.getValue() - dispatchingBefore.getValue()).isEqualTo(121_000L);
+        verify(mapper).markExpiredCancelRequestedCanceled(
+                eq(dispatchingBefore.getValue()), anyLong(),
+                eq("publisher dispatch canceled after task end"), eq(10));
     }
 
     private static ProtocolCommandOutbox outboxRow(Long id, String commandId, int retryCount) {
@@ -269,9 +342,17 @@ class ProtocolCommandDispatcherTest {
     private void publishWindow(List<ProtocolCommandOutbox> rows,
                                List<ProtocolCommandPublishOutcome> outcomes) {
         doAnswer(invocation -> {
-            Consumer<List<ProtocolCommandPublishOutcome>> consumer = invocation.getArgument(1);
-            consumer.accept(outcomes);
+            Function<List<ProtocolCommandOutbox>, List<ProtocolCommandOutbox>> selector =
+                    invocation.getArgument(1);
+            Consumer<List<ProtocolCommandPublishOutcome>> consumer = invocation.getArgument(2);
+            List<ProtocolCommandOutbox> dispatchingRows = selector.apply(rows);
+            List<ProtocolCommandPublishOutcome> selectedOutcomes = outcomes.stream()
+                    .filter(outcome -> dispatchingRows.contains(outcome.row()))
+                    .toList();
+            if (!selectedOutcomes.isEmpty()) {
+                consumer.accept(selectedOutcomes);
+            }
             return null;
-        }).when(publisher).publishBatchByWindow(eq(rows), any());
+        }).when(publisher).publishBatchByWindow(eq(rows), any(), any());
     }
 }

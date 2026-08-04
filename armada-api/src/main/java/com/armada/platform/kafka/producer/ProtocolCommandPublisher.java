@@ -10,6 +10,7 @@ import com.armada.platform.protocol.model.command.ProxyDescriptor;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.result.ProtocolCommandPublishOutcome;
 import com.armada.platform.protocol.model.result.ProtocolCommandPublishResult;
+import com.armada.platform.protocol.service.ProtocolCommandPayloadHydrator;
 import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
 import com.armada.platform.proxy.ProxyResolver;
@@ -33,9 +34,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -50,6 +54,7 @@ public class ProtocolCommandPublisher {
     private static final Logger log = LoggerFactory.getLogger(ProtocolCommandPublisher.class);
     private static final String COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED = "account.online.requested";
     private static final String COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED = "account.offline.requested";
+    private static final long DEFAULT_PRODUCER_MAX_BLOCK_MS = 60_000L;
     private static final TypeReference<Map<String, Object>> CREDENTIAL_TYPE = new TypeReference<>() {
     };
 
@@ -59,6 +64,8 @@ public class ProtocolCommandPublisher {
     private final AccountCredentialMapper credentialMapper;
     private final IpProxyMapper ipProxyMapper;
     private final ProxyResolver proxyResolver;
+    private final List<ProtocolCommandPayloadHydrator> payloadHydrators;
+    private final long maximumWindowSendDurationMs;
 
     /**
      * 创建协议命令 Kafka publisher。
@@ -66,19 +73,41 @@ public class ProtocolCommandPublisher {
      * @param kafkaTemplate KafkaTemplate
      * @param objectMapper JSON 解析器
      * @param properties publisher 配置
+     * @param credentialMapper 账号凭据 Mapper
+     * @param ipProxyMapper IP 代理 Mapper
+     * @param proxyResolver 代理连接参数解析器
+     * @param payloadHydrators 业务引用 payload 补全器
      */
     public ProtocolCommandPublisher(KafkaTemplate<String, ProtocolCommandEnvelope> kafkaTemplate,
                                     ObjectMapper objectMapper,
                                     ProtocolCommandPublisherProperties properties,
                                     AccountCredentialMapper credentialMapper,
                                     IpProxyMapper ipProxyMapper,
-                                    ProxyResolver proxyResolver) {
+                                    ProxyResolver proxyResolver,
+                                    List<ProtocolCommandPayloadHydrator> payloadHydrators) {
         this.kafkaTemplate = kafkaTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.credentialMapper = credentialMapper;
         this.ipProxyMapper = ipProxyMapper;
         this.proxyResolver = proxyResolver;
+        this.payloadHydrators = List.copyOf(payloadHydrators);
+        this.maximumWindowSendDurationMs = resolveMaximumWindowSendDurationMs(
+                kafkaTemplate, properties);
+    }
+
+    /**
+     * 获取单个 Kafka 发送窗口从首条同步提交到全部 ACK 收敛的保守时间上界。
+     *
+     * <p>{@link KafkaTemplate#send(String, Object, Object)} 在返回 Future 前可能为元数据或 producer
+     * buffer 同步阻塞到 {@code max.block.ms}。一个窗口会依次提交最多 max-in-flight 条记录，因此
+     * 上界为 {@code maxInFlight * max.block.ms + sendTimeoutMs}，并采用饱和运算避免配置溢出。
+     * Dispatcher 用该值避免 recovery 把仍在提交或等待 ACK 的命令提前判为结果未知。</p>
+     *
+     * @return 单窗口发送的保守时间上界，单位毫秒
+     */
+    public long maximumWindowSendDurationMs() {
+        return maximumWindowSendDurationMs;
     }
 
     /**
@@ -126,15 +155,35 @@ public class ProtocolCommandPublisher {
     public void publishBatchByWindow(
             List<ProtocolCommandOutbox> rows,
             Consumer<List<ProtocolCommandPublishOutcome>> completedWindowConsumer) {
+        publishBatchByWindow(rows, Function.identity(), completedWindowConsumer);
+    }
+
+    /**
+     * 按有界窗口发送，并在每个窗口真正提交 Kafka 前由调用方做最后状态 CAS。
+     *
+     * @param rows 已预抢占的 outbox 行
+     * @param dispatchingWindowSelector 返回本窗口中实际获得发送权的行
+     * @param completedWindowConsumer 已完成窗口的结果消费者
+     */
+    public void publishBatchByWindow(
+            List<ProtocolCommandOutbox> rows,
+            Function<List<ProtocolCommandOutbox>, List<ProtocolCommandOutbox>> dispatchingWindowSelector,
+            Consumer<List<ProtocolCommandPublishOutcome>> completedWindowConsumer) {
         if (rows == null || rows.isEmpty()) {
             return;
         }
+        Objects.requireNonNull(dispatchingWindowSelector, "dispatchingWindowSelector");
         Objects.requireNonNull(completedWindowConsumer, "completedWindowConsumer");
         PreparedEnvelopes prepared = prepareEnvelopes(rows);
         int maxInFlight = properties.getMaxInFlight();
         for (int start = 0; start < rows.size(); start += maxInFlight) {
             int end = Math.min(start + maxInFlight, rows.size());
-            completedWindowConsumer.accept(publishWindow(rows.subList(start, end), prepared));
+            List<ProtocolCommandOutbox> dispatchingRows = Objects.requireNonNull(
+                    dispatchingWindowSelector.apply(List.copyOf(rows.subList(start, end))),
+                    "dispatchingWindowSelector result");
+            if (!dispatchingRows.isEmpty()) {
+                completedWindowConsumer.accept(publishWindow(dispatchingRows, prepared));
+            }
         }
     }
 
@@ -209,6 +258,54 @@ public class ProtocolCommandPublisher {
         }
     }
 
+    private static long resolveMaximumWindowSendDurationMs(
+            KafkaTemplate<String, ProtocolCommandEnvelope> kafkaTemplate,
+            ProtocolCommandPublisherProperties properties) {
+        long maxBlockMs = resolveProducerMaxBlockMs(kafkaTemplate);
+        long maxInFlight = Math.max(1L, properties.getMaxInFlight());
+        long sendTimeoutMs = properties.getSendTimeoutMs() > 0
+                ? properties.getSendTimeoutMs()
+                : ProtocolCommandPublisherProperties.DEFAULT_SEND_TIMEOUT_MS;
+        return saturatingAdd(saturatingMultiply(maxBlockMs, maxInFlight), sendTimeoutMs);
+    }
+
+    private static long resolveProducerMaxBlockMs(
+            KafkaTemplate<String, ProtocolCommandEnvelope> kafkaTemplate) {
+        ProducerFactory<String, ProtocolCommandEnvelope> producerFactory =
+                kafkaTemplate.getProducerFactory();
+        if (producerFactory == null) {
+            return DEFAULT_PRODUCER_MAX_BLOCK_MS;
+        }
+        Object configured = producerFactory.getConfigurationProperties()
+                .get(ProducerConfig.MAX_BLOCK_MS_CONFIG);
+        if (configured instanceof Number number) {
+            return number.longValue() > 0 ? number.longValue() : DEFAULT_PRODUCER_MAX_BLOCK_MS;
+        }
+        if (configured != null) {
+            try {
+                long parsed = Long.parseLong(configured.toString());
+                return parsed > 0 ? parsed : DEFAULT_PRODUCER_MAX_BLOCK_MS;
+            } catch (NumberFormatException ignored) {
+                // 非法值最终会由 Kafka 自身配置校验拒绝；这里用默认值保持 recovery 上界保守。
+            }
+        }
+        return DEFAULT_PRODUCER_MAX_BLOCK_MS;
+    }
+
+    private static long saturatingMultiply(long left, long right) {
+        if (left > 0 && right > Long.MAX_VALUE / left) {
+            return Long.MAX_VALUE;
+        }
+        return left * right;
+    }
+
+    private static long saturatingAdd(long left, long right) {
+        if (right > Long.MAX_VALUE - left) {
+            return Long.MAX_VALUE;
+        }
+        return left + right;
+    }
+
     /**
      * 提取 CompletableFuture 包装的真实异常，避免重试日志只看到 CompletionException 外壳。
      */
@@ -233,7 +330,9 @@ public class ProtocolCommandPublisher {
                 } else if (COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED.equals(row.getCommandType())) {
                     envelopes.put(commandKey(row), toOfflineEnvelope(row, payload(row)));
                 } else {
-                    envelopes.put(commandKey(row), toEnvelope(row, payload(row)));
+                    JsonNode referencePayload = payload(row);
+                    envelopes.put(commandKey(row), toEnvelope(
+                            row, hydratePayload(row, referencePayload)));
                 }
             } catch (RuntimeException ex) {
                 failures.put(commandKey(row), ex);
@@ -244,6 +343,19 @@ public class ProtocolCommandPublisher {
             hydrateOnlineRows(entry.getKey(), entry.getValue(), envelopes, failures);
         }
         return new PreparedEnvelopes(envelopes, failures);
+    }
+
+    /** 选择唯一业务补全器；没有匹配时沿用既有直通 payload。 */
+    private JsonNode hydratePayload(ProtocolCommandOutbox row, JsonNode referencePayload) {
+        List<ProtocolCommandPayloadHydrator> matching = payloadHydrators.stream()
+                .filter(hydrator -> hydrator.supports(row))
+                .toList();
+        if (matching.size() > 1) {
+            throw validation("协议命令匹配到多个 payload 补全器 commandId=" + row.getCommandId());
+        }
+        return matching.isEmpty()
+                ? referencePayload
+                : matching.get(0).hydrate(row, referencePayload);
     }
 
     private void hydrateOnlineRows(Long tenantId,

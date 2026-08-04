@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.model.dto.PullTaskFactStatusCriteria;
+import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
@@ -155,6 +158,57 @@ class PullTaskGroupAccountMapperInMemoryTest {
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple(1, 1),
                         org.assertj.core.groups.Tuple.tuple(2, 1));
+        assertThat(mapper.countAvailableByRole(
+                EXEC_A, PullTaskGroupAccountAvailability.RISK_COOLDOWN.code()))
+                .extracting(PullTaskGroupAccountRoleCount::getRoleType,
+                            PullTaskGroupAccountRoleCount::getAvailableCount)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(2, 1));
+    }
+
+    @Test
+    void expiredRiskCooldownRestoresOnlyExplicitlyValidatedAccountIds() {
+        PullTaskGroupAccount cooled =
+                role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
+        mapper.insert(cooled);
+        mapper.markUnavailable(cooled.getId(),
+                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                "RATE_LIMITED", 1_000L, 800L);
+
+        assertThat(mapper.restoreExpiredPullerCooldowns(
+                List.of(900L), PullTaskGroupAccountRole.PULLER.code(),
+                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                PullTaskGroupAccountAvailability.AVAILABLE.code(), 999L)).isZero();
+        assertThat(mapper.restoreExpiredPullerCooldowns(
+                List.of(901L), PullTaskGroupAccountRole.PULLER.code(),
+                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                PullTaskGroupAccountAvailability.AVAILABLE.code(), 1_000L)).isZero();
+        assertThat(mapper.restoreExpiredPullerCooldowns(
+                List.of(900L), PullTaskGroupAccountRole.PULLER.code(),
+                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                PullTaskGroupAccountAvailability.AVAILABLE.code(), 1_000L)).isEqualTo(1);
+
+        PullTaskGroupAccount restored = mapper.selectByExecutionAndRole(
+                EXEC_A, PullTaskGroupAccountRole.PULLER.code()).get(0);
+        assertThat(restored.getAvailabilityStatus())
+                .isEqualTo(PullTaskGroupAccountAvailability.AVAILABLE.code());
+        assertThat(restored.getUnavailableReasonCode()).isNull();
+        assertThat(restored.getCooldownUntil()).isNull();
+    }
+
+    @Test
+    void riskCooldownLookupIsAccountLevelAcrossReleasedRows() {
+        PullTaskGroupAccount cooled =
+                role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
+        mapper.insert(cooled);
+        mapper.markUnavailable(cooled.getId(),
+                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                "RATE_LIMITED", 5_000L, 800L);
+        mapper.releasePuller(cooled.getId(), 810L);
+
+        assertThat(mapper.selectAccountIdsByAvailability(
+                List.of(900L, 901L), PullTaskGroupAccountRole.PULLER.code(),
+                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code()))
+                .containsExactly(900L);
     }
 
     @Test
@@ -172,6 +226,72 @@ class PullTaskGroupAccountMapperInMemoryTest {
                 .isEqualTo(PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
         assertThat(saved.getJoinedAt()).isEqualTo(950L);
         assertThat(saved.getUpdatedAt()).isEqualTo(960L);
+    }
+
+    @Test
+    void stationMembershipUsesCasAndCountsUnknownByPullCall() throws SQLException {
+        PullTaskGroupAccount station =
+                role(100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        mapper.insert(station);
+        mapper.updateMembership(station.getId(),
+                PullTaskGroupAccountMembershipStatus.JOINING.code(), null, 500L);
+        try (var connection = dataSource.getConnection();
+             var statement = connection.createStatement()) {
+            statement.execute("UPDATE pull_task_group_account SET pull_call_id = 77 "
+                    + "WHERE id = " + station.getId());
+        }
+        List<Integer> open = List.of(
+                PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+        PullTaskFactStatusCriteria criteria = new PullTaskFactStatusCriteria(77L, open);
+        assertThat(mapper.countByPullCallAndMembershipStatuses(criteria)).isEqualTo(1);
+
+        assertThat(mapper.transitionMembership(new PullTaskFactTransition(
+                station.getId(), open,
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(),
+                PullTaskFactResult.success(null, 600L), 610L))).isEqualTo(1);
+        assertThat(mapper.countByPullCallAndMembershipStatuses(criteria)).isZero();
+        assertThat(mapper.selectById(station.getId()).getJoinedAt()).isEqualTo(600L);
+    }
+
+    @Test
+    void stationMembershipFailurePersistsItsOwnProtocolReason() {
+        PullTaskGroupAccount station =
+                role(100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        mapper.insert(station);
+        mapper.updateMembership(station.getId(),
+                PullTaskGroupAccountMembershipStatus.JOINING.code(), null, 500L);
+
+        assertThat(mapper.transitionMembership(new PullTaskFactTransition(
+                station.getId(),
+                List.of(PullTaskGroupAccountMembershipStatus.JOINING.code()),
+                PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(),
+                PullTaskFactResult.reason("PRIVACY_BLOCKED", "privacy blocked"),
+                610L))).isEqualTo(1);
+
+        PullTaskGroupAccount saved = mapper.selectById(station.getId());
+        assertThat(saved.getMembershipReasonCode()).isEqualTo("PRIVACY_BLOCKED");
+        assertThat(saved.getMembershipReasonMessage()).isEqualTo("privacy blocked");
+        assertThat(saved.getMembershipResultAt()).isEqualTo(610L);
+        assertThat(saved.getUnavailableReasonCode()).isNull();
+    }
+
+    @Test
+    void joiningTransitionDoesNotPretendThatAProtocolResultWasWritten() {
+        PullTaskGroupAccount station =
+                role(100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        mapper.insert(station);
+
+        assertThat(mapper.transitionMembership(new PullTaskFactTransition(
+                station.getId(),
+                List.of(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code()),
+                PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                PullTaskFactResult.empty(), 500L))).isEqualTo(1);
+
+        PullTaskGroupAccount saved = mapper.selectById(station.getId());
+        assertThat(saved.getMembershipStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
+        assertThat(saved.getMembershipResultAt()).isNull();
     }
 
     @Test

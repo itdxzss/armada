@@ -139,7 +139,7 @@ public interface ProtocolCommandOutboxMapper {
      * 读取当前 dispatcher 已抢占成功 outbox 行的底层 SQL 映射。
      *
      * @param ids          候选 outbox id
-     * @param lockedStatus LOCKED 状态码
+     * @param expectedStatuses 允许收敛为 SENT 的 DISPATCHING/CANCEL_REQUESTED 状态码
      * @param lockedBy     dispatcher 实例标识
      * @param lockedAt     本次抢占时间(epoch 毫秒)
      * @return 已由当前 dispatcher 抢占的 outbox 行
@@ -190,13 +190,78 @@ public interface ProtocolCommandOutboxMapper {
                                                                  @Param("lockedAt") long lockedAt);
 
     /**
+     * 将当前 dispatcher 持有的 LOCKED 命令以 CAS 提交为 DISPATCHING。
+     *
+     * <p>LOCKED 是可取消的预抢占态；本更新是发送与业务结束之间的裁决点。
+     * 业务结束先将行取消时，本方法返回 0，调用方不得发送。</p>
+     *
+     * @param lockedRows 必须具有相同 locked_by/locked_at 的命令行
+     * @param now 提交发送的时间(epoch 毫秒)
+     * @return 实际提交发送的行数
+     */
+    default int markDispatching(List<ProtocolCommandOutbox> lockedRows, long now) {
+        if (lockedRows == null || lockedRows.isEmpty()) {
+            return 0;
+        }
+        ProtocolCommandOutbox first = lockedRows.get(0);
+        if (!hasCommandLockContext(first)) {
+            return 0;
+        }
+        boolean sameLock = lockedRows.stream().allMatch(row ->
+                hasCommandLockContext(row)
+                        && first.getLockedBy().equals(row.getLockedBy())
+                        && first.getLockedAt().equals(row.getLockedAt()));
+        if (!sameLock) {
+            return 0;
+        }
+        return markDispatchingByCommandIdsInternal(
+                lockedRows.stream().map(ProtocolCommandOutbox::getCommandId).toList(),
+                first.getLockedBy(),
+                first.getLockedAt(),
+                ProtocolCommandOutboxStatus.LOCKED.code(),
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
+                now);
+    }
+
+    /** 将当前预抢占命令提交为 DISPATCHING 的底层 SQL 映射。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int markDispatchingByCommandIdsInternal(
+            @Param("commandIds") List<String> commandIds,
+            @Param("lockedBy") String lockedBy,
+            @Param("lockedAt") long lockedAt,
+            @Param("lockedStatus") int lockedStatus,
+            @Param("dispatchingStatus") int dispatchingStatus,
+            @Param("now") long now);
+
+    /** 部分 CAS 命中时，只读取当前 dispatcher 已提交发送的命令。 */
+    default List<ProtocolCommandOutbox> selectDispatchingByCommandIds(
+            List<String> commandIds, String lockedBy, long lockedAt) {
+        if (commandIds == null || commandIds.isEmpty()) {
+            return List.of();
+        }
+        return selectDispatchingByCommandIdsInternal(
+                commandIds,
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
+                lockedBy,
+                lockedAt);
+    }
+
+    /** 按锁上下文读取 DISPATCHING 命令的底层 SQL 映射。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<ProtocolCommandOutbox> selectDispatchingByCommandIdsInternal(
+            @Param("commandIds") List<String> commandIds,
+            @Param("dispatchingStatus") int dispatchingStatus,
+            @Param("lockedBy") String lockedBy,
+            @Param("lockedAt") long lockedAt);
+
+    /**
      * 将同一发送窗口内、由当前 Dispatcher 持锁的命令批量标记为 SENT。
      *
      * <p>正常 afterCommit 主路径的内存行可能没有数据库主键，因此统一按全局唯一 command_id 更新。
      * 所有行必须属于同一组 locked_by 和 locked_at；任一行缺少锁上下文或锁不一致时不执行 SQL，
      * 防止旧发送线程误更新后来重新抢占的命令。</p>
      *
-     * @param lockedRows 同一发送窗口内 Kafka ACK 成功的 outbox 行
+     * @param lockedRows 同一发送窗口内 Kafka ACK 成功的 DISPATCHING outbox 行
      * @param sentAt Kafka producer ACK 收敛时间(epoch 毫秒)，也作为 updated_at
      * @return 实际更新行数
      */
@@ -221,7 +286,9 @@ public interface ProtocolCommandOutboxMapper {
         return markSentBatchByCommandIdsInternal(
                 lockedRows.stream().map(ProtocolCommandOutbox::getCommandId).toList(),
                 state,
-                ProtocolCommandOutboxStatus.LOCKED.code(),
+                List.of(
+                        ProtocolCommandOutboxStatus.DISPATCHING.code(),
+                        ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code()),
                 ProtocolCommandOutboxStatus.SENT.code());
     }
 
@@ -237,11 +304,11 @@ public interface ProtocolCommandOutboxMapper {
     @InterceptorIgnore(tenantLine = "true")
     int markSentBatchByCommandIdsInternal(@Param("commandIds") List<String> commandIds,
                                           @Param("row") ProtocolCommandOutbox row,
-                                          @Param("lockedStatus") int lockedStatus,
+                                          @Param("expectedStatuses") List<Integer> expectedStatuses,
                                           @Param("sentStatus") int sentStatus);
 
     /**
-     * 将当前 dispatcher 持有锁的命令释放回 PENDING 等待后续重试。
+     * 将当前 dispatcher 已提交发送、但明确发送失败的命令释放回 PENDING。
      *
      * @param lockedRow   包含 id 或 command_id,以及 locked_by/locked_at 的锁上下文
      * @param nextRetryAt 下次可重试时间(epoch 毫秒)
@@ -257,20 +324,23 @@ public interface ProtocolCommandOutboxMapper {
         row.setNextRetryAt(nextRetryAt);
         row.setLastError(lastError);
         row.setUpdatedAt(updatedAt);
+        if (cancelRequested(row, ProtocolCommandOutboxStatus.CANCELED.code()) == 1) {
+            return 0;
+        }
         if (row.getId() != null) {
             return markRetryInternal(
                     row,
-                    ProtocolCommandOutboxStatus.LOCKED.code(),
+                    ProtocolCommandOutboxStatus.DISPATCHING.code(),
                     ProtocolCommandOutboxStatus.PENDING.code());
         }
         return markRetryByCommandIdInternal(
                 row,
-                ProtocolCommandOutboxStatus.LOCKED.code(),
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
                 ProtocolCommandOutboxStatus.PENDING.code());
     }
 
     /**
-     * 将 LOCKED 命令释放回 PENDING 的底层 SQL 映射。
+     * 将 DISPATCHING 命令释放回 PENDING 的底层 SQL 映射。
      *
      * @param row           包含 id/lockedBy/lockedAt/nextRetryAt/lastError/updatedAt 的状态更新载体
      * @param lockedStatus  LOCKED 状态码
@@ -353,7 +423,23 @@ public interface ProtocolCommandOutboxMapper {
             @Param("now") long now);
 
     /**
-     * 将当前 dispatcher 持有锁的命令标记为 DEAD。
+     * 按普通拉群任务/执行行范围取消 PENDING 命令；聚合类型与状态全部由 Java 传入。
+     */
+    int cancelPendingPullTaskCommandsInternal(
+            @Param("taskId") long taskId,
+            @Param("executionId") Long executionId,
+            @Param("accountActionAggregateType") String accountActionAggregateType,
+            @Param("pullCallAggregateType") String pullCallAggregateType,
+            @Param("materialAggregateType") String materialAggregateType,
+            @Param("cancelableStatuses") List<Integer> cancelableStatuses,
+            @Param("dispatchingStatus") int dispatchingStatus,
+            @Param("canceledStatus") int canceledStatus,
+            @Param("cancelRequestedStatus") int cancelRequestedStatus,
+            @Param("lastError") String lastError,
+            @Param("now") long now);
+
+    /**
+     * 将当前 dispatcher 已提交发送但确认无法恢复的命令标记为 DEAD。
      *
      * @param lockedRow 包含 id 或 command_id,以及 locked_by/locked_at 的锁上下文
      * @param lastError 不可恢复失败原因
@@ -367,20 +453,23 @@ public interface ProtocolCommandOutboxMapper {
         ProtocolCommandOutbox row = stateUpdateRow(lockedRow);
         row.setLastError(lastError);
         row.setUpdatedAt(updatedAt);
+        if (cancelRequested(row, ProtocolCommandOutboxStatus.CANCELED.code()) == 1) {
+            return 0;
+        }
         if (row.getId() != null) {
             return markDeadInternal(
                     row,
-                    ProtocolCommandOutboxStatus.LOCKED.code(),
+                    ProtocolCommandOutboxStatus.DISPATCHING.code(),
                     ProtocolCommandOutboxStatus.DEAD.code());
         }
         return markDeadByCommandIdInternal(
                 row,
-                ProtocolCommandOutboxStatus.LOCKED.code(),
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
                 ProtocolCommandOutboxStatus.DEAD.code());
     }
 
     /**
-     * 将 LOCKED 命令标记为 DEAD 的底层 SQL 映射。
+     * 将 DISPATCHING 命令标记为 DEAD 的底层 SQL 映射。
      *
      * @param row          包含 id/lockedBy/lockedAt/lastError/updatedAt 的状态更新载体
      * @param lockedStatus LOCKED 状态码
@@ -444,6 +533,86 @@ public interface ProtocolCommandOutboxMapper {
                                     @Param("lockedStatus") int lockedStatus,
                                     @Param("pendingStatus") int pendingStatus,
                                     @Param("limit") int limit);
+
+    /**
+     * 将超时 DISPATCHING 收敛为 DEAD。
+     *
+     * <p>DISPATCHING 表示发送权已提交；实例崩溃后无法判定 Kafka 是否已收到，
+     * 因此不能像 LOCKED 一样自动重发，避免重复执行真实协议副作用。</p>
+     */
+    default int markExpiredDispatchingDead(
+            long dispatchingBefore, long now, String lastError, int limit) {
+        if (limit <= 0) {
+            return 0;
+        }
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setLastError(lastError);
+        row.setUpdatedAt(now);
+        return markExpiredDispatchingDeadInternal(
+                row,
+                dispatchingBefore,
+                ProtocolCommandOutboxStatus.DISPATCHING.code(),
+                ProtocolCommandOutboxStatus.DEAD.code(),
+                limit);
+    }
+
+    /** 将超时 DISPATCHING 收敛为 DEAD 的底层 SQL 映射。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int markExpiredDispatchingDeadInternal(
+            @Param("row") ProtocolCommandOutbox row,
+            @Param("dispatchingBefore") long dispatchingBefore,
+            @Param("dispatchingStatus") int dispatchingStatus,
+            @Param("deadStatus") int deadStatus,
+            @Param("limit") int limit);
+
+    /** 将超时 CANCEL_REQUESTED 收敛为 CANCELED，且不重新发送。 */
+    default int markExpiredCancelRequestedCanceled(
+            long requestedBefore, long now, String lastError, int limit) {
+        if (limit <= 0) {
+            return 0;
+        }
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setLastError(lastError);
+        row.setUpdatedAt(now);
+        return markExpiredCancelRequestedCanceledInternal(
+                row,
+                requestedBefore,
+                ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(),
+                limit);
+    }
+
+    /** 将超时 CANCEL_REQUESTED 收敛为 CANCELED 的底层 SQL 映射。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int markExpiredCancelRequestedCanceledInternal(
+            @Param("row") ProtocolCommandOutbox row,
+            @Param("requestedBefore") long requestedBefore,
+            @Param("cancelRequestedStatus") int cancelRequestedStatus,
+            @Param("canceledStatus") int canceledStatus,
+            @Param("limit") int limit);
+
+    private int cancelRequested(ProtocolCommandOutbox row, int canceledStatus) {
+        if (row.getId() != null) {
+            return cancelRequestedInternal(
+                    row, ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), canceledStatus);
+        }
+        return cancelRequestedByCommandIdInternal(
+                row, ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), canceledStatus);
+    }
+
+    /** 失败结果遇到已请求结束的命令时，收敛为 CANCELED。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int cancelRequestedInternal(
+            @Param("row") ProtocolCommandOutbox row,
+            @Param("cancelRequestedStatus") int cancelRequestedStatus,
+            @Param("canceledStatus") int canceledStatus);
+
+    /** 按 command_id 收敛已请求结束的失败命令。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int cancelRequestedByCommandIdInternal(
+            @Param("row") ProtocolCommandOutbox row,
+            @Param("cancelRequestedStatus") int cancelRequestedStatus,
+            @Param("canceledStatus") int canceledStatus);
 
     private static boolean hasLockContext(ProtocolCommandOutbox row) {
         if (row == null || row.getLockedBy() == null || row.getLockedBy().isBlank() || row.getLockedAt() == null) {

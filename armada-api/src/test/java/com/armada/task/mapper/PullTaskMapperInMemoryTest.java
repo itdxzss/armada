@@ -130,7 +130,18 @@ class PullTaskMapperInMemoryTest {
                     updated_at BIGINT NOT NULL
                 )
                 """, """
+                CREATE TABLE pull_task_standard_group_setting (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    task_id BIGINT NOT NULL,
+                    group_name VARCHAR(128),
+                    is_material_filename_as_group_name TINYINT NOT NULL DEFAULT 0,
+                    UNIQUE (tenant_id, task_id)
+                )
+                """, """
                 INSERT INTO pull_task VALUES
+                  (10, 7, 'STANDARD', NULL, '普通链接任务', NULL, 'NORMAL_LINK',
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 900, 900, NULL, NULL, NULL),
                   (11, 7, 'STANDARD', NULL, '普通任务甲', '普通群', 'OLD_LINK',
                    'WAIT_START', NULL, NULL, NULL, NULL, 1, 2, 100, '运营甲', 1000, 1000, NULL, NULL, NULL),
                   (12, 7, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
@@ -145,6 +156,10 @@ class PullTaskMapperInMemoryTest {
                   (21, 8, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
                    'OLD_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 5, 10000, '运营乙',
                    2000, 2100, NULL, NULL, NULL)
+                """, """
+                INSERT INTO pull_task_standard_group_setting (
+                    tenant_id, task_id, group_name, is_material_filename_as_group_name
+                ) VALUES (7, 10, '新客户群', 0)
                 """, """
                 INSERT INTO pull_task_group_marketing_summary (
                     tenant_id, task_id, target_group_count, message_success_count,
@@ -192,6 +207,22 @@ class PullTaskMapperInMemoryTest {
                 null, null, null, null, null, null), 0, 2))
                 .extracting(PullTask::getId)
                 .containsExactly(13L, 12L);
+    }
+
+    @Test
+    void standardNormalLinkListUsesNormalizedGroupSettingName() {
+        PullTaskFilter keyword = new PullTaskFilter(
+                null, "新客户群", null, PullTaskType.STANDARD, null, null);
+
+        assertThat(mapper.countPage(keyword)).isEqualTo(1);
+        assertThat(mapper.selectPage(keyword, 0, 10)).singleElement()
+                .satisfies(task -> {
+                    assertThat(task.getId()).isEqualTo(10L);
+                    assertThat(task.getGroupName()).isEqualTo("新客户群");
+                });
+        assertThat(mapper.selectPage(new PullTaskFilter(
+                11L, null, null, null, null, null), 0, 10)).singleElement()
+                .satisfies(task -> assertThat(task.getGroupName()).isEqualTo("普通群"));
     }
 
     @Test

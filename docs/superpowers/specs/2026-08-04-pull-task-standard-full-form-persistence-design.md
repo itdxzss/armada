@@ -2,7 +2,7 @@
 
 日期：2026-08-04
 
-状态：业务设计已确认，等待书面评审后进入实施计划
+状态：已实现（本地聚焦回归通过；完整 DB 回归待具备本地 MySQL/Docker 后复跑）
 
 范围：`pull_task.task_type=STANDARD`、`mode=NORMAL_LINK` 的创建页完整表单持久化
 不含：红框“模板与内容/营销规则”模块、原型标记“后期”的字段、群资料协议执行
@@ -35,7 +35,7 @@
 12. `station_count_per_call=0` 时站台分组可空；大于 0 时站台分组必填。
 13. 普通拉群不再把完整配置重复写入 `pull_task.config_json`，也不把配置群名重复写入 `pull_task.group_name`。
 
-## 3. 当前事实与缺口
+## 3. 实施前事实与缺口（现已闭环）
 
 ### 3.1 已有正常链路
 
@@ -45,7 +45,7 @@
 - `pull_task_material_member` 已保存解析后的规范化料子号码。
 - 调度器已实际读取 `pull_task_standard_setting` 中的拉人数量、间隔、并发和账号分组等字段。
 
-### 3.2 当前缺口
+### 3.2 实施前缺口
 
 - 当前创建 DTO 只接收旧执行字段，页面新增字段不会提交给后端。
 - 当前不存在完整群资料任务配置表。
@@ -267,7 +267,6 @@ Content-Type: application/json
   "pullerCountPerGroup": 2,
   "stationCountPerCall": 0,
   "concurrentGroupCount": 1,
-  "pullerRiskMinutes": 0,
   "managerGroupId": 101,
   "pullerGroupId": 102,
   "stationGroupId": null,
@@ -325,6 +324,7 @@ GET /api/pull-tasks/standard/{taskId}
 - `useMaterialFileNameAsGroupName=true` 时强制保存 `group_name=NULL`。
 - `managerGroupId`、`pullerGroupId` 必填且属于当前租户。
 - `stationCountPerCall>0` 时 `stationGroupId` 必填；为 0 时允许 NULL。
+- 原型标记“后期”的 `pullerRiskMinutes` 不进入创建/回读合同；既有执行列由服务端暂存默认值 0。
 - 完成归档分组可空；非空时必须存在且属于当前租户。
 - `groupFolderId` 可空；非空时必须存在且属于当前租户。
 - 最终草稿必须至少有一条冻结执行行。

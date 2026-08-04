@@ -16,6 +16,7 @@ import com.armada.task.model.dto.PullTaskPullerSupplementDTO;
 import com.armada.task.model.dto.PullTaskStationSupplementDTO;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
+import com.armada.task.model.dto.PullTaskStandardCreateDTOTest;
 import com.armada.task.model.enums.PullTaskSelectionMode;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
 import com.armada.task.model.vo.PullTaskStandardDraftVO;
@@ -37,6 +38,7 @@ import com.armada.task.service.PullTaskStandardLifecycleService;
 import com.armada.task.service.PullTaskStandardStartService;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -83,47 +85,50 @@ class PullTaskStandardControllerTest {
 
     @Test
     void planPassesEmptyListWhenNoFileUploaded() {
-        when(draftService.plan(anyString(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+        when(draftService.plan(any(), anyString(), any(), anyLong(), anyString()))
+                .thenReturn(EMPTY_VIEW);
 
-        controller.plan("chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA", null, principal("小王", "wang"));
+        controller.plan(null, "chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA",
+                null, principal("小王", "wang"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MultipartFile>> captor = ArgumentCaptor.forClass(List.class);
-        verify(draftService).plan(anyString(), captor.capture(), anyLong(), anyString());
+        verify(draftService).plan(
+                any(), anyString(), captor.capture(), anyLong(), anyString());
         // 禁止把 null 透传进 Service，空列表才是"本次没传文件"的正确表达。
         assertThat(captor.getValue()).isEmpty();
     }
 
     @Test
     void planForwardsUploadedFilesInOrder() {
-        when(draftService.plan(any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+        when(draftService.plan(any(), any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
         MultipartFile[] files = {txt("a.txt"), txt("b.txt")};
 
-        controller.plan(null, files, principal("小王", "wang"));
+        controller.plan(null, null, files, principal("小王", "wang"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MultipartFile>> captor = ArgumentCaptor.forClass(List.class);
-        verify(draftService).plan(any(), captor.capture(), anyLong(), anyString());
+        verify(draftService).plan(any(), any(), captor.capture(), anyLong(), anyString());
         assertThat(captor.getValue()).extracting(MultipartFile::getOriginalFilename)
                 .containsExactly("a.txt", "b.txt");
     }
 
     @Test
-    void planUsesNicknameAsOperatorName() {
-        when(draftService.plan(any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+    void planForwardsGroupFolderAndUsesNicknameAsOperatorName() {
+        when(draftService.plan(any(), any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
 
-        controller.plan(null, null, principal("小王", "wang"));
+        controller.plan(18L, null, null, principal("小王", "wang"));
 
-        verify(draftService).plan(null, List.of(), 501L, "小王");
+        verify(draftService).plan(18L, null, List.of(), 501L, "小王");
     }
 
     @Test
     void planFallsBackToUsernameWhenNicknameIsBlank() {
-        when(draftService.plan(any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+        when(draftService.plan(any(), any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
 
-        controller.plan(null, null, principal("  ", "wang"));
+        controller.plan(null, null, null, principal("  ", "wang"));
 
-        verify(draftService).plan(null, List.of(), 501L, "wang");
+        verify(draftService).plan(null, null, List.of(), 501L, "wang");
     }
 
     @Test
@@ -140,14 +145,37 @@ class PullTaskStandardControllerTest {
 
     @Test
     void createDelegatesRequestAndUserId() {
-        PullTaskStandardCreateDTO request = new PullTaskStandardCreateDTO(
-                1L, 1, "任务", null, 0, 1, 3, 8, 30, 2, 2, 1, 0, 11L, 12L, 13L);
+        PullTaskStandardCreateDTO request = PullTaskStandardCreateDTOTest.request();
         PullTaskStandardCreatedVO created =
                 new PullTaskStandardCreatedVO(1L, "任务", "WAIT_START", 2, 20);
         when(createService.create(request, 501L)).thenReturn(created);
 
         assertThat(controller.create(request, principal("小王", "wang")).data())
                 .isEqualTo(created);
+    }
+
+    @Test
+    void createJsonRejectsUnknownTopLevelAndNestedFields() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        String validJson;
+        try {
+            validJson = objectMapper.writeValueAsString(PullTaskStandardCreateDTOTest.request());
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+
+        assertThatThrownByJson(() -> objectMapper.readValue(
+                validJson.replaceFirst("\\{", "{\"laterField\":1,"),
+                PullTaskStandardCreateDTO.class));
+        assertThatThrownByJson(() -> objectMapper.readValue(
+                validJson.replace("\"groupName\":\"客户群\"",
+                        "\"groupName\":\"客户群\",\"laterNestedField\":1"),
+                PullTaskStandardCreateDTO.class));
+    }
+
+    private static void assertThatThrownByJson(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        org.assertj.core.api.Assertions.assertThatThrownBy(call)
+                .isInstanceOf(com.fasterxml.jackson.databind.JsonMappingException.class);
     }
 
     @Test

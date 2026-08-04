@@ -53,7 +53,11 @@ class PullTaskStandardSettingMapperInMemoryTest {
         assertThat(saved.getTenantId()).isEqualTo(7L);
         assertThat(saved.getTaskId()).isEqualTo(1L);
         assertThat(saved.getAutoStart()).isEqualTo(0);
+        assertThat(saved.getSourceGroupFolderId()).isEqualTo(18L);
+        assertThat(saved.getSourceGroupFolderName()).isEqualTo("印度群");
         assertThat(saved.getMaterialAdminTiming()).isEqualTo(1);
+        assertThat(saved.getPullerSyncMode()).isEqualTo(2);
+        assertThat(saved.getClearExistingMembers()).isEqualTo(1);
         assertThat(saved.getPullCountMin()).isEqualTo(3);
         assertThat(saved.getPullCountMax()).isEqualTo(8);
         assertThat(saved.getPullIntervalSeconds()).isEqualTo(30);
@@ -66,11 +70,34 @@ class PullTaskStandardSettingMapperInMemoryTest {
         assertThat(saved.getManagerGroupId()).isEqualTo(11L);
         assertThat(saved.getPullerGroupId()).isEqualTo(12L);
         assertThat(saved.getStationGroupId()).isEqualTo(13L);
+        assertThat(saved.getManagerFinishGroupId()).isEqualTo(14L);
+        assertThat(saved.getPullerFinishGroupId()).isEqualTo(15L);
         assertThat(saved.getManagerGroupName()).isEqualTo("管理组");
         assertThat(saved.getPullerGroupName()).isEqualTo("拉手组");
         assertThat(saved.getStationGroupName()).isEqualTo("站台组");
+        assertThat(saved.getManagerFinishGroupName()).isEqualTo("管理完成组");
+        assertThat(saved.getPullerFinishGroupName()).isEqualTo("拉手完成组");
         assertThat(saved.getCreatedAt()).isEqualTo(100L);
         assertThat(saved.getUpdatedAt()).isEqualTo(100L);
+    }
+
+    @Test
+    void stationAndFinishGroupsMayBeNull() {
+        PullTaskStandardSetting row = sample(1L);
+        row.setStationGroupId(null);
+        row.setStationGroupName(null);
+        row.setManagerFinishGroupId(null);
+        row.setManagerFinishGroupName(null);
+        row.setPullerFinishGroupId(null);
+        row.setPullerFinishGroupName(null);
+
+        mapper.insert(row);
+
+        PullTaskStandardSetting saved = mapper.selectByTaskId(1L);
+        assertThat(saved.getStationGroupId()).isNull();
+        assertThat(saved.getStationGroupName()).isNull();
+        assertThat(saved.getManagerFinishGroupId()).isNull();
+        assertThat(saved.getPullerFinishGroupId()).isNull();
     }
 
     @Test
@@ -102,7 +129,11 @@ class PullTaskStandardSettingMapperInMemoryTest {
         PullTaskStandardSetting row = new PullTaskStandardSetting();
         row.setTaskId(taskId);
         row.setAutoStart(0);
+        row.setSourceGroupFolderId(18L);
+        row.setSourceGroupFolderName("印度群");
         row.setMaterialAdminTiming(1);
+        row.setPullerSyncMode(2);
+        row.setClearExistingMembers(1);
         row.setPullCountMin(3);
         row.setPullCountMax(8);
         row.setPullIntervalSeconds(30);
@@ -114,9 +145,13 @@ class PullTaskStandardSettingMapperInMemoryTest {
         row.setManagerGroupId(11L);
         row.setPullerGroupId(12L);
         row.setStationGroupId(13L);
+        row.setManagerFinishGroupId(14L);
+        row.setPullerFinishGroupId(15L);
         row.setManagerGroupName("管理组");
         row.setPullerGroupName("拉手组");
         row.setStationGroupName("站台组");
+        row.setManagerFinishGroupName("管理完成组");
+        row.setPullerFinishGroupName("拉手完成组");
         row.setCreatedAt(100L);
         row.setUpdatedAt(100L);
         return row;

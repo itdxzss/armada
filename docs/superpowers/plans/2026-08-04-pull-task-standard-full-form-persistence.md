@@ -1,5 +1,7 @@
 # Pull Task Standard Full Form Persistence Implementation Plan
 
+> 执行状态（2026-08-04）：本地代码步骤已完成；所有 commit 步骤按用户要求跳过；完整 Maven DB 回归及手工端到端验收待一次性本地 MySQL/Docker 环境。实际验证证据以 `.harness/changes/pull-task-standard-full-form/summary.md` 为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the normal-link standard pull-task page submit, validate, persist, and read back every approved field in one large-form save, including local group-avatar storage and group-folder link sourcing.
@@ -433,7 +435,6 @@ public record PullTaskStandardCreateDTO(
         Integer pullerCountPerGroup,
         Integer stationCountPerCall,
         Integer concurrentGroupCount,
-        Integer pullerRiskMinutes,
         Long managerGroupId,
         Long pullerGroupId,
         Long stationGroupId,

@@ -3,38 +3,61 @@
 <mapper namespace="com.armada.task.mapper.PullTaskMapper">
 
   <!-- tenant_id 由生产租户拦截器注入；count 与分页复用同一筛选口径。 -->
+  <sql id="effectiveGroupName">
+    CASE
+      WHEN task_row.task_type = #{filter.standardTaskType}
+       AND task_row.mode = #{filter.normalLinkMode}
+        THEN standard_group_setting.group_name
+      ELSE task_row.group_name
+    END
+  </sql>
+
   <sql id="filter">
-    deleted_at IS NULL
+    task_row.deleted_at IS NULL
     <!-- STANDARD 草稿是创建页未提交的计划，不进列表(ADR-0007)；
          GROUP_MARKETING 的 DRAFT 是既有可见状态，不能一起隐藏。 -->
-    AND NOT (task_type = #{filter.hiddenTaskType}
-      AND status = #{filter.hiddenStatus})
-    <if test="filter.id != null">AND id = #{filter.id}</if>
+    AND NOT (task_row.task_type = #{filter.hiddenTaskType}
+      AND task_row.status = #{filter.hiddenStatus})
+    <if test="filter.id != null">AND task_row.id = #{filter.id}</if>
     <if test="filter.keyword != null">
-      AND (task_name LIKE CONCAT('%', #{filter.keyword}, '%')
-        OR group_name LIKE CONCAT('%', #{filter.keyword}, '%'))
+      AND (task_row.task_name LIKE CONCAT('%', #{filter.keyword}, '%')
+        OR (<include refid="effectiveGroupName"/>)
+          LIKE CONCAT('%', #{filter.keyword}, '%'))
     </if>
-    <if test="filter.status != null">AND status = #{filter.status}</if>
-    <if test="filter.taskType != null">AND task_type = #{filter.taskType}</if>
-    <if test="filter.groupSource != null">AND group_source = #{filter.groupSource}</if>
+    <if test="filter.status != null">AND task_row.status = #{filter.status}</if>
+    <if test="filter.taskType != null">AND task_row.task_type = #{filter.taskType}</if>
+    <if test="filter.groupSource != null">
+      AND task_row.group_source = #{filter.groupSource}
+    </if>
     <if test="filter.operator != null">
-      AND operator_name LIKE CONCAT('%', #{filter.operator}, '%')
+      AND task_row.operator_name LIKE CONCAT('%', #{filter.operator}, '%')
     </if>
   </sql>
 
   <select id="countPage" resultType="long">
-    SELECT COUNT(*) FROM pull_task WHERE <include refid="filter"/>
+    SELECT COUNT(*)
+    FROM pull_task task_row
+    LEFT JOIN pull_task_standard_group_setting standard_group_setting
+      ON standard_group_setting.task_id = task_row.id
+     AND standard_group_setting.tenant_id = task_row.tenant_id
+    WHERE <include refid="filter"/>
   </select>
 
   <select id="selectPage" resultType="com.armada.task.model.entity.PullTask">
     SELECT
-      id, tenant_id, task_type, group_source, task_name, group_name, mode, status,
-      primary_stage, blocking_reason, started_at, finished_at, version,
-      group_count, expected_pull_count, operator_name,
-      created_at, updated_at, last_business_executed_at, remark, deleted_at
-    FROM pull_task
+      task_row.id, task_row.tenant_id, task_row.task_type, task_row.group_source,
+      task_row.task_name, (<include refid="effectiveGroupName"/>) AS group_name,
+      task_row.mode, task_row.status, task_row.primary_stage, task_row.blocking_reason,
+      task_row.started_at, task_row.finished_at, task_row.version,
+      task_row.group_count, task_row.expected_pull_count, task_row.operator_name,
+      task_row.created_at, task_row.updated_at, task_row.last_business_executed_at,
+      task_row.remark, task_row.deleted_at
+    FROM pull_task task_row
+    LEFT JOIN pull_task_standard_group_setting standard_group_setting
+      ON standard_group_setting.task_id = task_row.id
+     AND standard_group_setting.tenant_id = task_row.tenant_id
     WHERE <include refid="filter"/>
-    ORDER BY id DESC
+    ORDER BY task_row.id DESC
     LIMIT #{limit} OFFSET #{offset}
   </select>
 
@@ -120,7 +143,6 @@
         version = version + 1,
         task_name = #{row.taskName},
         remark = #{row.remark},
-        config_json = #{row.configJson},
         group_count = #{row.groupCount},
         expected_pull_count = #{row.expectedPullCount},
         updated_at = #{now}

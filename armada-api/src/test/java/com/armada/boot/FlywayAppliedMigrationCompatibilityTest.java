@@ -30,6 +30,12 @@ class FlywayAppliedMigrationCompatibilityTest {
         assertAppliedMigration(
                 "V085__account_group_membership_last_exit.sql",
                 810_248_183);
+        assertAppliedMigration(
+                "V090__group_folder.sql",
+                -1_682_709_825);
+        assertAppliedMigration(
+                "V091__whatsapp_group_departed_member.sql",
+                1_816_449_594);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

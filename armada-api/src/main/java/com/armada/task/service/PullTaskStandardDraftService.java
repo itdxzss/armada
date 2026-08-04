@@ -20,6 +20,7 @@ public interface PullTaskStandardDraftService {
      * 剩余链接不足时多出的 TXT 当场拒绝并计入 {@code ignoredFileCount}，由前端保留文件对象、
      * 待用户补粘链接后重发。已成行的执行行不参与重新随机。</p>
      *
+     * @param groupFolderId 群组列表运营分组 ID，允许为空
      * @param linksText    创建页链接框的全量文本，允许为空
      * @param files        本次新增的 .txt 料子文件，允许为空
      * @param userId       当前登录用户 ID
@@ -27,7 +28,7 @@ public interface PullTaskStandardDraftService {
      * @return 追加后的完整草稿视图
      * @throws BusinessException 文件数、大小、扩展名或有效链接数超限时
      */
-    PullTaskStandardDraftVO plan(String linksText, List<MultipartFile> files,
+    PullTaskStandardDraftVO plan(Long groupFolderId, String linksText, List<MultipartFile> files,
                                  long userId, String operatorName);
 
     /**

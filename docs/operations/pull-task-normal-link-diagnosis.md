@@ -76,6 +76,39 @@
 
 ## 业务事实状态
 
+### 角色账号
+
+角色：`1` 管理、`2` 拉手、`3` 站台。来源：`1` 初始选择、`2` 人工补充。选号方式：`1` 自动、`2` 手动。
+
+进群方式 `entry_mode`：`1` 踩链接、`2` 管理员邀请、`3` 拉手拉入；站台补充为 `NULL`。
+
+在群状态 `membership_status`：
+
+| 值 | 状态 | 含义 |
+| --- | --- | --- |
+| `0` | `NOT_JOINED` | 未入群 |
+| `1` | `JOINING` | 入群中，命令已发出等待结果 |
+| `2` | `IN_GROUP` | 已确认在群 |
+| `3` | `JOIN_FAILED` | 入群明确失败 |
+| `4` | `UNKNOWN` | 入群结果无法确认 |
+
+失败或不确定原因看 `membership_reason_code` 和 `membership_reason_message`。这两列与 `unavailable_reason_code`（账号可用性原因）不同源，不要混用。
+
+角色账号的群管理员权限 `admin_status`：`0` 不适用、`1` 待设置、`2` 已提交、`3` 成功、`4` 失败、`5` 结果未知。注意这一组取值与料子提权 `admin_status` 不同，不要互相套用。
+
+可用性 `availability_status`：
+
+| 值 | 状态 | 含义 |
+| --- | --- | --- |
+| `1` | `AVAILABLE` | 可用 |
+| `2` | `RISK_COOLDOWN` | 风控冷却，看 `cooldown_until` |
+| `3` | `OFFLINE` | 离线或不可用 |
+| `4` | `REMOVED` | 已移出本执行行 |
+
+`puller_risk_minutes` 为 `0` 时不会建立定时恢复，风控冷却的拉手不会自动回到可用。
+
+拉手占用看 `released_at`：为 `NULL` 表示仍在占用中，跨任务互斥。
+
 ### 账号动作
 
 动作类型：
@@ -114,6 +147,22 @@
 料子提权 `admin_status`：`0` 不需要、`1` 待执行、`2` 已提交、`3` 成功、`4` 失败、`5` 结果未知、`6` 取消。
 
 料子入群明确失败后不换拉手重试；提权失败不反向修改该号码已经确认的入群成功结果。
+
+### 执行行原因码
+
+`pull_task_group_execution.reason_code` 只有下面这几个取值，出现其他值先怀疑代码新增未同步本手册。
+
+| 原因码 | 含义 | 首要检查 |
+| --- | --- | --- |
+| `LINK_INVALID` | 群链接已失效 | 阶段 1；链接本身，不是程序问题 |
+| `LINK_PROBE_INCOMPLETE` | 群链接校验暂不可用 | 公开页网络或探测服务；会按重试延迟自动复查 |
+| `MANAGER_UNAVAILABLE` | 当前没有可用管理员 | 管理分组可用账号数与 `required_manager_count` |
+| `MANAGER_JOIN_PENDING_APPROVAL` | 管理员入群等待审批 | 群本身要求审批，属业务等待 |
+| `MANAGER_MEMBERSHIP_UNCONFIRMED` | 管理员在群结果无法确认 | 阶段 2 的踩链接动作与实时群成员查询 |
+| `PULLER_UNAVAILABLE` | 当前没有可用拉手 | 拉手分组、跨任务占用、风控冷却 |
+| `STATION_UNAVAILABLE` | 当前可用站台不足 | 站台分组与 `station_count_per_call` |
+
+`PULLER_UNAVAILABLE` 要同时排除占用泄漏：别的任务遗留的未释放拉手会让本任务一直缺拉手。见异常摘要的 `PULLER_OCCUPANCY_LEAK`。
 
 ## Outbox 状态
 

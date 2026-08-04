@@ -29,6 +29,9 @@ SET @stall_grace_ms := 60000;
 -- 超过说明未知结果收敛调度没跑，或候选执行行数超过单轮 100 上限。
 SET @reconcile_overdue_ms := 180000;
 
+-- Outbox 滞留判定：publisher 抢占后正常应在秒级流转。
+SET @outbox_stuck_ms := 60000;
+
 -- 结果 8b 用字面量 LIMIT 200 控制输出量；MySQL 的 LIMIT 不接受用户变量，
 -- 需要放宽时直接改那一行的数字。
 
@@ -39,7 +42,8 @@ SELECT
     @now AS now_epoch_ms,
     FROM_UNIXTIME(@now / 1000) AS now_text,
     @stall_grace_ms AS stall_grace_ms,
-    @reconcile_overdue_ms AS reconcile_overdue_ms;
+    @reconcile_overdue_ms AS reconcile_overdue_ms,
+    @outbox_stuck_ms AS outbox_stuck_ms;
 
 -- 结果 1：父任务概况。
 -- 无结果时停止，先确认任务 ID、软删状态或业务模式。
@@ -496,6 +500,39 @@ WHERE t.status = 'EXECUTING'
 
 UNION ALL
 
+-- 状态与阶段的组合不在 claimDue 的可领取集合内，调度器永远不会捞起这一行。
+-- 可领取集合：WAIT_START 仅阶段 1；EXECUTING 阶段 1-7；WAIT_RESOURCE 仅阶段 2-6。
+SELECT
+    'UNCLAIMABLE_STATE_COMBO',
+    e.task_id,
+    e.id,
+    e.id,
+    NULL,
+    CONCAT('execution_status=', e.execution_status, ', stage=', e.stage),
+    (@now - e.updated_at) DIV 1000,
+    e.updated_at
+FROM scoped_execution e
+WHERE (e.execution_status = 1 AND e.stage <> 1)
+   OR (e.execution_status = 3 AND e.stage NOT IN (2, 3, 4, 5, 6))
+
+UNION ALL
+
+-- 租约数据不一致：持有者非空但没有过期时间，既不会被续约也不会被回收。
+SELECT
+    'LEASE_INCONSISTENT',
+    e.task_id,
+    e.id,
+    e.id,
+    NULL,
+    CONCAT('lock_owner=', e.lock_owner, ', lock_expires_at IS NULL'),
+    (@now - e.updated_at) DIV 1000,
+    e.updated_at
+FROM scoped_execution e
+WHERE e.lock_owner IS NOT NULL
+  AND e.lock_expires_at IS NULL
+
+UNION ALL
+
 -- 资源等待。WAIT_RESOURCE 每轮都会被重新领取，
 -- 所以 STALLED(到期且长时间无更新)是真异常，RETRYING 才是正常业务等待。
 SELECT
@@ -559,6 +596,27 @@ WHERE c.call_status = 1
 
 UNION ALL
 
+-- 业务事实已有 commandId，但 Outbox 没有对应行(或已软删)：命令链路断在入库。
+SELECT
+    'COMMAND_WITHOUT_OUTBOX',
+    tc.task_id,
+    tc.execution_id,
+    tc.fact_id,
+    tc.command_id,
+    CONCAT(tc.fact_type, ': fact_status=', tc.fact_status, ', outbox row missing'),
+    (@now - tc.updated_at) DIV 1000,
+    tc.updated_at
+FROM task_commands tc
+LEFT JOIN protocol_command_outbox o
+  ON o.command_id = tc.command_id
+ AND o.tenant_id = tc.tenant_id
+ AND o.deleted_at IS NULL
+WHERE tc.command_id IS NOT NULL
+  AND o.id IS NULL
+  AND tc.updated_at <= @now - @stall_grace_ms
+
+UNION ALL
+
 -- Outbox 死信：发布重试耗尽或不可恢复失败。
 SELECT
     'OUTBOX_DEAD',
@@ -575,6 +633,56 @@ JOIN protocol_command_outbox o
  AND o.tenant_id = tc.tenant_id
  AND o.deleted_at IS NULL
 WHERE o.status = 3
+
+UNION ALL
+
+-- Outbox 长时间停在 LOCKED / DISPATCHING / CANCEL_REQUESTED：
+-- publisher 抢占后崩溃或结束流程收不了口，这些行不会自己流转。
+SELECT
+    'OUTBOX_STUCK',
+    tc.task_id,
+    tc.execution_id,
+    tc.fact_id,
+    tc.command_id,
+    CONCAT(
+        tc.fact_type, ': outbox_status=', o.status,
+        ', locked_by=', COALESCE(o.locked_by, 'NULL'),
+        ', retry_count=', o.retry_count
+    ),
+    (@now - o.updated_at) DIV 1000,
+    o.updated_at
+FROM task_commands tc
+JOIN protocol_command_outbox o
+  ON o.command_id = tc.command_id
+ AND o.tenant_id = tc.tenant_id
+ AND o.deleted_at IS NULL
+WHERE o.status IN (1, 5, 6)
+  AND o.updated_at <= @now - @outbox_stuck_ms
+
+UNION ALL
+
+-- Outbox 仍是 PENDING，重试时间已到却长时间没被 publisher 推进。
+SELECT
+    'OUTBOX_PENDING_OVERDUE',
+    tc.task_id,
+    tc.execution_id,
+    tc.fact_id,
+    tc.command_id,
+    CONCAT(
+        tc.fact_type, ': retry_count=', o.retry_count,
+        ', next_retry_at=', o.next_retry_at,
+        ', last_error=', COALESCE(o.last_error, 'NULL')
+    ),
+    (@now - o.updated_at) DIV 1000,
+    o.updated_at
+FROM task_commands tc
+JOIN protocol_command_outbox o
+  ON o.command_id = tc.command_id
+ AND o.tenant_id = tc.tenant_id
+ AND o.deleted_at IS NULL
+WHERE o.status = 0
+  AND o.next_retry_at <= @now
+  AND o.updated_at <= @now - @outbox_stuck_ms
 
 UNION ALL
 
@@ -636,6 +744,102 @@ JOIN scoped_execution e
   ON e.id = m.group_execution_id
  AND e.tenant_id = m.tenant_id
 WHERE m.pull_status = 4
+
+UNION ALL
+
+-- 角色账号在群状态停在"入群中"或"结果未知"。
+-- 站台(pull_call_id 非空)由未知结果收敛按拉人调用兜底；
+-- 管理和拉手(pull_call_id 为空)不在收敛范围内，长时间停留没有任何机制会推进。
+SELECT
+    'ROLE_MEMBERSHIP_OPEN',
+    e.task_id,
+    a.group_execution_id,
+    a.id,
+    NULL,
+    CONCAT(
+        'role_type=', a.role_type,
+        ', membership_status=', a.membership_status,
+        ', reason_code=', COALESCE(a.membership_reason_code, 'NULL'),
+        ', ', CASE WHEN a.pull_call_id IS NULL
+            THEN 'NOT_COVERED_BY_RECONCILIATION'
+            ELSE 'CALL_BOUND' END
+    ),
+    (@now - a.updated_at) DIV 1000,
+    a.updated_at
+FROM pull_task_group_account a
+JOIN scoped_execution e
+  ON e.id = a.group_execution_id
+ AND e.tenant_id = a.tenant_id
+WHERE a.membership_status IN (1, 4)
+  AND a.updated_at <= @now - @stall_grace_ms
+
+UNION ALL
+
+-- 角色账号群管理员权限停在"已提交"或"结果未知"。
+SELECT
+    'ROLE_ADMIN_OPEN',
+    e.task_id,
+    a.group_execution_id,
+    a.id,
+    NULL,
+    CONCAT('role_type=', a.role_type, ', admin_status=', a.admin_status),
+    (@now - a.updated_at) DIV 1000,
+    a.updated_at
+FROM pull_task_group_account a
+JOIN scoped_execution e
+  ON e.id = a.group_execution_id
+ AND e.tenant_id = a.tenant_id
+WHERE a.admin_status IN (2, 5)
+  AND a.updated_at <= @now - @stall_grace_ms
+
+UNION ALL
+
+-- 拉手占用泄漏：父任务已终态但 released_at 仍为空。
+-- occupancy_key 唯一键会让这个账号在本租户内永远无法被新任务占用，
+-- 症状会出现在别的任务上(WAIT_RESOURCE / PULLER_UNAVAILABLE)。
+SELECT
+    'PULLER_OCCUPANCY_LEAK',
+    t.id,
+    a.group_execution_id,
+    a.id,
+    NULL,
+    CONCAT(
+        'parent_status=', t.status,
+        ', account_id=', a.account_id,
+        ', occupied_at=', COALESCE(CAST(a.occupied_at AS CHAR), 'NULL')
+    ),
+    (@now - a.updated_at) DIV 1000,
+    a.updated_at
+FROM pull_task_group_account a
+JOIN scoped_execution e
+  ON e.id = a.group_execution_id
+ AND e.tenant_id = a.tenant_id
+JOIN target_task t
+  ON t.id = e.task_id
+ AND t.tenant_id = e.tenant_id
+WHERE t.status IN ('COMPLETED', 'ENDED')
+  AND a.role_type = 2
+  AND a.released_at IS NULL
+
+UNION ALL
+
+-- 群链接占用泄漏：父任务已终态但执行行仍停在非终态。
+-- link_occupancy_key 会让同一条群链接无法被新任务创建。
+SELECT
+    'LINK_OCCUPANCY_LEAK',
+    t.id,
+    e.id,
+    e.id,
+    NULL,
+    CONCAT('parent_status=', t.status, ', execution_status=', e.execution_status),
+    (@now - e.updated_at) DIV 1000,
+    e.updated_at
+FROM scoped_execution e
+JOIN target_task t
+  ON t.id = e.task_id
+ AND t.tenant_id = e.tenant_id
+WHERE t.status IN ('COMPLETED', 'ENDED')
+  AND e.execution_status IN (1, 2, 3)
 
 UNION ALL
 

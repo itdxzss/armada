@@ -20,6 +20,7 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
@@ -141,7 +142,10 @@ class MysqlModeMapperInMemoryTest {
                         + "VALUES (102, 8, '其他租户组', 100, 100)",
                 "INSERT INTO group_link "
                         + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
-                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)");
+                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)",
+                "INSERT INTO group_link_health "
+                        + "(id, tenant_id, group_link_id, health_status, is_banned, created_at, updated_at) "
+                        + "VALUES (301, 7, 201, 1, FALSE, 100, 100)");
 
         GroupFolderQuery query = new GroupFolderQuery();
         query.setPage(1);
@@ -151,11 +155,11 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groupFolderMapper.selectPage(query))
                 .singleElement()
                 .satisfies(row -> {
-                    assertThat(row.getName()).isEqualTo("印度组");
-                    assertThat(row.getGroupCount()).isEqualTo(1L);
+                    assertThat(row.name()).isEqualTo("印度组");
+                    assertThat(row.groupCount()).isEqualTo(1L);
                 });
         assertThat(groupFolderMapper.selectOptions())
-                .extracting(GroupFolder::getId)
+                .extracting(GroupFolderOptionVO::id)
                 .containsExactly(101L);
     }
 
@@ -184,7 +188,12 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groupFolderMapper.softDeleteByIds(List.of(row.getId()), 300L)).isEqualTo(1);
         assertThat(groupFolderMapper.selectById(row.getId())).isNull();
         assertThat(groupFolderMapper.selectDeletedByName("已改名组").getDeletedAt()).isEqualTo(300L);
-        assertThat(groupFolderMapper.reviveById(row.getId(), 400L)).isEqualTo(1);
+        GroupFolder revived = new GroupFolder();
+        revived.setId(row.getId());
+        revived.setName("已改名组");
+        revived.setUpdatedAt(400L);
+        revived.setCreatedBy(501L);
+        assertThat(groupFolderMapper.revive(revived)).isEqualTo(1);
         assertThat(groupFolderMapper.selectById(row.getId()).getUpdatedAt()).isEqualTo(400L);
 
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(

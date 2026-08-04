@@ -60,9 +60,11 @@ services:
       LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: 10
       LOGGING_LOGBACK_ROLLINGPOLICY_TOTAL_SIZE_CAP: 5GB
       ARMADA_MARKETING_EXPORT_STORAGE_DIR: /app/data/marketing-exports
+      ARMADA_PULL_TASK_AVATAR_STORAGE_DIR: ${ARMADA_PULL_TASK_AVATAR_STORAGE_DIR:-/app/data/pull-task-avatars}
     volumes:
       - ./logs/backend:/app/logs
       - ./data/marketing-exports:/app/data/marketing-exports
+      - ${ARMADA_PULL_TASK_AVATAR_HOST_DIR:-./data/pull-task-avatars}:/app/data/pull-task-avatars
     expose:
       - "8080"
     logging:

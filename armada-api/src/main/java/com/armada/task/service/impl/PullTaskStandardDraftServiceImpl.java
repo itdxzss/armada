@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -70,6 +71,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
     private final PullTaskStandardDraftWriter writer;
     private final PullTaskMaterialTxtParser txtParser;
     private final PullTaskLinkProbeService probeService;
+    private final GroupFolderService groupFolderService;
 
     /**
      * 创建草稿编排服务。
@@ -79,22 +81,28 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
      * @param writer          草稿事务写入组件
      * @param txtParser       TXT 料子解析器
      * @param probeService    链接判定服务
+     * @param groupFolderService 群组运营分组服务
      */
     public PullTaskStandardDraftServiceImpl(PullTaskMapper pullTaskMapper,
                                             PullTaskGroupExecutionMapper executionMapper,
                                             PullTaskStandardDraftWriter writer,
                                             PullTaskMaterialTxtParser txtParser,
-                                            PullTaskLinkProbeService probeService) {
+                                            PullTaskLinkProbeService probeService,
+                                            GroupFolderService groupFolderService) {
         this.pullTaskMapper = pullTaskMapper;
         this.executionMapper = executionMapper;
         this.writer = writer;
         this.txtParser = txtParser;
         this.probeService = probeService;
+        this.groupFolderService = groupFolderService;
     }
 
     @Override
-    public PullTaskStandardDraftVO plan(String linksText, List<MultipartFile> files,
+    public PullTaskStandardDraftVO plan(Long groupFolderId, String linksText,
+                                        List<MultipartFile> files,
                                         long userId, String operatorName) {
+        String mergedLinksText = mergeSourceLinks(groupFolderId, linksText);
+
         // 1. 上传校验与解析：纯 CPU，事务外。
         List<ParsedUpload> uploads = parseUploads(files);
 
@@ -103,7 +111,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         List<PullTaskGroupExecution> existingRows = executionMapper.selectByTaskId(draft.getId());
 
         // 2. 占用查询 + 公开邀请页抓取：最坏 40 秒外部 HTTP，绝不能被事务包住。
-        ProbeResult probe = probeLinks(linksText);
+        ProbeResult probe = probeLinks(mergedLinksText);
 
         Set<String> usedLinks = new LinkedHashSet<>();
         int maxSeq = 0;
@@ -126,6 +134,30 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                 match.unmatchedFileKeys().size(), userId);
         return toView(draft, toLinkLineViews(probe), toFileResultViews(uploads),
                 match.unmatchedLinks().size(), match.unmatchedFileKeys().size());
+    }
+
+    /**
+     * 合并运营分组内的可用链接与本次手工粘贴链接。
+     *
+     * <p>分组存在性和租户隔离由群组域 Service 保证；后续统一交给链接判定服务去重，
+     * 避免任务域直接依赖群组域 Mapper 或实体。</p>
+     *
+     * @param groupFolderId 运营分组 ID，可为空
+     * @param linksText     手工粘贴文本，可为空
+     * @return 可交给链接判定服务的合并文本
+     */
+    private String mergeSourceLinks(Long groupFolderId, String linksText) {
+        if (groupFolderId == null) {
+            return linksText;
+        }
+        List<String> folderLinks = groupFolderService.usableLinks(groupFolderId);
+        if (folderLinks.isEmpty()) {
+            return linksText;
+        }
+        String folderText = String.join("\n", folderLinks);
+        return linksText == null || linksText.isBlank()
+                ? folderText
+                : folderText + "\n" + linksText;
     }
 
     /**

@@ -4,11 +4,11 @@ package com.armada.task.mapper;
  * 普通群链接执行域在 H2 MySQL 模式下的建表语句。
  *
  * <p>Flyway 脚本不在 H2 上执行，因此这里手工维护与
- * {@code V090__pull_task_normal_link_execution.sql} 新增的 6 张表等价的 DDL。
- * {@code pull_task} 本身不是由 {@code V090} 创建的——它只在 {@code V090} 里被
+ * {@code V093__pull_task_normal_link_execution.sql} 新增的 6 张表等价的 DDL。
+ * {@code pull_task} 本身不是由 {@code V093} 创建的——它只在 {@code V093} 里被
  * {@code ALTER TABLE} 增加 {@code started_at}/{@code finished_at}/{@code version}
- * 三列；{@code pull_task} 块镜像的是 {@code V078}/{@code V088}/{@code V090} 三个
- * 脚本共同定义出的线上真实表结构，改动前应对照这三个脚本而不是只看 {@code V090}。
+ * 三列；{@code pull_task} 块镜像的是 {@code V078}/{@code V088}/{@code V093} 三个
+ * 脚本共同定义出的线上真实表结构，改动前应对照这三个脚本而不是只看 {@code V093}。
  * 两点差异是刻意的：</p>
  * <ul>
  *   <li>省略列级 {@code CHARACTER SET ascii COLLATE ascii_bin}——H2 不支持列级排序规则，
@@ -21,7 +21,7 @@ package com.armada.task.mapper;
  *       文本足以覆盖现有断言。</li>
  * </ul>
  *
- * <p>改动 V090 新增表的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
+ * <p>改动 V093 新增表的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
  */
 public final class PullTaskNormalLinkSchema {
 
@@ -63,7 +63,11 @@ public final class PullTaskNormalLinkSchema {
                 tenant_id BIGINT NOT NULL,
                 task_id BIGINT NOT NULL,
                 auto_start TINYINT NOT NULL DEFAULT 0,
+                source_group_folder_id BIGINT,
+                source_group_folder_name VARCHAR(100),
                 material_admin_timing TINYINT NOT NULL,
+                puller_sync_mode TINYINT NOT NULL DEFAULT 1,
+                is_clear_existing_members TINYINT NOT NULL DEFAULT 0,
                 pull_count_min INT NOT NULL,
                 pull_count_max INT NOT NULL,
                 pull_interval_seconds INT NOT NULL,
@@ -74,13 +78,43 @@ public final class PullTaskNormalLinkSchema {
                 required_manager_count INT NOT NULL DEFAULT 0,
                 manager_group_id BIGINT NOT NULL,
                 puller_group_id BIGINT NOT NULL,
-                station_group_id BIGINT NOT NULL,
+                station_group_id BIGINT,
+                manager_finish_group_id BIGINT,
+                puller_finish_group_id BIGINT,
                 manager_group_name VARCHAR(100) NOT NULL,
                 puller_group_name VARCHAR(100) NOT NULL,
-                station_group_name VARCHAR(100) NOT NULL,
+                station_group_name VARCHAR(100),
+                manager_finish_group_name VARCHAR(100),
+                puller_finish_group_name VARCHAR(100),
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 PRIMARY KEY (tenant_id, task_id)
+            )
+            """;
+
+    /** 普通群链接任务期望应用的群资料与权限设置。 */
+    static final String STANDARD_GROUP_SETTING = """
+            CREATE TABLE pull_task_standard_group_setting (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id BIGINT NOT NULL,
+                task_id BIGINT NOT NULL,
+                setting_timing TINYINT NOT NULL DEFAULT 2,
+                group_name VARCHAR(128),
+                is_material_filename_as_group_name TINYINT NOT NULL DEFAULT 0,
+                avatar_file_key VARCHAR(512),
+                group_description VARCHAR(1024),
+                is_auto_unmute_after_task TINYINT NOT NULL DEFAULT 0,
+                is_auto_close_invite_after_task TINYINT NOT NULL DEFAULT 0,
+                edit_permission_mode TINYINT NOT NULL DEFAULT 0,
+                mute_mode TINYINT NOT NULL DEFAULT 0,
+                link_permission_mode TINYINT NOT NULL DEFAULT 2,
+                disappearing_message_mode TINYINT NOT NULL DEFAULT 0,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                CONSTRAINT uq_pull_task_standard_group_setting_task
+                    UNIQUE (tenant_id, task_id),
+                CONSTRAINT uq_pull_task_standard_group_setting_avatar
+                    UNIQUE (tenant_id, avatar_file_key)
             )
             """;
 
@@ -282,7 +316,7 @@ public final class PullTaskNormalLinkSchema {
      */
     public static String[] all() {
         return new String[] {
-            PULL_TASK, STANDARD_SETTING, GROUP_EXECUTION,
+            PULL_TASK, STANDARD_SETTING, STANDARD_GROUP_SETTING, GROUP_EXECUTION,
             MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_CALL,
         };
     }

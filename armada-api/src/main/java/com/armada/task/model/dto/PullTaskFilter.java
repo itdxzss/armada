@@ -14,6 +14,8 @@ import com.armada.task.model.enums.PullTaskType;
  * @param operator    操作员展示名关键字
  * @param hiddenTaskType 列表中需要隐藏内部状态的任务类型
  * @param hiddenStatus 该任务类型不进入列表的内部状态
+ * @param standardTaskType 使用规范化群资料名称的标准任务类型
+ * @param normalLinkMode 使用规范化群资料名称的普通群链接模式
  */
 public record PullTaskFilter(
         Long id,
@@ -23,7 +25,9 @@ public record PullTaskFilter(
         PullTaskGroupSource groupSource,
         String operator,
         PullTaskType hiddenTaskType,
-        String hiddenStatus
+        String hiddenStatus,
+        PullTaskType standardTaskType,
+        String normalLinkMode
 ) {
 
     /** 使用普通群链接草稿隐藏规则的兼容构造。 */
@@ -35,6 +39,8 @@ public record PullTaskFilter(
             PullTaskGroupSource groupSource,
             String operator) {
         this(id, keyword, status, taskType, groupSource, operator,
-                PullTaskType.STANDARD, com.armada.task.model.enums.PullTaskStandardStatus.DRAFT.name());
+                PullTaskType.STANDARD,
+                com.armada.task.model.enums.PullTaskStandardStatus.DRAFT.name(),
+                PullTaskType.STANDARD, "NORMAL_LINK");
     }
 }

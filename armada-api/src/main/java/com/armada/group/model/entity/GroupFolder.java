@@ -1,29 +1,27 @@
 package com.armada.group.model.entity;
 
-/**
- * 群组列表运营分组实体，映射 group_folder 表。
- */
+/** 群组列表运营分组实体，映射 {@code group_folder} 表。 */
 public class GroupFolder {
 
     /** 主键。 */
     private Long id;
 
-    /** 租户 ID，由租户拦截器注入。 */
+    /** 所属租户 ID。 */
     private Long tenantId;
 
     /** 分组名称。 */
     private String name;
 
-    /** 创建时间(epoch 毫秒)。 */
+    /** 创建时间，epoch 毫秒。 */
     private Long createdAt;
 
-    /** 更新时间(epoch 毫秒)。 */
+    /** 更新时间，epoch 毫秒。 */
     private Long updatedAt;
 
-    /** 创建人 user_id。 */
+    /** 创建人用户 ID。 */
     private Long createdBy;
 
-    /** 软删除时间(epoch 毫秒);NULL 表示未删除。 */
+    /** 软删除时间，epoch 毫秒；NULL 表示未删除。 */
     private Long deletedAt;
 
     public Long getId() {

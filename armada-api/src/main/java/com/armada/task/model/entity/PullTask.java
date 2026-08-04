@@ -69,7 +69,7 @@ public class PullTask {
     /** 创建人用户 ID；"每用户一条草稿"的查询键。 */
     private Long createdBy;
 
-    /** 任务配置快照 JSON；草稿期为 {@code {}}，提交时写入完整配置。 */
+    /** 旧模式任务配置快照 JSON；普通群链接标准任务保持 {@code {}}。 */
     private String configJson;
 
     /** 软删时间(epoch 毫秒)。 */

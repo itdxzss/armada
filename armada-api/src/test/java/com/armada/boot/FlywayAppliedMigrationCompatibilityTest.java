@@ -45,6 +45,9 @@ class FlywayAppliedMigrationCompatibilityTest {
         assertAppliedMigration(
                 "V094__pull_task_group_account_membership_result.sql",
                 -1_117_482_777);
+        assertAppliedMigration(
+                "V095__pull_task_standard_full_form_settings.sql",
+                -1_758_254_373);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

@@ -15,6 +15,8 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskStandardReadMapper;
+import com.armada.task.mapper.PullTaskStandardSettingMapper;
+import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardExecutionFilter;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
 import com.armada.task.model.dto.PullTaskStandardAggregateCriteria;
@@ -25,6 +27,8 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.entity.PullTaskStandardGroupSetting;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
@@ -46,11 +50,17 @@ class PullTaskStandardReadServiceTest {
     private final PullTaskPullCallMapper callMapper = mock(PullTaskPullCallMapper.class);
     private final PullTaskAccountActionMapper actionMapper = mock(PullTaskAccountActionMapper.class);
     private final PullTaskStandardReadMapper readMapper = mock(PullTaskStandardReadMapper.class);
+    private final PullTaskStandardSettingMapper settingMapper =
+            mock(PullTaskStandardSettingMapper.class);
+    private final PullTaskStandardGroupSettingMapper groupSettingMapper =
+            mock(PullTaskStandardGroupSettingMapper.class);
     private final PullTaskStandardReadService service = new PullTaskStandardReadServiceImpl(
             taskMapper,
             new PullTaskStandardReadResources(
                     executionMapper,
                     readMapper,
+                    settingMapper,
+                    groupSettingMapper,
                     new PullTaskStandardReadFactMappers(
                             accountMapper, materialMapper, callMapper, actionMapper)));
 
@@ -81,6 +91,8 @@ class PullTaskStandardReadServiceTest {
         when(readMapper.selectTaskAggregates(
                 PullTaskStandardAggregateCriteria.fromEnums(List.of(100L))))
                 .thenReturn(List.of(taskAggregate()));
+        when(settingMapper.selectByTaskId(100L)).thenReturn(setting());
+        when(groupSettingMapper.selectByTaskId(100L)).thenReturn(groupSetting());
         when(actionMapper.selectByExecutionAndStatuses(
                 org.mockito.ArgumentMatchers.eq(11L),
                 org.mockito.ArgumentMatchers.anyList()))
@@ -88,6 +100,13 @@ class PullTaskStandardReadServiceTest {
 
         assertThat(service.task(100L).executions()).isEmpty();
         assertThat(service.task(100L).summary().successfulMemberCount()).isEqualTo(1);
+        assertThat(service.task(100L).standardSetting().pullerSyncMode().name())
+                .isEqualTo("BATCH");
+        assertThat(service.task(100L).standardSetting().groupFolderName()).isEqualTo("印度群");
+        assertThat(service.task(100L).groupSetting().settingTiming().name())
+                .isEqualTo("AFTER_PULL");
+        assertThat(service.task(100L).groupSetting().avatarPreviewUrl())
+                .isEqualTo("/api/pull-tasks/standard/group-avatars/avatar.png");
         verify(executionMapper, never()).selectByTaskId(100L);
         assertThat(service.execution(100L, 11L).roles()).hasSize(3)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
@@ -259,6 +278,44 @@ class PullTaskStandardReadServiceTest {
         row.setFailedMemberCount(0);
         row.setUnknownMemberCount(0);
         row.setUnconsumedMemberCount(0);
+        return row;
+    }
+
+    private static PullTaskStandardSetting setting() {
+        PullTaskStandardSetting row = new PullTaskStandardSetting();
+        row.setAutoStart(0);
+        row.setSourceGroupFolderId(18L);
+        row.setSourceGroupFolderName("印度群");
+        row.setPullerSyncMode(2);
+        row.setMaterialAdminTiming(1);
+        row.setClearExistingMembers(1);
+        row.setPullCountMin(3);
+        row.setPullCountMax(8);
+        row.setPullIntervalSeconds(30);
+        row.setPullerCountPerGroup(2);
+        row.setStationCountPerCall(0);
+        row.setConcurrentGroupCount(1);
+        row.setPullerRiskMinutes(10);
+        row.setManagerGroupId(11L);
+        row.setManagerGroupName("管理组");
+        row.setPullerGroupId(12L);
+        row.setPullerGroupName("拉手组");
+        return row;
+    }
+
+    private static PullTaskStandardGroupSetting groupSetting() {
+        PullTaskStandardGroupSetting row = new PullTaskStandardGroupSetting();
+        row.setSettingTiming(2);
+        row.setGroupName("客户群");
+        row.setMaterialFilenameAsGroupName(0);
+        row.setAvatarFileKey("avatar.png");
+        row.setGroupDescription("说明");
+        row.setAutoUnmuteAfterTask(1);
+        row.setAutoCloseInviteAfterTask(1);
+        row.setEditPermissionMode(2);
+        row.setMuteMode(1);
+        row.setLinkPermissionMode(2);
+        row.setDisappearingMessageMode(3);
         return row;
     }
 

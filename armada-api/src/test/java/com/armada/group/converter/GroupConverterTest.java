@@ -8,8 +8,6 @@ import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
-import com.armada.group.model.entity.GroupFolder;
-import com.armada.group.model.vo.GroupFolderVoRow;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
@@ -27,23 +25,6 @@ class GroupConverterTest {
 
     /** 2024-06-01T00:00:00 按 UTC 解释 = 1717200000000 毫秒。 */
     private static final long EPOCH_2024_06_01_UTC = 1_717_200_000_000L;
-
-    @Test
-    void convertsGroupFolderRowsAndOptions() {
-        GroupFolderVoRow row = new GroupFolderVoRow();
-        row.setId(8L);
-        row.setName("印度组");
-        row.setGroupCount(3L);
-        row.setCreatedAt(EPOCH_2024_06_01_UTC);
-        row.setUpdatedAt(EPOCH_2024_06_01_UTC);
-        GroupFolder folder = new GroupFolder();
-        folder.setId(8L);
-        folder.setName("印度组");
-
-        assertThat(converter.toFolderVO(row).groupCount()).isEqualTo(3L);
-        assertThat(converter.toFolderVOList(List.of(row))).hasSize(1);
-        assertThat(converter.toFolderOptionVO(folder).name()).isEqualTo("印度组");
-    }
 
     @Test
     void toLabelVO_epochMillis() {

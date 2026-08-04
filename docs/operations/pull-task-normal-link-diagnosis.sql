@@ -8,7 +8,7 @@
 -- 需要只看某一条执行行时，把下面参数块里的 @execution_id 改成具体 executionId。
 
 -- ---------------------------------------------------------------------------
--- 参数块：每次排查前整块执行一次，保证各组结果使用同一时间基准。
+-- 参数块：每次排查前整块执行一次，保证结果 0 到结果 9 使用同一时间基准。
 -- ---------------------------------------------------------------------------
 
 -- 统一时间基准；用 SIGNED 保证与未来时间(next_run_at)相减不会触发无符号溢出。
@@ -28,6 +28,9 @@ SET @stall_grace_ms := 60000;
 -- 结果收敛超期：保护期 60s + 扫描间隔 30s = 90s 内属正常；这里留 2 倍余量。
 -- 超过说明未知结果收敛调度没跑，或候选执行行数超过单轮 100 上限。
 SET @reconcile_overdue_ms := 180000;
+
+-- 结果 8b 用字面量 LIMIT 200 控制输出量；MySQL 的 LIMIT 不接受用户变量，
+-- 需要放宽时直接改那一行的数字。
 
 -- 结果 0：参数与时间基准回显；排查记录直接抄这一行。
 SELECT
@@ -51,9 +54,14 @@ SELECT
     group_count,
     expected_pull_count,
     started_at,
+    FROM_UNIXTIME(started_at / 1000) AS started_at_text,
     finished_at,
+    FROM_UNIXTIME(finished_at / 1000) AS finished_at_text,
     last_business_executed_at,
+    FROM_UNIXTIME(last_business_executed_at / 1000) AS last_business_at_text,
+    (@now - last_business_executed_at) DIV 1000 AS last_business_age_seconds,
     version,
+    (@now - updated_at) DIV 1000 AS updated_age_seconds,
     created_at,
     updated_at
 FROM pull_task
@@ -62,18 +70,61 @@ WHERE id = @task_id
   AND mode = 'NORMAL_LINK'
   AND deleted_at IS NULL;
 
--- 结果 2：群执行行概况、排期和调度租约。
+-- 结果 2：启动时冻结的执行配置。
+-- 判断"正常等待"还是"卡死"必须先看这一组：
+--   concurrent_group_count  解释为什么只有 N 条执行行在跑；
+--   pull_interval_seconds   解释拉手为什么在冷却而不是卡住；
+--   required_manager_count  解释 MANAGER_UNAVAILABLE 的门槛；
+--   material_admin_timing=2 解释阶段 6 为什么等本群料子全部终态；
+--   puller_risk_minutes=0   说明风控冷却不会自动恢复。
+SELECT
+    s.task_id,
+    s.auto_start,
+    s.material_admin_timing,
+    s.pull_count_min,
+    s.pull_count_max,
+    s.pull_interval_seconds,
+    s.puller_count_per_group,
+    s.station_count_per_call,
+    s.concurrent_group_count,
+    s.puller_risk_minutes,
+    s.required_manager_count,
+    s.manager_group_id,
+    s.manager_group_name,
+    s.puller_group_id,
+    s.puller_group_name,
+    s.station_group_id,
+    s.station_group_name,
+    s.updated_at
+FROM pull_task_standard_setting s
+JOIN pull_task t
+  ON t.id = s.task_id
+ AND t.tenant_id = s.tenant_id
+WHERE s.task_id = @task_id
+  AND t.task_type = 'STANDARD'
+  AND t.mode = 'NORMAL_LINK'
+  AND t.deleted_at IS NULL;
+
+-- 结果 3：群执行行概况、排期和调度租约。
+-- schedule_state / lease_state 对终态和人工暂停行输出专用值，
+-- 避免把永远不会被调度的行标成"已到期"。
 SELECT
     e.id AS execution_id,
     e.seq,
+    e.source_file_index,
     e.execution_status,
     e.stage,
     e.manual_paused,
+    e.group_jid IS NOT NULL AS has_group_jid,
+    e.valid_member_count,
+    e.invalid_line_count,
+    e.duplicate_line_count,
     e.wait_resource_type,
     e.reason_code,
     e.reason_message,
     e.next_run_at,
-    -- 终态和人工暂停行永远不会被调度，输出专用值避免误判成"已到期"。
+    FROM_UNIXTIME(NULLIF(e.next_run_at, 0) / 1000) AS next_run_at_text,
+    (e.next_run_at - @now) DIV 1000 AS next_run_in_seconds,
     CASE
         WHEN e.execution_status IN (0, 4, 5, 6) THEN 'TERMINAL_OR_DRAFT'
         WHEN e.manual_paused = 1 THEN 'MANUAL_PAUSED'
@@ -92,6 +143,9 @@ SELECT
     e.started_at,
     e.finished_at,
     e.last_business_executed_at,
+    (@now - e.last_business_executed_at) DIV 1000 AS last_business_age_seconds,
+    (@now - e.updated_at) DIV 1000 AS idle_seconds,
+    FROM_UNIXTIME(e.updated_at / 1000) AS updated_at_text,
     e.updated_at
 FROM pull_task_group_execution e
 JOIN pull_task t
@@ -104,7 +158,8 @@ WHERE e.task_id = @task_id
   AND t.deleted_at IS NULL
 ORDER BY e.seq, e.id;
 
--- 结果 3：管理、拉手、站台角色账号事实；不输出账号号码。
+-- 结果 4：管理、拉手、站台角色账号事实；不输出账号号码。
+-- membership_reason_* 是进群结果原因，与 unavailable_reason_code(账号可用性原因)不同源。
 SELECT
     a.group_execution_id AS execution_id,
     a.id AS role_row_id,
@@ -115,12 +170,19 @@ SELECT
     a.selection_mode,
     a.entry_mode,
     a.membership_status,
+    a.membership_reason_code,
+    a.membership_reason_message,
+    a.membership_result_at,
+    a.joined_at,
+    a.pull_call_id,
     a.admin_status,
     a.availability_status,
     a.unavailable_reason_code,
     a.cooldown_until,
+    (a.cooldown_until - @now) DIV 1000 AS cooldown_remaining_seconds,
     a.occupied_at,
     a.released_at,
+    (@now - a.updated_at) DIV 1000 AS idle_seconds,
     a.updated_at
 FROM pull_task_group_account a
 JOIN pull_task_group_execution e
@@ -136,19 +198,26 @@ WHERE t.id = @task_id
   AND t.deleted_at IS NULL
 ORDER BY e.seq, a.role_type, a.role_seq, a.id;
 
--- 结果 4：账号动作及对应 Outbox；覆盖保存联系人、邀请和踩链接。
+-- 结果 5：账号动作及对应 Outbox；覆盖保存联系人、邀请和踩链接。
+-- actor_role_type / target_role_type 直接读出动作双方角色，
+-- 例如阶段 3 是 1→2(管理→拉手)，阶段 5 是 2→3(拉手→站台)。
 SELECT
     a.id AS action_id,
     a.group_execution_id AS execution_id,
+    e.stage AS execution_stage,
     a.action_type,
+    actor.role_type AS actor_role_type,
     a.actor_group_account_id,
+    target.role_type AS target_role_type,
     a.target_group_account_id,
     a.action_status,
     a.command_id,
     a.reason_code,
     a.reason_message,
     a.submitted_at,
+    (@now - a.submitted_at) DIV 1000 AS submitted_age_seconds,
     a.result_at,
+    (@now - a.updated_at) DIV 1000 AS idle_seconds,
     a.updated_at AS action_updated_at,
     o.command_type,
     o.aggregate_type,
@@ -161,6 +230,7 @@ SELECT
     o.locked_by,
     o.locked_at,
     o.sent_at,
+    (@now - o.sent_at) DIV 1000 AS sent_age_seconds,
     o.last_error
 FROM pull_task_account_action a
 JOIN pull_task_group_execution e
@@ -169,6 +239,12 @@ JOIN pull_task_group_execution e
 JOIN pull_task t
   ON t.id = e.task_id
  AND t.tenant_id = e.tenant_id
+LEFT JOIN pull_task_group_account actor
+  ON actor.id = a.actor_group_account_id
+ AND actor.tenant_id = a.tenant_id
+LEFT JOIN pull_task_group_account target
+  ON target.id = a.target_group_account_id
+ AND target.tenant_id = a.tenant_id
 LEFT JOIN protocol_command_outbox o
   ON o.command_id = a.command_id
  AND o.tenant_id = a.tenant_id
@@ -180,7 +256,7 @@ WHERE t.id = @task_id
   AND t.deleted_at IS NULL
 ORDER BY e.seq, a.id;
 
--- 结果 5：真实批量拉人调用及对应 Outbox。
+-- 结果 6：真实批量拉人调用及对应 Outbox。
 SELECT
     c.id AS call_id,
     c.group_execution_id AS execution_id,
@@ -194,7 +270,10 @@ SELECT
     c.reason_code,
     c.reason_message,
     c.submitted_at,
+    FROM_UNIXTIME(c.submitted_at / 1000) AS submitted_at_text,
+    (@now - c.submitted_at) DIV 1000 AS submitted_age_seconds,
     c.result_at,
+    (@now - c.updated_at) DIV 1000 AS idle_seconds,
     c.updated_at AS call_updated_at,
     o.command_type,
     o.aggregate_type,
@@ -207,6 +286,7 @@ SELECT
     o.locked_by,
     o.locked_at,
     o.sent_at,
+    (@now - o.sent_at) DIV 1000 AS sent_age_seconds,
     o.last_error
 FROM pull_task_pull_call c
 JOIN pull_task_group_execution e
@@ -226,7 +306,33 @@ WHERE t.id = @task_id
   AND t.deleted_at IS NULL
 ORDER BY e.seq, c.call_seq, c.id;
 
--- 结果 6a：料子入群和提权状态聚合。
+-- 结果 7：同一拉手的连续拉人间隔核对。
+-- last_submitted_age_seconds 小于 pull_interval_seconds 时，
+-- 该拉手"不动"是正常冷却，不是卡住。
+SELECT
+    c.group_execution_id AS execution_id,
+    c.puller_account_id,
+    COUNT(*) AS call_count,
+    MAX(c.submitted_at) AS last_submitted_at,
+    FROM_UNIXTIME(MAX(c.submitted_at) / 1000) AS last_submitted_at_text,
+    (@now - MAX(c.submitted_at)) DIV 1000 AS last_submitted_age_seconds
+FROM pull_task_pull_call c
+JOIN pull_task_group_execution e
+  ON e.id = c.group_execution_id
+ AND e.tenant_id = c.tenant_id
+JOIN pull_task t
+  ON t.id = e.task_id
+ AND t.tenant_id = e.tenant_id
+WHERE t.id = @task_id
+  AND (@execution_id IS NULL OR e.id = @execution_id)
+  AND t.task_type = 'STANDARD'
+  AND t.mode = 'NORMAL_LINK'
+  AND t.deleted_at IS NULL
+  AND c.submitted_at IS NOT NULL
+GROUP BY c.group_execution_id, c.puller_account_id
+ORDER BY c.group_execution_id, c.puller_account_id;
+
+-- 结果 8a：料子入群和提权状态聚合。
 SELECT
     m.group_execution_id AS execution_id,
     m.pull_status,
@@ -247,7 +353,8 @@ WHERE t.id = @task_id
 GROUP BY m.group_execution_id, m.pull_status, m.admin_status
 ORDER BY m.group_execution_id, m.pull_status, m.admin_status;
 
--- 结果 6b：处理中或异常料子；不输出号码和 WhatsApp JID。
+-- 结果 8b：处理中或异常料子；不输出号码和 WhatsApp JID。
+-- 不含 admin_status=1(待执行)：阶段 5 尚未提权属正常，先看 8a 聚合。
 SELECT
     m.id AS member_id,
     m.group_execution_id AS execution_id,
@@ -265,7 +372,9 @@ SELECT
     o.status AS admin_outbox_status,
     o.retry_count AS admin_outbox_retry_count,
     o.sent_at AS admin_outbox_sent_at,
+    (@now - o.sent_at) DIV 1000 AS admin_sent_age_seconds,
     o.last_error AS admin_outbox_last_error,
+    (@now - m.updated_at) DIV 1000 AS idle_seconds,
     m.updated_at
 FROM pull_task_material_member m
 JOIN pull_task_group_execution e
@@ -285,12 +394,13 @@ WHERE t.id = @task_id
   AND t.deleted_at IS NULL
   AND (
     m.pull_status IN (1, 3, 4)
-    OR m.admin_status IN (1, 2, 4, 5)
+    OR m.admin_status IN (2, 4, 5)
   )
-ORDER BY e.seq, m.member_seq, m.id;
+ORDER BY e.seq, m.member_seq, m.id
+LIMIT 200;
 
--- 结果 7：异常摘要候选。
--- “候选”不等于故障结论；必须结合排期、测试时间和前六组事实确认。
+-- 结果 9：异常摘要候选。
+-- "候选"不等于故障结论；必须结合排期、测试时间和前面各组事实确认。
 -- 所有时间类判定都带宽限期，宽限期内的在途状态刻意不输出：
 --   到期未持锁 < @stall_grace_ms          → 正常轮询间隙
 --   已提交无结果 < @reconcile_overdue_ms  → 未知结果收敛的保护期内
@@ -357,7 +467,6 @@ WITH target_task AS (
 )
 
 -- 到期、未持锁且长时间无更新：应具备调度资格却没有推进。
--- 调度线程 1 秒一轮、租约 30 秒，不带宽限期会对每个健康任务都误报。
 SELECT
     'DUE_EXECUTION_STALLED' AS category,
     e.task_id,

@@ -77,6 +77,22 @@ class GroupLinkMapperSqlShapeTest {
     }
 
     @Test
+    void historicalBackfillJsonTableAvoidsReservedGroupsAlias() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        int start = xml.indexOf("<select id=\"selectHistoricalClassificationBackfillCandidates\"");
+        int end = xml.indexOf("</select>", start);
+        String selectSql = xml.substring(start, end);
+
+        assertThat(selectSql)
+                .contains(") baseline_group")
+                .contains("baseline_group.group_jid")
+                .doesNotContain(") groups")
+                .doesNotContain("groups.group_jid");
+    }
+
+    @Test
     void groupListDynamicSqlRendersCombinedFiltersForCountAndPage() throws IOException {
         Configuration configuration = new Configuration();
         try (InputStream input = getClass().getResourceAsStream(MAPPER_XML)) {

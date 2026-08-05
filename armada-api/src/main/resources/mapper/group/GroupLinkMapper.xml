@@ -123,10 +123,10 @@
           resultType="com.armada.group.model.vo.GroupClassificationBackfillCandidate">
     SELECT DISTINCT baseline.tenant_id AS tenantId,
            COALESCE(by_preview.id, by_url.id) AS groupLinkId,
-           groups.group_jid AS groupJid,
+           baseline_group.group_jid AS groupJid,
            JSON_UNQUOTE(JSON_EXTRACT(
              COALESCE(baseline.baseline_group_subjects, JSON_OBJECT()),
-             CONCAT('$.&quot;', groups.group_jid, '&quot;')
+             CONCAT('$.&quot;', baseline_group.group_jid, '&quot;')
            )) AS groupName,
            COALESCE(by_preview.deleted_at, by_url.deleted_at) AS deletedAt
     FROM account_group_baseline baseline
@@ -138,22 +138,22 @@
     INNER JOIN JSON_TABLE(
       baseline.baseline_group_jids,
       '$[*]' COLUMNS(group_jid VARCHAR(128) PATH '$')
-    ) groups
+    ) baseline_group
     LEFT JOIN group_link_preview preview
       ON preview.tenant_id = baseline.tenant_id
-     AND preview.group_jid = groups.group_jid
+     AND preview.group_jid = baseline_group.group_jid
     LEFT JOIN group_link by_preview
       ON by_preview.tenant_id = preview.tenant_id
      AND by_preview.id = preview.group_link_id
     LEFT JOIN group_link by_url
       ON by_url.tenant_id = baseline.tenant_id
-     AND by_url.link_url = CONCAT('wa://group/', groups.group_jid)
-    WHERE groups.group_jid IS NOT NULL
-      AND TRIM(groups.group_jid) &lt;&gt; ''
+     AND by_url.link_url = CONCAT('wa://group/', baseline_group.group_jid)
+    WHERE baseline_group.group_jid IS NOT NULL
+      AND TRIM(baseline_group.group_jid) &lt;&gt; ''
       AND COALESCE(by_preview.is_historical, by_url.is_historical, 0) = 0
     ORDER BY baseline.tenant_id ASC,
              COALESCE(by_preview.id, by_url.id, 0) ASC,
-             groups.group_jid ASC
+             baseline_group.group_jid ASC
     LIMIT #{limit}
   </select>
 

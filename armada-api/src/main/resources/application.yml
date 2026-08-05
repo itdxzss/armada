@@ -38,6 +38,11 @@ server:
   port: 8080
 
 armada:
+  pull-task:
+    avatar:
+      storage-dir: ${ARMADA_PULL_TASK_AVATAR_STORAGE_DIR:/app/data/pull-task-avatars}
+      cleanup-fixed-delay-ms: ${ARMADA_PULL_TASK_AVATAR_CLEANUP_FIXED_DELAY_MS:3600000}
+      pending-ttl-ms: ${ARMADA_PULL_TASK_AVATAR_PENDING_TTL_MS:86400000}
   group-pull-marketing:
     scheduler:
       # 拉群营销资源分配、到期建群和安全释放三个扫描阶段的固定延迟（毫秒）。

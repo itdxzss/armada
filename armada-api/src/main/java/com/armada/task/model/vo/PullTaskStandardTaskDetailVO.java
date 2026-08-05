@@ -14,7 +14,9 @@ public record PullTaskStandardTaskDetailVO(
         Long createdAt,
         String remark,
         List<PullTaskStandardExecutionSummaryVO> executions,
-        PullTaskStandardTaskSummaryVO summary) {
+        PullTaskStandardTaskSummaryVO summary,
+        PullTaskStandardSettingVO standardSetting,
+        PullTaskStandardGroupSettingVO groupSetting) {
 
     /** 冻结执行行列表。 */
     public PullTaskStandardTaskDetailVO {
@@ -34,6 +36,23 @@ public record PullTaskStandardTaskDetailVO(
             String remark,
             List<PullTaskStandardExecutionSummaryVO> executions) {
         this(taskId, taskName, status, groupCount, expectedPullCount,
-                startedAt, finishedAt, createdAt, remark, executions, null);
+                startedAt, finishedAt, createdAt, remark, executions, null, null, null);
+    }
+
+    /** 聚合兼容构造；设置尚未装配的旧调用保持可编译。 */
+    public PullTaskStandardTaskDetailVO(
+            long taskId,
+            String taskName,
+            String status,
+            int groupCount,
+            int expectedPullCount,
+            Long startedAt,
+            Long finishedAt,
+            Long createdAt,
+            String remark,
+            List<PullTaskStandardExecutionSummaryVO> executions,
+            PullTaskStandardTaskSummaryVO summary) {
+        this(taskId, taskName, status, groupCount, expectedPullCount,
+                startedAt, finishedAt, createdAt, remark, executions, summary, null, null);
     }
 }

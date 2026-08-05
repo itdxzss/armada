@@ -32,6 +32,12 @@ public class GroupLink {
     /** 我方与群关系:1=目标未进群 2=已进群 3=自建拥有。 */
     private Integer membershipState;
 
+    /** 是否曾属于首次上线历史群基线；只升不降。 */
+    private Boolean isHistorical;
+
+    /** 是否曾在账号上控后被可靠观察到加入；只升不降。 */
+    private Boolean isPostControl;
+
     /** 曾被账号群同步观察到的协议位:1=Web,2=Android,3=两者。 */
     private Integer syncProtocolMask;
 
@@ -120,6 +126,22 @@ public class GroupLink {
 
     public void setMembershipState(Integer membershipState) {
         this.membershipState = membershipState;
+    }
+
+    public Boolean getIsHistorical() {
+        return isHistorical;
+    }
+
+    public void setIsHistorical(Boolean historical) {
+        isHistorical = historical;
+    }
+
+    public Boolean getIsPostControl() {
+        return isPostControl;
+    }
+
+    public void setIsPostControl(Boolean postControl) {
+        isPostControl = postControl;
     }
 
     public Integer getSyncProtocolMask() {

@@ -104,6 +104,10 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         return new GroupMetadataResult(
                 responseGroupJid,
                 text(data.get("Subject")),
+                text(data.get("Desc")),
+                text(data.get("Owner")),
+                positiveLong(data.get("Creation")),
+                true,
                 booleanValue(data.get("Announce")),
                 null,
                 null,
@@ -135,6 +139,14 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
             return false;
         }
         throw unrecognized("Android 群成员响应 Announce 无效");
+    }
+
+    private static Long positiveLong(JsonNode node) {
+        if (node == null || !node.isIntegralNumber() || !node.canConvertToLong()) {
+            return null;
+        }
+        long value = node.longValue();
+        return value > 0 ? value : null;
     }
 
     private static String normalizeGroupJid(String value) {

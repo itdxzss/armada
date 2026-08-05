@@ -5,6 +5,8 @@ import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedSink;
+import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.shared.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,17 +20,21 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
 
     private final AccountStateEventService service;
     private final ProxyFailedRecoveryCoordinator recoveryCoordinator;
+    private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
     /**
      * 创建账号状态变更 adapter。
      *
      * @param service             账号状态事件落库服务
      * @param recoveryCoordinator 状态提交后的代理失败恢复编排器
+     * @param metadataSyncTaskService 群详情同步任务服务
      */
     public AccountStateChangedSinkAdapter(AccountStateEventService service,
-                                          ProxyFailedRecoveryCoordinator recoveryCoordinator) {
+                                          ProxyFailedRecoveryCoordinator recoveryCoordinator,
+                                          GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.service = service;
         this.recoveryCoordinator = recoveryCoordinator;
+        this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     /**
@@ -52,6 +58,23 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
         if (applied && isProxyFailed(event)) {
             recoveryCoordinator.recover(
                     event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId());
+        }
+        if (applied && "ONLINE".equalsIgnoreCase(event.to())) {
+            resumeDeferredMetadataTasks(event);
+        }
+    }
+
+    private void resumeDeferredMetadataTasks(ProtocolAccountStateChangedEvent event) {
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(event.tenantId());
+            metadataSyncTaskService.resumeDeferredForAccount(event.accountId(), event.occurredAt());
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
         }
     }
 

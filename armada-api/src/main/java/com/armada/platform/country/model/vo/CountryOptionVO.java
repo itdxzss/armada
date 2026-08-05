@@ -10,5 +10,6 @@ public record CountryOptionVO(
         String nameEn,
         String phonePrefix,
         String flag,
-        boolean virtual) {
+        boolean virtual,
+        String continentCode) {
 }

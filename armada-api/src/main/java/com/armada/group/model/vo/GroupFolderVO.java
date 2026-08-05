@@ -10,10 +10,9 @@ package com.armada.group.model.vo;
  * @param updatedAt 更新时间(epoch 毫秒)
  */
 public record GroupFolderVO(
-        Long id,
+        long id,
         String name,
         long groupCount,
-        Long createdAt,
-        Long updatedAt
-) {
+        long createdAt,
+        long updatedAt) {
 }

@@ -8,17 +8,14 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
  *
  * @param accountId         Armada 本地账号 ID
  * @param protocolAccountId 协议层账号句柄
+ * @param groupAdmin 当前账号是否为该群管理员
  */
 public record GroupExecutionAccount(
         Long accountId,
         String protocolId,
         String protocolAccountId,
-        String wsPhone) {
-
-    /** 兼容现有只构造 Web 账号的单元测试和调用方。 */
-    public GroupExecutionAccount(Long accountId, String protocolAccountId) {
-        this(accountId, null, protocolAccountId, protocolAccountId);
-    }
+        String wsPhone,
+        boolean groupAdmin) {
 
     /** 转为统一协议路由所需的完整账号引用。 */
     public ProtocolAccountRef protocolRef() {

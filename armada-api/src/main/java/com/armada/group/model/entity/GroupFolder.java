@@ -1,8 +1,6 @@
 package com.armada.group.model.entity;
 
-/**
- * 群组列表运营分组实体，映射 group_folder 表。
- */
+/** 群组列表运营分组，映射 {@code group_folder}。 */
 public class GroupFolder {
 
     /** 主键。 */

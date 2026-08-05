@@ -6,5 +6,5 @@ package com.armada.group.model.vo;
  * @param id 分组 ID
  * @param name 分组名称
  */
-public record GroupFolderOptionVO(Long id, String name) {
+public record GroupFolderOptionVO(long id, String name) {
 }

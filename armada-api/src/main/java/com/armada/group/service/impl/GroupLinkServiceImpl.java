@@ -77,6 +77,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             "UNCHECKED", "AVAILABLE", "BANNED", "LINK_INVALID", "UNAVAILABLE");
 
+    /** 历史群筛选只接受产品约定的六大洲。 */
+    private static final Set<String> ALLOWED_CONTINENTS = Set.of(
+            "ASIA", "AFRICA", "EUROPE", "NORTH_AMERICA", "SOUTH_AMERICA", "OCEANIA");
+
     private final GroupLinkMapper groupLinkMapper;
     private final GroupFolderMapper folderMapper;
     private final GroupLinkPreviewMapper previewMapper;
@@ -115,8 +119,12 @@ public class GroupLinkServiceImpl implements GroupLinkService {
      */
     @Override
     public PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query) {
-        validateFolderFilter(query);
+        if (query == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "查询参数不能为空");
+        }
         validateStatus(query.getStatus());
+        normalizeAndValidateListQuery(query);
+        query.setNowSeconds(Instant.now().getEpochSecond());
         long total = groupLinkMapper.countByLabel(query);
         List<GroupLinkVO> rows = total == 0
                 ? List.of()
@@ -243,17 +251,39 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         }
     }
 
-    private static void validateFolderFilter(GroupLinkQuery query) {
-        if (query == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "查询参数不能为空");
+    private static void normalizeAndValidateListQuery(GroupLinkQuery query) {
+        query.setCountryIso2(upperOrNull(query.getCountryIso2()));
+        query.setContinentCode(upperOrNull(query.getContinentCode()));
+        if (query.getCountryIso2() != null && !query.getCountryIso2().matches("[A-Z]{2}")) {
+            throw new BusinessException(ErrorCode.VALIDATION, "countryIso2 必须是两位国家代码");
         }
+        if (query.getContinentCode() != null
+                && !ALLOWED_CONTINENTS.contains(query.getContinentCode())) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "continentCode 非法: " + query.getContinentCode());
+        }
+        validateRange(query.getMemberCountMin(), query.getMemberCountMax(), "成员数");
+        validateRange(query.getAgeDaysMin(), query.getAgeDaysMax(), "群龄天数");
         if (query.getFolderId() != null && Boolean.TRUE.equals(query.getWithoutFolder())) {
-            throw new BusinessException(
-                    ErrorCode.VALIDATION,
-                    "folderId 与 withoutFolder 不能同时使用");
+            throw new BusinessException(ErrorCode.VALIDATION, "folderId 与 withoutFolder 不能同时使用");
         }
     }
 
+    private static void validateRange(Integer min, Integer max, String fieldName) {
+        if (min != null && min < 0 || max != null && max < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, fieldName + "不能为负数");
+        }
+        if (min != null && max != null && min > max) {
+            throw new BusinessException(ErrorCode.VALIDATION, fieldName + "最小值不能大于最大值");
+        }
+    }
+
+    private static String upperOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toUpperCase(Locale.ROOT);
+    }
     private static boolean hasProfileField(GroupLinkProfileDTO dto) {
         return dto.groupName() != null || dto.remark() != null || dto.avatarUrl() != null;
     }

@@ -10,7 +10,9 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupInvitePageProbe;
+import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -70,6 +72,9 @@ class PullTaskStandardDraftServicePlanTest {
     private GroupInvitePageFetcher fetcher;
 
     @Autowired
+    private GroupFolderService groupFolderService;
+
+    @Autowired
     private PullTaskGroupExecutionMapper executionMapper;
 
     @Autowired
@@ -79,6 +84,7 @@ class PullTaskStandardDraftServicePlanTest {
     void setUp() throws SQLException {
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
+        org.mockito.Mockito.reset(groupFolderService);
         when(fetcher.probe(anyString())).thenAnswer(invocation ->
                 reachableWithProfile(invocation.getArgument(0)));
     }
@@ -91,7 +97,8 @@ class PullTaskStandardDraftServicePlanTest {
     @Test
     void createsOneRowPerMatchAndReportsRemainingLinks() {
         PullTaskStandardDraftVO view = service.plan(
-                LINK_A + "\n" + LINK_B, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
+                null, LINK_A + "\n" + LINK_B,
+                List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.draftTaskId()).isNotNull();
         assertThat(view.matchedCount()).isEqualTo(1);
@@ -103,10 +110,12 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void appendsIncrementallyWithoutDisturbingExistingRows() {
-        service.plan(LINK_A, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
+        service.plan(null, LINK_A,
+                List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         PullTaskStandardDraftVO view = service.plan(
-                LINK_A + "\n" + LINK_B, List.of(txt("b.txt", "8613800138002\n")), CREATOR, OPERATOR);
+                null, LINK_A + "\n" + LINK_B,
+                List.of(txt("b.txt", "8613800138002\n")), CREATOR, OPERATOR);
 
         // LINK_A 已成行，不参与第二轮随机；已有行的 seq 与文件都不变。
         assertThat(view.rows()).extracting(
@@ -120,7 +129,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void ignoresTrailingFilesWhenRemainingLinksRunOut() {
-        PullTaskStandardDraftVO view = service.plan(LINK_A,
+        PullTaskStandardDraftVO view = service.plan(null, LINK_A,
                 List.of(txt("a.txt", "8613800138001\n"), txt("b.txt", "8613800138002\n")),
                 CREATOR, OPERATOR);
 
@@ -130,7 +139,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void rejectsZeroValidFileFromThePoolButStillReportsIt() {
-        PullTaskStandardDraftVO view = service.plan(LINK_A,
+        PullTaskStandardDraftVO view = service.plan(null, LINK_A,
                 List.of(txt("empty.txt", "abc\n\n")), CREATOR, OPERATOR);
 
         assertThat(view.matchedCount()).isZero();
@@ -143,7 +152,8 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void persistsMembersWithAdminFlagAndLineNumbers() {
-        service.plan(LINK_A, List.of(txt("a.txt", "8613800138001\n8613800138002A\n")),
+        service.plan(null, LINK_A,
+                List.of(txt("a.txt", "8613800138001\n8613800138002A\n")),
                 CREATOR, OPERATOR);
 
         long rowId = executionMapper.selectByTaskId(
@@ -162,7 +172,7 @@ class PullTaskStandardDraftServicePlanTest {
     void keepsExpiredLinkOutOfThePool() {
         when(fetcher.probe(LINK_A)).thenReturn(reachableWithoutProfile(LINK_A));
 
-        PullTaskStandardDraftVO view = service.plan(LINK_A + "\n" + LINK_B,
+        PullTaskStandardDraftVO view = service.plan(null, LINK_A + "\n" + LINK_B,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.linkLines()).extracting(PullTaskStandardLinkLineVO::status)
@@ -174,10 +184,11 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void marksLinkOccupiedByAnotherRunningTask() {
-        service.plan(LINK_A, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
+        service.plan(null, LINK_A,
+                List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
         executionMapper.freezeDraftRows(service.current(CREATOR).draftTaskId(), 900L);
 
-        PullTaskStandardDraftVO view = service.plan(LINK_A + "\n" + LINK_C,
+        PullTaskStandardDraftVO view = service.plan(null, LINK_A + "\n" + LINK_C,
                 List.of(txt("c.txt", "8613800138003\n")), 602L, "运营乙");
 
         assertThat(view.linkLines()).extracting(PullTaskStandardLinkLineVO::status)
@@ -189,7 +200,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void rejectsNonTxtUpload() {
-        assertThatThrownBy(() -> service.plan(LINK_A,
+        assertThatThrownBy(() -> service.plan(null, LINK_A,
                 List.of(new MockMultipartFile("files", "a.csv", "text/csv",
                         "8613800138001".getBytes(StandardCharsets.UTF_8))), CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class)
@@ -203,7 +214,7 @@ class PullTaskStandardDraftServicePlanTest {
                 .map(MultipartFile.class::cast)
                 .toList();
 
-        assertThatThrownBy(() -> service.plan(LINK_A, files, CREATOR, OPERATOR))
+        assertThatThrownBy(() -> service.plan(null, LINK_A, files, CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("50");
     }
@@ -213,18 +224,54 @@ class PullTaskStandardDraftServicePlanTest {
         MockMultipartFile binary = new MockMultipartFile("files", "a.txt", "text/plain",
                 new byte[] {0x00, 0x01, 0x02});
 
-        assertThatThrownBy(() -> service.plan(LINK_A, List.of(binary), CREATOR, OPERATOR))
+        assertThatThrownBy(() -> service.plan(
+                null, LINK_A, List.of(binary), CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class);
     }
 
     @Test
     void planWithNoFilesOnlyReportsLinkJudgementWithoutCreatingRows() {
-        PullTaskStandardDraftVO view = service.plan(LINK_A, List.of(), CREATOR, OPERATOR);
+        PullTaskStandardDraftVO view = service.plan(
+                null, LINK_A, List.of(), CREATOR, OPERATOR);
 
         assertThat(view.draftTaskId()).isNotNull();
         assertThat(view.rows()).isEmpty();
         assertThat(view.linkLines()).hasSize(1);
         assertThat(view.remainingLinkCount()).isEqualTo(1);
+    }
+
+    @Test
+    void plansWithLinksFromSelectedGroupFolderOnly() {
+        when(groupFolderService.usableLinks(18L)).thenReturn(List.of(LINK_A));
+
+        PullTaskStandardDraftVO view = service.plan(
+                18L, null, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
+
+        assertThat(view.rows()).singleElement()
+                .satisfies(row -> assertThat(row.normalizedLink()).isEqualTo(LINK_A));
+    }
+
+    @Test
+    void deduplicatesFolderAndPastedLinksBeforeMatching() {
+        when(groupFolderService.usableLinks(18L)).thenReturn(List.of(LINK_A));
+
+        PullTaskStandardDraftVO view = service.plan(
+                18L, LINK_A, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
+
+        assertThat(view.rows()).hasSize(1);
+        assertThat(view.remainingLinkCount()).isZero();
+    }
+
+    @Test
+    void missingOrCrossTenantFolderIsRejectedBeforeDraftIsWritten() {
+        when(groupFolderService.usableLinks(18L)).thenThrow(
+                new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在: 18"));
+
+        assertThatThrownBy(() -> service.plan(
+                18L, LINK_A, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不存在");
+        assertThat(service.current(CREATOR).draftTaskId()).isNull();
     }
 
     private static MockMultipartFile txt(String fileName, String content) {
@@ -296,6 +343,11 @@ class PullTaskStandardDraftServicePlanTest {
         }
 
         @Bean
+        GroupFolderService groupFolderService() {
+            return mock(GroupFolderService.class);
+        }
+
+        @Bean
         PullTaskLinkProbeService probeService(GroupInvitePageFetcher fetcher) {
             // 同步执行器让并发路径在测试里变确定。
             return new PullTaskLinkProbeService(fetcher, Runnable::run);
@@ -318,9 +370,11 @@ class PullTaskStandardDraftServicePlanTest {
                                                   PullTaskGroupExecutionMapper executionMapper,
                                                   PullTaskStandardDraftWriter writer,
                                                   PullTaskMaterialTxtParser txtParser,
-                                                  PullTaskLinkProbeService probeService) {
+                                                  PullTaskLinkProbeService probeService,
+                                                  GroupFolderService groupFolderService) {
             return new PullTaskStandardDraftServiceImpl(
-                    pullTaskMapper, executionMapper, writer, txtParser, probeService);
+                    pullTaskMapper, executionMapper, writer, txtParser,
+                    probeService, groupFolderService);
         }
     }
 }

@@ -14,9 +14,17 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.entity.PullTaskStandardGroupSetting;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskType;
+import com.armada.task.model.enums.PullTaskPullerSyncMode;
+import com.armada.task.model.enums.PullTaskGroupSettingTiming;
+import com.armada.task.model.enums.PullTaskEditPermissionMode;
+import com.armada.task.model.enums.PullTaskMuteMode;
+import com.armada.task.model.enums.PullTaskLinkPermissionMode;
+import com.armada.task.model.enums.PullTaskDisappearingMessageMode;
 import com.armada.task.model.vo.PullTaskStandardActionVO;
 import com.armada.task.model.vo.PullTaskStandardCallVO;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
@@ -29,6 +37,8 @@ import com.armada.task.model.vo.PullTaskStandardRoleVO;
 import com.armada.task.model.vo.PullTaskStandardTaskAggregate;
 import com.armada.task.model.vo.PullTaskStandardTaskDetailVO;
 import com.armada.task.model.vo.PullTaskStandardTaskSummaryVO;
+import com.armada.task.model.vo.PullTaskStandardSettingVO;
+import com.armada.task.model.vo.PullTaskStandardGroupSettingVO;
 import com.armada.task.service.PullTaskStandardReadService;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,10 +76,17 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         PullTaskStandardTaskAggregate aggregate = resources.readMapper()
                 .selectTaskAggregates(PullTaskStandardAggregateCriteria.fromEnums(List.of(taskId)))
                 .stream().findFirst().orElse(null);
+        PullTaskStandardSetting setting = resources.settingMapper().selectByTaskId(taskId);
+        PullTaskStandardGroupSetting groupSetting =
+                resources.groupSettingMapper().selectByTaskId(taskId);
+        if (setting == null || groupSetting == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务完整设置不存在");
+        }
         return new PullTaskStandardTaskDetailVO(
                 task.getId(), task.getTaskName(), task.getStatus(), task.getGroupCount(),
                 task.getExpectedPullCount(), task.getStartedAt(), task.getFinishedAt(),
-                task.getCreatedAt(), task.getRemark(), List.of(), taskSummary(aggregate));
+                task.getCreatedAt(), task.getRemark(), List.of(), taskSummary(aggregate),
+                standardSetting(setting), groupSetting(groupSetting));
     }
 
     @Override
@@ -227,6 +244,43 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 value(aggregate.getFailedMemberCount()),
                 value(aggregate.getUnknownMemberCount()),
                 value(aggregate.getUnconsumedMemberCount()));
+    }
+
+    private static PullTaskStandardSettingVO standardSetting(PullTaskStandardSetting row) {
+        return new PullTaskStandardSettingVO(
+                value(row.getAutoStart()), row.getSourceGroupFolderId(),
+                row.getSourceGroupFolderName(), PullTaskPullerSyncMode.fromCode(
+                        value(row.getPullerSyncMode())), value(row.getMaterialAdminTiming()),
+                enabled(row.getClearExistingMembers()), value(row.getPullCountMin()),
+                value(row.getPullCountMax()), value(row.getPullIntervalSeconds()),
+                value(row.getPullerCountPerGroup()), value(row.getStationCountPerCall()),
+                value(row.getConcurrentGroupCount()),
+                row.getManagerGroupId(), row.getManagerGroupName(),
+                row.getPullerGroupId(), row.getPullerGroupName(),
+                row.getStationGroupId(), row.getStationGroupName(),
+                row.getManagerFinishGroupId(), row.getManagerFinishGroupName(),
+                row.getPullerFinishGroupId(), row.getPullerFinishGroupName());
+    }
+
+    private static PullTaskStandardGroupSettingVO groupSetting(
+            PullTaskStandardGroupSetting row) {
+        String avatarUrl = row.getAvatarFileKey() == null
+                ? null
+                : "/api/pull-tasks/standard/group-avatars/" + row.getAvatarFileKey();
+        return new PullTaskStandardGroupSettingVO(
+                PullTaskGroupSettingTiming.fromCode(value(row.getSettingTiming())),
+                row.getGroupName(), enabled(row.getMaterialFilenameAsGroupName()),
+                row.getAvatarFileKey(), avatarUrl, row.getGroupDescription(),
+                enabled(row.getAutoUnmuteAfterTask()), enabled(row.getAutoCloseInviteAfterTask()),
+                PullTaskEditPermissionMode.fromCode(value(row.getEditPermissionMode())),
+                PullTaskMuteMode.fromCode(value(row.getMuteMode())),
+                PullTaskLinkPermissionMode.fromCode(value(row.getLinkPermissionMode())),
+                PullTaskDisappearingMessageMode.fromCode(
+                        value(row.getDisappearingMessageMode())));
+    }
+
+    private static boolean enabled(Integer value) {
+        return Integer.valueOf(1).equals(value);
     }
 
     private static PullTaskStandardRoleVO role(PullTaskGroupAccount row) {

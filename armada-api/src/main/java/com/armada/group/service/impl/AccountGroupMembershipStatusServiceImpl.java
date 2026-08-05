@@ -7,7 +7,9 @@ import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusSnapshot;
+import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipStatusService;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
@@ -42,16 +44,22 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
     /** 协议事件观察到群时使用的统一群组池登记入口。 */
     private final GroupLinkRegistryService groupLinkRegistryService;
 
+    /** 历史群与上控后群固化分类服务。 */
+    private final GroupClassificationService classificationService;
+
     /**
      * 创建账号群关系状态服务。
      *
      * @param membershipMapper 账号群关系 Mapper
      * @param groupLinkRegistryService 群组池登记服务
+     * @param classificationService 历史群与上控后群分类服务
      */
     public AccountGroupMembershipStatusServiceImpl(AccountGroupMembershipMapper membershipMapper,
-                                                   GroupLinkRegistryService groupLinkRegistryService) {
+                                                   GroupLinkRegistryService groupLinkRegistryService,
+                                                   GroupClassificationService classificationService) {
         this.membershipMapper = membershipMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.classificationService = classificationService;
     }
 
     /**
@@ -125,6 +133,12 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
                 membership.setJoinedAt(event.occurredAt());
                 membership.setLastSeenAt(event.occurredAt());
+                classificationService.classifyMembershipAdded(
+                        event.accountId(),
+                        new GroupClassificationCandidate(
+                                groupLinkId, event.groupJid().trim(), null),
+                        event.occurredAt(),
+                        now);
             } else {
                 membership.setLastExitType(transition.status().code());
                 membership.setLastExitedAt(event.occurredAt());

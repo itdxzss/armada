@@ -71,6 +71,7 @@ public class PullTaskStandardController {
     /**
      * 解析本次粘贴的链接与上传的 TXT，把新配对增量追加到草稿。
      *
+     * @param groupFolderId 群组列表运营分组 ID，可为空
      * @param linksText 链接框全量文本，每次请求都要带
      * @param files     本次新增的 .txt 料子文件，可为空
      * @param principal 当前可信登录身份
@@ -79,10 +80,11 @@ public class PullTaskStandardController {
     @PostMapping("/draft/plan")
     @PreAuthorize("hasAuthority('tenant:pull_task:create')")
     public ApiResponse<PullTaskStandardDraftVO> plan(
+            @RequestParam(value = "groupFolderId", required = false) Long groupFolderId,
             @RequestParam(value = "linksText", required = false) String linksText,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        return ApiResponse.ok(draftService.plan(linksText, toList(files),
+        return ApiResponse.ok(draftService.plan(groupFolderId, linksText, toList(files),
                 principal.userId(), displayName(principal)));
     }
 

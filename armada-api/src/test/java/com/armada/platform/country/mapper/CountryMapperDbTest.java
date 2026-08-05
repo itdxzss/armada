@@ -91,6 +91,20 @@ class CountryMapperDbTest extends DbTestBase {
     }
 
     @Test
+    void continentCode_usesSixContinentCatalogAndLeavesAntarcticTerritoriesUnknown() {
+        assertThat(mapper.selectActiveByIso2("CN").getContinentCode()).isEqualTo("ASIA");
+        assertThat(mapper.selectActiveByIso2("US").getContinentCode()).isEqualTo("NORTH_AMERICA");
+        assertThat(mapper.selectActiveByIso2("BR").getContinentCode()).isEqualTo("SOUTH_AMERICA");
+        assertThat(mapper.selectActiveByIso2("AQ").getContinentCode()).isNull();
+
+        assertThat(mapper.selectActive()).allSatisfy(country -> {
+            if (!List.of("AQ", "BV", "HM", "TF").contains(country.getIso2())) {
+                assertThat(country.getContinentCode()).isNotBlank();
+            }
+        });
+    }
+
+    @Test
     void selectByIso2s_returnsCountryOptionsInBatch() {
         assertThat(mapper.selectByIso2s(List.of("IN")))
                 .singleElement()

@@ -1,0 +1,9 @@
+-- 正式前向迁移由 Flyway 执行：
+-- armada-api/src/main/resources/db/migration/V095__pull_task_standard_full_form_settings.sql
+--
+-- 本变更记录不提供第二份可独立执行且可能漂移的 DDL；发布时只以该 Flyway 文件为事实源。
+-- V095 包含：
+-- 1. pull_task_standard_setting 新增 8 个完整表单执行字段；
+-- 2. station_group_id/station_group_name 改为可空；
+-- 3. group_folder.name 放宽到 VARCHAR(100)；
+-- 4. 新建 pull_task_standard_group_setting 及任务/头像唯一索引。

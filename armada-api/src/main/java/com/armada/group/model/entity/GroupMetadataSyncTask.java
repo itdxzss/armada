@@ -1,0 +1,192 @@
+package com.armada.group.model.entity;
+
+/** 每租户每群一行的群详情耐久同步任务实体。 */
+public class GroupMetadataSyncTask {
+
+    /** 主键。 */
+    private Long id;
+
+    /** 租户 ID。 */
+    private Long tenantId;
+
+    /** 群入口 ID。 */
+    private Long groupLinkId;
+
+    /** 调度查询解析出的 WhatsApp 群 JID；非任务表持久列。 */
+    private String groupJid;
+
+    /** 任务状态稳定码。 */
+    private Integer status;
+
+    /** 最近触发来源稳定码。 */
+    private Integer triggerSource;
+
+    /** 已占用执行尝试次数。 */
+    private Integer attemptCount;
+
+    /** 下一次可执行时间(epoch 毫秒)。 */
+    private Long nextRunAt;
+
+    /** 当前运行租约到期时间(epoch 毫秒)。 */
+    private Long leaseUntil;
+
+    /** 当前执行账号 ID。 */
+    private Long executionAccountId;
+
+    /** 运行期间是否收到新触发。 */
+    private Boolean rerunRequested;
+
+    /** 最近一次开始执行时间(epoch 毫秒)。 */
+    private Long lastStartedAt;
+
+    /** 最近一次成功时间(epoch 毫秒)。 */
+    private Long lastSuccessAt;
+
+    /** 最近一次错误码。 */
+    private String lastErrorCode;
+
+    /** 最近一次脱敏错误摘要。 */
+    private String lastErrorMessage;
+
+    /** 创建时间(epoch 毫秒)。 */
+    private Long createdAt;
+
+    /** 更新时间(epoch 毫秒)。 */
+    private Long updatedAt;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Long getTenantId() {
+        return tenantId;
+    }
+
+    public void setTenantId(Long tenantId) {
+        this.tenantId = tenantId;
+    }
+
+    public Long getGroupLinkId() {
+        return groupLinkId;
+    }
+
+    public void setGroupLinkId(Long groupLinkId) {
+        this.groupLinkId = groupLinkId;
+    }
+
+    public String getGroupJid() {
+        return groupJid;
+    }
+
+    public void setGroupJid(String groupJid) {
+        this.groupJid = groupJid;
+    }
+
+    public Integer getStatus() {
+        return status;
+    }
+
+    public void setStatus(Integer status) {
+        this.status = status;
+    }
+
+    public Integer getTriggerSource() {
+        return triggerSource;
+    }
+
+    public void setTriggerSource(Integer triggerSource) {
+        this.triggerSource = triggerSource;
+    }
+
+    public Integer getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(Integer attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public Long getNextRunAt() {
+        return nextRunAt;
+    }
+
+    public void setNextRunAt(Long nextRunAt) {
+        this.nextRunAt = nextRunAt;
+    }
+
+    public Long getLeaseUntil() {
+        return leaseUntil;
+    }
+
+    public void setLeaseUntil(Long leaseUntil) {
+        this.leaseUntil = leaseUntil;
+    }
+
+    public Long getExecutionAccountId() {
+        return executionAccountId;
+    }
+
+    public void setExecutionAccountId(Long executionAccountId) {
+        this.executionAccountId = executionAccountId;
+    }
+
+    public Boolean getRerunRequested() {
+        return rerunRequested;
+    }
+
+    public void setRerunRequested(Boolean rerunRequested) {
+        this.rerunRequested = rerunRequested;
+    }
+
+    public Long getLastStartedAt() {
+        return lastStartedAt;
+    }
+
+    public void setLastStartedAt(Long lastStartedAt) {
+        this.lastStartedAt = lastStartedAt;
+    }
+
+    public Long getLastSuccessAt() {
+        return lastSuccessAt;
+    }
+
+    public void setLastSuccessAt(Long lastSuccessAt) {
+        this.lastSuccessAt = lastSuccessAt;
+    }
+
+    public String getLastErrorCode() {
+        return lastErrorCode;
+    }
+
+    public void setLastErrorCode(String lastErrorCode) {
+        this.lastErrorCode = lastErrorCode;
+    }
+
+    public String getLastErrorMessage() {
+        return lastErrorMessage;
+    }
+
+    public void setLastErrorMessage(String lastErrorMessage) {
+        this.lastErrorMessage = lastErrorMessage;
+    }
+
+    public Long getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Long createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Long getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Long updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+}

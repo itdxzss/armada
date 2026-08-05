@@ -15,7 +15,9 @@ import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
@@ -33,9 +35,12 @@ class AccountGroupMembershipReportServiceImplTest {
             Mockito.mock(AccountGroupMembershipSnapshotService.class);
     private final MarketingNewGroupImmediateSendService immediateSendService =
             Mockito.mock(MarketingNewGroupImmediateSendService.class);
+    private final GroupClassificationService classificationService =
+            Mockito.mock(GroupClassificationService.class);
     private final AccountGroupMembershipReportServiceImpl service =
             new AccountGroupMembershipReportServiceImpl(
-                    membershipMapper, snapshotService, immediateSendService, new ObjectMapper());
+                    membershipMapper, snapshotService, immediateSendService,
+                    classificationService, new ObjectMapper());
 
     @BeforeEach
     void stubEmptyChanges() {
@@ -96,6 +101,11 @@ class AccountGroupMembershipReportServiceImplTest {
                         && Integer.valueOf(1).equals(baseline.getGroupCount())),
                 eq(1782626401000L), anyLong());
         verify(membershipMapper).markAccountBaselineCaptured(eq(10L), anyLong());
+        verify(classificationService).captureHistoricalBaseline(
+                argThat(groups -> groups.equals(List.of(new GroupClassificationCandidate(
+                        null, "120363old@g.us", "导入时旧群")))),
+                eq(ProtocolBackend.WEB),
+                anyLong());
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L),
                 argThat(groups -> groups != null

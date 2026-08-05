@@ -207,7 +207,8 @@
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
-           a.ws_phone AS wsPhone
+           a.ws_phone AS wsPhone,
+           COALESCE(m.is_admin, 0) AS groupAdmin
     FROM account_group_membership m
     INNER JOIN account a
       ON a.tenant_id = m.tenant_id
@@ -248,7 +249,8 @@
            a.group_baseline_state AS groupBaselineState,
            b.baseline_group_jids AS baselineGroupJidsJson,
            b.baseline_group_subjects AS baselineGroupSubjectsJson,
-           b.group_count AS groupCount
+           b.group_count AS groupCount,
+           b.captured_at AS capturedAt
     FROM account a
     LEFT JOIN account_group_baseline b ON b.account_id = a.id
     WHERE a.id = #{accountId}
@@ -645,7 +647,8 @@
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
-           a.ws_phone AS wsPhone
+           a.ws_phone AS wsPhone,
+           COALESCE(m.is_admin, 0) AS groupAdmin
     FROM account_group_membership m
     INNER JOIN account a
       ON a.tenant_id = m.tenant_id
@@ -659,9 +662,10 @@
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
      AND s.login_state = #{onlineLoginState}
+     AND s.account_state = #{normalAccountState}
     WHERE m.group_link_id = #{groupLinkId}
       AND m.deleted_at IS NULL
-      AND m.membership_status IN (1, 2)
+      AND m.membership_status = 1
     ORDER BY COALESCE(m.is_admin, 0) DESC,
              COALESCE(m.last_seen_at, 0) DESC,
              m.id ASC

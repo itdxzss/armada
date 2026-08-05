@@ -2,9 +2,7 @@ package com.armada.group.model.dto;
 
 import com.armada.shared.paging.PageQuery;
 
-/**
- * 群组列表运营分组分页查询参数。
- */
+/** 群组运营分组分页查询。 */
 public class GroupFolderQuery extends PageQuery {
 
     /** 分组名称关键字。 */
@@ -15,6 +13,6 @@ public class GroupFolderQuery extends PageQuery {
     }
 
     public void setKeyword(String keyword) {
-        this.keyword = keyword;
+        this.keyword = keyword == null ? null : keyword.trim();
     }
 }

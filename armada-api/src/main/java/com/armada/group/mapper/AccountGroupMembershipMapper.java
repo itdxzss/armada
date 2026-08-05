@@ -285,8 +285,10 @@ public interface AccountGroupMembershipMapper {
      * @param onlineLoginState 在线登录态码
      * @return 查询账号;没有可用账号时返回 null
      */
-    GroupExecutionAccount selectGroupExecutionAccount(@Param("groupLinkId") Long groupLinkId,
-                                                       @Param("onlineLoginState") int onlineLoginState);
+    GroupExecutionAccount selectGroupExecutionAccount(
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("normalAccountState") int normalAccountState);
 
     /**
      * 普通一致性读选出本次完整快照中缺失的账号群关系 ID。

@@ -23,6 +23,9 @@ public class Country {
     /** 国旗 emoji。 */
     private String flag;
 
+    /** 所属大洲代码：ASIA、EUROPE、AFRICA、NORTH_AMERICA、SOUTH_AMERICA、OCEANIA。 */
+    private String continentCode;
+
     /** 是否启用:1=启用 0=停用。 */
     private Integer isEnabled;
 
@@ -93,6 +96,14 @@ public class Country {
 
     public void setFlag(String flag) {
         this.flag = flag;
+    }
+
+    public String getContinentCode() {
+        return continentCode;
+    }
+
+    public void setContinentCode(String continentCode) {
+        this.continentCode = continentCode;
     }
 
     public Integer getIsEnabled() {

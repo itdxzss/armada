@@ -838,7 +838,7 @@ class PromotionChannelServiceImplTest {
     }
 
     private static CountryOptionVO country(String iso2, String name, String prefix) {
-        return new CountryOptionVO(iso2, iso2, name, name, prefix, "flag", false);
+        return new CountryOptionVO(iso2, iso2, name, name, prefix, "flag", false, null);
     }
 
     private static PromotionChannelVoRow row() {

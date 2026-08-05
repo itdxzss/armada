@@ -7,6 +7,10 @@ import java.util.List;
  *
  * @param groupJid                       群 JID
  * @param subject                        WhatsApp 真实群名
+ * @param description                    群说明
+ * @param ownerJid                       WhatsApp 明确返回的群主 JID
+ * @param createdAtSeconds               WhatsApp metadata creation Unix 秒
+ * @param participantsComplete           是否明确返回完整成员数组
  * @param announce                       是否仅管理员可发言
  * @param restrict                       是否仅管理员可修改群资料
  * @param memberAddMode                  是否所有成员可添加成员
@@ -22,6 +26,10 @@ import java.util.List;
 public record GroupMetadataResult(
         String groupJid,
         String subject,
+        String description,
+        String ownerJid,
+        Long createdAtSeconds,
+        boolean participantsComplete,
         Boolean announce,
         Boolean restrict,
         Boolean memberAddMode,

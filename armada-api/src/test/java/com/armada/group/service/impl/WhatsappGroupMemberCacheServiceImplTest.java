@@ -48,8 +48,9 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         true, false, "admin", true, "FULL_SNAPSHOT", 1_000L)));
         WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
         GroupMetadataResult metadata = new GroupMetadataResult(
-                "120363-test@g.us", "真实群", true, null, null, null, null,
-                null, false, null, false, true,
+                "120363-test@g.us", "真实群", null, null, null,
+                true, true, null, null, null,
+                null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
                         "15550000001:3@s.whatsapp.net", "+1 555 000 0001",
                         true, false, "admin")));
@@ -96,8 +97,9 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         false, false, "", true, "FULL_SNAPSHOT", 2_000L)));
         WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
         GroupMetadataResult older = new GroupMetadataResult(
-                "120363-test@g.us", "旧群", false, null, null, null, null,
-                null, false, null, false, true,
+                "120363-test@g.us", "旧群", null, null, null,
+                true, false, null, null, null,
+                null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
                         "15550000001@s.whatsapp.net", "15550000001",
                         false, false, "")));

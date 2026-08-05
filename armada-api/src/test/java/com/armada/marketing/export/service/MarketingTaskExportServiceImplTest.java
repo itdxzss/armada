@@ -89,9 +89,11 @@ class MarketingTaskExportServiceImplTest {
         when(mapper.selectTasksByIds(List.of(7L, 9L)))
                 .thenReturn(List.of(ordinaryTask(9L), ordinaryTask(7L)));
         when(countryService.requireActiveOption("ID", false))
-                .thenReturn(new CountryOptionVO("IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false));
+                .thenReturn(new CountryOptionVO(
+                        "IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false, "ASIA"));
         when(countryService.requireActiveOption("MY", false))
-                .thenReturn(new CountryOptionVO("MY", "MY", "马来西亚", "Malaysia", "+60", "🇲🇾", false));
+                .thenReturn(new CountryOptionVO(
+                        "MY", "MY", "马来西亚", "Malaysia", "+60", "🇲🇾", false, "ASIA"));
         when(mapper.insertJob(any(MarketingTaskExportJob.class))).thenAnswer(invocation -> {
             MarketingTaskExportJob job = invocation.getArgument(0);
             job.setId(88L);
@@ -367,7 +369,7 @@ class MarketingTaskExportServiceImplTest {
         sourceRow.setCountryName("印度尼西亚");
         sourceRow.setCountryPhonePrefix("+62");
         CountryOptionVO indonesia = new CountryOptionVO(
-                "IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false);
+                "IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false, "ASIA");
         List<MarketingTaskCountryEntryExportRow> writtenRows = new ArrayList<>();
 
         when(mapper.selectExpiredFiles(FIXED_CLOCK.millis(), 20)).thenReturn(List.of());

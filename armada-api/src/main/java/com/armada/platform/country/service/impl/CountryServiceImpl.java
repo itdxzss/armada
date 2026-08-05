@@ -59,7 +59,7 @@ public class CountryServiceImpl implements CountryService {
 
     /** 下拉第一项虚拟选项,用于表达不限真实国家的混合代理池。 */
     private static final CountryOptionVO MIXED_OPTION =
-            new CountryOptionVO(MIXED_VALUE, null, MIXED_REGION, "", "", "🌐", true);
+            new CountryOptionVO(MIXED_VALUE, null, MIXED_REGION, "", "", "🌐", true, null);
 
     private final CountryMapper mapper;
 
@@ -94,7 +94,8 @@ public class CountryServiceImpl implements CountryService {
                     country.getNameEn() == null ? "" : country.getNameEn(),
                     country.getPhonePrefix() == null ? "" : country.getPhonePrefix(),
                     country.getFlag() == null ? "" : country.getFlag(),
-                    false));
+                    false,
+                    country.getContinentCode()));
         }
         return new CountryOptionsVO(List.copyOf(rows));
     }
@@ -380,7 +381,8 @@ public class CountryServiceImpl implements CountryService {
                 country.getNameEn() == null ? "" : country.getNameEn(),
                 country.getPhonePrefix() == null ? "" : country.getPhonePrefix(),
                 country.getFlag() == null ? "" : country.getFlag(),
-                false);
+                false,
+                country.getContinentCode());
     }
 
     /** 按最长前缀匹配；同前缀多国家时必须由配置表指定唯一 ISO2。 */
@@ -492,7 +494,8 @@ public class CountryServiceImpl implements CountryService {
                 country.getIso2(),
                 country.getNameZh(),
                 country.getPhonePrefix(),
-                country.getFlag());
+                country.getFlag(),
+                country.getContinentCode());
     }
 
     private static String digitsOnly(String value) {

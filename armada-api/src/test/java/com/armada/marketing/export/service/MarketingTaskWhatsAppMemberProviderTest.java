@@ -79,8 +79,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
         when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
         when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(new GroupMetadataResult(
-                "120363-test@g.us", "WhatsApp真实群", true, null, null, null, null,
-                null, false, null, false, true,
+                "120363-test@g.us", "WhatsApp真实群", null, null, null,
+                true, true, null, null, null,
+                null, null, false, null, false, true,
                 List.of(
                         new GroupParticipantResult("15550000001@s.whatsapp.net", "15550000001", true, false, "admin"),
                         new GroupParticipantResult("551100000002@s.whatsapp.net", "551100000002", false, false, ""))));
@@ -103,8 +104,10 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 mapper, accountLookupService, metadataPort, memberCacheService,
                 departedMemberService, joinFactService);
         CountryService.PhonePrefixResolver countries = phone -> phone.startsWith("55")
-                ? new CountryOptionVO("BR", "BR", "巴西", "Brazil", "+55", "", false)
-                : new CountryOptionVO("US", "US", "美国", "United States", "+1", "", false);
+                ? new CountryOptionVO(
+                        "BR", "BR", "巴西", "Brazil", "+55", "", false, "SOUTH_AMERICA")
+                : new CountryOptionVO(
+                        "US", "US", "美国", "United States", "+1", "", false, "NORTH_AMERICA");
 
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
@@ -204,8 +207,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 .thenThrow(new IllegalStateException("primary offline"));
         when(metadataPort.getMetadata(fallback, "120363-test@g.us"))
                 .thenReturn(new GroupMetadataResult(
-                        "120363-test@g.us", "fallback", false, null, null, null, null,
-                        null, false, null, false, true, List.of()));
+                        "120363-test@g.us", "fallback", null, null, null,
+                        true, false, null, null, null,
+                        null, null, false, null, false, true, List.of()));
 
         MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
                 mapper, accountLookupService, metadataPort, memberCacheService,
@@ -233,8 +237,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
         when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
         when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(new GroupMetadataResult(
-                "120363-test@g.us", "群", false, null, null, null, null,
-                null, false, null, false, true,
+                "120363-test@g.us", "群", null, null, null,
+                true, false, null, null, null,
+                null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
                         "current@s.whatsapp.net", null, false, false, ""))));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of(
@@ -270,8 +275,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
         when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
         when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(new GroupMetadataResult(
-                "120363-test@g.us", "群", false, null, null, null, null,
-                null, false, null, false, true,
+                "120363-test@g.us", "群", null, null, null,
+                true, false, null, null, null,
+                null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
                         "123456789012345@lid", null, false, false, ""))));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
@@ -283,7 +289,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
 
         provider.streamCountry(
                 request(phone -> new CountryOptionVO(
-                        "US", "US", "美国", "United States", "+1", "", false)),
+                        "US", "US", "美国", "United States", "+1", "", false, "NORTH_AMERICA")),
                 countryEntries::add);
 
         assertThat(countryEntries).isEmpty();

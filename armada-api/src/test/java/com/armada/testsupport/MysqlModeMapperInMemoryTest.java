@@ -20,6 +20,7 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
@@ -141,7 +142,10 @@ class MysqlModeMapperInMemoryTest {
                         + "VALUES (102, 8, '其他租户组', 100, 100)",
                 "INSERT INTO group_link "
                         + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
-                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)");
+                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)",
+                "INSERT INTO group_link_health "
+                        + "(id, tenant_id, group_link_id, health_status, is_banned, created_at, updated_at) "
+                        + "VALUES (301, 7, 201, 1, FALSE, 100, 100)");
 
         GroupFolderQuery query = new GroupFolderQuery();
         query.setPage(1);
@@ -151,11 +155,11 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groupFolderMapper.selectPage(query))
                 .singleElement()
                 .satisfies(row -> {
-                    assertThat(row.getName()).isEqualTo("印度组");
-                    assertThat(row.getGroupCount()).isEqualTo(1L);
+                    assertThat(row.name()).isEqualTo("印度组");
+                    assertThat(row.groupCount()).isEqualTo(1L);
                 });
         assertThat(groupFolderMapper.selectOptions())
-                .extracting(GroupFolder::getId)
+                .extracting(GroupFolderOptionVO::id)
                 .containsExactly(101L);
     }
 
@@ -170,7 +174,9 @@ class MysqlModeMapperInMemoryTest {
         assertThat(row.getId()).isNotNull();
         assertThat(groupFolderMapper.selectActiveByName("待运营组").getId()).isEqualTo(row.getId());
 
-        assertThat(groupFolderMapper.updateName(row.getId(), "已改名组", 200L)).isEqualTo(1);
+        row.setName("已改名组");
+        row.setUpdatedAt(200L);
+        assertThat(groupFolderMapper.updateName(row)).isEqualTo(1);
         assertThat(groupFolderMapper.selectAnyByName("已改名组").getUpdatedAt()).isEqualTo(200L);
 
         List<GroupFolder> locked = transactionTemplate.execute(status -> {
@@ -182,10 +188,12 @@ class MysqlModeMapperInMemoryTest {
         assertThat(locked).extracting(GroupFolder::getId).containsExactly(row.getId());
 
         assertThat(groupFolderMapper.softDeleteByIds(List.of(row.getId()), 300L)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectById(row.getId())).isNull();
-        assertThat(groupFolderMapper.selectDeletedByName("已改名组").getDeletedAt()).isEqualTo(300L);
-        assertThat(groupFolderMapper.reviveById(row.getId(), 400L)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectById(row.getId()).getUpdatedAt()).isEqualTo(400L);
+        assertThat(groupFolderMapper.selectActiveById(row.getId())).isNull();
+        GroupFolder deleted = groupFolderMapper.selectDeletedByName("已改名组");
+        assertThat(deleted.getDeletedAt()).isEqualTo(300L);
+        deleted.setUpdatedAt(400L);
+        assertThat(groupFolderMapper.revive(deleted)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectActiveById(row.getId()).getUpdatedAt()).isEqualTo(400L);
 
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupFolderMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
@@ -995,7 +1003,7 @@ class MysqlModeMapperInMemoryTest {
                 CREATE TABLE group_folder (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
-                    name VARCHAR(64) NOT NULL,
+                    name VARCHAR(100) NOT NULL,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
                     created_by BIGINT,
@@ -1030,6 +1038,8 @@ class MysqlModeMapperInMemoryTest {
                     import_batch_id BIGINT,
                     origin TINYINT NOT NULL,
                     membership_state TINYINT NOT NULL,
+                    is_historical BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_post_control BOOLEAN NOT NULL DEFAULT FALSE,
                     sync_protocol_mask TINYINT NOT NULL DEFAULT 0,
                     remark VARCHAR(255),
                     deleted_at BIGINT,
@@ -1046,12 +1056,20 @@ class MysqlModeMapperInMemoryTest {
                     group_jid VARCHAR(64),
                     invite_code VARCHAR(128),
                     wa_subject VARCHAR(255),
+                    wa_description VARCHAR(1024),
                     member_size INT,
                     owner_phone VARCHAR(32),
                     announce_only BOOLEAN,
+                    admin_only_edit_info BOOLEAN,
+                    member_add_mode BOOLEAN,
+                    join_approval_mode BOOLEAN,
+                    ephemeral_duration_seconds INT,
                     group_created_at BIGINT,
+                    creator_country_iso2 VARCHAR(2),
+                    creator_continent_code VARCHAR(24),
                     avatar_url VARCHAR(512),
                     last_preview_at BIGINT,
+                    metadata_observed_at BIGINT,
                     created_at BIGINT,
                     updated_at BIGINT,
                     CONSTRAINT uq_group_link_preview UNIQUE (tenant_id, group_link_id)
@@ -1071,6 +1089,52 @@ class MysqlModeMapperInMemoryTest {
                     created_at BIGINT,
                     updated_at BIGINT,
                     CONSTRAINT uq_group_link_health UNIQUE (tenant_id, group_link_id)
+                )
+                """,
+                """
+                CREATE TABLE country (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    iso2 VARCHAR(2) NOT NULL,
+                    name_zh VARCHAR(64) NOT NULL,
+                    flag VARCHAR(16),
+                    continent_code VARCHAR(24),
+                    deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE whatsapp_group_member_snapshot (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL,
+                    participant_jid VARCHAR(128) NOT NULL,
+                    phone VARCHAR(32),
+                    role VARCHAR(32),
+                    is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_owner BOOLEAN NOT NULL DEFAULT FALSE,
+                    snapshot_at BIGINT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE group_metadata_sync_task (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    status TINYINT NOT NULL,
+                    trigger_source TINYINT NOT NULL,
+                    attempt_count INT NOT NULL DEFAULT 0,
+                    next_run_at BIGINT,
+                    lease_until BIGINT,
+                    execution_account_id BIGINT,
+                    rerun_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                    last_started_at BIGINT,
+                    last_success_at BIGINT,
+                    last_error_code VARCHAR(64),
+                    last_error_message VARCHAR(512),
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
                 )
                 """,
                 """

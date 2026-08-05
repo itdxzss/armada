@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Test;
 class PullTaskNormalLinkMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V090__pull_task_normal_link_execution.sql");
+            "src/main/resources/db/migration/V093__pull_task_normal_link_execution.sql");
     private static final Path MEMBERSHIP_RESULT_MIGRATION = Path.of(
             "src/main/resources/db/migration/"
-                    + "V091__pull_task_group_account_membership_result.sql");
+                    + "V094__pull_task_group_account_membership_result.sql");
 
     private String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);

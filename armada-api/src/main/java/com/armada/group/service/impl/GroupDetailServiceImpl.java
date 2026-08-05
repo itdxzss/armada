@@ -9,6 +9,10 @@ import com.armada.group.model.dto.GroupTimedMessageCommandDTO;
 import com.armada.group.model.enums.GroupPermissionKey;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.model.entity.GroupMetadataSyncTask;
+import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
+import com.armada.group.model.enums.GroupMetadataSyncStatus;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.enums.GroupTimedMessageMode;
 import com.armada.group.model.vo.GroupAvatarUpdateVO;
 import com.armada.group.model.vo.GroupDetailVO;
@@ -17,9 +21,12 @@ import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupMemberBatchResultVO;
 import com.armada.group.model.vo.GroupMemberOperationResultVO;
+import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
 import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupDetailProtocolPorts;
+import com.armada.group.service.GroupDetailSnapshotReader;
 import com.armada.group.service.GroupExecutionAccountSelector;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
@@ -37,7 +44,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -46,9 +52,8 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * 群详情抽屉业务的默认编排实现。
  *
- * <p>读取详情时先加载 Armada 本地群链接和预览镜像，再自动选择一个“在线且仍在群内”的
- * 执行账号读取 WhatsApp 实时 metadata；没有可用账号或协议读取失败时只降级实时字段，
- * 保留本地群名、备注和头像供页面展示。</p>
+ * <p>详情 GET 只读取 Armada 本地最后成功 metadata 与完整成员快照，不在页面加载时调用协议层。
+ * 尚无完整快照时明确返回待同步状态，避免把空成员数组误认为群内无人。</p>
  *
  * <p>群资料、限时消息、权限和成员写操作均由后端自动选号。协议调用超时时不会换号重试，
  * 而是使用同一账号回读 WhatsApp 状态确认结果，避免同一操作被不同账号重复执行。
@@ -102,11 +107,17 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 群 JID、WhatsApp subject 和头像镜像 Mapper。 */
     private final GroupLinkPreviewMapper previewMapper;
 
-    /** 在线、在群且优先管理员的执行账号选择器。 */
+    /** 写操作所用的在线、在群且优先管理员执行账号选择器。 */
     private final GroupExecutionAccountSelector selector;
 
     /** 群详情业务使用的四类协议能力端口。 */
     private final GroupDetailProtocolPorts protocolPorts;
+
+    /** 最后成功 metadata 和完整成员快照读取器。 */
+    private final GroupDetailSnapshotReader snapshotReader;
+
+    /** 群详情异步同步任务状态机。 */
+    private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
     /**
      * 创建群详情业务服务。
@@ -120,15 +131,19 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupLinkMapper groupLinkMapper,
             GroupLinkPreviewMapper previewMapper,
             GroupExecutionAccountSelector selector,
-            GroupDetailProtocolPorts protocolPorts) {
+            GroupDetailProtocolPorts protocolPorts,
+            GroupDetailSnapshotReader snapshotReader,
+            GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.selector = selector;
         this.protocolPorts = protocolPorts;
+        this.snapshotReader = snapshotReader;
+        this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     /**
-     * 聚合 Armada 本地群资料和 WhatsApp 实时群状态。
+     * 聚合 Armada 本地群资料和最后成功的 WhatsApp metadata 快照。
      *
      * <p>先读取本地群链接与预览镜像，再用自动选出的在群账号读取一次 metadata。
      * 群 JID 未解析、没有可执行账号或协议读取失败时，返回 {@code liveStateAvailable=false}
@@ -141,62 +156,52 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     @Override
     public GroupDetailVO detail(Long id) {
         GroupTarget target = target(id);
+        GroupLinkPreview preview = target.preview();
+        GroupMetadataSyncTask task = snapshotReader.task(id);
         String localName = firstText(
                 target.link().getGroupName(),
-                target.preview() == null ? null : target.preview().getWaSubject());
-        String avatarUrl = target.preview() == null ? null : target.preview().getAvatarUrl();
-        if (target.groupJid() == null) {
-            return unavailable(target, localName, avatarUrl,
-                    "群 JID 未解析，请先预览或等待账号群同步");
+                preview == null ? null : preview.getWaSubject());
+        String avatarUrl = preview == null ? null : preview.getAvatarUrl();
+        if (preview == null || preview.getMetadataObservedAt() == null) {
+            return unavailable(target, localName, avatarUrl, "详情待同步", task);
         }
-        Optional<GroupExecutionAccount> selected = selector.find(id);
-        if (selected.isEmpty()) {
-            return unavailable(target, localName, avatarUrl,
-                    "没有在线且仍在该群内的账号");
-        }
-        try {
-            GroupExecutionAccount account = selected.orElseThrow();
-            GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolRef(), target.groupJid());
-            List<GroupLinkMemberVO> members = metadata.participants().stream()
-                    .map(GroupDetailServiceImpl::memberVO)
-                    .toList();
-            log.debug("群详情实时读取成功 groupLinkId={} accountId={} memberCount={}",
-                    id, account.accountId(), members.size());
-            return new GroupDetailVO(
-                    id,
-                    target.groupJid(),
-                    firstText(metadata.subject(), localName),
-                    target.link().getRemark(),
-                    avatarUrl,
-                    true,
-                    null,
-                    GroupTimedMessageMode.fromSeconds(metadata.ephemeralDurationSeconds())
-                            .map(GroupTimedMessageMode::wireValue)
-                            .orElse(null),
-                    new GroupDetailVO.Permissions(
-                            invert(metadata.restrict()),
-                            invert(metadata.announce()),
-                            metadata.memberAddMode(),
-                            metadata.inviteViaLink(),
-                            metadata.joinApprovalMode()),
-                    new GroupDetailVO.Capabilities(new GroupDetailVO.Capability(
-                            metadata.inviteViaLinkSupported(),
-                            metadata.inviteViaLinkUnsupportedReason())),
-                    true,
-                    null,
-                    members);
-        } catch (ProtocolException ex) {
-            log.warn("群详情实时读取失败 groupLinkId={} code={}", id, ex.errorCode());
-            return unavailable(target, localName, avatarUrl, "群实时数据读取失败");
-        }
+        List<GroupLinkMemberVO> members = snapshotReader.members(id).stream()
+                .map(GroupDetailServiceImpl::memberVO)
+                .toList();
+        log.debug("群详情本地快照读取成功 groupLinkId={} memberCount={}", id, members.size());
+        return new GroupDetailVO(
+                id,
+                target.groupJid(),
+                firstText(preview.getWaSubject(), localName),
+                target.link().getRemark(),
+                avatarUrl,
+                true,
+                null,
+                GroupTimedMessageMode.fromSeconds(preview.getEphemeralDurationSeconds())
+                        .map(GroupTimedMessageMode::wireValue)
+                        .orElse(null),
+                new GroupDetailVO.Permissions(
+                        invert(preview.getAdminOnlyEditInfo()),
+                        invert(preview.getAnnounceOnly()),
+                        preview.getMemberAddMode(),
+                        null,
+                        preview.getJoinApprovalMode()),
+                new GroupDetailVO.Capabilities(new GroupDetailVO.Capability(
+                        false,
+                        "本地快照不包含实时协议能力声明")),
+                true,
+                null,
+                members,
+                syncStatus(task),
+                task == null ? null : task.getLastSuccessAt(),
+                task == null ? null : task.getLastErrorMessage());
     }
 
     /**
-     * 查询供成员列表入口使用的 WhatsApp 实时成员快照。
+     * 查询供成员列表入口使用的最后一次完整成员快照。
      *
-     * <p>该入口复用 {@link #detail(Long)} 的同一次 metadata 结果，不再单独选择账号或重复请求。
-     * 与可降级的详情不同，成员列表必须有真实快照；实时数据不可用时显式抛业务异常，
+     * <p>该入口复用 {@link #detail(Long)} 的本地读取结果，不选择账号或请求协议层。
+     * 与可降级的详情不同，成员列表必须有完整快照；快照不可用时显式抛业务异常，
      * 防止前端把空列表误认为群内没有成员。</p>
      *
      * @param id 群链接 ID
@@ -214,6 +219,16 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 detail.groupJid(),
                 detail.members().size(),
                 detail.members());
+    }
+
+    @Override
+    public GroupMetadataSyncAcceptedVO requestMetadataSync(Long id) {
+        target(id);
+        metadataSyncTaskService.enqueue(
+                id,
+                GroupMetadataSyncTrigger.MANUAL_REFRESH,
+                System.currentTimeMillis());
+        return new GroupMetadataSyncAcceptedVO(true, GroupMetadataSyncStatus.PENDING.name());
     }
 
     /**
@@ -257,6 +272,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (groupLinkMapper.updateGroupName(id, subject, System.currentTimeMillis()) == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
+        enqueueMetadataRefresh(id);
         log.info("WhatsApp 群名称已更新并同步本地镜像 groupLinkId={} accountId={}",
                 id, account.accountId());
     }
@@ -302,6 +318,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                         id, result.avatarUrl(), System.currentTimeMillis()) > 0;
         log.info("WhatsApp 群头像更新完成 groupLinkId={} accountId={} applied={} mirrorSynced={}",
                 id, account.accountId(), result.applied(), mirrorSynced);
+        if (result.applied()) {
+            enqueueMetadataRefresh(id);
+        }
         return new GroupAvatarUpdateVO(result.applied(), mirrorSynced, result.avatarUrl());
     }
 
@@ -336,6 +355,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId(), dto.mode());
         }
         confirmTimedMessage(account, target.groupJid(), expectedSeconds);
+        enqueueMetadataRefresh(id);
         log.info("WhatsApp 群限时消息已更新 groupLinkId={} accountId={} mode={}",
                 id, account.accountId(), dto.mode());
     }
@@ -371,6 +391,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId(), dto.key(), dto.enabled());
         }
         confirmSetting(account, target.groupJid(), dto.key(), dto.enabled());
+        enqueueMetadataRefresh(id);
         log.info("WhatsApp 群权限已更新 groupLinkId={} accountId={} key={} enabled={}",
                 id, account.accountId(), dto.key(), dto.enabled());
     }
@@ -493,6 +514,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         long successCount = result.results().stream()
                 .filter(item -> MEMBER_STATUS_OK.equals(item.status()))
                 .count();
+        if (successCount > 0) {
+            enqueueMetadataRefresh(id);
+        }
         log.info("群成员批量操作完成 groupLinkId={} accountId={} action={} requestedCount={} "
                         + "protocolTargetCount={} successCount={} partial={}",
                 id,
@@ -503,6 +527,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 successCount,
                 result.partial());
         return result;
+    }
+
+    private void enqueueMetadataRefresh(Long groupLinkId) {
+        metadataSyncTaskService.enqueue(
+                groupLinkId,
+                GroupMetadataSyncTrigger.METADATA_CHANGED,
+                System.currentTimeMillis());
     }
 
     /**
@@ -1040,7 +1071,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupTarget target,
             String groupName,
             String avatarUrl,
-            String reason) {
+            String reason,
+            GroupMetadataSyncTask task) {
         return new GroupDetailVO(
                 target.link().getId(),
                 target.groupJid(),
@@ -1054,7 +1086,16 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 new GroupDetailVO.Capabilities(new GroupDetailVO.Capability(false, reason)),
                 false,
                 reason,
-                List.of());
+                List.of(),
+                syncStatus(task),
+                task == null ? null : task.getLastSuccessAt(),
+                task == null ? null : task.getLastErrorMessage());
+    }
+
+    private static String syncStatus(GroupMetadataSyncTask task) {
+        return task == null || task.getStatus() == null
+                ? null
+                : GroupMetadataSyncStatus.fromCode(task.getStatus()).name();
     }
 
     /**
@@ -1094,6 +1135,15 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 participant.admin(),
                 participant.owner(),
                 participant.role());
+    }
+
+    private static GroupLinkMemberVO memberVO(WhatsappGroupMemberSnapshot participant) {
+        return new GroupLinkMemberVO(
+                participant.getParticipantJid(),
+                participant.getPhone(),
+                participant.getIsAdmin(),
+                participant.getIsOwner(),
+                participant.getRole());
     }
 
     /**

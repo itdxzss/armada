@@ -9,6 +9,7 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
+import org.mockito.Mockito;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -119,7 +121,8 @@ class AccountGroupSyncMySqlConcurrencyTest {
         GroupLinkRegistryServiceImpl registryService =
                 new GroupLinkRegistryServiceImpl(groupLinkMapper, membershipMapper);
         snapshotService = new AccountGroupMembershipSnapshotServiceImpl(
-                membershipMapper, groupLinkMapper, healthMapper, registryService);
+                membershipMapper, groupLinkMapper, healthMapper, registryService,
+                Mockito.mock(GroupClassificationService.class));
     }
 
     @AfterAll

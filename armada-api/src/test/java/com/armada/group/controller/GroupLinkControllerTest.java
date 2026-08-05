@@ -22,6 +22,7 @@ import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
+import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
 import com.armada.group.service.FileLinesExtractor;
 import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupLinkImportService;
@@ -109,7 +110,10 @@ class GroupLinkControllerTest {
                 true,
                 null,
                 List.of(new GroupLinkMemberVO(
-                        "8613800000000@s.whatsapp.net", "8613800000000", true, true, "superadmin")));
+                        "8613800000000@s.whatsapp.net", "8613800000000", true, true, "OWNER")),
+                "SUCCEEDED",
+                1_722_470_400_000L,
+                null);
         when(groupDetailService.detail(10L)).thenReturn(vo);
 
         mockMvc.perform(get("/api/group-links/10/detail"))
@@ -123,6 +127,19 @@ class GroupLinkControllerTest {
                 .andExpect(jsonPath("$.data.members[0].owner").value(true));
 
         verify(groupDetailService).detail(10L);
+    }
+
+    @Test
+    void postMetadataSyncReturnsAcceptedQueueState() throws Exception {
+        when(groupDetailService.requestMetadataSync(10L))
+                .thenReturn(new GroupMetadataSyncAcceptedVO(true, "PENDING"));
+
+        mockMvc.perform(post("/api/group-links/10/metadata-sync"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accepted").value(true))
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+
+        verify(groupDetailService).requestMetadataSync(10L);
     }
 
     @Test

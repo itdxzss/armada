@@ -8,16 +8,20 @@ import com.armada.group.model.vo.GroupAvatarUpdateVO;
 import com.armada.group.model.vo.GroupDetailVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupMemberBatchResultVO;
+import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
 import org.springframework.web.multipart.MultipartFile;
 
 /** 群详情抽屉的本地与协议实时数据聚合服务。 */
 public interface GroupDetailService {
 
-    /** 查询群详情;协议不可用时降级返回本地资料。 */
+    /** 从本地最后成功快照查询群详情，不在 GET 请求内调用协议层。 */
     GroupDetailVO detail(Long id);
 
-    /** 查询实时成员列表;实时数据不可用时拒绝。 */
+    /** 查询本地最后一次完整成员快照；尚无快照时拒绝。 */
     GroupLinkMemberListVO members(Long id);
+
+    /** 校验当前租户活动群后排队异步刷新 metadata。 */
+    GroupMetadataSyncAcceptedVO requestMetadataSync(Long id);
 
     /** 使用自动选号修改 WhatsApp 真实群名并同步本地镜像。 */
     void updateSubject(Long id, GroupSubjectCommandDTO dto);

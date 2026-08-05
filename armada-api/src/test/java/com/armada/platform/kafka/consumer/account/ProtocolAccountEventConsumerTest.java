@@ -42,6 +42,9 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolGroupJoinSink groupJoinSink;
 
+    @Mock
+    private ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
@@ -52,7 +55,8 @@ class ProtocolAccountEventConsumerTest {
                 groupsReportedSink,
                 offlineDiagnosedSink,
                 new ProtocolAccountGroupEventSinks(
-                        membershipChangedSink, groupDepartureSink, groupJoinSink));
+                        membershipChangedSink, groupDepartureSink, groupJoinSink),
+                metadataSyncRequestedSink);
     }
 
     @Test
@@ -281,6 +285,52 @@ class ProtocolAccountEventConsumerTest {
                 .hasMessage("协议群退群事件类型与来源不一致");
 
         verifyNoInteractions(groupDepartureSink);
+    }
+
+    @Test
+    void onMessage_groupMetadataSyncRequestedDispatchesValidatedEvent() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"evt-metadata-1","event":"account.group_metadata_sync_requested","version":"v1",
+                 "accountId":"acc_web_22","occurredAt":"2026-08-05T02:00:00Z","workerId":"web-1",
+                 "data":{"tenantId":7,"accountId":22,"protocolAccountId":"acc_web_22",
+                         "groupJid":"120363001@g.us","trigger":"PARTICIPANT_CHANGED",
+                         "source":"wa_group_participants_update"}}
+                """);
+
+        ArgumentCaptor<ProtocolGroupMetadataSyncRequestedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupMetadataSyncRequestedEvent.class);
+        verify(metadataSyncRequestedSink).handleGroupMetadataSyncRequested(captor.capture());
+        ProtocolGroupMetadataSyncRequestedEvent event = captor.getValue();
+        assertThat(event.eventId()).isEqualTo("evt-metadata-1");
+        assertThat(event.tenantId()).isEqualTo(7L);
+        assertThat(event.accountId()).isEqualTo(22L);
+        assertThat(event.protocolAccountId()).isEqualTo("acc_web_22");
+        assertThat(event.groupJid()).isEqualTo("120363001@g.us");
+        assertThat(event.trigger()).isEqualTo("PARTICIPANT_CHANGED");
+        assertThat(event.occurredAt()).isEqualTo(1785895200000L);
+        assertThat(event.source()).isEqualTo("wa_group_participants_update");
+        assertThat(event.workerId()).isEqualTo("web-1");
+    }
+
+    @Test
+    void onMessage_groupMetadataSyncRequestedRejectsInvalidRoutingAndFacts() {
+        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+                {"eventId":"evt-metadata-2","event":"account.group_metadata_sync_requested",
+                 "accountId":"acc_stale","occurredAt":"2026-08-05T02:00:00Z",
+                 "data":{"tenantId":7,"accountId":22,"protocolAccountId":"acc_web_22",
+                         "groupJid":"120363001@g.us","trigger":"METADATA_CHANGED"}}
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议群详情同步事件路由账号不一致");
+        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+                {"eventId":"evt-metadata-3","event":"account.group_metadata_sync_requested",
+                 "accountId":"acc_web_22","occurredAt":"2026-08-05T02:00:00Z",
+                 "data":{"tenantId":0,"accountId":22,"protocolAccountId":"acc_web_22",
+                         "groupJid":"not-a-group","trigger":"UNKNOWN"}}
+                """))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(metadataSyncRequestedSink);
     }
 
     @Test

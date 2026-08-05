@@ -74,7 +74,7 @@ class HistoricalGroupAccountGroupQueryServiceTest {
         when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("51943333070")))
                 .thenReturn(Map.of(
                         "51943333070",
-                        new CountryReferenceVO(51L, "PE", "秘鲁", "+51", "🇵🇪")));
+                        new CountryReferenceVO(51L, "PE", "秘鲁", "+51", "🇵🇪", "SOUTH_AMERICA")));
 
         PageResult<?> result = service.list(query);
 

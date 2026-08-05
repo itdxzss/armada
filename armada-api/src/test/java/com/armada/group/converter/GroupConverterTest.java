@@ -8,8 +8,7 @@ import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
-import com.armada.group.model.entity.GroupFolder;
-import com.armada.group.model.vo.GroupFolderVoRow;
+import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
@@ -27,23 +26,6 @@ class GroupConverterTest {
 
     /** 2024-06-01T00:00:00 按 UTC 解释 = 1717200000000 毫秒。 */
     private static final long EPOCH_2024_06_01_UTC = 1_717_200_000_000L;
-
-    @Test
-    void convertsGroupFolderRowsAndOptions() {
-        GroupFolderVoRow row = new GroupFolderVoRow();
-        row.setId(8L);
-        row.setName("印度组");
-        row.setGroupCount(3L);
-        row.setCreatedAt(EPOCH_2024_06_01_UTC);
-        row.setUpdatedAt(EPOCH_2024_06_01_UTC);
-        GroupFolder folder = new GroupFolder();
-        folder.setId(8L);
-        folder.setName("印度组");
-
-        assertThat(converter.toFolderVO(row).groupCount()).isEqualTo(3L);
-        assertThat(converter.toFolderVOList(List.of(row))).hasSize(1);
-        assertThat(converter.toFolderOptionVO(folder).name()).isEqualTo("印度组");
-    }
 
     @Test
     void toLabelVO_epochMillis() {
@@ -81,6 +63,20 @@ class GroupConverterTest {
         row.setSyncProtocolMask(3);
         row.setOrigin(GroupLinkOrigin.IMPORT.code());
         row.setMembershipState(GroupMembershipState.JOINED.code());
+        row.setIsHistorical(true);
+        row.setIsPostControl(true);
+        row.setFolderId(5L);
+        row.setFolderName("重点群");
+        row.setInviteUrl("https://chat.whatsapp.com/invite");
+        row.setAdmin("8611111111111, 8622222222222");
+        row.setAvailableAdminCount(2);
+        row.setCreatorCountryIso2("IN");
+        row.setCreatorCountryName("印度");
+        row.setCreatorCountryFlag("🇮🇳");
+        row.setCreatorContinentCode("ASIA");
+        row.setGroupCreatedAt(1_717_200_000L);
+        row.setMetadataSyncStatus(GroupMetadataSyncStatus.SUCCEEDED.code());
+        row.setMetadataSyncedAt(EPOCH_2024_06_01_UTC);
         row.setCreatedAt(EPOCH_2024_06_01_UTC);
 
         GroupLinkVO vo = converter.toGroupLinkVO(row);
@@ -94,11 +90,20 @@ class GroupConverterTest {
         assertThat(vo.status()).isEqualTo("AVAILABLE");
         assertThat(vo.statusLabel()).isEqualTo("可用");
         assertThat(vo.memberCount()).isEqualTo(9);
-        assertThat(vo.admin()).isEqualTo("8611111111111");
+        assertThat(vo.admin()).isEqualTo("8611111111111, 8622222222222");
         assertThat(vo.syncProtocolMask()).isEqualTo(3);
         assertThat(vo.source()).isEqualTo("导入链接");
         assertThat(vo.membershipStateLabel()).isEqualTo("已进群");
         assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
+        assertThat(vo.isHistorical()).isTrue();
+        assertThat(vo.isPostControl()).isTrue();
+        assertThat(vo.folderName()).isEqualTo("重点群");
+        assertThat(vo.adminPhones()).containsExactly("8611111111111", "8622222222222");
+        assertThat(vo.availableAdmin()).isTrue();
+        assertThat(vo.creatorCountryIso2()).isEqualTo("IN");
+        assertThat(vo.creatorContinentCode()).isEqualTo("ASIA");
+        assertThat(vo.groupCreatedAt()).isEqualTo(1_717_200_000L);
+        assertThat(vo.metadataSyncStatus()).isEqualTo("SUCCEEDED");
     }
 
     @Test

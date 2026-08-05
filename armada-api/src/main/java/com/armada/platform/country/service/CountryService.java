@@ -27,7 +27,7 @@ public interface CountryService {
     /**
      * 查询国家下拉选项。
      *
-     * @param scope 选项范围,当前支持 ip;为空时按 ip 处理
+     * @param scope 选项范围,支持 ip、marketing-export;为空时按 ip 处理
      * @return 国家选项列表
      */
     CountryOptionsVO options(String scope);

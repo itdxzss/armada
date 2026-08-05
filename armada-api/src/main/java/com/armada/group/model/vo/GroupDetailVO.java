@@ -7,17 +7,17 @@ import java.util.List;
  *
  * @param groupLinkId               群链接 ID
  * @param groupJid                  WhatsApp 群 JID
- * @param groupName                 实时群名;不可用时回退本地群名
+ * @param groupName                 最后成功快照群名;不可用时回退本地群名
  * @param remark                    Armada 本地备注
  * @param avatarUrl                 已持久化的最近群头像
- * @param liveStateAvailable        实时群状态是否可用
- * @param liveStateUnavailableReason 实时状态不可用原因
+ * @param liveStateAvailable        完整 metadata 快照是否可用（兼容旧字段名）
+ * @param liveStateUnavailableReason metadata 快照不可用原因
  * @param timedMessageMode          限时消息模式 wire 值
- * @param permissions               实时群权限
- * @param capabilities              协议能力声明
- * @param membersAvailable          实时成员列表是否可用
+ * @param permissions               最后成功快照中的群权限
+ * @param capabilities              当前详情读取可表达的协议能力声明
+ * @param membersAvailable          完整成员快照是否可用
  * @param membersUnavailableReason  成员列表不可用原因
- * @param members                   实时成员列表
+ * @param members                   最后一次完整成员快照
  */
 public record GroupDetailVO(
         Long groupLinkId,
@@ -32,7 +32,10 @@ public record GroupDetailVO(
         Capabilities capabilities,
         boolean membersAvailable,
         String membersUnavailableReason,
-        List<GroupLinkMemberVO> members
+        List<GroupLinkMemberVO> members,
+        String metadataSyncStatus,
+        Long metadataSyncedAt,
+        String metadataSyncError
 ) {
 
     /** 群开关的实时权限状态;null 表示未知。 */

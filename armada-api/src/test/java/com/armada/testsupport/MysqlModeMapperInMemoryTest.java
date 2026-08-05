@@ -174,9 +174,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(row.getId()).isNotNull();
         assertThat(groupFolderMapper.selectActiveByName("待运营组").getId()).isEqualTo(row.getId());
 
-        row.setName("已改名组");
-        row.setUpdatedAt(200L);
-        assertThat(groupFolderMapper.updateName(row)).isEqualTo(1);
+        assertThat(groupFolderMapper.updateName(row.getId(), "已改名组", 200L)).isEqualTo(1);
         assertThat(groupFolderMapper.selectAnyByName("已改名组").getUpdatedAt()).isEqualTo(200L);
 
         List<GroupFolder> locked = transactionTemplate.execute(status -> {
@@ -188,12 +186,15 @@ class MysqlModeMapperInMemoryTest {
         assertThat(locked).extracting(GroupFolder::getId).containsExactly(row.getId());
 
         assertThat(groupFolderMapper.softDeleteByIds(List.of(row.getId()), 300L)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectActiveById(row.getId())).isNull();
-        GroupFolder deleted = groupFolderMapper.selectDeletedByName("已改名组");
-        assertThat(deleted.getDeletedAt()).isEqualTo(300L);
-        deleted.setUpdatedAt(400L);
-        assertThat(groupFolderMapper.revive(deleted)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectActiveById(row.getId()).getUpdatedAt()).isEqualTo(400L);
+        assertThat(groupFolderMapper.selectById(row.getId())).isNull();
+        assertThat(groupFolderMapper.selectDeletedByName("已改名组").getDeletedAt()).isEqualTo(300L);
+        GroupFolder revived = new GroupFolder();
+        revived.setId(row.getId());
+        revived.setName("已改名组");
+        revived.setUpdatedAt(400L);
+        revived.setCreatedBy(501L);
+        assertThat(groupFolderMapper.revive(revived)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectById(row.getId()).getUpdatedAt()).isEqualTo(400L);
 
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupFolderMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
@@ -757,7 +758,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(cleanSuccess)
                 .containsEntry("group_link_id", 104L)
                 .containsEntry("group_jid", "target-clean-success@g.us")
-                .containsEntry("group_link_url", "target-clean-success-url")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/target-clean-success")
                 .containsEntry("group_name", "target-clean-success")
                 .containsEntry("status", 3)
                 .containsEntry("sent_message_count", 1)
@@ -771,7 +772,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(cleanFailure)
                 .containsEntry("group_link_id", 105L)
                 .containsEntry("group_jid", "target-clean-failed@g.us")
-                .containsEntry("group_link_url", "target-clean-failed-url")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/target-clean-failed")
                 .containsEntry("group_name", "target-clean-failed")
                 .containsEntry("status", 4)
                 .containsEntry("sent_message_count", 0)
@@ -807,7 +808,7 @@ class MysqlModeMapperInMemoryTest {
                         UPDATE marketing_task_target
                         SET group_link_id = 204,
                             group_jid = 'latest@g.us',
-                            group_link_url = 'latest-url',
+                            group_link_url = 'https://chat.whatsapp.com/latest',
                             group_name = 'latest-name',
                             updated_at = 2_400
                         WHERE id = 504
@@ -847,7 +848,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(queryTarget(504L))
                 .containsEntry("group_link_id", 204L)
                 .containsEntry("group_jid", "latest@g.us")
-                .containsEntry("group_link_url", "latest-url")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/latest")
                 .containsEntry("group_name", "latest-name")
                 .containsEntry("status", 3)
                 .containsEntry("sent_message_count", 1)
@@ -1216,9 +1217,9 @@ class MysqlModeMapperInMemoryTest {
                      2, 2, 1, 700, 700, 'old failure', 700),
                     (502, 7, NULL, 'target-failed@g.us', 'target-failed-url', 'target-failed',
                      2, 1, 2, 800, 800, 'old reason', 800),
-                    (504, 7, 104, 'target-clean-success@g.us', 'target-clean-success-url', 'target-clean-success',
+                    (504, 7, 104, 'target-clean-success@g.us', 'https://chat.whatsapp.com/target-clean-success', 'target-clean-success',
                      2, 0, 0, NULL, NULL, 'stale reason', 850),
-                    (505, 7, 105, 'target-clean-failed@g.us', 'target-clean-failed-url', 'target-clean-failed',
+                    (505, 7, 105, 'target-clean-failed@g.us', 'https://chat.whatsapp.com/target-clean-failed', 'target-clean-failed',
                      2, 0, 0, NULL, NULL, NULL, 860),
                     (503, 8, NULL, 'target-other@g.us', 'target-other-url', 'target-other',
                      1, 0, 0, NULL, NULL, NULL, 900)

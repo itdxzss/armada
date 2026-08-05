@@ -80,14 +80,17 @@ public class ProtocolGroupJoinSinkImpl implements ProtocolGroupJoinSink {
     private static String canonicalParticipantJid(
             ProtocolGroupJoinEvent.Participant participant,
             String phone) {
-        if (phone != null) {
-            return phone + "@s.whatsapp.net";
-        }
         String jid = participant.participantJid().trim().toLowerCase(java.util.Locale.ROOT);
         int at = jid.indexOf('@');
         int device = jid.indexOf(':');
         if (device >= 0 && at > device) {
-            return jid.substring(0, device) + jid.substring(at);
+            jid = jid.substring(0, device) + jid.substring(at);
+        }
+        if (jid.endsWith("@lid")) {
+            return jid;
+        }
+        if (phone != null) {
+            return phone + "@s.whatsapp.net";
         }
         return jid;
     }

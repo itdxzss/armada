@@ -284,7 +284,7 @@ public class MarketingTaskWhatsAppMemberProvider {
             rows.add(snapshot, participant.phone(), participant.participantJid(),
                     new MemberState(
                             role(participant), inGroup,
-                            inGroup || departure == null ? null : exitType(departure.exitType()),
+                            inGroup || departure == null ? null : exitType(departure),
                             join == null ? null : join.joinedAt(),
                             inGroup || departure == null ? null : departure.exitedAt()));
         }
@@ -297,7 +297,7 @@ public class MarketingTaskWhatsAppMemberProvider {
                     latestJoins, participant.phone(), participant.participantJid());
             rows.add(snapshot, participant.phone(), participant.participantJid(),
                     new MemberState(
-                            "历史成员", false, exitType(participant.exitType()),
+                            "历史成员", false, exitType(participant),
                             join == null ? null : join.joinedAt(), participant.exitedAt()));
         }
     }
@@ -495,8 +495,15 @@ public class MarketingTaskWhatsAppMemberProvider {
         return "群成员";
     }
 
-    private static String exitType(String value) {
-        return "REMOVED".equalsIgnoreCase(value) ? "被移出群" : "主动退群";
+    private static String exitType(WhatsappGroupDepartedMemberVO departure) {
+        if ("LEFT".equalsIgnoreCase(departure.exitType())) {
+            return "主动退群";
+        }
+        if ("HISTORY_SYNC".equalsIgnoreCase(departure.sourceType())
+                && "REMOVED".equalsIgnoreCase(departure.exitType())) {
+            return "被移出群";
+        }
+        return "退出原因未识别";
     }
 
     private static boolean samePhone(String left, String right) {

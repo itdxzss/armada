@@ -6,5 +6,6 @@ public enum WhatsappGroupMemberStateSource {
     FULL_SNAPSHOT,
     ADD_EVENT,
     REMOVE_EVENT,
-    LEAVE_EVENT
+    LEAVE_EVENT,
+    UNKNOWN_EXIT_EVENT
 }

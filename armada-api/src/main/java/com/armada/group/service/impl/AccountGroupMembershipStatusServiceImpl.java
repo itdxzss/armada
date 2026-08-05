@@ -90,7 +90,8 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
     /**
      * 应用协议层账号自身的精确群关系变化。
      *
-     * <p>{@code add/remove/leave} 分别转换为 {@code IN_GROUP/KICKED_OUT/LEFT}。账号不存在或事件协议句柄
+     * <p>{@code add/remove/leave} 分别转换为 {@code IN_GROUP/NOT_IN_GROUP/LEFT}。WGP2 的 remove
+     * 只能证明账号已不在群，不能可靠证明是被管理员踢出。账号不存在或事件协议句柄
      * 已过期时只记录安全日志并忽略；有效事件会在同一事务中登记群组池入口并更新账号群关系，最后恢复
      * 调用线程原有租户上下文。</p>
      *
@@ -161,7 +162,7 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
     private static Transition transition(String action) {
         return switch (action.trim().toLowerCase(Locale.ROOT)) {
             case "add" -> new Transition(AccountGroupMembershipStatus.IN_GROUP, "WGP2_ADD");
-            case "remove" -> new Transition(AccountGroupMembershipStatus.KICKED_OUT, "WGP2_REMOVE");
+            case "remove" -> new Transition(AccountGroupMembershipStatus.NOT_IN_GROUP, "WGP2_REMOVE");
             case "leave" -> new Transition(AccountGroupMembershipStatus.LEFT, "WGP2_LEAVE");
             default -> throw new BusinessException(ErrorCode.VALIDATION, "账号群关系事件 action 非法");
         };

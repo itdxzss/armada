@@ -133,7 +133,7 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
                         fact.tenantId(), canonicalGroupJid(fact.groupJid()),
                         canonicalParticipantJid(fact.participantJid(), fact.phone()),
                         normalizedPhone(fact.phone()), null, null, null, false,
-                        departureSource(fact.exitType()).name(), fact.eventAt(),
+                        departureSource(fact.sourceType(), fact.exitType()).name(), fact.eventAt(),
                         fact.sourceEventId(), null, null))
                 .sorted(stateComparator())
                 .toList();
@@ -170,10 +170,18 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
                 .thenComparing(WhatsappGroupMemberStateWrite::participantJid);
     }
 
-    private static WhatsappGroupMemberStateSource departureSource(String exitType) {
-        return "REMOVED".equalsIgnoreCase(exitType)
-                ? WhatsappGroupMemberStateSource.REMOVE_EVENT
-                : WhatsappGroupMemberStateSource.LEAVE_EVENT;
+    private static WhatsappGroupMemberStateSource departureSource(String sourceType, String exitType) {
+        if ("WGP2_NOTIFICATION".equalsIgnoreCase(sourceType)
+                && "REMOVED".equalsIgnoreCase(exitType)) {
+            return WhatsappGroupMemberStateSource.UNKNOWN_EXIT_EVENT;
+        }
+        if ("REMOVED".equalsIgnoreCase(exitType)) {
+            return WhatsappGroupMemberStateSource.REMOVE_EVENT;
+        }
+        if ("LEFT".equalsIgnoreCase(exitType)) {
+            return WhatsappGroupMemberStateSource.LEAVE_EVENT;
+        }
+        return WhatsappGroupMemberStateSource.UNKNOWN_EXIT_EVENT;
     }
 
     private static List<String> normalizeGroupJids(List<String> groupJids) {
@@ -197,17 +205,23 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
     }
 
     private static String canonicalParticipantJid(String participantJid, String phone) {
+        String jid = participantJid == null
+                ? null : participantJid.trim().toLowerCase(Locale.ROOT);
+        if (jid != null && !jid.isBlank()) {
+            int at = jid.indexOf('@');
+            int device = jid.indexOf(':');
+            if (device >= 0 && at > device) {
+                jid = jid.substring(0, device) + jid.substring(at);
+            }
+            if (jid.endsWith("@lid") || jid.endsWith("@s.whatsapp.net")) {
+                return jid;
+            }
+        }
         if (phone != null) {
             return phone + "@s.whatsapp.net";
         }
-        if (participantJid == null || participantJid.isBlank()) {
+        if (jid == null || jid.isBlank()) {
             throw new IllegalArgumentException("群成员JID不能为空");
-        }
-        String jid = participantJid.trim().toLowerCase(Locale.ROOT);
-        int at = jid.indexOf('@');
-        int device = jid.indexOf(':');
-        if (device >= 0 && at > device) {
-            return jid.substring(0, device) + jid.substring(at);
         }
         return jid;
     }

@@ -35,8 +35,10 @@ class WhatsappGroupDepartedMemberServiceImplTest {
         service.saveLatest(List.of(second, first));
 
         InOrder order = inOrder(mapper);
-        order.verify(mapper).upsertLatest(eq(first), anyLong());
-        order.verify(mapper).upsertLatest(eq(second), anyLong());
+        order.verify(mapper).upsertIdentity(eq(first), anyLong());
+        order.verify(mapper).updateIfNewer(eq(first), anyLong());
+        order.verify(mapper).upsertIdentity(eq(second), anyLong());
+        order.verify(mapper).updateIfNewer(eq(second), anyLong());
     }
 
     @Test
@@ -46,7 +48,8 @@ class WhatsappGroupDepartedMemberServiceImplTest {
 
         service.saveLatest(List.of());
 
-        verify(mapper, never()).upsertLatest(org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(mapper, never()).upsertIdentity(org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(mapper, never()).updateIfNewer(org.mockito.ArgumentMatchers.any(), anyLong());
     }
 
     @Test

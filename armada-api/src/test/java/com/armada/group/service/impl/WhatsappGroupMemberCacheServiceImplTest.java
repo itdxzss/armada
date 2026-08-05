@@ -51,9 +51,13 @@ class WhatsappGroupMemberCacheServiceImplTest {
                 "120363-test@g.us", "真实群", null, null, null,
                 true, true, null, null, null,
                 null, null, false, null, false, true,
-                List.of(new GroupParticipantResult(
-                        "15550000001:3@s.whatsapp.net", "+1 555 000 0001",
-                        true, false, "admin")));
+                List.of(
+                        new GroupParticipantResult(
+                                "15550000001:3@s.whatsapp.net", "+1 555 000 0001",
+                                true, false, "admin"),
+                        new GroupParticipantResult(
+                                "123456789012345@lid", null,
+                                false, false, "member")));
 
         var result = service.replaceCompleteSnapshot(
                 7L, 10L, "120363-TEST@G.US", metadata, 1_000L);
@@ -61,11 +65,20 @@ class WhatsappGroupMemberCacheServiceImplTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<WhatsappGroupMemberStateWrite>> states = ArgumentCaptor.forClass(List.class);
         verify(mapper).upsertStates(states.capture(), org.mockito.ArgumentMatchers.anyLong());
-        assertThat(states.getValue()).singleElement().satisfies(state -> {
+        assertThat(states.getValue()).hasSize(2);
+        assertThat(states.getValue()).filteredOn(
+                state -> "15550000001@s.whatsapp.net".equals(state.participantJid()))
+                .singleElement().satisfies(state -> {
             assertThat(state.groupJid()).isEqualTo("120363-test@g.us");
             assertThat(state.participantJid()).isEqualTo("15550000001@s.whatsapp.net");
             assertThat(state.phone()).isEqualTo("15550000001");
             assertThat(state.stateSource()).isEqualTo("FULL_SNAPSHOT");
+            assertThat(state.inGroup()).isTrue();
+        });
+        assertThat(states.getValue()).filteredOn(
+                state -> "123456789012345@lid".equals(state.participantJid()))
+                .singleElement().satisfies(state -> {
+            assertThat(state.phone()).isNull();
             assertThat(state.inGroup()).isTrue();
         });
         ArgumentCaptor<WhatsappGroupMemberCacheHeaderWrite> header =
@@ -125,27 +138,80 @@ class WhatsappGroupMemberCacheServiceImplTest {
     @Test
     void eventsUpdateCachedMembershipWithExplicitSources() {
         WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
-        service.applyJoins(List.of(new WhatsappGroupJoinFact(
-                7L, "120363-test@g.us", "15550000001@s.whatsapp.net", "15550000001",
-                900L, 900L, "add-1", 10L)));
+        service.applyJoins(List.of(
+                new WhatsappGroupJoinFact(
+                        7L, "120363-test@g.us", "15550000001@s.whatsapp.net", "15550000001",
+                        900L, 900L, "add-1", 10L),
+                new WhatsappGroupJoinFact(
+                        7L, "120363-test@g.us", "123456789012345@lid", null,
+                        901L, 901L, "add-unresolved-lid", 10L)));
+        service.applyDepartures(List.of(
+                new WhatsappGroupDepartureFact(
+                        7L, "120363-test@g.us", "15550000002@s.whatsapp.net", "15550000002",
+                        950L, "REMOVED", 950L, "remove-1", "WGP2_NOTIFICATION"),
+                new WhatsappGroupDepartureFact(
+                        7L, "120363-test@g.us", "123456789012345@lid", null,
+                        951L, "UNKNOWN", 951L, "remove-unresolved-lid", "WGP2_NOTIFICATION")));
         service.applyDepartures(List.of(new WhatsappGroupDepartureFact(
-                7L, "120363-test@g.us", "15550000002@s.whatsapp.net", "15550000002",
-                950L, "REMOVED", 950L, "remove-1", "WGP2_NOTIFICATION")));
+                7L, "120363-test@g.us", "15550000003@s.whatsapp.net", "15550000003",
+                960L, "UNKNOWN", 960L, "unknown-1", "WGP2_NOTIFICATION")));
+        service.applyDepartures(List.of(new WhatsappGroupDepartureFact(
+                7L, "120363-test@g.us", "15550000004@s.whatsapp.net", "15550000004",
+                970L, "REMOVED", 970L, "history-remove-1", "HISTORY_SYNC")));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<WhatsappGroupMemberStateWrite>> states = ArgumentCaptor.forClass(List.class);
-        verify(mapper, org.mockito.Mockito.times(2))
+        verify(mapper, org.mockito.Mockito.times(4))
                 .upsertStates(states.capture(), org.mockito.ArgumentMatchers.anyLong());
-        assertThat(states.getAllValues().get(0)).singleElement().satisfies(state -> {
+        assertThat(states.getAllValues().get(0)).hasSize(2);
+        assertThat(states.getAllValues().get(0))
+                .filteredOn(state -> "15550000001@s.whatsapp.net".equals(state.participantJid()))
+                .singleElement().satisfies(state -> {
             assertThat(state.inGroup()).isTrue();
             assertThat(state.stateSource()).isEqualTo("ADD_EVENT");
             assertThat(state.admin()).isFalse();
             assertThat(state.owner()).isFalse();
             assertThat(state.role()).isEqualTo("member");
         });
-        assertThat(states.getAllValues().get(1)).singleElement().satisfies(state -> {
+        assertThat(states.getAllValues().get(0))
+                .filteredOn(state -> "123456789012345@lid".equals(state.participantJid()))
+                .singleElement().satisfies(state -> assertThat(state.phone()).isNull());
+        assertThat(states.getAllValues().get(1)).hasSize(2);
+        assertThat(states.getAllValues().get(1))
+                .filteredOn(state -> "15550000002@s.whatsapp.net".equals(state.participantJid()))
+                .singleElement().satisfies(state -> {
+            assertThat(state.inGroup()).isFalse();
+            assertThat(state.stateSource()).isEqualTo("UNKNOWN_EXIT_EVENT");
+        });
+        assertThat(states.getAllValues().get(1))
+                .filteredOn(state -> "123456789012345@lid".equals(state.participantJid()))
+                .singleElement().satisfies(state -> assertThat(state.phone()).isNull());
+        assertThat(states.getAllValues().get(2)).singleElement().satisfies(state -> {
+            assertThat(state.inGroup()).isFalse();
+            assertThat(state.stateSource()).isEqualTo("UNKNOWN_EXIT_EVENT");
+        });
+        assertThat(states.getAllValues().get(3)).singleElement().satisfies(state -> {
             assertThat(state.inGroup()).isFalse();
             assertThat(state.stateSource()).isEqualTo("REMOVE_EVENT");
         });
     }
+
+    @Test
+    void keepsLidAsCacheKeyWhenPhoneAliasIsPresent() {
+        WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
+
+        service.applyJoins(List.of(new WhatsappGroupJoinFact(
+                7L, "120363-test@g.us", "123456789012345:9@lid", "5218129230974",
+                900L, 900L, "add-lid-phone", 10L)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<WhatsappGroupMemberStateWrite>> states =
+                ArgumentCaptor.forClass(List.class);
+        verify(mapper).upsertStates(states.capture(), org.mockito.ArgumentMatchers.anyLong());
+        assertThat(states.getValue()).singleElement().satisfies(state -> {
+            assertThat(state.participantJid()).isEqualTo("123456789012345@lid");
+            assertThat(state.phone()).isEqualTo("5218129230974");
+        });
+    }
+
 }

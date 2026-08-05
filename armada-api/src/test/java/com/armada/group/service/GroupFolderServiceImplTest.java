@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupFolderMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.entity.GroupFolder;
@@ -21,9 +22,9 @@ import com.armada.group.service.impl.GroupFolderServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -34,146 +35,175 @@ import org.springframework.dao.DuplicateKeyException;
 class GroupFolderServiceImplTest {
 
     @Mock
-    private GroupFolderMapper mapper;
+    private GroupFolderMapper folderMapper;
 
-    @InjectMocks
+    @Mock
+    private GroupLinkMapper groupLinkMapper;
+
     private GroupFolderServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new GroupFolderServiceImpl(folderMapper, groupLinkMapper);
+    }
 
     @Test
     void listSkipsPageQueryWhenTotalIsZero() {
         GroupFolderQuery query = new GroupFolderQuery();
-        when(mapper.countPage(query)).thenReturn(0L);
+        when(folderMapper.countPage(query)).thenReturn(0L);
 
         PageResult<GroupFolderVO> result = service.list(query);
 
         assertThat(result.total()).isZero();
         assertThat(result.list()).isEmpty();
-        verify(mapper, never()).selectPage(any());
+        verify(folderMapper, never()).selectPage(any());
     }
 
     @Test
     void createTrimsNameAndStoresCurrentUser() {
-        when(mapper.selectActiveByName("印度组")).thenReturn(null);
-        when(mapper.selectDeletedByName("印度组")).thenReturn(null);
-        org.mockito.Mockito.doAnswer(invocation -> {
+        when(folderMapper.insert(any())).thenAnswer(invocation -> {
             GroupFolder row = invocation.getArgument(0);
             row.setId(9L);
             return 1;
-        }).when(mapper).insert(any());
+        });
 
         GroupFolderVO result = service.create(new GroupFolderWriteDTO("  印度组  "), 501L);
 
         var captor = org.mockito.ArgumentCaptor.forClass(GroupFolder.class);
-        verify(mapper).insert(captor.capture());
+        verify(folderMapper).insert(captor.capture());
         assertThat(captor.getValue().getName()).isEqualTo("印度组");
         assertThat(captor.getValue().getCreatedBy()).isEqualTo(501L);
         assertThat(result.id()).isEqualTo(9L);
         assertThat(result.groupCount()).isZero();
+        verify(folderMapper).selectActiveByName("印度组");
+        verify(folderMapper).selectDeletedByName("印度组");
     }
 
     @Test
     void createRevivesSoftDeletedNameInsteadOfInserting() {
         GroupFolder deleted = folder(7L, "印度组");
         deleted.setDeletedAt(90L);
-        when(mapper.selectDeletedByName("印度组")).thenReturn(deleted);
-        when(mapper.revive(any())).thenReturn(1);
+        when(folderMapper.selectDeletedByName("印度组")).thenReturn(deleted);
+        when(folderMapper.revive(any())).thenReturn(1);
 
         GroupFolderVO result = service.create(new GroupFolderWriteDTO("印度组"), 501L);
 
-        verify(mapper).revive(any());
-        verify(mapper, never()).insert(any());
+        var captor = org.mockito.ArgumentCaptor.forClass(GroupFolder.class);
+        verify(folderMapper).revive(captor.capture());
+        verify(folderMapper, never()).insert(any());
+        assertThat(captor.getValue().getCreatedBy()).isEqualTo(501L);
         assertThat(result.id()).isEqualTo(7L);
+        assertThat(result.createdAt()).isEqualTo(100L);
     }
 
     @Test
-    void createRejectsBlankOrOverlongName() {
+    void createRejectsBlankOverlongAndDuplicateNames() {
         assertThatThrownBy(() -> service.create(new GroupFolderWriteDTO("  "), 501L))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能为空");
         assertThatThrownBy(() -> service.create(
                 new GroupFolderWriteDTO("x".repeat(101)), 501L))
-                .isInstanceOf(BusinessException.class);
-        verify(mapper, never()).insert(any());
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("100");
+
+        when(folderMapper.selectActiveByName("印度组"))
+                .thenReturn(folder(1L, "印度组"));
+        assertThatThrownBy(() -> service.create(new GroupFolderWriteDTO("印度组"), 501L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("已存在");
+        verify(folderMapper, never()).insert(any());
     }
 
     @Test
     void createTranslatesUniqueKeyRaceToBusinessError() {
-        when(mapper.insert(any())).thenThrow(new DuplicateKeyException("uq_group_folder_name"));
+        when(folderMapper.insert(any()))
+                .thenThrow(new DuplicateKeyException("uq_group_folder_name"));
 
         assertThatThrownBy(() -> service.create(new GroupFolderWriteDTO("印度组"), 501L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("分组名称已存在");
+                .hasMessageContaining("已存在");
     }
 
     @Test
-    void updateRejectsAnotherActiveFolderWithSameName() {
-        when(mapper.selectActiveById(1L)).thenReturn(folder(1L, "旧名"));
-        when(mapper.selectAnyByName("冲突名")).thenReturn(folder(2L, "冲突名"));
+    void updateRejectsNameOwnedByAnotherSoftDeletedFolder() {
+        when(folderMapper.selectById(10L)).thenReturn(folder(10L, "旧名称"));
+        GroupFolder deleted = folder(11L, "新名称");
+        deleted.setDeletedAt(200L);
+        when(folderMapper.selectAnyByName("新名称")).thenReturn(deleted);
 
-        assertThatThrownBy(() -> service.update(1L, new GroupFolderWriteDTO("冲突名")))
+        assertThatThrownBy(() -> service.update(
+                10L, new GroupFolderWriteDTO(" 新名称 ")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已存在");
-        verify(mapper, never()).updateName(any());
+        verify(folderMapper, never()).updateName(anyLong(), any(), anyLong());
     }
 
     @Test
-    void updateRejectsNameOwnedBySoftDeletedFolder() {
-        when(mapper.selectActiveById(1L)).thenReturn(folder(1L, "旧名"));
-        GroupFolder deleted = folder(2L, "冲突名");
-        deleted.setDeletedAt(300L);
-        when(mapper.selectAnyByName("冲突名")).thenReturn(deleted);
-
-        assertThatThrownBy(() -> service.update(1L, new GroupFolderWriteDTO("冲突名")))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("已存在");
-        verify(mapper, never()).updateName(any());
-    }
-
-    @Test
-    void batchDeleteDeduplicatesIdsAndReturnsBothAffectedCounts() {
-        when(mapper.selectActiveByIdsForUpdate(List.of(1L, 2L)))
+    void batchDeleteLocksFoldersClearsGroupsAndThenSoftDeletes() {
+        List<Long> normalizedIds = List.of(1L, 2L);
+        when(folderMapper.selectActiveByIdsForUpdate(normalizedIds))
                 .thenReturn(List.of(folder(1L, "一组"), folder(2L, "二组")));
-        when(mapper.clearGroupLinks(eq(List.of(1L, 2L)), anyLong())).thenReturn(3);
-        when(mapper.softDeleteByIds(eq(List.of(1L, 2L)), anyLong())).thenReturn(2);
+        when(groupLinkMapper.countActiveByFolderIds(normalizedIds)).thenReturn(3);
+        when(groupLinkMapper.clearFolderByFolderIds(eq(normalizedIds), anyLong())).thenReturn(3);
+        when(folderMapper.softDeleteByIds(eq(normalizedIds), anyLong())).thenReturn(2);
 
-        GroupFolderDeleteVO result = service.batchDelete(List.of(1L, 2L, 1L));
+        GroupFolderDeleteVO result = service.batchDelete(List.of(2L, 1L, 2L));
 
         assertThat(result.deletedFolderCount()).isEqualTo(2);
         assertThat(result.ungroupedGroupCount()).isEqualTo(3);
-        InOrder order = inOrder(mapper);
-        order.verify(mapper).selectActiveByIdsForUpdate(List.of(1L, 2L));
-        order.verify(mapper).clearGroupLinks(eq(List.of(1L, 2L)), anyLong());
-        order.verify(mapper).softDeleteByIds(eq(List.of(1L, 2L)), anyLong());
+        InOrder order = inOrder(groupLinkMapper, folderMapper);
+        order.verify(groupLinkMapper).clearFolderByFolderIds(eq(normalizedIds), anyLong());
+        order.verify(folderMapper).softDeleteByIds(eq(normalizedIds), anyLong());
     }
 
     @Test
-    void batchDeleteRejectsMissingFolderBeforeClearingGroups() {
-        when(mapper.selectActiveByIdsForUpdate(List.of(1L, 2L)))
-                .thenReturn(List.of(folder(1L, "一组")));
+    void batchDeleteRejectsMissingFolderWithoutClearingGroups() {
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L, 11L)))
+                .thenReturn(List.of(folder(10L, "印度组")));
 
-        assertThatThrownBy(() -> service.batchDelete(List.of(2L, 1L)))
+        assertThatThrownBy(() -> service.batchDelete(List.of(11L, 10L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("部分群组分组不存在");
-        verify(mapper, never()).clearGroupLinks(any(), anyLong());
-        verify(mapper, never()).softDeleteByIds(any(), anyLong());
+        verify(groupLinkMapper, never()).clearFolderByFolderIds(any(), anyLong());
+        verify(folderMapper, never()).softDeleteByIds(any(), anyLong());
+    }
+
+    @Test
+    void batchDeleteRejectsConcurrentFolderRelationshipChange() {
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L)))
+                .thenReturn(List.of(folder(10L, "印度组")));
+        when(groupLinkMapper.countActiveByFolderIds(List.of(10L))).thenReturn(3);
+        when(groupLinkMapper.clearFolderByFolderIds(eq(List.of(10L)), anyLong()))
+                .thenReturn(2);
+
+        assertThatThrownBy(() -> service.batchDelete(List.of(10L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("关系已变化");
+        verify(folderMapper, never()).softDeleteByIds(any(), anyLong());
     }
 
     @Test
     void requireExistingAndUsableLinksDoNotExposeGroupEntityAcrossDomain() {
-        when(mapper.selectActiveById(8L)).thenReturn(folder(8L, "可用组"));
-        when(mapper.selectUsableLinks(8L)).thenReturn(List.of("chat.whatsapp.com/AAA"));
+        when(folderMapper.selectById(8L)).thenReturn(folder(8L, "可用组"));
+        when(folderMapper.selectUsableLinks(8L))
+                .thenReturn(List.of("chat.whatsapp.com/AAA"));
 
         GroupFolderOptionVO snapshot = service.requireExisting(8L);
 
         assertThat(snapshot).isEqualTo(new GroupFolderOptionVO(8L, "可用组"));
-        assertThat(service.usableLinks(8L)).containsExactly("chat.whatsapp.com/AAA");
+        assertThat(service.usableLinks(8L))
+                .containsExactly("chat.whatsapp.com/AAA");
     }
 
     @Test
-    void requireExistingRejectsMissingFolder() {
-        when(mapper.selectActiveById(8L)).thenReturn(null);
-
+    void requireExistingRejectsInvalidOrMissingFolder() {
+        assertThatThrownBy(() -> service.requireExisting(0L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("正整数");
+        when(folderMapper.selectById(8L)).thenReturn(null);
         assertThatThrownBy(() -> service.requireExisting(8L))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不存在");
     }
 
     private static GroupFolder folder(long id, String name) {

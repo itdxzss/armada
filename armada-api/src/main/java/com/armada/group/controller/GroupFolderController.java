@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 群组列表中的运营分组管理接口。 */
+/** 群组列表运营分组管理接口。 */
 @RestController
 @RequestMapping("/api/group-folders")
 @PreAuthorize("hasAuthority('tenant:group_link:view')")
@@ -34,21 +34,21 @@ public class GroupFolderController {
         this.service = service;
     }
 
-    /** 分页查询分组。 */
+    /** 分页查询运营分组及当前可用于拉群的群链接数量。 */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('tenant:group_link:view', 'tenant:pull_task:view')")
     public ApiResponse<PageResult<GroupFolderVO>> list(@ModelAttribute GroupFolderQuery query) {
         return ApiResponse.ok(service.list(query));
     }
 
-    /** 查询创建拉群任务可选的分组。 */
+    /** 查询群组列表筛选器与普通拉群任务使用的分组选项。 */
     @GetMapping("/options")
     @PreAuthorize("hasAnyAuthority('tenant:group_link:view', 'tenant:pull_task:view')")
     public ApiResponse<List<GroupFolderOptionVO>> options() {
         return ApiResponse.ok(service.options());
     }
 
-    /** 新建分组。 */
+    /** 新建运营分组；创建人取当前鉴权用户。 */
     @PostMapping
     public ApiResponse<GroupFolderVO> create(
             @RequestBody GroupFolderWriteDTO request,
@@ -56,7 +56,7 @@ public class GroupFolderController {
         return ApiResponse.ok(service.create(request, principal.userId()));
     }
 
-    /** 修改分组名称。 */
+    /** 修改运营分组名称。 */
     @PatchMapping("/{id}")
     public ApiResponse<Void> update(
             @PathVariable long id,
@@ -65,9 +65,9 @@ public class GroupFolderController {
         return ApiResponse.ok();
     }
 
-    /** 批量删除分组，并解除群入口与这些分组的归属。 */
+    /** 批量删除运营分组，并将关联群入口移入未分组。 */
     @PostMapping("/batch-delete")
     public ApiResponse<GroupFolderDeleteVO> batchDelete(@RequestBody GroupIdsDTO request) {
-        return ApiResponse.ok(service.batchDelete(request.ids()));
+        return ApiResponse.ok(service.batchDelete(request == null ? null : request.ids()));
     }
 }

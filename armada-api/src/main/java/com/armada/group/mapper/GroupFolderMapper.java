@@ -12,30 +12,30 @@ import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
-/** 群组运营分组数据访问。 */
+/** 群组列表运营分组数据访问。 */
 @Mapper
 public interface GroupFolderMapper {
 
-    /** 统计符合筛选条件的有效分组。 */
+    /** 按筛选条件统计当前租户的有效分组。 */
     long countPage(GroupFolderQuery query);
 
-    /** 分页查询分组和可用于拉群的群链接数量。 */
+    /** 分页查询分组及当前可用于普通拉群的群链接数量。 */
     List<GroupFolderVO> selectPage(GroupFolderQuery query);
 
-    /** 查询全部有效分组下拉选项。 */
+    /** 查询当前租户全部有效分组选项。 */
     List<GroupFolderOptionVO> selectOptions();
-
-    /** 按 ID 查询有效分组。 */
-    GroupFolder selectActiveById(@Param("id") long id);
 
     /** 按名称查询有效分组。 */
     GroupFolder selectActiveByName(@Param("name") String name);
 
-    /** 按名称查询已删除分组，供复活使用。 */
+    /** 按名称查询软删除分组，供复活使用。 */
     GroupFolder selectDeletedByName(@Param("name") String name);
 
     /** 按名称查询分组，包含软删除行。 */
     GroupFolder selectAnyByName(@Param("name") String name);
+
+    /** 按 ID 查询有效分组。 */
+    GroupFolder selectById(@Param("id") long id);
 
     /**
      * 按 ID 升序锁定当前租户的有效分组。
@@ -52,26 +52,29 @@ public interface GroupFolderMapper {
         return selectByTenantAndIdsForUpdate(tenantId, ids);
     }
 
-    /** 使用显式租户执行锁行查询，避免租户插件改写 FOR UPDATE 尾句。 */
+    /** 使用显式租户执行锁行查询，避免租户插件改写 {@code FOR UPDATE} 尾句。 */
     @InterceptorIgnore(tenantLine = "true")
-    List<GroupFolder> selectByTenantAndIdsForUpdate(@Param("tenantId") Long tenantId,
-                                                     @Param("ids") List<Long> ids);
+    List<GroupFolder> selectByTenantAndIdsForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("ids") List<Long> ids);
 
     /** 新增分组。 */
     int insert(GroupFolder row);
 
-    /** 复活并重命名已删除分组。 */
+    /** 复活并更新指定软删除分组。 */
     int revive(GroupFolder row);
 
-    /** 更新有效分组名称。 */
-    int updateName(GroupFolder row);
-
-    /** 解除群入口与指定分组的运营归属，不删除群入口。 */
-    int clearGroupLinks(@Param("ids") List<Long> ids, @Param("updatedAt") long updatedAt);
+    /** 修改有效分组名称。 */
+    int updateName(
+            @Param("id") long id,
+            @Param("name") String name,
+            @Param("updatedAt") long updatedAt);
 
     /** 批量软删除有效分组。 */
-    int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+    int softDeleteByIds(
+            @Param("ids") List<Long> ids,
+            @Param("deletedAt") long deletedAt);
 
-    /** 查询分组内当前可用且未封禁的邀请链接；内部群入口按预览邀请码转换。 */
+    /** 查询分组内当前健康、未封禁的邀请链接；内部群入口按预览邀请码转换。 */
     List<String> selectUsableLinks(@Param("folderId") long folderId);
 }

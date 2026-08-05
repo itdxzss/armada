@@ -38,7 +38,7 @@ class AccountGroupMembershipStatusServiceImplTest {
     }
 
     @Test
-    void preciseRemoveStoresLatestExitFactForExport() {
+    void ambiguousRemoveStoresNotInGroupInsteadOfKickedOut() {
         AccountGroupBaselineRow account = new AccountGroupBaselineRow();
         account.setAccountId(10L);
         account.setProtocolAccountId("protocol-account-10");
@@ -65,9 +65,9 @@ class AccountGroupMembershipStatusServiceImplTest {
                 ArgumentCaptor.forClass(AccountGroupMembership.class);
         verify(mapper).upsertMembership(membership.capture());
         assertThat(membership.getValue().getMembershipStatus())
-                .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(membership.getValue().getLastExitType())
-                .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(membership.getValue().getLastExitedAt()).isEqualTo(2000L);
         assertThat(membership.getValue().getJoinedAt()).isNull();
         Mockito.verifyNoInteractions(classificationService);

@@ -92,7 +92,13 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
                 .contains("AS incoming")
                 .contains("incoming.event_at &gt; whatsapp_group_member_join_fact.event_at")
                 .contains("CAST(incoming.source_event_id AS BINARY)")
+                .contains("NULLIF(TRIM(whatsapp_group_member_join_fact.phone), '') IS NULL")
+                .contains("COALESCE(NULLIF(TRIM(whatsapp_group_member_join_fact.phone), ''),")
                 .contains("WHERE tenant_id = #{tenantId}");
+        assertThat(xml.indexOf("updated_at = IF"))
+                .isLessThan(xml.indexOf("phone = IF"));
+        assertThat(xml.indexOf("source_event_id = IF"))
+                .isLessThan(xml.indexOf("event_at = IF"));
     }
 
     private void executeSql(String... statements) throws SQLException {

@@ -112,20 +112,19 @@ class GroupFolderMapperInMemoryTest {
     }
 
     @Test
-    void clearingFolderLinksDoesNotDeleteGroupEntries() throws SQLException {
+    void softDeletingFolderDoesNotDeleteGroupEntries() throws SQLException {
         GroupFolder folder = folder("待删除", 100L);
         mapper.insert(folder);
         insertLink(1L, 7L, folder.getId(), "chat.whatsapp.com/ONE", null);
         insertLink(2L, 7L, folder.getId(), "chat.whatsapp.com/TWO", null);
 
-        assertThat(mapper.clearGroupLinks(List.of(folder.getId()), 500L)).isEqualTo(2);
         assertThat(mapper.softDeleteByIds(List.of(folder.getId()), 500L)).isEqualTo(1);
 
         assertThat(count("SELECT COUNT(*) FROM group_link WHERE deleted_at IS NULL"))
                 .isEqualTo(2);
-        assertThat(count("SELECT COUNT(*) FROM group_link WHERE folder_id IS NULL"))
+        assertThat(count("SELECT COUNT(*) FROM group_link WHERE folder_id = " + folder.getId()))
                 .isEqualTo(2);
-        assertThat(mapper.selectActiveById(folder.getId())).isNull();
+        assertThat(mapper.selectById(folder.getId())).isNull();
     }
 
     @Test
@@ -136,9 +135,8 @@ class GroupFolderMapperInMemoryTest {
         insertHealth(1L, 7L, 1L, 1, 0);
 
         TenantContext.set(8L);
-        assertThat(mapper.selectActiveById(folder.getId())).isNull();
+        assertThat(mapper.selectById(folder.getId())).isNull();
         assertThat(mapper.selectUsableLinks(folder.getId())).isEmpty();
-        assertThat(mapper.clearGroupLinks(List.of(folder.getId()), 500L)).isZero();
         assertThat(mapper.softDeleteByIds(List.of(folder.getId()), 500L)).isZero();
     }
 

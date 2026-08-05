@@ -2,7 +2,7 @@ package com.armada.group.model.dto;
 
 import com.armada.shared.paging.PageQuery;
 
-/** 群组运营分组分页查询。 */
+/** 群组运营分组分页查询参数。 */
 public class GroupFolderQuery extends PageQuery {
 
     /** 分组名称关键字。 */

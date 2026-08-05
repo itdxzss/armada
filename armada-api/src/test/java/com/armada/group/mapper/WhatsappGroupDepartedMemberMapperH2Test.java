@@ -82,7 +82,7 @@ class WhatsappGroupDepartedMemberMapperH2Test {
     }
 
     @Test
-    void upsertSqlKeepsOnlyNewestProtocolFact() throws IOException {
+    void twoPhaseSqlKeepsOnlyNewestProtocolFactWithoutAssignmentOrderDrift() throws IOException {
         String xml;
         try (var input = getClass().getResourceAsStream(
                 "/mapper/group/WhatsappGroupDepartedMemberMapper.xml")) {
@@ -92,15 +92,20 @@ class WhatsappGroupDepartedMemberMapperH2Test {
         assertThat(xml)
                 .contains("ON DUPLICATE KEY UPDATE")
                 .contains("AS incoming")
-                .contains("incoming.event_at &gt; whatsapp_group_departed_member.event_at")
+                .contains("#{fact.eventAt} &gt; whatsapp_group_departed_member.event_at")
+                .contains("WHEN #{fact.exitType} = 'LEFT' THEN 1")
+                .contains("WHEN #{fact.sourceType} = 'HISTORY_SYNC'")
+                .contains("AND #{fact.exitType} = 'REMOVED' THEN 1")
+                .contains("WHEN whatsapp_group_departed_member.exit_type = 'LEFT' THEN 1")
+                .contains("WHEN whatsapp_group_departed_member.source_type = 'HISTORY_SYNC'")
                 .contains("WHEN 'WGP2_NOTIFICATION' THEN 2")
-                .contains("CAST(incoming.source_event_id AS BINARY)")
+                .contains("CAST(#{fact.sourceEventId} AS BINARY)")
                 .contains("CAST(whatsapp_group_departed_member.source_event_id AS BINARY)")
-                .contains("COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_departed_member.phone)")
+                .contains("phone = COALESCE(")
+                .contains("<update id=\"updateIfNewer\">")
+                .contains("AND participant_jid = #{fact.participantJid}")
                 .doesNotContain("VALUES(event_at)")
                 .contains("WHERE tenant_id = #{tenantId}");
-        assertThat(xml.indexOf("updated_at = IF"))
-                .isLessThan(xml.indexOf("source_event_id = IF"));
     }
 
     private void executeSql(String... statements) throws SQLException {

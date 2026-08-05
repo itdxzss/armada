@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupFolderMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.entity.GroupFolder;
@@ -18,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 /** 群组运营分组业务实现。 */
 @Service
@@ -26,12 +26,16 @@ public class GroupFolderServiceImpl implements GroupFolderService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupFolderServiceImpl.class);
     private static final int NAME_MAX_LENGTH = 100;
-    private static final int BATCH_DELETE_MAX = 100;
+    private static final int BATCH_MAX = 100;
 
-    private final GroupFolderMapper mapper;
+    private final GroupFolderMapper folderMapper;
+    private final GroupLinkMapper groupLinkMapper;
 
-    public GroupFolderServiceImpl(GroupFolderMapper mapper) {
-        this.mapper = mapper;
+    public GroupFolderServiceImpl(
+            GroupFolderMapper folderMapper,
+            GroupLinkMapper groupLinkMapper) {
+        this.folderMapper = folderMapper;
+        this.groupLinkMapper = groupLinkMapper;
     }
 
     /** {@inheritDoc} */
@@ -40,15 +44,15 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         if (query == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "查询参数不能为空");
         }
-        long total = mapper.countPage(query);
-        List<GroupFolderVO> rows = total == 0 ? List.of() : mapper.selectPage(query);
+        long total = folderMapper.countPage(query);
+        List<GroupFolderVO> rows = total == 0 ? List.of() : folderMapper.selectPage(query);
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
     /** {@inheritDoc} */
     @Override
     public List<GroupFolderOptionVO> options() {
-        return mapper.selectOptions();
+        return folderMapper.selectOptions();
     }
 
     /** {@inheritDoc} */
@@ -56,12 +60,12 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Transactional(rollbackFor = Exception.class)
     public GroupFolderVO create(GroupFolderWriteDTO request, long userId) {
         String name = normalizeName(request);
-        if (mapper.selectActiveByName(name) != null) {
+        if (folderMapper.selectActiveByName(name) != null) {
             throw duplicateName();
         }
 
         long now = System.currentTimeMillis();
-        GroupFolder deleted = mapper.selectDeletedByName(name);
+        GroupFolder deleted = folderMapper.selectDeletedByName(name);
         GroupFolder row = new GroupFolder();
         row.setName(name);
         row.setCreatedBy(userId);
@@ -69,12 +73,12 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         try {
             if (deleted == null) {
                 row.setCreatedAt(now);
-                mapper.insert(row);
+                folderMapper.insert(row);
                 log.info("群组运营分组已创建 id={} name={}", row.getId(), name);
             } else {
                 row.setId(deleted.getId());
                 row.setCreatedAt(deleted.getCreatedAt());
-                if (mapper.revive(row) != 1) {
+                if (folderMapper.revive(row) != 1) {
                     throw new BusinessException(ErrorCode.CONFLICT, "群组分组状态已变化，请刷新后重试");
                 }
                 log.info("群组运营分组已复活 id={} name={}", row.getId(), name);
@@ -89,19 +93,14 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(long id, GroupFolderWriteDTO request) {
-        requireExisting(id);
+        GroupFolder current = requireEntity(id);
         String name = normalizeName(request);
-        GroupFolder owner = mapper.selectAnyByName(name);
-        if (owner != null && owner.getId() != id) {
+        GroupFolder owner = folderMapper.selectAnyByName(name);
+        if (owner != null && !current.getId().equals(owner.getId())) {
             throw duplicateName();
         }
-
-        GroupFolder row = new GroupFolder();
-        row.setId(id);
-        row.setName(name);
-        row.setUpdatedAt(System.currentTimeMillis());
         try {
-            if (mapper.updateName(row) != 1) {
+            if (folderMapper.updateName(id, name, System.currentTimeMillis()) != 1) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在或已删除: " + id);
             }
         } catch (DuplicateKeyException exception) {
@@ -115,72 +114,80 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Transactional(rollbackFor = Exception.class)
     public GroupFolderDeleteVO batchDelete(List<Long> ids) {
         List<Long> normalizedIds = normalizeIds(ids);
-        List<GroupFolder> folders = mapper.selectActiveByIdsForUpdate(normalizedIds);
+        List<GroupFolder> folders = folderMapper.selectActiveByIdsForUpdate(normalizedIds);
         if (folders.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组分组不存在或已删除，请刷新后重试");
         }
 
+        int groupCount = groupLinkMapper.countActiveByFolderIds(normalizedIds);
         long now = System.currentTimeMillis();
-        int ungroupedCount = mapper.clearGroupLinks(normalizedIds, now);
-        int deletedCount = mapper.softDeleteByIds(normalizedIds, now);
-        if (deletedCount != normalizedIds.size()) {
+        int cleared = groupLinkMapper.clearFolderByFolderIds(normalizedIds, now);
+        if (cleared != groupCount) {
+            throw new BusinessException(ErrorCode.CONFLICT, "群组分组关系已变化，请刷新后重试");
+        }
+        int deleted = folderMapper.softDeleteByIds(normalizedIds, now);
+        if (deleted != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组分组状态已变化，请刷新后重试");
         }
-        log.info("群组运营分组批量删除 deletedCount={} ungroupedCount={} ids={}",
-                deletedCount, ungroupedCount, normalizedIds);
-        return new GroupFolderDeleteVO(deletedCount, ungroupedCount);
+        log.info("群组运营分组批量删除 folderCount={} ungroupedGroupCount={} ids={}",
+                deleted, cleared, normalizedIds);
+        return new GroupFolderDeleteVO(deleted, cleared);
     }
 
     /** {@inheritDoc} */
     @Override
     public GroupFolderOptionVO requireExisting(long id) {
-        if (id <= 0) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群组分组 ID 必须为正整数");
-        }
-        GroupFolder row = mapper.selectActiveById(id);
-        if (row == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在: " + id);
-        }
+        GroupFolder row = requireEntity(id);
         return new GroupFolderOptionVO(row.getId(), row.getName());
     }
 
     /** {@inheritDoc} */
     @Override
     public List<String> usableLinks(long id) {
-        requireExisting(id);
-        return mapper.selectUsableLinks(id);
+        requireEntity(id);
+        return folderMapper.selectUsableLinks(id);
+    }
+
+    private GroupFolder requireEntity(long id) {
+        if (id <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群组分组 ID 必须为正整数");
+        }
+        GroupFolder row = folderMapper.selectById(id);
+        if (row == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在或已删除: " + id);
+        }
+        return row;
     }
 
     private static String normalizeName(GroupFolderWriteDTO request) {
-        String name = request == null ? null : request.name();
-        if (!StringUtils.hasText(name)) {
-            throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
+        if (request == null || request.name() == null || request.name().trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群组分组名称不能为空");
         }
-        String normalized = name.trim();
-        if (normalized.length() > NAME_MAX_LENGTH) {
+        String name = request.name().trim();
+        if (name.length() > NAME_MAX_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "分组名称不能超过 " + NAME_MAX_LENGTH + " 个字符");
+                    "群组分组名称不能超过" + NAME_MAX_LENGTH + "个字符");
         }
-        return normalized;
+        return name;
     }
 
     private static List<Long> normalizeIds(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "ids 数量须为 1.." + BATCH_DELETE_MAX);
+                    "ids 数量须为 1.." + BATCH_MAX);
         }
         if (ids.stream().anyMatch(id -> id == null || id <= 0)) {
             throw new BusinessException(ErrorCode.VALIDATION, "群组分组 ID 必须为正整数");
         }
         List<Long> normalizedIds = List.copyOf(new TreeSet<>(ids));
-        if (normalizedIds.size() > BATCH_DELETE_MAX) {
+        if (normalizedIds.size() > BATCH_MAX) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "ids 数量须为 1.." + BATCH_DELETE_MAX);
+                    "ids 数量须为 1.." + BATCH_MAX);
         }
         return normalizedIds;
     }
 
     private static BusinessException duplicateName() {
-        return new BusinessException(ErrorCode.VALIDATION, "分组名称已存在");
+        return new BusinessException(ErrorCode.VALIDATION, "群组分组名称已存在");
     }
 }

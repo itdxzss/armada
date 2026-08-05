@@ -122,6 +122,23 @@ class AndroidGroupMemberMapperTest {
         });
     }
 
+    @Test
+    void preservesLidAsStableIdentityWhenPhoneAliasBecomesAvailable() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {"Participants":[
+                  {"jid":"123456789012345:7@lid","phone_number":"5218129230974",
+                   "type":"participant"}
+                ]}
+                """);
+
+        List<GroupParticipantResult> result = mapper.map(data);
+
+        assertThat(result).singleElement().satisfies(participant -> {
+            assertThat(participant.jid()).isEqualTo("123456789012345@lid");
+            assertThat(participant.phone()).isEqualTo("5218129230974");
+        });
+    }
+
     private void assertUnrecognized(JsonNode data) {
         assertThatThrownBy(() -> mapper.map(data))
                 .isInstanceOfSatisfying(ProtocolException.class,

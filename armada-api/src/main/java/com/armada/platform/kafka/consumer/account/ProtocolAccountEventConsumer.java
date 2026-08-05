@@ -387,8 +387,15 @@ public class ProtocolAccountEventConsumer {
                 }
             }
             String exitType = requiredText(participant, "exitType", "协议群退群事件缺少 exitType");
-            if (!"LEFT".equals(exitType) && !"REMOVED".equals(exitType)) {
+            if (!"LEFT".equals(exitType)
+                    && !"REMOVED".equals(exitType)
+                    && !"UNKNOWN".equals(exitType)) {
                 throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件退出方式非法");
+            }
+            // WGP2 remove 节点无法可靠区分主动退群与管理员移除。滚动发布期间旧版 Android
+            // 仍可能上报 REMOVED，统一降级为 UNKNOWN，避免把不确定事实展示成“被移出群”。
+            if ("WGP2_NOTIFICATION".equals(source) && "REMOVED".equals(exitType)) {
+                exitType = "UNKNOWN";
             }
             Long exitedAt = requiredLong(participant, "exitedAt", "协议群退群事件缺少 exitedAt");
             if (exitedAt <= 0) {

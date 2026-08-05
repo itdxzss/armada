@@ -1,12 +1,14 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
 import com.armada.task.service.PullTaskGroupAvatarService;
 import com.armada.task.service.impl.PullTaskGroupAvatarServiceImpl;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -79,8 +81,13 @@ class PullTaskGroupAvatarCleanupJobTest {
         Path tenantDir = Files.createDirectories(storageRoot().resolve("3"));
         Path fileLink = tenantDir.resolve("linked.png");
         Path tenantLink = storageRoot().resolve("4");
-        Files.createSymbolicLink(fileLink, outsideFile);
-        Files.createSymbolicLink(tenantLink, outsideDir);
+        try {
+            Files.createSymbolicLink(fileLink, outsideFile);
+            Files.createSymbolicLink(tenantLink, outsideDir);
+        } catch (FileSystemException | UnsupportedOperationException exception) {
+            assumeTrue(false,
+                    "当前文件系统或进程权限不支持创建符号链接: " + exception.getMessage());
+        }
         cleanupJob().cleanup();
 
         assertThat(fileLink).exists();

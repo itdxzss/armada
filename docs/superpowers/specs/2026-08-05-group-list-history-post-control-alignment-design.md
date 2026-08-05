@@ -111,7 +111,7 @@ GET /api/group-links
 - `AFRICA`
 - `OCEANIA`
 
-全部会暴露给群组地区筛选的国家必须映射到其中一个代码。国家选项接口返回 `continentCode`，前端据此联动过滤国家选项。
+常规国家映射到其中一个代码。南极洲及无法归入上述六个产品选项的特殊地区保留 `continent_code = NULL`：它们仍可在“全部大洲”下按国家选择，但不会出现在任一大洲筛选结果中。国家选项接口返回 nullable `continentCode`，前端据此联动过滤国家选项。
 
 ### `group_link_preview` 详情字段
 
@@ -135,6 +135,7 @@ GET /api/group-links
 - `ephemeral_duration_seconds INT NULL`
 - `creator_country_iso2 VARCHAR(2) NULL`
 - `creator_continent_code VARCHAR(24) NULL`
+- `metadata_observed_at BIGINT NULL`：本次完整 metadata 请求开始观察的 epoch 毫秒，用于拒绝租约恢复后晚到的旧响应
 
 `owner_phone` 只接受已确认 PN。LID、未知身份或无效号码不得截取数字后写入。国家使用现有严格手机号识别能力解析；无法确认时国家和大洲都为空。
 
@@ -171,13 +172,15 @@ GET /api/group-links
 - `attempt_count`
 - `next_run_at`
 - `lease_until`
+- `execution_account_id`：仅 `RUNNING` 时记录本次选中的 Armada 账号，用于跨实例落实单账号并发上限
+- `rerun_requested`：任务运行期间又收到触发时置为 `1`，本次完成后重新进入 `PENDING`，避免唯一行去重吞掉最新变更
 - `last_started_at`
 - `last_success_at`
 - `last_error_code`
 - `last_error_message`
 - `created_at/updated_at`
 
-唯一键为 `(tenant_id, group_link_id)`，待执行索引覆盖 `status/next_run_at/lease_until`。重复触发只推进同一行，不产生任务风暴；租约超时后允许其他实例恢复。列表中的 `metadataSyncStatus` 和 `metadataSyncedAt` 来自该表。
+唯一键为 `(tenant_id, group_link_id)`，待执行索引覆盖 `status/next_run_at/lease_until`，运行索引覆盖 `tenant_id/execution_account_id/status/lease_until`。重复触发只推进同一行，不产生任务风暴；租约超时后允许其他实例恢复。列表中的 `metadataSyncStatus` 和 `metadataSyncedAt` 来自该表。
 
 ## 标签写入规则
 
@@ -230,6 +233,8 @@ is_post_control = 1
 `sock.groupMetadata(groupJid)` 返回的 `creation` 是 WhatsApp 建群时间。协议 HTTP metadata 响应已经暴露 `creation`，但当前 Java `HttpGroupMetadataAdapter` 和稳定 `GroupMetadataResult` 未接收该字段；本次需要补齐稳定模型、适配器和持久化链路。
 
 当前 Web `account.groups_reported` 和批量群列表刻意只上报 JID、群名，保持轻量列表不携带 participants。本次不把完整成员塞回群列表事件，而是由独立 metadata 同步任务逐群、限速读取。
+
+稳定 `GroupMetadataResult` 必须显式携带 `participantsComplete`。Web 仅在响应存在完整 participants 数组时为 true；Android 只有原生响应明确提供完整成员数组时才为 true。false 或任一成员缺少稳定 JID 时，本次成员响应不完整，不得替换旧快照。
 
 ### Android
 
@@ -408,7 +413,7 @@ GET /api/group-links
 
 ### 详情补全
 
-Flyway 只创建结构和做本地、幂等、分批回填，不发远程请求。应用部署后扫描当前仍有可用账号访问的历史群，创建 metadata 同步任务。旧历史群无访问账号时保持稀疏数据和 deferred 状态，直到后续账号重新上线或重新入群。
+Flyway 只创建结构和写入国家大洲主数据，不展开 baseline、不发远程请求。应用内幂等 backfill job 分批展开 baseline、固化标签和创建 metadata 同步任务。旧历史群无访问账号时保持稀疏数据和 deferred 状态，直到后续账号重新上线或重新入群。
 
 所有迁移和回填严格依赖租户上下文或显式 `tenant_id`，不得跨租户按 JID 合并。
 

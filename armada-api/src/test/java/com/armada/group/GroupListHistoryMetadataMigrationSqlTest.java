@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class GroupListHistoryMetadataMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V096__group_list_history_metadata.sql");
+            "src/main/resources/db/migration/V098__group_list_history_metadata.sql");
 
     @Test
     void migrationCreatesClassificationMetadataAndSnapshotStructures() throws IOException {

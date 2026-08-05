@@ -36,6 +36,24 @@ class FlywayAppliedMigrationCompatibilityTest {
         assertAppliedMigration(
                 "V091__whatsapp_group_departed_member.sql",
                 1_816_449_594);
+        assertAppliedMigration(
+                "V092__whatsapp_group_member_join_fact.sql",
+                -1_133_243_864);
+        assertAppliedMigration(
+                "V093__pull_task_normal_link_execution.sql",
+                -1_160_226_712);
+        assertAppliedMigration(
+                "V094__pull_task_group_account_membership_result.sql",
+                -1_117_482_777);
+        assertAppliedMigration(
+                "V095__pull_task_standard_full_form_settings.sql",
+                -1_758_254_373);
+        assertAppliedMigration(
+                "V096__whatsapp_group_member_cache.sql",
+                380_433_951);
+        assertAppliedMigration(
+                "V097__group_departure_unknown_metadata.sql",
+                -1_292_654_150);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

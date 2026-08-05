@@ -240,6 +240,26 @@ class ProtocolAccountEventConsumerTest {
     }
 
     @Test
+    void onGroupSyncMessageAcceptsWgp2RemovedWithActorDifferentEvidence() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"departure-verified","event":"account.group_participant_departed","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-06T02:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"120363-test@g.us","source":"WGP2_NOTIFICATION","participants":[
+                           {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
+                            "exitType":"REMOVED","exitEvidence":"WGP2_ACTOR_DIFFERENT",
+                            "exitedAt":1785722400000,"sourceEventId":"source-remove-verified"}]}}
+                """);
+
+        ArgumentCaptor<ProtocolGroupDepartureEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupDepartureEvent.class);
+        verify(groupDepartureSink).handleDepartures(captor.capture());
+        assertThat(captor.getValue().participants()).singleElement().satisfies(participant -> {
+            assertThat(participant.exitType()).isEqualTo("REMOVED");
+        });
+    }
+
+    @Test
     void onGroupSyncMessageDispatchesJoinedParticipants() {
         consumer.onGroupSyncMessage("""
                 {"eventId":"join-1","event":"account.group_participant_joined","version":"v1",

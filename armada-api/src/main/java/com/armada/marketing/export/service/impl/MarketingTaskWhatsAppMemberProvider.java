@@ -544,8 +544,7 @@ public class MarketingTaskWhatsAppMemberProvider {
         if ("LEFT".equalsIgnoreCase(departure.exitType())) {
             return "主动退群";
         }
-        if ("HISTORY_SYNC".equalsIgnoreCase(departure.sourceType())
-                && "REMOVED".equalsIgnoreCase(departure.exitType())) {
+        if ("REMOVED".equalsIgnoreCase(departure.exitType())) {
             return "被移出群组";
         }
         return "退出原因未识别";

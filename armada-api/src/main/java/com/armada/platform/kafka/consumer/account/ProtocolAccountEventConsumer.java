@@ -28,6 +28,7 @@ public class ProtocolAccountEventConsumer {
 
     private static final int MAX_DEPARTURE_PARTICIPANTS = 5_000;
     private static final int MAX_JOIN_PARTICIPANTS = 5_000;
+    private static final String WGP2_ACTOR_DIFFERENT = "WGP2_ACTOR_DIFFERENT";
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolAccountEventConsumer.class);
 
@@ -392,9 +393,13 @@ public class ProtocolAccountEventConsumer {
                     && !"UNKNOWN".equals(exitType)) {
                 throw new BusinessException(ErrorCode.VALIDATION, "协议群退群事件退出方式非法");
             }
-            // WGP2 remove 节点无法可靠区分主动退群与管理员移除。滚动发布期间旧版 Android
-            // 仍可能上报 REMOVED，统一降级为 UNKNOWN，避免把不确定事实展示成“被移出群”。
-            if ("WGP2_NOTIFICATION".equals(source) && "REMOVED".equals(exitType)) {
+            String exitEvidence = boundedText(
+                    participant, "exitEvidence", 64, "协议群退群事件 exitEvidence 长度超限");
+            // 新版 Android 只有在 WGP2 操作人与唯一目标成员明确不同后才上报该证据。
+            // 旧节点和历史重放没有证据，继续降级，保证滚动发布期间不恢复旧误判。
+            if ("WGP2_NOTIFICATION".equals(source)
+                    && "REMOVED".equals(exitType)
+                    && !WGP2_ACTOR_DIFFERENT.equals(exitEvidence)) {
                 exitType = "UNKNOWN";
             }
             Long exitedAt = requiredLong(participant, "exitedAt", "协议群退群事件缺少 exitedAt");

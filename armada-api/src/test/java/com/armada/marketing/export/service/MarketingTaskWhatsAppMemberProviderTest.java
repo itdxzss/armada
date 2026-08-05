@@ -101,7 +101,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 new WhatsappGroupDepartedMemberVO("120363-test@g.us", "521100000003:7@s.whatsapp.net",
                         "+52 11 0000 0003", 940L, "LEFT", "WGP2_NOTIFICATION"),
                 new WhatsappGroupDepartedMemberVO("120363-test@g.us", "521100000003@s.whatsapp.net",
-                        null, 950L, "REMOVED", "WGP2_NOTIFICATION")));
+                        null, 950L, "UNKNOWN", "WGP2_NOTIFICATION")));
         when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of(
                 new WhatsappGroupJoinFactVO(
                         "120363-test@g.us", "15550000001@s.whatsapp.net", "15550000001", 850L),
@@ -265,6 +265,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
                         "120363-test@g.us", "left@s.whatsapp.net", null, 910L,
                         "LEFT", "WGP2_NOTIFICATION"),
                 new WhatsappGroupDepartedMemberVO(
+                        "120363-test@g.us", "removed@s.whatsapp.net", null, 915L,
+                        "REMOVED", "WGP2_NOTIFICATION"),
+                new WhatsappGroupDepartedMemberVO(
                         "120363-test@g.us", "unknown@s.whatsapp.net", null, 920L,
                         "UNKNOWN", "WGP2_NOTIFICATION")));
 
@@ -280,7 +283,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
         assertThat(members).extracting(row -> row.getMemberPhone())
                 .containsExactlyInAnyOrder(
                         "current@s.whatsapp.net", "departed@s.whatsapp.net",
-                        "left@s.whatsapp.net", "unknown@s.whatsapp.net");
+                        "left@s.whatsapp.net", "removed@s.whatsapp.net",
+                        "unknown@s.whatsapp.net");
         assertThat(members).filteredOn(row -> "departed@s.whatsapp.net".equals(row.getMemberPhone()))
                 .singleElement()
                 .satisfies(row -> {
@@ -290,6 +294,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
         assertThat(members).filteredOn(row -> "left@s.whatsapp.net".equals(row.getMemberPhone()))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getExitType()).isEqualTo("主动退群"));
+        assertThat(members).filteredOn(row -> "removed@s.whatsapp.net".equals(row.getMemberPhone()))
+                .singleElement()
+                .satisfies(row -> assertThat(row.getExitType()).isEqualTo("被移出群组"));
         assertThat(members).filteredOn(row -> "unknown@s.whatsapp.net".equals(row.getMemberPhone()))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getExitType()).isEqualTo("退出原因未识别"));

@@ -72,6 +72,6 @@ public interface GroupFolderMapper {
     /** 批量软删除有效分组。 */
     int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
 
-    /** 查询分组内当前可用且未封禁的非空链接。 */
+    /** 查询分组内当前可用且未封禁的邀请链接；内部群入口按预览邀请码转换。 */
     List<String> selectUsableLinks(@Param("folderId") long folderId);
 }

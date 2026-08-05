@@ -21,6 +21,8 @@
            COUNT(CASE
              WHEN g.id IS NOT NULL
               AND NULLIF(TRIM(g.link_url), '') IS NOT NULL
+              AND (g.link_url NOT LIKE 'wa://group/%'
+                   OR NULLIF(TRIM(p.invite_code), '') IS NOT NULL)
               AND h.health_status = 1
               AND COALESCE(h.is_banned, 0) = 0
              THEN 1
@@ -32,6 +34,9 @@
       ON g.tenant_id = f.tenant_id
      AND g.folder_id = f.id
      AND g.deleted_at IS NULL
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = g.tenant_id
+     AND p.group_link_id = g.id
     LEFT JOIN group_link_health h
       ON h.tenant_id = g.tenant_id
      AND h.group_link_id = g.id
@@ -132,14 +137,23 @@
   </update>
 
   <select id="selectUsableLinks" resultType="string">
-    SELECT g.link_url
+    SELECT CASE
+             WHEN g.link_url LIKE 'wa://group/%'
+               THEN CONCAT('chat.whatsapp.com/', TRIM(p.invite_code))
+             ELSE g.link_url
+           END
     FROM group_link g
     INNER JOIN group_link_health h
       ON h.tenant_id = g.tenant_id
      AND h.group_link_id = g.id
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = g.tenant_id
+     AND p.group_link_id = g.id
     WHERE g.deleted_at IS NULL
       AND g.folder_id = #{folderId}
       AND NULLIF(TRIM(g.link_url), '') IS NOT NULL
+      AND (g.link_url NOT LIKE 'wa://group/%'
+           OR NULLIF(TRIM(p.invite_code), '') IS NOT NULL)
       AND h.health_status = 1
       AND COALESCE(h.is_banned, 0) = 0
     ORDER BY g.id ASC

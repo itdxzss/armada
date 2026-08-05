@@ -81,6 +81,37 @@ class GroupFolderMapperInMemoryTest {
     }
 
     @Test
+    void usableLinksConvertInternalGroupEntryToInviteLink() throws SQLException {
+        GroupFolder folder = folder("内部群", 100L);
+        mapper.insert(folder);
+        insertLink(1L, 7L, folder.getId(), "wa://group/120363001@g.us", null);
+        insertPreview(1L, 7L, 1L, "AbCdEfGhIjKlMnOpQrStUv");
+        insertHealth(1L, 7L, 1L, 1, 0);
+
+        GroupFolderQuery query = new GroupFolderQuery();
+
+        assertThat(mapper.selectUsableLinks(folder.getId()))
+                .containsExactly("chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv");
+        assertThat(mapper.selectPage(query)).singleElement()
+                .satisfies(row -> assertThat(row.groupCount()).isEqualTo(1));
+    }
+
+    @Test
+    void usableLinksExcludeInternalGroupEntryWithoutInviteCode() throws SQLException {
+        GroupFolder folder = folder("缺少邀请码", 100L);
+        mapper.insert(folder);
+        insertLink(1L, 7L, folder.getId(), "wa://group/120363002@g.us", null);
+        insertPreview(1L, 7L, 1L, null);
+        insertHealth(1L, 7L, 1L, 1, 0);
+
+        GroupFolderQuery query = new GroupFolderQuery();
+
+        assertThat(mapper.selectUsableLinks(folder.getId())).isEmpty();
+        assertThat(mapper.selectPage(query)).singleElement()
+                .satisfies(row -> assertThat(row.groupCount()).isZero());
+    }
+
+    @Test
     void clearingFolderLinksDoesNotDeleteGroupEntries() throws SQLException {
         GroupFolder folder = folder("待删除", 100L);
         mapper.insert(folder);
@@ -155,6 +186,17 @@ class GroupFolderMapperInMemoryTest {
                     updated_at BIGINT NOT NULL
                 )
                 """);
+        execute("""
+                CREATE TABLE group_link_preview (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    invite_code VARCHAR(64),
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT uq_group_link_preview_link UNIQUE (tenant_id, group_link_id)
+                )
+                """);
     }
 
     private void insertLink(long id, long tenantId, long folderId,
@@ -171,6 +213,15 @@ class GroupFolderMapperInMemoryTest {
                 + "(id, tenant_id, group_link_id, health_status, is_banned, created_at, updated_at) "
                 + "VALUES (" + id + ", " + tenantId + ", " + groupLinkId + ", "
                 + status + ", " + banned + ", 100, 100)");
+    }
+
+    private void insertPreview(long id, long tenantId, long groupLinkId,
+                               String inviteCode) throws SQLException {
+        String storedInviteCode = inviteCode == null ? "NULL" : "'" + inviteCode + "'";
+        execute("INSERT INTO group_link_preview "
+                + "(id, tenant_id, group_link_id, invite_code, created_at, updated_at) "
+                + "VALUES (" + id + ", " + tenantId + ", " + groupLinkId + ", "
+                + storedInviteCode + ", 100, 100)");
     }
 
     private long count(String sql) throws SQLException {

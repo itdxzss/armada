@@ -29,6 +29,6 @@ public interface GroupFolderService {
     /** 校验分组存在，并返回只读快照供其他业务域使用。 */
     GroupFolderOptionVO requireExisting(long id);
 
-    /** 查询分组内当前可用且未封禁的群链接。 */
+    /** 查询分组内当前可用且未封禁的邀请链接；不返回内部群入口。 */
     List<String> usableLinks(long id);
 }

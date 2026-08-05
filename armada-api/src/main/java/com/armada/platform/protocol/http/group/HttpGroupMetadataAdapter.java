@@ -77,6 +77,10 @@ public class HttpGroupMetadataAdapter
         return new GroupMetadataResult(
                 response.id(),
                 response.subject(),
+                response.desc(),
+                response.owner(),
+                response.creation(),
+                response.participants() != null,
                 response.announce(),
                 response.restrict(),
                 response.memberAddMode(),
@@ -132,6 +136,9 @@ public class HttpGroupMetadataAdapter
     private record MetadataResponse(
             String id,
             String subject,
+            String desc,
+            String owner,
+            Long creation,
             Boolean announce,
             Boolean restrict,
             Boolean memberAddMode,

@@ -10,6 +10,8 @@ import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
+import com.armada.group.model.vo.GroupClassificationCandidate;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
@@ -24,8 +26,11 @@ class AccountGroupMembershipStatusServiceImplTest {
 
     private final AccountGroupMembershipMapper mapper = Mockito.mock(AccountGroupMembershipMapper.class);
     private final GroupLinkRegistryService registryService = Mockito.mock(GroupLinkRegistryService.class);
+    private final GroupClassificationService classificationService =
+            Mockito.mock(GroupClassificationService.class);
     private final AccountGroupMembershipStatusServiceImpl service =
-            new AccountGroupMembershipStatusServiceImpl(mapper, registryService);
+            new AccountGroupMembershipStatusServiceImpl(
+                    mapper, registryService, classificationService);
 
     @AfterEach
     void clearTenantContext() {
@@ -37,7 +42,7 @@ class AccountGroupMembershipStatusServiceImplTest {
         AccountGroupBaselineRow account = new AccountGroupBaselineRow();
         account.setAccountId(10L);
         account.setProtocolAccountId("protocol-account-10");
-        account.setProtocolId("android_wgp2");
+        account.setProtocolId("ANDROID");
         Mockito.when(mapper.selectAccountBaselineRow(10L)).thenReturn(account);
         Mockito.when(registryService.registerAccountObservedGroup(
                 Mockito.eq("120363001@g.us"),
@@ -65,6 +70,41 @@ class AccountGroupMembershipStatusServiceImplTest {
                 .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
         assertThat(membership.getValue().getLastExitedAt()).isEqualTo(2000L);
         assertThat(membership.getValue().getJoinedAt()).isNull();
+        Mockito.verifyNoInteractions(classificationService);
+    }
+
+    @Test
+    void preciseAddClassifiesPostControlBeforeWritingMembership() {
+        AccountGroupBaselineRow account = new AccountGroupBaselineRow();
+        account.setAccountId(10L);
+        account.setProtocolAccountId("protocol-account-10");
+        account.setProtocolId("ANDROID");
+        Mockito.when(mapper.selectAccountBaselineRow(10L)).thenReturn(account);
+        Mockito.when(registryService.registerAccountObservedGroup(
+                Mockito.eq("120363001@g.us"),
+                Mockito.isNull(),
+                Mockito.eq(ProtocolBackend.ANDROID),
+                Mockito.anyLong()))
+                .thenReturn(20L);
+
+        service.applyMembershipChanged(new AccountGroupMembershipChangedEvent(
+                1L,
+                10L,
+                "protocol-account-10",
+                "120363001@g.us",
+                "add",
+                2_000L,
+                "event-add-10",
+                "android_wgp2"));
+
+        org.mockito.InOrder order = Mockito.inOrder(classificationService, mapper);
+        order.verify(classificationService).classifyMembershipAdded(
+                Mockito.eq(10L),
+                Mockito.eq(new GroupClassificationCandidate(
+                        20L, "120363001@g.us", null)),
+                Mockito.eq(2_000L),
+                Mockito.anyLong());
+        order.verify(mapper).upsertMembership(Mockito.any(AccountGroupMembership.class));
     }
 
     @Test

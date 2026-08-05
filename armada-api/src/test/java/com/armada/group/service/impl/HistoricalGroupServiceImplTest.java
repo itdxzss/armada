@@ -66,7 +66,7 @@ class HistoricalGroupServiceImplTest {
                 77L, ProtocolBackend.ANDROID, "android-77", "8613800000077");
         when(executionAccountSelector.require(12L, "baseline@g.us"))
                 .thenReturn(new GroupExecutionAccount(
-                        77L, "ANDROID", "android-77", "8613800000077"));
+                        77L, "ANDROID", "android-77", "8613800000077", true));
         when(readMetadataPort.getMetadata(selected, "baseline@g.us"))
                 .thenReturn(metadata(
                         "baseline@g.us",
@@ -208,6 +208,10 @@ class HistoricalGroupServiceImplTest {
         GroupMetadataResult androidMetadata = new GroupMetadataResult(
                 "120363detail@g.us",
                 "安卓历史群",
+                null,
+                null,
+                null,
+                true,
                 null,
                 null,
                 null,
@@ -537,7 +541,8 @@ class HistoricalGroupServiceImplTest {
                         accountId,
                         backend.name(),
                         account.protocolAccountId(),
-                        account.wsPhone()));
+                        account.wsPhone(),
+                        true));
         return account;
     }
 
@@ -549,6 +554,10 @@ class HistoricalGroupServiceImplTest {
         return new GroupMetadataResult(
                 groupJid,
                 subject,
+                null,
+                null,
+                null,
+                true,
                 announce,
                 false,
                 true,

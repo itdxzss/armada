@@ -40,6 +40,10 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
 
         assertThat(result.groupJid()).isEqualTo("120363001@g.us");
         assertThat(result.subject()).isEqualTo("安卓历史群");
+        assertThat(result.description()).isNull();
+        assertThat(result.ownerJid()).isNull();
+        assertThat(result.createdAtSeconds()).isNull();
+        assertThat(result.participantsComplete()).isTrue();
         assertThat(result.announce()).isNull();
         assertThat(result.stateAbnormal()).isFalse();
         assertThat(result.participantMutationSupported()).isTrue();

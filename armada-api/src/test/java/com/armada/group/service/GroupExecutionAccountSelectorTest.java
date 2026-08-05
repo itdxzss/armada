@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.exception.BusinessException;
@@ -24,19 +25,24 @@ class GroupExecutionAccountSelectorTest {
 
     @Test
     void findReturnsOnlineMembershipAccountSelectedByMapper() {
-        GroupExecutionAccount account = new GroupExecutionAccount(7L, "acc_7");
-        when(mapper.selectGroupExecutionAccount(10L, AccountLoginStateCode.ONLINE)).thenReturn(account);
+        GroupExecutionAccount account = new GroupExecutionAccount(
+                7L, null, "acc_7", "acc_7", true);
+        when(mapper.selectGroupExecutionAccount(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL)).thenReturn(account);
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
         Optional<GroupExecutionAccount> result = selector.find(10L);
 
         assertThat(result).contains(account);
-        verify(mapper).selectGroupExecutionAccount(10L, AccountLoginStateCode.ONLINE);
+        assertThat(result.orElseThrow().groupAdmin()).isTrue();
+        verify(mapper).selectGroupExecutionAccount(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL);
     }
 
     @Test
     void requireThrowsDedicatedErrorWhenNoExecutionAccountExists() {
-        when(mapper.selectGroupExecutionAccount(10L, AccountLoginStateCode.ONLINE)).thenReturn(null);
+        when(mapper.selectGroupExecutionAccount(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL)).thenReturn(null);
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
         assertThatThrownBy(() -> selector.require(10L))

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper">
+
+  <insert id="insertBatch">
+    INSERT INTO whatsapp_group_member_snapshot (
+      group_link_id, group_jid, participant_jid, phone, role, is_admin, is_owner,
+      snapshot_at, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupLinkId}, #{row.groupJid}, #{row.participantJid}, #{row.phone}, #{row.role},
+        CASE WHEN #{row.isOwner} = TRUE THEN 1 ELSE COALESCE(#{row.isAdmin}, FALSE) END,
+        COALESCE(#{row.isOwner}, FALSE), #{row.snapshotAt}, #{row.createdAt}, #{row.updatedAt}
+      )
+    </foreach>
+  </insert>
+
+  <delete id="deleteByGroupLinkId">
+    DELETE FROM whatsapp_group_member_snapshot
+    WHERE group_link_id = #{groupLinkId}
+  </delete>
+
+  <select id="selectByGroupLinkId"
+          resultType="com.armada.group.model.entity.WhatsappGroupMemberSnapshot">
+    SELECT id, tenant_id, group_link_id, group_jid, participant_jid, phone, role,
+           is_admin, is_owner, snapshot_at, created_at, updated_at
+    FROM whatsapp_group_member_snapshot
+    WHERE group_link_id = #{groupLinkId}
+    ORDER BY is_owner DESC, is_admin DESC, participant_jid ASC, id ASC
+  </select>
+
+</mapper>

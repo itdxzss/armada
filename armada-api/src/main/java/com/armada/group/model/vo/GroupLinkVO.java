@@ -1,5 +1,7 @@
 package com.armada.group.model.vo;
 
+import java.util.List;
+
 /**
  * 群链接出参(返回前端的视图对象)。
  * 时间字段为 epoch 毫秒(UTC 时刻);前端按 Asia/Shanghai 格式化展示。
@@ -75,5 +77,56 @@ public record GroupLinkVO(
         String lastHealthError,
 
         /** 创建时间,epoch 毫秒(UTC)。 */
-        Long createdAt) {
+        Long createdAt,
+
+        /** 是否曾属于首次上线历史群基线。 */
+        Boolean isHistorical,
+
+        /** 是否曾在上控后新发现加入。 */
+        Boolean isPostControl,
+
+        /** 群组列表运营分组 ID。 */
+        Long folderId,
+
+        /** 群组列表运营分组名称。 */
+        String folderName,
+
+        /** 当前已知邀请链接。 */
+        String inviteUrl,
+
+        /** 当前完整成员快照中的全部群主/管理员号码。 */
+        List<String> adminPhones,
+
+        /** 是否存在可执行的在线管理员账号。 */
+        Boolean availableAdmin,
+
+        /** 可执行在线管理员账号数量。 */
+        Integer availableAdminCount,
+
+        /** 群创建者确认手机号。 */
+        String creatorPhone,
+
+        /** 群创建者国家 ISO2。 */
+        String creatorCountryIso2,
+
+        /** 群创建者国家中文名。 */
+        String creatorCountryName,
+
+        /** 群创建者国家国旗。 */
+        String creatorCountryFlag,
+
+        /** 群创建者所属大洲。 */
+        String creatorContinentCode,
+
+        /** WhatsApp 协议返回的建群时间(Unix 秒)，未知为空。 */
+        Long groupCreatedAt,
+
+        /** 群详情同步任务状态。 */
+        String metadataSyncStatus,
+
+        /** 最近一次完整 metadata 同步成功时间(epoch 毫秒)。 */
+        Long metadataSyncedAt,
+
+        /** 最近一次同步安全错误摘要。 */
+        String metadataSyncError) {
 }

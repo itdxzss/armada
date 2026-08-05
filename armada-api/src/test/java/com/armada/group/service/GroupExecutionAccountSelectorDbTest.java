@@ -46,7 +46,8 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
 
         Optional<GroupExecutionAccount> selected = selector.find(groupLinkId);
 
-        assertThat(selected).contains(new GroupExecutionAccount(adminAccountId, "acc_923310000002"));
+        assertThat(selected).contains(new GroupExecutionAccount(
+                adminAccountId, null, "acc_923310000002", "923310000002", true));
 
         try {
             TenantContext.set(2L);

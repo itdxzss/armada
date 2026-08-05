@@ -8,6 +8,7 @@ import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
@@ -62,6 +63,20 @@ class GroupConverterTest {
         row.setSyncProtocolMask(3);
         row.setOrigin(GroupLinkOrigin.IMPORT.code());
         row.setMembershipState(GroupMembershipState.JOINED.code());
+        row.setIsHistorical(true);
+        row.setIsPostControl(true);
+        row.setFolderId(5L);
+        row.setFolderName("重点群");
+        row.setInviteUrl("https://chat.whatsapp.com/invite");
+        row.setAdmin("8611111111111, 8622222222222");
+        row.setAvailableAdminCount(2);
+        row.setCreatorCountryIso2("IN");
+        row.setCreatorCountryName("印度");
+        row.setCreatorCountryFlag("🇮🇳");
+        row.setCreatorContinentCode("ASIA");
+        row.setGroupCreatedAt(1_717_200_000L);
+        row.setMetadataSyncStatus(GroupMetadataSyncStatus.SUCCEEDED.code());
+        row.setMetadataSyncedAt(EPOCH_2024_06_01_UTC);
         row.setCreatedAt(EPOCH_2024_06_01_UTC);
 
         GroupLinkVO vo = converter.toGroupLinkVO(row);
@@ -75,11 +90,20 @@ class GroupConverterTest {
         assertThat(vo.status()).isEqualTo("AVAILABLE");
         assertThat(vo.statusLabel()).isEqualTo("可用");
         assertThat(vo.memberCount()).isEqualTo(9);
-        assertThat(vo.admin()).isEqualTo("8611111111111");
+        assertThat(vo.admin()).isEqualTo("8611111111111, 8622222222222");
         assertThat(vo.syncProtocolMask()).isEqualTo(3);
         assertThat(vo.source()).isEqualTo("导入链接");
         assertThat(vo.membershipStateLabel()).isEqualTo("已进群");
         assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
+        assertThat(vo.isHistorical()).isTrue();
+        assertThat(vo.isPostControl()).isTrue();
+        assertThat(vo.folderName()).isEqualTo("重点群");
+        assertThat(vo.adminPhones()).containsExactly("8611111111111", "8622222222222");
+        assertThat(vo.availableAdmin()).isTrue();
+        assertThat(vo.creatorCountryIso2()).isEqualTo("IN");
+        assertThat(vo.creatorContinentCode()).isEqualTo("ASIA");
+        assertThat(vo.groupCreatedAt()).isEqualTo(1_717_200_000L);
+        assertThat(vo.metadataSyncStatus()).isEqualTo("SUCCEEDED");
     }
 
     @Test

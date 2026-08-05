@@ -14,6 +14,8 @@ import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.group.model.vo.GroupClassificationCandidate;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.lang.reflect.Method;
@@ -33,9 +35,12 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     private final GroupLinkMapper groupLinkMapper = Mockito.mock(GroupLinkMapper.class);
     private final GroupLinkHealthMapper healthMapper = Mockito.mock(GroupLinkHealthMapper.class);
     private final GroupLinkRegistryService registryService = Mockito.mock(GroupLinkRegistryService.class);
+    private final GroupClassificationService classificationService =
+            Mockito.mock(GroupClassificationService.class);
     private final AccountGroupMembershipSnapshotServiceImpl service =
             new AccountGroupMembershipSnapshotServiceImpl(
-                    membershipMapper, groupLinkMapper, healthMapper, registryService);
+                    membershipMapper, groupLinkMapper, healthMapper, registryService,
+                    classificationService);
 
     @Test
     void replaceVisibleGroupsUsesOneTransactionForAllSnapshotTables() throws Exception {
@@ -119,6 +124,12 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         org.assertj.core.api.Assertions.assertThat(result.addedGroups())
                 .extracting(AccountGroupMembershipSnapshot::groupJid)
                 .containsExactly("120363new@g.us");
+        Mockito.verify(classificationService).classifyVisibleGroups(
+                Mockito.eq(10L),
+                Mockito.argThat(groups -> groups.equals(List.of(
+                        new GroupClassificationCandidate(12L, "120363new@g.us", "新群"),
+                        new GroupClassificationCandidate(11L, "120363old@g.us", "旧群")))),
+                Mockito.anyLong());
     }
 
     @Test

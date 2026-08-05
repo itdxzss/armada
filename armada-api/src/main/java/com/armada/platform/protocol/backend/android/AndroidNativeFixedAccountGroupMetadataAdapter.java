@@ -104,6 +104,10 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         return new GroupMetadataResult(
                 responseGroupJid,
                 text(data.get("Subject")),
+                text(data.get("Desc")),
+                text(data.get("Owner")),
+                positiveLong(data.get("Creation")),
+                true,
                 null,
                 null,
                 null,
@@ -115,6 +119,14 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 false,
                 true,
                 participants);
+    }
+
+    private static Long positiveLong(JsonNode node) {
+        if (node == null || !node.isIntegralNumber() || !node.canConvertToLong()) {
+            return null;
+        }
+        long value = node.longValue();
+        return value > 0 ? value : null;
     }
 
     private static String normalizeGroupJid(String value) {

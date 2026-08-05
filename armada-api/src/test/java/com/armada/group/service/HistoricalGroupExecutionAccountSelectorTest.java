@@ -28,7 +28,7 @@ class HistoricalGroupExecutionAccountSelectorTest {
                 12L,
                 "120363admin@g.us"))
                 .thenReturn(new GroupExecutionAccount(
-                        7L, "ANDROID", "android-7", "8613800000007"));
+                        7L, "ANDROID", "android-7", "8613800000007", true));
         HistoricalGroupExecutionAccountSelector selector =
                 new HistoricalGroupExecutionAccountSelector(mapper);
 

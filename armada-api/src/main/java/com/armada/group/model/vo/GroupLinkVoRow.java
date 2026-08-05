@@ -30,6 +30,20 @@ public class GroupLinkVoRow {
     private Long lastCheckAt;
     private String lastHealthError;
     private Long createdAt;
+    private Boolean isHistorical;
+    private Boolean isPostControl;
+    private Long folderId;
+    private String folderName;
+    private String inviteUrl;
+    private Integer availableAdminCount;
+    private String creatorCountryIso2;
+    private String creatorCountryName;
+    private String creatorCountryFlag;
+    private String creatorContinentCode;
+    private Long groupCreatedAt;
+    private Integer metadataSyncStatus;
+    private Long metadataSyncedAt;
+    private String metadataSyncError;
 
     public Long getId() {
         return id;
@@ -197,5 +211,117 @@ public class GroupLinkVoRow {
 
     public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Boolean getIsHistorical() {
+        return isHistorical;
+    }
+
+    public void setIsHistorical(Boolean historical) {
+        isHistorical = historical;
+    }
+
+    public Boolean getIsPostControl() {
+        return isPostControl;
+    }
+
+    public void setIsPostControl(Boolean postControl) {
+        isPostControl = postControl;
+    }
+
+    public Long getFolderId() {
+        return folderId;
+    }
+
+    public void setFolderId(Long folderId) {
+        this.folderId = folderId;
+    }
+
+    public String getFolderName() {
+        return folderName;
+    }
+
+    public void setFolderName(String folderName) {
+        this.folderName = folderName;
+    }
+
+    public String getInviteUrl() {
+        return inviteUrl;
+    }
+
+    public void setInviteUrl(String inviteUrl) {
+        this.inviteUrl = inviteUrl;
+    }
+
+    public Integer getAvailableAdminCount() {
+        return availableAdminCount;
+    }
+
+    public void setAvailableAdminCount(Integer availableAdminCount) {
+        this.availableAdminCount = availableAdminCount;
+    }
+
+    public String getCreatorCountryIso2() {
+        return creatorCountryIso2;
+    }
+
+    public void setCreatorCountryIso2(String creatorCountryIso2) {
+        this.creatorCountryIso2 = creatorCountryIso2;
+    }
+
+    public String getCreatorCountryName() {
+        return creatorCountryName;
+    }
+
+    public void setCreatorCountryName(String creatorCountryName) {
+        this.creatorCountryName = creatorCountryName;
+    }
+
+    public String getCreatorCountryFlag() {
+        return creatorCountryFlag;
+    }
+
+    public void setCreatorCountryFlag(String creatorCountryFlag) {
+        this.creatorCountryFlag = creatorCountryFlag;
+    }
+
+    public String getCreatorContinentCode() {
+        return creatorContinentCode;
+    }
+
+    public void setCreatorContinentCode(String creatorContinentCode) {
+        this.creatorContinentCode = creatorContinentCode;
+    }
+
+    public Long getGroupCreatedAt() {
+        return groupCreatedAt;
+    }
+
+    public void setGroupCreatedAt(Long groupCreatedAt) {
+        this.groupCreatedAt = groupCreatedAt;
+    }
+
+    public Integer getMetadataSyncStatus() {
+        return metadataSyncStatus;
+    }
+
+    public void setMetadataSyncStatus(Integer metadataSyncStatus) {
+        this.metadataSyncStatus = metadataSyncStatus;
+    }
+
+    public Long getMetadataSyncedAt() {
+        return metadataSyncedAt;
+    }
+
+    public void setMetadataSyncedAt(Long metadataSyncedAt) {
+        this.metadataSyncedAt = metadataSyncedAt;
+    }
+
+    public String getMetadataSyncError() {
+        return metadataSyncError;
+    }
+
+    public void setMetadataSyncError(String metadataSyncError) {
+        this.metadataSyncError = metadataSyncError;
     }
 }

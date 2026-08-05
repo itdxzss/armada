@@ -3,7 +3,7 @@
 <mapper namespace="com.armada.platform.country.mapper.CountryMapper">
 
   <sql id="Columns">
-    id, iso2, name_zh, name_en, phone_prefix, flag,
+    id, iso2, name_zh, name_en, phone_prefix, flag, continent_code,
     is_enabled, is_ip_supported, last_ip_sample_check_at, sort_order, remark,
     created_at, updated_at, deleted_at
   </sql>

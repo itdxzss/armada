@@ -126,7 +126,9 @@ class GroupLinkServiceImplTest {
         GroupLinkVO vo = new GroupLinkVO(
                 1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
                 "UNCHECKED", "未检测", null, null, null, null,
-                3, null, null, null, null, null, null, null, null, null, null, 1000L);
+                3, null, null, null, null, null, null, null, null, null, null, 1000L,
+                false, false, null, null, null, List.of(), false, 0,
+                null, null, null, null, null, null, null, null, null);
         when(groupLinkMapper.countByLabel(q)).thenReturn(1L);
         when(groupLinkMapper.selectPageByLabel(q)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of(vo));
@@ -148,6 +150,46 @@ class GroupLinkServiceImplTest {
                 .hasMessageContaining("status");
         verify(groupLinkMapper, never()).countByLabel(any());
         verify(groupLinkMapper, never()).selectPageByLabel(any());
+    }
+
+    @Test
+    void listByLabel_normalizesLocationAndUsesOneQueryClock() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setCountryIso2(" in ");
+        query.setContinentCode(" asia ");
+        when(groupLinkMapper.countByLabel(query)).thenReturn(0L);
+
+        service.listByLabel(query);
+
+        assertThat(query.getCountryIso2()).isEqualTo("IN");
+        assertThat(query.getContinentCode()).isEqualTo("ASIA");
+        assertThat(query.getNowSeconds()).isPositive();
+        verify(groupLinkMapper).countByLabel(query);
+    }
+
+    @Test
+    void listByLabel_rejectsInvalidRangesBeforeMapper() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setMemberCountMin(20);
+        query.setMemberCountMax(10);
+
+        assertThatThrownBy(() -> service.listByLabel(query))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("成员数");
+
+        verify(groupLinkMapper, never()).countByLabel(any());
+    }
+
+    @Test
+    void listByLabel_rejectsUnknownContinentAndMalformedCountry() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setContinentCode("ANTARCTICA");
+        query.setCountryIso2("IND");
+
+        assertThatThrownBy(() -> service.listByLabel(query))
+                .isInstanceOf(BusinessException.class);
+
+        verify(groupLinkMapper, never()).countByLabel(any());
     }
 
     // ---- updateProfile ----

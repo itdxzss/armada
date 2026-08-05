@@ -93,7 +93,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
         reset(countryService);
         when(countryService.resolveActiveCountriesByPhoneNumbers(anyCollection()))
                 .thenReturn(Map.of("919900000001",
-                        new CountryReferenceVO(91L, "IN", "印度", "+91", "🇮🇳")));
+                        new CountryReferenceVO(91L, "IN", "印度", "+91", "🇮🇳", "ASIA")));
     }
 
     @AfterEach

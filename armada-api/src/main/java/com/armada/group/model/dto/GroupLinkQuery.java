@@ -1,6 +1,7 @@
 package com.armada.group.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.group.model.enums.GroupListType;
 
 /**
  * 群链接列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -24,6 +25,39 @@ public class GroupLinkQuery extends PageQuery {
 
     /** 我方与群关系:1=目标未进群 2=已进群 3=自建拥有。 */
     private Integer membershipState;
+
+    /** 群组列表运营分组 ID。 */
+    private Long folderId;
+
+    /** 是否只查询未分组群。 */
+    private Boolean withoutFolder;
+
+    /** 固化群分类。 */
+    private GroupListType groupType;
+
+    /** 是否存在严格可执行的在线管理员账号。 */
+    private Boolean availableAdmin;
+
+    /** 最小成员数，含端点。 */
+    private Integer memberCountMin;
+
+    /** 最大成员数，含端点。 */
+    private Integer memberCountMax;
+
+    /** 六大洲稳定代码。 */
+    private String continentCode;
+
+    /** 群主国家 ISO2。 */
+    private String countryIso2;
+
+    /** 最小群龄天数，含端点。 */
+    private Integer ageDaysMin;
+
+    /** 最大群龄天数，含端点。 */
+    private Integer ageDaysMax;
+
+    /** 当前查询统一使用的 Unix 秒；由 service 设置，不接受请求参数语义。 */
+    private Long nowSeconds;
 
     public Long getLabelId() {
         return labelId;
@@ -73,6 +107,94 @@ public class GroupLinkQuery extends PageQuery {
         this.membershipState = membershipState;
     }
 
+    public Long getFolderId() {
+        return folderId;
+    }
+
+    public void setFolderId(Long folderId) {
+        this.folderId = folderId;
+    }
+
+    public Boolean getWithoutFolder() {
+        return withoutFolder;
+    }
+
+    public void setWithoutFolder(Boolean withoutFolder) {
+        this.withoutFolder = withoutFolder;
+    }
+
+    public GroupListType getGroupType() {
+        return groupType;
+    }
+
+    public void setGroupType(GroupListType groupType) {
+        this.groupType = groupType;
+    }
+
+    public Boolean getAvailableAdmin() {
+        return availableAdmin;
+    }
+
+    public void setAvailableAdmin(Boolean availableAdmin) {
+        this.availableAdmin = availableAdmin;
+    }
+
+    public Integer getMemberCountMin() {
+        return memberCountMin;
+    }
+
+    public void setMemberCountMin(Integer memberCountMin) {
+        this.memberCountMin = memberCountMin;
+    }
+
+    public Integer getMemberCountMax() {
+        return memberCountMax;
+    }
+
+    public void setMemberCountMax(Integer memberCountMax) {
+        this.memberCountMax = memberCountMax;
+    }
+
+    public String getContinentCode() {
+        return continentCode;
+    }
+
+    public void setContinentCode(String continentCode) {
+        this.continentCode = continentCode;
+    }
+
+    public String getCountryIso2() {
+        return countryIso2;
+    }
+
+    public void setCountryIso2(String countryIso2) {
+        this.countryIso2 = countryIso2;
+    }
+
+    public Integer getAgeDaysMin() {
+        return ageDaysMin;
+    }
+
+    public void setAgeDaysMin(Integer ageDaysMin) {
+        this.ageDaysMin = ageDaysMin;
+    }
+
+    public Integer getAgeDaysMax() {
+        return ageDaysMax;
+    }
+
+    public void setAgeDaysMax(Integer ageDaysMax) {
+        this.ageDaysMax = ageDaysMax;
+    }
+
+    public Long getNowSeconds() {
+        return nowSeconds;
+    }
+
+    public void setNowSeconds(Long nowSeconds) {
+        this.nowSeconds = nowSeconds;
+    }
+
     public boolean isStatusUnchecked() {
         return statusEquals("UNCHECKED");
     }
@@ -91,6 +213,18 @@ public class GroupLinkQuery extends PageQuery {
 
     public boolean isStatusUnavailable() {
         return statusEquals("UNAVAILABLE");
+    }
+
+    public boolean isGroupTypeHistorical() {
+        return GroupListType.HISTORICAL == groupType;
+    }
+
+    public boolean isGroupTypePostControl() {
+        return GroupListType.POST_CONTROL == groupType;
+    }
+
+    public boolean isGroupTypeBoth() {
+        return GroupListType.BOTH == groupType;
     }
 
     private boolean statusEquals(String expected) {

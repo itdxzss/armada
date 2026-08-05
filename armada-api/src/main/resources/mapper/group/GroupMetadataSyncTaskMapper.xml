@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupMetadataSyncTaskMapper">
+
+  <sql id="Columns">
+    id, tenant_id, group_link_id, status, trigger_source, attempt_count, next_run_at,
+    lease_until, execution_account_id, rerun_requested, last_started_at, last_success_at,
+    last_error_code, last_error_message, created_at, updated_at
+  </sql>
+
+  <insert id="enqueue" useGeneratedKeys="true" keyProperty="row.id">
+    INSERT INTO group_metadata_sync_task (
+      group_link_id, status, trigger_source, attempt_count, next_run_at,
+      rerun_requested, created_at, updated_at
+    ) VALUES (
+      #{row.groupLinkId}, #{row.status}, #{row.triggerSource}, #{row.attemptCount},
+      #{row.nextRunAt}, FALSE, #{row.createdAt}, #{row.updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      trigger_source = VALUES(trigger_source),
+      attempt_count = CASE WHEN status = #{runningStatus} THEN attempt_count ELSE 0 END,
+      next_run_at = CASE WHEN status = #{runningStatus} THEN next_run_at ELSE VALUES(next_run_at) END,
+      lease_until = CASE WHEN status = #{runningStatus} THEN lease_until ELSE NULL END,
+      execution_account_id = CASE
+        WHEN status = #{runningStatus} THEN execution_account_id ELSE NULL
+      END,
+      rerun_requested = CASE WHEN status = #{runningStatus} THEN TRUE ELSE FALSE END,
+      last_error_code = CASE WHEN status = #{runningStatus} THEN last_error_code ELSE NULL END,
+      last_error_message = CASE WHEN status = #{runningStatus} THEN last_error_message ELSE NULL END,
+      status = CASE WHEN status = #{runningStatus} THEN status ELSE VALUES(status) END,
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <select id="selectByGroupLinkId"
+          resultType="com.armada.group.model.entity.GroupMetadataSyncTask">
+    SELECT <include refid="Columns"/>
+    FROM group_metadata_sync_task
+    WHERE group_link_id = #{groupLinkId}
+    LIMIT 1
+  </select>
+
+  <update id="recoverExpiredLeases">
+    UPDATE group_metadata_sync_task
+    SET status = #{row.status},
+        next_run_at = #{row.nextRunAt},
+        lease_until = NULL,
+        execution_account_id = NULL,
+        rerun_requested = FALSE,
+        last_error_code = #{row.lastErrorCode},
+        last_error_message = #{row.lastErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE status = #{runningStatus}
+      AND lease_until IS NOT NULL
+      AND lease_until &lt;= #{row.updatedAt}
+  </update>
+
+  <update id="recoverExpiredLeasesAll">
+    UPDATE group_metadata_sync_task
+    SET status = #{row.status},
+        next_run_at = #{row.nextRunAt},
+        lease_until = NULL,
+        execution_account_id = NULL,
+        rerun_requested = FALSE,
+        last_error_code = #{row.lastErrorCode},
+        last_error_message = #{row.lastErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE status = #{runningStatus}
+      AND lease_until IS NOT NULL
+      AND lease_until &lt;= #{row.updatedAt}
+  </update>
+
+  <select id="selectDueCandidates"
+          resultType="com.armada.group.model.entity.GroupMetadataSyncTask">
+    SELECT task.id, task.tenant_id, task.group_link_id, task.status, task.trigger_source,
+           task.attempt_count, task.next_run_at, task.lease_until, task.execution_account_id,
+           task.rerun_requested, task.last_started_at, task.last_success_at,
+           task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
+           COALESCE(
+             NULLIF(TRIM(preview.group_jid), ''),
+             CASE
+               WHEN link.link_url LIKE 'wa://group/%'
+                 THEN SUBSTRING(link.link_url, CHAR_LENGTH('wa://group/') + 1)
+               ELSE NULL
+             END
+           ) AS groupJid
+    FROM group_metadata_sync_task task
+    INNER JOIN group_link link
+      ON link.tenant_id = task.tenant_id
+     AND link.id = task.group_link_id
+     AND link.deleted_at IS NULL
+    LEFT JOIN group_link_preview preview
+      ON preview.tenant_id = task.tenant_id
+     AND preview.group_link_id = task.group_link_id
+    WHERE task.status IN
+      <foreach collection="statuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+      AND task.next_run_at IS NOT NULL
+      AND task.next_run_at &lt;= #{now}
+    ORDER BY task.next_run_at ASC, task.id ASC
+    LIMIT #{limit}
+  </select>
+
+  <update id="claim">
+    UPDATE group_metadata_sync_task
+    SET status = #{row.status},
+        attempt_count = #{row.attemptCount},
+        lease_until = #{row.leaseUntil},
+        execution_account_id = #{row.executionAccountId},
+        rerun_requested = FALSE,
+        last_started_at = #{row.lastStartedAt},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status IN
+      <foreach collection="eligibleStatuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+      AND next_run_at IS NOT NULL
+      AND next_run_at &lt;= #{row.updatedAt}
+      AND (
+        SELECT running_count FROM (
+          SELECT COUNT(*) AS running_count
+          FROM group_metadata_sync_task
+          WHERE tenant_id = #{row.tenantId}
+            AND status = #{runningStatus}
+        ) tenant_running
+      ) &lt; #{tenantConcurrency}
+      AND (
+        SELECT running_count FROM (
+          SELECT COUNT(*) AS running_count
+          FROM group_metadata_sync_task
+          WHERE execution_account_id = #{row.executionAccountId}
+            AND status = #{runningStatus}
+        ) account_running
+      ) &lt; #{accountConcurrency}
+  </update>
+
+  <update id="finish">
+    UPDATE group_metadata_sync_task
+    SET status = CASE
+          WHEN #{row.status} = 4 AND rerun_requested = TRUE THEN 1
+          ELSE #{row.status}
+        END,
+        attempt_count = CASE
+          WHEN #{row.status} = 4 AND rerun_requested = TRUE THEN 0
+          ELSE #{row.attemptCount}
+        END,
+        next_run_at = CASE
+          WHEN #{row.status} = 4 AND rerun_requested = TRUE THEN #{row.updatedAt}
+          ELSE #{row.nextRunAt}
+        END,
+        lease_until = NULL,
+        execution_account_id = NULL,
+        rerun_requested = FALSE,
+        last_success_at = COALESCE(#{row.lastSuccessAt}, last_success_at),
+        last_error_code = #{row.lastErrorCode},
+        last_error_message = #{row.lastErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{runningStatus}
+  </update>
+
+  <update id="defer">
+    UPDATE group_metadata_sync_task
+    SET status = #{row.status},
+        next_run_at = NULL,
+        lease_until = NULL,
+        execution_account_id = NULL,
+        rerun_requested = FALSE,
+        last_error_code = #{row.lastErrorCode},
+        last_error_message = #{row.lastErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status IN
+      <foreach collection="eligibleStatuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+  </update>
+
+  <update id="resumeDeferredForAccount">
+    UPDATE group_metadata_sync_task task
+    INNER JOIN group_link link
+      ON link.tenant_id = task.tenant_id
+     AND link.id = task.group_link_id
+     AND link.deleted_at IS NULL
+    INNER JOIN account_group_membership membership
+      ON membership.tenant_id = task.tenant_id
+     AND membership.group_link_id = task.group_link_id
+     AND membership.account_id = #{accountId}
+     AND membership.deleted_at IS NULL
+     AND membership.membership_status = 1
+    SET task.status = #{pendingStatus},
+        task.trigger_source = #{triggerSource},
+        task.next_run_at = #{now},
+        task.rerun_requested = FALSE,
+        task.last_error_code = NULL,
+        task.last_error_message = NULL,
+        task.updated_at = #{now}
+    WHERE task.status = #{deferredStatus}
+  </update>
+
+</mapper>

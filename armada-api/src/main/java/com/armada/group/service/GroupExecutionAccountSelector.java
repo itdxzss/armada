@@ -1,6 +1,7 @@
 package com.armada.group.service;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.exception.BusinessException;
@@ -26,7 +27,7 @@ public final class GroupExecutionAccountSelector {
      */
     public Optional<GroupExecutionAccount> find(Long groupLinkId) {
         return Optional.ofNullable(mapper.selectGroupExecutionAccount(
-                groupLinkId, AccountLoginStateCode.ONLINE));
+                groupLinkId, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL));
     }
 
     /**

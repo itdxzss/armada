@@ -3,6 +3,7 @@ package com.armada.group.converter;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkLabelVO;
@@ -74,7 +75,24 @@ public interface GroupConverter {
                 row.getLastPreviewAt(),
                 row.getLastCheckAt(),
                 row.getLastHealthError(),
-                row.getCreatedAt());
+                row.getCreatedAt(),
+                Boolean.TRUE.equals(row.getIsHistorical()),
+                Boolean.TRUE.equals(row.getIsPostControl()),
+                row.getFolderId(),
+                row.getFolderName(),
+                row.getInviteUrl(),
+                adminPhones(row.getAdmin()),
+                row.getAvailableAdminCount() != null && row.getAvailableAdminCount() > 0,
+                row.getAvailableAdminCount() == null ? 0 : row.getAvailableAdminCount(),
+                row.getOwnerPhone(),
+                row.getCreatorCountryIso2(),
+                row.getCreatorCountryName(),
+                row.getCreatorCountryFlag(),
+                row.getCreatorContinentCode(),
+                row.getGroupCreatedAt(),
+                metadataStatus(row.getMetadataSyncStatus()),
+                row.getMetadataSyncedAt(),
+                row.getMetadataSyncError());
     }
 
     /**
@@ -140,6 +158,21 @@ public interface GroupConverter {
 
     private static boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private static List<String> adminPhones(String value) {
+        if (!hasText(value)) {
+            return List.of();
+        }
+        return List.of(value.split(",")).stream()
+                .map(String::trim)
+                .filter(phone -> !phone.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    private static String metadataStatus(Integer code) {
+        return code == null ? null : GroupMetadataSyncStatus.fromCode(code).name();
     }
 
     /** 群组列表对前端暴露的状态码与中文文案。 */

@@ -12,7 +12,9 @@ import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -53,6 +55,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkHealthMapper healthMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
+    private final GroupClassificationService classificationService;
 
     /**
      * 创建账号可见群关系快照写入服务。
@@ -61,15 +64,18 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
      * @param groupLinkMapper  群链接 mapper
      * @param healthMapper     群健康状态 mapper
      * @param groupLinkRegistryService 群组池登记服务
+     * @param classificationService 历史群与上控后群分类服务
      */
     public AccountGroupMembershipSnapshotServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                      GroupLinkMapper groupLinkMapper,
                                                      GroupLinkHealthMapper healthMapper,
-                                                     GroupLinkRegistryService groupLinkRegistryService) {
+                                                     GroupLinkRegistryService groupLinkRegistryService,
+                                                     GroupClassificationService classificationService) {
         this.membershipMapper = membershipMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.healthMapper = healthMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.classificationService = classificationService;
     }
 
     @Override
@@ -93,6 +99,15 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         Set<String> previousActive = normalizeJids(activeGroupJids);
         Map<String, AccountGroupsReportedEvent.Group> visibleGroups = normalizeVisibleGroups(groups);
         List<ResolvedGroup> resolvedGroups = resolveGroups(visibleGroups, observedBackend, now);
+        classificationService.classifyVisibleGroups(
+                accountId,
+                resolvedGroups.stream()
+                        .map(resolved -> new GroupClassificationCandidate(
+                                resolved.groupLinkId(),
+                                resolved.groupJid(),
+                                blankToNull(resolved.group().subject())))
+                        .toList(),
+                now);
         List<ResolvedGroup> groupsByLinkId = resolvedGroups.stream()
                 .sorted(Comparator.comparing(ResolvedGroup::groupLinkId)
                         .thenComparing(ResolvedGroup::groupJid))

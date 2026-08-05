@@ -4,6 +4,7 @@ import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupLinkVoRow;
+import com.armada.group.model.vo.GroupClassificationBackfillCandidate;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -93,6 +94,36 @@ public interface GroupLinkMapper {
                            @Param("groupName") String groupName,
                            @Param("updatedAt") long updatedAt);
 
+    /** 把活动群入口的历史群事实提升为真；永不清除。 */
+    int markHistorical(@Param("groupLinkId") Long groupLinkId,
+                       @Param("updatedAt") long updatedAt);
+
+    /** 把活动群入口的上控后群事实提升为真；永不清除。 */
+    int markPostControl(@Param("groupLinkId") Long groupLinkId,
+                        @Param("updatedAt") long updatedAt);
+
+    /** 把含软删除群入口的历史事实提升为真，但不得复活记录。 */
+    int markHistoricalIncludingDeleted(@Param("groupLinkId") Long groupLinkId,
+                                       @Param("updatedAt") long updatedAt);
+
+    /**
+     * 不复活既有软删除行地登记缺失 baseline 群入口。
+     *
+     * @param row 历史群入口
+     * @return 插入行数；唯一键冲突返回 0
+     */
+    int insertHistoricalBaselineGroupIgnore(GroupLink row);
+
+    /** 跨租户扫描尚未固化的 baseline 历史群候选。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupClassificationBackfillCandidate> selectHistoricalClassificationBackfillCandidates(
+            @Param("limit") int limit);
+
+    /** 跨租户扫描 CAPTURED baseline 外的当前在群候选。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupClassificationBackfillCandidate> selectPostControlClassificationBackfillCandidates(
+            @Param("limit") int limit);
+
     /**
      * 群组列表分页总数(与 selectPageByLabel 共用 filter,口径一致)。
      *
@@ -116,6 +147,9 @@ public interface GroupLinkMapper {
      * @return 活跃行;不存在或已软删时返回 null
      */
     GroupLink selectActiveById(@Param("id") Long id);
+
+    /** 按群 JID 查询当前租户活动群入口 ID。 */
+    Long selectActiveIdByGroupJid(@Param("groupJid") String groupJid);
 
     /**
      * 更新群组列表本地资料字段。

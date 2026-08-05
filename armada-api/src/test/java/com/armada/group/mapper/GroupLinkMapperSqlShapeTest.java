@@ -4,8 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import net.sf.jsqlparser.expression.LongValue;
+import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.enums.GroupListType;
+import org.apache.ibatis.builder.xml.XMLMapperBuilder;
+import org.apache.ibatis.mapping.BoundSql;
+import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class GroupLinkMapperSqlShapeTest {
@@ -50,6 +56,62 @@ class GroupLinkMapperSqlShapeTest {
                 .contains("ON DUPLICATE KEY UPDATE");
     }
 
+    @Test
+    void groupListCountAndPageShareSnapshotBasedFilters() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String listSql = xml.substring(
+                xml.indexOf("<sql id=\"groupListFrom\">"),
+                xml.indexOf("<select id=\"selectActiveById\""));
+
+        assertThat(listSql)
+                .contains("<sql id=\"groupListFrom\">")
+                .contains("<sql id=\"groupListFilter\">")
+                .contains("<include refid=\"groupListFrom\"/>")
+                .contains("<include refid=\"groupListFilter\"/>")
+                .contains("whatsapp_group_member_snapshot")
+                .contains("account_group_membership")
+                .contains("FLOOR((#{nowSeconds} - p.group_created_at) / 86400)")
+                .doesNotContain("FROM join_task_result");
+    }
+
+    @Test
+    void groupListDynamicSqlRendersCombinedFiltersForCountAndPage() throws IOException {
+        Configuration configuration = new Configuration();
+        try (InputStream input = getClass().getResourceAsStream(MAPPER_XML)) {
+            new XMLMapperBuilder(
+                    input,
+                    configuration,
+                    MAPPER_XML,
+                    configuration.getSqlFragments()).parse();
+        }
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setGroupType(GroupListType.BOTH);
+        query.setAvailableAdmin(false);
+        query.setMemberCountMin(51);
+        query.setContinentCode("ASIA");
+        query.setAgeDaysMax(365);
+        query.setNowSeconds(1_800_000_000L);
+
+        String countSql = normalized(configuration
+                .getMappedStatement(GroupLinkMapper.class.getName() + ".countByLabel")
+                .getBoundSql(query));
+        String pageSql = normalized(configuration
+                .getMappedStatement(GroupLinkMapper.class.getName() + ".selectPageByLabel")
+                .getBoundSql(query));
+
+        for (String sql : java.util.List.of(countSql, pageSql)) {
+            assertThat(sql)
+                    .contains("g.is_historical = 1")
+                    .contains("g.is_post_control = 1")
+                    .contains("COALESCE(operable.availableAdminCount, 0) = 0")
+                    .contains("COALESCE(h.current_count, p.member_size) >= ?")
+                    .contains("p.creator_continent_code = ?")
+                    .contains("FLOOR((? - p.group_created_at) / 86400) <= ?");
+        }
+    }
+
     private static String insertBlock(String xml, String id) {
         String startTag = "<insert id=\"" + id + "\"";
         int start = xml.indexOf(startTag);
@@ -65,5 +127,9 @@ class GroupLinkMapperSqlShapeTest {
         return mapperBlock.substring(start + 1)
                 .replaceAll("(?s)<!--.*?-->", "")
                 .trim();
+    }
+
+    private static String normalized(BoundSql boundSql) {
+        return boundSql.getSql().replaceAll("\\s+", " ").trim();
     }
 }

@@ -27,6 +27,122 @@
       updated_at = VALUES(updated_at)
   </insert>
 
+  <insert id="upsertMetadataSnapshot" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_link_preview (
+      group_link_id, group_jid, invite_code, wa_subject, wa_description, member_size,
+      owner_phone, announce_only, admin_only_edit_info, member_add_mode, join_approval_mode,
+      ephemeral_duration_seconds, group_created_at, creator_country_iso2,
+      creator_continent_code, avatar_url, last_preview_at, metadata_observed_at,
+      created_at, updated_at
+    ) VALUES (
+      #{groupLinkId}, #{groupJid}, #{inviteCode}, #{waSubject}, #{waDescription}, #{memberSize},
+      #{ownerPhone}, #{announceOnly}, #{adminOnlyEditInfo}, #{memberAddMode}, #{joinApprovalMode},
+      #{ephemeralDurationSeconds}, #{groupCreatedAt}, #{creatorCountryIso2},
+      #{creatorContinentCode}, #{avatarUrl}, #{lastPreviewAt}, #{metadataObservedAt},
+      #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      group_jid = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(NULLIF(TRIM(VALUES(group_jid)), ''), group_jid)
+        ELSE group_jid
+      END,
+      invite_code = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(NULLIF(TRIM(VALUES(invite_code)), ''), invite_code)
+        ELSE invite_code
+      END,
+      wa_subject = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(NULLIF(TRIM(VALUES(wa_subject)), ''), wa_subject)
+        ELSE wa_subject
+      END,
+      wa_description = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{waDescriptionObserved} = TRUE
+          THEN VALUES(wa_description)
+        ELSE wa_description
+      END,
+      member_size = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(VALUES(member_size), member_size)
+        ELSE member_size
+      END,
+      owner_phone = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{ownerPhoneObserved} = TRUE
+          THEN NULLIF(TRIM(VALUES(owner_phone)), '')
+        ELSE owner_phone
+      END,
+      announce_only = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{announceOnlyObserved} = TRUE
+          THEN VALUES(announce_only)
+        ELSE announce_only
+      END,
+      admin_only_edit_info = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{adminOnlyEditInfoObserved} = TRUE
+          THEN VALUES(admin_only_edit_info)
+        ELSE admin_only_edit_info
+      END,
+      member_add_mode = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{memberAddModeObserved} = TRUE
+          THEN VALUES(member_add_mode)
+        ELSE member_add_mode
+      END,
+      join_approval_mode = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{joinApprovalModeObserved} = TRUE
+          THEN VALUES(join_approval_mode)
+        ELSE join_approval_mode
+      END,
+      ephemeral_duration_seconds = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{ephemeralDurationObserved} = TRUE
+          THEN VALUES(ephemeral_duration_seconds)
+        ELSE ephemeral_duration_seconds
+      END,
+      group_created_at = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{groupCreatedAt} &gt; 0
+          THEN VALUES(group_created_at)
+        ELSE group_created_at
+      END,
+      creator_country_iso2 = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{creatorCountryObserved} = TRUE
+          THEN VALUES(creator_country_iso2)
+        ELSE creator_country_iso2
+      END,
+      creator_continent_code = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{creatorCountryObserved} = TRUE
+          THEN VALUES(creator_continent_code)
+        ELSE creator_continent_code
+      END,
+      avatar_url = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url)
+        ELSE avatar_url
+      END,
+      last_preview_at = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN VALUES(last_preview_at)
+        ELSE last_preview_at
+      END,
+      updated_at = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          THEN VALUES(updated_at)
+        ELSE updated_at
+      END,
+      metadata_observed_at = GREATEST(
+        COALESCE(metadata_observed_at, 0),
+        #{metadataObservedAt}
+      )
+  </insert>
+
   <insert id="upsertInvitePageMetadata">
     INSERT INTO group_link_preview (
       group_link_id, invite_code, wa_subject, avatar_url, last_preview_at, created_at, updated_at

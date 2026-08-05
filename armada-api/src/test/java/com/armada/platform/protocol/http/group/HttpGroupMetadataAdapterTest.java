@@ -28,6 +28,9 @@ class HttpGroupMetadataAdapterTest {
                         {
                           "id": "120363detail@g.us",
                           "subject": "真实群名",
+                          "desc": "历史群说明",
+                          "owner": "8613800000000@s.whatsapp.net",
+                          "creation": 1722470400,
                           "announce": false,
                           "restrict": true,
                           "memberAddMode": true,
@@ -55,6 +58,10 @@ class HttpGroupMetadataAdapterTest {
 
         assertThat(result.groupJid()).isEqualTo("120363detail@g.us");
         assertThat(result.subject()).isEqualTo("真实群名");
+        assertThat(result.description()).isEqualTo("历史群说明");
+        assertThat(result.ownerJid()).isEqualTo("8613800000000@s.whatsapp.net");
+        assertThat(result.createdAtSeconds()).isEqualTo(1722470400L);
+        assertThat(result.participantsComplete()).isTrue();
         assertThat(result.memberAddMode()).isTrue();
         assertThat(result.joinApprovalMode()).isTrue();
         assertThat(result.ephemeralDurationSeconds()).isEqualTo(604800);
@@ -67,6 +74,28 @@ class HttpGroupMetadataAdapterTest {
         assertThat(result.participants().get(0).jid()).isEqualTo("8613800000000:7@s.whatsapp.net");
         assertThat(result.participants().get(0).phone()).isEqualTo("8613800000000");
         assertThat(result.participants().get(0).owner()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void getMetadataMarksMissingParticipantsAsIncomplete() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupMetadataPort port = new HttpGroupMetadataAdapter(new ProtocolHttpExecutor(builder.build()));
+
+        server.expect(requestTo("http://protocol-master.internal/v1/groups/120363detail@g.us/metadata?accountId=acc_7"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {
+                          "id": "120363detail@g.us",
+                          "subject": "成员未知群"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        GroupMetadataResult result = port.getMetadata("acc_7", "120363detail@g.us");
+
+        assertThat(result.participants()).isEmpty();
+        assertThat(result.participantsComplete()).isFalse();
         server.verify();
     }
 }

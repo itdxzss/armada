@@ -17,6 +17,14 @@ public interface GroupLinkPreviewMapper {
     int upsert(GroupLinkPreview row);
 
     /**
+     * 按观察时间原子写入完整群详情快照；晚到的旧观察不得覆盖新快照。
+     *
+     * @param row 群详情快照及各 nullable 字段观察标记
+     * @return 影响行数
+     */
+    int upsertMetadataSnapshot(GroupLinkPreview row);
+
+    /**
      * 写入公开邀请页识别出的群名/头像,不覆盖协议层预览专属字段。
      *
      * @param row 公开页元数据

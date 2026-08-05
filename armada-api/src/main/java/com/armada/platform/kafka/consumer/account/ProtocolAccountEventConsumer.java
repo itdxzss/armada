@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -37,6 +38,13 @@ public class ProtocolAccountEventConsumer {
     public static final String EVENT_ACCOUNT_GROUP_MEMBERSHIP_CHANGED =
             "account.group_membership_changed";
 
+    /** 协议层单群详情同步请求事件类型。 */
+    public static final String EVENT_ACCOUNT_GROUP_METADATA_SYNC_REQUESTED =
+            "account.group_metadata_sync_requested";
+
+    private static final Set<String> GROUP_METADATA_SYNC_TRIGGERS =
+            Set.of("PARTICIPANT_CHANGED", "METADATA_CHANGED");
+
     /** 协议层账号离线诊断事件类型。 */
     public static final String EVENT_ACCOUNT_OFFLINE_DIAGNOSED = "account.offline_diagnosed";
 
@@ -45,6 +53,7 @@ public class ProtocolAccountEventConsumer {
     private final ProtocolAccountGroupsReportedSink groupsReportedSink;
     private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
     private final ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
+    private final ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink;
 
     /**
      * 创建协议账号事件 consumer。
@@ -54,17 +63,20 @@ public class ProtocolAccountEventConsumer {
      * @param groupsReportedSink 账号当前群列表下游处理口
      * @param offlineDiagnosedSink 账号离线诊断下游处理口
      * @param membershipChangedSink 账号自身群关系变更下游处理口
+     * @param metadataSyncRequestedSink 单群详情同步请求下游处理口
      */
     public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
                                         ProtocolAccountStateChangedSink stateChangedSink,
                                         ProtocolAccountGroupsReportedSink groupsReportedSink,
                                         ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
-                                        ProtocolAccountGroupMembershipChangedSink membershipChangedSink) {
+                                        ProtocolAccountGroupMembershipChangedSink membershipChangedSink,
+                                        ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
         this.groupsReportedSink = groupsReportedSink;
         this.offlineDiagnosedSink = offlineDiagnosedSink;
         this.membershipChangedSink = membershipChangedSink;
+        this.metadataSyncRequestedSink = metadataSyncRequestedSink;
     }
 
     /**
@@ -131,6 +143,14 @@ public class ProtocolAccountEventConsumer {
             log.info("协议账号群关系事件收到 eventId={} accountId={} action={} source={} workerId={}",
                     event.eventId(), event.accountId(), event.action(), event.source(), event.workerId());
             membershipChangedSink.handleMembershipChanged(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_GROUP_METADATA_SYNC_REQUESTED.equals(eventType)) {
+            ProtocolGroupMetadataSyncRequestedEvent event = toGroupMetadataSyncRequestedEvent(envelope);
+            log.info("协议群详情同步请求收到 eventId={} tenantId={} accountId={} groupJid={} trigger={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.groupJid(),
+                    event.trigger(), event.workerId());
+            metadataSyncRequestedSink.handleGroupMetadataSyncRequested(event);
             return;
         }
         throw new BusinessException(ErrorCode.VALIDATION,
@@ -217,6 +237,45 @@ public class ProtocolAccountEventConsumer {
                 requiredText(data, "action", "协议账号群关系事件缺少 data.action"),
                 requiredText(data, "selfParticipation", "协议账号群关系事件缺少 data.selfParticipation"),
                 occurredAt,
+                text(data, "source"),
+                text(envelope, "workerId"));
+    }
+
+    private ProtocolGroupMetadataSyncRequestedEvent toGroupMetadataSyncRequestedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "协议群详情同步事件缺少 accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群详情同步事件缺少 data.protocolAccountId");
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群详情同步事件路由账号不一致");
+        }
+        long tenantId = requiredPositiveLong(
+                data, "tenantId", "协议群详情同步事件 data.tenantId 非法");
+        long accountId = requiredPositiveLong(
+                data, "accountId", "协议群详情同步事件 data.accountId 非法");
+        String groupJid = requiredText(
+                data, "groupJid", "协议群详情同步事件缺少 data.groupJid");
+        if (!groupJid.endsWith("@g.us")) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群详情同步事件 groupJid 非法");
+        }
+        String trigger = requiredText(
+                data, "trigger", "协议群详情同步事件缺少 data.trigger");
+        if (!GROUP_METADATA_SYNC_TRIGGERS.contains(trigger)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群详情同步事件 trigger 非法");
+        }
+        Long eventOccurredAt = occurredAt(envelope);
+        if (eventOccurredAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议群详情同步事件缺少 occurredAt");
+        }
+        return new ProtocolGroupMetadataSyncRequestedEvent(
+                requiredText(envelope, "eventId", "协议群详情同步事件缺少 eventId"),
+                tenantId,
+                accountId,
+                protocolAccountId,
+                groupJid,
+                trigger,
+                eventOccurredAt,
                 text(data, "source"),
                 text(envelope, "workerId"));
     }
@@ -318,6 +377,14 @@ public class ProtocolAccountEventConsumer {
     private static Long requiredLong(JsonNode node, String fieldName, String errorMessage) {
         Long value = longValue(node, fieldName);
         if (value == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, errorMessage);
+        }
+        return value;
+    }
+
+    private static long requiredPositiveLong(JsonNode node, String fieldName, String errorMessage) {
+        Long value = requiredLong(node, fieldName, errorMessage);
+        if (value <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, errorMessage);
         }
         return value;

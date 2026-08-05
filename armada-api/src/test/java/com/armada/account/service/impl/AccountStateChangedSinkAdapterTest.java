@@ -10,6 +10,7 @@ import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +31,9 @@ class AccountStateChangedSinkAdapterTest {
 
     @Mock
     private ProxyFailedRecoveryCoordinator recoveryCoordinator;
+
+    @Mock
+    private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     @InjectMocks
     private AccountStateChangedSinkAdapter adapter;
@@ -92,5 +96,17 @@ class AccountStateChangedSinkAdapterTest {
         adapter.handleStateChanged(platformEvent);
 
         verify(recoveryCoordinator, never()).recover(any(), any(), any(), any());
+    }
+
+    @Test
+    void handleStateChanged_appliedOnlineResumesDeferredMetadataTasks() {
+        ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
+                "evt-online", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
+                1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
+        when(service.applyStateChanged(any())).thenReturn(true);
+
+        adapter.handleStateChanged(platformEvent);
+
+        verify(metadataSyncTaskService).resumeDeferredForAccount(100L, 1782626401000L);
     }
 }

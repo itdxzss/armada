@@ -19,6 +19,9 @@ public class AccountGroupBaselineRow {
     /** 首次 baseline 中去重后的群 JID 数量。 */
     private Integer groupCount;
 
+    /** 首次 baseline 捕获时间(epoch 毫秒)。 */
+    private Long capturedAt;
+
     public Long getAccountId() {
         return accountId;
     }
@@ -93,5 +96,13 @@ public class AccountGroupBaselineRow {
      */
     public void setGroupCount(Integer groupCount) {
         this.groupCount = groupCount;
+    }
+
+    public Long getCapturedAt() {
+        return capturedAt;
+    }
+
+    public void setCapturedAt(Long capturedAt) {
+        this.capturedAt = capturedAt;
     }
 }

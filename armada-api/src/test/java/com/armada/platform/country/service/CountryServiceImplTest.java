@@ -33,7 +33,9 @@ class CountryServiceImplTest {
 
     @Test
     void options_ipScopePrependsMixedThenCountries() {
-        when(mapper.selectIpSupported()).thenReturn(List.of(country("IN", "印度", "+91", "🇮🇳")));
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        india.setContinentCode("ASIA");
+        when(mapper.selectIpSupported()).thenReturn(List.of(india));
 
         CountryOptionsVO result = service.options("ip");
 
@@ -41,9 +43,11 @@ class CountryServiceImplTest {
         assertThat(result.rows().get(0).value()).isEqualTo("MIXED");
         assertThat(result.rows().get(0).nameZh()).isEqualTo("混合（不限国家）");
         assertThat(result.rows().get(0).virtual()).isTrue();
+        assertThat(result.rows().get(0).continentCode()).isNull();
         assertThat(result.rows().get(1).value()).isEqualTo("IN");
         assertThat(result.rows().get(1).phonePrefix()).isEqualTo("+91");
         assertThat(result.rows().get(1).virtual()).isFalse();
+        assertThat(result.rows().get(1).continentCode()).isEqualTo("ASIA");
     }
 
     @Test

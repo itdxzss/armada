@@ -18,6 +18,7 @@ import com.armada.group.model.vo.GroupAvatarUpdateVO;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupMemberBatchResultVO;
+import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.FileLinesExtractor;
@@ -244,11 +245,17 @@ public class GroupLinkController {
         return ApiResponse.ok(groupDetailService.detail(id));
     }
 
+    /** 将指定群的完整 metadata 刷新加入耐久异步队列。 */
+    @PostMapping("/{id}/metadata-sync")
+    public ApiResponse<GroupMetadataSyncAcceptedVO> requestMetadataSync(@PathVariable Long id) {
+        return ApiResponse.ok(groupDetailService.requestMetadataSync(id));
+    }
+
     /**
-     * 群组明细实时成员列表。
+     * 群组明细最后一次完整成员快照。
      *
      * @param id 群链接 ID
-     * @return 协议层实时返回的成员列表;成员明细不落库
+     * @return 已持久化的成员列表;尚无完整快照时返回业务错误
      */
     @GetMapping("/{id}/members")
     public ApiResponse<GroupLinkMemberListVO> members(@PathVariable Long id) {

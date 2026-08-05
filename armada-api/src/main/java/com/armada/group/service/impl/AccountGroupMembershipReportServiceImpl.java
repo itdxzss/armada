@@ -5,6 +5,8 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
+import com.armada.group.model.vo.GroupClassificationCandidate;
+import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.AccountGroupMembershipReportService;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
@@ -42,6 +44,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     private final AccountGroupMembershipMapper membershipMapper;
     private final AccountGroupMembershipSnapshotService snapshotService;
     private final MarketingNewGroupImmediateSendService immediateSendService;
+    private final GroupClassificationService classificationService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -50,15 +53,18 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
      * @param membershipMapper 账号群关系 mapper
      * @param snapshotService  账号可见群关系快照写入服务
      * @param immediateSendService 新群首次即时营销服务
+     * @param classificationService 历史群与上控后群分类服务
      * @param objectMapper     JSON 解析器
      */
     public AccountGroupMembershipReportServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                    AccountGroupMembershipSnapshotService snapshotService,
                                                    MarketingNewGroupImmediateSendService immediateSendService,
+                                                   GroupClassificationService classificationService,
                                                    ObjectMapper objectMapper) {
         this.membershipMapper = membershipMapper;
         this.snapshotService = snapshotService;
         this.immediateSendService = immediateSendService;
+        this.classificationService = classificationService;
         this.objectMapper = objectMapper;
     }
 
@@ -89,8 +95,9 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                 return;
             }
             boolean pendingBaseline = baselineState(baselineRow) == BASELINE_PENDING;
+            ProtocolBackend observedBackend = ProtocolBackend.fromProtocolId(baselineRow.getProtocolId());
             if (pendingBaseline) {
-                capturePendingBaseline(event, syncAt, now);
+                capturePendingBaseline(event, observedBackend, syncAt, now);
             }
             boolean snapshotComplete = completeSnapshot(event, baselineRow);
             AccountGroupMembershipChangeSet changes = snapshotService.replaceVisibleGroups(
@@ -100,7 +107,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                     syncAt,
                     event.eventId(),
                     event.source(),
-                    ProtocolBackend.fromProtocolId(baselineRow.getProtocolId()));
+                    observedBackend);
             if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
                 List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
                         .map(group -> new MarketingNewGroupDTO(
@@ -136,7 +143,11 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
      * @param syncAt 协议查询时间(epoch 毫秒)
      * @param now    本次落库时间(epoch 毫秒)
      */
-    private void capturePendingBaseline(AccountGroupsReportedEvent event, long syncAt, long now) {
+    private void capturePendingBaseline(
+            AccountGroupsReportedEvent event,
+            ProtocolBackend observedBackend,
+            long syncAt,
+            long now) {
         BaselineSnapshot snapshot = normalizedBaselineSnapshot(event.groups());
         AccountGroupBaselineRow baseline = new AccountGroupBaselineRow();
         baseline.setAccountId(event.accountId());
@@ -154,6 +165,11 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
         if (updated <= 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "账号群基线状态更新失败");
         }
+        List<GroupClassificationCandidate> candidates = snapshot.groupJids().stream()
+                .map(groupJid -> new GroupClassificationCandidate(
+                        null, groupJid, snapshot.groupSubjects().get(groupJid)))
+                .toList();
+        classificationService.captureHistoricalBaseline(candidates, observedBackend, now);
         log.info("待拍账号群基线已由异步回报捕获 eventId={} source={} reportedAt={} tenantId={} "
                         + "accountId={} protocolAccountId={} rawGroups={} baselineGroups={} baselineNamedGroups={} "
                         + "stateUpdated={}",

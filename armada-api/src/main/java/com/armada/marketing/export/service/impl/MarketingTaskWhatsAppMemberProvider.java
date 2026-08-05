@@ -15,9 +15,10 @@ import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
-import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
+import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
@@ -44,10 +45,13 @@ public class MarketingTaskWhatsAppMemberProvider {
     private static final Logger log = LoggerFactory.getLogger(MarketingTaskWhatsAppMemberProvider.class);
     private static final int MAX_PARALLEL_ACCOUNTS = 4;
     private static final int MAX_OBSERVER_CANDIDATES = 2;
+    private static final String INVITE_URL_PREFIX = "https://chat.whatsapp.com/";
+    private static final String INVITE_UNAVAILABLE = "无权限获取";
 
     private final MarketingTaskExportMapper mapper;
     private final AccountProtocolLookupService accountLookupService;
     private final FixedAccountGroupMetadataPort metadataPort;
+    private final GroupInvitePort invitePort;
     private final WhatsappGroupMemberCacheService memberCacheService;
     private final WhatsappGroupDepartedMemberService departedMemberService;
     private final WhatsappGroupMemberJoinFactService joinFactService;
@@ -56,12 +60,14 @@ public class MarketingTaskWhatsAppMemberProvider {
             MarketingTaskExportMapper mapper,
             AccountProtocolLookupService accountLookupService,
             FixedAccountGroupMetadataPort metadataPort,
+            GroupInvitePort invitePort,
             WhatsappGroupMemberCacheService memberCacheService,
             WhatsappGroupDepartedMemberService departedMemberService,
             WhatsappGroupMemberJoinFactService joinFactService) {
         this.mapper = mapper;
         this.accountLookupService = accountLookupService;
         this.metadataPort = metadataPort;
+        this.invitePort = invitePort;
         this.memberCacheService = memberCacheService;
         this.departedMemberService = departedMemberService;
         this.joinFactService = joinFactService;
@@ -95,7 +101,10 @@ public class MarketingTaskWhatsAppMemberProvider {
         if (groupRows == null || groupRows.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "所选营销任务没有可查询的 WhatsApp 群");
         }
-        groupRows.forEach(group -> group.setGroupJid(normalizeGroupJid(group.getGroupJid())));
+        groupRows.forEach(group -> {
+            group.setGroupJid(normalizeGroupJid(group.getGroupJid()));
+            group.setGroupLink(standardInviteUrl(group.getGroupLink()));
+        });
         Map<GroupKey, List<Long>> observerIds = groupObserverIds(groupRows);
         Map<GroupKey, MarketingTaskGroupExportRow> distinctGroups = new LinkedHashMap<>();
         for (MarketingTaskGroupExportRow group : groupRows) {
@@ -107,17 +116,11 @@ public class MarketingTaskWhatsAppMemberProvider {
                         .map(MarketingTaskGroupExportRow::getGroupJid)
                         .distinct()
                         .toList());
-        Map<GroupKey, List<Long>> uncachedObserverIds = new LinkedHashMap<>();
-        observerIds.forEach((key, value) -> {
-            if (!cachedByGroup.containsKey(key.groupJid())) {
-                uncachedObserverIds.put(key, value);
-            }
-        });
-        Map<Long, ProtocolAccountRef> accounts = protocolAccounts(uncachedObserverIds);
+        Map<Long, ProtocolAccountRef> accounts = protocolAccounts(observerIds);
         Map<Long, Object> accountLocks = new HashMap<>();
         accounts.keySet().forEach(id -> accountLocks.put(id, new Object()));
         QueryContext queryContext = new QueryContext(
-                uncachedObserverIds, accounts, accountLocks, request.ownershipCheck());
+                observerIds, accounts, accountLocks, request.ownershipCheck());
         queryAndMergeGroups(
                 groups, request.tenantId(), request.snapshotAt(), cachedByGroup, queryContext, rows);
     }
@@ -183,6 +186,7 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         if (cached != null) {
             applyCachedMetadata(group, cached, group.getSenderPhone());
+            resolveGroupInvite(group, groupJid, context);
             return new GroupSnapshot(group, cached);
         }
         List<Long> candidates = context.observerIds()
@@ -200,6 +204,7 @@ public class MarketingTaskWhatsAppMemberProvider {
                 continue;
             }
             attempted++;
+            WhatsappGroupMemberCacheSnapshotVO fresh;
             try {
                 context.ownershipCheck().run();
                 GroupMetadataResult metadata;
@@ -208,18 +213,20 @@ public class MarketingTaskWhatsAppMemberProvider {
                     metadata = metadataPort.getMetadata(account, groupJid);
                 }
                 validateMetadata(metadata);
-                WhatsappGroupMemberCacheSnapshotVO fresh = memberCacheService.replaceCompleteSnapshot(
+                fresh = memberCacheService.replaceCompleteSnapshot(
                         tenantId, accountId, groupJid, metadata, snapshotAt);
                 if (fresh == null) {
                     throw new BusinessException(ErrorCode.CONFLICT, "WhatsApp 群成员缓存写入结果为空");
                 }
-                applyCachedMetadata(group, fresh, account.wsPhone());
-                return new GroupSnapshot(group, fresh);
             } catch (RuntimeException ex) {
                 lastFailure = ex;
                 log.warn("WhatsApp群协议查询尝试失败 taskId={} groupJid={} accountId={} attempt={} exceptionType={}",
                         group.getTaskId(), groupJid, accountId, attempted, ex.getClass().getSimpleName(), ex);
+                continue;
             }
+            applyCachedMetadata(group, fresh, account.wsPhone());
+            resolveGroupInvite(group, groupJid, context);
+            return new GroupSnapshot(group, fresh);
         }
         String reason = attempted == 0 ? "没有可用的实际发送账号" : "协议查询失败";
         log.warn("WhatsApp群查询最终失败 taskId={} groupJid={} reason={} candidateAccountIds={} "
@@ -228,6 +235,46 @@ public class MarketingTaskWhatsAppMemberProvider {
                 MAX_OBSERVER_CANDIDATES,
                 lastFailure == null ? null : lastFailure.getClass().getSimpleName());
         throw groupFailure(group, reason, lastFailure);
+    }
+
+    /** 只允许标准 WhatsApp 邀请链接进入导出；协议无法返回时使用统一业务占位。 */
+    private void resolveGroupInvite(
+            MarketingTaskGroupExportRow group,
+            String groupJid,
+            QueryContext context) {
+        List<Long> candidates = context.observerIds()
+                .getOrDefault(new GroupKey(group.getTaskId(), groupJid), List.of());
+        int attempted = 0;
+        for (Long accountId : candidates) {
+            ProtocolAccountRef account = context.accounts().get(accountId);
+            if (account == null || attempted >= MAX_OBSERVER_CANDIDATES) {
+                continue;
+            }
+            attempted++;
+            try {
+                context.ownershipCheck().run();
+                GroupInviteResult invite;
+                synchronized (context.accountLocks().get(accountId)) {
+                    context.ownershipCheck().run();
+                    invite = invitePort.getInvite(account, groupJid);
+                }
+                String inviteUrl = invite == null ? null : standardInviteUrl(invite.inviteUrl());
+                if (inviteUrl == null && invite != null) {
+                    inviteUrl = inviteUrlFromCode(invite.inviteCode());
+                }
+                if (inviteUrl != null) {
+                    group.setGroupLink(inviteUrl);
+                    return;
+                }
+            } catch (BusinessException ex) {
+                throw ex;
+            } catch (RuntimeException ex) {
+                log.info("WhatsApp群邀请链接获取失败 taskId={} groupJid={} accountId={} exceptionType={}",
+                        group.getTaskId(), maskedGroup(groupJid), accountId,
+                        ex.getClass().getSimpleName());
+            }
+        }
+        group.setGroupLink(INVITE_UNAVAILABLE);
     }
 
     private static void validateMetadata(GroupMetadataResult metadata) {
@@ -434,9 +481,7 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         Map<Long, ProtocolAccountRef> accounts = new LinkedHashMap<>();
         for (ProtocolAccountRef account : accountLookupService.findActiveProtocolRefs(requested)) {
-            if (account.backend() == ProtocolBackend.ANDROID) {
-                accounts.put(account.armadaAccountId(), account);
-            }
+            accounts.put(account.armadaAccountId(), account);
         }
         return accounts;
     }
@@ -501,7 +546,7 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         if ("HISTORY_SYNC".equalsIgnoreCase(departure.sourceType())
                 && "REMOVED".equalsIgnoreCase(departure.exitType())) {
-            return "被移出群";
+            return "被移出群组";
         }
         return "退出原因未识别";
     }
@@ -550,6 +595,31 @@ public class MarketingTaskWhatsAppMemberProvider {
             return null;
         }
         return value.trim();
+    }
+
+    private static String standardInviteUrl(String value) {
+        String normalized = normalize(value);
+        if (normalized == null
+                || !normalized.toLowerCase(Locale.ROOT).startsWith(INVITE_URL_PREFIX)) {
+            return null;
+        }
+        String code = normalized.substring(INVITE_URL_PREFIX.length());
+        int end = code.length();
+        for (char separator : new char[]{'?', '#', '/'}) {
+            int index = code.indexOf(separator);
+            if (index >= 0) {
+                end = Math.min(end, index);
+            }
+        }
+        return inviteUrlFromCode(code.substring(0, end));
+    }
+
+    private static String inviteUrlFromCode(String value) {
+        String code = normalize(value);
+        if (code == null || !code.matches("^[A-Za-z0-9_-]+$")) {
+            return null;
+        }
+        return INVITE_URL_PREFIX + code;
     }
 
     private static String normalizeGroupJid(String value) {

@@ -17,6 +17,7 @@ import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.enums.GroupPullExecutionStage;
@@ -92,6 +93,8 @@ class GroupPullMarketingInviteCaptureTest {
     @Mock
     private GroupLeavePort leavePort;
     @Mock
+    private WhatsappGroupBusinessDepartureService businessDepartureService;
+    @Mock
     private GroupPullMarketingMaterialEntryService materialEntryService;
 
     private GroupPullMarketingExecutionWorker worker;
@@ -111,6 +114,7 @@ class GroupPullMarketingInviteCaptureTest {
                 memberListPort,
                 invitePort,
                 leavePort,
+                businessDepartureService,
                 materialEntryService,
                 delayPolicy,
                 NO_OP_TRANSACTION_MANAGER);

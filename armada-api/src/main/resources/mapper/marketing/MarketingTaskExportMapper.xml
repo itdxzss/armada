@@ -600,8 +600,7 @@
                    mt.id AS taskId,
                    mt.task_name AS taskName,
                    COALESCE(NULLIF(TRIM(latest.group_name), ''), NULLIF(TRIM(fixed.group_name), ''),
-                            NULLIF(TRIM(preview.wa_subject), ''),
-                            COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName,
+                            NULLIF(TRIM(preview.wa_subject), ''), '未命名群组') AS groupName,
                     COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
                    COALESCE(
                        CASE WHEN LOWER(TRIM(fixed.execution_group_invite_url))
@@ -769,10 +768,9 @@
             SELECT source.*
             FROM observer_source source
             JOIN account observer_account
-              ON observer_account.tenant_id = #{tenantId}
+             ON observer_account.tenant_id = #{tenantId}
              AND observer_account.id = source.accountId
              AND observer_account.deleted_at IS NULL
-             AND UPPER(TRIM(observer_account.protocol_id)) = 'ANDROID'
              AND observer_account.protocol_account_id IS NOT NULL
              AND TRIM(observer_account.protocol_account_id) &lt;&gt; ''
              AND observer_account.ws_phone IS NOT NULL
@@ -861,7 +859,7 @@
                     WHEN membership.membership_status IN (3, 4, 5) THEN '否'
                     ELSE '未知' END AS inGroup,
                CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                          AND membership.last_exit_type = 3 THEN '被移出群'
+                          AND membership.last_exit_type = 3 THEN '被移出群组'
                     WHEN membership.last_exited_at &lt;= #{snapshotAt}
                           AND membership.last_exit_type = 4 THEN '主动退群'
                     WHEN membership.last_exited_at &lt;= #{snapshotAt}

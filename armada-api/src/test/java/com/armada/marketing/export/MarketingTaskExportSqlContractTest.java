@@ -97,7 +97,9 @@ class MarketingTaskExportSqlContractTest {
                 .contains("CONCAT('https://chat.whatsapp.com/', TRIM(preview.invite_code))")
                 .contains("LOWER(TRIM(group_link.link_url))")
                 .contains("END) AS groupLink")
+                .contains("NULLIF(TRIM(preview.wa_subject), ''), '未命名群组') AS groupName")
                 .doesNotContain("group_link.link_url AS groupLink")
+                .doesNotContain("COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName")
                 .doesNotContain("GROUP BY mt.id, mt.task_name, mt.remark, target.id")
                 .doesNotContain("HAVING groupJid IS NOT NULL");
     }
@@ -122,7 +124,7 @@ class MarketingTaskExportSqlContractTest {
                 .contains("membership.tenant_id = #{tenantId}")
                 .contains("member_account.tenant_id = membership.tenant_id")
                 .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
-                        + "                          AND membership.last_exit_type = 3")
+                        + "                          AND membership.last_exit_type = 3 THEN '被移出群组'")
                 .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
                         + "                          AND membership.last_exit_type = 4")
                 .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
@@ -159,7 +161,7 @@ class MarketingTaskExportSqlContractTest {
                 .contains("PARTITION BY taskId, groupJid")
                 .contains("candidateRank &lt;= 2")
                 .contains("attempts.account_id IS NOT NULL")
-                .contains("UPPER(TRIM(observer_account.protocol_id)) = 'ANDROID'")
+                .doesNotContain("UPPER(TRIM(observer_account.protocol_id)) = 'ANDROID'")
                 .contains("observer_state.account_state = 2")
                 .contains("observer_state.login_state = 1")
                 .contains("observer_membership.membership_status = 1")

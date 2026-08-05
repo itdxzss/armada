@@ -1,9 +1,14 @@
 package com.armada.marketing.grouppull.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
@@ -15,6 +20,7 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.port.GroupCreatePort;
+import com.armada.platform.protocol.port.GroupLeavePort;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
@@ -70,6 +76,7 @@ class GroupPullMarketingExecutionWorkerTest {
                 null,
                 null,
                 null,
+                null,
                 NO_OP_TRANSACTION_MANAGER);
 
         worker.process(execution.getId());
@@ -107,6 +114,7 @@ class GroupPullMarketingExecutionWorkerTest {
                 null,
                 null,
                 null,
+                null,
                 NO_OP_TRANSACTION_MANAGER);
 
         worker.process(execution.getId());
@@ -133,6 +141,7 @@ class GroupPullMarketingExecutionWorkerTest {
         GroupPullMarketingExecutionWorker worker = new GroupPullMarketingExecutionWorker(
                 mapper,
                 finalizer,
+                null,
                 null,
                 null,
                 null,
@@ -193,12 +202,62 @@ class GroupPullMarketingExecutionWorkerTest {
                 null,
                 null,
                 null,
+                null,
                 NO_OP_TRANSACTION_MANAGER);
 
         worker.process(execution.getId());
 
         assertThat(protocolCalls.get()).isEqualTo(1);
         assertThat(calls).contains("cancelForTaskRelease");
+    }
+
+    @Test
+    void successfulBuilderLeaveRecordsConfirmedBusinessDeparture() {
+        List<String> calls = new ArrayList<>();
+        GroupPullMarketingExecution execution = execution();
+        execution.setTenantId(7L);
+        execution.setGroupJid("120363-test@g.us");
+        execution.setExecutionStatus(GroupPullExecutionStatus.EXECUTING.code());
+        execution.setCurrentStage(GroupPullExecutionStage.BUILDER_LEAVE.code());
+        GroupPullMarketingTask runningTask = task();
+        runningTask.setBuilderExitEnabled(true);
+        GroupPullMarketingMapper mapper = mapper((method, args) -> switch (method) {
+            case "selectExecutionById" -> execution;
+            case "tryLeaseExecution", "updateBuilderExitStatus", "advanceExecutionStage" -> 1;
+            case "selectTaskById" -> runningTask;
+            case "selectAccountRef" -> account((Long) args[0]);
+            default -> throw new UnsupportedOperationException(method);
+        }, calls);
+        GroupPullMarketingFinalizer finalizer = mock(GroupPullMarketingFinalizer.class);
+        WhatsappGroupBusinessDepartureService departureService =
+                mock(WhatsappGroupBusinessDepartureService.class);
+        GroupLeavePort leavePort = (account, groupJid) -> calls.add("leave");
+        GroupPullMarketingExecutionWorker worker = new GroupPullMarketingExecutionWorker(
+                mapper,
+                finalizer,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                leavePort,
+                departureService,
+                null,
+                null,
+                NO_OP_TRANSACTION_MANAGER);
+
+        worker.process(execution.getId());
+
+        verify(departureService).recordConfirmedLeave(
+                eq(7L),
+                eq("120363-test@g.us"),
+                eq("861380000201"),
+                anyLong(),
+                eq("group-pull-execution:501"));
+        verify(finalizer).finalizeAfterStages(501L);
+        assertThat(calls).contains("leave", "updateBuilderExitStatus", "advanceExecutionStage");
     }
 
     private static GroupPullMarketingMapper mapper(

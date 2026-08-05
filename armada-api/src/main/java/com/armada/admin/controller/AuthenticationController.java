@@ -58,9 +58,9 @@ public class AuthenticationController {
     }
 
     /**
-     * 校验用户名、密码和验证码，并创建 Redis 单用户单会话。
+     * 校验用户名和密码，并创建 Redis 单用户单会话；图片验证码校验当前临时关闭。
      *
-     * @param request 登录账号、密码和一次性验证码
+     * @param request 登录账号和密码，暂时保留验证码字段供后续恢复
      * @return Token、过期信息和当前身份
      */
     @PostMapping("/api/public/auth/login")

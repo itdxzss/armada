@@ -10,7 +10,7 @@ public final class AuthProperties implements InitializingBean {
 
     private long defaultTenantId = 1L;
     private Duration captchaTtl = Duration.ofMinutes(2);
-    private Duration sessionIdleTimeout = Duration.ofMinutes(30);
+    private Duration sessionIdleTimeout = Duration.ofHours(2);
     private Duration sessionMaxLifetime = Duration.ofHours(24);
     private String sessionKeyPrefix = "armada:default:";
 

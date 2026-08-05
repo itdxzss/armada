@@ -28,9 +28,13 @@ public class WhatsappGroupDepartedMemberServiceImpl implements WhatsappGroupDepa
         }
         long now = System.currentTimeMillis();
         facts.stream()
-                .sorted(Comparator.comparing(WhatsappGroupDepartureFact::groupJid)
+                .sorted(Comparator.comparing(WhatsappGroupDepartureFact::tenantId)
+                        .thenComparing(WhatsappGroupDepartureFact::groupJid)
                         .thenComparing(WhatsappGroupDepartureFact::participantJid))
-                .forEach(fact -> mapper.upsertLatest(fact, now));
+                .forEach(fact -> {
+                    mapper.upsertIdentity(fact, now);
+                    mapper.updateIfNewer(fact, now);
+                });
     }
 
     @Override

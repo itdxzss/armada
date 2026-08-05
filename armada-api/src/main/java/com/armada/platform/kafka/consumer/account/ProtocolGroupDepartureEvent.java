@@ -24,7 +24,15 @@ public record ProtocolGroupDepartureEvent(
         Long occurredAt,
         List<Participant> participants) {
 
-    /** 单个 WhatsApp 退群成员事实。 */
+    /**
+     * 单个 WhatsApp 退群成员事实。
+     *
+     * @param participantJid 成员 JID
+     * @param phone 可解析手机号
+     * @param exitType LEFT、REMOVED 或 UNKNOWN
+     * @param exitedAt 退群时间
+     * @param sourceEventId 源事件 ID
+     */
     public record Participant(
             String participantJid,
             String phone,

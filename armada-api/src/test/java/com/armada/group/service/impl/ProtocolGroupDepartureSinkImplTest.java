@@ -92,7 +92,10 @@ class ProtocolGroupDepartureSinkImplTest {
                                 "LEFT", 900L, "source-2"),
                         new ProtocolGroupDepartureEvent.Participant(
                                 "123456789012345@lid", null,
-                                "REMOVED", 901L, "source-3")));
+                                "REMOVED", 901L, "source-3"),
+                        new ProtocolGroupDepartureEvent.Participant(
+                                "223456789012345:8@lid", "+52 181 292 30974",
+                                "UNKNOWN", 902L, "source-4")));
 
         sink.handleDepartures(departure);
 
@@ -107,6 +110,10 @@ class ProtocolGroupDepartureSinkImplTest {
                 fact -> {
                     assertThat(fact.participantJid()).isEqualTo("123456789012345@lid");
                     assertThat(fact.phone()).isNull();
+                },
+                fact -> {
+                    assertThat(fact.participantJid()).isEqualTo("223456789012345@lid");
+                    assertThat(fact.phone()).isEqualTo("5218129230974");
                 });
     }
 

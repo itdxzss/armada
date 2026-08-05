@@ -20,15 +20,18 @@
              #{fact.observerAccountId}, #{now}, #{now})
         AS incoming
         ON DUPLICATE KEY UPDATE
-            phone = IF(<include refid="incomingJoinIsNewer"/>,
-                COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_member_join_fact.phone),
-                whatsapp_group_member_join_fact.phone),
+            updated_at = IF(<include refid="incomingJoinIsNewer"/>
+                    OR (NULLIF(TRIM(whatsapp_group_member_join_fact.phone), '') IS NULL
+                        AND NULLIF(TRIM(incoming.phone), '') IS NOT NULL),
+                incoming.updated_at, whatsapp_group_member_join_fact.updated_at),
             joined_at = IF(<include refid="incomingJoinIsNewer"/>,
                 incoming.joined_at, whatsapp_group_member_join_fact.joined_at),
             observer_account_id = IF(<include refid="incomingJoinIsNewer"/>,
                 incoming.observer_account_id, whatsapp_group_member_join_fact.observer_account_id),
-            updated_at = IF(<include refid="incomingJoinIsNewer"/>,
-                incoming.updated_at, whatsapp_group_member_join_fact.updated_at),
+            phone = IF(<include refid="incomingJoinIsNewer"/>,
+                COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_member_join_fact.phone),
+                COALESCE(NULLIF(TRIM(whatsapp_group_member_join_fact.phone), ''),
+                         NULLIF(TRIM(incoming.phone), ''))),
             source_event_id = IF(<include refid="incomingJoinIsNewer"/>,
                 incoming.source_event_id, whatsapp_group_member_join_fact.source_event_id),
             event_at = IF(<include refid="incomingJoinIsNewer"/>,

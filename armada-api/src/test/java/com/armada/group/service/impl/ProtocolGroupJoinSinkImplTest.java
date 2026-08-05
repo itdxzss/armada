@@ -74,6 +74,30 @@ class ProtocolGroupJoinSinkImplTest {
         assertThat(TenantContext.get()).isNull();
     }
 
+    @Test
+    void handleJoinsKeepsStableLidAndAddsTrustedPhoneAlias() {
+        ProtocolAccountRef account = new ProtocolAccountRef(
+                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+        when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
+        ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
+                accountLookupService, joinFactService, memberCacheService);
+        ProtocolGroupJoinEvent join = new ProtocolGroupJoinEvent(
+                "event-lid", 7L, 10L, "android-10", "120363-test@g.us",
+                "WGP2_NOTIFICATION", 1_000L,
+                List.of(new ProtocolGroupJoinEvent.Participant(
+                        "123456789012345:7@lid", "+52 181 292 30974", 900L, "source-lid")));
+
+        sink.handleJoins(join);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<WhatsappGroupJoinFact>> captor = ArgumentCaptor.forClass(List.class);
+        verify(joinFactService).saveLatest(captor.capture());
+        assertThat(captor.getValue()).singleElement().satisfies(fact -> {
+            assertThat(fact.participantJid()).isEqualTo("123456789012345@lid");
+            assertThat(fact.phone()).isEqualTo("5218129230974");
+        });
+    }
+
     private static ProtocolGroupJoinEvent event(String protocolAccountId) {
         return new ProtocolGroupJoinEvent(
                 "event-1", 7L, 10L, protocolAccountId, " 120363-TEST@G.US ",

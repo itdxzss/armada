@@ -853,7 +853,19 @@
         SELECT COALESCE(a.group_link_id, p.group_link_id, #{target.groupLinkId}) AS groupLinkId,
                COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''),
                         #{target.groupJid}) AS groupJid,
-               COALESCE(g.link_url, #{target.groupLinkUrl}) AS groupLinkUrl,
+               COALESCE(
+                   CASE WHEN LOWER(TRIM(#{target.groupLinkUrl})) LIKE 'https://chat.whatsapp.com/%'
+                              AND COALESCE(a.group_link_id, p.group_link_id,
+                                           #{target.groupLinkId}, -1)
+                                  = COALESCE(#{target.groupLinkId}, -1)
+                              AND COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                                           NULLIF(TRIM(p.group_jid), ''),
+                                           NULLIF(TRIM(#{target.groupJid}), ''), '')
+                                  = COALESCE(NULLIF(TRIM(#{target.groupJid}), ''), '')
+                        THEN TRIM(#{target.groupLinkUrl}) END,
+                   CASE WHEN LOWER(TRIM(g.link_url)) LIKE 'https://chat.whatsapp.com/%'
+                        THEN TRIM(g.link_url) END,
+                   '') AS groupLinkUrl,
                COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''),
                         p.wa_subject, #{target.groupName}) AS groupName
         FROM marketing_task_send_attempt a

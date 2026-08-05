@@ -5,6 +5,7 @@
 
     <sql id="incomingSourcePriority">
         CASE incoming.state_source
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 4
             WHEN 'LEAVE_EVENT' THEN 4
             WHEN 'REMOVE_EVENT' THEN 4
             WHEN 'ADD_EVENT' THEN 3
@@ -16,6 +17,7 @@
 
     <sql id="storedSourcePriority">
         CASE whatsapp_group_member_state.state_source
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 4
             WHEN 'LEAVE_EVENT' THEN 4
             WHEN 'REMOVE_EVENT' THEN 4
             WHEN 'ADD_EVENT' THEN 3
@@ -77,9 +79,9 @@
         </foreach>
         AS incoming
         ON DUPLICATE KEY UPDATE
-            phone = IF(<include refid="incomingStateIsNewer"/>,
-                COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_member_state.phone),
-                whatsapp_group_member_state.phone),
+            phone = COALESCE(
+                NULLIF(TRIM(whatsapp_group_member_state.phone), ''),
+                NULLIF(TRIM(incoming.phone), '')),
             is_admin = IF(<include refid="incomingStateIsNewer"/>,
                 COALESCE(incoming.is_admin, whatsapp_group_member_state.is_admin),
                 whatsapp_group_member_state.is_admin),

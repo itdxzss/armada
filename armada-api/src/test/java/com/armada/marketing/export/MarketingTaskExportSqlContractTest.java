@@ -88,6 +88,16 @@ class MarketingTaskExportSqlContractTest {
                 .contains("selected_group_jids AS")
                 .contains("FROM selected_group_jids selected")
                 .contains("COUNT(DISTINCT NULLIF(REGEXP_REPLACE")
+                .contains("e.group_jid = COALESCE(")
+                .contains("NULLIF(TRIM(t.group_jid), '')")
+                .contains("NULLIF(TRIM(p.group_jid), '')")
+                .doesNotContain("e.marketing_target_id = t.id")
+                .contains("fixed.execution_group_invite_url")
+                .contains("fixed.target_group_link_url")
+                .contains("CONCAT('https://chat.whatsapp.com/', TRIM(preview.invite_code))")
+                .contains("LOWER(TRIM(group_link.link_url))")
+                .contains("END) AS groupLink")
+                .doesNotContain("group_link.link_url AS groupLink")
                 .doesNotContain("GROUP BY mt.id, mt.task_name, mt.remark, target.id")
                 .doesNotContain("HAVING groupJid IS NOT NULL");
     }
@@ -115,6 +125,8 @@ class MarketingTaskExportSqlContractTest {
                         + "                          AND membership.last_exit_type = 3")
                 .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
                         + "                          AND membership.last_exit_type = 4")
+                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
+                        + "                          AND membership.last_exit_type = 5 THEN '退出原因未识别'")
                 .contains("membership.last_exited_at &lt;= #{snapshotAt}");
 
         assertTenantInterceptorIgnored("selectCountryEntryRows",

@@ -119,7 +119,10 @@ class WhatsappGroupMemberCacheMapperH2Test {
                 .contains("AS incoming")
                 .contains("WHEN 'ADD_EVENT' THEN 3")
                 .contains("WHEN 'LEAVE_EVENT' THEN 4")
+                .contains("WHEN 'UNKNOWN_EXIT_EVENT' THEN 4")
                 .contains("WHEN 'SNAPSHOT_ABSENT' THEN 2")
+                .contains("NULLIF(TRIM(whatsapp_group_member_state.phone), '')")
+                .contains("NULLIF(TRIM(incoming.phone), '')")
                 .contains("state_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')")
                 .contains("CAST(#{snapshotVersion} AS BINARY)")
                 .contains("WHERE cache.tenant_id = #{tenantId}");

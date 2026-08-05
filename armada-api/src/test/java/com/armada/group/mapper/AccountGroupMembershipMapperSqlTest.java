@@ -22,11 +22,11 @@ class AccountGroupMembershipMapperSqlTest {
     void upsertMembership_preservesLatestExactExitAfterAccountRejoins() throws IOException {
         String xml = mapperXml();
         assertTrue(xml.contains("last_exit_type, last_exited_at"));
-        assertTrue(xml.contains("WHEN VALUES(membership_status) IN (3, 4)"));
+        assertTrue(xml.contains("WHEN VALUES(membership_status) IN (3, 4, 5)"));
         assertTrue(xml.contains("VALUES(last_exited_at) &gt;= account_group_membership.last_exited_at"));
         assertTrue(xml.contains("ELSE account_group_membership.last_exit_type"));
         assertTrue(xml.contains("ELSE account_group_membership.last_exited_at"));
-        assertTrue(xml.contains("WHEN #{membershipStatus} IN (3, 4)"));
+        assertTrue(xml.contains("WHEN #{membershipStatus} IN (3, 4, 5)"));
         assertTrue(xml.contains("#{lastExitedAt} &gt;= last_exited_at"));
     }
 

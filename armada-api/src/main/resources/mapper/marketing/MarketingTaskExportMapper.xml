@@ -464,6 +464,11 @@
                    MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''))) AS group_jid,
                    MAX(COALESCE(NULLIF(TRIM(t.group_name), ''), NULLIF(TRIM(g.group_name), ''),
                                 NULLIF(TRIM(p.wa_subject), ''))) AS group_name,
+                   MAX(NULLIF(TRIM(e.group_invite_url), '')) AS execution_group_invite_url,
+                   SUBSTRING_INDEX(GROUP_CONCAT(
+                       NULLIF(TRIM(t.group_link_url), '')
+                       ORDER BY t.created_at DESC, t.id DESC SEPARATOR '\n'), '\n', 1)
+                       AS target_group_link_url,
                    CAST(SUBSTRING_INDEX(GROUP_CONCAT(
                        t.account_id ORDER BY t.created_at DESC, t.id DESC SEPARATOR '\n'), '\n', 1)
                        AS UNSIGNED) AS sender_account_id,
@@ -474,6 +479,10 @@
             LEFT JOIN group_link g ON g.id = t.group_link_id AND g.tenant_id = t.tenant_id
             LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
                                           AND p.tenant_id = t.tenant_id
+            LEFT JOIN group_pull_marketing_execution e ON e.tenant_id = t.tenant_id
+                                                       AND e.group_jid = COALESCE(
+                                                           NULLIF(TRIM(t.group_jid), ''),
+                                                           NULLIF(TRIM(p.group_jid), ''))
             WHERE t.tenant_id = #{tenantId}
               AND COALESCE(t.target_scope, 1) = 1
               AND t.created_at &lt;= #{snapshotAt}
@@ -594,7 +603,32 @@
                             NULLIF(TRIM(preview.wa_subject), ''),
                             COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName,
                     COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
-                   group_link.link_url AS groupLink,
+                   COALESCE(
+                       CASE WHEN LOWER(TRIM(fixed.execution_group_invite_url))
+                                      LIKE 'https://chat.whatsapp.com/%' THEN
+                           CONCAT('https://chat.whatsapp.com/', NULLIF(SUBSTRING_INDEX(
+                               SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING(
+                                   TRIM(fixed.execution_group_invite_url),
+                                   CHAR_LENGTH('https://chat.whatsapp.com/') + 1), '?', 1), '#', 1), '/', 1), ''))
+                       END,
+                       CASE WHEN LOWER(TRIM(fixed.target_group_link_url))
+                                      LIKE 'https://chat.whatsapp.com/%' THEN
+                           CONCAT('https://chat.whatsapp.com/', NULLIF(SUBSTRING_INDEX(
+                               SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING(
+                                   TRIM(fixed.target_group_link_url),
+                                   CHAR_LENGTH('https://chat.whatsapp.com/') + 1), '?', 1), '#', 1), '/', 1), ''))
+                       END,
+                       CASE WHEN TRIM(COALESCE(preview.invite_code, ''))
+                                      REGEXP '^[A-Za-z0-9_-]+$' THEN
+                           CONCAT('https://chat.whatsapp.com/', TRIM(preview.invite_code))
+                       END,
+                       CASE WHEN LOWER(TRIM(group_link.link_url))
+                                      LIKE 'https://chat.whatsapp.com/%' THEN
+                           CONCAT('https://chat.whatsapp.com/', NULLIF(SUBSTRING_INDEX(
+                               SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING(
+                                   TRIM(group_link.link_url),
+                                   CHAR_LENGTH('https://chat.whatsapp.com/') + 1), '?', 1), '#', 1), '/', 1), ''))
+                       END) AS groupLink,
                    d.group_key AS groupKey,
                    <include refid="ExportGroupStatusCase"/> AS groupStatus,
                    CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
@@ -830,6 +864,8 @@
                           AND membership.last_exit_type = 3 THEN '被移出群'
                     WHEN membership.last_exited_at &lt;= #{snapshotAt}
                           AND membership.last_exit_type = 4 THEN '主动退群'
+                    WHEN membership.last_exited_at &lt;= #{snapshotAt}
+                          AND membership.last_exit_type = 5 THEN '退出原因未识别'
                     ELSE '' END AS exitType,
                CASE WHEN membership.joined_at &lt;= #{snapshotAt}
                     THEN membership.joined_at END AS joinedAt,

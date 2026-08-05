@@ -193,8 +193,10 @@ class ProtocolAccountEventConsumerTest {
                  "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
                          "groupJid":"120363-test@g.us","source":"HISTORY_SYNC","participants":[
-                           {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
-                            "exitType":"LEFT","exitedAt":1785722400000,"sourceEventId":"source-1"}]}}
+                    {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
+                     "exitType":"LEFT","exitedAt":1785722400000,"sourceEventId":"source-1"},
+                    {"participantJid":"15550000002@s.whatsapp.net","phone":"15550000002",
+                     "exitType":"REMOVED","exitedAt":1785722400001,"sourceEventId":"source-2"}]}}
                 """);
 
         ArgumentCaptor<ProtocolGroupDepartureEvent> captor =
@@ -202,11 +204,35 @@ class ProtocolAccountEventConsumerTest {
         verify(groupDepartureSink).handleDepartures(captor.capture());
         assertThat(captor.getValue().groupJid()).isEqualTo("120363-test@g.us");
         assertThat(captor.getValue().sourceType()).isEqualTo("HISTORY_SYNC");
-        assertThat(captor.getValue().participants()).singleElement().satisfies(participant -> {
+        assertThat(captor.getValue().participants())
+                .extracting(ProtocolGroupDepartureEvent.Participant::exitType)
+                .containsExactly("LEFT", "REMOVED");
+        assertThat(captor.getValue().participants().get(0)).satisfies(participant -> {
             assertThat(participant.participantJid()).isEqualTo("15550000001@s.whatsapp.net");
-            assertThat(participant.exitType()).isEqualTo("LEFT");
             assertThat(participant.exitedAt()).isEqualTo(1785722400000L);
         });
+    }
+
+    @Test
+    void onGroupSyncMessageNormalizesAmbiguousWgp2RemovedAndAcceptsUnknown() {
+        consumer.onGroupSyncMessage("""
+                {"eventId":"departure-1","event":"account.group_participant_departed","version":"v1",
+                 "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
+                         "groupJid":"120363-test@g.us","source":"WGP2_NOTIFICATION","participants":[
+                           {"participantJid":"15550000001@s.whatsapp.net","phone":"15550000001",
+                            "exitType":"REMOVED","exitedAt":1785722400000,"sourceEventId":"source-remove-1"},
+                           {"participantJid":"15550000002@s.whatsapp.net","phone":"15550000002",
+                            "exitType":"UNKNOWN","exitedAt":1785722400001,"sourceEventId":"source-unknown-1"}]}}
+                """);
+
+        ArgumentCaptor<ProtocolGroupDepartureEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupDepartureEvent.class);
+        verify(groupDepartureSink).handleDepartures(captor.capture());
+        assertThat(captor.getValue().sourceType()).isEqualTo("WGP2_NOTIFICATION");
+        assertThat(captor.getValue().participants())
+                .extracting(ProtocolGroupDepartureEvent.Participant::exitType)
+                .containsExactly("UNKNOWN", "UNKNOWN");
     }
 
     @Test

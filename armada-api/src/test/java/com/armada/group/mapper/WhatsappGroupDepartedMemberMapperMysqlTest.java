@@ -57,39 +57,72 @@ class WhatsappGroupDepartedMemberMapperMysqlTest {
         WhatsappGroupDepartureFact history = fact(
                 "15550000001@s.whatsapp.net", "15550000001",
                 new DepartureState("LEFT", 100L, "history-z", "HISTORY_SYNC"));
-        mapper.upsertLatest(history, 1_000L);
+        write(history, 1_000L);
 
         WhatsappGroupDepartureFact notification = fact(
                 "15550000001@s.whatsapp.net", null,
                 new DepartureState("REMOVED", 100L, "notification-a", "WGP2_NOTIFICATION"));
-        mapper.upsertLatest(notification, 2_000L);
+        write(notification, 2_000L);
         assertThat(row("15550000001@s.whatsapp.net")).isEqualTo(
-                new Row("15550000001", "REMOVED", "notification-a", "WGP2_NOTIFICATION", 2_000L));
+                new Row("15550000001", "LEFT", "history-z", "HISTORY_SYNC", 1_000L));
 
-        mapper.upsertLatest(notification, 3_000L);
-        assertThat(row("15550000001@s.whatsapp.net").updatedAt()).isEqualTo(2_000L);
+        write(notification, 3_000L);
+        assertThat(row("15550000001@s.whatsapp.net").updatedAt()).isEqualTo(1_000L);
 
         WhatsappGroupDepartureFact sameSourceHigherId = fact(
                 "15550000001@s.whatsapp.net", "15550000001",
                 new DepartureState("LEFT", 100L, "notification-b", "WGP2_NOTIFICATION"));
-        mapper.upsertLatest(sameSourceHigherId, 4_000L);
+        write(sameSourceHigherId, 4_000L);
         assertThat(row("15550000001@s.whatsapp.net")).isEqualTo(
                 new Row("15550000001", "LEFT", "notification-b", "WGP2_NOTIFICATION", 4_000L));
 
-        mapper.upsertLatest(fact(
+        write(fact(
                 "15550000001@s.whatsapp.net", "19999999999",
                 new DepartureState("REMOVED", 99L, "older", "WGP2_NOTIFICATION")), 5_000L);
         assertThat(row("15550000001@s.whatsapp.net")).isEqualTo(
                 new Row("15550000001", "LEFT", "notification-b", "WGP2_NOTIFICATION", 4_000L));
 
-        mapper.upsertLatest(fact(
+        write(fact(
                 "15550000002@s.whatsapp.net", "15550000002",
                 new DepartureState("LEFT", 100L, "same-Z", "WGP2_NOTIFICATION")), 6_000L);
-        mapper.upsertLatest(fact(
+        write(fact(
                 "15550000002@s.whatsapp.net", "15550000002",
-                new DepartureState("REMOVED", 100L, "same-z", "WGP2_NOTIFICATION")), 7_000L);
+                new DepartureState("LEFT", 100L, "same-z", "WGP2_NOTIFICATION")), 7_000L);
         assertThat(row("15550000002@s.whatsapp.net")).isEqualTo(
-                new Row("15550000002", "REMOVED", "same-z", "WGP2_NOTIFICATION", 7_000L));
+                new Row("15550000002", "LEFT", "same-z", "WGP2_NOTIFICATION", 7_000L));
+
+        write(fact(
+                "123456789012345@lid", null,
+                new DepartureState("UNKNOWN", 200L, "notification-z", "WGP2_NOTIFICATION")), 8_000L);
+        write(fact(
+                "123456789012345@lid", "5218129230974",
+                new DepartureState("REMOVED", 200L, "history-a", "HISTORY_SYNC")), 9_000L);
+        assertThat(row("123456789012345@lid")).isEqualTo(
+                new Row("5218129230974", "REMOVED", "history-a", "HISTORY_SYNC", 9_000L));
+
+        write(fact(
+                "133456789012345@lid", "5218129230975",
+                new DepartureState("LEFT", 250L, "history-known", "HISTORY_SYNC")), 9_100L);
+        write(fact(
+                "133456789012345@lid", null,
+                new DepartureState("UNKNOWN", 250L, "notification-unknown", "WGP2_NOTIFICATION")), 9_200L);
+        assertThat(row("133456789012345@lid")).isEqualTo(
+                new Row("5218129230975", "LEFT", "history-known", "HISTORY_SYNC", 9_100L));
+
+        WhatsappGroupDepartureFact aliasReplay = fact(
+                "223456789012345@lid", null,
+                new DepartureState("UNKNOWN", 300L, "notification-alias", "WGP2_NOTIFICATION"));
+        write(aliasReplay, 10_000L);
+        write(fact(
+                "223456789012345@lid", "551100000002",
+                new DepartureState("UNKNOWN", 300L, "notification-alias", "WGP2_NOTIFICATION")), 11_000L);
+        assertThat(row("223456789012345@lid")).isEqualTo(
+                new Row("551100000002", "UNKNOWN", "notification-alias", "WGP2_NOTIFICATION", 11_000L));
+    }
+
+    private void write(WhatsappGroupDepartureFact fact, long now) {
+        mapper.upsertIdentity(fact, now);
+        mapper.updateIfNewer(fact, now);
     }
 
     private static WhatsappGroupDepartureFact fact(

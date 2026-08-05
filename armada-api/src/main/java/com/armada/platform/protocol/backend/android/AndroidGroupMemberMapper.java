@@ -16,8 +16,8 @@ public final class AndroidGroupMemberMapper {
     private static final String PARTICIPANTS_FIELD = "Participants";
     private static final String GROUP_LIST_PARTICIPANTS_FIELD = "participants";
 
-    private static final List<String> IDENTITY_FIELDS = List.of(
-            "phone", "phone_number", "phoneNumber", "jid");
+    private static final List<String> PHONE_FIELDS = List.of(
+            "phone", "phone_number", "phoneNumber");
 
     /**
      * 解析 Android 群成员数组并归一化号码与角色。
@@ -53,11 +53,23 @@ public final class AndroidGroupMemberMapper {
     }
 
     private static ParticipantIdentity participantIdentity(JsonNode participant) {
-        for (String field : IDENTITY_FIELDS) {
+        ParticipantIdentity jidIdentity = identityFromJid(text(participant.path("jid")));
+        if (jidIdentity != null) {
+            if (jidIdentity.phone() != null) {
+                return jidIdentity;
+            }
+            ParticipantIdentity phoneIdentity = phoneIdentity(participant);
+            return new ParticipantIdentity(
+                    jidIdentity.jid(), phoneIdentity == null ? null : phoneIdentity.phone());
+        }
+        return phoneIdentity(participant);
+    }
+
+    private static ParticipantIdentity phoneIdentity(JsonNode participant) {
+        for (String field : PHONE_FIELDS) {
             String value = text(participant.path(field));
             if (value != null) {
-                ParticipantIdentity identity = "jid".equals(field)
-                        ? identityFromJid(value) : identityFromPhone(value);
+                ParticipantIdentity identity = identityFromPhone(value);
                 if (identity != null) {
                     return identity;
                 }
@@ -90,6 +102,9 @@ public final class AndroidGroupMemberMapper {
     }
 
     private static ParticipantIdentity identityFromJid(String value) {
+        if (value == null) {
+            return null;
+        }
         String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
         int at = normalized.indexOf('@');
         if (at <= 0 || normalized.indexOf('@', at + 1) >= 0) {
@@ -103,10 +118,14 @@ public final class AndroidGroupMemberMapper {
             return null;
         }
         String local = normalized.substring(0, at);
-        if (!local.chars().allMatch(Character::isDigit)) {
+        int device = local.indexOf(':');
+        if (device >= 0) {
+            local = local.substring(0, device);
+        }
+        if (local.isBlank() || !local.chars().allMatch(Character::isDigit)) {
             return null;
         }
-        return new ParticipantIdentity(normalized, null);
+        return new ParticipantIdentity(local + "@lid", null);
     }
 
     private static String text(JsonNode node) {

@@ -33,7 +33,8 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
                           "Participants":[
                             {"phone":"919000000001","type":"admin"},
                             {"phone":"919000000002","type":"participant"},
-                            {"jid":"123456789012345@lid","type":"participant"}
+                            {"jid":"123456789012345@lid","phone_number":"5218129230974",
+                             "type":"participant"}
                           ]
                         },"Msg":"ok"}
                         """));
@@ -48,7 +49,7 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
         assertThat(result.participants()).hasSize(3);
         assertThat(result.participants().get(0).admin()).isTrue();
         assertThat(result.participants().get(2).jid()).isEqualTo("123456789012345@lid");
-        assertThat(result.participants().get(2).phone()).isNull();
+        assertThat(result.participants().get(2).phone()).isEqualTo("5218129230974");
     }
 
     @Test

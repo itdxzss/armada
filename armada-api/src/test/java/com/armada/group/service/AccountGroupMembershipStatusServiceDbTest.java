@@ -39,16 +39,16 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
 
         apply(accountId, "remove", 2000L, "evt-remove");
 
-        assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+        assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(lastExitType(accountId, GROUP_JID))
-                .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(lastExitedAt(accountId, GROUP_JID)).isEqualTo(2000L);
         assertThat(joinedAt(accountId, GROUP_JID)).isNull();
         assertThat(lastSeenAt(accountId, GROUP_JID)).isNull();
         assertThat(deletedAt(accountId, GROUP_JID)).isNull();
 
         apply(accountId, "add", 1000L, "evt-old-add");
-        assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+        assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(joinedAt(accountId, GROUP_JID)).isNull();
 
         apply(accountId, "add", 3000L, "evt-new-add");
@@ -56,7 +56,7 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
         assertThat(joinedAt(accountId, GROUP_JID)).isEqualTo(3000L);
         assertThat(lastSeenAt(accountId, GROUP_JID)).isEqualTo(3000L);
         assertThat(lastExitType(accountId, GROUP_JID))
-                .isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(lastExitedAt(accountId, GROUP_JID)).isEqualTo(2000L);
     }
 
@@ -74,7 +74,7 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
                 "android_groups_dirty",
                 ProtocolBackend.ANDROID);
 
-        assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.KICKED_OUT.code());
+        assertThat(status(accountId, GROUP_JID)).isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
         assertThat(source(accountId, GROUP_JID)).isEqualTo("WGP2_REMOVE");
         assertThat(joinedAt(accountId, GROUP_JID)).isNull();
         assertThat(lastSeenAt(accountId, GROUP_JID)).isNull();

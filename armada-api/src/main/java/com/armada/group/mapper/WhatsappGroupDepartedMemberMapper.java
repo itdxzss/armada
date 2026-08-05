@@ -11,10 +11,15 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface WhatsappGroupDepartedMemberMapper {
 
-    /** 新事件覆盖旧事件，重复或旧事件保持幂等。 */
+    /** 确保成员事实行存在，并单调补齐可信手机号别名。 */
     @InterceptorIgnore(tenantLine = "true")
-    int upsertLatest(@Param("fact") WhatsappGroupDepartureFact fact,
-                     @Param("now") long now);
+    int upsertIdentity(@Param("fact") WhatsappGroupDepartureFact fact,
+                       @Param("now") long now);
+
+    /** 仅当参数事件按稳定仲裁键胜出时，整体替换最近退出事实。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int updateIfNewer(@Param("fact") WhatsappGroupDepartureFact fact,
+                      @Param("now") long now);
 
     /** 按租户和群集合读取最近退群事实。 */
     @InterceptorIgnore(tenantLine = "true")

@@ -758,7 +758,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(cleanSuccess)
                 .containsEntry("group_link_id", 104L)
                 .containsEntry("group_jid", "target-clean-success@g.us")
-                .containsEntry("group_link_url", "target-clean-success-url")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/target-clean-success")
                 .containsEntry("group_name", "target-clean-success")
                 .containsEntry("status", 3)
                 .containsEntry("sent_message_count", 1)
@@ -772,7 +772,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(cleanFailure)
                 .containsEntry("group_link_id", 105L)
                 .containsEntry("group_jid", "target-clean-failed@g.us")
-                .containsEntry("group_link_url", "target-clean-failed-url")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/target-clean-failed")
                 .containsEntry("group_name", "target-clean-failed")
                 .containsEntry("status", 4)
                 .containsEntry("sent_message_count", 0)
@@ -808,7 +808,7 @@ class MysqlModeMapperInMemoryTest {
                         UPDATE marketing_task_target
                         SET group_link_id = 204,
                             group_jid = 'latest@g.us',
-                            group_link_url = 'latest-url',
+                            group_link_url = 'https://chat.whatsapp.com/latest',
                             group_name = 'latest-name',
                             updated_at = 2_400
                         WHERE id = 504
@@ -848,7 +848,7 @@ class MysqlModeMapperInMemoryTest {
         assertThat(queryTarget(504L))
                 .containsEntry("group_link_id", 204L)
                 .containsEntry("group_jid", "latest@g.us")
-                .containsEntry("group_link_url", "latest-url")
+                .containsEntry("group_link_url", "https://chat.whatsapp.com/latest")
                 .containsEntry("group_name", "latest-name")
                 .containsEntry("status", 3)
                 .containsEntry("sent_message_count", 1)
@@ -1161,9 +1161,9 @@ class MysqlModeMapperInMemoryTest {
                      2, 2, 1, 700, 700, 'old failure', 700),
                     (502, 7, NULL, 'target-failed@g.us', 'target-failed-url', 'target-failed',
                      2, 1, 2, 800, 800, 'old reason', 800),
-                    (504, 7, 104, 'target-clean-success@g.us', 'target-clean-success-url', 'target-clean-success',
+                    (504, 7, 104, 'target-clean-success@g.us', 'https://chat.whatsapp.com/target-clean-success', 'target-clean-success',
                      2, 0, 0, NULL, NULL, 'stale reason', 850),
-                    (505, 7, 105, 'target-clean-failed@g.us', 'target-clean-failed-url', 'target-clean-failed',
+                    (505, 7, 105, 'target-clean-failed@g.us', 'https://chat.whatsapp.com/target-clean-failed', 'target-clean-failed',
                      2, 0, 0, NULL, NULL, NULL, 860),
                     (503, 8, NULL, 'target-other@g.us', 'target-other-url', 'target-other',
                      1, 0, 0, NULL, NULL, NULL, 900)

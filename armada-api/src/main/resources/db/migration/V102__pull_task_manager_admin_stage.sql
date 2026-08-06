@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS armada_schema_migration_checkpoint (
 
 INSERT IGNORE INTO armada_schema_migration_checkpoint (
     migration_key, stage_renumbered, manager_rewound, updated_at
-) VALUES ('V101_pull_task_manager_admin_stage', 0, 0, 0);
+) VALUES ('V102_pull_task_manager_admin_stage', 0, 0, 0);
 
 SET @pull_task_action_table_exists := (
     SELECT COUNT(*)
@@ -97,7 +97,7 @@ SET @pull_task_stage_exists := (
 SET @pull_task_stage_renumber_needed := (
     SELECT IF(@pull_task_stage_exists = 1 AND stage_renumbered = 0, 1, 0)
     FROM armada_schema_migration_checkpoint
-    WHERE migration_key = 'V101_pull_task_manager_admin_stage'
+    WHERE migration_key = 'V102_pull_task_manager_admin_stage'
 );
 
 START TRANSACTION;
@@ -112,7 +112,7 @@ DEALLOCATE PREPARE pull_task_stage_renumber_stmt;
 UPDATE armada_schema_migration_checkpoint
 SET stage_renumbered = 1,
     updated_at = CAST(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000 AS UNSIGNED)
-WHERE migration_key = 'V101_pull_task_manager_admin_stage'
+WHERE migration_key = 'V102_pull_task_manager_admin_stage'
   AND @pull_task_stage_renumber_needed = 1;
 COMMIT;
 
@@ -127,7 +127,7 @@ SET @pull_task_manager_admin_rewind_needed := (
                   AND stage_renumbered = 1
                   AND manager_rewound = 0, 1, 0)
     FROM armada_schema_migration_checkpoint
-    WHERE migration_key = 'V101_pull_task_manager_admin_stage'
+    WHERE migration_key = 'V102_pull_task_manager_admin_stage'
 );
 
 START TRANSACTION;
@@ -167,6 +167,6 @@ DEALLOCATE PREPARE pull_task_manager_admin_rewind_stmt;
 UPDATE armada_schema_migration_checkpoint
 SET manager_rewound = 1,
     updated_at = CAST(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000 AS UNSIGNED)
-WHERE migration_key = 'V101_pull_task_manager_admin_stage'
+WHERE migration_key = 'V102_pull_task_manager_admin_stage'
   AND @pull_task_manager_admin_rewind_needed = 1;
 COMMIT;

@@ -60,6 +60,9 @@ class FlywayAppliedMigrationCompatibilityTest {
         assertAppliedMigration(
                 "V099__group_folder_invite_auto_backfill.sql",
                 1_758_125_011);
+        assertAppliedMigration(
+                "V101__normal_group_creation.sql",
+                419_410_967);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

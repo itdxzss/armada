@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class PullTaskManagerAdminStageMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V101__pull_task_manager_admin_stage.sql");
+            "src/main/resources/db/migration/V102__pull_task_manager_admin_stage.sql");
 
     @Test
     void addsRetryFactsAndRewindsOnlyActiveManagersNeedingPromotion() throws IOException {
@@ -43,7 +43,7 @@ class PullTaskManagerAdminStageMigrationSqlTest {
 
         assertThat(sql)
                 .contains("CREATE TABLE IF NOT EXISTS armada_schema_migration_checkpoint")
-                .contains("migration_key = 'V101_pull_task_manager_admin_stage'")
+                .contains("migration_key = 'V102_pull_task_manager_admin_stage'")
                 .contains("stage_renumbered = 0")
                 .contains("manager_rewound = 0")
                 .contains("START TRANSACTION")

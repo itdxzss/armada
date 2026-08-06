@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import org.junit.jupiter.api.Test;
 
 class PullTaskPullerInviteProcessorTest {
@@ -33,7 +34,7 @@ class PullTaskPullerInviteProcessorTest {
         row.setTenantId(7L);
         row.setTaskId(100L);
         row.setExecutionStatus(2);
-        row.setStage(4);
+        row.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
         row.setVersion(5);
         row.setLockOwner("worker-1");
         return row;

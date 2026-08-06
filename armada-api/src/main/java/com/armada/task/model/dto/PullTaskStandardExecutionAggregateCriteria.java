@@ -1,6 +1,7 @@
 package com.armada.task.model.dto;
 
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -37,7 +38,8 @@ public record PullTaskStandardExecutionAggregateCriteria(
                         PullTaskGroupAccountRole.PULLER.code(),
                         PullTaskGroupAccountRole.STATION.code(),
                         PullTaskGroupAccountAvailability.AVAILABLE.code(),
-                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code(),
+                        PullTaskGroupAccountAdminStatus.SUCCESS.code()));
     }
 
     /** 角色类型及“当前有效”事实口径。 */
@@ -46,6 +48,7 @@ public record PullTaskStandardExecutionAggregateCriteria(
             int pullerRole,
             int stationRole,
             int available,
-            int inGroup) {
+            int inGroup,
+            int adminSuccess) {
     }
 }

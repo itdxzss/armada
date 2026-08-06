@@ -180,6 +180,7 @@
              SUM(CASE WHEN account_row.role_type = #{criteria.account.managerRole}
                            AND account_row.availability_status = #{criteria.account.available}
                            AND account_row.membership_status = #{criteria.account.inGroup}
+                           AND account_row.admin_status = #{criteria.account.adminSuccess}
                       THEN 1 ELSE 0 END) AS current_manager_count,
              SUM(CASE WHEN account_row.role_type = #{criteria.account.pullerRole}
                            AND account_row.availability_status = #{criteria.account.available}

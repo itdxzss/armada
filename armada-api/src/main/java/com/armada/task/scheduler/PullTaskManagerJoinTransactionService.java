@@ -336,7 +336,7 @@ public class PullTaskManagerJoinTransactionService {
                 work.executionId(), work.expectedVersion(), work.lockOwner(), now);
         if (outcome.kind() == PullTaskManagerJoinOutcome.Kind.CONFIRMED) {
             update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-            update.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+            update.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
             update.setGroupJid(outcome.groupJid());
             return update;
         }

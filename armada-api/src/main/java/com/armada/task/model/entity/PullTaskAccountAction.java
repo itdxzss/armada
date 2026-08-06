@@ -1,6 +1,6 @@
 package com.armada.task.model.entity;
 
-/** 执行行内的账号动作（联系人、邀请、踩链接），映射 {@code pull_task_account_action}。 */
+/** 执行行内的账号动作（联系人、邀请、踩链接、管理员设置），映射 {@code pull_task_account_action}。 */
 public class PullTaskAccountAction {
 
     /** 账号动作主键。 */
@@ -30,11 +30,17 @@ public class PullTaskAccountAction {
     /** 协议命令 ID；回调按此定位。 */
     private String commandId;
 
+    /** 当前协议命令尝试序号；每次提交新 commandId 递增。 */
+    private Integer attemptNo;
+
     /** 失败原因码。 */
     private String reasonCode;
 
     /** 失败原因描述(已脱敏)。 */
     private String reasonMessage;
+
+    /** 最近一次结果是否允许业务重试；尚无结果时为空。 */
+    private Boolean retryable;
 
     /** 命令提交时间(epoch 毫秒)。 */
     private Long submittedAt;
@@ -120,6 +126,14 @@ public class PullTaskAccountAction {
         this.commandId = commandId;
     }
 
+    public Integer getAttemptNo() {
+        return attemptNo;
+    }
+
+    public void setAttemptNo(Integer attemptNo) {
+        this.attemptNo = attemptNo;
+    }
+
     public String getReasonCode() {
         return reasonCode;
     }
@@ -134,6 +148,14 @@ public class PullTaskAccountAction {
 
     public void setReasonMessage(String reasonMessage) {
         this.reasonMessage = reasonMessage;
+    }
+
+    public Boolean getRetryable() {
+        return retryable;
+    }
+
+    public void setRetryable(Boolean retryable) {
+        this.retryable = retryable;
     }
 
     public Long getSubmittedAt() {

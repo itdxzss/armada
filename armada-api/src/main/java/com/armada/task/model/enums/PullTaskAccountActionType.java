@@ -8,7 +8,9 @@ public enum PullTaskAccountActionType {
     /** 邀请入群：管理账号邀请拉手，或补充管理员时由现有管理员邀请。 */
     INVITE_TO_GROUP(2),
     /** 踩链接入群：账号自行通过群链接进入，actor 写目标账号自身 ID。 */
-    JOIN_BY_LINK(3);
+    JOIN_BY_LINK(3),
+    /** 设置任务管理员：群内既有管理员把任务管理员提升为群管理员。 */
+    PROMOTE_MANAGER(4);
 
     private final int code;
 

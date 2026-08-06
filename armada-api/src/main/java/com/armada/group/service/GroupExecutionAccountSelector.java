@@ -7,6 +7,7 @@ import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.Optional;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /** 为群实时读写选择在线、仍在群内的执行账号。 */
@@ -41,5 +42,19 @@ public final class GroupExecutionAccountSelector {
         return find(groupLinkId).orElseThrow(() -> new BusinessException(
                 ErrorCode.GROUP_EXECUTOR_UNAVAILABLE,
                 "没有在线且仍在该群内的账号"));
+    }
+
+    /**
+     * 查询可为普通拉群任务管理员提权的当前租户群管理员候选。
+     *
+     * @param tenantId 当前租户 ID
+     * @param groupJid 目标群 JID
+     * @param managerAccountId 待提权的任务管理员账号 ID
+     * @return 保持群主、最近在群时间和账号 ID 排序的候选
+     */
+    public List<GroupExecutionAccount> findPullTaskAdminPromoterCandidates(
+            Long tenantId, String groupJid, Long managerAccountId) {
+        return mapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                tenantId, groupJid, managerAccountId);
     }
 }

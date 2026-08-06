@@ -154,7 +154,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         PullTaskManagerJoinResultTransition.Target target = switch (kind) {
             case SUCCESS -> new PullTaskManagerJoinResultTransition.Target(
                     PullTaskExecutionStatus.EXECUTING.code(),
-                    PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                    PullTaskExecutionStage.MANAGER_ADMIN.code(),
                     callback.groupJid(), null, null, null, 0L, null);
             case EXECUTION_FAILED -> new PullTaskManagerJoinResultTransition.Target(
                     PullTaskExecutionStatus.FAILED.code(),

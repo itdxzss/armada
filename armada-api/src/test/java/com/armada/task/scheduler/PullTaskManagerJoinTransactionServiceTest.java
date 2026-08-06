@@ -174,7 +174,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         verify(executionMapper).transitionClaimed(update.capture(),
                 eq(PullTaskExecutionStage.MANAGER_JOIN.code()));
         assertThat(update.getValue().getStage())
-                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+                .isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
         assertThat(update.getValue().getGroupJid()).isEqualTo("120363group@g.us");
         verify(actionMapper).writeBackResult(601L, PullTaskActionStatus.SUCCESS.code(),
                 null, null, NOW);

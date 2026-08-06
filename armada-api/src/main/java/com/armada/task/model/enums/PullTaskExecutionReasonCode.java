@@ -18,6 +18,15 @@ public enum PullTaskExecutionReasonCode {
     /** 协议调用或实时成员查询没有形成可确认的在群结果。 */
     MANAGER_MEMBERSHIP_UNCONFIRMED("管理员在群结果无法确认"),
 
+    /** 群内没有在线、正常且协议身份完整的我方群主或管理员。 */
+    MANAGER_ADMIN_ACTOR_UNAVAILABLE("当前没有在线的我方群主或管理员"),
+
+    /** 候选提权动作明确失败，当前没有其他可立即使用的候选。 */
+    MANAGER_ADMIN_SETUP_FAILED("管理员设置失败"),
+
+    /** 提权命令已有结果，但实时成员列表尚未确认目标权限。 */
+    MANAGER_ADMIN_UNCONFIRMED("管理员权限结果暂未确认"),
+
     /** 拉手分组当前没有可占用且可执行协议动作的在线正常账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),
 

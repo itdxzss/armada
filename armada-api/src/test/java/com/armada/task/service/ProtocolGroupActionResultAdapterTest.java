@@ -9,6 +9,8 @@ import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
+import com.armada.task.model.dto.PullTaskManagerAdminCallback;
+import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.service.impl.ProtocolGroupActionResultAdapter;
@@ -21,10 +23,13 @@ class ProtocolGroupActionResultAdapterTest {
             mock(PullTaskContactSaveResultService.class);
     private final PullTaskPullerInviteResultService inviteService =
             mock(PullTaskPullerInviteResultService.class);
+    private final PullTaskManagerAdminResultService managerAdminResultService =
+            mock(PullTaskManagerAdminResultService.class);
     private final PullTaskProtocolResultCallbackService callbackService =
             mock(PullTaskProtocolResultCallbackService.class);
     private final ProtocolGroupActionResultAdapter adapter =
-            new ProtocolGroupActionResultAdapter(service, inviteService, callbackService);
+            new ProtocolGroupActionResultAdapter(
+                    service, inviteService, managerAdminResultService, callbackService);
 
     @Test
     void contactSaveUnknownEventRoutesToStronglyTypedCallback() {
@@ -82,5 +87,24 @@ class ProtocolGroupActionResultAdapterTest {
                 "8613900000001@s.whatsapp.net",
                 PullTaskMaterialAdminProtocolOutcome.UNKNOWN,
                 "MATERIAL_ADMIN_PERMISSION_UNCONFIRMED", "unconfirmed", true, 5_000L));
+    }
+
+    @Test
+    void managerAdminEventRoutesOnlyToManagerAdminStateMachine() {
+        ProtocolGroupActionResultReportedEvent event = new ProtocolGroupActionResultReportedEvent(
+                "event-4", 7L, 100L, 11L, 711L,
+                "pull_task_manager_admin", "PARTICIPANT_PROMOTE", 903L, "promoter-903",
+                "cmd-promote-2", 2, "FAILED", "15@s.whatsapp.net",
+                "GROUP_PERMISSION_DENIED", "raw", false, 5_000L, "worker-a");
+
+        adapter.handleActionResultReported(event);
+
+        ArgumentCaptor<PullTaskManagerAdminCallback> captor =
+                ArgumentCaptor.forClass(PullTaskManagerAdminCallback.class);
+        verify(managerAdminResultService).apply(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new PullTaskManagerAdminCallback(
+                7L, 100L, 11L, 711L, 903L, "promoter-903", "cmd-promote-2", 2,
+                "15@s.whatsapp.net", PullTaskManagerAdminProtocolOutcome.FAILED,
+                "GROUP_PERMISSION_DENIED", "raw", false, 5_000L));
     }
 }

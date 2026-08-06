@@ -68,6 +68,53 @@
                open="(" separator="," close=")">#{status}</foreach>
   </update>
 
+  <update id="submitAttempt">
+    UPDATE pull_task_account_action
+    SET action_status = 2,
+        command_id = #{commandId},
+        attempt_no = attempt_no + 1,
+        retryable = NULL,
+        reason_code = NULL,
+        reason_message = NULL,
+        submitted_at = #{now},
+        result_at = NULL,
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND action_status IN
+      <foreach collection="expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="transitionManagerAdminResult">
+    UPDATE pull_task_account_action
+    SET action_status = #{targetStatus},
+        retryable = #{retryable},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND command_id = #{commandId}
+      AND attempt_no = #{attemptNo}
+      AND action_status IN
+      <foreach collection="expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="transitionManagerAdminObservation">
+    UPDATE pull_task_account_action
+    SET action_status = #{targetStatus},
+        retryable = #{retryable},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND action_status IN
+      <foreach collection="expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
   <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskAccountAction">
     SELECT *
     FROM pull_task_account_action

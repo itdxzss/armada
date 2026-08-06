@@ -12,6 +12,7 @@ import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.Optional;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -49,5 +50,21 @@ class GroupExecutionAccountSelectorTest {
                 .isInstanceOfSatisfying(BusinessException.class, ex ->
                         assertThat(ex.getCode()).isEqualTo(ErrorCode.GROUP_EXECUTOR_UNAVAILABLE.code()))
                 .hasMessage("没有在线且仍在该群内的账号");
+    }
+
+    @Test
+    void pullTaskPromoterCandidatesUseExplicitTenantAndPreserveMapperOrder() {
+        GroupExecutionAccount owner = new GroupExecutionAccount(
+                906L, "web", "owner-906", "906", true);
+        GroupExecutionAccount admin = new GroupExecutionAccount(
+                887L, "web", "admin-887", "887", true);
+        when(mapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                7L, "120363group@g.us", 15L)).thenReturn(List.of(owner, admin));
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.findPullTaskAdminPromoterCandidates(
+                7L, "120363group@g.us", 15L)).containsExactly(owner, admin);
+        verify(mapper).selectPullTaskAdminPromoterCandidatesByTenant(
+                7L, "120363group@g.us", 15L);
     }
 }

@@ -20,8 +20,8 @@ public record ProtocolPullTaskPullerInviteCommandRequest(
     public static final String SOURCE = "pull_task_puller_invite";
 
     /** 生成不含账号、群和目标号码的持久化引用。 */
-    public ProtocolPullTaskPullerInviteReference reference() {
-        return new ProtocolPullTaskPullerInviteReference(
+    public ProtocolPullTaskParticipantActionReference reference() {
+        return new ProtocolPullTaskParticipantActionReference(
                 tenantId, pullTaskId, groupExecutionId, actionId, SOURCE);
     }
 }

@@ -1,6 +1,8 @@
 package com.armada.task.scheduler;
 
 import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.group.service.GroupExecutionAccountSelector;
+import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import org.springframework.stereotype.Component;
 
@@ -9,5 +11,8 @@ import org.springframework.stereotype.Component;
 public record PullTaskResourceRecoveryResources(
         PullTaskGroupExecutionMapper executionMapper,
         AccountProtocolLookupService accountLookup,
-        PullTaskStationSelectionService stationSelectionService) {
+        PullTaskStationSelectionService stationSelectionService,
+        GroupExecutionAccountSelector promoterSelector,
+        PullTaskAccountActionMapper actionMapper,
+        PullTaskManagerAdminCandidateSelector managerAdminCandidateSelector) {
 }

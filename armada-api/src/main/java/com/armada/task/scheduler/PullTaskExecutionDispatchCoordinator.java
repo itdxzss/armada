@@ -101,6 +101,7 @@ public class PullTaskExecutionDispatchCoordinator {
                                 PullTaskExecutionStatus.EXECUTING.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
                                         PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
                                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                         PullTaskExecutionStage.PULLER_INVITE.code(),
                                         PullTaskExecutionStage.PULL_EXECUTION.code(),
@@ -109,6 +110,7 @@ public class PullTaskExecutionDispatchCoordinator {
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.WAIT_RESOURCE.code(),
                                 List.of(PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
                                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                         PullTaskExecutionStage.PULLER_INVITE.code(),
                                         PullTaskExecutionStage.PULL_EXECUTION.code(),

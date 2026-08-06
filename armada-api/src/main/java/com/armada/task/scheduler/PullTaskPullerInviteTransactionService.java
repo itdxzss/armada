@@ -17,6 +17,7 @@ import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskStandardStatus;
@@ -106,6 +107,8 @@ public class PullTaskPullerInviteTransactionService {
                 .filter(PullTaskPullerInviteTransactionService::available)
                 .filter(row -> Objects.equals(row.getMembershipStatus(),
                         PullTaskGroupAccountMembershipStatus.IN_GROUP.code()))
+                .filter(row -> Objects.equals(row.getAdminStatus(),
+                        PullTaskGroupAccountAdminStatus.SUCCESS.code()))
                 .toList();
         List<Long> accountIds = stored.stream()
                 .map(PullTaskGroupAccount::getAccountId).distinct().toList();
@@ -224,8 +227,19 @@ public class PullTaskPullerInviteTransactionService {
         boolean hasJoinedPuller = pullers.stream().anyMatch(row -> Objects.equals(
                 row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
         if (!hasJoinedPuller) {
-            return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
-                    PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
+            List<PullTaskGroupAccount> failedPullers = pullers.stream()
+                    .filter(row -> Objects.equals(row.getMembershipStatus(),
+                            PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code()))
+                    .filter(row -> row.getReleasedAt() == null)
+                    .toList();
+            for (PullTaskGroupAccount row : failedPullers) {
+                if (groupAccountMapper.releasePuller(row.getId(), now) != 1) {
+                    throw new IllegalStateException("失败拉手释放事实写入不完整");
+                }
+            }
+            return transitionStage(
+                    candidate, PullTaskExecutionStage.MANAGER_PULLER_CONTACT,
+                    PullTaskExecutionDispatchResult.ADVANCED, now);
         }
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
@@ -237,6 +251,22 @@ public class PullTaskPullerInviteTransactionService {
             return PullTaskExecutionDispatchResult.LOST;
         }
         return PullTaskExecutionDispatchResult.ADVANCED;
+    }
+
+    private PullTaskExecutionDispatchResult transitionStage(
+            PullTaskGroupExecution candidate,
+            PullTaskExecutionStage targetStage,
+            PullTaskExecutionDispatchResult success,
+            long now) {
+        PullTaskGroupExecution update = transition(candidate, now);
+        update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+        update.setStage(targetStage.code());
+        update.setNextRunAt(0L);
+        if (resources.executionMapper().transitionClaimed(
+                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+            throw new IllegalStateException("拉手邀请完成后执行行租约已变化");
+        }
+        return success;
     }
 
     private PullTaskExecutionDispatchResult waitForResource(

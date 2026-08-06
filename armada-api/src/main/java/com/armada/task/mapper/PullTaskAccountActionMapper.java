@@ -132,6 +132,50 @@ public interface PullTaskAccountActionMapper {
     int transitionResult(@Param("transition") PullTaskFactTransition transition);
 
     /**
+     * 为可重试管理员设置动作提交新的协议命令尝试。
+     *
+     * @param id 动作行 ID
+     * @param expectedStatuses 允许提交新尝试的当前状态
+     * @param commandId 新协议命令 ID
+     * @param now 提交时间(epoch 毫秒)
+     * @return 1 表示提交成功；0 表示状态已变化
+     */
+    int submitAttempt(@Param("id") long id,
+                      @Param("expectedStatuses") List<Integer> expectedStatuses,
+                      @Param("commandId") String commandId,
+                      @Param("now") long now);
+
+    /**
+     * 按 commandId 与 attemptNo 收敛管理员设置结果，拒绝迟到旧尝试覆盖当前状态。
+     *
+     * @return 1 表示结果生效；0 表示命令、尝试序号或状态已变化
+     */
+    int transitionManagerAdminResult(
+            @Param("id") long id,
+            @Param("commandId") String commandId,
+            @Param("attemptNo") int attemptNo,
+            @Param("expectedStatuses") List<Integer> expectedStatuses,
+            @Param("targetStatus") int targetStatus,
+            @Param("retryable") boolean retryable,
+            @Param("reasonCode") String reasonCode,
+            @Param("reasonMessage") String reasonMessage,
+            @Param("now") long now);
+
+    /**
+     * 按实时群权限观察结果收敛管理员设置动作，不依赖协议 commandId。
+     *
+     * @return 1 表示观察结果生效；0 表示动作状态已变化
+     */
+    int transitionManagerAdminObservation(
+            @Param("id") long id,
+            @Param("expectedStatuses") List<Integer> expectedStatuses,
+            @Param("targetStatus") int targetStatus,
+            @Param("retryable") boolean retryable,
+            @Param("reasonCode") String reasonCode,
+            @Param("reasonMessage") String reasonMessage,
+            @Param("now") long now);
+
+    /**
      * 协议回调按命令 ID 定位动作行。
      *
      * @param commandId 协议命令 ID

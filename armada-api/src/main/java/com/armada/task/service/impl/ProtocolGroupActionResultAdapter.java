@@ -6,10 +6,13 @@ import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
+import com.armada.task.model.dto.PullTaskManagerAdminCallback;
+import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.service.PullTaskContactSaveResultService;
 import com.armada.task.service.PullTaskPullerInviteResultService;
+import com.armada.task.service.PullTaskManagerAdminResultService;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +22,7 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
 
     private final PullTaskContactSaveResultService contactSaveResultService;
     private final PullTaskPullerInviteResultService pullerInviteResultService;
+    private final PullTaskManagerAdminResultService managerAdminResultService;
     private final PullTaskProtocolResultCallbackService callbackService;
 
     /**
@@ -26,14 +30,17 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
      *
      * @param contactSaveResultService 联系人保存结果状态机
      * @param pullerInviteResultService 管理员邀请结果状态机
+     * @param managerAdminResultService 任务管理员提权结果状态机
      * @param callbackService 批量拉人和料子提权结果状态机
      */
     public ProtocolGroupActionResultAdapter(
             PullTaskContactSaveResultService contactSaveResultService,
             PullTaskPullerInviteResultService pullerInviteResultService,
+            PullTaskManagerAdminResultService managerAdminResultService,
             PullTaskProtocolResultCallbackService callbackService) {
         this.contactSaveResultService = contactSaveResultService;
         this.pullerInviteResultService = pullerInviteResultService;
+        this.managerAdminResultService = managerAdminResultService;
         this.callbackService = callbackService;
     }
 
@@ -53,6 +60,14 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
                     event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.actionId(),
                     event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
                     event.targetJid(), PullTaskPullerInviteProtocolOutcome.valueOf(event.outcome()),
+                    event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
+            return;
+        }
+        if ("pull_task_manager_admin".equals(event.source())) {
+            managerAdminResultService.apply(new PullTaskManagerAdminCallback(
+                    event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.actionId(),
+                    event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
+                    event.targetJid(), PullTaskManagerAdminProtocolOutcome.valueOf(event.outcome()),
                     event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
             return;
         }

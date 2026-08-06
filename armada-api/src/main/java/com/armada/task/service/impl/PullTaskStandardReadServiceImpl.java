@@ -187,7 +187,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
             PullTaskGroupExecution row,
             PullTaskStandardExecutionAggregate aggregate) {
         return new PullTaskStandardExecutionSummaryVO(
-                row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
+                row.getId(), value(row.getSeq()), row.getNormalizedLink(), maskJid(row.getGroupJid()),
                 value(row.getExecutionStatus()), value(row.getStage()),
                 Integer.valueOf(1).equals(row.getManualPaused()),
                 row.getWaitResourceType(),
@@ -285,8 +285,10 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private static PullTaskStandardRoleVO role(PullTaskGroupAccount row) {
         return new PullTaskStandardRoleVO(
-                row.getId(), row.getAccountId(), row.getAccountPhone(), value(row.getRoleType()),
+                row.getId(), row.getAccountId(), maskIdentifier(row.getAccountPhone()),
+                value(row.getRoleType()),
                 value(row.getRoleSeq()), value(row.getMembershipStatus()),
+                value(row.getAdminStatus()),
                 row.getMembershipReasonCode(), row.getMembershipReasonMessage(),
                 row.getMembershipResultAt(),
                 value(row.getAvailabilityStatus()), row.getUnavailableReasonCode(),
@@ -310,10 +312,34 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private static PullTaskStandardMemberVO member(PullTaskMaterialMember row) {
         return new PullTaskStandardMemberVO(
-                row.getId(), value(row.getMemberSeq()), row.getNormalizedPhone(),
+                row.getId(), value(row.getMemberSeq()), maskIdentifier(row.getNormalizedPhone()),
                 Integer.valueOf(1).equals(row.getAdminRequired()), row.getPullCallId(),
                 value(row.getPullStatus()), row.getPullReasonCode(), row.getPullReasonMessage(),
-                row.getWaJid(), value(row.getAdminStatus()), row.getAdminReasonCode());
+                maskJid(row.getWaJid()), value(row.getAdminStatus()), row.getAdminReasonCode());
+    }
+
+    /** 详情接口只保留稳定识别片段，完整号码和 JID 继续留在事实表内。 */
+    private static String maskJid(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        int separator = value.indexOf('@');
+        if (separator < 0) {
+            return maskIdentifier(value);
+        }
+        return maskIdentifier(value.substring(0, separator)) + value.substring(separator);
+    }
+
+    private static String maskIdentifier(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        if (value.length() <= 7) {
+            return "*".repeat(value.length());
+        }
+        return value.substring(0, 3)
+                + "*".repeat(value.length() - 7)
+                + value.substring(value.length() - 4);
     }
 
     private static int value(Integer value) {

@@ -140,6 +140,23 @@ public interface AccountGroupMembershipMapper {
             @Param("groupJid") String groupJid);
 
     /**
+     * 按租户和群 JID 返回可为任务管理员提权的我方在线管理员候选。
+     *
+     * <p>本查询不受账号分组约束；候选仅来自当前租户可控账号，并按群主、最近在群时间、
+     * 账号 ID 稳定排序。调用方提交写操作前仍需实时确认权限。</p>
+     *
+     * @param tenantId 当前租户 ID
+     * @param groupJid 目标 WhatsApp 群 JID
+     * @param managerAccountId 待提权任务管理员账号 ID
+     * @return 按优先级排序的候选账号
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupExecutionAccount> selectPullTaskAdminPromoterCandidatesByTenant(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJid") String groupJid,
+            @Param("managerAccountId") Long managerAccountId);
+
+    /**
      * 查询账号群 baseline 状态。
      *
      * @param accountId 账号 ID

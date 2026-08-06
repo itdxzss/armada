@@ -19,6 +19,7 @@ import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskStandardStatus;
@@ -111,6 +112,8 @@ public class PullTaskManagerPullerContactTransactionService {
                 .filter(PullTaskManagerPullerContactTransactionService::available)
                 .filter(row -> row.getMembershipStatus()
                         == PullTaskGroupAccountMembershipStatus.IN_GROUP.code())
+                .filter(row -> Objects.equals(row.getAdminStatus(),
+                        PullTaskGroupAccountAdminStatus.SUCCESS.code()))
                 .toList();
     }
 
@@ -193,6 +196,10 @@ public class PullTaskManagerPullerContactTransactionService {
         for (PullTaskGroupAccount row : existing) {
             if (activeCount >= planned) {
                 break;
+            }
+            if (Objects.equals(row.getMembershipStatus(),
+                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())) {
+                continue;
             }
             if (row.getReleasedAt() == null || !available(row)
                     || !eligibleIds.contains(row.getAccountId())) {

@@ -242,6 +242,55 @@
     LIMIT 1
   </select>
 
+  <select id="selectPullTaskAdminPromoterCandidatesByTenant"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <bind name="inGroupStatus"
+          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
+    <bind name="onlineLoginState"
+          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
+    <bind name="normalAccountState"
+          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    SELECT a.id AS accountId,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           a.ws_phone AS wsPhone,
+           TRUE AS groupAdmin
+    FROM account_group_membership m
+    INNER JOIN account a
+      ON a.tenant_id = m.tenant_id
+     AND a.id = m.account_id
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = m.tenant_id
+     AND p.group_jid = m.group_jid
+    WHERE a.tenant_id = #{tenantId}
+      AND m.group_jid = #{groupJid}
+      AND m.deleted_at IS NULL
+      AND m.membership_status = #{inGroupStatus}
+      AND m.is_admin = 1
+      AND a.deleted_at IS NULL
+      AND a.id &lt;&gt; #{managerAccountId}
+      AND a.protocol_id IS NOT NULL
+      AND TRIM(a.protocol_id) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND s.login_state = #{onlineLoginState}
+      AND s.account_state = #{normalAccountState}
+      AND (s.risk_status IS NULL OR s.risk_status = 1)
+      AND s.mute_status IS NULL
+    ORDER BY CASE
+               WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                    = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+               THEN 0 ELSE 1
+             END,
+             COALESCE(m.last_seen_at, 0) DESC,
+             a.id ASC
+  </select>
+
   <select id="selectAccountBaselineRow" resultType="com.armada.group.model.vo.AccountGroupBaselineRow">
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,

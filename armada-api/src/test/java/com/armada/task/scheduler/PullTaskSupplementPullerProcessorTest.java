@@ -17,6 +17,7 @@ import com.armada.task.model.dto.PullTaskExecutionLease;
 import com.armada.task.model.dto.PullTaskSupplementPullerPayload;
 import com.armada.task.model.dto.PullTaskSupplementPullerWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -147,7 +148,7 @@ class PullTaskSupplementPullerProcessorTest {
         row.setTaskId(1L);
         row.setTenantId(7L);
         row.setExecutionStatus(2);
-        row.setStage(3);
+        row.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
         row.setVersion(2);
         row.setLockOwner("worker");
         return row;

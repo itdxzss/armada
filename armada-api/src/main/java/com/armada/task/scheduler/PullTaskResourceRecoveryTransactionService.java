@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -12,6 +13,8 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
+import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
@@ -133,11 +136,48 @@ public class PullTaskResourceRecoveryTransactionService {
         restoreOffline(activeIds, PullTaskGroupAccountRole.MANAGER, now);
         List<PullTaskGroupAccount> refreshed = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
+        if (candidate.getStage() == PullTaskExecutionStage.MANAGER_ADMIN.code()) {
+            return managerAdminCheck(candidate, refreshed, activeIds);
+        }
         int available = (int) refreshed.stream()
                 .filter(row -> activeIds.contains(row.getAccountId()))
                 .filter(row -> managerSupportsStage(row, candidate.getStage()))
                 .count();
         return available > 0 ? ResourceCheck.available() : managerWaiting(available);
+    }
+
+    private ResourceCheck managerAdminCheck(
+            PullTaskGroupExecution candidate,
+            List<PullTaskGroupAccount> managers,
+            List<Long> activeIds) {
+        PullTaskGroupAccount manager = managers.stream()
+                .filter(row -> activeIds.contains(row.getAccountId()))
+                .filter(row -> Objects.equals(row.getAvailabilityStatus(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code()))
+                .filter(row -> Objects.equals(row.getMembershipStatus(),
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()))
+                .findFirst().orElse(null);
+        if (manager == null) {
+            return ResourceCheck.waiting(
+                    PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED.name(),
+                    PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED.message());
+        }
+        List<GroupExecutionAccount> candidates = resources.promoterSelector()
+                .findPullTaskAdminPromoterCandidates(
+                        candidate.getTenantId(), candidate.getGroupJid(), manager.getAccountId());
+        List<PullTaskGroupAccount> roles = accountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.PROMOTER.code());
+        var actions = resources.actionMapper().selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.PROMOTE_MANAGER.code());
+        boolean selectable = resources.managerAdminCandidateSelector()
+                .select(candidates, roles, actions, manager.getId()).isPresent();
+        if (selectable) {
+            return ResourceCheck.available();
+        }
+        PullTaskExecutionReasonCode reason = candidates == null || candidates.isEmpty()
+                ? PullTaskExecutionReasonCode.MANAGER_ADMIN_ACTOR_UNAVAILABLE
+                : PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED;
+        return ResourceCheck.waiting(reason.name(), reason.message());
     }
 
     private ResourceCheck pullerCheck(
@@ -241,6 +281,10 @@ public class PullTaskResourceRecoveryTransactionService {
             long now) {
         int available = 0;
         for (PullTaskGroupAccount row : stored) {
+            if (Objects.equals(row.getMembershipStatus(),
+                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())) {
+                continue;
+            }
             if (!eligibleIds.contains(row.getAccountId())
                     || !Objects.equals(row.getAvailabilityStatus(),
                     PullTaskGroupAccountAvailability.AVAILABLE.code())) {

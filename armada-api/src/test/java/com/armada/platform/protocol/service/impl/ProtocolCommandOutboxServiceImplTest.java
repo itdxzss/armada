@@ -27,6 +27,7 @@ import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
@@ -300,6 +301,55 @@ class ProtocolCommandOutboxServiceImplTest {
             assertThat(rows.get(0).getPayloadJson())
                     .doesNotContain("groupJid")
                     .doesNotContain("participants")
+                    .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskManagerAdminCommandsPersistsOnlyReferencesAndRoutesByPromoterBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-promote-web", "cmd-promote-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskManagerAdminCommands(List.of(
+                            new ProtocolPullTaskManagerAdminCommandRequest(
+                                    1L, 9L, 11L, 711L,
+                                    new ProtocolAccountRef(
+                                            392L, ProtocolBackend.WEB, "promoter-web", "933")),
+                            new ProtocolPullTaskManagerAdminCommandRequest(
+                                    1L, 9L, 12L, 712L,
+                                    new ProtocolAccountRef(
+                                            393L, ProtocolBackend.ANDROID, "promoter-android", "944"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.participants.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                    .containsOnly("PULL_TASK_ACCOUNT_ACTION");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                    .containsExactly("promoter-web", "promoter-android");
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(0).getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "actionId", 711,
+                    "source", "pull_task_manager_admin"));
+            assertThat(rows.get(0).getPayloadJson())
+                    .doesNotContain("groupJid")
+                    .doesNotContain("participants")
+                    .doesNotContain("wsPhone")
                     .doesNotContain("accountId");
         } finally {
             TenantContext.clear();

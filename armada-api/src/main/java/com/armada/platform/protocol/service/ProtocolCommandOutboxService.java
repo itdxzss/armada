@@ -10,6 +10,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
@@ -127,6 +128,15 @@ public interface ProtocolCommandOutboxService {
      */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskPullerInviteCommands(
             List<ProtocolPullTaskPullerInviteCommandRequest> commands);
+
+    /**
+     * 批量写入普通拉群既有管理员提权任务管理员命令。
+     *
+     * @param commands 管理员设置动作引用，最多 500 条
+     * @return 稳定任务批次、命令 ID 与插入数量
+     */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskManagerAdminCommands(
+            List<ProtocolPullTaskManagerAdminCommandRequest> commands);
 
     /** 批量写入普通拉群站台和料子同批入群命令。 */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskBatchAddCommands(

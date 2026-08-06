@@ -12,11 +12,14 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupInvitePageProbe;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
@@ -40,6 +43,7 @@ import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.dto.PullTaskManagerJoinCallback;
+import com.armada.task.model.dto.PullTaskManagerAdminCallback;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
@@ -55,21 +59,25 @@ import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome;
+import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.service.PullTaskContactSaveResultService;
 import com.armada.task.service.PullTaskManagerJoinResultService;
+import com.armada.task.service.PullTaskManagerAdminResultService;
 import com.armada.task.service.PullTaskPullerInviteResultService;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
 import com.armada.task.service.impl.PullTaskContactSaveResultServiceImpl;
 import com.armada.task.service.impl.PullTaskManagerJoinResultServiceImpl;
+import com.armada.task.service.impl.PullTaskManagerAdminResultServiceImpl;
 import com.armada.task.service.impl.PullTaskPullerInviteResultServiceImpl;
 import com.armada.task.service.impl.PullTaskProtocolResultCallbackServiceImpl;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
@@ -96,8 +104,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
     private static final String GROUP_JID = "120363group@g.us";
     private static final ProtocolAccountRef MANAGER = account(901L);
+    private static final ProtocolAccountRef PROMOTER = account(906L);
     private static final ProtocolAccountRef PULLER = account(902L);
     private static final ProtocolAccountRef STATION = account(903L);
+    private static final AtomicBoolean MANAGER_PROMOTED = new AtomicBoolean();
 
     @Autowired private DataSource dataSource;
     @Autowired private PullTaskGroupExecutionMapper executionMapper;
@@ -107,6 +117,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
     @Autowired private PullTaskPullCallMapper callMapper;
     @Autowired private PullTaskExecutionDispatchCoordinator coordinator;
     @Autowired private PullTaskManagerJoinResultService managerJoinResultService;
+    @Autowired private PullTaskManagerAdminResultService managerAdminResultService;
     @Autowired private PullTaskContactSaveResultService contactSaveResultService;
     @Autowired private PullTaskPullerInviteResultService pullerInviteResultService;
     @Autowired private PullTaskProtocolResultCallbackService protocolResultCallbackService;
@@ -115,6 +126,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        MANAGER_PROMOTED.set(false);
         reset(outboxService);
         when(outboxService.enqueuePullTaskGroupJoinCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
@@ -134,6 +146,16 @@ class PullTaskExecutionEndToEndIntegrationTest {
                             invocation.getArgument(0);
                     List<String> commandIds = requests.stream()
                             .map(request -> "cmd-invite-" + request.actionId())
+                            .toList();
+                    return new ProtocolCommandOutboxEnqueueResult(
+                            "pull-task:100", commandIds, commandIds.size());
+                });
+        when(outboxService.enqueuePullTaskManagerAdminCommands(anyList()))
+                .thenAnswer(invocation -> {
+                    List<ProtocolPullTaskManagerAdminCommandRequest> requests =
+                            invocation.getArgument(0);
+                    List<String> commandIds = requests.stream()
+                            .map(request -> "cmd-manager-admin-" + request.actionId())
                             .toList();
                     return new ProtocolCommandOutboxEnqueueResult(
                             "pull-task:100", commandIds, commandIds.size());
@@ -174,6 +196,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
             long now = 1_000L + round * 1_000L;
             coordinator.dispatchOnce(now);
             applyManagerJoinCallbackIfSubmitted(now + 100L);
+            applyManagerAdminCallbackIfSubmitted(now + 150L);
             applyContactCallbacksIfSubmitted(now + 200L);
             applyPullerInviteCallbacksIfSubmitted(now + 300L);
             applyBatchCallbacksIfSubmitted(now + 400L);
@@ -223,6 +246,28 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     7L, 100L, execution.getId(), action.getId(), actor.getAccountId(),
                     "account-" + actor.getAccountId(), action.getCommandId(), 1,
                     PullTaskContactSaveOutcome.SUCCESS, null, null, false, occurredAt));
+        }
+    }
+
+    private void applyManagerAdminCallbackIfSubmitted(long occurredAt) {
+        PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
+        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
+                execution.getId(), PullTaskAccountActionType.PROMOTE_MANAGER.code());
+        if (actions.size() != 1
+                || actions.get(0).getActionStatus() != PullTaskActionStatus.SUBMITTED.code()) {
+            return;
+        }
+        PullTaskAccountAction action = actions.get(0);
+        PullTaskGroupAccount actor = accountMapper.selectById(action.getActorGroupAccountId());
+        PullTaskGroupAccount target = accountMapper.selectById(action.getTargetGroupAccountId());
+        boolean applied = managerAdminResultService.apply(new PullTaskManagerAdminCallback(
+                7L, 100L, execution.getId(), action.getId(), actor.getAccountId(),
+                "account-" + actor.getAccountId(), action.getCommandId(), action.getAttemptNo(),
+                WhatsappJids.userJid(target.getAccountPhone()),
+                PullTaskManagerAdminProtocolOutcome.SUCCESS,
+                null, null, false, occurredAt));
+        if (applied) {
+            MANAGER_PROMOTED.set(true);
         }
     }
 
@@ -455,8 +500,11 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean GroupMemberListPort memberListPort() {
             GroupMemberListPort port = mock(GroupMemberListPort.class);
-            when(port.list(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
-                    participant(MANAGER), participant(PULLER), participant(STATION),
+            when(port.list(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> List.of(
+                    participant(MANAGER, MANAGER_PROMOTED.get()),
+                    participant(PROMOTER, true),
+                    participant(PULLER, false),
+                    participant(STATION, false),
                     new GroupParticipantResult(
                             "8613900000001@s.whatsapp.net", "8613900000001",
                             true, false, "admin")));
@@ -482,11 +530,11 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return port;
         }
 
-        private static GroupParticipantResult participant(ProtocolAccountRef account) {
+        private static GroupParticipantResult participant(
+                ProtocolAccountRef account, boolean admin) {
             return new GroupParticipantResult(
                     account.wsPhone() + "@s.whatsapp.net", account.wsPhone(),
-                    account.armadaAccountId() == MANAGER.armadaAccountId(), false,
-                    account.armadaAccountId() == MANAGER.armadaAccountId() ? "admin" : null);
+                    admin, false, admin ? "admin" : null);
         }
 
         @Bean PullTaskParentCompletionService parentCompletion(
@@ -537,6 +585,15 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskParentCompletionService completionService) {
             return new PullTaskManagerJoinResultServiceImpl(
                     actionMapper, accountMapper, executionMapper, completionService);
+        }
+
+        @Bean PullTaskManagerAdminResultService managerAdminResultService(
+                PullTaskAccountActionMapper actionMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskExecutionDispatchProperties properties) {
+            return new PullTaskManagerAdminResultServiceImpl(
+                    actionMapper, accountMapper, executionMapper, properties);
         }
 
         @Bean PullTaskContactSaveResultService contactSaveResultService(
@@ -658,13 +715,43 @@ class PullTaskExecutionEndToEndIntegrationTest {
         @Bean PullTaskExecutionStageRouter stageRouter(
                 PullTaskLinkValidationProcessor linkProcessor,
                 PullTaskManagerJoinProcessor managerJoinProcessor,
+                PullTaskManagerAdminProcessor managerAdminProcessor,
                 PullTaskManagerPullerContactProcessor managerPullerContactProcessor,
                 PullTaskPullerInviteProcessor pullerInviteProcessor,
                 PullTaskPullExecutionProcessor pullExecutionProcessor,
                 PullTaskMaterialAdminProcessor materialAdminProcessor) {
             return new PullTaskExecutionStageRouter(
-                    linkProcessor, managerJoinProcessor, managerPullerContactProcessor,
+                    linkProcessor, managerJoinProcessor, managerAdminProcessor,
+                    managerPullerContactProcessor,
                     pullerInviteProcessor, pullExecutionProcessor, materialAdminProcessor);
+        }
+
+        @Bean GroupExecutionAccountSelector promoterSelector() {
+            GroupExecutionAccountSelector selector = mock(GroupExecutionAccountSelector.class);
+            when(selector.findPullTaskAdminPromoterCandidates(
+                    7L, GROUP_JID, MANAGER.armadaAccountId())).thenReturn(List.of(
+                    new GroupExecutionAccount(
+                            PROMOTER.armadaAccountId(), "web", PROMOTER.protocolAccountId(),
+                            PROMOTER.wsPhone(), true)));
+            return selector;
+        }
+
+        @Bean PullTaskManagerAdminProcessor managerAdminProcessor(
+                PullTaskMapper taskMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskAccountActionMapper actionMapper,
+                PullTaskGroupExecutionMapper executionMapper,
+                GroupExecutionAccountSelector promoterSelector,
+                com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
+                PullTaskExecutionDispatchProperties properties,
+                GroupMemberListPort memberListPort) {
+            PullTaskManagerAdminResources resources = new PullTaskManagerAdminResources(
+                    executionMapper, promoterSelector, outboxService, properties);
+            PullTaskManagerAdminTransactionService transactions =
+                    new PullTaskManagerAdminTransactionService(
+                            taskMapper, accountMapper, actionMapper,
+                            new PullTaskManagerAdminCandidateSelector(), resources);
+            return new PullTaskManagerAdminProcessor(transactions, memberListPort);
         }
 
         @Bean PullTaskMaterialAdminProcessor materialAdminProcessor(
@@ -711,7 +798,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskStationSelectionService stationSelection) {
             PullTaskResourceRecoveryResources resources =
                     new PullTaskResourceRecoveryResources(
-                            executionMapper, lookup, stationSelection);
+                            executionMapper, lookup, stationSelection,
+                            mock(com.armada.group.service.GroupExecutionAccountSelector.class),
+                            mock(PullTaskAccountActionMapper.class),
+                            new PullTaskManagerAdminCandidateSelector());
             return new PullTaskResourceRecoveryTransactionService(
                     taskMapper, settingMapper, accountMapper, resources);
         }

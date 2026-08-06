@@ -10,6 +10,9 @@ import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.SocketTimeoutException;
@@ -17,7 +20,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Map;
-import java.util.function.Supplier;
+import java.util.function.Function;
 
 /**
  * 协议层 HTTP 调用统一执行器。
@@ -27,10 +30,21 @@ import java.util.function.Supplier;
  */
 public class ProtocolHttpExecutor {
 
+    private static final Logger log = LoggerFactory.getLogger(ProtocolHttpExecutor.class);
+
     /**
      * 协议层 API key 请求头名。
      */
     public static final String API_KEY_HEADER = "x-api-key";
+
+    /**
+     * NOT_OWNER 重投上限。
+     *
+     * <p>多机器部署下账号会在 worker 之间迁移，迁移窗口内的请求会落到旧 owner 并拿到
+     * NOT_OWNER + 新 owner 地址。这里改打新地址一次即可覆盖正常迁移；如果新 owner 仍回
+     * NOT_OWNER，说明归属还在变化，继续跳只会打转，交给调用方按业务语义退避重试。</p>
+     */
+    private static final int MAX_OWNER_REDIRECTS = 1;
 
     /**
      * JSON 预览最大长度,避免异常消息携带巨型响应体。
@@ -67,7 +81,7 @@ public class ProtocolHttpExecutor {
      * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
      */
     public <T> T getTyped(String uri, Class<T> responseType) {
-        return execute("GET", uri, () -> restClient.get().uri(uri)
+        return execute("GET", uri, base -> restClient.get().uri(resolveUri(base, uri))
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
     }
 
@@ -84,7 +98,7 @@ public class ProtocolHttpExecutor {
      * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
      */
     public <T> T getTyped(String uriTemplate, Class<T> responseType, Object... uriVariables) {
-        return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
+        return execute("GET", uriTemplate, base -> restClient.get().uri(resolveUri(base, uriTemplate), uriVariables)
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
     }
 
@@ -95,7 +109,7 @@ public class ProtocolHttpExecutor {
      * 不改变现有诊断行为。</p>
      */
     public <T> T getSensitiveTyped(String uriTemplate, Class<T> responseType, Object... uriVariables) {
-        return execute("GET", uriTemplate, () -> restClient.get().uri(uriTemplate, uriVariables)
+        return execute("GET", uriTemplate, base -> restClient.get().uri(resolveUri(base, uriTemplate), uriVariables)
                 .exchange((request, response) -> readSensitiveTyped(
                         request.getURI(), response, responseType), true));
     }
@@ -110,7 +124,7 @@ public class ProtocolHttpExecutor {
      * @throws ProtocolException 协议层返回非 2xx、网络异常或响应体不可解析时抛出
      */
     public <T> T postTyped(String uri, Object body, Class<T> responseType) {
-        return execute("POST", uri, () -> restClient.post().uri(uri)
+        return execute("POST", uri, base -> restClient.post().uri(resolveUri(base, uri))
                 .body(body == null ? EMPTY_JSON_BODY : body)
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
     }
@@ -131,7 +145,7 @@ public class ProtocolHttpExecutor {
             Object body,
             Class<T> responseType,
             Object... uriVariables) {
-        return execute("POST", uriTemplate, () -> restClient.post().uri(uriTemplate, uriVariables)
+        return execute("POST", uriTemplate, base -> restClient.post().uri(resolveUri(base, uriTemplate), uriVariables)
                 .body(body == null ? EMPTY_JSON_BODY : body)
                 .exchange((request, response) -> readTyped(request.getURI(), response, responseType), true));
     }
@@ -144,7 +158,7 @@ public class ProtocolHttpExecutor {
      * @throws ProtocolException 协议层返回非 2xx 或网络异常时抛出
      */
     public void postVoid(String uri, Object body) {
-        execute("POST", uri, () -> restClient.post().uri(uri)
+        execute("POST", uri, base -> restClient.post().uri(resolveUri(base, uri))
                 .body(body == null ? EMPTY_JSON_BODY : body)
                 .exchange((request, response) -> {
                     ensureSuccess(request.getURI(), response);
@@ -159,16 +173,42 @@ public class ProtocolHttpExecutor {
      * 已经是 {@link ProtocolException} 的异常保持原样抛出,网络类异常按是否超时细分,
      * 其它 RestClient/Jackson 运行时异常兜底成 UNKNOWN。</p>
      *
+     * <p>协议层返回 NOT_OWNER 时,说明账号已经迁到别的 worker,响应里会带上新 owner 地址。
+     * 这里直接改打新地址重发一次(见 {@link #MAX_OWNER_REDIRECTS}),避免账号迁移窗口内的
+     * 请求变成偶发失败。单机部署时不会触发,因为 master 网关已经在协议层内部完成了转发。</p>
+     *
      * @param method HTTP 方法名,只用于异常消息
      * @param uri    请求 URI,只用于异常消息
-     * @param action 真正发起 HTTP 请求并读取响应的动作
+     * @param action 真正发起 HTTP 请求并读取响应的动作;入参是要覆盖的 origin,空串表示用默认 baseUrl
      * @param <T>    响应类型
      * @return action 返回的响应对象
      */
-    private <T> T execute(String method, String uri, Supplier<T> action) {
+    private <T> T execute(String method, String uri, Function<String, T> action) {
+        String baseOverride = "";
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return attemptOnce(method, uri, action, baseOverride);
+            } catch (ProtocolException ex) {
+                String ownerOrigin = ownerRedirectOrigin(ex);
+                // 达到重投上限或拿不到可用 owner 地址时,保持原异常语义交给调用方。
+                if (attempt >= MAX_OWNER_REDIRECTS || ownerOrigin == null) {
+                    throw ex;
+                }
+                log.info("协议层 NOT_OWNER 改投 owner method={} uri={} ownerOrigin={}", method, uri, ownerOrigin);
+                baseOverride = ownerOrigin;
+            }
+        }
+    }
+
+    /**
+     * 发起一次调用并把底层异常统一翻译成 {@link ProtocolException}。
+     *
+     * @param baseOverride 覆盖用的 origin;空串表示使用 RestClient 自带 baseUrl
+     */
+    private <T> T attemptOnce(String method, String uri, Function<String, T> action, String baseOverride) {
         try {
             // 正常路径:执行 RestClient exchange 回调,由下层负责读响应体。
-            return action.get();
+            return action.apply(baseOverride);
         } catch (ProtocolException ex) {
             // 下层已经完成协议错误映射时,这里不能再包一层 UNKNOWN,否则会丢失 errorCode/httpStatus。
             throw ex;
@@ -182,6 +222,58 @@ public class ProtocolHttpExecutor {
             // 其它运行时异常通常来自请求体序列化、RestClient 内部错误等,统一按未知协议调用失败处理。
             throw ProtocolException.unknown("协议层 " + method + " " + uri + " 调用失败", ex);
         }
+    }
+
+    /**
+     * 判断本次失败是否应该改打 owner worker,并返回可用于拼接请求的 origin。
+     *
+     * <p>{@code ownerEndpoint} 来自下游响应,不能无条件当成请求目标。这里只接受
+     * 带 host 的 http/https 地址,并且只取 scheme + host + port,path 一律由原请求提供,
+     * 避免下游返回的路径片段改变实际调用的接口。</p>
+     *
+     * @return 可用的 owner origin;不满足重投条件时返回 null
+     */
+    private static String ownerRedirectOrigin(ProtocolException ex) {
+        if (ex.errorCode() != ProtocolErrorCode.NOT_OWNER) {
+            return null;
+        }
+        String endpoint = ex.ownerEndpoint().orElse(null);
+        if (endpoint == null || endpoint.isBlank()) {
+            return null;
+        }
+        URI parsed;
+        try {
+            parsed = URI.create(endpoint.trim());
+        } catch (IllegalArgumentException ignored) {
+            // 下游给了不可解析的字符串;当作没有 owner 线索处理,不影响原异常。
+            return null;
+        }
+        String scheme = parsed.getScheme();
+        if (scheme == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+            return null;
+        }
+        String host = parsed.getHost();
+        if (host == null || host.isBlank()) {
+            return null;
+        }
+        StringBuilder origin = new StringBuilder(scheme.toLowerCase(Locale.ROOT)).append("://").append(host);
+        if (parsed.getPort() > 0) {
+            origin.append(':').append(parsed.getPort());
+        }
+        return origin.toString();
+    }
+
+    /**
+     * 按 origin 覆盖拼出实际请求 URI。
+     *
+     * <p>{@code base} 为空时返回原模板,让 RestClient 用自带 baseUrl;非空时拼成绝对地址,
+     * Spring 的 UriBuilderFactory 遇到绝对地址会忽略 baseUrl。模板变量占位符保持不变。</p>
+     */
+    private static String resolveUri(String base, String uriTemplate) {
+        if (base == null || base.isEmpty()) {
+            return uriTemplate;
+        }
+        return uriTemplate.startsWith("/") ? base + uriTemplate : base + "/" + uriTemplate;
     }
 
     /**

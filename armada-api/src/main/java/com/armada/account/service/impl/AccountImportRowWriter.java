@@ -111,6 +111,8 @@ public class AccountImportRowWriter {
         a.setAccountGroupId(accountGroupId);
         if (importFormat == ImportFormat.SIX.getCode()) {
             a.setProtocolId(ProtocolBackend.ANDROID.name());
+        } else if (importFormat == ImportFormat.JSON.getCode()) {
+            a.setProtocolId(ProtocolBackend.WEB.name());
         }
         a.setProtocolAccountId("acc_" + wid);
         a.setCreatedAt(now);

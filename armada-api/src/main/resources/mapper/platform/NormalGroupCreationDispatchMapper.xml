@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.platform.dispatch.mapper.NormalGroupCreationDispatchMapper">
+
+  <select id="selectPendingDispatches"
+          resultType="com.armada.platform.dispatch.model.NormalGroupCreationDispatchCandidate">
+    SELECT tenant_id, task_id, id AS item_id, creator_account_id,
+           current_step, dispatch_stage, dispatch_status
+    FROM normal_group_creation_item
+    WHERE deleted_at IS NULL
+      AND dispatch_status = 'PENDING'
+      AND next_dispatch_at &lt;= #{now}
+      AND dispatch_stage IN ('PREPARE', 'CREATE', 'POST_PROCESS')
+    ORDER BY next_dispatch_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectExpiredProcessing"
+          resultType="com.armada.platform.dispatch.model.NormalGroupCreationDispatchCandidate">
+    SELECT tenant_id, task_id, id AS item_id, creator_account_id,
+           current_step, dispatch_stage, dispatch_status
+    FROM normal_group_creation_item
+    WHERE deleted_at IS NULL
+      AND dispatch_status = 'PROCESSING'
+      AND processing_started_at IS NOT NULL
+      AND processing_started_at &lt;= #{processingBefore}
+      AND current_step IN ('PREPARING_CONTACTS', 'CREATING_GROUP', 'POST_PROCESSING')
+    ORDER BY processing_started_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
+</mapper>

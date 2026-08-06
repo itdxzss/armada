@@ -95,7 +95,7 @@ phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key,phone_id
 
 ### 5.3 上线链路
 
-导入成功行继续写入 `online_phase=QUEUED`。现有调度器读取完整凭据后创建 `account.online.requested`，并按 `protocolBackend=ANDROID` 投递。Android 协议层继续接收完整六字段凭据，不需要修改。
+导入成功行继续写入 `online_phase=QUEUED`。现有调度器创建不含敏感凭据的 `account.online.requested` outbox，并记录 `protocolBackend=ANDROID` 与 `credentialFormat=SIX_SEGMENT`；发布器发送 Kafka 命令前再从凭据表补齐完整六字段凭据。Android 协议层继续接收完整六字段凭据，不需要修改。
 
 ### 5.4 错误处理与安全
 
@@ -145,7 +145,8 @@ phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key,phone_id
 
 - 五段号导入后 `protocol_id=ANDROID`、`cred_format=1`。
 - 凭据表保存完整六字段 JSON，导出仍返回原始五列。
-- 自动上线 outbox 使用 `protocol_backend=ANDROID`，payload 中存在生成的 `phone_id`。
+- 自动上线 outbox 使用 `protocol_backend=ANDROID` 和 `credentialFormat=SIX_SEGMENT`，并继续不持久化任何凭据值。
+- 凭据表中的生成 `phone_id` 会由现有发布器补入最终 Kafka 命令信封；发布器六段凭据契约测试保持通过。
 - 六段号原有导入和自动上线测试保持通过。
 
 ### 8.3 前端测试

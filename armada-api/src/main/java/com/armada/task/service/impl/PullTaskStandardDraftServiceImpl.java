@@ -52,7 +52,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
 
     /** 用户还没有草稿时返回的空视图。 */
     private static final PullTaskStandardDraftVO EMPTY_VIEW = new PullTaskStandardDraftVO(
-            null, null, List.of(), List.of(), List.of(), 0, 0, 0);
+            null, List.of(), List.of(), List.of(), 0, 0, 0);
 
     /** 单次上传允许的最大文件数。 */
     private static final int MAX_FILE_COUNT = 50;
@@ -441,7 +441,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                 .stream()
                 .map(PullTaskStandardDraftServiceImpl::toRowView)
                 .toList();
-        return new PullTaskStandardDraftVO(draft.getId(), draft.getVersion(), rows,
+        return new PullTaskStandardDraftVO(draft.getId(), rows,
                 linkLines, fileResults, rows.size(), remainingLinkCount, ignoredFileCount);
     }
 

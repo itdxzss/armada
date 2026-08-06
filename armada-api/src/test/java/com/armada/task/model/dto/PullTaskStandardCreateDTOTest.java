@@ -22,8 +22,8 @@ public class PullTaskStandardCreateDTOTest {
 
         String json = objectMapper.writeValueAsString(request);
 
-        assertThat(json).isEqualTo("{\"draftTaskId\":1,\"version\":2,"
-                + "\"taskName\":\"任务\",\"remark\":\"备注\",\"autoStart\":0,"
+        assertThat(json).isEqualTo("{\"draftTaskId\":1,\"taskName\":\"任务\","
+                + "\"remark\":\"备注\",\"autoStart\":0,"
                 + "\"groupFolderId\":18,\"pullerSyncMode\":\"BATCH\","
                 + "\"materialAdminTiming\":1,\"clearExistingMembers\":true,"
                 + "\"pullCountMin\":3,\"pullCountMax\":8,\"pullIntervalSeconds\":30,"
@@ -38,6 +38,7 @@ public class PullTaskStandardCreateDTOTest {
                 + "\"editPermission\":\"DISALLOW\",\"muteMode\":\"MUTE\","
                 + "\"linkPermission\":\"ADMIN_ONLY\","
                 + "\"disappearingMessage\":\"SEVEN_DAYS\"}}");
+        assertThat(json).doesNotContain("\"version\"");
         assertThat(objectMapper.readValue(json, PullTaskStandardCreateDTO.class)).isEqualTo(request);
     }
 
@@ -48,7 +49,7 @@ public class PullTaskStandardCreateDTOTest {
                 PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.SEVEN_DAYS);
         return new PullTaskStandardCreateDTO(
-                1L, 2, "任务", "备注", 0, 18L, PullTaskPullerSyncMode.BATCH,
+                1L, "任务", "备注", 0, 18L, PullTaskPullerSyncMode.BATCH,
                 1, true, 3, 8, 30, 2, 0, 1,
                 11L, 12L, null, 14L, 15L, groupSetting);
     }

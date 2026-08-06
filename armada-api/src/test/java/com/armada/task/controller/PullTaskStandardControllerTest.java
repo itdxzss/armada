@@ -49,7 +49,7 @@ import org.springframework.web.multipart.MultipartFile;
 class PullTaskStandardControllerTest {
 
     private static final PullTaskStandardDraftVO EMPTY_VIEW = new PullTaskStandardDraftVO(
-            1L, 1, List.of(), List.of(), List.of(), 0, 0, 0);
+            1L, List.of(), List.of(), List.of(), 0, 0, 0);
 
     private PullTaskStandardDraftService draftService;
     private PullTaskStandardCreateService createService;
@@ -81,6 +81,13 @@ class PullTaskStandardControllerTest {
                                 managerSupplementService, pullerSupplementService,
                                 stationSupplementService)),
                 readService);
+    }
+
+    @Test
+    void draftJsonDoesNotExposeTaskVersion() throws Exception {
+        String json = new ObjectMapper().writeValueAsString(EMPTY_VIEW);
+
+        assertThat(json).doesNotContain("\"version\"");
     }
 
     @Test

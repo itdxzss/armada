@@ -136,7 +136,7 @@
     LIMIT 1
   </select>
 
-  <!-- 状态守卫 + 乐观锁在数据库层复核；重复提交返回 0 行而不是产生第二个任务。 -->
+  <!-- 任务类型与状态守卫在数据库层复核；重复提交返回 0 行而不是产生第二个任务。 -->
   <update id="submitDraftTransition">
     UPDATE pull_task
     SET status = #{row.status},
@@ -150,7 +150,6 @@
       AND deleted_at IS NULL
       AND task_type = #{expectedTaskType}
       AND status = #{expectedStatus}
-      AND version = #{expectedVersion}
   </update>
 
   <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">

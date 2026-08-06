@@ -92,13 +92,12 @@ class PullTaskStandardDraftServiceReadEditTest {
     }
 
     @Test
-    void currentReturnsRowsWithStatisticsAndVersion() {
+    void currentReturnsRowsWithStatistics() {
         long taskId = seedTwoRows();
 
         PullTaskStandardDraftVO view = service.current(CREATOR);
 
         assertThat(view.draftTaskId()).isEqualTo(taskId);
-        assertThat(view.version()).isEqualTo(1);
         assertThat(view.matchedCount()).isEqualTo(2);
         assertThat(view.rows()).extracting(
                         PullTaskStandardExecutionRowVO::seq,

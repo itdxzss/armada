@@ -6,6 +6,7 @@ import com.armada.task.model.dto.PullTaskDeleteRule;
 import com.armada.task.model.dto.PullTaskExecutionSlotClaim;
 import com.armada.task.model.dto.PullTaskLifecycleTransition;
 import com.armada.task.model.entity.PullTask;
+import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -145,29 +146,26 @@ public interface PullTaskMapper {
      * 把草稿提交为待启动任务。
      *
      * <p>状态迁移与任务名、备注、计数列在同一条带守卫的 UPDATE 里原子完成；
-     * 拆成两条会让"状态已推进但计数未写"成为可观测中间态，且第二条没有乐观锁保护。
+     * 拆成两条会让"状态已推进但计数未写"成为可观测中间态。
      * 重复提交返回 0 行，调用方据此走幂等分支而不是报错。</p>
      *
-     * @param row             需设置 id、taskName、remark、groupCount、expectedPullCount
-     * @param expectedVersion 读取草稿时拿到的版本号
-     * @param now             本次更新时间(epoch 毫秒)
-     * @return 实际更新行数；1 表示提交成功，0 表示状态或版本不符
+     * @param row 需设置 id、taskName、remark、groupCount、expectedPullCount
+     * @param now 本次更新时间(epoch 毫秒)
+     * @return 实际更新行数；1 表示提交成功，0 表示任务非标准草稿
      */
     int submitDraftTransition(
             @Param("row") PullTask row,
             @Param("expectedTaskType") PullTaskType expectedTaskType,
             @Param("expectedStatus") String expectedStatus,
-            @Param("expectedVersion") int expectedVersion,
             @Param("now") long now);
 
     /** 草稿提交的前置态和目标态由 Java 枚举传入。 */
-    default int submitDraft(PullTask row, int expectedVersion, long now) {
-        row.setStatus(com.armada.task.model.enums.PullTaskStandardStatus.WAIT_START.name());
+    default int submitDraft(PullTask row, long now) {
+        row.setStatus(PullTaskStandardStatus.WAIT_START.name());
         return submitDraftTransition(
                 row,
-                com.armada.task.model.enums.PullTaskType.STANDARD,
-                com.armada.task.model.enums.PullTaskStandardStatus.DRAFT.name(),
-                expectedVersion,
+                PullTaskType.STANDARD,
+                PullTaskStandardStatus.DRAFT.name(),
                 now);
     }
 

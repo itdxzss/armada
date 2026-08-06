@@ -11,7 +11,6 @@ import com.fasterxml.jackson.annotation.JsonAnySetter;
  */
 public record PullTaskStandardCreateDTO(
         Long draftTaskId,
-        Integer version,
         String taskName,
         String remark,
         Integer autoStart,

@@ -89,9 +89,6 @@ public class PullTaskStandardCreateTransactionService {
         if (request == null || request.draftTaskId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "缺少草稿任务 ID");
         }
-        if (request.version() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "缺少草稿任务版本号");
-        }
         String taskName = request.taskName() == null ? "" : request.taskName().trim();
         if (taskName.isEmpty() || taskName.length() > TASK_NAME_MAX_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION,
@@ -202,7 +199,7 @@ public class PullTaskStandardCreateTransactionService {
         update.setGroupCount(rows.size());
         update.setExpectedPullCount(rows.stream()
                 .mapToInt(PullTaskGroupExecution::getValidMemberCount).sum());
-        if (pullTaskMapper.submitDraft(update, request.version(), System.currentTimeMillis()) == 0) {
+        if (pullTaskMapper.submitDraft(update, System.currentTimeMillis()) == 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "任务已被并发提交，请刷新后重试");
         }
         PullTask saved = pullTaskMapper.selectLifecycle(task.getId());

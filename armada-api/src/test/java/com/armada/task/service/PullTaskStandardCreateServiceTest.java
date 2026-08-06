@@ -129,7 +129,7 @@ class PullTaskStandardCreateServiceTest {
     void submitFreezesRowsWritesSettingAndFlipsTaskToWaitStart() {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
-        service.create(validRequest(taskId, 1), CREATOR);
+        service.create(validRequest(taskId), CREATOR);
 
         PullTask task = pullTaskMapper.selectLifecycle(taskId);
         assertThat(task.getStatus()).isEqualTo("WAIT_START");
@@ -151,7 +151,7 @@ class PullTaskStandardCreateServiceTest {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
         PullTaskStandardCreatedVO created = service.create(
-                withAutoStart(validRequest(taskId, 1), 1), CREATOR);
+                withAutoStart(validRequest(taskId), 1), CREATOR);
 
         assertThat(created.status()).isEqualTo("EXECUTING");
         assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("EXECUTING");
@@ -167,7 +167,7 @@ class PullTaskStandardCreateServiceTest {
         PullTaskStandardStartService startService = mock(PullTaskStandardStartService.class);
         PullTaskStandardCreateService retryableService = new PullTaskStandardCreateServiceImpl(
                 transactionService, taskMapper, standardSettingMapper, startService);
-        PullTaskStandardCreateDTO request = withAutoStart(validRequest(9L, 1), 1);
+        PullTaskStandardCreateDTO request = withAutoStart(validRequest(9L), 1);
         PullTaskStandardCreatedVO waiting =
                 new PullTaskStandardCreatedVO(9L, "普通任务", "WAIT_START", 2, 2);
         PullTask executing = new PullTask();
@@ -196,7 +196,7 @@ class PullTaskStandardCreateServiceTest {
         executionMapper.freezeDraftRows(occupiedTaskId, 800L);
         long taskId = seedDraftWithTwoRows(OTHER_CREATOR);
 
-        assertThatThrownBy(() -> service.create(validRequest(taskId, 1), OTHER_CREATOR))
+        assertThatThrownBy(() -> service.create(validRequest(taskId), OTHER_CREATOR))
                 .isInstanceOf(BusinessException.class);
 
         // 整单回滚：草稿完整保留，可继续编辑。
@@ -211,9 +211,9 @@ class PullTaskStandardCreateServiceTest {
     @Test
     void repeatedSubmissionReturnsTheSameTaskWithoutCreatingASecondOne() {
         long taskId = seedDraftWithTwoRows(CREATOR);
-        service.create(validRequest(taskId, 1), CREATOR);
+        service.create(validRequest(taskId), CREATOR);
 
-        PullTaskStandardCreatedVO second = service.create(validRequest(taskId, 1), CREATOR);
+        PullTaskStandardCreatedVO second = service.create(validRequest(taskId), CREATOR);
 
         assertThat(second.id()).isEqualTo(taskId);
         assertThat(pullTaskMapper.selectLifecycle(taskId).getVersion()).isEqualTo(2);
@@ -223,7 +223,7 @@ class PullTaskStandardCreateServiceTest {
     void submitIsRejectedWhenDraftHasNoExecutionRow() {
         long taskId = writer.ensureDraft(CREATOR, OPERATOR, 100L).getId();
 
-        assertThatThrownBy(() -> service.create(validRequest(taskId, 1), CREATOR))
+        assertThatThrownBy(() -> service.create(validRequest(taskId), CREATOR))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("群链接");
     }
@@ -232,7 +232,7 @@ class PullTaskStandardCreateServiceTest {
     void submitIsRejectedForAnotherUsersDraft() {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
-        assertThatThrownBy(() -> service.create(validRequest(taskId, 1), OTHER_CREATOR))
+        assertThatThrownBy(() -> service.create(validRequest(taskId), OTHER_CREATOR))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -241,7 +241,7 @@ class PullTaskStandardCreateServiceTest {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
         assertThatThrownBy(() -> service.create(
-                withPullCount(validRequest(taskId, 1), 9, 3), CREATOR))
+                withPullCount(validRequest(taskId), 9, 3), CREATOR))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -252,7 +252,7 @@ class PullTaskStandardCreateServiceTest {
                 .thenThrow(new BusinessException(ErrorCode.NOT_FOUND, "账号分组不存在"));
 
         assertThatThrownBy(() -> service.create(
-                withManagerGroup(validRequest(taskId, 1), 999L), CREATOR))
+                withManagerGroup(validRequest(taskId), 999L), CREATOR))
                 .isInstanceOf(BusinessException.class);
     }
 
@@ -260,7 +260,7 @@ class PullTaskStandardCreateServiceTest {
     void zeroStationCountAllowsNoStationGroup() {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
-        service.create(withStation(validRequest(taskId, 1), 0, null), CREATOR);
+        service.create(withStation(validRequest(taskId), 0, null), CREATOR);
 
         assertThat(settingMapper.selectByTaskId(taskId).getStationGroupId()).isNull();
         assertThat(settingMapper.selectByTaskId(taskId).getStationGroupName()).isNull();
@@ -271,7 +271,7 @@ class PullTaskStandardCreateServiceTest {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
         assertThatThrownBy(() -> service.create(
-                withStation(validRequest(taskId, 1), 1, null), CREATOR))
+                withStation(validRequest(taskId), 1, null), CREATOR))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("站台");
         assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
@@ -286,7 +286,7 @@ class PullTaskStandardCreateServiceTest {
                 PullTaskMuteMode.UNCHANGED, PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.UNCHANGED);
 
-        service.create(withGroupSetting(validRequest(taskId, 1), groupSetting), CREATOR);
+        service.create(withGroupSetting(validRequest(taskId), groupSetting), CREATOR);
 
         assertThat(groupSettingMapper.selectByTaskId(taskId).getGroupName()).isNull();
     }
@@ -298,7 +298,7 @@ class PullTaskStandardCreateServiceTest {
                 .when(avatarService).reserveForBinding(7L, "missing.png");
 
         assertThatThrownBy(() -> service.create(
-                withAvatar(validRequest(taskId, 1), "missing.png"), CREATOR))
+                withAvatar(validRequest(taskId), "missing.png"), CREATOR))
                 .isInstanceOf(BusinessException.class);
 
         assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
@@ -311,7 +311,7 @@ class PullTaskStandardCreateServiceTest {
         long taskId = seedDraftWithTwoRows(CREATOR);
         registryFailure.set(true);
 
-        assertThatThrownBy(() -> service.create(validRequest(taskId, 1), CREATOR))
+        assertThatThrownBy(() -> service.create(validRequest(taskId), CREATOR))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
@@ -323,7 +323,7 @@ class PullTaskStandardCreateServiceTest {
     void normalizedSettingsLeaveLegacyJsonAndGroupNameUntouched() throws SQLException {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
-        service.create(validRequest(taskId, 1), CREATOR);
+        service.create(validRequest(taskId), CREATOR);
 
         try (var connection = dataSource.getConnection();
              var statement = connection.prepareStatement(
@@ -345,7 +345,7 @@ class PullTaskStandardCreateServiceTest {
                 .when(avatarService).reserveForBinding(7L, "used.png");
 
         assertThatThrownBy(() -> service.create(
-                withAvatar(validRequest(taskId, 1), "used.png"), CREATOR))
+                withAvatar(validRequest(taskId), "used.png"), CREATOR))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("使用");
         assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
@@ -390,13 +390,12 @@ class PullTaskStandardCreateServiceTest {
     /**
      * 填满合法值的提交入参。
      *
-     * @param taskId  草稿任务 ID
-     * @param version 草稿任务乐观锁版本
+     * @param taskId 草稿任务 ID
      * @return 合法入参
      */
-    private static PullTaskStandardCreateDTO validRequest(long taskId, int version) {
+    private static PullTaskStandardCreateDTO validRequest(long taskId) {
         return new PullTaskStandardCreateDTO(
-                taskId, version, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
+                taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
                 1, false, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, validGroupSetting());
     }
@@ -419,7 +418,7 @@ class PullTaskStandardCreateServiceTest {
      */
     private static PullTaskStandardCreateDTO withPullCount(PullTaskStandardCreateDTO base,
                                                            int min, int max) {
-        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.version(), base.taskName(),
+        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
                 base.materialAdminTiming(), base.clearExistingMembers(), min, max,
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
@@ -437,7 +436,7 @@ class PullTaskStandardCreateServiceTest {
      */
     private static PullTaskStandardCreateDTO withManagerGroup(PullTaskStandardCreateDTO base,
                                                               long managerGroupId) {
-        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.version(), base.taskName(),
+        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
                 base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
@@ -448,7 +447,7 @@ class PullTaskStandardCreateServiceTest {
 
     private static PullTaskStandardCreateDTO withAutoStart(PullTaskStandardCreateDTO base,
                                                             int autoStart) {
-        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.version(), base.taskName(),
+        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), autoStart, base.groupFolderId(), base.pullerSyncMode(),
                 base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
@@ -460,7 +459,7 @@ class PullTaskStandardCreateServiceTest {
     private static PullTaskStandardCreateDTO withStation(
             PullTaskStandardCreateDTO base, int stationCount, Long stationGroupId) {
         return new PullTaskStandardCreateDTO(
-                base.draftTaskId(), base.version(), base.taskName(), base.remark(),
+                base.draftTaskId(), base.taskName(), base.remark(),
                 base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
                 base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
@@ -472,7 +471,7 @@ class PullTaskStandardCreateServiceTest {
     private static PullTaskStandardCreateDTO withGroupSetting(
             PullTaskStandardCreateDTO base, PullTaskStandardGroupSettingDTO groupSetting) {
         return new PullTaskStandardCreateDTO(
-                base.draftTaskId(), base.version(), base.taskName(), base.remark(),
+                base.draftTaskId(), base.taskName(), base.remark(),
                 base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
                 base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),

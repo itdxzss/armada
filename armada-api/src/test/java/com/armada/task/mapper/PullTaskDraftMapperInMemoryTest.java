@@ -90,7 +90,7 @@ class PullTaskDraftMapperInMemoryTest {
     void selectLatestDraftByCreatorIgnoresSubmittedAndMarketingRows() {
         PullTask draft = draftRow();
         mapper.insertDraft(draft);
-        mapper.submitDraft(submitRow(draft.getId()), 1, 900L);
+        mapper.submitDraft(submitRow(draft.getId()), 900L);
 
         assertThat(mapper.selectLatestDraftByCreator(CREATOR)).isNull();
     }
@@ -100,7 +100,7 @@ class PullTaskDraftMapperInMemoryTest {
         PullTask draft = draftRow();
         mapper.insertDraft(draft);
 
-        assertThat(mapper.submitDraft(submitRow(draft.getId()), 1, 900L)).isEqualTo(1);
+        assertThat(mapper.submitDraft(submitRow(draft.getId()), 900L)).isEqualTo(1);
 
         PullTask saved = mapper.selectLifecycle(draft.getId());
         assertThat(saved.getStatus()).isEqualTo("WAIT_START");
@@ -109,12 +109,12 @@ class PullTaskDraftMapperInMemoryTest {
     }
 
     @Test
-    void submitDraftReturnsZeroOnVersionMismatch() {
+    void submitDraftUsesDraftStatusAsGuard() {
         PullTask draft = draftRow();
         mapper.insertDraft(draft);
 
-        assertThat(mapper.submitDraft(submitRow(draft.getId()), 99, 900L)).isZero();
-        assertThat(mapper.selectLifecycle(draft.getId()).getStatus()).isEqualTo("DRAFT");
+        assertThat(mapper.submitDraft(submitRow(draft.getId()), 900L)).isEqualTo(1);
+        assertThat(mapper.selectLifecycle(draft.getId()).getStatus()).isEqualTo("WAIT_START");
     }
 
     @Test
@@ -122,9 +122,9 @@ class PullTaskDraftMapperInMemoryTest {
         PullTask draft = draftRow();
         mapper.insertDraft(draft);
 
-        assertThat(mapper.submitDraft(submitRow(draft.getId()), 1, 900L)).isEqualTo(1);
-        // 第二次用同一版本号重放：状态与版本都已推进，必须 0 行而不是产生第二次副作用。
-        assertThat(mapper.submitDraft(submitRow(draft.getId()), 1, 901L)).isZero();
+        assertThat(mapper.submitDraft(submitRow(draft.getId()), 900L)).isEqualTo(1);
+        // 第二次重放时已不再是草稿，必须 0 行而不是产生第二次副作用。
+        assertThat(mapper.submitDraft(submitRow(draft.getId()), 901L)).isZero();
         assertThat(mapper.selectLifecycle(draft.getId()).getVersion()).isEqualTo(2);
     }
 
@@ -135,7 +135,7 @@ class PullTaskDraftMapperInMemoryTest {
 
         TenantContext.set(8L);
         assertThat(mapper.selectLatestDraftByCreator(CREATOR)).isNull();
-        assertThat(mapper.submitDraft(submitRow(draft.getId()), 1, 900L)).isZero();
+        assertThat(mapper.submitDraft(submitRow(draft.getId()), 900L)).isZero();
 
         TenantContext.set(7L);
         assertThat(mapper.selectLifecycle(draft.getId()).getStatus()).isEqualTo("DRAFT");

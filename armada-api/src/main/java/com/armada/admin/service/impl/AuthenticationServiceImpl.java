@@ -25,7 +25,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
- * 默认租户阶段的用户名、密码和图片验证码登录实现。
+ * 默认租户阶段的用户名、密码登录实现；图片验证码校验当前临时关闭。
  *
  * <p>账号不存在或密码错误时统一返回相同错误，避免暴露用户是否存在；密码正确但账号已禁用时给出明确提示。
  * 服务端日志只记录脱敏用户名和失败原因，不记录密码、验证码或 Token。</p>
@@ -56,9 +56,13 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
     @Override
     public UserLoginVO login(UserLoginDTO request) {
-        if (request == null || !captchaService.consume(request.captchaId(), request.captchaCode())) {
-            throw new BusinessException(ErrorCode.CAPTCHA_INVALID);
+        if (request == null) {
+            throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
+        // 图片验证码暂时关闭；前端重新启用验证码后，恢复下方消费校验和对应单测。
+        // if (!captchaService.consume(request.captchaId(), request.captchaCode())) {
+        //     throw new BusinessException(ErrorCode.CAPTCHA_INVALID);
+        // }
         String username = normalizeUsername(request.username());
         String password = request.password() == null ? "" : request.password();
         Optional<SysUser> candidate = identityService.findLoginUser(username);

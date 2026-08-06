@@ -9,11 +9,11 @@ import com.armada.shared.security.AuthPrincipal;
 public interface AuthenticationService {
 
     /**
-     * 校验验证码和密码，创建单会话并返回当前用户。
+     * 校验用户名和密码，创建单会话并返回当前用户；图片验证码校验当前临时关闭。
      *
-     * @param request 登录账号、密码和一次性验证码
+     * @param request 登录账号和密码，暂时保留验证码字段供后续恢复
      * @return 登录 Token、过期信息和当前用户身份
-     * @throws com.armada.shared.exception.BusinessException 验证码错误或账号认证失败时抛出
+     * @throws com.armada.shared.exception.BusinessException 账号认证失败时抛出
      */
     UserLoginVO login(UserLoginDTO request);
 

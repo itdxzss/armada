@@ -11,7 +11,7 @@ package com.armada.group.model.dto;
  * @param exitType LEFT、REMOVED 或 UNKNOWN；UNKNOWN 表示无法可靠区分主动退群与被移除
  * @param eventAt 协议事实时间
  * @param sourceEventId 源事件 ID
- * @param sourceType HISTORY_SYNC 或 WGP2_NOTIFICATION
+ * @param sourceType HISTORY_SYNC、WGP2_NOTIFICATION 或 BUSINESS_COMMAND
  */
 public record WhatsappGroupDepartureFact(
         Long tenantId,

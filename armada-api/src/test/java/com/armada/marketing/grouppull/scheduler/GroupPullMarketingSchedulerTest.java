@@ -189,7 +189,7 @@ class GroupPullMarketingSchedulerTest {
         private final List<Long> tenantIds = new CopyOnWriteArrayList<>();
 
         private RecordingWorker(int expectedExecutions) {
-            super(null, null, null, null, null, null, null, null, null, null, null, null,
+            super(null, null, null, null, null, null, null, null, null, null, null, null, null,
                     NO_OP_TRANSACTION_MANAGER);
             this.latch = new CountDownLatch(expectedExecutions);
         }
@@ -215,7 +215,7 @@ class GroupPullMarketingSchedulerTest {
         private final CountDownLatch release = new CountDownLatch(1);
 
         private BlockingWorker() {
-            super(null, null, null, null, null, null, null, null, null, null, null, null,
+            super(null, null, null, null, null, null, null, null, null, null, null, null, null,
                     NO_OP_TRANSACTION_MANAGER);
         }
 

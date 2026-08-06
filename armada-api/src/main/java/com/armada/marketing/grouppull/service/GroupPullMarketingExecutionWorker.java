@@ -3,6 +3,7 @@ package com.armada.marketing.grouppull.service;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecution;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingExecutionMaterial;
@@ -93,6 +94,7 @@ public class GroupPullMarketingExecutionWorker {
     private final GroupMemberListPort memberListPort;
     private final GroupInvitePort invitePort;
     private final GroupLeavePort leavePort;
+    private final WhatsappGroupBusinessDepartureService businessDepartureService;
     private final GroupPullMarketingMaterialEntryService materialEntryService;
     private final GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy;
     private final TransactionTemplate transactionTemplate;
@@ -109,6 +111,7 @@ public class GroupPullMarketingExecutionWorker {
             GroupMemberListPort memberListPort,
             GroupInvitePort invitePort,
             GroupLeavePort leavePort,
+            WhatsappGroupBusinessDepartureService businessDepartureService,
             GroupPullMarketingMaterialEntryService materialEntryService,
             GroupPullMaterialEntryDelayPolicy materialEntryDelayPolicy,
             PlatformTransactionManager transactionManager) {
@@ -122,6 +125,7 @@ public class GroupPullMarketingExecutionWorker {
         this.memberListPort = memberListPort;
         this.invitePort = invitePort;
         this.leavePort = leavePort;
+        this.businessDepartureService = businessDepartureService;
         this.materialEntryService = materialEntryService;
         this.materialEntryDelayPolicy = materialEntryDelayPolicy;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -729,8 +733,15 @@ public class GroupPullMarketingExecutionWorker {
             }
             try {
                 leavePort.leave(builder.protocolRef(), execution.getGroupJid());
+                long exitedAt = System.currentTimeMillis();
+                businessDepartureService.recordConfirmedLeave(
+                        execution.getTenantId(),
+                        execution.getGroupJid(),
+                        builder.getWsPhone(),
+                        exitedAt,
+                        "group-pull-execution:" + execution.getId());
                 mapper.updateBuilderExitStatus(
-                        execution.getId(), EXIT_SUCCEEDED, System.currentTimeMillis());
+                        execution.getId(), EXIT_SUCCEEDED, exitedAt);
                 advance(
                         execution,
                         GroupPullExecutionStage.FINALIZE_RESULT,

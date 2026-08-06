@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.admin.model.dto.UserLoginDTO;
@@ -42,42 +43,31 @@ class AuthenticationServiceImplTest {
     }
 
     @Test
-    void loginConsumesCaptchaAndReturnsRealIdentityAndToken() {
-        UserLoginDTO request = new UserLoginDTO(" Admin ", "armada123", "captcha-1", "ABCD");
+    void loginWithoutCaptchaReturnsRealIdentityAndToken() {
+        UserLoginDTO request = new UserLoginDTO(" Admin ", "armada123", null, null);
         SysUser user = enabledUser(passwordEncoder.encode("armada123"));
         AuthPrincipal principal = new AuthPrincipal(
                 7L, 1L, "admin", "管理员", "demo", "演示租户",
                 List.of("TENANT_ADMIN"), List.of("tenant:system-user:view"));
-        when(captchaService.consume("captcha-1", "ABCD")).thenReturn(true);
         when(identityService.findLoginUser("admin")).thenReturn(Optional.of(user));
         when(identityService.load(7L, 1L)).thenReturn(Optional.of(principal));
         when(sessionService.create(7L, 1L))
-                .thenReturn(new CreatedSession("real-token", 1800L, 123456L));
+                .thenReturn(new CreatedSession("real-token", 7200L, 123456L));
 
         var result = service.login(request);
 
         assertThat(result.token()).isEqualTo("real-token");
+        assertThat(result.idleTimeoutSeconds()).isEqualTo(7200L);
         assertThat(result.user().roles()).containsExactly("TENANT_ADMIN");
         assertThat(result.user().permissions()).containsExactly("tenant:system-user:view");
         assertThat(result.tenant().code()).isEqualTo("demo");
-    }
-
-    @Test
-    void loginRejectsCaptchaBeforePasswordOrDatabaseLookup() {
-        UserLoginDTO request = new UserLoginDTO("admin", "armada123", "expired", "ABCD");
-        when(captchaService.consume("expired", "ABCD")).thenReturn(false);
-
-        assertThatThrownBy(() -> service.login(request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("验证码错误或已过期");
-        verify(identityService, never()).findLoginUser("admin");
+        verifyNoInteractions(captchaService);
     }
 
     @Test
     void loginUsesGenericErrorForWrongPassword() {
-        UserLoginDTO request = new UserLoginDTO("admin", "wrong-password", "captcha-2", "EFGH");
+        UserLoginDTO request = new UserLoginDTO("admin", "wrong-password", null, null);
         SysUser user = enabledUser(passwordEncoder.encode("armada123"));
-        when(captchaService.consume("captcha-2", "EFGH")).thenReturn(true);
         when(identityService.findLoginUser("admin")).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> service.login(request))
@@ -88,10 +78,9 @@ class AuthenticationServiceImplTest {
 
     @Test
     void loginExplainsDisabledAccountAfterPasswordMatches() {
-        UserLoginDTO request = new UserLoginDTO("admin", "armada123", "captcha-3", "IJKL");
+        UserLoginDTO request = new UserLoginDTO("admin", "armada123", null, null);
         SysUser user = enabledUser(passwordEncoder.encode("armada123"));
         user.setStatus(0);
-        when(captchaService.consume("captcha-3", "IJKL")).thenReturn(true);
         when(identityService.findLoginUser("admin")).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> service.login(request))

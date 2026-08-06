@@ -17,7 +17,8 @@
   <select id="selectActiveGroupCountsForUpdate" resultType="int">
     SELECT total_count
     FROM normal_group_creation_task
-    WHERE deleted_at IS NULL
+    WHERE tenant_id = #{tenantId}
+      AND deleted_at IS NULL
       AND status IN ('PENDING', 'RUNNING')
     FOR UPDATE
   </select>
@@ -44,7 +45,8 @@
   <select id="selectTaskIdByIdempotencyKey" resultType="long">
     SELECT id
     FROM normal_group_creation_task
-    WHERE idempotency_key = #{idempotencyKey}
+    WHERE tenant_id = #{tenantId}
+      AND idempotency_key = #{idempotencyKey}
       AND deleted_at IS NULL
     LIMIT 1
   </select>
@@ -119,6 +121,7 @@
            item.creator_account_id, item.creator_protocol_account_id,
            item.creator_protocol_backend, item.creator_ws_phone, item.group_jid,
            item.status, item.current_step, item.dispatch_status,
+           item.create_command_id, item.settings_command_id, item.leave_command_id,
            task.creator_leave_policy, task.folder_id, task.success_migration_group_id,
            task.failed_migration_group_id, task.send_messages_allowed,
            task.edit_group_settings_allowed, task.add_members_allowed,
@@ -137,84 +140,236 @@
           resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$MemberWork">
     SELECT id, member_account_id, member_protocol_account_id, member_protocol_backend,
            member_ws_phone, creator_saved_member_status, member_saved_creator_status,
+           creator_save_command_id, member_save_command_id,
            participant_status
     FROM normal_group_creation_item_member
     WHERE item_id = #{itemId}
     ORDER BY member_order ASC, id ASC
   </select>
 
-  <update id="claimStage">
-    UPDATE normal_group_creation_item
-    SET status = 'RUNNING',
-        dispatch_status = 'PROCESSING',
-        processing_started_at = #{now},
-        last_event_id = #{eventId},
-        <choose>
-          <when test="attemptColumn == 'prepare'">prepare_attempt_count = prepare_attempt_count + 1,</when>
-          <when test="attemptColumn == 'create'">create_attempt_count = create_attempt_count + 1,</when>
-          <otherwise>post_attempt_count = post_attempt_count + 1,</otherwise>
-        </choose>
-        updated_at = #{now}
-    WHERE id = #{itemId}
-      AND current_step = #{expectedStep}
-      AND dispatch_status IN ('PENDING', 'SENT')
-      AND (last_event_id IS NULL OR last_event_id &lt;&gt; #{eventId})
-      AND status NOT IN ('CREATED', 'CREATED_PARTIAL', 'FAILED', 'RESULT_UNKNOWN')
-  </update>
+  <select id="selectItemWorkForUpdate"
+          resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$ItemWork">
+    SELECT item.id, item.tenant_id, item.task_id, item.group_subject,
+           item.creator_account_id, item.creator_protocol_account_id,
+           item.creator_protocol_backend, item.creator_ws_phone, item.group_jid,
+           item.status, item.current_step, item.dispatch_status,
+           item.create_command_id, item.settings_command_id, item.leave_command_id,
+           task.creator_leave_policy, task.folder_id, task.success_migration_group_id,
+           task.failed_migration_group_id, task.send_messages_allowed,
+           task.edit_group_settings_allowed, task.add_members_allowed,
+           task.join_approval_enabled, task.ephemeral_duration_seconds
+    FROM normal_group_creation_item item
+    INNER JOIN normal_group_creation_task task
+      ON task.tenant_id = item.tenant_id
+     AND task.id = item.task_id
+     AND task.deleted_at IS NULL
+    WHERE item.tenant_id = #{tenantId}
+      AND task.tenant_id = #{tenantId}
+      AND item.id = #{itemId}
+      AND item.deleted_at IS NULL
+    LIMIT 1
+    FOR UPDATE OF item
+  </select>
 
-  <update id="updateContactStatus">
+  <select id="selectMemberWorkForUpdate"
+          resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$MemberWork">
+    SELECT id, member_account_id, member_protocol_account_id, member_protocol_backend,
+           member_ws_phone, creator_saved_member_status, member_saved_creator_status,
+           creator_save_command_id, member_save_command_id, participant_status
+    FROM normal_group_creation_item_member
+    WHERE tenant_id = #{tenantId}
+      AND id = #{memberId}
+      AND item_id = #{itemId}
+    LIMIT 1
+    FOR UPDATE
+  </select>
+
+  <update id="bindContactCommand">
     UPDATE normal_group_creation_item_member
-    SET creator_saved_member_status = #{creatorSaved},
-        member_saved_creator_status = #{memberSaved},
-        last_error_code = #{errorCode},
-        last_error_message = #{errorMessage},
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_MEMBER'">
+        SET creator_save_command_id = #{commandId},
+            creator_saved_member_status = 'PENDING',
+      </when>
+      <otherwise>
+        SET member_save_command_id = #{commandId},
+            member_saved_creator_status = 'PENDING',
+      </otherwise>
+    </choose>
         updated_at = #{now}
     WHERE id = #{memberId}
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_MEMBER'">
+        AND creator_saved_member_status = #{expectedStatus}
+      </when>
+      <otherwise>
+        AND member_saved_creator_status = #{expectedStatus}
+      </otherwise>
+    </choose>
   </update>
 
-  <update id="completePrepare">
+  <update id="markContactPrepareSubmitted">
     UPDATE normal_group_creation_item
-    SET current_step = 'CREATING_GROUP', dispatch_stage = 'CREATE',
-        dispatch_status = 'PENDING', next_dispatch_at = #{now},
-        processing_started_at = NULL,
-        last_event_id = #{eventId}, last_error_code = NULL, last_error_message = NULL,
-        updated_at = #{now}
+    SET status = 'RUNNING', dispatch_stage = 'CONTACT_PREPARE',
+        dispatch_status = 'SENT', prepare_attempt_count = prepare_attempt_count + 1,
+        last_error_code = NULL, last_error_message = NULL, updated_at = #{now}
     WHERE id = #{itemId}
       AND current_step = 'PREPARING_CONTACTS'
-      AND dispatch_status = 'PROCESSING'
-      AND last_event_id = #{eventId}
+      AND status IN ('PENDING', 'FAILED')
   </update>
 
-  <update id="updateParticipantStatus">
+  <update id="applyContactResult">
     UPDATE normal_group_creation_item_member
-    SET participant_status = #{status}, participant_raw_status = #{rawStatus}, updated_at = #{now}
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_MEMBER'">
+        SET creator_saved_member_status = #{status},
+      </when>
+      <otherwise>
+        SET member_saved_creator_status = #{status},
+      </otherwise>
+    </choose>
+        last_error_code = #{errorCode}, last_error_message = #{errorMessage}, updated_at = #{now}
     WHERE id = #{memberId}
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_MEMBER'">
+        AND creator_save_command_id = #{commandId}
+        AND creator_saved_member_status = 'PENDING'
+      </when>
+      <otherwise>
+        AND member_save_command_id = #{commandId}
+        AND member_saved_creator_status = 'PENDING'
+      </otherwise>
+    </choose>
   </update>
 
-  <update id="persistCreatedGroup">
+  <select id="countIncompleteContactDirections" resultType="int">
+    SELECT COALESCE(SUM(
+      (CASE WHEN creator_saved_member_status = 'SUCCESS' THEN 0 ELSE 1 END) +
+      (CASE WHEN member_saved_creator_status = 'SUCCESS' THEN 0 ELSE 1 END)
+    ), 0)
+    FROM normal_group_creation_item_member
+    WHERE item_id = #{itemId}
+  </select>
+
+  <update id="startGroupCreate">
     UPDATE normal_group_creation_item
-    SET group_jid = #{groupJid}, create_partial = #{createPartial},
-        last_event_id = #{eventId}, updated_at = #{now}
+    SET current_step = 'CREATING_GROUP', dispatch_stage = 'GROUP_CREATE',
+        dispatch_status = 'SENT', create_command_id = #{commandId},
+        create_attempt_count = create_attempt_count + 1, updated_at = #{now}
     WHERE id = #{itemId}
-      AND current_step = 'CREATING_GROUP'
-      AND dispatch_status = 'PROCESSING'
-      AND last_event_id = #{eventId}
-      AND group_jid IS NULL
+      AND current_step = 'PREPARING_CONTACTS'
+      AND status = 'RUNNING'
+      AND NOT EXISTS (
+        SELECT 1 FROM normal_group_creation_item_member member
+        WHERE member.tenant_id = normal_group_creation_item.tenant_id
+          AND member.item_id = normal_group_creation_item.id
+          AND (member.creator_saved_member_status &lt;&gt; 'SUCCESS'
+            OR member.member_saved_creator_status &lt;&gt; 'SUCCESS')
+      )
   </update>
 
-  <update id="completeCreate">
+  <update id="startGroupSettings">
     UPDATE normal_group_creation_item
-    SET
-        current_step = 'POST_PROCESSING',
-        dispatch_stage = 'POST_PROCESS', dispatch_status = 'PENDING',
-        processing_started_at = NULL,
-        next_dispatch_at = #{now}, last_event_id = #{eventId},
+    SET group_jid = #{groupJid}, create_partial = 0,
+        current_step = 'APPLYING_SETTINGS', dispatch_stage = 'GROUP_SETTINGS_APPLY',
+        dispatch_status = 'SENT', settings_command_id = #{settingsCommandId},
+        post_attempt_count = post_attempt_count + 1,
         last_error_code = NULL, last_error_message = NULL, updated_at = #{now}
     WHERE id = #{itemId}
       AND current_step = 'CREATING_GROUP'
-      AND dispatch_status = 'PROCESSING'
-      AND last_event_id = #{eventId}
-      AND group_jid IS NOT NULL
+      AND create_command_id = #{createCommandId}
+      AND status = 'RUNNING'
+      AND group_jid IS NULL
+  </update>
+
+  <update id="markParticipantsCreated">
+    UPDATE normal_group_creation_item_member
+    SET participant_status = 'CONFIRMED', participant_raw_status = 'SUCCESS', updated_at = #{now}
+    WHERE item_id = #{itemId}
+  </update>
+
+  <update id="startGroupLeave">
+    UPDATE normal_group_creation_item
+    SET settings_status = 'SUCCESS', current_step = 'LEAVING_GROUP',
+        dispatch_stage = 'GROUP_LEAVE', dispatch_status = 'SENT',
+        leave_command_id = #{leaveCommandId}, updated_at = #{now}
+    WHERE id = #{itemId}
+      AND current_step = 'APPLYING_SETTINGS'
+      AND settings_command_id = #{settingsCommandId}
+      AND status = 'RUNNING'
+  </update>
+
+  <update id="completeProtocolFlow">
+    UPDATE normal_group_creation_item
+    SET status = 'CREATED', current_step = 'DONE', dispatch_stage = 'NONE',
+        dispatch_status = 'NONE', settings_status = 'SUCCESS',
+        creator_leave_status = #{leaveStatus}, last_event_id = #{eventId},
+        last_error_code = NULL, last_error_message = NULL, updated_at = #{now}
+    WHERE id = #{itemId}
+      AND current_step = #{expectedStep}
+      AND status = 'RUNNING'
+      AND (
+        (#{expectedStep} = 'APPLYING_SETTINGS' AND settings_command_id = #{commandId})
+        OR (#{expectedStep} = 'LEAVING_GROUP' AND leave_command_id = #{commandId})
+      )
+  </update>
+
+  <update id="failProtocolAction">
+    UPDATE normal_group_creation_item
+    SET status = #{status}, dispatch_stage = 'NONE', dispatch_status = 'NONE',
+        group_jid = CASE
+          WHEN #{expectedStep} = 'CREATING_GROUP'
+               AND #{groupJid} IS NOT NULL AND #{groupJid} &lt;&gt; '' THEN #{groupJid}
+          ELSE group_jid END,
+        create_partial = CASE
+          WHEN #{expectedStep} = 'CREATING_GROUP'
+               AND #{groupJid} IS NOT NULL AND #{groupJid} &lt;&gt; '' THEN 1
+          ELSE create_partial END,
+        settings_status = CASE WHEN #{expectedStep} = 'APPLYING_SETTINGS' THEN 'FAILED'
+                               ELSE settings_status END,
+        creator_leave_status = CASE WHEN #{expectedStep} = 'LEAVING_GROUP' THEN 'FAILED'
+                                    ELSE creator_leave_status END,
+        last_event_id = #{eventId}, last_error_code = #{errorCode},
+        last_error_message = #{errorMessage}, updated_at = #{now}
+    WHERE id = #{itemId}
+      AND current_step = #{expectedStep}
+      AND status = 'RUNNING'
+      AND (
+        (#{expectedStep} = 'CREATING_GROUP' AND create_command_id = #{commandId})
+        OR (#{expectedStep} = 'APPLYING_SETTINGS' AND settings_command_id = #{commandId})
+        OR (#{expectedStep} = 'LEAVING_GROUP' AND leave_command_id = #{commandId})
+        OR (#{expectedStep} = 'PREPARING_CONTACTS')
+      )
+  </update>
+
+  <update id="retryProtocolAction">
+    UPDATE normal_group_creation_item
+    SET status = 'RUNNING', dispatch_status = 'SENT',
+        dispatch_stage = CASE #{expectedStep}
+          WHEN 'CREATING_GROUP' THEN 'GROUP_CREATE'
+          WHEN 'APPLYING_SETTINGS' THEN 'GROUP_SETTINGS_APPLY'
+          WHEN 'LEAVING_GROUP' THEN 'GROUP_LEAVE'
+          ELSE dispatch_stage END,
+        create_command_id = CASE WHEN #{expectedStep} = 'CREATING_GROUP'
+                                 THEN #{commandId} ELSE create_command_id END,
+        settings_command_id = CASE WHEN #{expectedStep} = 'APPLYING_SETTINGS'
+                                  THEN #{commandId} ELSE settings_command_id END,
+        leave_command_id = CASE WHEN #{expectedStep} = 'LEAVING_GROUP'
+                               THEN #{commandId} ELSE leave_command_id END,
+        settings_status = CASE WHEN #{expectedStep} = 'APPLYING_SETTINGS'
+                               THEN 'PENDING' ELSE settings_status END,
+        creator_leave_status = CASE WHEN #{expectedStep} = 'LEAVING_GROUP'
+                                    THEN 'PENDING' ELSE creator_leave_status END,
+        create_attempt_count = create_attempt_count
+          + CASE WHEN #{expectedStep} = 'CREATING_GROUP' THEN 1 ELSE 0 END,
+        post_attempt_count = post_attempt_count
+          + CASE WHEN #{expectedStep} IN ('APPLYING_SETTINGS', 'LEAVING_GROUP') THEN 1 ELSE 0 END,
+        last_event_id = NULL, last_error_code = NULL, last_error_message = NULL,
+        updated_at = #{now}
+    WHERE id = #{itemId}
+      AND current_step = #{expectedStep}
+      AND status = 'FAILED'
+      AND #{expectedStep} IN ('CREATING_GROUP', 'APPLYING_SETTINGS', 'LEAVING_GROUP')
   </update>
 
   <update id="updateGroupLink">
@@ -224,181 +379,17 @@
       AND group_jid IS NOT NULL
   </update>
 
-  <update id="completePostProcess">
-    UPDATE normal_group_creation_item
-    SET status = CASE
-          WHEN create_partial = 1 THEN 'CREATED_PARTIAL'
-          WHEN EXISTS (
-            SELECT 1 FROM normal_group_creation_item_member member
-            WHERE member.tenant_id = normal_group_creation_item.tenant_id
-              AND member.item_id = normal_group_creation_item.id
-              AND member.participant_status NOT IN ('OK', 'ALREADY_IN', 'CONFIRMED')
-          ) THEN 'CREATED_PARTIAL'
-          ELSE 'CREATED'
-        END,
-        current_step = 'DONE', dispatch_stage = 'NONE',
-        dispatch_status = 'NONE', settings_status = #{settingsStatus},
-        processing_started_at = NULL,
-        creator_leave_status = #{leaveStatus}, last_event_id = #{eventId},
-        last_error_code = NULL, last_error_message = NULL, updated_at = #{now}
-    WHERE id = #{itemId}
-      AND current_step = 'POST_PROCESSING'
-      AND dispatch_status = 'PROCESSING'
-      AND last_event_id = #{eventId}
-      AND group_jid IS NOT NULL
-  </update>
-
-  <update id="failItem">
-    UPDATE normal_group_creation_item
-    SET status = #{status}, dispatch_status = 'NONE', processing_started_at = NULL,
-        last_event_id = #{eventId},
-        last_error_code = #{errorCode}, last_error_message = #{errorMessage}, updated_at = #{now}
-    WHERE id = #{itemId}
-      AND last_event_id = #{eventId}
-      AND status NOT IN ('CREATED', 'CREATED_PARTIAL')
-  </update>
-
-  <update id="resetItemForRetry">
-    UPDATE normal_group_creation_item
-    SET status = 'PENDING',
-        dispatch_stage = CASE current_step
-          WHEN 'PREPARING_CONTACTS' THEN 'PREPARE'
-          WHEN 'CREATING_GROUP' THEN 'CREATE'
-          WHEN 'POST_PROCESSING' THEN 'POST_PROCESS'
-          ELSE dispatch_stage
-        END,
-        dispatch_status = 'PENDING',
-        next_dispatch_at = #{now},
-        processing_started_at = NULL,
-        last_event_id = NULL,
-        last_error_code = NULL,
-        last_error_message = NULL,
-        updated_at = #{now}
-    WHERE id = #{itemId}
-      AND task_id = #{taskId}
-      AND current_step IN ('PREPARING_CONTACTS', 'CREATING_GROUP', 'POST_PROCESSING')
-      AND status = 'FAILED'
-  </update>
-
-  <update id="markDispatched">
-    UPDATE normal_group_creation_item
-    SET dispatch_status = 'SENT', next_dispatch_at = #{now}, updated_at = #{now}
-    WHERE id = #{itemId}
-      AND dispatch_stage = #{stage}
-      AND dispatch_status = 'PENDING'
-  </update>
-
-  <update id="releaseStageForRetry">
-    UPDATE normal_group_creation_item
-    SET status = CASE
-          WHEN CASE current_step
-                 WHEN 'PREPARING_CONTACTS' THEN prepare_attempt_count
-                 WHEN 'CREATING_GROUP' THEN create_attempt_count
-                 WHEN 'POST_PROCESSING' THEN post_attempt_count
-                 ELSE #{maxAttempts}
-               END &lt; #{maxAttempts}
-            THEN 'PENDING'
-          WHEN current_step = 'CREATING_GROUP' THEN 'RESULT_UNKNOWN'
-          WHEN current_step = 'POST_PROCESSING' THEN 'CREATED_PARTIAL'
-          ELSE 'FAILED'
-        END,
-        dispatch_stage = CASE
-          WHEN CASE current_step
-                 WHEN 'PREPARING_CONTACTS' THEN prepare_attempt_count
-                 WHEN 'CREATING_GROUP' THEN create_attempt_count
-                 WHEN 'POST_PROCESSING' THEN post_attempt_count
-                 ELSE #{maxAttempts}
-               END &lt; #{maxAttempts}
-            THEN dispatch_stage
-          ELSE 'NONE'
-        END,
-        dispatch_status = CASE
-          WHEN CASE current_step
-                 WHEN 'PREPARING_CONTACTS' THEN prepare_attempt_count
-                 WHEN 'CREATING_GROUP' THEN create_attempt_count
-                 WHEN 'POST_PROCESSING' THEN post_attempt_count
-                 ELSE #{maxAttempts}
-               END &lt; #{maxAttempts}
-            THEN 'PENDING'
-          ELSE 'NONE'
-        END,
-        next_dispatch_at = #{nextDispatchAt},
-        processing_started_at = NULL,
-        last_event_id = CASE
-          WHEN CASE current_step
-                 WHEN 'PREPARING_CONTACTS' THEN prepare_attempt_count
-                 WHEN 'CREATING_GROUP' THEN create_attempt_count
-                 WHEN 'POST_PROCESSING' THEN post_attempt_count
-                 ELSE #{maxAttempts}
-               END &lt; #{maxAttempts}
-            THEN NULL
-          ELSE #{eventId}
-        END,
-        last_error_code = #{errorCode},
-        last_error_message = #{errorMessage},
-        updated_at = #{now}
-    WHERE id = #{itemId}
-      AND current_step = #{expectedStep}
-      AND dispatch_status = 'PROCESSING'
-      AND last_event_id = #{eventId}
-      AND status = 'RUNNING'
-  </update>
-
-  <update id="recoverExpiredProcessing">
-    UPDATE normal_group_creation_item
-    SET status = CASE
-          WHEN current_step = 'CREATING_GROUP' THEN 'RESULT_UNKNOWN'
-          WHEN current_step = 'POST_PROCESSING' THEN 'CREATED_PARTIAL'
-          WHEN prepare_attempt_count &gt;= #{maxAttempts} THEN 'FAILED'
-          ELSE 'PENDING'
-        END,
-        dispatch_stage = CASE current_step
-          WHEN 'PREPARING_CONTACTS' THEN CASE
-            WHEN prepare_attempt_count &gt;= #{maxAttempts} THEN 'NONE'
-            ELSE 'PREPARE'
-          END
-          ELSE 'NONE'
-        END,
-        dispatch_status = CASE
-          WHEN current_step = 'PREPARING_CONTACTS' THEN CASE
-            WHEN prepare_attempt_count &gt;= #{maxAttempts} THEN 'NONE'
-            ELSE 'PENDING'
-          END
-          ELSE 'NONE'
-        END,
-        next_dispatch_at = #{now},
-        processing_started_at = NULL,
-        last_event_id = NULL,
-        last_error_code = 'PROCESSING_LEASE_EXPIRED',
-        last_error_message = CASE
-          WHEN current_step = 'CREATING_GROUP'
-            THEN '建群执行中断，协议结果不确定，必须人工对账'
-          WHEN current_step = 'POST_PROCESSING'
-            THEN '群后处理执行中断，管理员移交或退群结果不确定，必须人工对账'
-          WHEN prepare_attempt_count &gt;= #{maxAttempts}
-            THEN '联系人准备阶段连续执行中断，已达到自动尝试上限'
-          ELSE '阶段执行租约过期，已进入安全补偿'
-        END,
-        updated_at = #{now}
-    WHERE id = #{itemId}
-      AND current_step = #{expectedStep}
-      AND dispatch_status = 'PROCESSING'
-      AND processing_started_at IS NOT NULL
-      AND processing_started_at &lt;= #{processingBefore}
-      AND status = 'RUNNING'
-  </update>
-
   <update id="refreshTaskSummary">
     UPDATE normal_group_creation_task task
     SET success_count = (
           SELECT COUNT(*) FROM normal_group_creation_item item
           WHERE item.tenant_id = task.tenant_id AND item.task_id = task.id
-            AND item.deleted_at IS NULL AND item.status IN ('CREATED', 'CREATED_PARTIAL')
+            AND item.deleted_at IS NULL AND item.status = 'CREATED'
         ),
         failed_count = (
           SELECT COUNT(*) FROM normal_group_creation_item item
           WHERE item.tenant_id = task.tenant_id AND item.task_id = task.id
-            AND item.deleted_at IS NULL AND item.status IN ('FAILED', 'RESULT_UNKNOWN')
+            AND item.deleted_at IS NULL AND item.status IN ('CREATED_PARTIAL', 'FAILED', 'RESULT_UNKNOWN')
         ),
         status = CASE
           WHEN (SELECT COUNT(*) FROM normal_group_creation_item item
@@ -412,11 +403,12 @@
             THEN 'PARTIAL'
           WHEN (SELECT COUNT(*) FROM normal_group_creation_item item
                 WHERE item.tenant_id = task.tenant_id AND item.task_id = task.id
-                  AND item.deleted_at IS NULL AND item.status IN ('FAILED', 'RESULT_UNKNOWN')) = 0
+                  AND item.deleted_at IS NULL
+                  AND item.status IN ('CREATED_PARTIAL', 'FAILED', 'RESULT_UNKNOWN')) = 0
             THEN 'SUCCESS'
           WHEN (SELECT COUNT(*) FROM normal_group_creation_item item
                 WHERE item.tenant_id = task.tenant_id AND item.task_id = task.id
-                  AND item.deleted_at IS NULL AND item.status IN ('CREATED', 'CREATED_PARTIAL')) = 0
+                  AND item.deleted_at IS NULL AND item.status = 'CREATED') = 0
             THEN 'FAILED'
           ELSE 'PARTIAL'
         END,

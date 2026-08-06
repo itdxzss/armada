@@ -1,9 +1,12 @@
 package com.armada.platform.kafka.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -28,6 +31,7 @@ class ProtocolKafkaConfigurationTest {
             assertThat(context).hasSingleBean(ProtocolAccountGroupSyncEventConsumerProperties.class);
             assertThat(context).hasSingleBean(ProtocolAccountEventErrorProperties.class);
             assertThat(context).hasSingleBean(ProtocolGroupEventConsumerProperties.class);
+            assertThat(context).hasSingleBean(NormalGroupCreationKafkaProperties.class);
             assertThat(context).doesNotHaveBean(CommonErrorHandler.class);
             assertThat(context.getBean(ProtocolAccountCommandProperties.class).getTopic())
                     .isEqualTo(ProtocolAccountCommandProperties.DEFAULT_TOPIC);
@@ -102,5 +106,32 @@ class ProtocolKafkaConfigurationTest {
                     assertThat(errorProperties.getMaxRetryAttempts()).isEqualTo(5L);
                     assertThat(errorProperties.getDeadLetterTopicSuffix()).isEqualTo(".dead");
                 });
+    }
+
+    @Test
+    void normalGroupTopicsAreDedicatedFromEveryExistingProtocolTopic() throws Exception {
+        ProtocolKafkaConfiguration configuration = new ProtocolKafkaConfiguration();
+        NormalGroupCreationKafkaProperties normal = new NormalGroupCreationKafkaProperties();
+        ProtocolAccountCommandProperties account = new ProtocolAccountCommandProperties();
+        ProtocolMasterCommandProperties master = new ProtocolMasterCommandProperties();
+        ProtocolAndroidCommandProperties android = new ProtocolAndroidCommandProperties();
+        ProtocolAccountStateEventConsumerProperties state =
+                new ProtocolAccountStateEventConsumerProperties();
+        ProtocolAccountGroupSyncEventConsumerProperties sync =
+                new ProtocolAccountGroupSyncEventConsumerProperties();
+        ProtocolGroupEventConsumerProperties group = new ProtocolGroupEventConsumerProperties();
+        ProtocolMessageEventConsumerProperties message =
+                new ProtocolMessageEventConsumerProperties();
+
+        InitializingBean valid = configuration.normalGroupKafkaTopicIsolationValidator(
+                normal, account, master, android, state, sync, group, message);
+        assertThatCode(valid::afterPropertiesSet).doesNotThrowAnyException();
+
+        normal.setWebCommandTopic(master.getTopic());
+        InitializingBean conflicting = configuration.normalGroupKafkaTopicIsolationValidator(
+                normal, account, master, android, state, sync, group, message);
+        assertThatThrownBy(conflicting::afterPropertiesSet)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不得复用");
     }
 }

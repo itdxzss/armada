@@ -9,6 +9,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInse
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
 import java.util.List;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -20,10 +21,12 @@ public interface NormalGroupCreationMapper {
     int ensureAdmissionLock(@Param("tenantId") long tenantId, @Param("now") long now);
 
     /** 在当前创建事务内锁定租户准入行，直至任务和冻结明细提交。 */
+    @InterceptorIgnore(tenantLine = "true")
     Long lockAdmission(@Param("tenantId") long tenantId);
 
     /** 锁定并返回当前租户活动任务群数，使用当前读避免 RR 旧快照。 */
-    List<Integer> selectActiveGroupCountsForUpdate();
+    @InterceptorIgnore(tenantLine = "true")
+    List<Integer> selectActiveGroupCountsForUpdate(@Param("tenantId") long tenantId);
 
     /** 插入任务。 */
     int insertTask(@Param("row") TaskInsert row);
@@ -32,7 +35,9 @@ public interface NormalGroupCreationMapper {
     Long selectTaskIdByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
 
     /** 唯一键并发冲突后，以当前读取得已提交任务 ID。 */
+    @InterceptorIgnore(tenantLine = "true")
     Long selectTaskIdByIdempotencyKeyForUpdate(
+            @Param("tenantId") long tenantId,
             @Param("idempotencyKey") String idempotencyKey);
 
     /** 批量插入计划群。 */
@@ -53,93 +58,92 @@ public interface NormalGroupCreationMapper {
     /** 查询一个计划群的冻结执行事实。 */
     ItemWork selectItemWork(@Param("itemId") Long itemId);
 
+    /** 锁定一个计划群及任务冻结事实，串行处理统一结果 Topic 的并发回执。 */
+    @InterceptorIgnore(tenantLine = "true")
+    ItemWork selectItemWorkForUpdate(@Param("tenantId") Long tenantId,
+                                     @Param("itemId") Long itemId);
+
     /** 查询一个计划群的冻结成员。 */
     List<MemberWork> selectMemberWorks(@Param("itemId") Long itemId);
 
-    /** 原子领取当前阶段。 */
-    int claimStage(@Param("itemId") Long itemId,
-                   @Param("expectedStep") String expectedStep,
-                   @Param("eventId") String eventId,
-                   @Param("attemptColumn") String attemptColumn,
-                   @Param("now") long now);
+    /** 锁定一条成员冻结事实。 */
+    @InterceptorIgnore(tenantLine = "true")
+    MemberWork selectMemberWorkForUpdate(@Param("tenantId") Long tenantId,
+                                         @Param("itemId") Long itemId,
+                                         @Param("memberId") Long memberId);
 
-    /** 标记成员双向联系人保存结果。 */
-    int updateContactStatus(@Param("memberId") Long memberId,
-                            @Param("creatorSaved") String creatorSaved,
-                            @Param("memberSaved") String memberSaved,
-                            @Param("errorCode") String errorCode,
-                            @Param("errorMessage") String errorMessage,
-                            @Param("now") long now);
+    /** 绑定联系人准备单方向的真实 Outbox commandId。 */
+    int bindContactCommand(@Param("memberId") Long memberId,
+                           @Param("direction") String direction,
+                           @Param("expectedStatus") String expectedStatus,
+                           @Param("commandId") String commandId,
+                           @Param("now") long now);
 
-    /** 联系人准备完成并切换到建群阶段。 */
-    int completePrepare(@Param("itemId") Long itemId,
-                        @Param("eventId") String eventId,
+    /** 全部联系人命令入库后把计划群置为运行中。 */
+    int markContactPrepareSubmitted(@Param("itemId") Long itemId, @Param("now") long now);
+
+    /** 按 commandId 幂等应用单方向联系人结果。 */
+    int applyContactResult(@Param("memberId") Long memberId,
+                           @Param("direction") String direction,
+                           @Param("commandId") String commandId,
+                           @Param("status") String status,
+                           @Param("errorCode") String errorCode,
+                           @Param("errorMessage") String errorMessage,
+                           @Param("now") long now);
+
+    /** 查询尚未明确成功的联系人方向数。 */
+    int countIncompleteContactDirections(@Param("itemId") Long itemId);
+
+    /** 联系人准备全部成功后绑定 GROUP_CREATE 命令并推进阶段。 */
+    int startGroupCreate(@Param("itemId") Long itemId,
+                         @Param("commandId") String commandId,
+                         @Param("now") long now);
+
+    /** GROUP_CREATE 成功后保存群 JID，绑定权限命令并推进阶段。 */
+    int startGroupSettings(@Param("itemId") Long itemId,
+                           @Param("createCommandId") String createCommandId,
+                           @Param("settingsCommandId") String settingsCommandId,
+                           @Param("groupJid") String groupJid,
+                           @Param("now") long now);
+
+    /** 建群成功时把冻结成员统一标记为已在群内。 */
+    int markParticipantsCreated(@Param("itemId") Long itemId, @Param("now") long now);
+
+    /** 权限成功后绑定退群命令并推进阶段。 */
+    int startGroupLeave(@Param("itemId") Long itemId,
+                        @Param("settingsCommandId") String settingsCommandId,
+                        @Param("leaveCommandId") String leaveCommandId,
                         @Param("now") long now);
 
-    /** 记录逐成员建群结果。 */
-    int updateParticipantStatus(@Param("memberId") Long memberId,
-                                @Param("status") String status,
-                                @Param("rawStatus") String rawStatus,
-                                @Param("now") long now);
+    /** 所有必需协议动作和 Armada 本地收尾成功后完成计划群。 */
+    int completeProtocolFlow(@Param("itemId") Long itemId,
+                             @Param("expectedStep") String expectedStep,
+                             @Param("commandId") String commandId,
+                             @Param("leaveStatus") String leaveStatus,
+                             @Param("eventId") String eventId,
+                             @Param("now") long now);
 
-    /** 协议返回后先持久化群 JID，保持当前 CREATE 租约，不提前暴露后处理。 */
-    int persistCreatedGroup(@Param("itemId") Long itemId,
-                            @Param("groupJid") String groupJid,
-                            @Param("createPartial") boolean createPartial,
-                            @Param("eventId") String eventId,
+    /** 统一结果明确失败/未知时，按当前 action + commandId 收敛，禁止串阶段结果推进。 */
+    int failProtocolAction(@Param("itemId") Long itemId,
+                           @Param("expectedStep") String expectedStep,
+                           @Param("commandId") String commandId,
+                           @Param("status") String status,
+                           @Param("errorCode") String errorCode,
+                           @Param("errorMessage") String errorMessage,
+                           @Param("groupJid") String groupJid,
+                           @Param("eventId") String eventId,
+                           @Param("now") long now);
+
+    /** 明确失败项生成新 commandId 后恢复当前 Kafka action。 */
+    int retryProtocolAction(@Param("itemId") Long itemId,
+                            @Param("expectedStep") String expectedStep,
+                            @Param("commandId") String commandId,
                             @Param("now") long now);
-
-    /** 全部逐成员回执保存后切换到后处理阶段。 */
-    int completeCreate(@Param("itemId") Long itemId,
-                       @Param("eventId") String eventId,
-                       @Param("now") long now);
 
     /** 保存群列表入口。 */
     int updateGroupLink(@Param("itemId") Long itemId,
                         @Param("groupLinkId") Long groupLinkId,
                         @Param("now") long now);
-
-    /** 群后处理完成。 */
-    int completePostProcess(@Param("itemId") Long itemId,
-                            @Param("settingsStatus") String settingsStatus,
-                            @Param("leaveStatus") String leaveStatus,
-                            @Param("eventId") String eventId,
-                            @Param("now") long now);
-
-    /** 把当前明细收敛为失败或结果未知。 */
-    int failItem(@Param("itemId") Long itemId,
-                 @Param("status") String status,
-                 @Param("errorCode") String errorCode,
-                 @Param("errorMessage") String errorMessage,
-                 @Param("eventId") String eventId,
-                 @Param("now") long now);
-
-    /** 把明确失败项恢复到其冻结阶段，供人工重试。 */
-    int resetItemForRetry(@Param("taskId") Long taskId,
-                          @Param("itemId") Long itemId,
-                          @Param("now") long now);
-
-    /** 下一阶段消息发送成功。 */
-    int markDispatched(@Param("itemId") Long itemId,
-                       @Param("stage") String stage,
-                       @Param("now") long now);
-
-    /** 临时故障交回 Kafka 重试，并为低频补偿保留待发布状态。 */
-    int releaseStageForRetry(@Param("itemId") Long itemId,
-                             @Param("expectedStep") String expectedStep,
-                             @Param("eventId") String eventId,
-                             @Param("maxAttempts") int maxAttempts,
-                             @Param("errorCode") String errorCode,
-                             @Param("errorMessage") String errorMessage,
-                             @Param("nextDispatchAt") long nextDispatchAt,
-                             @Param("now") long now);
-
-    /** 按租户回收一个已过期的执行租约；建群阶段收敛为结果未知。 */
-    int recoverExpiredProcessing(@Param("itemId") Long itemId,
-                                 @Param("expectedStep") String expectedStep,
-                                 @Param("processingBefore") long processingBefore,
-                                 @Param("maxAttempts") int maxAttempts,
-                                 @Param("now") long now);
 
     /** 根据计划群终态汇总任务。 */
     int refreshTaskSummary(@Param("taskId") Long taskId, @Param("now") long now);

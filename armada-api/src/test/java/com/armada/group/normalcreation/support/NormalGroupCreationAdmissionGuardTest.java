@@ -23,7 +23,7 @@ class NormalGroupCreationAdmissionGuardTest {
         NormalGroupCreationMapper mapper = mock(NormalGroupCreationMapper.class);
         allowAdmissionLock(mapper);
         StringRedisTemplate redis = redisReturning(1L);
-        when(mapper.selectActiveGroupCountsForUpdate())
+        when(mapper.selectActiveGroupCountsForUpdate(7L))
                 .thenReturn(Collections.nCopies(20, 5));
         NormalGroupCreationAdmissionGuard guard = guard(mapper, redis);
 
@@ -37,7 +37,7 @@ class NormalGroupCreationAdmissionGuardTest {
         NormalGroupCreationMapper mapper = mock(NormalGroupCreationMapper.class);
         allowAdmissionLock(mapper);
         StringRedisTemplate redis = redisReturning(1L);
-        when(mapper.selectActiveGroupCountsForUpdate()).thenReturn(List.of(2_450, 2_450));
+        when(mapper.selectActiveGroupCountsForUpdate(7L)).thenReturn(List.of(2_450, 2_450));
         NormalGroupCreationAdmissionGuard guard = guard(mapper, redis);
 
         assertThatThrownBy(() -> guard.lockAndCheckCapacity(7L, 101))
@@ -58,7 +58,7 @@ class NormalGroupCreationAdmissionGuardTest {
     void admitsRequestWithinCapacityAndRateLimits() {
         NormalGroupCreationMapper mapper = mock(NormalGroupCreationMapper.class);
         allowAdmissionLock(mapper);
-        when(mapper.selectActiveGroupCountsForUpdate()).thenReturn(List.of(10));
+        when(mapper.selectActiveGroupCountsForUpdate(7L)).thenReturn(List.of(10));
         NormalGroupCreationAdmissionGuard guard = guard(mapper, redisReturning(1L));
 
         assertThatCode(() -> {

@@ -71,6 +71,9 @@ public final class NormalGroupCreationRecords {
             String status,
             String currentStep,
             String dispatchStatus,
+            String createCommandId,
+            String settingsCommandId,
+            String leaveCommandId,
             String creatorLeavePolicy,
             Long folderId,
             Long successMigrationGroupId,
@@ -91,6 +94,8 @@ public final class NormalGroupCreationRecords {
             String memberWsPhone,
             String creatorSavedMemberStatus,
             String memberSavedCreatorStatus,
+            String creatorSaveCommandId,
+            String memberSaveCommandId,
             String participantStatus) {
     }
 

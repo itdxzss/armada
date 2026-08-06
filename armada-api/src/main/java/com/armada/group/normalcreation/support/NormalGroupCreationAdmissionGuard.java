@@ -100,7 +100,7 @@ public class NormalGroupCreationAdmissionGuard {
         if (lockedTenantId == null || lockedTenantId != tenantId) {
             throw unavailable();
         }
-        List<Integer> activeGroupCounts = mapper.selectActiveGroupCountsForUpdate();
+        List<Integer> activeGroupCounts = mapper.selectActiveGroupCountsForUpdate(tenantId);
         long activeTasks = activeGroupCounts.size();
         long inFlightGroups = activeGroupCounts.stream()
                 .mapToLong(Integer::longValue)

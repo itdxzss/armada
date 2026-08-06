@@ -84,6 +84,9 @@ class NormalGroupCreationMapperH2Test {
                   prepare_attempt_count INT NOT NULL DEFAULT 0,
                   create_attempt_count INT NOT NULL DEFAULT 0,
                   post_attempt_count INT NOT NULL DEFAULT 0,
+                  create_command_id VARCHAR(64),
+                  settings_command_id VARCHAR(64),
+                  leave_command_id VARCHAR(64),
                   settings_status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
                   creator_leave_status VARCHAR(16) NOT NULL DEFAULT 'SKIPPED',
                   last_event_id VARCHAR(64),
@@ -107,7 +110,12 @@ class NormalGroupCreationMapperH2Test {
                   member_ws_phone VARCHAR(32) NOT NULL,
                   creator_saved_member_status VARCHAR(16) NOT NULL,
                   member_saved_creator_status VARCHAR(16) NOT NULL,
+                  creator_save_command_id VARCHAR(64),
+                  member_save_command_id VARCHAR(64),
                   participant_status VARCHAR(32) NOT NULL,
+                  participant_raw_status VARCHAR(64),
+                  last_error_code VARCHAR(64),
+                  last_error_message VARCHAR(512),
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL
                 )
@@ -129,55 +137,91 @@ class NormalGroupCreationMapperH2Test {
     }
 
     @Test
-    void staleEventCannotCompleteOrFailAfterNewLeaseClaimsItem() throws SQLException {
-        insertItem(1L, "PREPARING_CONTACTS", "PROCESSING", "RUNNING", "old-event", 1, 0, 0);
+    void protocolFlowAdvancesOnlyAfterBothContactDirectionsAndMatchingCommandIds() throws SQLException {
+        insertItem(5L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
+        execute("UPDATE normal_group_creation_item SET group_jid = NULL WHERE id = 5");
+        execute("""
+                INSERT INTO normal_group_creation_item_member (
+                  id, tenant_id, task_id, item_id, member_order, member_account_id,
+                  member_protocol_account_id, member_protocol_backend, member_ws_phone,
+                  creator_saved_member_status, member_saved_creator_status,
+                  creator_save_command_id, member_save_command_id,
+                  participant_status, created_at, updated_at
+                ) VALUES (
+                  51, 7, 99, 5, 1, 21, 'acc_21', 'ANDROID', '10021',
+                  'SUCCESS', 'PENDING', 'cmd-contact-creator', 'cmd-contact-member',
+                  'PENDING', 100, 100
+                )
+                """);
 
-        assertThat(mapper.recoverExpiredProcessing(
-                1L, "PREPARING_CONTACTS", 100L, 3, 200L))
-                .isEqualTo(1);
-        assertThat(mapper.claimStage(1L, "PREPARING_CONTACTS", "new-event", "prepare", 300L))
-                .isEqualTo(1);
+        assertThat(mapper.startGroupCreate(5L, "cmd-create", 200L)).isZero();
+        assertThat(mapper.applyContactResult(
+                51L, "MEMBER_SAVE_CREATOR", "wrong-command", "SUCCESS",
+                null, null, 210L)).isZero();
+        assertThat(mapper.applyContactResult(
+                51L, "MEMBER_SAVE_CREATOR", "cmd-contact-member", "SUCCESS",
+                null, null, 220L)).isEqualTo(1);
+        assertThat(mapper.startGroupCreate(5L, "cmd-create", 230L)).isEqualTo(1);
 
-        assertThat(mapper.completePrepare(1L, "old-event", 400L)).isZero();
-        assertThat(mapper.failItem(
-                1L, "FAILED", "STALE", "旧消费者", "old-event", 400L)).isZero();
-        assertThat(mapper.completePrepare(1L, "new-event", 400L)).isEqualTo(1);
+        assertThat(mapper.startGroupSettings(
+                5L, "wrong-command", "cmd-settings", "1203-new@g.us", 240L)).isZero();
+        assertThat(mapper.startGroupSettings(
+                5L, "cmd-create", "cmd-settings", "1203-new@g.us", 250L)).isEqualTo(1);
+        assertThat(mapper.startGroupLeave(
+                5L, "wrong-command", "cmd-leave", 260L)).isZero();
+        assertThat(mapper.startGroupLeave(
+                5L, "cmd-settings", "cmd-leave", 270L)).isEqualTo(1);
+        assertThat(mapper.completeProtocolFlow(
+                5L, "LEAVING_GROUP", "wrong-command", "SUCCESS", "evt-wrong", 280L)).isZero();
+        assertThat(mapper.completeProtocolFlow(
+                5L, "LEAVING_GROUP", "cmd-leave", "SUCCESS", "evt-done", 290L)).isEqualTo(1);
+
+        assertThat(value(5L, "status")).isEqualTo("CREATED");
+        assertThat(value(5L, "current_step")).isEqualTo("DONE");
+        assertThat(value(5L, "group_jid")).isEqualTo("1203-new@g.us");
     }
 
     @Test
-    void expiredPostProcessingConvergesToPartialInsteadOfReplayingLeave() throws SQLException {
-        insertItem(2L, "POST_PROCESSING", "PROCESSING", "RUNNING", "post-event", 0, 0, 1);
+    void failedCreateWithReturnedGroupJidConvergesToPartialAndCannotBeCompleted() throws SQLException {
+        insertItem(6L, "CREATING_GROUP", "SENT", "RUNNING", null, 0, 1, 0);
+        execute("""
+                UPDATE normal_group_creation_item
+                SET group_jid = NULL, create_command_id = 'cmd-create'
+                WHERE id = 6
+                """);
 
-        assertThat(mapper.recoverExpiredProcessing(
-                2L, "POST_PROCESSING", 100L, 3, 200L))
-                .isEqualTo(1);
+        assertThat(mapper.failProtocolAction(
+                6L, "CREATING_GROUP", "wrong-command", "CREATED_PARTIAL",
+                "PARTIAL", "部分成员未确认", "1203-partial@g.us", "evt-wrong", 200L)).isZero();
+        assertThat(mapper.failProtocolAction(
+                6L, "CREATING_GROUP", "cmd-create", "CREATED_PARTIAL",
+                "PARTIAL", "部分成员未确认", "1203-partial@g.us", "evt-partial", 210L)).isEqualTo(1);
 
-        assertThat(value(2L, "status")).isEqualTo("CREATED_PARTIAL");
-        assertThat(value(2L, "dispatch_status")).isEqualTo("NONE");
+        assertThat(value(6L, "status")).isEqualTo("CREATED_PARTIAL");
+        assertThat(value(6L, "group_jid")).isEqualTo("1203-partial@g.us");
+        assertThat(value(6L, "create_partial")).isEqualTo("1");
+        assertThat(mapper.completeProtocolFlow(
+                6L, "CREATING_GROUP", "cmd-create", "SUCCESS", "evt-done", 220L)).isZero();
     }
 
     @Test
-    void exhaustedCreateRetryConvergesToResultUnknown() throws SQLException {
-        insertItem(3L, "CREATING_GROUP", "PROCESSING", "RUNNING", "create-event", 0, 3, 0);
+    void retryLeaveReplacesCommandAndResetsFailedPostState() throws SQLException {
+        insertItem(7L, "LEAVING_GROUP", "NONE", "FAILED", "evt-failed", 0, 1, 2);
+        execute("""
+                UPDATE normal_group_creation_item
+                SET leave_command_id = 'cmd-leave-old', settings_status = 'SUCCESS',
+                    creator_leave_status = 'FAILED'
+                WHERE id = 7
+                """);
 
-        assertThat(mapper.releaseStageForRetry(
-                3L, "CREATING_GROUP", "create-event", 3,
-                "TIMEOUT", "协议超时", 500L, 400L)).isEqualTo(1);
+        assertThat(mapper.retryProtocolAction(
+                7L, "LEAVING_GROUP", "cmd-leave-new", 300L)).isEqualTo(1);
 
-        assertThat(value(3L, "status")).isEqualTo("RESULT_UNKNOWN");
-        assertThat(value(3L, "dispatch_status")).isEqualTo("NONE");
-    }
-
-    @Test
-    void exhaustedPrepareLeaseBecomesFailedInsteadOfBeingRepublishedForever() throws SQLException {
-        insertItem(4L, "PREPARING_CONTACTS", "PROCESSING", "RUNNING", "prepare-event", 3, 0, 0);
-
-        assertThat(mapper.recoverExpiredProcessing(
-                4L, "PREPARING_CONTACTS", 100L, 3, 200L)).isEqualTo(1);
-
-        assertThat(value(4L, "status")).isEqualTo("FAILED");
-        assertThat(value(4L, "dispatch_stage")).isEqualTo("NONE");
-        assertThat(value(4L, "dispatch_status")).isEqualTo("NONE");
+        assertThat(value(7L, "status")).isEqualTo("RUNNING");
+        assertThat(value(7L, "dispatch_stage")).isEqualTo("GROUP_LEAVE");
+        assertThat(value(7L, "leave_command_id")).isEqualTo("cmd-leave-new");
+        assertThat(value(7L, "creator_leave_status")).isEqualTo("PENDING");
+        assertThat(value(7L, "post_attempt_count")).isEqualTo("3");
     }
 
     @Test
@@ -193,7 +237,7 @@ class NormalGroupCreationMapperH2Test {
                   (15, 8, 300, 'PENDING', NULL)
                 """);
 
-        List<Integer> groupCounts = mapper.selectActiveGroupCountsForUpdate();
+        List<Integer> groupCounts = mapper.selectActiveGroupCountsForUpdate(7L);
 
         assertThat(groupCounts).containsExactly(10, 20);
     }
@@ -285,7 +329,7 @@ class NormalGroupCreationMapperH2Test {
                             mapper.ensureAdmissionLock(7L, 200L);
                             mapper.lockAdmission(7L);
                             secondCurrentCounts.set(
-                                    mapper.selectActiveGroupCountsForUpdate());
+                                    mapper.selectActiveGroupCountsForUpdate(7L));
                         } finally {
                             TenantContext.clear();
                         }

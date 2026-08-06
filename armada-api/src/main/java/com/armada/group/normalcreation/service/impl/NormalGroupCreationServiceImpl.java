@@ -13,7 +13,6 @@ import com.armada.group.normalcreation.model.dto.NormalGroupCreationSettingsDTO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskDetailVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
-import com.armada.group.normalcreation.service.NormalGroupCreationEventPublisher;
 import com.armada.group.normalcreation.service.NormalGroupCreationService;
 import com.armada.group.normalcreation.support.NormalGroupCreationAdmissionGuard;
 import com.armada.group.service.GroupFolderService;
@@ -28,20 +27,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** 新建普群任务创建、冻结与查询实现。 */
 @Service
 public class NormalGroupCreationServiceImpl implements NormalGroupCreationService {
-
-    private static final Logger log =
-            LoggerFactory.getLogger(NormalGroupCreationServiceImpl.class);
 
     private static final int MAX_GROUP_COUNT = 1_000;
     private static final int MAX_MEMBER_COUNT = 1_024;
@@ -53,7 +45,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     private final AccountProtocolLookupService accountLookupService;
     private final GroupFolderService groupFolderService;
     private final NormalGroupCreationMapper mapper;
-    private final NormalGroupCreationEventPublisher eventPublisher;
+    private final NormalGroupCreationCommandDispatcher commandDispatcher;
     private final NormalGroupCreationAdmissionGuard admissionGuard;
     private final SecureRandom random = new SecureRandom();
 
@@ -62,13 +54,13 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             AccountProtocolLookupService accountLookupService,
             GroupFolderService groupFolderService,
             NormalGroupCreationMapper mapper,
-            NormalGroupCreationEventPublisher eventPublisher,
+            NormalGroupCreationCommandDispatcher commandDispatcher,
             NormalGroupCreationAdmissionGuard admissionGuard) {
         this.accountGroupService = accountGroupService;
         this.accountLookupService = accountLookupService;
         this.groupFolderService = groupFolderService;
         this.mapper = mapper;
-        this.eventPublisher = eventPublisher;
+        this.commandDispatcher = commandDispatcher;
         this.admissionGuard = admissionGuard;
     }
 
@@ -87,10 +79,16 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
         }
         admissionGuard.checkRate(tenantId, userId);
-        List<ProtocolAccountRef> creators = new ArrayList<>(
-                accountLookupService.findOnlineNormalByGroupId(validated.adminGroupId()));
-        List<ProtocolAccountRef> members = new ArrayList<>(
-                accountLookupService.findOnlineNormalByGroupId(validated.memberGroupId()));
+        List<ProtocolAccountRef> creators;
+        List<ProtocolAccountRef> members;
+        try {
+            creators = new ArrayList<>(accountLookupService.findOnlineNormalStrictByGroupId(
+                    validated.adminGroupId()));
+            members = new ArrayList<>(accountLookupService.findOnlineNormalStrictByGroupId(
+                    validated.memberGroupId()));
+        } catch (IllegalArgumentException ex) {
+            throw validation("账号分组包含未明确配置 WEB/ANDROID 协议的在线账号");
+        }
         if (creators.size() < validated.groupCount()) {
             throw validation("管理员分组可用在线账号不足，需要 " + validated.groupCount()
                     + " 个，实际 " + creators.size() + " 个");
@@ -140,11 +138,11 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         try {
             if (mapper.insertTask(task) == 0) {
                 return mapper.selectTask(
-                        mapper.selectTaskIdByIdempotencyKeyForUpdate(normalizedKey));
+                        mapper.selectTaskIdByIdempotencyKeyForUpdate(tenantId, normalizedKey));
             }
         } catch (DuplicateKeyException ex) {
             Long concurrentTaskId =
-                    mapper.selectTaskIdByIdempotencyKeyForUpdate(normalizedKey);
+                    mapper.selectTaskIdByIdempotencyKeyForUpdate(tenantId, normalizedKey);
             if (concurrentTaskId == null) {
                 throw ex;
             }
@@ -176,7 +174,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
 
         List<MemberInsert> memberRows = new ArrayList<>(
                 validated.groupCount() * validated.memberCount());
-        List<InitialDispatch> dispatches = new ArrayList<>(validated.groupCount());
+        List<Long> dispatchItemIds = new ArrayList<>(validated.groupCount());
         for (FrozenGroup group : groups) {
             Long itemId = itemIds.get(group.itemNo());
             if (itemId == null) {
@@ -194,14 +192,20 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                         member.wsPhone(),
                         now));
             }
-            dispatches.add(new InitialDispatch(
-                    taskId, itemId, group.creator().armadaAccountId()));
+            dispatchItemIds.add(itemId);
         }
         for (int from = 0; from < memberRows.size(); from += MEMBER_INSERT_BATCH_SIZE) {
             int to = Math.min(from + MEMBER_INSERT_BATCH_SIZE, memberRows.size());
             mapper.insertMembers(memberRows.subList(from, to));
         }
-        afterCommit(dispatches);
+        for (Long itemId : dispatchItemIds) {
+            ItemWork item = mapper.selectItemWork(itemId);
+            if (item == null) {
+                throw unavailable();
+            }
+            commandDispatcher.enqueueContactPrepare(item, mapper.selectMemberWorks(item.id()));
+        }
+        mapper.refreshTaskSummary(taskId, System.currentTimeMillis());
         return mapper.selectTask(taskId);
     }
 
@@ -216,23 +220,40 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void retry(long taskId, long itemId, long userId) {
-        ItemWork item = mapper.selectItemWork(itemId);
+        Long tenantId = TenantContext.get();
+        if (tenantId == null || tenantId <= 0) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
+        }
+        ItemWork item = mapper.selectItemWorkForUpdate(tenantId, itemId);
         if (item == null || !item.taskId().equals(taskId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群明细不存在");
         }
-        if ("RESULT_UNKNOWN".equals(item.status())
-                || "CREATED_PARTIAL".equals(item.status())) {
-            throw validation("群已创建或结果不确定，必须先完成对账，不能直接重试协议操作");
+        if (!"FAILED".equals(item.status())) {
+            throw validation("仅允许重试结果明确失败的新建普群明细");
         }
         long now = System.currentTimeMillis();
-        if (mapper.resetItemForRetry(taskId, itemId, now) == 0) {
-            throw validation("当前明细状态不允许重试");
+        if ("PREPARING_CONTACTS".equals(item.currentStep())) {
+            commandDispatcher.enqueueFailedContactPrepare(
+                    item, mapper.selectMemberWorks(item.id()));
+        } else if (List.of("CREATING_GROUP", "APPLYING_SETTINGS", "LEAVING_GROUP")
+                .contains(item.currentStep())) {
+            String action = switch (item.currentStep()) {
+                case "CREATING_GROUP" -> "GROUP_CREATE";
+                case "APPLYING_SETTINGS" -> "GROUP_SETTINGS_APPLY";
+                case "LEAVING_GROUP" -> "GROUP_LEAVE";
+                default -> throw validation("当前阶段不支持重试");
+            };
+            String commandId = commandDispatcher.enqueueCreatorAction(item, action);
+            if (mapper.retryProtocolAction(
+                    item.id(), item.currentStep(), commandId, now) != 1) {
+                throw unavailable();
+            }
+        } else {
+            throw validation("当前阶段不支持重试");
         }
-        log.info("新建普群失败项人工重试 tenantId={} taskId={} itemId={} operatorUserId={}",
-                TenantContext.get(), taskId, itemId, userId);
-        publishSafely(stage(item.currentStep()), TenantContext.get(), taskId,
-                itemId, item.creatorAccountId());
+        mapper.refreshTaskSummary(taskId, now);
     }
 
     private ValidatedRequest validate(NormalGroupCreationCreateDTO request) {
@@ -310,44 +331,6 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         return List.copyOf(result);
     }
 
-    private void afterCommit(List<InitialDispatch> dispatches) {
-        Long tenantId = TenantContext.get();
-        if (tenantId == null || tenantId <= 0) {
-            throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
-        }
-        Runnable publish = () -> dispatches.forEach(row -> publishSafely(
-                "PREPARE", tenantId, row.taskId(), row.itemId(), row.creatorAccountId()));
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            publish.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                publish.run();
-            }
-        });
-    }
-
-    private void publishSafely(
-            String action, Long tenantId, Long taskId, Long itemId, Long creatorAccountId) {
-        try {
-            eventPublisher.publish(action, tenantId, taskId, itemId, creatorAccountId);
-        } catch (RuntimeException ex) {
-            log.warn("新建普群消息首发失败，将由低频补偿恢复 tenantId={} taskId={} itemId={} action={}",
-                    tenantId, taskId, itemId, action);
-        }
-    }
-
-    private static String stage(String currentStep) {
-        return switch (currentStep) {
-            case "PREPARING_CONTACTS" -> "PREPARE";
-            case "CREATING_GROUP" -> "CREATE";
-            case "POST_PROCESSING" -> "POST_PROCESS";
-            default -> throw validation("当前明细没有可重试阶段");
-        };
-    }
-
     private static String subject(String template, int no, int groupCount) {
         String value = template.contains("{no}")
                 ? template.replace("{no}", String.valueOf(no))
@@ -391,9 +374,6 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     private static BusinessException unavailable() {
         return new BusinessException(
                 ErrorCode.AUTH_SERVICE_UNAVAILABLE, "新建普群任务初始化失败，请稍后重试");
-    }
-
-    private record InitialDispatch(Long taskId, Long itemId, Long creatorAccountId) {
     }
 
     private record FrozenGroup(

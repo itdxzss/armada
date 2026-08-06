@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.service.impl;
 
+import com.armada.platform.kafka.config.NormalGroupCreationKafkaProperties;
 import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
 import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
@@ -13,6 +14,7 @@ import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandReques
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
@@ -72,6 +74,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 群成员变更命令类型。 */
     public static final String COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED = "group.participants.requested";
 
+    /** 新建普群通用动作命令类型。 */
+    public static final String COMMAND_TYPE_NORMAL_GROUP_CREATION_REQUESTED =
+            "group.normal_creation.requested";
+
     /** 营销消息发送命令类型。 */
     public static final String COMMAND_TYPE_MESSAGE_SEND_REQUESTED = "message.send.requested";
 
@@ -93,6 +99,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 普通拉群料子成员聚合类型。 */
     public static final String AGGREGATE_TYPE_PULL_TASK_MATERIAL_MEMBER =
             "PULL_TASK_MATERIAL_MEMBER";
+
+    /** 新建普群计划群聚合类型。 */
+    public static final String AGGREGATE_TYPE_NORMAL_GROUP_CREATION_ITEM =
+            "NORMAL_GROUP_CREATION_ITEM";
 
     /** 营销发送尝试聚合类型。 */
     public static final String AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT = "MARKETING_SEND_ATTEMPT";
@@ -116,6 +126,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private final ProtocolAccountCommandProperties accountCommandProperties;
     private final ProtocolMasterCommandProperties masterCommandProperties;
     private final ProtocolAndroidCommandProperties androidCommandProperties;
+    private final NormalGroupCreationKafkaProperties normalGroupCreationKafkaProperties;
 
     /**
      * 创建协议命令 Outbox service。
@@ -126,19 +137,23 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
      * @param accountCommandProperties 账号上线命令 Kafka topic 配置
      * @param masterCommandProperties  master 路由命令 Kafka topic 配置
      * @param androidCommandProperties Android 协议命令 Kafka topic 配置
+     * @param normalGroupCreationKafkaProperties 新建普群独立 Kafka topic 配置
      */
     public ProtocolCommandOutboxServiceImpl(ProtocolCommandOutboxMapper mapper,
                                             ObjectMapper objectMapper,
                                             ProtocolCommandDispatchTrigger dispatchTrigger,
                                             ProtocolAccountCommandProperties accountCommandProperties,
                                             ProtocolMasterCommandProperties masterCommandProperties,
-                                            ProtocolAndroidCommandProperties androidCommandProperties) {
+                                            ProtocolAndroidCommandProperties androidCommandProperties,
+                                            NormalGroupCreationKafkaProperties
+                                                    normalGroupCreationKafkaProperties) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.dispatchTrigger = dispatchTrigger;
         this.accountCommandProperties = accountCommandProperties;
         this.masterCommandProperties = masterCommandProperties;
         this.androidCommandProperties = androidCommandProperties;
+        this.normalGroupCreationKafkaProperties = normalGroupCreationKafkaProperties;
     }
 
     /**
@@ -379,6 +394,31 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         String commonBatchId = commands.stream()
                 .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
                 ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueNormalGroupCreationCommands(
+            List<ProtocolNormalGroupCreationCommandRequest> commands) {
+        validateNormalGroupCreationCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolNormalGroupCreationCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toNormalGroupCreationOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).taskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.taskId()))
+                ? normalGroupCreationBatchId(firstTaskId) : null;
         return insertPendingRows(commonBatchId, commandIds, rows);
     }
 
@@ -740,6 +780,34 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    /** 把新建普群动作引用转换为按实际执行协议路由的待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toNormalGroupCreationOutboxRow(
+            ProtocolNormalGroupCreationCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(normalGroupCreationBatchId(command.taskId()));
+        row.setCommandType(COMMAND_TYPE_NORMAL_GROUP_CREATION_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_NORMAL_GROUP_CREATION_ITEM);
+        row.setAggregateId(command.itemId());
+        row.setKafkaTopic(switch (command.actor().backend()) {
+            case WEB -> normalGroupCreationKafkaProperties.getWebCommandTopic();
+            case ANDROID -> normalGroupCreationKafkaProperties.getAndroidCommandTopic();
+        });
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
     /** 把普通拉群管理员邀请动作引用转换为待发送 Outbox 行。 */
     private ProtocolCommandOutbox toPullTaskPullerInviteOutboxRow(
             ProtocolPullTaskPullerInviteCommandRequest command,
@@ -831,6 +899,11 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 生成普通拉群任务稳定批次 ID。 */
     private static String pullTaskBatchId(Long pullTaskId) {
         return "pull-task:" + pullTaskId;
+    }
+
+    /** 生成新建普群任务稳定批次 ID。 */
+    private static String normalGroupCreationBatchId(Long taskId) {
+        return "normal-group-creation:" + taskId;
     }
 
     private ProtocolCommandOutbox toMessageOutboxRow(
@@ -1225,6 +1298,43 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                     || isBlank(command.actor().wsPhone())) {
                 throw new BusinessException(ErrorCode.VALIDATION,
                         "普通拉群联系人协议命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验新建普群动作、联系人方向、路由账号和当前租户。 */
+    private void validateNormalGroupCreationCommands(
+            List<ProtocolNormalGroupCreationCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新建普群协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "新建普群协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        Set<String> actions = Set.of(
+                "CONTACT_PREPARE", "GROUP_CREATE", "GROUP_SETTINGS_APPLY", "GROUP_LEAVE");
+        Set<String> directions = Set.of("CREATOR_SAVE_MEMBER", "MEMBER_SAVE_CREATOR");
+        for (ProtocolNormalGroupCreationCommandRequest command : commands) {
+            boolean contactPrepare = command != null && "CONTACT_PREPARE".equals(command.action());
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.taskId() == null || command.taskId() <= 0
+                    || command.itemId() == null || command.itemId() <= 0
+                    || !actions.contains(command.action())
+                    || (contactPrepare && (command.memberId() == null || command.memberId() <= 0
+                            || !directions.contains(command.direction())))
+                    || (!contactPrepare && (command.memberId() != null || command.direction() != null))
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || command.actor().backend() == null
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "新建普群协议命令缺少必要字段、动作非法或租户不一致");
             }
         }
     }

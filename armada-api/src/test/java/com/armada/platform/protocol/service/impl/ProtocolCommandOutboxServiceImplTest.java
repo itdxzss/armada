@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.service.impl;
 
+import com.armada.platform.kafka.config.NormalGroupCreationKafkaProperties;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -21,6 +22,7 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
+import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
@@ -196,6 +198,65 @@ class ProtocolCommandOutboxServiceImplTest {
                     .doesNotContain("wsPhone")
                     .doesNotContain("\"contact\":")
                     .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueueNormalGroupCreationCommands_routesEachBackendToItsOwnCommandTopic() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-normal-web", "cmd-normal-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueueNormalGroupCreationCommands(List.of(
+                            new ProtocolNormalGroupCreationCommandRequest(
+                                    1L, 9L, 21L, 31L, "CREATOR_SAVE_MEMBER",
+                                    "CONTACT_PREPARE",
+                                    new ProtocolAccountRef(
+                                            382L, ProtocolBackend.WEB, "acc-web", "911")),
+                            new ProtocolNormalGroupCreationCommandRequest(
+                                    1L, 9L, 21L, 31L, "MEMBER_SAVE_CREATOR",
+                                    "CONTACT_PREPARE",
+                                    new ProtocolAccountRef(
+                                            383L, ProtocolBackend.ANDROID, "acc-android", "922"))));
+
+            assertThat(result.batchId()).isEqualTo("normal-group-creation:9");
+            assertThat(result.commandIds())
+                    .containsExactly("cmd-normal-web", "cmd-normal-android");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            NormalGroupCreationKafkaProperties.DEFAULT_WEB_COMMAND_TOPIC,
+                            NormalGroupCreationKafkaProperties.DEFAULT_ANDROID_COMMAND_TOPIC);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                    .containsExactly("acc-web", "acc-android");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getProtocolBackend)
+                    .containsExactly("WEB", "ANDROID");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.normal_creation.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                    .containsOnly("NORMAL_GROUP_CREATION_ITEM");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                    .containsOnly(21L);
+
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(1).getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "taskId", 9,
+                    "itemId", 21,
+                    "memberId", 31,
+                    "direction", "MEMBER_SAVE_CREATOR",
+                    "action", "CONTACT_PREPARE",
+                    "source", "normal_group_creation"));
+            assertThat(rows.get(1).getPayloadJson())
+                    .doesNotContain("wsPhone")
+                    .doesNotContain("accountId")
+                    .doesNotContain("protocolBackend");
         } finally {
             TenantContext.clear();
         }
@@ -963,8 +1024,10 @@ class ProtocolCommandOutboxServiceImplTest {
         androidProperties.setLifecycleTopic(androidLifecycleCommandTopic);
         androidProperties.setMessageTopic(androidMessageCommandTopic);
         androidProperties.setGroupJoinTopic(androidGroupJoinCommandTopic);
+        NormalGroupCreationKafkaProperties normalGroupProperties =
+                new NormalGroupCreationKafkaProperties();
         return new TestableProtocolCommandOutboxService(mapper, objectMapper, dispatchTrigger, accountProperties,
-                masterProperties, androidProperties, commandIds, batchIds);
+                masterProperties, androidProperties, normalGroupProperties, commandIds, batchIds);
     }
 
     private List<ProtocolCommandOutbox> capturedRows() {
@@ -1042,9 +1105,11 @@ class ProtocolCommandOutboxServiceImplTest {
                                                      ProtocolAccountCommandProperties accountProperties,
                                                      ProtocolMasterCommandProperties masterProperties,
                                                      ProtocolAndroidCommandProperties androidProperties,
+                                                     NormalGroupCreationKafkaProperties normalGroupProperties,
                                                      List<String> commandIds,
                                                      List<String> batchIds) {
-            super(mapper, objectMapper, dispatchTrigger, accountProperties, masterProperties, androidProperties);
+            super(mapper, objectMapper, dispatchTrigger, accountProperties, masterProperties,
+                    androidProperties, normalGroupProperties);
             this.commandIds = new ArrayDeque<>(commandIds);
             this.batchIds = new ArrayDeque<>(batchIds);
         }

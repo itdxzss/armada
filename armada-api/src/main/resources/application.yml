@@ -39,29 +39,18 @@ server:
 
 armada:
   normal-group-creation:
-    # 三个业务 Topic 分别吸收联系人准备、一次性建群和群后处理流量；协议调用仍由账号 backend 路由。
-    dispatch-recovery-delay-ms: ${NORMAL_GROUP_CREATION_DISPATCH_RECOVERY_DELAY_MS:60000}
-    processing-timeout-ms: ${NORMAL_GROUP_CREATION_PROCESSING_TIMEOUT_MS:300000}
-    max-stage-attempts: ${NORMAL_GROUP_CREATION_MAX_STAGE_ATTEMPTS:3}
-    account-lock-key-prefix: ${NORMAL_GROUP_CREATION_ACCOUNT_LOCK_KEY_PREFIX:armada:normal-group-creation:account-lock:}
-    account-lock-ttl-ms: ${NORMAL_GROUP_CREATION_ACCOUNT_LOCK_TTL_MS:60000}
+    kafka:
+      web-command-topic: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:protocol.web.normal-group.commands.v1}
+      android-command-topic: ${NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC:protocol.android.normal-group.commands.v1}
+      result-topic: ${NORMAL_GROUP_CREATION_RESULT_TOPIC:protocol.normal-group.events.v1}
+      result-group-id: ${NORMAL_GROUP_CREATION_RESULT_GROUP_ID:armada-api-normal-group-results}
+      result-concurrency: ${NORMAL_GROUP_CREATION_RESULT_CONCURRENCY:4}
     admission:
       key-prefix: ${NORMAL_GROUP_CREATION_ADMISSION_KEY_PREFIX:armada:normal-group-creation:admission:}
       max-active-tasks: ${NORMAL_GROUP_CREATION_MAX_ACTIVE_TASKS:20}
       max-in-flight-groups: ${NORMAL_GROUP_CREATION_MAX_IN_FLIGHT_GROUPS:5000}
       tenant-requests-per-minute: ${NORMAL_GROUP_CREATION_TENANT_REQUESTS_PER_MINUTE:10}
       user-requests-per-minute: ${NORMAL_GROUP_CREATION_USER_REQUESTS_PER_MINUTE:5}
-    kafka:
-      prepare-topic: ${NORMAL_GROUP_CREATION_PREPARE_TOPIC:group.normal-creation.contact-prepare.v1}
-      prepare-group-id: ${NORMAL_GROUP_CREATION_PREPARE_GROUP_ID:armada-normal-group-contact-prepare-v1}
-      prepare-concurrency: ${NORMAL_GROUP_CREATION_PREPARE_CONCURRENCY:4}
-      create-topic: ${NORMAL_GROUP_CREATION_CREATE_TOPIC:group.normal-creation.create.v1}
-      create-group-id: ${NORMAL_GROUP_CREATION_CREATE_GROUP_ID:armada-normal-group-create-v1}
-      create-concurrency: ${NORMAL_GROUP_CREATION_CREATE_CONCURRENCY:4}
-      post-process-topic: ${NORMAL_GROUP_CREATION_POST_PROCESS_TOPIC:group.normal-creation.post-process.v1}
-      post-process-group-id: ${NORMAL_GROUP_CREATION_POST_PROCESS_GROUP_ID:armada-normal-group-post-process-v1}
-      post-process-concurrency: ${NORMAL_GROUP_CREATION_POST_PROCESS_CONCURRENCY:4}
-      dlt-topic: ${NORMAL_GROUP_CREATION_DLT_TOPIC:group.normal-creation.commands.v1.DLT}
   pull-task:
     avatar:
       storage-dir: ${ARMADA_PULL_TASK_AVATAR_STORAGE_DIR:/app/data/pull-task-avatars}

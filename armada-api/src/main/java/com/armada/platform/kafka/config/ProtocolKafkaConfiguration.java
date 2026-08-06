@@ -1,11 +1,15 @@
 package com.armada.platform.kafka.config;
 
 import com.armada.shared.exception.BusinessException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,6 +42,7 @@ import org.springframework.util.backoff.FixedBackOff;
         ProtocolAccountGroupSyncEventConsumerProperties.class,
         ProtocolAccountEventErrorProperties.class,
         ProtocolGroupEventConsumerProperties.class,
+        NormalGroupCreationKafkaProperties.class,
         ProtocolMessageEventConsumerProperties.class
 })
 public class ProtocolKafkaConfiguration {
@@ -46,6 +51,43 @@ public class ProtocolKafkaConfiguration {
 
     private static final int DISPATCH_EXECUTOR_POOL_SIZE = 1;
     private static final int DISPATCH_EXECUTOR_QUEUE_CAPACITY = 1_000;
+
+    /**
+     * 启动时校验新建普群三条专用 topic 不与任何既有命令/事件 topic 共用。
+     */
+    @Bean
+    public InitializingBean normalGroupKafkaTopicIsolationValidator(
+            NormalGroupCreationKafkaProperties normal,
+            ProtocolAccountCommandProperties accountCommands,
+            ProtocolMasterCommandProperties masterCommands,
+            ProtocolAndroidCommandProperties androidCommands,
+            ProtocolAccountStateEventConsumerProperties accountStateEvents,
+            ProtocolAccountGroupSyncEventConsumerProperties accountGroupSyncEvents,
+            ProtocolGroupEventConsumerProperties groupEvents,
+            ProtocolMessageEventConsumerProperties messageEvents) {
+        return () -> {
+            Set<String> legacyTopics = new HashSet<>(List.of(
+                    accountCommands.getTopic().trim(),
+                    masterCommands.getTopic().trim(),
+                    androidCommands.getLifecycleTopic().trim(),
+                    androidCommands.getMessageTopic().trim(),
+                    androidCommands.getGroupJoinTopic().trim(),
+                    androidCommands.getGroupActionTopic().trim(),
+                    accountStateEvents.getTopic().trim(),
+                    accountGroupSyncEvents.getTopic().trim(),
+                    groupEvents.getTopic().trim(),
+                    messageEvents.getTopic().trim()));
+            for (String topic : List.of(
+                    normal.getWebCommandTopic(),
+                    normal.getAndroidCommandTopic(),
+                    normal.getResultTopic())) {
+                if (legacyTopics.contains(topic)) {
+                    throw new IllegalArgumentException(
+                            "新建普群专用 Kafka topic 不得复用既有命令或事件 topic: " + topic);
+                }
+            }
+        };
+    }
 
     /**
      * 注册协议账号事件 consumer 错误处理器。

@@ -47,6 +47,16 @@ public interface AccountProtocolLookupService {
     List<ProtocolAccountRef> findOnlineNormalByGroupId(Long groupId);
 
     /**
+     * 查询普通群任务候选账号，并要求每个候选显式标明 WEB/ANDROID 后端。
+     *
+     * <p>空或未知 protocol_id 会立即失败，禁止跨后端副作用链路静默回退到 Web。</p>
+     *
+     * @param groupId 账号组 ID
+     * @return 在线正常、协议后端明确的账号引用
+     */
+    List<ProtocolAccountRef> findOnlineNormalStrictByGroupId(Long groupId);
+
+    /**
      * 从当前租户指定分组随机选择一个在线正常的 Web 拉手账号。
      *
      * <p>该专用查询服务于联系人保存和成员 ADD 尚只支持 Web 的执行链路，不改变通用选号语义。</p>

@@ -1,5 +1,15 @@
 # 群组列表「新建普群」完整开发设计（实施版）
 
+> **2026-08-06 架构修正（当前实现优先）**：本功能已改为三个专用 Topic：
+> `protocol.web.normal-group.commands.v1`、`protocol.android.normal-group.commands.v1`、
+> `protocol.normal-group.events.v1`。Armada 仅生产协议命令并消费统一结果，不再
+> 消费联系人准备、建群、后处理三个内部阶段 Topic，也不再通过内部阶段消费者直调协议
+> Port。本文后续凡描述“三个 Armada 阶段 Topic / 统一 Routing Port 直调 / 不使用协议
+> Outbox 或结果 Topic”的内容均为被替代的早期方案。当前 Topic、action、状态推进、默认值
+> 和并发约束以 `.harness/changes/normal-group-creation/summary.md` 为准。新建普群不得复用
+> Web master、Android group-action 或 `protocol.group.events.v1`；同一协议账号跨旧/新 Topic
+> 必须串行，不同账号允许并行。
+
 > 文档状态：已完成关键口径收敛，可进入 createQ 分支开发与联调
 > 需求来源：《群组列表与新建普群_产品需求文档_PRD_V1.3》、本次业务补充、ZERO「群组列表 / 新建普群」只读交互参考
 > 设计范围：Armada 后端、前端和现有 Web/Android 统一协议端口的任务编排、测试与部署校验

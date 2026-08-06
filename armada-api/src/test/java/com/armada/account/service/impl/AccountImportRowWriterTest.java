@@ -56,6 +56,39 @@ class AccountImportRowWriterTest {
         assertThat(credentialCaptor.getValue().getCredsJson()).contains("\"phone\":\"27612057408\"");
     }
 
+    @Test
+    void writeOne_marksJsonImportAsWebProtocol() {
+        when(accountMapper.insert(any(Account.class))).thenAnswer(invocation -> {
+            Account account = invocation.getArgument(0);
+            account.setId(124L);
+            return 1;
+        });
+        when(stateMapper.insert(any())).thenReturn(1);
+        when(credentialMapper.insert(any())).thenReturn(1);
+        AccountImportRowWriter writer = new AccountImportRowWriter(
+                accountMapper, stateMapper, credentialMapper);
+
+        ParsedEntry entry = new ParsedEntry();
+        var data = new ObjectMapper().createObjectNode();
+        data.put("me", "json-account");
+        entry.setData(data);
+
+        Long accountId = writer.writeOne("27612057409", entry, 9L,
+                new AccountImportDTO(9L, ImportFormat.JSON.getCode(), 1, 1,
+                        "ZA", null, null, "account.json"));
+
+        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
+        ArgumentCaptor<AccountCredential> credentialCaptor =
+                ArgumentCaptor.forClass(AccountCredential.class);
+        verify(accountMapper).insert(accountCaptor.capture());
+        verify(credentialMapper).insert(credentialCaptor.capture());
+        assertThat(accountId).isEqualTo(124L);
+        assertThat(accountCaptor.getValue().getProtocolId())
+                .isEqualTo(ProtocolBackend.WEB.name());
+        assertThat(credentialCaptor.getValue().getCredFormat())
+                .isEqualTo(ImportFormat.JSON.getCode());
+    }
+
     private static ParsedEntry sixEntry() {
         ParsedEntry entry = new ParsedEntry();
         ObjectMapper mapper = new ObjectMapper();

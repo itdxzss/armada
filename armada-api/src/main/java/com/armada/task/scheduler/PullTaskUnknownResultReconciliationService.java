@@ -17,6 +17,7 @@ import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
@@ -103,22 +104,42 @@ public class PullTaskUnknownResultReconciliationService {
         accounts.forEach(row -> byId.put(row.getId(), row));
         for (PullTaskAccountAction action : actions) {
             PullTaskGroupAccount target = byId.get(action.getTargetGroupAccountId());
-            boolean membershipAction = !Objects.equals(action.getActionType(),
-                    PullTaskAccountActionType.SAVE_CONTACT.code());
-            GroupParticipantResult member = membershipAction && target != null
+            boolean promotion = Objects.equals(
+                    action.getActionType(), PullTaskAccountActionType.PROMOTE_MANAGER.code());
+            boolean membershipAction = Objects.equals(
+                    action.getActionType(), PullTaskAccountActionType.INVITE_TO_GROUP.code())
+                    || Objects.equals(
+                    action.getActionType(), PullTaskAccountActionType.JOIN_BY_LINK.code());
+            GroupParticipantResult member = (promotion || membershipAction) && target != null
                     ? context.snapshot().member(target.getAccountPhone()) : null;
-            if (member != null) {
-                context.counter().confirm(resources.actionMapper().transitionResult(transition(
+            boolean effectObserved = promotion ? hasAdmin(member) : membershipAction && member != null;
+            if (effectObserved) {
+                int changed = promotion
+                        ? resources.actionMapper().transitionManagerAdminObservation(
                         action.getId(), ACTION_OPEN, PullTaskActionStatus.SUCCESS.code(),
-                        PullTaskFactResult.success(member.jid(), context.now()), context.now())));
-                confirmMembership(target, member.jid(), context.now());
+                        false, null, null, context.now())
+                        : resources.actionMapper().transitionResult(transition(
+                        action.getId(), ACTION_OPEN, PullTaskActionStatus.SUCCESS.code(),
+                        PullTaskFactResult.success(member.jid(), context.now()), context.now()));
+                context.counter().confirm(changed);
+                if (membershipAction) {
+                    confirmMembership(target, member.jid(), context.now());
+                }
             } else if (staleSubmitted(
                     action.getActionStatus(), action.getSubmittedAt(), context.cutoff(),
                     PullTaskActionStatus.SUBMITTED.code())) {
-                context.counter().unknown(resources.actionMapper().transitionResult(transition(
+                int changed = promotion
+                        ? resources.actionMapper().transitionManagerAdminObservation(
+                        action.getId(), List.of(PullTaskActionStatus.SUBMITTED.code()),
+                        PullTaskActionStatus.UNKNOWN.code(), true,
+                        PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.name(),
+                        PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.message(),
+                        context.now())
+                        : resources.actionMapper().transitionResult(transition(
                         action.getId(), List.of(PullTaskActionStatus.SUBMITTED.code()),
                         PullTaskActionStatus.UNKNOWN.code(), PullTaskFactResult.reason(
-                                UNCONFIRMED, "协议动作结果待查询或回调确认"), context.now())));
+                                UNCONFIRMED, "协议动作结果待查询或回调确认"), context.now()));
+                context.counter().unknown(changed);
                 markMembershipUnknown(target, membershipAction, context.now());
             }
         }

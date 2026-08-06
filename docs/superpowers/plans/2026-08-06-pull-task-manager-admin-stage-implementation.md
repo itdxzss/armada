@@ -134,7 +134,7 @@ WHERE execution_row.execution_status IN (1, 2, 3)
   );
 ~~~
 
-Use PREPARE/EXECUTE guards for table/column existence, and guarded MODIFY COLUMN statements for the stage, role_type and action_type comments. Do not alter completed, failed or abandoned execution outcomes.
+Use PREPARE/EXECUTE guards for table/column existence, and guarded MODIFY COLUMN statements for the stage, role_type and action_type comments. Because MySQL DDL auto-commits, protect stage renumbering and active-row rewind with a durable checkpoint plus their own DML transactions so a repaired partial migration cannot shift stages twice. Do not alter completed, failed or abandoned execution outcomes.
 
 - [ ] **Step 4: Update Java enums, entity and mapper columns**
 

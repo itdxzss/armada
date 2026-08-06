@@ -123,7 +123,9 @@ public class ProtocolGroupEventConsumer {
                 && "PARTICIPANT_ADD".equals(operation);
         boolean materialAdmin = "pull_task_material_admin".equals(source)
                 && "PARTICIPANT_PROMOTE".equals(operation);
-        if (!contactSave && !pullerInvite && !materialAdmin) {
+        boolean managerAdmin = "pull_task_manager_admin".equals(source)
+                && "PARTICIPANT_PROMOTE".equals(operation);
+        if (!contactSave && !pullerInvite && !materialAdmin && !managerAdmin) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群动作结果来源或动作非法");
         }
         Long accountId = requiredLong(data, "accountId");
@@ -144,7 +146,8 @@ public class ProtocolGroupEventConsumer {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群动作结果 outcome 非法");
         }
         String targetJid = text(data, "targetJid");
-        if ((pullerInvite || materialAdmin) && (targetJid == null || targetJid.isBlank())) {
+        if ((pullerInvite || materialAdmin || managerAdmin)
+                && (targetJid == null || targetJid.isBlank())) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议成员结果缺少 data.targetJid");
         }
         Boolean retryable = booleanValue(data, "retryable");

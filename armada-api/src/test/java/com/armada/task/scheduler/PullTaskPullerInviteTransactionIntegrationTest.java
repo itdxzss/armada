@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
@@ -32,6 +33,7 @@ import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.model.enums.PullTaskStandardStatus;
@@ -90,7 +92,9 @@ class PullTaskPullerInviteTransactionIntegrationTest {
         executionMapper.freezeDraftRows(100L, 500L);
         executionId = execution.getId();
         execute("UPDATE pull_task_group_execution "
-                + "SET execution_status=2, stage=4, version=5, group_jid='120363group@g.us' "
+                + "SET execution_status=2, stage="
+                + PullTaskExecutionStage.PULLER_INVITE.code()
+                + ", version=5, group_jid='120363group@g.us' "
                 + "WHERE id=" + executionId);
         insertRole(901L, "8613800000901", PullTaskGroupAccountRole.MANAGER, 1, true);
         insertRole(903L, "8613800000903", PullTaskGroupAccountRole.MANAGER, 2, true);
@@ -187,6 +191,82 @@ class PullTaskPullerInviteTransactionIntegrationTest {
         assertInvite(action, 901L, 904L, "cmd-invite-1");
     }
 
+    @Test
+    void inviteStageWithNoJoinedPullerReturnsToContactSelection() {
+        TenantContext.set(7L);
+        List<PullTaskGroupAccount> managers = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.MANAGER.code());
+        List<PullTaskGroupAccount> pullers = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code());
+        for (int index = 0; index < pullers.size(); index++) {
+            PullTaskGroupAccount puller = pullers.get(index);
+            groupAccountMapper.updateMembership(puller.getId(),
+                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), null, 550L);
+            PullTaskAccountAction action = new PullTaskAccountAction();
+            action.setTaskId(100L);
+            action.setGroupExecutionId(executionId);
+            action.setActionType(PullTaskAccountActionType.INVITE_TO_GROUP.code());
+            action.setActorGroupAccountId(managers.get(index).getId());
+            action.setTargetGroupAccountId(puller.getId());
+            action.setCreatedAt(500L);
+            action.setUpdatedAt(500L);
+            actionMapper.insertIfAbsent(action);
+            actionMapper.markSubmitted(action.getId(), "cmd-failed-" + index, 510L);
+            actionMapper.writeBackResult(action.getId(), PullTaskActionStatus.FAILED.code(),
+                    "INVITE_FAILED", "邀请失败", 520L);
+        }
+
+        PullTaskExecutionDispatchResult result =
+                service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        assertThat(result).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(executionId);
+        assertThat(saved.getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+        assertThat(saved.getWaitResourceType()).isNull();
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code()))
+                .allMatch(row -> row.getReleasedAt() != null);
+    }
+
+    @Test
+    void executionRaceRollsBackFailedPullerRelease() throws SQLException {
+        TenantContext.set(7L);
+        List<PullTaskGroupAccount> managers = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.MANAGER.code());
+        List<PullTaskGroupAccount> pullers = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code());
+        for (int index = 0; index < pullers.size(); index++) {
+            PullTaskGroupAccount puller = pullers.get(index);
+            groupAccountMapper.updateMembership(puller.getId(),
+                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), null, 550L);
+            PullTaskAccountAction action = new PullTaskAccountAction();
+            action.setTaskId(100L);
+            action.setGroupExecutionId(executionId);
+            action.setActionType(PullTaskAccountActionType.INVITE_TO_GROUP.code());
+            action.setActorGroupAccountId(managers.get(index).getId());
+            action.setTargetGroupAccountId(puller.getId());
+            action.setCreatedAt(500L);
+            action.setUpdatedAt(500L);
+            actionMapper.insertIfAbsent(action);
+            actionMapper.markSubmitted(action.getId(), "cmd-failed-race-" + index, 510L);
+            actionMapper.writeBackResult(action.getId(), PullTaskActionStatus.FAILED.code(),
+                    "INVITE_FAILED", "邀请失败", 520L);
+        }
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        execute("UPDATE pull_task_group_execution SET version=version+1 WHERE id=" + executionId);
+
+        assertThatThrownBy(() -> service.prepare(candidate, "worker-1", 610L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("执行行租约已变化");
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code()))
+                .allMatch(row -> row.getReleasedAt() == null);
+    }
+
     private void assertInvite(
             PullTaskAccountAction action, long actorAccountId,
             long targetAccountId, String commandId) {
@@ -277,6 +357,11 @@ class PullTaskPullerInviteTransactionIntegrationTest {
         if (inGroup) {
             groupAccountMapper.updateMembership(row.getId(),
                     PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+            if (role == PullTaskGroupAccountRole.MANAGER) {
+                groupAccountMapper.transitionAdminStatus(
+                        row.getId(), List.of(PullTaskGroupAccountAdminStatus.PENDING.code()),
+                        PullTaskGroupAccountAdminStatus.SUCCESS.code(), 550L);
+            }
         }
     }
 

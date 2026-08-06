@@ -30,6 +30,7 @@ import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.entity.PullTaskStandardGroupSetting;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
 import com.armada.task.model.vo.PullTaskStandardTaskAggregate;
@@ -70,9 +71,11 @@ class PullTaskStandardReadServiceTest {
         PullTaskGroupExecution execution = execution(11L);
         when(taskMapper.selectLifecycle(100L)).thenReturn(task);
         when(executionMapper.selectById(11L)).thenReturn(execution);
+        PullTaskGroupAccount manager = account(501L, PullTaskGroupAccountRole.MANAGER);
+        manager.setAdminStatus(3);
         when(accountMapper.selectByExecutionAndRole(
                 11L, PullTaskGroupAccountRole.MANAGER.code()))
-                .thenReturn(List.of(account(501L, PullTaskGroupAccountRole.MANAGER)));
+                .thenReturn(List.of(manager));
         when(accountMapper.selectByExecutionAndRole(
                 11L, PullTaskGroupAccountRole.PULLER.code()))
                 .thenReturn(List.of(account(502L, PullTaskGroupAccountRole.PULLER)));
@@ -83,6 +86,11 @@ class PullTaskStandardReadServiceTest {
         when(accountMapper.selectByExecutionAndRole(
                 11L, PullTaskGroupAccountRole.STATION.code()))
                 .thenReturn(List.of(station));
+        PullTaskGroupAccount promoter = account(504L, PullTaskGroupAccountRole.PROMOTER);
+        promoter.setAdminStatus(3);
+        when(accountMapper.selectByExecutionAndRole(
+                11L, PullTaskGroupAccountRole.PROMOTER.code()))
+                .thenReturn(List.of(promoter));
         when(callMapper.selectByExecution(11L)).thenReturn(List.of(call()));
         when(materialMapper.selectByExecution(11L)).thenReturn(List.of(member()));
         when(readMapper.selectExecutionAggregates(
@@ -108,21 +116,30 @@ class PullTaskStandardReadServiceTest {
         assertThat(service.task(100L).groupSetting().avatarPreviewUrl())
                 .isEqualTo("/api/pull-tasks/standard/group-avatars/avatar.png");
         verify(executionMapper, never()).selectByTaskId(100L);
-        assertThat(service.execution(100L, 11L).roles()).hasSize(3)
+        var detail = service.execution(100L, 11L);
+        assertThat(detail.execution().groupJid()).isEqualTo("120***********0000@g.us");
+        assertThat(detail.execution().groupJid()).doesNotContain("120363000000000000");
+        assertThat(detail.roles()).hasSize(4)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
                 .singleElement()
                 .satisfies(row -> {
+                    assertThat(row.accountPhone()).isEqualTo("861******0503");
                     assertThat(row.membershipReasonCode()).isEqualTo("PRIVACY_BLOCKED");
                     assertThat(row.membershipReasonMessage()).isEqualTo("privacy blocked");
                     assertThat(row.membershipResultAt()).isEqualTo(5_000L);
                 });
-        assertThat(service.execution(100L, 11L).calls()).singleElement()
+        assertThat(detail.roles())
+                .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.PROMOTER.code())
+                .singleElement()
+                .satisfies(row -> assertThat(row.adminStatus()).isEqualTo(3));
+        assertThat(detail.calls()).singleElement()
                 .extracting(row -> row.callStatus()).isEqualTo(3);
-        assertThat(service.execution(100L, 11L).actions()).singleElement()
+        assertThat(detail.actions()).singleElement()
                 .extracting(row -> row.actionStatus()).isEqualTo(3);
         assertThat(service.members(100L, 11L)).singleElement()
                 .satisfies(row -> {
-                    assertThat(row.normalizedPhone()).isEqualTo("8613900000001");
+                    assertThat(row.normalizedPhone()).isEqualTo("861******0001");
+                    assertThat(row.waJid()).isEqualTo("861******0001@s.whatsapp.net");
                     assertThat(row.pullStatus()).isEqualTo(3);
                     assertThat(row.pullReasonCode()).isEqualTo("PRIVACY");
                 });
@@ -200,8 +217,9 @@ class PullTaskStandardReadServiceTest {
         row.setTaskId(100L);
         row.setSeq(1);
         row.setNormalizedLink("chat.whatsapp.com/AAAA");
+        row.setGroupJid("120363000000000000@g.us");
         row.setExecutionStatus(2);
-        row.setStage(5);
+        row.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         row.setManualPaused(1);
         row.setWaitResourceType(1);
         row.setValidMemberCount(1);
@@ -240,6 +258,7 @@ class PullTaskStandardReadServiceTest {
         row.setPullCallId(801L);
         row.setPullStatus(3);
         row.setPullReasonCode("PRIVACY");
+        row.setWaJid("8613900000001@s.whatsapp.net");
         return row;
     }
 

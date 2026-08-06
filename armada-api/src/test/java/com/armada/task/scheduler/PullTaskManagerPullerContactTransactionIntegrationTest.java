@@ -30,6 +30,7 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
@@ -90,12 +91,17 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         executionMapper.insertDraft(execution);
         executionMapper.freezeDraftRows(100L, 500L);
         execute("UPDATE pull_task_group_execution "
-                + "SET execution_status=2, stage=3, version=4, group_jid='120363group@g.us' "
+                + "SET execution_status=2, stage="
+                + PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
+                + ", version=4, group_jid='120363group@g.us' "
                 + "WHERE id=" + execution.getId());
         PullTaskGroupAccount manager = manager(execution.getId());
         groupAccountMapper.insert(manager);
         groupAccountMapper.updateMembership(manager.getId(),
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+        groupAccountMapper.transitionAdminStatus(
+                manager.getId(), List.of(PullTaskGroupAccountAdminStatus.PENDING.code()),
+                PullTaskGroupAccountAdminStatus.SUCCESS.code(), 550L);
     }
 
     @AfterEach
@@ -137,6 +143,34 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         assertThat(saved.getGroupJid()).isEqualTo("120363group@g.us");
         assertThat(saved.getNextRunAt()).isEqualTo(60_610L);
         assertThat(saved.getLockOwner()).isNull();
+    }
+
+    @Test
+    void joinFailedReleasedPullersAreSkippedAndUnusedCandidatesFillThePlan()
+            throws SQLException {
+        execute("UPDATE pull_task_standard_setting SET puller_count_per_group=2 WHERE task_id=100");
+        insertReleasedFailedPuller(45L, 1);
+        insertReleasedFailedPuller(47L, 2);
+        List<ProtocolAccountRef> refs = List.of(
+                protocolRef(45L), protocolRef(47L), protocolRef(48L), protocolRef(50L));
+        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(refs);
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(
+                protocolRef(901L), protocolRef(48L), protocolRef(50L)));
+        when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-contact-replacement"), 1));
+
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        List<PullTaskGroupAccount> pullers = groupAccountMapper.selectByExecutionAndRole(
+                executionId(), PullTaskGroupAccountRole.PULLER.code());
+        assertThat(pullers.stream().filter(row -> row.getReleasedAt() == null)
+                .map(PullTaskGroupAccount::getAccountId)).containsExactly(48L, 50L);
+        assertThat(pullers.stream().filter(row -> row.getAccountId() == 45L)
+                .findFirst().orElseThrow().getReleasedAt()).isNotNull();
+        assertThat(pullers.stream().filter(row -> row.getAccountId() == 47L)
+                .findFirst().orElseThrow().getReleasedAt()).isNotNull();
     }
 
     @Test
@@ -313,6 +347,26 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         row.setCreatedAt(500L);
         row.setUpdatedAt(500L);
         return row;
+    }
+
+    private void insertReleasedFailedPuller(long accountId, int roleSeq) {
+        PullTaskGroupAccount row = puller(100L, executionId(), accountId);
+        row.setAccountPhone(String.valueOf(accountId));
+        row.setRoleSeq(roleSeq);
+        groupAccountMapper.insert(row);
+        groupAccountMapper.updateMembership(row.getId(),
+                PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), null, 520L);
+        groupAccountMapper.releasePuller(row.getId(), 530L);
+    }
+
+    private long executionId() {
+        return executionMapper.selectByTaskId(100L).get(0).getId();
+    }
+
+    private static ProtocolAccountRef protocolRef(long accountId) {
+        return new ProtocolAccountRef(
+                accountId, ProtocolBackend.WEB,
+                "protocol-" + accountId, String.valueOf(accountId));
     }
 
     private void execute(String sql) throws SQLException {

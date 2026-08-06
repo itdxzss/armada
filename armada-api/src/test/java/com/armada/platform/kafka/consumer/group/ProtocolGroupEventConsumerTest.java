@@ -256,6 +256,39 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
+    void onMessage_managerAdminResultRequiresPromoteAndDispatchesTargetJid() {
+        String raw = """
+                {
+                  "eventId":"promoter-903:group.action_result_reported:cmd-promote-2",
+                  "event":"group.action_result_reported",
+                  "accountId":"promoter-903",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":711,
+                    "source":"pull_task_manager_admin","operation":"PARTICIPANT_PROMOTE",
+                    "accountId":903,"protocolAccountId":"promoter-903",
+                    "commandId":"cmd-promote-2","attemptNo":2,
+                    "targetJid":"15@s.whatsapp.net",
+                    "outcome":"FAILED","reasonCode":"GROUP_PERMISSION_DENIED",
+                    "reasonMessage":"raw","retryable":false,"timestamp":5000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupActionResultReportedEvent(
+                "promoter-903:group.action_result_reported:cmd-promote-2",
+                7L, 100L, 11L, 711L, "pull_task_manager_admin", "PARTICIPANT_PROMOTE",
+                903L, "promoter-903", "cmd-promote-2", 2, "FAILED",
+                "15@s.whatsapp.net", "GROUP_PERMISSION_DENIED", "raw",
+                false, 5_000L, "worker-a"));
+    }
+
+    @Test
     void onMessage_batchAddResultDispatchesPerParticipantCorrelation() {
         String raw = """
                 {

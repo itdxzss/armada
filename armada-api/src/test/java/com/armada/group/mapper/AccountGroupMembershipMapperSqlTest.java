@@ -43,6 +43,31 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
+    void pullTaskPromoterCandidatesAreTenantGroupAndPermissionScoped() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf(
+                "<select id=\"selectPullTaskAdminPromoterCandidatesByTenant\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("a.tenant_id = #{tenantId}"));
+        assertTrue(query.contains("m.group_jid = #{groupJid}"));
+        assertTrue(query.contains("m.membership_status = #{inGroupStatus}"));
+        assertTrue(query.contains("m.is_admin = 1"));
+        assertTrue(query.contains("a.id &lt;&gt; #{managerAccountId}"));
+        assertTrue(query.contains("a.protocol_id IS NOT NULL"));
+        assertTrue(query.contains("s.login_state = #{onlineLoginState}"));
+        assertTrue(query.contains("s.account_state = #{normalAccountState}"));
+        assertTrue(query.contains("(s.risk_status IS NULL OR s.risk_status = 1)"));
+        assertTrue(query.contains("s.mute_status IS NULL"));
+        assertTrue(query.contains("SUBSTRING_INDEX(p.owner_phone, '@', 1)"));
+        assertTrue(query.contains("COALESCE(m.last_seen_at, 0) DESC"));
+        assertFalse(query.contains("account_group_id = #{accountGroupId}"));
+        assertFalse(query.contains("LIMIT 1"));
+    }
+
+    @Test
     void snapshotEstablishedGroupsExcludePendingPreciseAddSource() throws IOException {
         String xml = mapperXml();
         assertTrue(xml.contains("<select id=\"selectSnapshotEstablishedGroupJids\""));

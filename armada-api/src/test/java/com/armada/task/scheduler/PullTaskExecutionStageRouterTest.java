@@ -19,7 +19,8 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerPullerContactProcessor.class);
         PullTaskExecutionStageRouter router =
                 new PullTaskExecutionStageRouter(
-                        link, manager, contact, mock(PullTaskPullerInviteProcessor.class),
+                        link, manager, mock(PullTaskManagerAdminProcessor.class), contact,
+                        mock(PullTaskPullerInviteProcessor.class),
                         mock(PullTaskPullExecutionProcessor.class),
                         mock(PullTaskMaterialAdminProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
@@ -41,7 +42,7 @@ class PullTaskExecutionStageRouterTest {
         PullTaskPullerInviteProcessor invite = mock(PullTaskPullerInviteProcessor.class);
         PullTaskExecutionStageRouter router =
                 new PullTaskExecutionStageRouter(
-                        link, manager, contact, invite,
+                        link, manager, mock(PullTaskManagerAdminProcessor.class), contact, invite,
                         mock(PullTaskPullExecutionProcessor.class),
                         mock(PullTaskMaterialAdminProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
@@ -61,6 +62,7 @@ class PullTaskExecutionStageRouterTest {
         PullTaskExecutionStageRouter router = new PullTaskExecutionStageRouter(
                 mock(PullTaskLinkValidationProcessor.class),
                 mock(PullTaskManagerJoinProcessor.class),
+                mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class), pullExecution,
                 mock(PullTaskMaterialAdminProcessor.class));
@@ -81,6 +83,7 @@ class PullTaskExecutionStageRouterTest {
         PullTaskExecutionStageRouter router = new PullTaskExecutionStageRouter(
                 mock(PullTaskLinkValidationProcessor.class),
                 mock(PullTaskManagerJoinProcessor.class),
+                mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class), materialAdmin);
@@ -101,6 +104,7 @@ class PullTaskExecutionStageRouterTest {
         PullTaskExecutionStageRouter router = new PullTaskExecutionStageRouter(
                 mock(PullTaskLinkValidationProcessor.class),
                 mock(PullTaskManagerJoinProcessor.class),
+                mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class), pullExecution,
                 mock(PullTaskMaterialAdminProcessor.class));
@@ -112,5 +116,28 @@ class PullTaskExecutionStageRouterTest {
         assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
         verify(pullExecution).close(candidate, "worker-1", 1_000L);
+    }
+
+    @Test
+    void routesManagerAdminBeforeManagerPullerContact() {
+        PullTaskManagerAdminProcessor managerAdmin = mock(PullTaskManagerAdminProcessor.class);
+        PullTaskManagerPullerContactProcessor contact =
+                mock(PullTaskManagerPullerContactProcessor.class);
+        PullTaskExecutionStageRouter router = new PullTaskExecutionStageRouter(
+                mock(PullTaskLinkValidationProcessor.class),
+                mock(PullTaskManagerJoinProcessor.class), managerAdmin, contact,
+                mock(PullTaskPullerInviteProcessor.class),
+                mock(PullTaskPullExecutionProcessor.class),
+                mock(PullTaskMaterialAdminProcessor.class));
+        PullTaskGroupExecution candidate = new PullTaskGroupExecution();
+        candidate.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        when(managerAdmin.process(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(managerAdmin).process(candidate, "worker-1", 1_000L);
+        verify(contact, org.mockito.Mockito.never())
+                .process(candidate, "worker-1", 1_000L);
     }
 }

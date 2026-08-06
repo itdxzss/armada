@@ -75,7 +75,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         assertThat(executionTransition.getValue().target().executionStatus())
                 .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
         assertThat(executionTransition.getValue().target().stage())
-                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+                .isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
         assertThat(executionTransition.getValue().target().groupJid()).isEqualTo("120363group@g.us");
         assertThat(TenantContext.get()).isNull();
     }

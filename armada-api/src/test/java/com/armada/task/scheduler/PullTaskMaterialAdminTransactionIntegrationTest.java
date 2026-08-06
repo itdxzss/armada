@@ -59,7 +59,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
-/** 使用真实 Mapper XML 验证 stage 6 料子提权 Outbox 提交和重启恢复。 */
+/** 使用真实 Mapper XML 验证料子提权阶段 Outbox 提交和重启恢复。 */
 @SpringJUnitConfig(PullTaskMaterialAdminTransactionIntegrationTest.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -97,7 +97,9 @@ class PullTaskMaterialAdminTransactionIntegrationTest {
         executionMapper.freezeDraftRows(100L, 500L);
         executionId = execution.getId();
         execute("UPDATE pull_task_group_execution "
-                + "SET execution_status=2, stage=6, version=6, group_jid='120363group@g.us' "
+                + "SET execution_status=2, stage="
+                + PullTaskExecutionStage.MATERIAL_ADMIN.code()
+                + ", version=6, group_jid='120363group@g.us' "
                 + "WHERE id=" + executionId);
         PullTaskGroupAccount manager = manager();
         accountMapper.insert(manager);

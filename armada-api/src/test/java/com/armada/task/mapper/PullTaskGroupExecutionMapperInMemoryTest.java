@@ -251,7 +251,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
 
         PullTaskGroupExecution saved = mapper.selectByTaskId(100L).get(0);
         assertThat(saved.getStage())
-                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+                .isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
         assertThat(saved.getGroupJid()).isEqualTo("120363verified@g.us");
         assertThat(saved.getVersion()).isEqualTo(6);
         assertThat(saved.getLockOwner()).isNull();
@@ -265,7 +265,8 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     void protocolResultOnlyAdvancesUnoccupiedExecutionWithCallerSuppliedStates() throws SQLException {
         PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
         mapper.insertDraft(row);
-        executeRaw("UPDATE pull_task_group_execution SET execution_status = 2, stage = 3, "
+        executeRaw("UPDATE pull_task_group_execution SET execution_status = 2, stage = "
+                + PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code() + ", "
                 + "version = 5, lock_owner = 'worker-active', lock_expires_at = 900 "
                 + "WHERE id = " + row.getId());
         PullTaskExecutionResultTransition transition = new PullTaskExecutionResultTransition(
@@ -501,7 +502,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                         PullTaskExecutionStage.MANAGER_JOIN.code()),
                 new PullTaskManagerJoinResultTransition.Target(
                         PullTaskExecutionStatus.EXECUTING.code(),
-                        PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
                         "120363verified@g.us", null, null, null, 0L, null),
                 700L);
     }

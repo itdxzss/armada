@@ -2,6 +2,8 @@ package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,6 +31,7 @@ import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -170,6 +173,99 @@ class PullTaskUnknownResultReconciliationServiceTest {
         assertThat(change.getValue().targetStatus())
                 .isEqualTo(PullTaskMaterialAdminStatus.SUCCESS.code());
         assertThat(stats.confirmed()).isOne();
+    }
+
+    @Test
+    void submittedManagerPromotionDoesNotSucceedWhenTargetIsOnlyOrdinaryMember() {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",
+                new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        manager.setAdminStatus(PullTaskGroupAccountAdminStatus.SUBMITTED.code());
+        manager.setUpdatedAt(20_000L);
+        PullTaskGroupAccount promoter = account(12L, 102L, "8613800000002",
+                new AccountState(PullTaskGroupAccountRole.PROMOTER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        PullTaskAccountAction action = action(
+                41L, PullTaskAccountActionType.PROMOTE_MANAGER.code(),
+                PullTaskActionStatus.SUBMITTED.code(), 20_000L);
+        action.setActorGroupAccountId(promoter.getId());
+        action.setTargetGroupAccountId(manager.getId());
+        stubRows(execution.getId(), List.of(manager, promoter), List.of(), List.of());
+        when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
+                PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
+                .thenReturn(List.of(action));
+        when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
+                .thenReturn(List.of(protocol(102L, promoter.getAccountPhone())));
+        when(memberListPort.list(any())).thenReturn(List.of(
+                new GroupParticipantResult(
+                        "8613800000001@s.whatsapp.net", "8613800000001",
+                        false, false, null),
+                new GroupParticipantResult(
+                        "8613800000002@s.whatsapp.net", "8613800000002",
+                        true, false, "admin")));
+        when(actionMapper.transitionManagerAdminObservation(
+                anyLong(), any(), anyInt(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), anyLong()))
+                .thenReturn(1);
+        when(accountMapper.transitionAdminStatus(anyLong(), any(), anyInt(), anyLong()))
+                .thenReturn(1);
+
+        service.reconcile(execution, CUTOFF, NOW);
+
+        verify(actionMapper).transitionManagerAdminObservation(
+                action.getId(), List.of(PullTaskActionStatus.SUBMITTED.code()),
+                PullTaskActionStatus.UNKNOWN.code(), true,
+                "MANAGER_ADMIN_UNCONFIRMED", "管理员权限结果暂未确认", NOW);
+        verify(accountMapper).transitionAdminStatus(
+                manager.getId(), List.of(PullTaskGroupAccountAdminStatus.SUBMITTED.code()),
+                PullTaskGroupAccountAdminStatus.UNKNOWN.code(), NOW);
+    }
+
+    @Test
+    void submittedManagerPromotionSucceedsOnlyWhenTargetIsAdmin() {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",
+                new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        manager.setAdminStatus(PullTaskGroupAccountAdminStatus.SUBMITTED.code());
+        PullTaskGroupAccount promoter = account(12L, 102L, "8613800000002",
+                new AccountState(PullTaskGroupAccountRole.PROMOTER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        PullTaskAccountAction action = action(
+                41L, PullTaskAccountActionType.PROMOTE_MANAGER.code(),
+                PullTaskActionStatus.SUBMITTED.code(), 20_000L);
+        action.setActorGroupAccountId(promoter.getId());
+        action.setTargetGroupAccountId(manager.getId());
+        stubRows(execution.getId(), List.of(manager, promoter), List.of(), List.of());
+        when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
+                PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
+                .thenReturn(List.of(action));
+        when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
+                .thenReturn(List.of(protocol(102L, promoter.getAccountPhone())));
+        when(memberListPort.list(any())).thenReturn(List.of(
+                new GroupParticipantResult(
+                        "8613800000001@s.whatsapp.net", "8613800000001",
+                        true, false, "admin")));
+        when(actionMapper.transitionManagerAdminObservation(
+                anyLong(), any(), anyInt(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), anyLong()))
+                .thenReturn(1);
+        when(accountMapper.transitionAdminStatus(anyLong(), any(), anyInt(), anyLong()))
+                .thenReturn(1);
+
+        service.reconcile(execution, CUTOFF, NOW);
+
+        verify(actionMapper).transitionManagerAdminObservation(
+                action.getId(), List.of(
+                        PullTaskActionStatus.SUBMITTED.code(),
+                        PullTaskActionStatus.UNKNOWN.code()),
+                PullTaskActionStatus.SUCCESS.code(), false, null, null, NOW);
+        verify(accountMapper).transitionAdminStatus(
+                manager.getId(), List.of(
+                        PullTaskGroupAccountAdminStatus.SUBMITTED.code(),
+                        PullTaskGroupAccountAdminStatus.UNKNOWN.code()),
+                PullTaskGroupAccountAdminStatus.SUCCESS.code(), NOW);
     }
 
     private void stubRows(

@@ -34,7 +34,8 @@ class PullTaskExecutionDispatchCoordinatorTest {
         when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of());
         PullTaskExecutionDispatchCoordinator coordinator = new PullTaskExecutionDispatchCoordinator(
                 mapper, new PullTaskExecutionStageRouter(
-                        linkProcessor, managerJoinProcessor, contactProcessor,
+                        linkProcessor, managerJoinProcessor,
+                        mock(PullTaskManagerAdminProcessor.class), contactProcessor,
                         mock(PullTaskPullerInviteProcessor.class),
                         mock(PullTaskPullExecutionProcessor.class),
                         mock(PullTaskMaterialAdminProcessor.class)),
@@ -48,7 +49,8 @@ class PullTaskExecutionDispatchCoordinatorTest {
         verify(mapper).claimDue(captor.capture());
         assertThat(captor.getValue().eligibleStates())
                 .flatExtracting(state -> state.stages())
-                .contains(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                .contains(PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                        PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                         PullTaskExecutionStage.PULLER_INVITE.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code(),
@@ -61,6 +63,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 .asList()
                 .containsExactly(
                         PullTaskExecutionStage.MANAGER_JOIN.code(),
+                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                         PullTaskExecutionStage.PULLER_INVITE.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
@@ -197,6 +200,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
             PullTaskLinkValidationProcessor linkProcessor,
             PullTaskManagerJoinProcessor managerJoinProcessor) {
         return new PullTaskExecutionStageRouter(linkProcessor, managerJoinProcessor,
+                mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class),

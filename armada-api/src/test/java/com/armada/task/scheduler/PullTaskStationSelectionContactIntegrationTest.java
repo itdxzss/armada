@@ -97,7 +97,9 @@ class PullTaskStationSelectionContactIntegrationTest {
         executionMapper.freezeDraftRows(100L, 500L);
         executionId = execution.getId();
         execute("UPDATE pull_task_group_execution "
-                + "SET execution_status=2, stage=5, version=6, group_jid='120363group@g.us' "
+                + "SET execution_status=2, stage="
+                + PullTaskExecutionStage.PULL_EXECUTION.code()
+                + ", version=6, group_jid='120363group@g.us' "
                 + "WHERE id=" + executionId);
         PullTaskGroupAccount puller = role(902L, "8613800000902",
                 PullTaskGroupAccountRole.PULLER, 1);

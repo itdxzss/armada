@@ -3,14 +3,18 @@ package com.armada.task.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
+import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
@@ -65,6 +69,7 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
     @Autowired private PullTaskGroupExecutionMapper executionMapper;
     @Autowired private PullTaskGroupAccountMapper accountMapper;
     @Autowired private AccountProtocolLookupService accountLookup;
+    @Autowired private GroupExecutionAccountSelector promoterSelector;
     @Autowired private PullTaskResourceRecoveryTransactionService service;
 
     private long executionId;
@@ -149,7 +154,8 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         running.setSourceFileIndex(2);
         executionMapper.insertDraft(running);
         executionMapper.freezeDraftRows(100L, 550L);
-        execute("UPDATE pull_task_group_execution SET execution_status=2, stage=5 "
+        execute("UPDATE pull_task_group_execution SET execution_status=2, stage="
+                + PullTaskExecutionStage.PULL_EXECUTION.code() + " "
                 + "WHERE id=" + running.getId());
         when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(STATION));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
@@ -276,6 +282,44 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
     }
 
     @Test
+    void orderedPromoterCandidateRestoresManagerAdminWaitAtSameStage() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_ADMIN,
+                PullTaskWaitResourceType.MANAGER, "当前没有在线的我方群主或管理员");
+        PullTaskGroupAccount manager = new PullTaskGroupAccount();
+        manager.setTaskId(100L);
+        manager.setGroupExecutionId(executionId);
+        manager.setAccountId(901L);
+        manager.setAccountPhone("8613800000901");
+        manager.setRoleType(PullTaskGroupAccountRole.MANAGER.code());
+        manager.setRoleSeq(1);
+        manager.setSourceType(1);
+        manager.setSelectionMode(1);
+        manager.setEntryMode(1);
+        manager.setCreatedAt(100L);
+        manager.setUpdatedAt(100L);
+        accountMapper.insert(manager);
+        accountMapper.updateMembership(manager.getId(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+        GroupExecutionAccount promoter = new GroupExecutionAccount(
+                906L, "web", "promoter-906", "8613800000906", true);
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(MANAGER));
+        when(promoterSelector.findPullTaskAdminPromoterCandidates(
+                7L, "120363group@g.us", 901L)).thenReturn(List.of(promoter));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L);
+
+        assertThat(service.recover(candidate, "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(executionId);
+        assertThat(saved.getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        verify(promoterSelector).findPullTaskAdminPromoterCandidates(
+                7L, "120363group@g.us", 901L);
+    }
+
+    @Test
     void unexpiredRiskCooldownDoesNotResumeEvenWhenAccountIsOnline() throws SQLException {
         waitAt(PullTaskExecutionStage.PULL_EXECUTION,
                 PullTaskWaitResourceType.PULLER, "当前没有可用拉手");
@@ -342,6 +386,7 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
                 List.of(new PullTaskExecutionClaimState(
                         PullTaskExecutionStatus.WAIT_RESOURCE.code(),
                         List.of(PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.MANAGER_ADMIN.code(),
                                 PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                 PullTaskExecutionStage.PULLER_INVITE.code(),
                                 PullTaskExecutionStage.PULL_EXECUTION.code(),
@@ -446,6 +491,10 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
             return mock(AccountProtocolLookupService.class);
         }
 
+        @Bean GroupExecutionAccountSelector promoterSelector() {
+            return mock(GroupExecutionAccountSelector.class);
+        }
+
         @Bean PullTaskStationSelectionService stationSelection(
                 PullTaskGroupAccountMapper mapper,
                 AccountProtocolLookupService lookup) {
@@ -455,8 +504,21 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         @Bean PullTaskResourceRecoveryResources resources(
                 PullTaskGroupExecutionMapper mapper,
                 AccountProtocolLookupService lookup,
-                PullTaskStationSelectionService stationSelection) {
-            return new PullTaskResourceRecoveryResources(mapper, lookup, stationSelection);
+                PullTaskStationSelectionService stationSelection,
+                GroupExecutionAccountSelector promoterSelector,
+                PullTaskAccountActionMapper actionMapper,
+                PullTaskManagerAdminCandidateSelector candidateSelector) {
+            return new PullTaskResourceRecoveryResources(
+                    mapper, lookup, stationSelection, promoterSelector,
+                    actionMapper, candidateSelector);
+        }
+
+        @Bean PullTaskAccountActionMapper actionMapper() {
+            return mock(PullTaskAccountActionMapper.class);
+        }
+
+        @Bean PullTaskManagerAdminCandidateSelector managerAdminCandidateSelector() {
+            return new PullTaskManagerAdminCandidateSelector();
         }
 
         @Bean PullTaskResourceRecoveryTransactionService service(

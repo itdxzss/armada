@@ -8,6 +8,7 @@ public record PullTaskStandardRoleVO(
         int roleType,
         int roleSeq,
         int membershipStatus,
+        int adminStatus,
         String membershipReasonCode,
         String membershipReasonMessage,
         Long membershipResultAt,

@@ -170,6 +170,53 @@ class PullTaskAccountActionMapperInMemoryTest {
     }
 
     @Test
+    void retryAttemptReplacesCommandAndIncrementsAttemptNumber() {
+        mapper.insertIfAbsent(action(PullTaskAccountActionType.INVITE_TO_GROUP, 11L, 22L));
+        long id = mapper.selectPending(EXECUTION).get(0).getId();
+
+        assertThat(mapper.submitAttempt(id,
+                List.of(PullTaskActionStatus.PENDING.code()), "cmd-attempt-1", 800L))
+                .isEqualTo(1);
+        assertThat(mapper.transitionManagerAdminResult(
+                id, "cmd-attempt-1", 1,
+                List.of(PullTaskActionStatus.SUBMITTED.code()),
+                PullTaskActionStatus.FAILED.code(), true,
+                "RATE_LIMITED", "群操作触发限流，稍后重试", 850L)).isEqualTo(1);
+        assertThat(mapper.submitAttempt(id,
+                List.of(PullTaskActionStatus.FAILED.code()), "cmd-attempt-2", 900L))
+                .isEqualTo(1);
+
+        PullTaskAccountAction row = mapper.selectByCommandId("cmd-attempt-2");
+        assertThat(row.getAttemptNo()).isEqualTo(2);
+        assertThat(row.getRetryable()).isNull();
+        assertThat(row.getReasonCode()).isNull();
+        assertThat(row.getActionStatus()).isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+    }
+
+    @Test
+    void lateOldAttemptCannotOverwriteTheCurrentAttempt() {
+        mapper.insertIfAbsent(action(PullTaskAccountActionType.INVITE_TO_GROUP, 11L, 22L));
+        long id = mapper.selectPending(EXECUTION).get(0).getId();
+        mapper.submitAttempt(id,
+                List.of(PullTaskActionStatus.PENDING.code()), "cmd-old", 800L);
+        mapper.transitionManagerAdminResult(
+                id, "cmd-old", 1,
+                List.of(PullTaskActionStatus.SUBMITTED.code()),
+                PullTaskActionStatus.UNKNOWN.code(), true,
+                "UNCONFIRMED", "管理员权限结果暂未确认", 850L);
+        mapper.submitAttempt(id,
+                List.of(PullTaskActionStatus.UNKNOWN.code()), "cmd-current", 900L);
+
+        assertThat(mapper.transitionManagerAdminResult(
+                id, "cmd-old", 1,
+                List.of(PullTaskActionStatus.SUBMITTED.code()),
+                PullTaskActionStatus.FAILED.code(), false,
+                "LATE", "迟到结果", 950L)).isZero();
+        assertThat(mapper.selectByCommandId("cmd-current").getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+    }
+
+    @Test
     void otherTenantActionsAreInvisible() {
         mapper.insertIfAbsent(action(PullTaskAccountActionType.SAVE_CONTACT, 11L, 22L));
 

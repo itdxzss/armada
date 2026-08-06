@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import org.junit.jupiter.api.Test;
 
 class PullTaskPullExecutionProcessorTest {
@@ -75,7 +76,7 @@ class PullTaskPullExecutionProcessorTest {
         row.setTenantId(7L);
         row.setTaskId(100L);
         row.setExecutionStatus(2);
-        row.setStage(5);
+        row.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         row.setVersion(6);
         row.setLockOwner("worker-1");
         return row;

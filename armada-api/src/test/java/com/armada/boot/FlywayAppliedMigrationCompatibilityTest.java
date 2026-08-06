@@ -54,6 +54,12 @@ class FlywayAppliedMigrationCompatibilityTest {
         assertAppliedMigration(
                 "V097__group_departure_unknown_metadata.sql",
                 -1_292_654_150);
+        assertAppliedMigration(
+                "V098__group_list_history_metadata.sql",
+                295_574_265);
+        assertAppliedMigration(
+                "V099__group_folder_invite_auto_backfill.sql",
+                1_758_125_011);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

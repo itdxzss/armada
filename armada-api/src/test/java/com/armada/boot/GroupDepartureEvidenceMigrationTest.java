@@ -15,7 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class GroupDepartureEvidenceMigrationTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V098_1__normalize_legacy_wgp2_removed.sql");
+            "src/main/resources/db/migration/V100__normalize_legacy_wgp2_removed.sql");
 
     @Test
     void normalizesOnlyLegacyWgp2RemovedFacts() throws IOException {

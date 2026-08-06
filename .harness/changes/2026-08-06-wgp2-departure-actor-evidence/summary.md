@@ -18,7 +18,7 @@
 ## 数据、API 与 Redis
 
 - 不变更表结构。
-- Flyway `V098_1__normalize_legacy_wgp2_removed.sql` 将历史无操作人证据的
+- Flyway `V100__normalize_legacy_wgp2_removed.sql` 将历史无操作人证据的
   `WGP2_NOTIFICATION + REMOVED` 改为 `UNKNOWN`，避免放开新结果后恢复旧误判。
 - Android 退群 participant 事件新增可选字段 `exitEvidence`；旧事件缺少该字段时保持兼容。
 - Redis 无变更。

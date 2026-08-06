@@ -12,8 +12,9 @@ import org.springframework.util.StringUtils;
 /**
  * Web/Baileys 联系人保存能力的 HTTP adapter。
  *
- * <p>对应协议层 {@code POST /v1/contacts/{jid}/save}。该接口只表示联系人保存动作执行完成,
- * 不表达对方是否确认好友关系。</p>
+ * <p>对应协议层 {@code POST /v1/contacts/{jid}/save}。联系人对象遵循 Baileys
+ * {@code IContactAction} 契约，使用 {@code fullName} 并明确写入主通讯录。该接口只表示
+ * 联系人保存动作执行完成，不表达对方是否确认好友关系。</p>
  */
 public class HttpContactAdapter implements ContactBackend {
 
@@ -43,7 +44,7 @@ public class HttpContactAdapter implements ContactBackend {
         String displayName = displayName(command.name(), jid);
         httpExecutor.postVoid(
                 SAVE_URI_TEMPLATE.formatted(jid),
-                new SaveContactRequest(accountId, new ContactBody(displayName)));
+                new SaveContactRequest(accountId, new ContactBody(displayName, true)));
     }
 
     private static String displayName(String name, String jid) {
@@ -64,6 +65,6 @@ public class HttpContactAdapter implements ContactBackend {
     private record SaveContactRequest(String accountId, ContactBody contact) {
     }
 
-    private record ContactBody(String name) {
+    private record ContactBody(String fullName, boolean saveOnPrimaryAddressbook) {
     }
 }

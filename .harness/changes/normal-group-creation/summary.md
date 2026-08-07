@@ -136,6 +136,7 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
   - `NormalGroupCreationProtocolResultService`
   - `ProtocolNormalGroupCreationEventConsumer`
   - `V103__normal_group_creation_protocol_commands.sql`
+  - `V104__normal_group_creation_event_id_length.sql`
 - Web 协议：`normal-group-creation-executor.ts`
 - Android 协议：`normal_group_creation_sender.go`
 

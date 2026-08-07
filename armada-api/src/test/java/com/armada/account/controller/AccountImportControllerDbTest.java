@@ -81,6 +81,23 @@ class AccountImportControllerDbTest {
     }
 
     @Test
+    void post_importFivePartWithExistingFormatCode_returnsImportedBatch() throws Exception {
+        String line = "919000000301,static-pub,static-pri,identity-pub,identity-pri";
+
+        mockMvc.perform(multipart("/api/account-imports")
+                        .param("importFormat", "1")
+                        .param("deviceOs", "1")
+                        .param("accountType", "1")
+                        .param("text", line)
+                        .header(TENANT_HEADER, TENANT_CODE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.totalRows").value(1))
+                .andExpect(jsonPath("$.data.importedRows").value(1))
+                .andExpect(jsonPath("$.data.formatErrorRows").value(0));
+    }
+
+    @Test
     void post_importPersistsIpAllocationMode() throws Exception {
         mockMvc.perform(multipart("/api/account-imports")
                         .param("importFormat", "2")

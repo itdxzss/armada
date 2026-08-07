@@ -20,7 +20,7 @@ public class AccountCredential {
     /** WA 号(冗余便反查)。 */
     private String wsPhone;
 
-    /** 凭据格式:1六段 2JSON 3全参。 */
+    /** 凭据格式:1五/六段(运行时统一六字段) 2JSON 3全参。 */
     private Integer credFormat;
 
     /** 完整凭据 blob(敏感,日志只打 maskPhone+长度)。 */

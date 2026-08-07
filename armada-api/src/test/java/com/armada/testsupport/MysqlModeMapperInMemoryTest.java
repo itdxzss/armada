@@ -4,7 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.account.mapper.AccountGroupMapper;
+import com.armada.account.mapper.AccountImportDetailMapper;
+import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.model.entity.AccountImportLoginResult;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.vo.AccountImportDetailVoRow;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupFolderMapper;
@@ -89,6 +96,8 @@ class MysqlModeMapperInMemoryTest {
     @Autowired
     private AccountGroupMapper accountGroupMapper;
     @Autowired
+    private AccountImportDetailMapper accountImportDetailMapper;
+    @Autowired
     private GroupLinkMapper groupLinkMapper;
     @Autowired
     private GroupFolderMapper groupFolderMapper;
@@ -131,6 +140,65 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groups).extracting(AccountGroup::getId).containsExactly(11L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 AccountGroupMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void accountImportDetailMapperReturnsOnlineResultAndCurrentAccountStatus() throws SQLException {
+        executeSql(
+                "INSERT INTO account_group (id, tenant_id, name, deleted_at) "
+                        + "VALUES (11, 7, '当前租户分组', NULL), (12, 8, '其他租户分组', NULL)",
+                "INSERT INTO account_import_batch (id, tenant_id, account_group_id) "
+                        + "VALUES (101, 7, 11), (201, 8, 12)",
+                """
+                INSERT INTO account_state
+                    (id, tenant_id, account_id, account_state, login_state, block_reason)
+                VALUES
+                    (301, 7, 501, %d, %d, NULL),
+                    (302, 7, 502, %d, %d, 'FORBIDDEN'),
+                    (303, 8, 501, %d, %d, NULL)
+                """.formatted(
+                        AccountStateCode.EXPORTED, AccountLoginStateCode.OFFLINE,
+                        AccountStateCode.BANNED, AccountLoginStateCode.OFFLINE,
+                        AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE),
+                """
+                INSERT INTO account_import_detail
+                    (id, tenant_id, batch_id, line_no, ws_phone, account_id, parse_result,
+                     fail_reason, login_result, online_phase, login_reason, created_at)
+                VALUES
+                    (401, 7, 101, 1, '8613988000001', 501, 1, NULL, %d, %d, NULL, 100),
+                    (402, 7, 101, 2, '8613988000002', 502, 1, NULL, %d, %d, 'LOGIN_TIMEOUT', 100),
+                    (403, 8, 201, 1, '819012345678', 501, 1, NULL, %d, %d, NULL, 100)
+                """.formatted(
+                        AccountImportLoginResult.SUCCESS, AccountImportOnlinePhase.SETTLED,
+                        AccountImportLoginResult.FAILED, AccountImportOnlinePhase.SETTLED,
+                        AccountImportLoginResult.SUCCESS, AccountImportOnlinePhase.SETTLED));
+
+        AccountImportDetailQuery query = new AccountImportDetailQuery();
+        query.setBatchId(101L);
+        query.setPageSize(20);
+
+        assertThat(accountImportDetailMapper.countByBatch(query)).isEqualTo(2);
+        List<AccountImportDetailVoRow> rows = accountImportDetailMapper.selectPageByBatch(query);
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0)).satisfies(row -> {
+            assertThat(row.getWsPhone()).isEqualTo("8613988000001");
+            assertThat(row.getOnlinePhase()).isEqualTo(AccountImportOnlinePhase.SETTLED);
+            assertThat(row.getLoginResult()).isEqualTo(AccountImportLoginResult.SUCCESS);
+            assertThat(row.getAccountState()).isEqualTo(AccountStateCode.EXPORTED);
+            assertThat(row.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+            assertThat(row.getAccountStateReason()).isNull();
+            assertThat(row.getGroupName()).isEqualTo("当前租户分组");
+        });
+        assertThat(rows.get(1)).satisfies(row -> {
+            assertThat(row.getWsPhone()).isEqualTo("8613988000002");
+            assertThat(row.getOnlinePhase()).isEqualTo(AccountImportOnlinePhase.SETTLED);
+            assertThat(row.getLoginResult()).isEqualTo(AccountImportLoginResult.FAILED);
+            assertThat(row.getLoginReason()).isEqualTo("LOGIN_TIMEOUT");
+            assertThat(row.getAccountState()).isEqualTo(AccountStateCode.BANNED);
+            assertThat(row.getLoginState()).isEqualTo(AccountLoginStateCode.OFFLINE);
+            assertThat(row.getAccountStateReason()).isEqualTo("FORBIDDEN");
+        });
     }
 
     @Test
@@ -923,7 +991,31 @@ class MysqlModeMapperInMemoryTest {
                     account_state TINYINT,
                     login_state TINYINT,
                     risk_status TINYINT,
-                    mute_status TINYINT
+                    mute_status TINYINT,
+                    block_reason VARCHAR(255)
+                )
+                """,
+                """
+                CREATE TABLE account_import_batch (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_group_id BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE account_import_detail (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    batch_id BIGINT NOT NULL,
+                    line_no INT NOT NULL,
+                    ws_phone VARCHAR(32),
+                    account_id BIGINT,
+                    parse_result TINYINT NOT NULL,
+                    fail_reason VARCHAR(255),
+                    login_result TINYINT,
+                    online_phase TINYINT NOT NULL,
+                    login_reason VARCHAR(255),
+                    created_at BIGINT NOT NULL
                 )
                 """,
                 """
@@ -1477,6 +1569,7 @@ class MysqlModeMapperInMemoryTest {
             factoryBean.setPlugins(mybatisPlusInterceptor);
             factoryBean.setMapperLocations(
                     new ClassPathResource("mapper/account/AccountGroupMapper.xml"),
+                    new ClassPathResource("mapper/account/AccountImportDetailMapper.xml"),
                     new ClassPathResource("mapper/group/GroupFolderMapper.xml"),
                     new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
                     new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
@@ -1495,6 +1588,11 @@ class MysqlModeMapperInMemoryTest {
         @Bean
         AccountGroupMapper accountGroupMapper(SqlSessionTemplate sqlSessionTemplate) {
             return sqlSessionTemplate.getMapper(AccountGroupMapper.class);
+        }
+
+        @Bean
+        AccountImportDetailMapper accountImportDetailMapper(SqlSessionTemplate sqlSessionTemplate) {
+            return sqlSessionTemplate.getMapper(AccountImportDetailMapper.class);
         }
 
         @Bean

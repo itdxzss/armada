@@ -78,14 +78,47 @@ class AccountImportParserTest {
     }
 
     @Test
-    void six_wrongColumnCount_marksRowFailed() {
-        List<ParsedEntry> entries = parser.parse(
-                ImportFormat.SIX,
-                null,
-                "919000000001,static-pub,static-pri,identity-pub,identity-pri");
+    void six_fiveColumns_generatesPhoneIdAndPreservesOriginalRawPayload() {
+        String line = "919000000101,static-pub,static-pri,identity-pub,identity-pri";
 
-        assertThat(entries).hasSize(1);
-        assertThat(entries.get(0).getParseError()).contains("应为6列");
+        ParsedEntry entry = parser.parse(ImportFormat.SIX, null, line).get(0);
+
+        assertThat(entry.getParseError()).isNull();
+        assertThat(entry.getWid()).isEqualTo("919000000101");
+        assertThat(entry.getRawPayload()).isEqualTo(line);
+        assertThat(entry.getData().get("phone_id").asText()).matches("[0-9a-f]{32}");
+        assertThat(entry.getData().get("static_pub_key").asText()).isEqualTo("static-pub");
+        assertThat(entry.getData().get("static_pri_key").asText()).isEqualTo("static-pri");
+        assertThat(entry.getData().get("id_pub_key").asText()).isEqualTo("identity-pub");
+        assertThat(entry.getData().get("id_pri_key").asText()).isEqualTo("identity-pri");
+    }
+
+    @Test
+    void six_multipleFiveColumnRows_generateUniquePhoneIds() {
+        String text = "919000000102,a,b,c,d\n919000000103,e,f,g,h";
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.SIX, null, text);
+
+        assertThat(entries).hasSize(2);
+        assertThat(entries).allSatisfy(entry -> {
+            assertThat(entry.getParseError()).isNull();
+            assertThat(entry.getData().get("phone_id").asText()).matches("[0-9a-f]{32}");
+        });
+        assertThat(entries)
+                .extracting(entry -> entry.getData().get("phone_id").asText())
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void six_nonFiveOrSixColumnCount_marksRowFailed() {
+        List<ParsedEntry> fourColumns = parser.parse(
+                ImportFormat.SIX, null, "919000000104,static-pub,static-pri,identity-pub");
+        List<ParsedEntry> sevenColumns = parser.parse(
+                ImportFormat.SIX, null,
+                "919000000105,static-pub,static-pri,identity-pub,identity-pri,phone-id,extra");
+
+        assertThat(fourColumns.get(0).getParseError()).contains("应为5列或6列");
+        assertThat(sevenColumns.get(0).getParseError()).contains("应为5列或6列");
     }
 
     @Test

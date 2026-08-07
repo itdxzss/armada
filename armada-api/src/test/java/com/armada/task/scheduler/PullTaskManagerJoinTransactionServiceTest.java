@@ -183,7 +183,7 @@ class PullTaskManagerJoinTransactionServiceTest {
     }
 
     @Test
-    void submittedJoinIsRecoveredWithTheSameOperationId() {
+    void submittedWebJoinIsRecoveredWithFullLinkAndTheSameOperationId() {
         PullTaskGroupExecution candidate = candidate();
         candidate.setGroupJid("120363group@g.us");
         seedDispatchableParent(candidate);
@@ -202,8 +202,31 @@ class PullTaskManagerJoinTransactionServiceTest {
         assertThat(prepared.ready()).isTrue();
         assertThat(prepared.work().payload().operationId())
                 .isEqualTo("pull-task-manager-join:601");
+        assertThat(prepared.work().payload().inviteLink())
+                .isEqualTo("https://chat.whatsapp.com/AAAA");
         assertThat(prepared.work().payload().knownGroupJid())
                 .isEqualTo("120363group@g.us");
+    }
+
+    @Test
+    void submittedAndroidJoinIsRecoveredWithPureInviteCode() {
+        PullTaskGroupExecution candidate = candidate();
+        seedDispatchableParent(candidate);
+        PullTaskGroupAccount manager = manager();
+        PullTaskAccountAction action = submittedAction();
+        when(groupAccountMapper.selectByExecutionAndRole(11L, 1))
+                .thenReturn(List.of(manager));
+        when(actionMapper.selectByExecutionAndType(
+                11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
+                .thenReturn(List.of(action));
+        when(accountLookup.findActiveProtocolRef(901L))
+                .thenReturn(Optional.of(androidAccount()));
+
+        PullTaskManagerJoinPreparation prepared =
+                service.prepare(candidate, "worker-1", NOW);
+
+        assertThat(prepared.ready()).isTrue();
+        assertThat(prepared.work().payload().inviteLink()).isEqualTo("AAAA");
     }
 
     @Test
@@ -286,6 +309,11 @@ class PullTaskManagerJoinTransactionServiceTest {
 
     private static ProtocolAccountRef account() {
         return new ProtocolAccountRef(901L, ProtocolBackend.WEB, "acc-901", "8613800000901");
+    }
+
+    private static ProtocolAccountRef androidAccount() {
+        return new ProtocolAccountRef(
+                901L, ProtocolBackend.ANDROID, "acc-901", "8613800000901");
     }
 
     private static PullTaskManagerJoinWork work() {

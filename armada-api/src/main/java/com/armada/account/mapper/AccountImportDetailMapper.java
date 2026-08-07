@@ -98,7 +98,7 @@ public interface AccountImportDetailMapper {
     long countByBatch(AccountImportDetailQuery query);
 
     /**
-     * 按批次 ID 分页查询明细列表(JOIN account_import_batch 取 groupName)。
+     * 按批次 ID 分页查询明细列表,关联账号状态快照和批次分组名称。
      *
      * @param query 明细查询参数(含 offset / pageSize / filter)
      * @return 当前页明细 VoRow 列表

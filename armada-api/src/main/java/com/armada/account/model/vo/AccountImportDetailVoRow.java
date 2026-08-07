@@ -28,8 +28,23 @@ public class AccountImportDetailVoRow {
     /** 失败原因;成功时为 null。 */
     private String failReason;
 
-    /** 登录结果:null=未登录(step1);step3: 1成功 2失败 3密钥异常 4封号。 */
+    /** 首次上线结果:null=尚未结算;1成功 2失败 3密钥异常 4封号。 */
     private Integer loginResult;
+
+    /** 导入上线阶段:0跳过 1待派发 2已派发待回写 3已结算。 */
+    private Integer onlinePhase;
+
+    /** 首次上线失败或异常原因。 */
+    private String loginReason;
+
+    /** 当前账号状态:1新增 2正常 3封禁 4导出 5解绑 6被抢登 7抢登中 8账号受限。 */
+    private Integer accountState;
+
+    /** 当前登录状态:1在线 2离线 3待上线。 */
+    private Integer loginState;
+
+    /** 当前账号状态原因,目前来自 account_state.block_reason。 */
+    private String accountStateReason;
 
     /** 创建时间(epoch 毫秒)。 */
     private Long createdAt;
@@ -99,6 +114,46 @@ public class AccountImportDetailVoRow {
 
     public void setLoginResult(Integer loginResult) {
         this.loginResult = loginResult;
+    }
+
+    public Integer getOnlinePhase() {
+        return onlinePhase;
+    }
+
+    public void setOnlinePhase(Integer onlinePhase) {
+        this.onlinePhase = onlinePhase;
+    }
+
+    public String getLoginReason() {
+        return loginReason;
+    }
+
+    public void setLoginReason(String loginReason) {
+        this.loginReason = loginReason;
+    }
+
+    public Integer getAccountState() {
+        return accountState;
+    }
+
+    public void setAccountState(Integer accountState) {
+        this.accountState = accountState;
+    }
+
+    public Integer getLoginState() {
+        return loginState;
+    }
+
+    public void setLoginState(Integer loginState) {
+        this.loginState = loginState;
+    }
+
+    public String getAccountStateReason() {
+        return accountStateReason;
+    }
+
+    public void setAccountStateReason(String accountStateReason) {
+        this.accountStateReason = accountStateReason;
     }
 
     public Long getCreatedAt() {

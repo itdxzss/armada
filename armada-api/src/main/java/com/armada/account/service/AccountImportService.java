@@ -48,7 +48,7 @@ public interface AccountImportService {
      * <p>filter=all/success/fail 三种范围;SQL 下推分页,结果按行号升序排列。</p>
      *
      * @param query 明细查询参数(batchId 必传,filter 可选默认 all)
-     * @return 分页结果,元素为 AccountImportDetailVO(含 parseResultLabel、groupName)
+     * @return 分页结果,元素为 AccountImportDetailVO(含导入结果、首次上线结果、当前账号状态和 groupName)
      * @throws BusinessException batchId 为 null 时抛出
      */
     PageResult<AccountImportDetailVO> listDetails(AccountImportDetailQuery query);

@@ -12,8 +12,9 @@ import com.armada.shared.exception.ErrorCode;
 public enum ImportFormat {
 
     /**
-     * Android 六段 CSV 格式:
-     * phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key,phone_id。
+     * Android 五段或六段 CSV 格式:
+     * phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key[,phone_id]。
+     * 五段输入运行时补齐 phone_id,仍按六字段 Android 凭据处理。
      */
     SIX(1),
 

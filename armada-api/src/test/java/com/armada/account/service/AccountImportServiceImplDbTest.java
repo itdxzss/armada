@@ -8,11 +8,16 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.vo.AccountImportBatchVO;
+import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.testsupport.DbTestBase;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -254,6 +259,34 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         Account a = accountMapper.selectActiveByWsPhone("8613833333333");
         assertThat(a).isNotNull();
         assertThat(a.getDeviceOs()).isNull();   // device_os 列 DEFAULT NULL,允许 null
+    }
+
+    @Test
+    void import_fivePartPersistsAndroidSixCredentialAndExportsOriginalFiveColumns() throws Exception {
+        String line = "919000000201,static-pub,static-pri,identity-pub,identity-pri";
+        var meta = new AccountImportDTO(null, 1, 1, 1, "印度", null, "five-part-test", null);
+
+        AccountImportBatchVO batch = service.importAccounts(meta, null, line);
+
+        assertThat(batch.importedRows()).isEqualTo(1);
+        Account account = accountMapper.selectActiveByWsPhone("919000000201");
+        assertThat(account).isNotNull();
+        assertThat(account.getProtocolId()).isEqualTo("ANDROID");
+
+        AccountCredential credential = credentialMapper.selectByAccountId(account.getId());
+        assertThat(credential.getCredFormat()).isEqualTo(1);
+        JsonNode stored = new ObjectMapper().readTree(credential.getCredsJson());
+        assertThat(stored.get("phone").asText()).isEqualTo("919000000201");
+        assertThat(stored.get("phone_id").asText()).matches("[0-9a-f]{32}");
+
+        String rawPayload = jdbcTemplate.queryForObject(
+                "SELECT raw_payload FROM account_import_detail WHERE batch_id = ?",
+                String.class,
+                batch.id());
+        assertThat(rawPayload).isEqualTo(line);
+
+        AccountImportExportFile export = service.exportDetails(batch.id(), "all");
+        assertThat(new String(export.bytes(), StandardCharsets.UTF_8).trim()).isEqualTo(line);
     }
 
     // ---- source_file_name 兜底回归测试 ----

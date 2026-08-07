@@ -51,7 +51,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
     }
 
     /**
-     * 读取 Android 群名称、发言权限和成员，并把 Zhuan 未提供的设置状态保持为未知。
+     * 读取 Android 群名称、发言和成员添加权限，并把 Zhuan 未提供的设置状态保持为未知。
      *
      * @param account 固定操作账号引用
      * @param groupJid 群 JID
@@ -110,7 +110,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 true,
                 booleanValue(data.get("Announce")),
                 null,
-                null,
+                memberAddMode(data),
                 null,
                 null,
                 null,
@@ -119,6 +119,22 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 false,
                 true,
                 participants);
+    }
+
+    private static Boolean memberAddMode(JsonNode data) {
+        JsonNode node = data.get("MemberAddMode");
+        if (node == null) {
+            node = data.get("member_add_mode");
+        }
+        String value = text(node);
+        if (value == null) {
+            return null;
+        }
+        return switch (value) {
+            case "all_member_add" -> true;
+            case "admin_add" -> false;
+            default -> throw unrecognized("Android 群成员响应 MemberAddMode 无效");
+        };
     }
 
     private static Boolean booleanValue(JsonNode node) {

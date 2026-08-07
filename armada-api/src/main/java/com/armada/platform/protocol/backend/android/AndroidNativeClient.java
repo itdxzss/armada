@@ -78,6 +78,19 @@ public interface AndroidNativeClient {
             String groupJid,
             boolean membersCanSend);
 
+    /**
+     * 使用 Android 原生接口设置普通成员是否可以添加群成员。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param groupJid 带 {@code @g.us} 的 WhatsApp 群 JID
+     * @param membersCanAdd 普通成员是否可以添加群成员
+     * @return Android 原生响应包
+     */
+    AndroidResponseEnvelope setGroupMemberAddMode(
+            String wsPhone,
+            String groupJid,
+            boolean membersCanAdd);
+
     /** 使用 Android 原生接口批量添加群成员。 */
     AndroidResponseEnvelope addGroupMembers(
             String wsPhone,

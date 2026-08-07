@@ -26,11 +26,14 @@ import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.port.ContactPort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -624,8 +627,16 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerPullerContactTransactionService transactions =
                     new PullTaskManagerPullerContactTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
+            FixedAccountGroupMetadataPort metadataPort =
+                    mock(FixedAccountGroupMetadataPort.class);
+            GroupMetadataResult metadata = mock(GroupMetadataResult.class);
+            when(metadata.memberAddMode()).thenReturn(true);
+            when(metadataPort.getMetadata(any(), any())).thenReturn(metadata);
             return new PullTaskManagerPullerContactProcessor(
-                    transactions, mock(PullTaskSupplementPullerProcessor.class));
+                    transactions,
+                    mock(PullTaskSupplementPullerProcessor.class),
+                    metadataPort,
+                    mock(GroupSettingsPort.class));
         }
 
         @Bean PullTaskPullerInviteProcessor pullerInviteProcessor(

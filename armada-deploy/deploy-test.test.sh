@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="${SCRIPT_DIR}/deploy-test.sh"
+WIN_SCRIPT="${SCRIPT_DIR}/deploy-test-win.sh"
 ARTIFACT_LIB="${SCRIPT_DIR}/lib/artifact.sh"
 
 fail() {
@@ -70,10 +71,15 @@ setup_zhuan_command_fixture() {
   ZHUAN_FIXTURE_DIR="${ZHUAN_FIXTURE_ROOT}/zhuan source"
   ZHUAN_FIXTURE_BIN="${ZHUAN_FIXTURE_ROOT}/bin"
   ZHUAN_FIXTURE_KEY="${ZHUAN_FIXTURE_ROOT}/key with space.pem"
+  ZHUAN_FIXTURE_FLEET_KEYS_DIR="${ZHUAN_FIXTURE_ROOT}/fleet keys"
+  ZHUAN_FIXTURE_FLEET_CONFIG="${ZHUAN_FIXTURE_DIR}/deploy/fleet/fleet-nodes.conf"
   ZHUAN_FIXTURE_COMMAND_LOG="${ZHUAN_FIXTURE_ROOT}/commands.log"
   ZHUAN_FIXTURE_PAYLOAD_LOG="${ZHUAN_FIXTURE_ROOT}/payloads.log"
 
-  mkdir -p "${ZHUAN_FIXTURE_DIR}/deploy" "${ZHUAN_FIXTURE_BIN}"
+  mkdir -p \
+    "${ZHUAN_FIXTURE_DIR}/deploy/fleet" \
+    "${ZHUAN_FIXTURE_BIN}" \
+    "${ZHUAN_FIXTURE_FLEET_KEYS_DIR}"
   : >"${ZHUAN_FIXTURE_DIR}/go.mod"
   : >"${ZHUAN_FIXTURE_DIR}/go.sum"
   : >"${ZHUAN_FIXTURE_DIR}/.dockerignore"
@@ -84,6 +90,30 @@ setup_zhuan_command_fixture() {
   : >"${ZHUAN_FIXTURE_COMMAND_LOG}"
   : >"${ZHUAN_FIXTURE_PAYLOAD_LOG}"
   chmod 600 "${ZHUAN_FIXTURE_KEY}"
+
+  cat >"${ZHUAN_FIXTURE_FLEET_CONFIG}" <<'CONF'
+coordinator|tester|127.0.0.1|coordinator.pem|coordinator
+node1|tester|127.0.0.2|node1.pem|node
+node2|tester|127.0.0.3|node2.pem|node
+node3|tester|127.0.0.4|node3.pem|node
+CONF
+  for fleet_key in coordinator node1 node2 node3; do
+    : >"${ZHUAN_FIXTURE_FLEET_KEYS_DIR}/${fleet_key}.pem"
+    chmod 600 "${ZHUAN_FIXTURE_FLEET_KEYS_DIR}/${fleet_key}.pem"
+  done
+
+  cat >"${ZHUAN_FIXTURE_DIR}/deploy/fleet/deploy-local.sh" <<'STUB'
+#!/usr/bin/env bash
+set -eu
+{
+  printf 'FLEET <REPO=%s> <KEYS_DIR=%s> <NODES_CONF=%s>' "${REPO}" "${KEYS_DIR}" "${NODES_CONF}"
+  for arg in "$@"; do
+    printf ' <%s>' "${arg}"
+  done
+  printf '\n'
+} >>"${ZHUAN_TEST_COMMAND_LOG}"
+STUB
+  chmod +x "${ZHUAN_FIXTURE_DIR}/deploy/fleet/deploy-local.sh"
   git -C "${ZHUAN_FIXTURE_DIR}" init -q
   git -C "${ZHUAN_FIXTURE_DIR}" add .
   git -C "${ZHUAN_FIXTURE_DIR}" -c user.name=Test -c user.email=test@example.invalid commit -qm fixture
@@ -104,6 +134,9 @@ for arg in "$@"; do
   last_arg="${arg}"
 done
 case "${last_arg}" in
+  *"/admin/nodes"*)
+    printf '%s\n' '{"success":true,"data":[{"id":"1","status":"online"},{"id":"2","status":"online"},{"id":"3","status":"online"}]}'
+    ;;
   *"bash -s --"*)
     payload="$(cat)"
     printf '%s\n' "${payload}" >>"${ZHUAN_TEST_PAYLOAD_LOG}"
@@ -224,11 +257,20 @@ setup_deep_check_fixture() {
   DEEP_CHECK_FIXTURE_ROOT="$(mktemp -d)"
   DEEP_CHECK_FIXTURE_BIN="${DEEP_CHECK_FIXTURE_ROOT}/bin"
   DEEP_CHECK_FIXTURE_KEY="${DEEP_CHECK_FIXTURE_ROOT}/check key.pem"
+  DEEP_CHECK_FIXTURE_FLEET_KEYS_DIR="${DEEP_CHECK_FIXTURE_ROOT}/fleet keys"
+  DEEP_CHECK_FIXTURE_FLEET_CONFIG="${DEEP_CHECK_FIXTURE_ROOT}/fleet-nodes.conf"
   DEEP_CHECK_FIXTURE_COMMAND_LOG="${DEEP_CHECK_FIXTURE_ROOT}/commands.log"
-  mkdir -p "${DEEP_CHECK_FIXTURE_BIN}"
+  mkdir -p "${DEEP_CHECK_FIXTURE_BIN}" "${DEEP_CHECK_FIXTURE_FLEET_KEYS_DIR}"
   : >"${DEEP_CHECK_FIXTURE_KEY}"
   : >"${DEEP_CHECK_FIXTURE_COMMAND_LOG}"
   chmod 600 "${DEEP_CHECK_FIXTURE_KEY}"
+  cat >"${DEEP_CHECK_FIXTURE_FLEET_CONFIG}" <<'CONF'
+coordinator|tester|127.0.0.1|check.pem|coordinator
+node1|tester|127.0.0.2|check.pem|node
+node2|tester|127.0.0.3|check.pem|node
+node3|tester|127.0.0.4|check.pem|node
+CONF
+  cp "${DEEP_CHECK_FIXTURE_KEY}" "${DEEP_CHECK_FIXTURE_FLEET_KEYS_DIR}/check.pem"
 
   cat >"${DEEP_CHECK_FIXTURE_BIN}/ssh" <<'STUB'
 #!/usr/bin/env bash
@@ -238,7 +280,14 @@ set -eu
   for arg in "$@"; do printf ' <%s>' "${arg}"; done
   printf '\n'
 } >>"${DEEP_CHECK_TEST_COMMAND_LOG}"
+last_arg=""
+for arg in "$@"; do last_arg="${arg}"; done
 if [ ! -t 0 ]; then cat >/dev/null; fi
+case "${last_arg}" in
+  *"/admin/nodes"*)
+    printf '%s\n' '{"success":true,"data":[{"id":"1","status":"online"},{"id":"2","status":"online"},{"id":"3","status":"online"}]}'
+    ;;
+esac
 STUB
 
   cat >"${DEEP_CHECK_FIXTURE_BIN}/curl" <<'STUB'
@@ -264,6 +313,8 @@ run_deep_check_with_stubs() {
   ARMADA_PROTOCOL_DEPLOY_KEY="${DEEP_CHECK_FIXTURE_KEY}" \
   ARMADA_PROTOCOL_JUMP_KEY="${DEEP_CHECK_FIXTURE_KEY}" \
   ARMADA_ZHUAN_DEPLOY_KEY="${DEEP_CHECK_FIXTURE_KEY}" \
+  ARMADA_ZHUAN_FLEET_CONFIG="${DEEP_CHECK_FIXTURE_FLEET_CONFIG}" \
+  ARMADA_ZHUAN_FLEET_KEYS_DIR="${DEEP_CHECK_FIXTURE_FLEET_KEYS_DIR}" \
   "${SCRIPT}" "$@"
 }
 
@@ -285,13 +336,15 @@ run_zhuan_with_command_stubs() {
   ARMADA_ZHUAN_DEPLOY_USER="tester" \
   ARMADA_ZHUAN_DEPLOY_KEY="${ZHUAN_FIXTURE_KEY}" \
   ARMADA_ZHUAN_DEPLOY_REMOTE_DIR="/home/app/zhuan-safe" \
+  ARMADA_ZHUAN_FLEET_CONFIG="${ZHUAN_FIXTURE_FLEET_CONFIG}" \
+  ARMADA_ZHUAN_FLEET_KEYS_DIR="${ZHUAN_FIXTURE_FLEET_KEYS_DIR}" \
   "${SCRIPT}" "$@"
 }
 
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
   local build_line config_line deps_line health_line main_line migrate_line command_log payload_log
   setup_zhuan_command_fixture
-  run_zhuan_with_command_stubs --zhuan -y >/dev/null
+  run_zhuan_with_command_stubs --env perf2 --zhuan -y >/dev/null
   command_log="$(cat "${ZHUAN_FIXTURE_COMMAND_LOG}")"
   payload_log="$(cat "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
 
@@ -319,17 +372,47 @@ test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
 }
 
 test_zhuan_dry_run_invokes_no_external_commands() {
+  local out
   setup_zhuan_command_fixture
-  run_zhuan_with_command_stubs --zhuan --dry-run >/dev/null
+  out="$(run_zhuan_with_command_stubs --env test1 --zhuan --dry-run)"
   [ ! -s "${ZHUAN_FIXTURE_COMMAND_LOG}" ] || fail "dry-run unexpectedly invoked ssh or rsync"
+  assert_contains "${out}" "Zhuan 模式"
+  assert_contains "${out}" "fleet / coordinator + 3 nodes"
+  assert_contains "${out}" "coordinator → 3 台 node"
+  assert_not_contains "${out}" "whatsapp-migrate -env prod"
   cleanup_zhuan_command_fixture
+}
+
+test_test1_zhuan_invokes_existing_fleet_orchestrator() {
+  local command_log
+  setup_zhuan_command_fixture
+  run_zhuan_with_command_stubs --env test1 --zhuan -y >/dev/null
+  command_log="$(cat "${ZHUAN_FIXTURE_COMMAND_LOG}")"
+  cleanup_zhuan_command_fixture
+
+  assert_contains "${command_log}" "FLEET <REPO=${ZHUAN_FIXTURE_DIR}>"
+  assert_contains "${command_log}" "<KEYS_DIR=${ZHUAN_FIXTURE_FLEET_KEYS_DIR}>"
+  assert_contains "${command_log}" "<NODES_CONF=${ZHUAN_FIXTURE_FLEET_CONFIG}>"
+  assert_contains "${command_log}" "<--dry-run> <all>"
+  assert_contains "${command_log}" "<all>"
+  assert_not_contains "${command_log}" "RSYNC <-rltz>"
+}
+
+test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint() {
+  local win_content
+  win_content="$(cat "${WIN_SCRIPT}")"
+
+  assert_contains "${win_content}" "fleet / coordinator + %s nodes"
+  assert_contains "${win_content}" 'coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node'
+  assert_contains "${win_content}" "zhuan_check_connectivity"
+  assert_contains "${win_content}" "zhuan_deploy_selected"
 }
 
 test_zhuan_remote_failure_stops_before_health_check() {
   local payload_log
   setup_zhuan_command_fixture
   if ZHUAN_TEST_FAIL_PAYLOAD="build whatsapp-android-zhuan" \
-    run_zhuan_with_command_stubs --zhuan -y >/dev/null 2>&1; then
+    run_zhuan_with_command_stubs --env perf2 --zhuan -y >/dev/null 2>&1; then
     cleanup_zhuan_command_fixture
     fail "expected failed remote lifecycle to stop deployment"
   fi
@@ -444,6 +527,8 @@ test_help_mentions_protocol_scope() {
   assert_contains "${out}" "ARMADA_PROTOCOL_DEPLOY_HOST"
   assert_contains "${out}" "ARMADA_ZHUAN_DEPLOY_HOST"
   assert_contains "${out}" "ARMADA_ZHUAN_DEPLOY_REMOTE_DIR"
+  assert_contains "${out}" "ARMADA_ZHUAN_FLEET_CONFIG"
+  assert_contains "${out}" "ARMADA_ZHUAN_FLEET_KEYS_DIR"
   assert_contains "${out}" "ARMADA_APP_TITLE"
 }
 
@@ -550,7 +635,7 @@ test_zhuan_compose_file_is_allowlisted() {
   if out="$(
     ARMADA_ZHUAN_DEPLOY_KEY="${key}" \
     ARMADA_ZHUAN_COMPOSE_FILE=../../docker-compose.yml \
-    "${SCRIPT}" --zhuan --dry-run 2>&1
+    "${SCRIPT}" --env perf2 --zhuan --dry-run 2>&1
   )"; then
     rm -f "${key}"
     fail "expected unsafe Zhuan Compose override to fail"
@@ -608,6 +693,18 @@ test_perf2_profile_uses_current_isolated_android_topic_contract() {
   assert_not_contains "${profile_content}" "create_group_command"
   assert_not_contains "${profile_content}" "change_group_announcement_command"
   assert_not_contains "${profile_content}" "send_group_message_command"
+}
+
+test_test1_profile_uses_three_node_android_fleet() {
+  local profile_content
+  profile_content="$(cat "${SCRIPT_DIR}/envs/test1.conf")"
+
+  assert_contains "${profile_content}" "PROFILE_ZHUAN_DEPLOY_MODE=fleet"
+  assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_EXPECTED_NODES=3"
+  assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_COORDINATOR_PORT=9100"
+  assert_contains "${profile_content}" "EXPECTED_ANDROID_BASE_URL=http://65.2.123.53:9100"
+  assert_not_contains "${profile_content}" "PROFILE_ZHUAN_HOST="
+  assert_not_contains "${profile_content}" "PROFILE_ZHUAN_COMPOSE_FILE="
 }
 
 test_environment_name_is_allowlisted() {
@@ -679,7 +776,7 @@ test_failed_component_prints_redacted_summary() {
   setup_zhuan_command_fixture
   if out="$(
     ZHUAN_TEST_FAIL_PAYLOAD="build whatsapp-android-zhuan" \
-      run_zhuan_with_command_stubs --zhuan -y 2>&1
+      run_zhuan_with_command_stubs --env perf2 --zhuan -y 2>&1
   )"; then
     cleanup_zhuan_command_fixture
     fail "expected Zhuan deployment failure"
@@ -714,11 +811,13 @@ test_perf2_check_runs_all_read_only_groups_without_mutations() {
 }
 
 test_test1_check_skips_exact_kafka_metadata() {
-  local out
+  local command_log out
   setup_deep_check_fixture
   out="$(run_deep_check_with_stubs --env test1 --check)"
+  command_log="$(cat "${DEEP_CHECK_FIXTURE_COMMAND_LOG}")"
   cleanup_deep_check_fixture
   assert_contains "${out}" "[check] Kafka exact metadata: SKIPPED"
+  assert_contains "${command_log}" "/admin/nodes"
 }
 
 test_check_rejects_mutation_and_mode_combinations() {
@@ -754,21 +853,17 @@ test_normal_dry_run_does_not_run_deep_checks() {
 }
 
 test_zhuan_dry_run_is_zhuan_only() {
-  local key out
-  key="$(mktemp)"
-  chmod 600 "${key}"
-  out="$(
-    ARMADA_DEPLOY_KEY="${key}" \
-    ARMADA_ZHUAN_DEPLOY_KEY="${key}" \
-    "${SCRIPT}" --zhuan --dry-run
-  )"
-  rm -f "${key}"
+  local out
+  setup_zhuan_command_fixture
+  out="$(run_zhuan_with_command_stubs --env test1 --zhuan --dry-run)"
+  cleanup_zhuan_command_fixture
 
   assert_contains "${out}" "范围          : 只 Zhuan 协议"
   assert_contains "${out}" "Zhuan 目录"
-  assert_contains "${out}" "Zhuan 目标"
-  assert_contains "${out}" "[dry-run] 将同步 Zhuan 源码"
-  assert_contains "${out}" "whatsapp-migrate -env prod"
+  assert_contains "${out}" "Zhuan 模式"
+  assert_contains "${out}" "fleet / coordinator + 3 nodes"
+  assert_contains "${out}" "coordinator → 3 台 node"
+  assert_not_contains "${out}" "whatsapp-migrate -env prod"
   assert_not_contains "${out}" "后端 JDK"
   assert_not_contains "${out}" "前端构建"
   assert_not_contains "${out}" "协议 PM2"
@@ -783,15 +878,15 @@ test_full_includes_zhuan_but_all_does_not() {
   assert_contains "${full_scope}" "BUILD_ZHUAN=1"
 }
 
-test_zhuan_defaults_to_armada_test_host() {
-  local script_content
-  script_content="$(cat "${SCRIPT}")"
+test_zhuan_fleet_mode_reuses_protocol_repository_orchestrator() {
+  local module_content
+  module_content="$(cat "${SCRIPT_DIR}/lib/zhuan.sh")"
 
-  assert_contains "${script_content}" 'ZHUAN_DIR="${ARMADA_ZHUAN_DIR:-${WORKSPACE_ROOT}/whatsapp-server-feature-android-zhuan}"'
-  assert_contains "${script_content}" 'ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${SSH_HOST}}"'
-  assert_contains "${script_content}" 'ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${SSH_USER}}"'
-  assert_contains "${script_content}" 'ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${SSH_KEY}}"'
-  assert_contains "${script_content}" 'ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-/home/app/whatsapp-android-zhuan-deploy/src}"'
+  assert_contains "${module_content}" '"${ZHUAN_FLEET_SCRIPT}" "$@"'
+  assert_contains "${module_content}" 'REPO="${ZHUAN_DIR}"'
+  assert_contains "${module_content}" 'KEYS_DIR="${ZHUAN_FLEET_KEYS_DIR}"'
+  assert_contains "${module_content}" 'NODES_CONF="${ZHUAN_FLEET_CONFIG}"'
+  assert_contains "${module_content}" '"status"[[:space:]]*:[[:space:]]*"online"'
 }
 
 test_zhuan_rejects_unsafe_remote_dir() {
@@ -802,7 +897,7 @@ test_zhuan_rejects_unsafe_remote_dir() {
     ARMADA_DEPLOY_KEY="${key}" \
     ARMADA_ZHUAN_DEPLOY_KEY="${key}" \
     ARMADA_ZHUAN_DEPLOY_REMOTE_DIR="/tmp/zhuan'bad" \
-    "${SCRIPT}" --zhuan --dry-run 2>&1
+    "${SCRIPT}" --env perf2 --zhuan --dry-run 2>&1
   )"; then
     rm -f "${key}"
     fail "expected unsafe Zhuan remote directory to be rejected"
@@ -820,7 +915,7 @@ test_zhuan_rejects_root_equivalent_remote_dirs() {
     if ARMADA_DEPLOY_KEY="${key}" \
       ARMADA_ZHUAN_DEPLOY_KEY="${key}" \
       ARMADA_ZHUAN_DEPLOY_REMOTE_DIR="${bad_dir}" \
-      "${SCRIPT}" --zhuan --dry-run >/dev/null 2>&1; then
+      "${SCRIPT}" --env perf2 --zhuan --dry-run >/dev/null 2>&1; then
       rm -f "${key}"
       fail "expected root-equivalent Zhuan remote directory to be rejected: ${bad_dir}"
     fi
@@ -899,7 +994,7 @@ test_main_orchestrator_uses_protocol_module_and_dependency_order() {
   assert_not_contains "${script_content}" "protocol_remote_deploy='"
 
   protocol_line="$(grep -n 'protocol_deploy_remote' "${SCRIPT}" | head -1 | cut -d: -f1)"
-  zhuan_line="$(grep -n 'zhuan_prepare_remote' "${SCRIPT}" | head -1 | cut -d: -f1)"
+  zhuan_line="$(grep -n 'zhuan_deploy_selected' "${SCRIPT}" | head -1 | cut -d: -f1)"
   armada_remote_line="$(grep -n 'armada_prepare_remote' "${SCRIPT}" | head -1 | cut -d: -f1)"
   [ "${protocol_line}" -lt "${zhuan_line}" ] || fail "expected protocol remote deploy before Zhuan"
   [ "${zhuan_line}" -lt "${armada_remote_line}" ] || fail "expected Zhuan before Armada remote mutation"
@@ -975,10 +1070,8 @@ test_main_orchestrator_uses_zhuan_module() {
   local script_content
   script_content="$(cat "${SCRIPT}")"
   assert_contains "${script_content}" '. "${SCRIPT_DIR}/lib/zhuan.sh"'
-  assert_contains "${script_content}" "zhuan_prepare_remote"
-  assert_contains "${script_content}" "zhuan_sync_source"
-  assert_contains "${script_content}" "zhuan_deploy_remote"
-  assert_contains "${script_content}" "zhuan_verify_health"
+  assert_contains "${script_content}" "zhuan_check_connectivity"
+  assert_contains "${script_content}" "zhuan_deploy_selected"
   assert_not_contains "${script_content}" "zhuan_remote_deploy='"
 }
 
@@ -1148,6 +1241,8 @@ test_armada_compose_passes_promotion_token_encryption_config_to_backend
 test_assert_contains_handles_large_haystack
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload
 test_zhuan_dry_run_invokes_no_external_commands
+test_test1_zhuan_invokes_existing_fleet_orchestrator
+test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint
 test_zhuan_remote_failure_stops_before_health_check
 test_zhuan_perf_uses_perf_compose_without_local_redis
 test_zhuan_rsync_filters_preserve_runtime_files_and_modes
@@ -1162,6 +1257,7 @@ test_zhuan_compose_file_is_allowlisted
 test_default_environment_is_test1
 test_perf2_full_dry_run_uses_all_profile_targets
 test_perf2_profile_uses_current_isolated_android_topic_contract
+test_test1_profile_uses_three_node_android_fleet
 test_environment_name_is_allowlisted
 test_profile_values_can_be_overridden_by_existing_environment_variables
 test_full_dry_run_prints_selected_repository_evidence_without_secrets
@@ -1173,7 +1269,7 @@ test_check_rejects_mutation_and_mode_combinations
 test_normal_dry_run_does_not_run_deep_checks
 test_zhuan_dry_run_is_zhuan_only
 test_full_includes_zhuan_but_all_does_not
-test_zhuan_defaults_to_armada_test_host
+test_zhuan_fleet_mode_reuses_protocol_repository_orchestrator
 test_zhuan_rejects_unsafe_remote_dir
 test_zhuan_rejects_root_equivalent_remote_dirs
 test_frontend_dry_run_uses_profile_title_instead_of_host_inference

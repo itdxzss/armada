@@ -29,12 +29,18 @@
       #{lastHealthError}, #{healthFailureCount}, #{createdAt}, #{updatedAt}
     )
     ON DUPLICATE KEY UPDATE
-      health_status = VALUES(health_status),
-      is_banned = VALUES(is_banned),
+      health_status = CASE WHEN COALESCE(is_banned, 0) = 1 THEN health_status ELSE VALUES(health_status) END,
+      is_banned = CASE WHEN COALESCE(is_banned, 0) = 1 THEN is_banned ELSE VALUES(is_banned) END,
       current_count = COALESCE(VALUES(current_count), current_count),
       last_check_at = VALUES(last_check_at),
-      last_health_error = VALUES(last_health_error),
-      health_failure_count = VALUES(health_failure_count),
+      last_health_error = CASE
+        WHEN COALESCE(is_banned, 0) = 1 THEN last_health_error
+        ELSE VALUES(last_health_error)
+      END,
+      health_failure_count = CASE
+        WHEN COALESCE(is_banned, 0) = 1 THEN health_failure_count
+        ELSE VALUES(health_failure_count)
+      END,
       updated_at = VALUES(updated_at)
   </insert>
 
@@ -50,12 +56,18 @@
 
   <update id="updateFromAccountGroupSync">
     UPDATE group_link_health
-    SET health_status = #{healthStatus},
-        is_banned = #{banned},
+    SET health_status = CASE WHEN COALESCE(is_banned, 0) = 1 THEN health_status ELSE #{healthStatus} END,
+        is_banned = CASE WHEN COALESCE(is_banned, 0) = 1 THEN is_banned ELSE #{banned} END,
         current_count = COALESCE(#{currentCount}, current_count),
         last_check_at = #{lastCheckAt},
-        last_health_error = #{lastHealthError},
-        health_failure_count = #{healthFailureCount},
+        last_health_error = CASE
+          WHEN COALESCE(is_banned, 0) = 1 THEN last_health_error
+          ELSE #{lastHealthError}
+        END,
+        health_failure_count = CASE
+          WHEN COALESCE(is_banned, 0) = 1 THEN health_failure_count
+          ELSE #{healthFailureCount}
+        END,
         updated_at = #{updatedAt}
     WHERE group_link_id = #{groupLinkId}
   </update>

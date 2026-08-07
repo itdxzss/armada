@@ -410,6 +410,38 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
+    void onMessage_realtimeBannedHealthWithoutLinkId_dispatchesByGroupJid() {
+        String raw = """
+                {
+                  "eventId": "evt-group-banned",
+                  "event": "group.health_reported",
+                  "accountId": "acc_919096944068",
+                  "occurredAt": "2026-08-07T01:32:42.912Z",
+                  "workerId": "worker-4",
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 15,
+                    "protocolAccountId": "acc_919096944068",
+                    "groupJid": "120363428058767969@g.us",
+                    "health": "BANNED",
+                    "errorCode": "CHAT_SUSPENDED",
+                    "checkedAt": "2026-08-07T01:32:42.912Z"
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupHealthReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupHealthReportedEvent.class);
+        verify(sink).handleHealthReported(captor.capture());
+        assertThat(captor.getValue().groupLinkId()).isNull();
+        assertThat(captor.getValue().groupJid()).isEqualTo("120363428058767969@g.us");
+        assertThat(captor.getValue().health()).isEqualTo("BANNED");
+        assertThat(captor.getValue().errorCode()).isEqualTo("CHAT_SUSPENDED");
+    }
+
+    @Test
     void onMessage_unregisteredGroupEvent_skipsSink() {
         String raw = """
                 {
@@ -427,7 +459,7 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
-    void onMessage_healthReportedMissingTenantOrLinkId_skipsSink() {
+    void onMessage_healthReportedMissingTenantOrGroupJid_skipsSink() {
         String raw = """
                 {
                   "eventId": "evt-group-3",

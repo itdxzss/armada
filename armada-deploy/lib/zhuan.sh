@@ -1,5 +1,151 @@
 #!/usr/bin/env bash
 
+zhuan_validate_fleet_inputs() {
+  local coordinator_count duplicate_count fleet_counts invalid_count node_count pem_file pem_files
+
+  [ -f "${ZHUAN_FLEET_SCRIPT}" ] || die "找不到 Zhuan fleet 编排脚本: ${ZHUAN_FLEET_SCRIPT}"
+  [ -f "${ZHUAN_FLEET_CONFIG}" ] \
+    || die "找不到 Zhuan fleet 节点清单: ${ZHUAN_FLEET_CONFIG}"
+  [ -d "${ZHUAN_FLEET_KEYS_DIR}" ] \
+    || die "找不到 Zhuan fleet 私钥目录: ${ZHUAN_FLEET_KEYS_DIR}"
+
+  fleet_counts="$(awk -F'|' '
+      function trim(value) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        return value
+      }
+      /^[[:space:]]*(#|$)/ { next }
+      {
+        label = trim($1)
+        user = trim($2)
+        host = trim($3)
+        pem = trim($4)
+        subdir = trim($5)
+        if (NF < 4 || label == "" || user == "" || host == "" || pem == "") {
+          invalid++
+          next
+        }
+        if (seen[label]++) duplicate++
+        if (subdir == "coordinator") coordinator++
+        else if (subdir == "" || subdir == "node") nodes++
+        else invalid++
+      }
+      END { printf "%d|%d|%d|%d\n", coordinator, nodes, invalid, duplicate }
+    ' "${ZHUAN_FLEET_CONFIG}")"
+  IFS='|' read -r coordinator_count node_count invalid_count duplicate_count <<<"${fleet_counts}"
+
+  [ "${invalid_count}" = 0 ] || die "Zhuan fleet 节点清单存在无效条目"
+  [ "${duplicate_count}" = 0 ] || die "Zhuan fleet 节点清单存在重复 label"
+  [ "${coordinator_count}" = 1 ] \
+    || die "Zhuan fleet 必须且只能配置 1 个 coordinator"
+  [ "${node_count}" = "${ZHUAN_FLEET_EXPECTED_NODES}" ] \
+    || die "Zhuan fleet 节点数不匹配: expected=${ZHUAN_FLEET_EXPECTED_NODES}, actual=${node_count}"
+
+  pem_files="$(awk -F'|' '
+    function trim(value) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      return value
+    }
+    !/^[[:space:]]*(#|$)/ { print trim($4) }
+  ' "${ZHUAN_FLEET_CONFIG}")"
+  while IFS= read -r pem_file; do
+    case "${pem_file}" in
+      ""|*/*|*..*) die "Zhuan fleet 节点清单包含不安全的私钥文件名" ;;
+    esac
+    [ -f "${ZHUAN_FLEET_KEYS_DIR}/${pem_file}" ] \
+      || die "Zhuan fleet 节点私钥不完整"
+  done <<<"${pem_files}"
+}
+
+zhuan_fleet_run() {
+  REPO="${ZHUAN_DIR}" \
+  KEYS_DIR="${ZHUAN_FLEET_KEYS_DIR}" \
+  NODES_CONF="${ZHUAN_FLEET_CONFIG}" \
+    bash "${ZHUAN_FLEET_SCRIPT}" "$@"
+}
+
+zhuan_fleet_coordinator_ssh_run() {
+  local coordinator coordinator_host coordinator_key coordinator_pem coordinator_user rc temporary_key
+
+  coordinator="$(awk -F'|' '
+      function trim(value) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        return value
+      }
+      !/^[[:space:]]*(#|$)/ && trim($5) == "coordinator" {
+        printf "%s|%s|%s\n", trim($2), trim($3), trim($4)
+        exit
+      }
+    ' "${ZHUAN_FLEET_CONFIG}")"
+  IFS='|' read -r coordinator_user coordinator_host coordinator_pem <<<"${coordinator}"
+  coordinator_key="${ZHUAN_FLEET_KEYS_DIR}/${coordinator_pem}"
+  temporary_key="$(mktemp "${TMPDIR:-/tmp}/armada-zhuan-coordinator-key.XXXXXX")"
+  cp "${coordinator_key}" "${temporary_key}"
+  chmod 600 "${temporary_key}"
+
+  rc=0
+  ssh \
+    -i "${temporary_key}" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=15 \
+    -o StrictHostKeyChecking=accept-new \
+    "${coordinator_user}@${coordinator_host}" "$@" || rc=$?
+  rm -f -- "${temporary_key}"
+  return "${rc}"
+}
+
+zhuan_verify_fleet_health() {
+  local body online_count
+
+  body="$(zhuan_fleet_coordinator_ssh_run \
+    "curl -fsS -m 8 'http://127.0.0.1:${ZHUAN_FLEET_COORDINATOR_PORT}/admin/nodes'")" \
+    || die "Zhuan fleet coordinator 健康检查失败"
+  grep -Eq '"success"[[:space:]]*:[[:space:]]*true' <<<"${body}" \
+    || die "Zhuan fleet coordinator 返回失败状态"
+  online_count="$(
+    { grep -oE '"status"[[:space:]]*:[[:space:]]*"online"' <<<"${body}" || true; } \
+      | wc -l \
+      | tr -d '[:space:]'
+  )"
+  [ "${online_count}" = "${ZHUAN_FLEET_EXPECTED_NODES}" ] \
+    || die "Zhuan fleet 在线节点数不匹配: expected=${ZHUAN_FLEET_EXPECTED_NODES}, actual=${online_count}"
+}
+
+zhuan_check_connectivity() {
+  case "${ZHUAN_DEPLOY_MODE}" in
+    fleet)
+      zhuan_fleet_run --dry-run all >/dev/null
+      ;;
+    single)
+      zhuan_ssh_run true
+      ;;
+    *) die "未知 Zhuan 部署模式: ${ZHUAN_DEPLOY_MODE}" ;;
+  esac
+}
+
+zhuan_deploy_selected() {
+  case "${ZHUAN_DEPLOY_MODE}" in
+    fleet)
+      info "按 coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node 滚动部署 Zhuan fleet..."
+      zhuan_fleet_run all
+      info "检查 coordinator 和 ${ZHUAN_FLEET_EXPECTED_NODES} 台 Zhuan 节点..."
+      zhuan_verify_fleet_health
+      ;;
+    single)
+      info "准备并检查 Zhuan 远端..."
+      zhuan_prepare_remote
+      ok "Zhuan 远端运行配置已就绪"
+      info "同步 Zhuan 源码..."
+      zhuan_sync_source
+      info "构建并启动 Zhuan 协议..."
+      zhuan_deploy_remote
+      info "检查 Zhuan 容器和 API..."
+      zhuan_verify_health
+      ;;
+    *) die "未知 Zhuan 部署模式: ${ZHUAN_DEPLOY_MODE}" ;;
+  esac
+}
+
 zhuan_remote_required_files_check_payload='
 set -eu
 remote_dir="$1"

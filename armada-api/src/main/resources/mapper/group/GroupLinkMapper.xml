@@ -211,13 +211,17 @@
       ON c.iso2 = p.creator_country_iso2
      AND c.deleted_at IS NULL
     LEFT JOIN (
-      SELECT tenant_id, group_link_id,
-             GROUP_CONCAT(DISTINCT phone ORDER BY phone SEPARATOR ', ') AS admin
-      FROM whatsapp_group_member_snapshot
-      WHERE is_admin = 1
-        AND phone IS NOT NULL
-        AND TRIM(phone) &lt;&gt; ''
-      GROUP BY tenant_id, group_link_id
+      SELECT member.tenant_id, member.group_link_id,
+             GROUP_CONCAT(DISTINCT member.phone ORDER BY member.phone SEPARATOR ', ') AS admin
+      FROM whatsapp_group_member_snapshot member
+      INNER JOIN account controlled_account
+        ON controlled_account.tenant_id = member.tenant_id
+       AND controlled_account.ws_phone = member.phone
+       AND controlled_account.deleted_at IS NULL
+      WHERE member.is_admin = 1
+        AND member.phone IS NOT NULL
+        AND TRIM(member.phone) &lt;&gt; ''
+      GROUP BY member.tenant_id, member.group_link_id
     ) admins
       ON admins.tenant_id = g.tenant_id
      AND admins.group_link_id = g.id

@@ -62,17 +62,41 @@ for required_profile_var in \
   PROFILE_PROTOCOL_HOST PROFILE_PROTOCOL_USER PROFILE_PROTOCOL_KEY_REL \
   PROFILE_PROTOCOL_REMOTE_DIR PROFILE_PROTOCOL_PM2_CONFIG \
   PROFILE_PROTOCOL_HEALTH_PORT PROFILE_PROTOCOL_TRANSPORT \
-  PROFILE_ZHUAN_HOST PROFILE_ZHUAN_USER PROFILE_ZHUAN_KEY_REL \
-  PROFILE_ZHUAN_REMOTE_DIR PROFILE_ZHUAN_COMPOSE_FILE PROFILE_ZHUAN_HTTP_PORT \
-  PROFILE_ZHUAN_START_SERVICES PROFILE_ZHUAN_HEALTH_SERVICES \
-  EXPECTED_ARMADA_DB_SCHEMA EXPECTED_ANDROID_TOPIC_PREFIX \
-  EXPECTED_ZHUAN_DB_SCHEMA; do
+  PROFILE_ZHUAN_DEPLOY_MODE \
+  EXPECTED_ARMADA_DB_SCHEMA EXPECTED_ANDROID_TOPIC_PREFIX; do
   [ -n "${!required_profile_var:-}" ] \
     || profile_die "环境档案缺少必填字段: ${required_profile_var}"
 done
 case "${PROFILE_PROTOCOL_TRANSPORT}" in
   direct|jump) ;;
   *) profile_die "协议连接模式只允许 direct 或 jump: ${PROFILE_PROTOCOL_TRANSPORT}" ;;
+esac
+case "${PROFILE_ZHUAN_DEPLOY_MODE}" in
+  fleet)
+    for required_profile_var in \
+      PROFILE_ZHUAN_FLEET_CONFIG_REL PROFILE_ZHUAN_FLEET_KEYS_REL \
+      PROFILE_ZHUAN_FLEET_EXPECTED_NODES PROFILE_ZHUAN_FLEET_COORDINATOR_PORT; do
+      [ -n "${!required_profile_var:-}" ] \
+        || profile_die "环境档案缺少必填字段: ${required_profile_var}"
+    done
+    case "${PROFILE_ZHUAN_FLEET_EXPECTED_NODES}" in
+      ''|*[!0-9]*|0) profile_die "Zhuan fleet 节点数必须是正整数" ;;
+    esac
+    case "${PROFILE_ZHUAN_FLEET_COORDINATOR_PORT}" in
+      ''|*[!0-9]*|0) profile_die "Zhuan fleet coordinator 端口必须是正整数" ;;
+    esac
+    ;;
+  single)
+    for required_profile_var in \
+      PROFILE_ZHUAN_HOST PROFILE_ZHUAN_USER PROFILE_ZHUAN_KEY_REL \
+      PROFILE_ZHUAN_REMOTE_DIR PROFILE_ZHUAN_COMPOSE_FILE PROFILE_ZHUAN_HTTP_PORT \
+      PROFILE_ZHUAN_START_SERVICES PROFILE_ZHUAN_HEALTH_SERVICES \
+      EXPECTED_ZHUAN_DB_SCHEMA; do
+      [ -n "${!required_profile_var:-}" ] \
+        || profile_die "环境档案缺少必填字段: ${required_profile_var}"
+    done
+    ;;
+  *) profile_die "Zhuan 部署模式只允许 fleet 或 single: ${PROFILE_ZHUAN_DEPLOY_MODE}" ;;
 esac
 readonly EXPECTED_ARMADA_DB_SCHEMA EXPECTED_ANDROID_BASE_URL \
   EXPECTED_ANDROID_TOPIC_PREFIX EXPECTED_ZHUAN_DB_SCHEMA \
@@ -101,22 +125,32 @@ PROTOCOL_JUMP_HOST="${ARMADA_PROTOCOL_JUMP_HOST:-${PROFILE_PROTOCOL_JUMP_HOST}}"
 PROTOCOL_JUMP_USER="${ARMADA_PROTOCOL_JUMP_USER:-${PROFILE_PROTOCOL_JUMP_USER}}"
 PROTOCOL_JUMP_KEY="${ARMADA_PROTOCOL_JUMP_KEY:-${WORKSPACE_ROOT}/${PROFILE_PROTOCOL_JUMP_KEY_REL}}"
 ZHUAN_DIR="${ARMADA_ZHUAN_DIR:-${WORKSPACE_ROOT}/whatsapp-server-feature-android-zhuan}"
-if [ "${ENV_ID}" = test1 ]; then
-  ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${SSH_HOST}}"
-  ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${SSH_USER}}"
-  ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${SSH_KEY}}"
-  ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-/home/app/whatsapp-android-zhuan-deploy/src}"
-else
+ZHUAN_DEPLOY_MODE="${PROFILE_ZHUAN_DEPLOY_MODE}"
+ZHUAN_SSH_HOST=""
+ZHUAN_SSH_USER=""
+ZHUAN_SSH_KEY=""
+ZHUAN_REMOTE_DIR=""
+ZHUAN_COMPOSE_FILE=""
+ZHUAN_HTTP_PORT=""
+ZHUAN_START_SERVICES=""
+ZHUAN_HEALTH_SERVICES=""
+ZHUAN_HEALTH_DISPLAY=""
+ZHUAN_FLEET_SCRIPT="${ZHUAN_DIR}/deploy/fleet/deploy-local.sh"
+ZHUAN_FLEET_CONFIG="${ARMADA_ZHUAN_FLEET_CONFIG:-${ZHUAN_DIR}/${PROFILE_ZHUAN_FLEET_CONFIG_REL:-}}"
+ZHUAN_FLEET_KEYS_DIR="${ARMADA_ZHUAN_FLEET_KEYS_DIR:-${WORKSPACE_ROOT}/${PROFILE_ZHUAN_FLEET_KEYS_REL:-}}"
+ZHUAN_FLEET_EXPECTED_NODES="${PROFILE_ZHUAN_FLEET_EXPECTED_NODES:-0}"
+ZHUAN_FLEET_COORDINATOR_PORT="${PROFILE_ZHUAN_FLEET_COORDINATOR_PORT:-0}"
+if [ "${ZHUAN_DEPLOY_MODE}" = single ]; then
   ZHUAN_SSH_HOST="${ARMADA_ZHUAN_DEPLOY_HOST:-${PROFILE_ZHUAN_HOST}}"
   ZHUAN_SSH_USER="${ARMADA_ZHUAN_DEPLOY_USER:-${PROFILE_ZHUAN_USER}}"
   ZHUAN_SSH_KEY="${ARMADA_ZHUAN_DEPLOY_KEY:-${WORKSPACE_ROOT}/${PROFILE_ZHUAN_KEY_REL}}"
   ZHUAN_REMOTE_DIR="${ARMADA_ZHUAN_DEPLOY_REMOTE_DIR:-${PROFILE_ZHUAN_REMOTE_DIR}}"
+  ZHUAN_COMPOSE_FILE="${ARMADA_ZHUAN_COMPOSE_FILE:-${PROFILE_ZHUAN_COMPOSE_FILE}}"
+  ZHUAN_HTTP_PORT="${ARMADA_ZHUAN_HTTP_PORT:-${PROFILE_ZHUAN_HTTP_PORT}}"
+  ZHUAN_START_SERVICES="${PROFILE_ZHUAN_START_SERVICES}"
+  ZHUAN_HEALTH_SERVICES="${PROFILE_ZHUAN_HEALTH_SERVICES}"
+  ZHUAN_HEALTH_DISPLAY="${ZHUAN_HEALTH_SERVICES// /、}"
 fi
-ZHUAN_COMPOSE_FILE="${ARMADA_ZHUAN_COMPOSE_FILE:-${PROFILE_ZHUAN_COMPOSE_FILE}}"
-ZHUAN_HTTP_PORT="${ARMADA_ZHUAN_HTTP_PORT:-${PROFILE_ZHUAN_HTTP_PORT}}"
-ZHUAN_START_SERVICES="${PROFILE_ZHUAN_START_SERVICES}"
-ZHUAN_HEALTH_SERVICES="${PROFILE_ZHUAN_HEALTH_SERVICES}"
-ZHUAN_HEALTH_DISPLAY="${ZHUAN_HEALTH_SERVICES// /、}"
 JAR_NAME="armada-api-deploy.jar"
 
 # shellcheck source=lib/common.sh
@@ -198,7 +232,8 @@ prepare_windows_ssh_keys() {
       PROTOCOL_JUMP_KEY="$(resolve_wsl_ssh_key "${PROTOCOL_JUMP_KEY}" protocol-jump)"
     fi
   fi
-  if [ "${BUILD_ZHUAN}" = 1 ] || [ "${CHECK_ONLY}" = 1 ]; then
+  if { [ "${BUILD_ZHUAN}" = 1 ] || [ "${CHECK_ONLY}" = 1 ]; } \
+    && [ "${ZHUAN_DEPLOY_MODE}" = single ]; then
     ZHUAN_SSH_KEY="$(resolve_wsl_ssh_key "${ZHUAN_SSH_KEY}" zhuan)"
     ZHUAN_SSH_KEY_RSYNC="$(shell_single_quote "${ZHUAN_SSH_KEY}")"
   fi
@@ -414,13 +449,17 @@ deploy-test-win.sh - 部署 armada API + wheel-saas-pure-web + Baileys/Zhuan 协
   ARMADA_ZHUAN_DEPLOY_KEY
   ARMADA_ZHUAN_DEPLOY_REMOTE_DIR
   ARMADA_ZHUAN_COMPOSE_FILE
+  ARMADA_ZHUAN_FLEET_CONFIG
+  ARMADA_ZHUAN_FLEET_KEYS_DIR
 
 Armada 目标服务器:
   ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
 协议目标服务器:
   ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}
 Zhuan 目标服务器:
-  ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}
+  $([ "${ZHUAN_DEPLOY_MODE}" = fleet ] \
+    && printf 'fleet / coordinator + %s nodes' "${ZHUAN_FLEET_EXPECTED_NODES}" \
+    || printf '%s@%s:%s' "${ZHUAN_SSH_USER}" "${ZHUAN_SSH_HOST}" "${ZHUAN_REMOTE_DIR}")
 
 当前环境:
   ${ENV_ID} / ${APP_TITLE}
@@ -494,7 +533,9 @@ Armada 测试环境部署指引
 目标:
   Armada: ${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}
   协议层: ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}
-  Zhuan: ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}
+  Zhuan: $([ "${ZHUAN_DEPLOY_MODE}" = fleet ] \
+    && printf 'fleet / coordinator + %s nodes' "${ZHUAN_FLEET_EXPECTED_NODES}" \
+    || printf '%s@%s:%s' "${ZHUAN_SSH_USER}" "${ZHUAN_SSH_HOST}" "${ZHUAN_REMOTE_DIR}")
   ${PUBLIC_URL}
 
 提示:
@@ -683,20 +724,24 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   fi
 fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
-  case "${ZHUAN_COMPOSE_FILE}" in
-    docker-compose.yml|docker-compose.perf.yml) ;;
-    *) die "Zhuan Compose 只允许 docker-compose.yml 或 docker-compose.perf.yml" ;;
-  esac
-  validate_remote_dir "Zhuan" "${ZHUAN_REMOTE_DIR}"
-  validate_ssh_identity "Zhuan" "${ZHUAN_SSH_HOST}" "${ZHUAN_SSH_USER}"
-  require_ssh_key " Zhuan" "${ZHUAN_SSH_KEY}"
   [ -d "${ZHUAN_DIR}" ] || die "找不到 Zhuan 仓库目录: ${ZHUAN_DIR}"
   [ -f "${ZHUAN_DIR}/go.mod" ] || die "找不到 Zhuan go.mod"
   [ -f "${ZHUAN_DIR}/go.sum" ] || die "找不到 Zhuan go.sum"
   [ -f "${ZHUAN_DIR}/.dockerignore" ] || die "找不到 Zhuan .dockerignore"
   [ -f "${ZHUAN_DIR}/deploy/Dockerfile" ] || die "找不到 Zhuan deploy/Dockerfile"
-  [ -f "${ZHUAN_DIR}/deploy/${ZHUAN_COMPOSE_FILE}" ] \
-    || die "找不到 Zhuan deploy/${ZHUAN_COMPOSE_FILE}"
+  if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+    zhuan_validate_fleet_inputs
+  else
+    case "${ZHUAN_COMPOSE_FILE}" in
+      docker-compose.yml|docker-compose.perf.yml) ;;
+      *) die "Zhuan Compose 只允许 docker-compose.yml 或 docker-compose.perf.yml" ;;
+    esac
+    validate_remote_dir "Zhuan" "${ZHUAN_REMOTE_DIR}"
+    validate_ssh_identity "Zhuan" "${ZHUAN_SSH_HOST}" "${ZHUAN_SSH_USER}"
+    require_ssh_key " Zhuan" "${ZHUAN_SSH_KEY}"
+    [ -f "${ZHUAN_DIR}/deploy/${ZHUAN_COMPOSE_FILE}" ] \
+      || die "找不到 Zhuan deploy/${ZHUAN_COMPOSE_FILE}"
+  fi
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then
@@ -714,6 +759,13 @@ if [ "${BUILD_FE}" = 1 ]; then
 fi
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ] || [ "${BUILD_PROTOCOL}" = 1 ] || [ "${BUILD_ZHUAN}" = 1 ]; then
   command -v rsync >/dev/null 2>&1 || die "需要 rsync"
+fi
+if [ "${BUILD_ZHUAN}" = 1 ] \
+  && [ "${ZHUAN_DEPLOY_MODE}" = fleet ] \
+  && [ "${TAIL_LOGS}" = 1 ] \
+  && [ "${BUILD_BE}" = 0 ] \
+  && [ "${BUILD_PROTOCOL}" = 0 ]; then
+  die "Zhuan fleet 包含多台机器，--zhuan --logs 不支持；请到目标节点分别查看日志"
 fi
 command -v ssh >/dev/null 2>&1 || die "需要 ssh"
 if [ "${CHECK_ONLY}" = 1 ]; then
@@ -804,8 +856,14 @@ print_plan() {
   if [ "${BUILD_ZHUAN}" = 1 ]; then
     printf '  Zhuan 目录     : %s\n' "${ZHUAN_DIR}"
     print_repository_evidence "Zhuan 源码" "${ZHUAN_DIR}"
-    printf '  Zhuan 目标     : %s@%s:%s\n' "${ZHUAN_SSH_USER}" "${ZHUAN_SSH_HOST}" "${ZHUAN_REMOTE_DIR}"
-    printf '  Zhuan compose  : %s\n' "${ZHUAN_COMPOSE_FILE}"
+    if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+      printf '  Zhuan 模式     : fleet / coordinator + %s nodes\n' "${ZHUAN_FLEET_EXPECTED_NODES}"
+      printf '  Zhuan 清单     : %s\n' "${ZHUAN_FLEET_CONFIG}"
+    else
+      printf '  Zhuan 模式     : single\n'
+      printf '  Zhuan 目标     : %s@%s:%s\n' "${ZHUAN_SSH_USER}" "${ZHUAN_SSH_HOST}" "${ZHUAN_REMOTE_DIR}"
+      printf '  Zhuan compose  : %s\n' "${ZHUAN_COMPOSE_FILE}"
+    fi
   fi
   if [ "${BUILD_BE}" = 1 ]; then
     printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
@@ -848,10 +906,17 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将重载协议 PM2: pm2 startOrReload ${PROTOCOL_PM2_CONFIG} --update-env"
   fi
   if [ "${BUILD_ZHUAN}" = 1 ]; then
-    info "[dry-run] 将同步 Zhuan 源码到 ${ZHUAN_REMOTE_DIR},保留远端配置和日志"
-    info "[dry-run] 将校验并构建 Zhuan Compose 服务"
-    info "[dry-run] 将运行迁移: whatsapp-migrate -env prod"
-    info "[dry-run] 将启动并验活 ${ZHUAN_HEALTH_DISPLAY}"
+    if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+      info "[dry-run] 将按 coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node 滚动部署"
+      info "[dry-run] 将保留各节点 .env、configs、certs、logs 和 data"
+      info "[dry-run] 将在每台 node 发布前检查旧 lifecycle Stream 已排空"
+      info "[dry-run] 将验证 ${ZHUAN_FLEET_EXPECTED_NODES} 台协议节点全部 online"
+    else
+      info "[dry-run] 将同步 Zhuan 源码到 ${ZHUAN_REMOTE_DIR},保留远端配置和日志"
+      info "[dry-run] 将校验并构建 Zhuan Compose 服务"
+      info "[dry-run] 将运行迁移: whatsapp-migrate -env prod"
+      info "[dry-run] 将启动并验活 ${ZHUAN_HEALTH_DISPLAY}"
+    fi
   fi
   ok "dry-run 完成"
   exit 0
@@ -902,8 +967,8 @@ fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
   ACTIVE_COMPONENT=zhuan
   info "检查 Zhuan SSH 连通性..."
-  zhuan_ssh_run true || die "Zhuan SSH 连接失败"
-  ok "Zhuan 服务器可达"
+  zhuan_check_connectivity || die "Zhuan SSH 连接失败"
+  ok "Zhuan 部署目标可达"
   ACTIVE_COMPONENT=""
 fi
 
@@ -926,15 +991,7 @@ fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
   ACTIVE_COMPONENT=zhuan
   STATUS_ZHUAN=RUNNING
-  info "准备并检查 Zhuan 远端..."
-  zhuan_prepare_remote
-  ok "Zhuan 远端运行配置已就绪"
-  info "同步 Zhuan 源码..."
-  zhuan_sync_source
-  info "构建并启动 Zhuan 协议..."
-  zhuan_deploy_remote
-  info "检查 Zhuan 容器和 API..."
-  zhuan_verify_health
+  zhuan_deploy_selected
   STATUS_ZHUAN=SUCCESS
   ACTIVE_COMPONENT=""
   ok "Zhuan 协议可访问"
@@ -995,7 +1052,11 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   ok "协议层部署完成: ${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}"
 fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
-  ok "Zhuan 协议部署完成: ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}"
+  if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+    ok "Zhuan fleet 部署完成: coordinator + ${ZHUAN_FLEET_EXPECTED_NODES} nodes"
+  else
+    ok "Zhuan 协议部署完成: ${ZHUAN_SSH_USER}@${ZHUAN_SSH_HOST}:${ZHUAN_REMOTE_DIR}"
+  fi
 fi
 
 if [ "${TAIL_LOGS}" = 1 ] && [ "${BUILD_BE}" = 1 ]; then

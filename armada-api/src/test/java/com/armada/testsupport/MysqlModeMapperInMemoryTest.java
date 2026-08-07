@@ -637,6 +637,39 @@ class MysqlModeMapperInMemoryTest {
     }
 
     @Test
+    void accountGroupSyncPreservesExistingBanAcrossUpdateAndUpsert() throws SQLException {
+        insertGroupSnapshotFixtures();
+        executeSql("""
+                UPDATE group_link_health
+                SET health_status = 3,
+                    is_banned = TRUE,
+                    last_health_error = 'CHAT_SUSPENDED',
+                    health_failure_count = 4
+                WHERE tenant_id = 7 AND group_link_id = 21
+                """);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            assertThat(healthMapper.updateFromAccountGroupSync(healthUpdate())).isEqualTo(1);
+            GroupLinkHealth upsert = healthUpdate();
+            upsert.setCurrentCount(129);
+            upsert.setLastCheckAt(3_000L);
+            upsert.setUpdatedAt(3_000L);
+            assertThat(healthMapper.upsertFromAccountGroupSync(upsert)).isGreaterThan(0);
+        });
+
+        assertThat(queryOne("SELECT health_status, is_banned, current_count, last_check_at, "
+                + "last_health_error, health_failure_count, updated_at "
+                + "FROM group_link_health WHERE tenant_id = 7 AND group_link_id = 21"))
+                .containsEntry("health_status", 3)
+                .containsEntry("is_banned", true)
+                .containsEntry("current_count", 129)
+                .containsEntry("last_check_at", 3_000L)
+                .containsEntry("last_health_error", "CHAT_SUSPENDED")
+                .containsEntry("health_failure_count", 4)
+                .containsEntry("updated_at", 3_000L);
+    }
+
+    @Test
     void groupSnapshotUpdateAppliesOwnerPhoneObservationThreeState() throws SQLException {
         insertGroupSnapshotFixtures();
 

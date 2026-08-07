@@ -61,9 +61,23 @@ public class PullTaskManagerJoinProcessor {
             outcome = joinAndVerify(work);
         } catch (RuntimeException ex) {
             outcome = exceptionOutcome(ex);
-            log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} errorType={}",
-                    work.tenantId(), work.executionId(), work.payload().account().armadaAccountId(),
-                    ex.getClass().getSimpleName());
+            if (ex instanceof ProtocolException protocol) {
+                log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} "
+                                + "errorType={} errorCode={} protocolCode={} backend={} operation={} "
+                                + "operationId={} groupJid={} retryable={}",
+                        work.tenantId(), work.executionId(),
+                        work.payload().account().armadaAccountId(), ex.getClass().getSimpleName(),
+                        protocol.errorCode(), protocol.protocolCode().orElse(null),
+                        protocol.backend().map(Enum::name).orElse(null),
+                        protocol.operation().orElse(null), protocol.operationId().orElse(null),
+                        work.payload().knownGroupJid(), protocol.retryable().orElse(null));
+            } else {
+                log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} "
+                                + "errorType={} groupJid={}",
+                        work.tenantId(), work.executionId(),
+                        work.payload().account().armadaAccountId(),
+                        ex.getClass().getSimpleName(), work.payload().knownGroupJid());
+            }
         }
         return transactions.complete(work, outcome, now);
     }
@@ -90,9 +104,23 @@ public class PullTaskManagerJoinProcessor {
         try {
             members = memberListPort.list(work.memberListQuery(groupJid));
         } catch (RuntimeException ex) {
-            log.warn("管理员实时在群复核异常 tenantId={} executionId={} accountId={} errorType={}",
-                    work.tenantId(), work.executionId(), work.payload().account().armadaAccountId(),
-                    ex.getClass().getSimpleName());
+            if (ex instanceof ProtocolException protocol) {
+                log.warn("管理员实时在群复核异常 tenantId={} executionId={} accountId={} "
+                                + "errorType={} errorCode={} protocolCode={} backend={} operation={} "
+                                + "operationId={} groupJid={} retryable={}",
+                        work.tenantId(), work.executionId(),
+                        work.payload().account().armadaAccountId(), ex.getClass().getSimpleName(),
+                        protocol.errorCode(), protocol.protocolCode().orElse(null),
+                        protocol.backend().map(Enum::name).orElse(null),
+                        protocol.operation().orElse(null), protocol.operationId().orElse(null),
+                        groupJid, protocol.retryable().orElse(null));
+            } else {
+                log.warn("管理员实时在群复核异常 tenantId={} executionId={} accountId={} "
+                                + "errorType={} groupJid={}",
+                        work.tenantId(), work.executionId(),
+                        work.payload().account().armadaAccountId(),
+                        ex.getClass().getSimpleName(), groupJid);
+            }
             return PullTaskManagerJoinOutcome.unconfirmed(
                     groupJid,
                     PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());

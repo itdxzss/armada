@@ -76,6 +76,26 @@ class PullTaskManagerJoinProcessorTest {
     }
 
     @Test
+    void pendingApprovalKeepsGroupJidAndDefersForLaterVerification() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskManagerJoinWork work = work();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
+        when(joinPort.join(work.joinCommand()))
+                .thenReturn(new GroupJoinResult(
+                        "120363group@g.us", GroupJoinOutcome.PENDING_APPROVAL));
+        PullTaskManagerJoinOutcome unknown = PullTaskManagerJoinOutcome.unconfirmed(
+                "120363group@g.us", "MANAGER_JOIN_PENDING_APPROVAL");
+        when(transactions.complete(work, unknown, 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(memberListPort, never()).list(work.memberListQuery("120363group@g.us"));
+        verify(transactions).complete(work, unknown, 1_000L);
+    }
+
+    @Test
     void memberListFailureAfterJoinIsUnknownEvenWhenTheQueryErrorIsNonRetryable() {
         PullTaskGroupExecution candidate = candidate();
         PullTaskManagerJoinWork work = work();

@@ -476,6 +476,11 @@ public class AccountImportServiceImpl implements AccountImportService {
                 resolveLabel(r.getParseResult()),
                 r.getFailReason(),
                 r.getLoginResult(),
+                r.getOnlinePhase(),
+                r.getLoginReason(),
+                r.getAccountState(),
+                r.getLoginState(),
+                r.getAccountStateReason(),
                 r.getCreatedAt(),
                 r.getGroupName()
         );

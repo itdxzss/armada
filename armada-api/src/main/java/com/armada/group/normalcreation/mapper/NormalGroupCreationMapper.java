@@ -31,8 +31,11 @@ public interface NormalGroupCreationMapper {
     /** 插入任务。 */
     int insertTask(@Param("row") TaskInsert row);
 
-    /** 按当前租户幂等键查询任务 ID。 */
-    Long selectTaskIdByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
+    /** 按显式租户和幂等键查询任务 ID。 */
+    @InterceptorIgnore(tenantLine = "true")
+    Long selectTaskIdByIdempotencyKey(
+            @Param("tenantId") long tenantId,
+            @Param("idempotencyKey") String idempotencyKey);
 
     /** 唯一键并发冲突后，以当前读取得已提交任务 ID。 */
     @InterceptorIgnore(tenantLine = "true")

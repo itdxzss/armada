@@ -124,9 +124,11 @@ class NormalGroupCreationMapperH2Test {
                 CREATE TABLE normal_group_creation_task (
                   id BIGINT PRIMARY KEY,
                   tenant_id BIGINT NOT NULL,
+                  idempotency_key VARCHAR(64),
                   total_count INT NOT NULL,
                   status VARCHAR(24) NOT NULL,
-                  deleted_at BIGINT
+                  deleted_at BIGINT,
+                  UNIQUE (tenant_id, idempotency_key)
                 )
                 """);
     }
@@ -222,6 +224,39 @@ class NormalGroupCreationMapperH2Test {
         assertThat(value(7L, "leave_command_id")).isEqualTo("cmd-leave-new");
         assertThat(value(7L, "creator_leave_status")).isEqualTo("PENDING");
         assertThat(value(7L, "post_attempt_count")).isEqualTo("3");
+    }
+
+    @Test
+    void idempotencyLookupReturnsOnlyTheExplicitTenantTask() throws SQLException {
+        execute("""
+                INSERT INTO normal_group_creation_task
+                  (id, tenant_id, idempotency_key, total_count, status, deleted_at)
+                VALUES
+                  (701, 7, 'shared-idempotency-key', 1, 'PENDING', NULL),
+                  (801, 8, 'shared-idempotency-key', 1, 'PENDING', NULL)
+                """);
+        TenantContext.set(8L);
+
+        assertThat(mapper.selectTaskIdByIdempotencyKey(7L, "shared-idempotency-key"))
+                .isEqualTo(701L);
+    }
+
+    @Test
+    void lockingIdempotencyLookupReturnsOnlyTheExplicitTenantTask() throws SQLException {
+        execute("""
+                INSERT INTO normal_group_creation_task
+                  (id, tenant_id, idempotency_key, total_count, status, deleted_at)
+                VALUES
+                  (702, 7, 'shared-lock-key', 1, 'PENDING', NULL),
+                  (802, 8, 'shared-lock-key', 1, 'PENDING', NULL)
+                """);
+        TenantContext.set(8L);
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+
+        Long taskId = transactions.execute(status ->
+                mapper.selectTaskIdByIdempotencyKeyForUpdate(7L, "shared-lock-key"));
+
+        assertThat(taskId).isEqualTo(702L);
     }
 
     @Test

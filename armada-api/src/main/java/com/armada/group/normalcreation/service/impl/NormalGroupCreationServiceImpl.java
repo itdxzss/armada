@@ -69,15 +69,15 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     public NormalGroupCreationTaskVO create(
             String idempotencyKey, NormalGroupCreationCreateDTO request, long userId) {
         String normalizedKey = requireIdempotencyKey(idempotencyKey);
-        Long existingId = mapper.selectTaskIdByIdempotencyKey(normalizedKey);
-        if (existingId != null) {
-            return mapper.selectTask(existingId);
-        }
-        ValidatedRequest validated = validate(request);
         Long tenantId = TenantContext.get();
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
         }
+        Long existingId = mapper.selectTaskIdByIdempotencyKey(tenantId, normalizedKey);
+        if (existingId != null) {
+            return mapper.selectTask(existingId);
+        }
+        ValidatedRequest validated = validate(request);
         admissionGuard.checkRate(tenantId, userId);
         List<ProtocolAccountRef> creators;
         List<ProtocolAccountRef> members;
@@ -148,7 +148,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             }
             return mapper.selectTask(concurrentTaskId);
         }
-        Long taskId = mapper.selectTaskIdByIdempotencyKey(normalizedKey);
+        Long taskId = mapper.selectTaskIdByIdempotencyKey(tenantId, normalizedKey);
         if (taskId == null) {
             throw unavailable();
         }

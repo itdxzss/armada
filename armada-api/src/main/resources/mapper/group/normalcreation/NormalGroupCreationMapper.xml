@@ -54,7 +54,8 @@
   <select id="selectTaskIdByIdempotencyKeyForUpdate" resultType="long">
     SELECT id
     FROM normal_group_creation_task
-    WHERE idempotency_key = #{idempotencyKey}
+    WHERE tenant_id = #{tenantId}
+      AND idempotency_key = #{idempotencyKey}
       AND deleted_at IS NULL
     FOR UPDATE
   </select>

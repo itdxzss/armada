@@ -77,6 +77,28 @@ class GroupLinkMapperSqlShapeTest {
     }
 
     @Test
+    void groupListAdminAggregationUsesOneActiveControlledAccountJoin() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        int groupListStart = xml.indexOf("<sql id=\"groupListFrom\">");
+        int adminsEnd = xml.indexOf("    ) admins", groupListStart);
+        String beforeAdminsEnd = xml.substring(groupListStart, adminsEnd);
+        int adminsStart = groupListStart + beforeAdminsEnd.lastIndexOf("    LEFT JOIN (");
+        String adminsSql = xml.substring(adminsStart, adminsEnd);
+
+        assertThat(adminsSql)
+                .contains("INNER JOIN account controlled_account")
+                .contains("controlled_account.tenant_id = member.tenant_id")
+                .contains("controlled_account.ws_phone = member.phone")
+                .contains("controlled_account.deleted_at IS NULL")
+                .doesNotContain("account_state")
+                .doesNotContain("login_state")
+                .doesNotContain("protocol_account_id")
+                .doesNotContain("EXISTS");
+    }
+
+    @Test
     void historicalBackfillJsonTableAvoidsReservedGroupsAlias() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),

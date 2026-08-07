@@ -94,7 +94,7 @@ public record GroupLinkVO(
         /** 当前已知邀请链接。 */
         String inviteUrl,
 
-        /** 当前完整成员快照中的全部群主/管理员号码。 */
+        /** 当前完整成员快照中属于本租户有效上控账号的管理员/群主号码。 */
         List<String> adminPhones,
 
         /** 是否存在可执行的在线管理员账号。 */

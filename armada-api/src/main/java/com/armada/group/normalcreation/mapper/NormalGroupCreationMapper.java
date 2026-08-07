@@ -107,6 +107,7 @@ public interface NormalGroupCreationMapper {
                            @Param("createCommandId") String createCommandId,
                            @Param("settingsCommandId") String settingsCommandId,
                            @Param("groupJid") String groupJid,
+                           @Param("groupSubject") String groupSubject,
                            @Param("now") long now);
 
     /** 建群成功时把冻结成员统一标记为已在群内。 */

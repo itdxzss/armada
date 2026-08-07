@@ -121,7 +121,8 @@ class NormalGroupCreationProtocolResultServiceTest {
                 org.mockito.ArgumentMatchers.eq(21L),
                 org.mockito.ArgumentMatchers.eq("cmd-create"),
                 org.mockito.ArgumentMatchers.eq("cmd-settings"),
-                org.mockito.ArgumentMatchers.eq("120363001@g.us"), anyLong())).thenReturn(1);
+                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
+                org.mockito.ArgumentMatchers.eq("普群001"), anyLong())).thenReturn(1);
 
         service.handleNormalGroupCreationResult(event(
                 "GROUP_CREATE", "cmd-create", "SUCCESS",
@@ -132,9 +133,33 @@ class NormalGroupCreationProtocolResultServiceTest {
                 org.mockito.ArgumentMatchers.eq(21L),
                 org.mockito.ArgumentMatchers.eq("cmd-create"),
                 org.mockito.ArgumentMatchers.eq("cmd-settings"),
-                org.mockito.ArgumentMatchers.eq("120363001@g.us"), anyLong());
+                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
+                org.mockito.ArgumentMatchers.eq("普群001"), anyLong());
         verify(mapper).markParticipantsCreated(
                 org.mockito.ArgumentMatchers.eq(21L), anyLong());
+    }
+
+    @Test
+    void groupCreate_blankTemplateFinalizesSubjectFromFrozenPrefixAndGroupJid() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP",
+                "", "ABCDEFGHI");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(dispatcher.enqueueCreatorAction(item, "GROUP_SETTINGS_APPLY"))
+                .thenReturn("cmd-settings");
+        when(mapper.startGroupSettings(
+                eq(21L), eq("cmd-create"), eq("cmd-settings"),
+                eq("120363000001234@g.us"), eq("ABCDEFGHI01234"), anyLong()))
+                .thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "SUCCESS",
+                382L, "creator-web", "WEB", null, null,
+                "120363000001234@g.us", null, null));
+
+        verify(mapper).startGroupSettings(
+                eq(21L), eq("cmd-create"), eq("cmd-settings"),
+                eq("120363000001234@g.us"), eq("ABCDEFGHI01234"), anyLong());
     }
 
     @Test
@@ -186,6 +211,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyLong());
     }
 
@@ -196,8 +222,21 @@ class NormalGroupCreationProtocolResultServiceTest {
             String leaveCommandId,
             String groupJid,
             String leavePolicy) {
+        return item(step, createCommandId, settingsCommandId, leaveCommandId,
+                groupJid, leavePolicy, "普群{no}", "普群001");
+    }
+
+    private static ItemWork item(
+            String step,
+            String createCommandId,
+            String settingsCommandId,
+            String leaveCommandId,
+            String groupJid,
+            String leavePolicy,
+            String groupNameTemplate,
+            String groupSubject) {
         return new ItemWork(
-                21L, 1L, 9L, "普群001",
+                21L, 1L, 9L, groupSubject, groupNameTemplate,
                 382L, "creator-web", "WEB", "911",
                 groupJid, "RUNNING", step, "SENT",
                 createCommandId, settingsCommandId, leaveCommandId,

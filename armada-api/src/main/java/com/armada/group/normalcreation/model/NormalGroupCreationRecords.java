@@ -63,6 +63,7 @@ public final class NormalGroupCreationRecords {
             Long tenantId,
             Long taskId,
             String groupSubject,
+            String groupNameTemplate,
             Long creatorAccountId,
             String creatorProtocolAccountId,
             String creatorProtocolBackend,

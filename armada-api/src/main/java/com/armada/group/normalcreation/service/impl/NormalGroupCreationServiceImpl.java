@@ -15,6 +15,7 @@ import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskDetailVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
 import com.armada.group.normalcreation.service.NormalGroupCreationService;
 import com.armada.group.normalcreation.support.NormalGroupCreationAdmissionGuard;
+import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.shared.exception.BusinessException;
@@ -287,7 +288,8 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw validation("本次计划群成员快照共 " + snapshotRows
                     + " 条，超过单任务上限 " + MAX_SNAPSHOT_ROWS + " 条，请拆分任务");
         }
-        String nameTemplate = requiredText(request.groupNameTemplate(), "群名模板");
+        String nameTemplate = NormalGroupCreationSubject.normalizeTemplate(
+                request.groupNameTemplate());
         if (nameTemplate.length() > 128) {
             throw validation("群名模板不能超过 128 个字符");
         }
@@ -331,7 +333,10 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         return List.copyOf(result);
     }
 
-    private static String subject(String template, int no, int groupCount) {
+    private String subject(String template, int no, int groupCount) {
+        if (NormalGroupCreationSubject.isAutomatic(template)) {
+            return NormalGroupCreationSubject.randomPrefix(random);
+        }
         String value = template.contains("{no}")
                 ? template.replace("{no}", String.valueOf(no))
                 : groupCount == 1 ? template : template + "-" + no;

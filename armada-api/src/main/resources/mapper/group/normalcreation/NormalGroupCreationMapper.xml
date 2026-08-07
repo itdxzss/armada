@@ -119,6 +119,7 @@
   <select id="selectItemWork"
           resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$ItemWork">
     SELECT item.id, item.tenant_id, item.task_id, item.group_subject,
+           task.group_name_template,
            item.creator_account_id, item.creator_protocol_account_id,
            item.creator_protocol_backend, item.creator_ws_phone, item.group_jid,
            item.status, item.current_step, item.dispatch_status,
@@ -151,6 +152,7 @@
   <select id="selectItemWorkForUpdate"
           resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$ItemWork">
     SELECT item.id, item.tenant_id, item.task_id, item.group_subject,
+           task.group_name_template,
            item.creator_account_id, item.creator_protocol_account_id,
            item.creator_protocol_backend, item.creator_ws_phone, item.group_jid,
            item.status, item.current_step, item.dispatch_status,
@@ -271,7 +273,7 @@
 
   <update id="startGroupSettings">
     UPDATE normal_group_creation_item
-    SET group_jid = #{groupJid}, create_partial = 0,
+    SET group_jid = #{groupJid}, group_subject = #{groupSubject}, create_partial = 0,
         current_step = 'APPLYING_SETTINGS', dispatch_stage = 'GROUP_SETTINGS_APPLY',
         dispatch_status = 'SENT', settings_command_id = #{settingsCommandId},
         post_attempt_count = post_attempt_count + 1,

@@ -166,9 +166,11 @@ class NormalGroupCreationMapperH2Test {
         assertThat(mapper.startGroupCreate(5L, "cmd-create", 230L)).isEqualTo(1);
 
         assertThat(mapper.startGroupSettings(
-                5L, "wrong-command", "cmd-settings", "1203-new@g.us", 240L)).isZero();
+                5L, "wrong-command", "cmd-settings", "1203-new@g.us",
+                "ABCDEFGHI3-new", 240L)).isZero();
         assertThat(mapper.startGroupSettings(
-                5L, "cmd-create", "cmd-settings", "1203-new@g.us", 250L)).isEqualTo(1);
+                5L, "cmd-create", "cmd-settings", "1203-new@g.us",
+                "ABCDEFGHI3-new", 250L)).isEqualTo(1);
         assertThat(mapper.startGroupLeave(
                 5L, "wrong-command", "cmd-leave", 260L)).isZero();
         assertThat(mapper.startGroupLeave(
@@ -181,6 +183,7 @@ class NormalGroupCreationMapperH2Test {
         assertThat(value(5L, "status")).isEqualTo("CREATED");
         assertThat(value(5L, "current_step")).isEqualTo("DONE");
         assertThat(value(5L, "group_jid")).isEqualTo("1203-new@g.us");
+        assertThat(value(5L, "group_subject")).isEqualTo("ABCDEFGHI3-new");
     }
 
     @Test

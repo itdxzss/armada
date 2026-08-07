@@ -1,6 +1,8 @@
 package com.armada.group.normalcreation.model.vo;
 
-/** 新建普群计划群明细。 */
+import com.armada.group.normalcreation.model.enums.NormalGroupCreationErrorMessage;
+
+/** 新建普群计划群明细；已知协议错误在出参构造时转换为运营可读提示。 */
 public record NormalGroupCreationItemVO(
         Long id,
         Integer itemNo,
@@ -16,4 +18,11 @@ public record NormalGroupCreationItemVO(
         String lastErrorCode,
         String lastErrorMessage,
         Long updatedAt) {
+
+    public NormalGroupCreationItemVO {
+        lastErrorMessage = NormalGroupCreationErrorMessage.resolve(
+                lastErrorCode,
+                lastErrorMessage,
+                currentStep);
+    }
 }

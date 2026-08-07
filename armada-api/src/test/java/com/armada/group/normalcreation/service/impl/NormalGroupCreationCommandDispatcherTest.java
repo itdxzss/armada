@@ -27,7 +27,8 @@ class NormalGroupCreationCommandDispatcherTest {
         NormalGroupCreationCommandDispatcher dispatcher =
                 new NormalGroupCreationCommandDispatcher(mapper, outbox);
         ItemWork item = new ItemWork(
-                21L, 1L, 9L, "普群001", 382L, "creator-web", "WEB", "911",
+                21L, 1L, 9L, "普群001", "普群{no}",
+                382L, "creator-web", "WEB", "911",
                 null, "FAILED", "PREPARING_CONTACTS", "NONE",
                 null, null, null, "KEEP", null, 91L, 92L,
                 true, false, true, false, 0);

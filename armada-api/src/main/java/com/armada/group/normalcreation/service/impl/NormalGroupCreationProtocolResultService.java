@@ -4,6 +4,7 @@ import com.armada.account.service.AccountService;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedEvent;
@@ -152,11 +153,19 @@ public class NormalGroupCreationProtocolResultService
     private void groupCreated(
             ItemWork item,
             ProtocolNormalGroupCreationResultReportedEvent event) {
+        String finalSubject;
+        try {
+            finalSubject = NormalGroupCreationSubject.finalizeAfterCreate(
+                    item.groupNameTemplate(), item.groupSubject(), event.groupJid());
+        } catch (IllegalArgumentException ex) {
+            throw validation("建群成功回执中的群 JID 无法生成自动群名");
+        }
         String settingsCommandId =
                 commandDispatcher.enqueueCreatorAction(item, "GROUP_SETTINGS_APPLY");
         long now = System.currentTimeMillis();
         if (mapper.startGroupSettings(
-                item.id(), event.commandId(), settingsCommandId, event.groupJid(), now) != 1) {
+                item.id(), event.commandId(), settingsCommandId, event.groupJid(),
+                finalSubject, now) != 1) {
             throw unavailable("建群成功后无法推进权限阶段");
         }
         mapper.markParticipantsCreated(item.id(), now);

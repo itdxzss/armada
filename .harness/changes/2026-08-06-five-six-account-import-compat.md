@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree：2026-08-06 / `1.0.2-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源：用户确认控台采用兼容入口，五段号可直接导入并走 Android 自动上线
-- 状态：设计与实施计划完成，待编码
+- 状态：后端与前端实现完成，本地非数据库验证通过；数据库集成测试待确认可用测试库后补跑
 
 ## 目标（一句话）
 
@@ -15,9 +15,10 @@
 - [x] 完成设计文档并自检。
 - [x] 用户审阅书面设计。
 - [x] 编写实施计划。
-- [ ] 按 TDD 实现后端五/六列解析兼容。
-- [ ] 调整前端入口、映射和说明文案。
-- [ ] 完成后端单测、数据测试、调度测试和前端验证。
+- [x] 按 TDD 实现后端五/六列解析兼容。
+- [x] 调整前端入口、映射和说明文案。
+- [x] 完成后端 parser / publisher 单测、前端测试、类型检查和构建。
+- [ ] 完成后端数据库导入、Controller 和自动派发集成测试（待确认可用测试库）。
 - [ ] 部署第一套测试环境并完成五段/六段联合验收。
 
 ## 关键设计决策
@@ -40,7 +41,14 @@
 - 设计阶段已核对：后端当前只接受六列；前端当前仅展示“六段号”；Android 协议边界要求 `phone_id`。
 - 设计文档：`docs/superpowers/specs/2026-08-06-five-six-account-import-compat-design.md`。
 - 实施计划：`docs/superpowers/plans/2026-08-06-five-six-account-import-compat.md`。
-- 实施阶段待补充真实测试命令与输出。
+- 后端 `mvn -Dtest='AccountImportParserTest' test`：BUILD SUCCESS，33 tests，0 failures，0 errors。
+- 后端 `mvn -Dtest='ProtocolCommandPublisherTest#publishBatch_onlineAndroidRowBuildsZhuanLifecyclePayload' test`：BUILD SUCCESS，1 test，0 failures，0 errors。
+- 后端 `mvn -DskipTests test`：BUILD SUCCESS，生产代码与全部测试源码编译通过，未执行测试。
+- 前端定向 Node 测试：13 tests passed，0 failed。
+- 前端 `pnpm run typecheck`：退出 0。
+- 前端 `pnpm run build`：退出 0，Vite production build 完成。
+- 后端数据库集成测试已通过仓库 `dbtest.sh` 尝试，但 Spring/Flyway 在建立 MySQL 连接前失败（当前运行环境禁止连接，未进入测试方法）；未将其计为通过，也未执行真实环境写入。
+- 两个仓库均执行 `git diff --check` 通过；未修改 `armada-protocol`。
 
 ## 部署
 
@@ -48,4 +56,5 @@
 
 ## 遗留 / 跟进
 
-- 按实施计划以 TDD 顺序完成后端、前端和本地验证；部署第一套环境前再次确认远程目标。
+- 在明确可用的本地测试库目标后补跑 `AccountImportServiceImplDbTest`、`AccountImportControllerDbTest` 和 `AccountImportOnlineDispatcherDbTest` 的新增用例及相关回归集。
+- 部署第一套环境前再次确认远程目标；本次实现阶段不执行部署。

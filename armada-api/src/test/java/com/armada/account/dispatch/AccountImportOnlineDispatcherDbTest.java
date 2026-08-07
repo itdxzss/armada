@@ -92,6 +92,35 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
     }
 
     @Test
+    void dispatchOnce_fivePartImportUsesAndroidSixRoutingWithoutCredentialInOutbox() throws Exception {
+        long now = System.currentTimeMillis();
+        insertIdleProxy(now, "印度");
+        String phone = "9191" + String.format("%08d", now % 100_000_000L);
+        String line = phone + ",static-pub,static-pri,identity-pub,identity-pri";
+        var meta = new AccountImportDTO(null, 1, 1, 1, "印度", null, "five-part-dispatch", null);
+        AccountImportBatchVO batch = importService.importAccounts(meta, null, line);
+        Account account = accountMapper.selectActiveByWsPhone(phone);
+
+        int dispatched = dispatcher.dispatchOnce();
+
+        assertThat(dispatched).isEqualTo(1);
+        assertThat(selectImportDetails(batch.id()))
+                .extracting(ImportDetailRow::onlinePhase)
+                .containsOnly(AccountImportOnlinePhase.DISPATCHED);
+
+        OutboxRow outbox = selectOnlineOutboxRows(account.getId()).get(0);
+        assertThat(outbox.status()).isEqualTo(ProtocolCommandOutboxStatus.PENDING.code());
+        assertThat(outbox.protocolBackend()).isEqualTo("ANDROID");
+        Map<String, Object> payload = objectMapper.readValue(outbox.payloadJson(), new TypeReference<>() {
+        });
+        assertThat(payload)
+                .containsEntry("credentialFormat", "SIX_SEGMENT")
+                .containsEntry("protocolBackend", "ANDROID")
+                .doesNotContainKeys("credential", "sixdata", "static_pub_key", "static_pri_key",
+                        "id_pub_key", "id_pri_key", "phone_id");
+    }
+
+    @Test
     void dispatchOnce_proxyNotEnoughKeepsDetailsQueuedAndDoesNotWriteOutbox() {
         long now = System.currentTimeMillis();
         disableIdleProxies(now);
@@ -178,7 +207,7 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
     private List<OutboxRow> selectOnlineOutboxRows(Long firstAccountId, Long secondAccountId) {
         return jdbc.query(
                 """
-                SELECT aggregate_id, status, payload_json
+                SELECT aggregate_id, status, protocol_backend, payload_json
                 FROM protocol_command_outbox
                 WHERE tenant_id = ? AND command_type = ? AND aggregate_id IN (?, ?)
                 ORDER BY aggregate_id
@@ -186,6 +215,7 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
                 (rs, rowNum) -> new OutboxRow(
                         rs.getLong("aggregate_id"),
                         rs.getInt("status"),
+                        rs.getString("protocol_backend"),
                         rs.getString("payload_json")),
                 TEST_TENANT_ID,
                 "account.online.requested",
@@ -193,9 +223,27 @@ class AccountImportOnlineDispatcherDbTest extends DbTestBase {
                 secondAccountId);
     }
 
+    private List<OutboxRow> selectOnlineOutboxRows(Long accountId) {
+        return jdbc.query(
+                """
+                SELECT aggregate_id, status, protocol_backend, payload_json
+                FROM protocol_command_outbox
+                WHERE tenant_id = ? AND command_type = ? AND aggregate_id = ?
+                ORDER BY aggregate_id
+                """,
+                (rs, rowNum) -> new OutboxRow(
+                        rs.getLong("aggregate_id"),
+                        rs.getInt("status"),
+                        rs.getString("protocol_backend"),
+                        rs.getString("payload_json")),
+                TEST_TENANT_ID,
+                "account.online.requested",
+                accountId);
+    }
+
     private record ImportDetailRow(Integer onlinePhase, Long onlineDispatchedAt, Integer dispatchAttempts) {
     }
 
-    private record OutboxRow(Long aggregateId, Integer status, String payloadJson) {
+    private record OutboxRow(Long aggregateId, Integer status, String protocolBackend, String payloadJson) {
     }
 }

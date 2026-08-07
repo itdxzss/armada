@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -28,7 +29,8 @@ import org.springframework.stereotype.Component;
  * 对每条输入产出 {@link ParsedEntry},单条失败写 {@code parseError} 不抛,
  * 整个批次仍返回解析结果供导入循环(1.2.3)逐条处理。</p>
  *
- * <p>SIX 格式按 CSV 行解析为 Android 直登凭据 JSON,单条失败写 {@code parseError}。</p>
+ * <p>SIX 格式按 CSV 行解析为 Android 直登凭据 JSON,支持五列或六列输入;
+ * 五列输入在解析边界生成 {@code phone_id},单条失败写 {@code parseError}。</p>
  */
 @Component
 public class AccountImportParser {
@@ -58,13 +60,21 @@ public class AccountImportParser {
      */
     private static final Pattern WID_PATTERN = Pattern.compile("^\\d{7,15}$");
 
+    /** 五段 Android 输入的列数(phone 至 id_pri_key)。 */
+    private static final int FIVE_SEGMENT_COLUMN_COUNT = 5;
+
+    /** 六段 Android 输入的列数(phone 至 phone_id)。 */
+    private static final int SIX_SEGMENT_COLUMN_COUNT = 6;
+
     /**
      * 解析导入文件并返回逐条结果列表。
      *
      * <p>text 与 fileBytes 二选一:text 非空则优先用 text;否则解 fileBytes。
      * JSON 格式支持:.zip 压缩包(一号一文件)、单对象、数组。
      * PARAMS 格式支持:单对象、数组。
-     * SIX 格式支持:每行 {@code phone,staticPub,staticPri,identityPub,identityPri,phoneId}。</p>
+     * SIX 格式支持:每行五列或六列 Android 凭据;
+     * 五列为 {@code phone,staticPub,staticPri,identityPub,identityPri},
+     * 六列追加 {@code phoneId}。</p>
      *
      * @param format    导入格式枚举
      * @param fileBytes 文件字节(可为 null)
@@ -87,7 +97,7 @@ public class AccountImportParser {
 
     // ---- SIX 格式 ----
 
-    /** 解析经 Zhuan 上线流程验证的六段 CSV 字段顺序。 */
+    /** 解析五段或六段 Android CSV 字段顺序,并统一产出六字段语义凭据。 */
     private List<ParsedEntry> parseSix(byte[] fileBytes, String text) {
         String src = (text != null && !text.isEmpty()) ? text
                 : (fileBytes != null ? new String(fileBytes, StandardCharsets.UTF_8) : "");
@@ -117,8 +127,11 @@ public class AccountImportParser {
         entry.setSourceEntryName(source);
 
         String[] parts = line.split(",", -1);
-        if (parts.length != 6) {
-            entry.setParseError("六段格式错误:应为6列(phone,static_pub_key,static_pri_key,id_pub_key,id_pri_key,phone_id)");
+        if (parts.length != FIVE_SEGMENT_COLUMN_COUNT
+                && parts.length != SIX_SEGMENT_COLUMN_COUNT) {
+            entry.setParseError(
+                    "五/六段格式错误:应为5列或6列(phone,static_pub_key,static_pri_key,"
+                            + "id_pub_key,id_pri_key[,phone_id])");
             return entry;
         }
         for (int i = 0; i < parts.length; i++) {
@@ -143,7 +156,10 @@ public class AccountImportParser {
         data.put("static_pri_key", parts[2]);
         data.put("id_pub_key", parts[3]);
         data.put("id_pri_key", parts[4]);
-        data.put("phone_id", parts[5]);
+        String phoneId = parts.length == SIX_SEGMENT_COLUMN_COUNT
+                ? parts[5]
+                : UUID.randomUUID().toString().replace("-", "");
+        data.put("phone_id", phoneId);
         entry.setData(data);
         return entry;
     }

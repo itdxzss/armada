@@ -212,14 +212,15 @@ public class ProtocolGroupEventConsumer {
         batchParticipantResultReportedSink.handleBatchParticipantResultReported(event);
     }
 
-    /** 群健康沿用允许缺少业务主键时记录并跳过的兼容策略。 */
+    /** 群健康允许实时通知缺少链接主键，由群域按租户和群 JID 解析。 */
     private void handleHealthReported(JsonNode envelope, String eventId) {
         JsonNode data = dataNode(envelope);
         Long tenantId = longValue(data, "tenantId");
         Long groupLinkId = longValue(data, "groupLinkId");
-        if (tenantId == null || groupLinkId == null) {
-            log.warn("协议群组健康事件缺少租户或链接主键,跳过 eventId={} tenantId={} groupLinkId={} groupJid={}",
-                    eventId, tenantId, groupLinkId, text(data, "groupJid"));
+        String groupJid = text(data, "groupJid");
+        if (tenantId == null || groupJid == null || groupJid.isBlank()) {
+            log.warn("协议群组健康事件缺少租户或群JID,跳过 eventId={} tenantId={} groupLinkId={} groupJid={}",
+                    eventId, tenantId, groupLinkId, groupJid);
             return;
         }
 

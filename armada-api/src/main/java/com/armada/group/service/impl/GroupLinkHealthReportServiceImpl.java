@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
@@ -38,13 +39,18 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
 
     private final GroupLinkHealthMapper healthMapper;
 
+    private final GroupLinkMapper groupLinkMapper;
+
     /**
      * 创建群链接健康检测回报落库服务。
      *
-     * @param healthMapper 群链接健康状态 mapper
+     * @param healthMapper    群链接健康状态 mapper
+     * @param groupLinkMapper 群入口 mapper
      */
-    public GroupLinkHealthReportServiceImpl(GroupLinkHealthMapper healthMapper) {
+    public GroupLinkHealthReportServiceImpl(GroupLinkHealthMapper healthMapper,
+                                            GroupLinkMapper groupLinkMapper) {
         this.healthMapper = healthMapper;
+        this.groupLinkMapper = groupLinkMapper;
     }
 
     /**
@@ -60,12 +66,18 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            GroupLinkHealth current = healthMapper.selectByGroupLinkId(event.groupLinkId());
-            GroupLinkHealth row = buildHealthRow(event, current);
+            Long groupLinkId = resolveGroupLinkId(event);
+            if (groupLinkId == null) {
+                log.warn("群链接健康事件未匹配有效群,跳过 tenantId={} groupJid={} eventId={} protocolAccountId={}",
+                        event.tenantId(), event.groupJid(), event.eventId(), event.protocolAccountId());
+                return;
+            }
+            GroupLinkHealth current = healthMapper.selectByGroupLinkId(groupLinkId);
+            GroupLinkHealth row = buildHealthRow(event, current, groupLinkId);
             healthMapper.upsert(row);
             log.info("群链接健康事件已回写 tenantId={} groupLinkId={} groupJid={} health={} status={} "
                             + "banned={} failureCount={} eventId={} protocolAccountId={}",
-                    event.tenantId(), event.groupLinkId(), event.groupJid(), event.health(),
+                    event.tenantId(), groupLinkId, event.groupJid(), event.health(),
                     row.getHealthStatus(), row.getBanned(), row.getHealthFailureCount(),
                     event.eventId(), event.protocolAccountId());
         } finally {
@@ -83,11 +95,13 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
      * <p>成员数为空时沿用旧值,避免一次失败检测覆盖掉上一次成功检测拿到的有效群人数;
      * 成功检测会清空错误原因并把连续失败次数归零。</p>
      */
-    private static GroupLinkHealth buildHealthRow(GroupLinkHealthReportedEvent event, GroupLinkHealth current) {
+    private static GroupLinkHealth buildHealthRow(GroupLinkHealthReportedEvent event,
+                                                  GroupLinkHealth current,
+                                                  Long groupLinkId) {
         long now = System.currentTimeMillis();
         boolean healthy = isHealthy(event.health());
         GroupLinkHealth row = new GroupLinkHealth();
-        row.setGroupLinkId(event.groupLinkId());
+        row.setGroupLinkId(groupLinkId);
         row.setHealthStatus(mapStatus(event.health(), event.errorCode()).code());
         row.setBanned(isBanned(event.health(), event.errorCode()));
         row.setCurrentCount(event.memberCount() == null ? currentCount(current) : event.memberCount());
@@ -97,6 +111,24 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;
+    }
+
+    /**
+     * 解析健康事件对应的群入口。
+     *
+     * <p>命令型健康检查仍可携带 groupLinkId；实时 WhatsApp 通知只有 groupJid，需在当前
+     * 租户内反查。两者同时存在且反查到不同记录时拒绝更新，避免串群写状态。</p>
+     */
+    private Long resolveGroupLinkId(GroupLinkHealthReportedEvent event) {
+        Long byGroupJid = groupLinkMapper.selectActiveIdByGroupJid(event.groupJid());
+        if (event.groupLinkId() == null) {
+            return byGroupJid;
+        }
+        if (byGroupJid != null && !event.groupLinkId().equals(byGroupJid)) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "群链接健康事件 groupLinkId 与 groupJid 不一致");
+        }
+        return event.groupLinkId();
     }
 
     /**
@@ -180,15 +212,15 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
     /**
      * 校验最小落库字段。
      *
-     * <p>tenantId 用于重建租户上下文,groupLinkId 用于定位健康行,health 用于状态映射,
-     * 三者缺任一项都不能可靠回写。</p>
+     * <p>tenantId 用于重建租户上下文,groupJid 用于校验或解析群入口,health 用于状态映射。
+     * 实时通知可以不带 groupLinkId。</p>
      */
     private static void validate(GroupLinkHealthReportedEvent event) {
         if (event == null || event.tenantId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接健康事件缺少 tenantId");
         }
-        if (event.groupLinkId() == null) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群链接健康事件缺少 groupLinkId");
+        if (event.groupJid() == null || event.groupJid().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接健康事件缺少 groupJid");
         }
         if (event.health() == null || event.health().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接健康事件缺少 health");

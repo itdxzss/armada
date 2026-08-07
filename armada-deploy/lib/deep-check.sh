@@ -152,9 +152,13 @@ deep_check_validate_targets() {
     validate_ssh_identity "协议跳板" "${PROTOCOL_JUMP_HOST}" "${PROTOCOL_JUMP_USER}"
     require_ssh_key "协议跳板" "${PROTOCOL_JUMP_KEY}"
   fi
-  validate_remote_dir "Zhuan" "${ZHUAN_REMOTE_DIR}"
-  validate_ssh_identity "Zhuan" "${ZHUAN_SSH_HOST}" "${ZHUAN_SSH_USER}"
-  require_ssh_key " Zhuan" "${ZHUAN_SSH_KEY}"
+  if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+    zhuan_validate_fleet_inputs
+  else
+    validate_remote_dir "Zhuan" "${ZHUAN_REMOTE_DIR}"
+    validate_ssh_identity "Zhuan" "${ZHUAN_SSH_HOST}" "${ZHUAN_SSH_USER}"
+    require_ssh_key " Zhuan" "${ZHUAN_SSH_KEY}"
+  fi
   [ -f "${SCRIPT_DIR}/lib/kafka-check.mjs" ] || die "缺少 Kafka 只读检查器"
 }
 
@@ -192,9 +196,13 @@ deep_check_kafka() {
 
 deep_check_zhuan() {
   info "[check] Zhuan"
-  zhuan_ssh_run \
-    "bash -s -- '${ZHUAN_REMOTE_DIR}' '${ZHUAN_COMPOSE_FILE}' '${EXPECTED_KAFKA_TOPICS}' '${EXPECTED_KAFKA_GROUPS}' '${ZHUAN_HEALTH_SERVICES}' '${ENV_ID}'" \
-    <<<"${deep_zhuan_check_payload}"
+  if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+    zhuan_verify_fleet_health
+  else
+    zhuan_ssh_run \
+      "bash -s -- '${ZHUAN_REMOTE_DIR}' '${ZHUAN_COMPOSE_FILE}' '${EXPECTED_KAFKA_TOPICS}' '${EXPECTED_KAFKA_GROUPS}' '${ZHUAN_HEALTH_SERVICES}' '${ENV_ID}'" \
+      <<<"${deep_zhuan_check_payload}"
+  fi
   ok "[check] Zhuan"
 }
 
@@ -205,7 +213,11 @@ deep_check_cross_component() {
   ssh_run "curl -fsS -m 8 'http://${protocol_host_quoted}:${PROTOCOL_HEALTH_PORT}/readyz' >/dev/null"
   if [ -n "${EXPECTED_ANDROID_BASE_URL}" ]; then
     android_url_quoted="$(shell_single_quote "${EXPECTED_ANDROID_BASE_URL}")"
-    ssh_run "curl -fsS -m 8 '${android_url_quoted}/swagger/index.html' >/dev/null"
+    if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
+      ssh_run "curl -fsS -m 8 '${android_url_quoted}/healthz' >/dev/null"
+    else
+      ssh_run "curl -fsS -m 8 '${android_url_quoted}/swagger/index.html' >/dev/null"
+    fi
   fi
   public_url_quoted="$(shell_single_quote "${PUBLIC_URL}")"
   curl -fsS -m 8 "${public_url_quoted}" >/dev/null

@@ -22,8 +22,8 @@ public interface GroupLinkHealthMapper {
     /**
      * 账号当前群同步来源的健康状态 upsert。
      *
-     * <p>账号群列表事件能证明账号当前仍在群内,但协议层可能不返回成员数。
-     * 此时保留旧的 current_count,避免清空健康巡检或历史预览得到的人数。</p>
+     * <p>账号群列表事件能证明账号当前仍可见该群，但不能证明 WhatsApp 已解除封禁。
+     * 已封禁行保留状态、原因和失败计数；成员数为空时保留旧值。</p>
      *
      * @param row 健康状态行
      * @return 影响行数
@@ -43,6 +43,7 @@ public interface GroupLinkHealthMapper {
 
     /**
      * 更新账号群同步已存在的健康状态，避免存量行进入自增 INSERT 候选锁路径。
+     * 已封禁行只刷新成员数和观测时间，不清除封禁事实。
      *
      * @param row 健康状态行
      * @return 影响行数；不存在时返回 0，由调用方执行原子 upsert 兜底

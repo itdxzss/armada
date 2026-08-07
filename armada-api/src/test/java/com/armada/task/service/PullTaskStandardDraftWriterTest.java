@@ -13,6 +13,7 @@ import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.service.impl.PullTaskStandardDraftWriter;
 import com.armada.task.service.impl.PullTaskStandardDraftWriter.AppendRow;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -98,6 +99,7 @@ class PullTaskStandardDraftWriterTest {
             assertThat(row.getNormalizedLink()).isEqualTo(LINK_A);
             // 草稿期不占链接：生成列在 execution_status=0 时为 NULL。
             assertThat(row.getExecutionStatus()).isZero();
+            assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
         });
         assertThat(materialMapper.selectByExecution(rows.get(0).getId()))
                 .extracting(PullTaskMaterialMember::getNormalizedPhone)

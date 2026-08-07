@@ -96,7 +96,8 @@ public class PullTaskExecutionDispatchCoordinator {
                 List.of(
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.WAIT_START.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code())),
+                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                        PullTaskExecutionStage.MANAGER_JOIN.code())),
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.EXECUTING.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
@@ -144,6 +145,6 @@ public class PullTaskExecutionDispatchCoordinator {
             return resourceRecovery.recover(
                     candidate, lockOwner, now, properties.getRetryDelayMs());
         }
-        return stageRouter.process(candidate, lockOwner, now, properties.getRetryDelayMs());
+        return stageRouter.process(candidate, lockOwner, now);
     }
 }

@@ -1,7 +1,7 @@
 package com.armada.task.model.dto;
 
 /**
- * 已取得父任务并发槽位、可在事务外执行链接校验的工作项。
+ * 已取得父任务并发槽位、可在事务外执行后续阶段的工作项。
  *
  * @param tenantId      所属租户 ID
  * @param executionId   执行行 ID

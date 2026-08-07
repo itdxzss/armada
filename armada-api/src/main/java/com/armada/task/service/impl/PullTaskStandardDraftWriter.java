@@ -85,7 +85,7 @@ public class PullTaskStandardDraftWriter {
             PullTaskGroupExecution execution = row.execution();
             execution.setTaskId(taskId);
             execution.setExecutionStatus(PullTaskExecutionStatus.DRAFT.code());
-            execution.setStage(PullTaskExecutionStage.LINK_VALIDATION.code());
+            execution.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
             execution.setManualPaused(0);
             execution.setNextManagerIndex(0);
             execution.setNextPullerIndex(0);

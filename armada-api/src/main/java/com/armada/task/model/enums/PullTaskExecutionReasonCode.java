@@ -3,10 +3,10 @@ package com.armada.task.model.enums;
 /** 普通群链接执行链路的持久化原因码与脱敏说明。 */
 public enum PullTaskExecutionReasonCode {
 
-    /** 公开邀请页可达，但没有任何真实群资料。 */
+    /** 历史兼容原因码；新任务由协议进群结果判断链接是否失效。 */
     LINK_INVALID("群链接已失效"),
 
-    /** 公开邀请页暂时不可达，不能据此判定链接失效。 */
+    /** 历史兼容原因码；取消公开邀请页预检后不再生成。 */
     LINK_PROBE_INCOMPLETE("群链接校验暂不可用"),
 
     /** 管理分组当前没有可执行协议动作的在线正常账号。 */

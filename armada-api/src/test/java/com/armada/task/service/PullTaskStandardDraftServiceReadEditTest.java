@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -238,14 +237,8 @@ class PullTaskStandardDraftServiceReadEditTest {
         }
 
         @Bean
-        GroupInvitePageFetcher invitePageFetcher() {
-            return mock(GroupInvitePageFetcher.class);
-        }
-
-        @Bean
-        PullTaskLinkProbeService probeService(GroupInvitePageFetcher fetcher) {
-            // 本测试不调用 plan，同步执行器只是让依赖能够装配。
-            return new PullTaskLinkProbeService(fetcher, Runnable::run);
+        PullTaskLinkProbeService probeService() {
+            return new PullTaskLinkProbeService();
         }
 
         @Bean

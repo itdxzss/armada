@@ -110,7 +110,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         PullTask draft = writer.ensureDraft(userId, operatorName, now);
         List<PullTaskGroupExecution> existingRows = executionMapper.selectByTaskId(draft.getId());
 
-        // 2. 占用查询 + 公开邀请页抓取：最坏 40 秒外部 HTTP，绝不能被事务包住。
+        // 2. 归一化与占用查询：只做本地计划，不在创建阶段访问 WhatsApp。
         ProbeResult probe = probeLinks(mergedLinksText);
 
         Set<String> usedLinks = new LinkedHashSet<>();
@@ -227,7 +227,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
     }
 
     /**
-     * 先查占用再抓页，避免对已被占用的链接发无谓的外部请求。
+     * 查询归一化链接占用，并生成本地计划。
      *
      * @param linksText 链接框全量文本
      * @return 逐行判定与匹配池

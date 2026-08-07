@@ -20,7 +20,7 @@ public class PullTaskExecutionDispatchProperties {
     /** 单次数据库租约时长。 */
     private long leaseMs = 30_000L;
 
-    /** 邀请页不可达后的重试延迟。 */
+    /** 可恢复业务动作失败后的重试延迟。 */
     private long retryDelayMs = 30_000L;
 
     /** 已提交协议结果转未知前的保护时间。 */
@@ -79,7 +79,7 @@ public class PullTaskExecutionDispatchProperties {
 
     public void setRetryDelayMs(long retryDelayMs) {
         if (retryDelayMs <= 0) {
-            throw new IllegalArgumentException("群链接校验重试延迟必须大于 0");
+            throw new IllegalArgumentException("普通拉群动作重试延迟必须大于 0");
         }
         this.retryDelayMs = retryDelayMs;
     }

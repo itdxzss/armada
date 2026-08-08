@@ -33,6 +33,9 @@ public enum PullTaskExecutionReasonCode {
     /** 当前管理账号没有修改普通成员添加群成员权限的管理员权限。 */
     GROUP_MEMBER_ADD_PERMISSION_DENIED("管理员账号无权开启普通成员添加群成员权限"),
 
+    /** WhatsApp 明确通知目标群已暂停或终止。 */
+    GROUP_BANNED("群已被封禁"),
+
     /** 拉手分组当前没有可占用且可执行协议动作的在线正常账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),
 

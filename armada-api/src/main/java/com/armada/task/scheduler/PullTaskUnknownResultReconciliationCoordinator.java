@@ -5,6 +5,7 @@ import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskActionStatus;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
@@ -93,6 +94,7 @@ public class PullTaskUnknownResultReconciliationCoordinator {
                 new PullTaskUnknownReconciliationCriteria.Scope(
                         properties.getResultReconciliationBatchSize(), cutoff),
                 executionStatuses,
+                List.of(PullTaskExecutionReasonCode.GROUP_BANNED.name()),
                 new PullTaskUnknownReconciliationCriteria.Parent(
                         PullTaskType.STANDARD.name(), NORMAL_LINK_MODE),
                 new PullTaskUnknownReconciliationCriteria.Facts(

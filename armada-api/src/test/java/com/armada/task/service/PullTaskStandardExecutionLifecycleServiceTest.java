@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.armada.boot.config.MyBatisConfig;
@@ -53,6 +54,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PullTaskMapper taskMapper;
     @Autowired private PullTaskStandardExecutionLifecycleService lifecycleService;
+    @Autowired private PullTaskGroupBanTerminationService banTerminationService;
     @Autowired private PullTaskExecutionDispatchTrigger dispatchTrigger;
     @Autowired private ProtocolCommandOutboxService outboxService;
 
@@ -138,6 +140,56 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     }
 
     @Test
+    void groupBanFailsOnlyMatchingExecutionAndLeavesSiblingAndOtherTenantRunning()
+            throws SQLException {
+        insertEndFacts();
+        execute("UPDATE pull_task_group_execution SET group_link_id = 9011 WHERE id = 41");
+        TenantContext.set(99L);
+
+        banTerminationService.terminateBannedGroup(7L, 9011L);
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 11L)).isEqualTo(5);
+        assertThat(stringColumn("reason_code", 11L)).isEqualTo("GROUP_BANNED");
+        assertThat(stringColumn("reason_message", 11L)).isEqualTo("群已被封禁");
+        assertThat(longColumn("finished_at", "pull_task_group_execution", 11L)).isEqualTo(900L);
+        assertThat(longColumn("next_run_at", "pull_task_group_execution", 11L)).isZero();
+        assertThat(stringColumn("lock_owner", 11L)).isNull();
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 12L)).isEqualTo(3);
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 41L)).isEqualTo(2);
+        assertThat(intColumn("action_status", "pull_task_account_action", 301L)).isEqualTo(6);
+        assertThat(intColumn("action_status", "pull_task_account_action", 302L)).isEqualTo(1);
+        assertThat(longColumn("released_at", "pull_task_group_account", 101L)).isEqualTo(900L);
+        assertThat(longColumn("released_at", "pull_task_group_account", 102L)).isNull();
+        assertThat(TenantContext.get()).isEqualTo(99L);
+        TenantContext.set(7L);
+        assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        verify(outboxService).cancelPendingPullTaskCommands(1L, 11L, 900L);
+    }
+
+    @Test
+    void repeatedGroupBanIsIdempotentAndLastGroupCompletesParent() {
+        banTerminationService.terminateBannedGroup(7L, 9021L);
+        int version = intColumn("version", "pull_task_group_execution", 21L);
+        banTerminationService.terminateBannedGroup(7L, 9021L);
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 21L)).isEqualTo(5);
+        assertThat(stringColumn("reason_code", 21L)).isEqualTo("GROUP_BANNED");
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 21L)).isZero();
+        assertThat(intColumn("version", "pull_task_group_execution", 21L)).isEqualTo(version);
+        assertThat(taskMapper.selectLifecycle(2L).getStatus()).isEqualTo("COMPLETED");
+        verify(outboxService, times(1)).cancelPendingPullTaskCommands(2L, 21L, 900L);
+    }
+
+    @Test
+    void groupBanFailsLastPausedExecutionButKeepsParentPaused() {
+        banTerminationService.terminateBannedGroup(7L, 9051L);
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 51L)).isEqualTo(5);
+        assertThat(stringColumn("reason_code", 51L)).isEqualTo("GROUP_BANNED");
+        assertThat(taskMapper.selectLifecycle(5L).getStatus()).isEqualTo("PAUSED");
+    }
+
+    @Test
     void repeatedOperationsAreIdempotentAndOwnershipOrStateViolationsFail() {
         lifecycleService.pause(1L, 11L);
         int version = intColumn("version", "pull_task_group_execution", 11L);
@@ -200,10 +252,10 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     private static String execution(long id, long tenantId, long taskId, int seq,
                                     int status, int stage, int paused) {
         return "INSERT INTO pull_task_group_execution "
-                + "(id, tenant_id, task_id, seq, normalized_link, invite_code, source_link_line_no, "
+                + "(id, tenant_id, task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, "
                 + "source_file_index, source_file_name, execution_status, stage, manual_paused, "
                 + "next_run_at, lock_owner, lock_expires_at, version, created_at, updated_at) VALUES ("
-                + id + ", " + tenantId + ", " + taskId + ", " + seq
+                + id + ", " + tenantId + ", " + taskId + ", " + seq + ", " + (9000 + id)
                 + ", 'chat.whatsapp.com/" + taskId + "-" + seq + "', 'code" + seq
                 + "', " + seq + ", " + seq + ", 'a.txt', " + status + ", " + stage + ", "
                 + paused + ", 0, 'worker', 5000, 1, 100, 100)";
@@ -312,7 +364,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         }
 
         @Bean
-        PullTaskStandardExecutionLifecycleService lifecycleService(
+        PullTaskStandardExecutionLifecycleServiceImpl lifecycleService(
                 PullTaskMapper taskMapper,
                 PullTaskStandardExecutionLifecycleResources resources,
                 PullTaskParentCompletionService completionService,

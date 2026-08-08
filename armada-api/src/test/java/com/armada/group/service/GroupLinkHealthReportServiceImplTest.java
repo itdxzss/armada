@@ -18,6 +18,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,8 @@ class GroupLinkHealthReportServiceImplTest {
         List<Long> tenantContextDuringMapperCalls = captureTenantContext(current);
         when(groupLinkMapper.selectActiveIdByGroupJid("1203630health@g.us")).thenReturn(200L);
 
-        service.applyHealthReported(new GroupLinkHealthReportedEvent(
+        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(
+                new GroupLinkHealthReportedEvent(
                 9L,
                 200L,
                 "1203630health@g.us",
@@ -68,6 +70,7 @@ class GroupLinkHealthReportServiceImplTest {
                 "acc_100",
                 "evt-1"));
 
+        assertThat(resolvedGroupLinkId).contains(200L);
         ArgumentCaptor<GroupLinkHealth> captor = ArgumentCaptor.forClass(GroupLinkHealth.class);
         verify(healthMapper).upsert(captor.capture());
         GroupLinkHealth row = captor.getValue();
@@ -141,7 +144,8 @@ class GroupLinkHealthReportServiceImplTest {
         when(groupLinkMapper.selectActiveIdByGroupJid("1203630banned@g.us")).thenReturn(203L);
         when(healthMapper.selectByGroupLinkId(203L)).thenReturn(null);
 
-        service.applyHealthReported(new GroupLinkHealthReportedEvent(
+        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(
+                new GroupLinkHealthReportedEvent(
                 12L,
                 null,
                 "1203630banned@g.us",
@@ -152,6 +156,7 @@ class GroupLinkHealthReportServiceImplTest {
                 "acc_103",
                 "evt-banned"));
 
+        assertThat(resolvedGroupLinkId).contains(203L);
         ArgumentCaptor<GroupLinkHealth> captor = ArgumentCaptor.forClass(GroupLinkHealth.class);
         verify(healthMapper).upsert(captor.capture());
         GroupLinkHealth row = captor.getValue();
@@ -166,10 +171,12 @@ class GroupLinkHealthReportServiceImplTest {
     void applyHealthReported_unknownGroupJidSkipsHealthWrite() {
         when(groupLinkMapper.selectActiveIdByGroupJid("1203630missing@g.us")).thenReturn(null);
 
-        service.applyHealthReported(new GroupLinkHealthReportedEvent(
-                12L, null, "1203630missing@g.us", "BANNED", null, null,
-                "CHAT_TERMINATED", "acc_103", "evt-missing"));
+        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(
+                new GroupLinkHealthReportedEvent(
+                        12L, null, "1203630missing@g.us", "BANNED", null, null,
+                        "CHAT_TERMINATED", "acc_103", "evt-missing"));
 
+        assertThat(resolvedGroupLinkId).isEmpty();
         verifyNoInteractions(healthMapper);
         assertThat(TenantContext.get()).isNull();
     }

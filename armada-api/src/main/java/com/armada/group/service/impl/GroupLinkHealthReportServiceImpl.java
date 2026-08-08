@@ -9,6 +9,7 @@ import com.armada.group.service.GroupLinkHealthReportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -54,14 +55,16 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
     }
 
     /**
-     * 应用协议层 {@code group.health_reported} 回报事件。
+     * 应用协议层 {@code group.health_reported} 回报事件，并返回租户内解析出的群入口。
      *
      * <p>事件失败只影响对应链接健康状态,不写 group_link 主表。成员数为空时保留现有
      * {@code current_count},避免失败事件把上一次有效成员数清掉。</p>
+     *
+     * @return 已写入健康状态的群入口 ID；未匹配有效群时为空
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void applyHealthReported(GroupLinkHealthReportedEvent event) {
+    public Optional<Long> applyHealthReported(GroupLinkHealthReportedEvent event) {
         validate(event);
         Long previousTenant = TenantContext.get();
         try {
@@ -70,7 +73,7 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
             if (groupLinkId == null) {
                 log.warn("群链接健康事件未匹配有效群,跳过 tenantId={} groupJid={} eventId={} protocolAccountId={}",
                         event.tenantId(), event.groupJid(), event.eventId(), event.protocolAccountId());
-                return;
+                return Optional.empty();
             }
             GroupLinkHealth current = healthMapper.selectByGroupLinkId(groupLinkId);
             GroupLinkHealth row = buildHealthRow(event, current, groupLinkId);
@@ -80,6 +83,7 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
                     event.tenantId(), groupLinkId, event.groupJid(), event.health(),
                     row.getHealthStatus(), row.getBanned(), row.getHealthFailureCount(),
                     event.eventId(), event.protocolAccountId());
+            return Optional.of(groupLinkId);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

@@ -8,10 +8,12 @@ import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
+import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
@@ -361,7 +363,11 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         TenantContext.set(7L);
         claimed.setStartedAt(610L);
         claimed.setUpdatedAt(610L);
-        assertThat(mapper.startClaimed(claimed)).isEqualTo(1);
+        assertThat(mapper.startClaimed(
+                claimed,
+                PullTaskExecutionStatus.WAIT_START.code(),
+                claimed.getStage(),
+                PullTaskExecutionStatus.EXECUTING.code())).isEqualTo(1);
 
         PullTaskGroupExecution started = mapper.selectByTaskId(100L).get(0);
         assertThat(started.getExecutionStatus()).isEqualTo(2);
@@ -372,17 +378,18 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                 .extracting(PullTaskGroupExecution::getExecutionStatus)
                 .containsExactly(PullTaskExecutionStatus.EXECUTING.code());
 
-        started.setStage(2);
+        started.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
         started.setReasonCode(null);
         started.setReasonMessage(null);
         started.setNextRunAt(0L);
         started.setFinishedAt(null);
         started.setLastBusinessExecutedAt(620L);
         started.setUpdatedAt(620L);
-        assertThat(mapper.transitionClaimed(started, 1)).isEqualTo(1);
+        assertThat(mapper.transitionClaimed(
+                started, PullTaskExecutionStage.MANAGER_JOIN.code())).isEqualTo(1);
 
         PullTaskGroupExecution advanced = mapper.selectByTaskId(100L).get(0);
-        assertThat(advanced.getStage()).isEqualTo(2);
+        assertThat(advanced.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
         assertThat(advanced.getVersion()).isEqualTo(3);
         assertThat(advanced.getLockOwner()).isNull();
         assertThat(advanced.getLockExpiresAt()).isNull();
@@ -401,7 +408,86 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     }
 
     @Test
-    void unknownResultScanIncludesTerminalRowsAndUsesCallerScope() throws SQLException {
+    void activeGroupLinkSelectionScopesTenantTaskModeAndParentStatus() throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        PullTaskGroupExecution active = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(active);
+        mapper.freezeDraftRows(100L, 500L);
+
+        insertParent(7L, 200L, "COMPLETED");
+        mapper.insertDraft(draft(200L, 1, "chat.whatsapp.com/BBBB", 1));
+        mapper.freezeDraftRows(200L, 500L);
+
+        executeRaw("INSERT INTO pull_task "
+                + "(id, tenant_id, task_type, task_name, mode, status, config_json, "
+                + "created_at, updated_at) VALUES "
+                + "(300, 7, 'GROUP_MARKETING', 'task', 'OLD_LINK', 'EXECUTING', "
+                + "'{}', 100, 100)");
+        mapper.insertDraft(draft(300L, 1, "chat.whatsapp.com/CCCC", 1));
+        mapper.freezeDraftRows(300L, 500L);
+
+        TenantContext.set(8L);
+        insertParent(8L, 400L, "EXECUTING");
+        mapper.insertDraft(draft(400L, 1, "chat.whatsapp.com/DDDD", 1));
+        mapper.freezeDraftRows(400L, 500L);
+
+        TenantContext.set(7L);
+        assertThat(mapper.selectActiveByGroupLinkId(
+                9000L,
+                List.of(
+                        PullTaskExecutionStatus.WAIT_START.code(),
+                        PullTaskExecutionStatus.EXECUTING.code(),
+                        PullTaskExecutionStatus.WAIT_RESOURCE.code()),
+                PullTaskType.STANDARD.name(),
+                "NORMAL_LINK",
+                List.of(
+                        PullTaskStandardStatus.EXECUTING.name(),
+                        PullTaskStandardStatus.PAUSED.name())))
+                .extracting(PullTaskGroupExecution::getId)
+                .containsExactly(active.getId());
+    }
+
+    @Test
+    void terminalTransitionPersistsBanReasonAndRejectsLateProtocolResult() throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        executeRaw("UPDATE pull_task_group_execution "
+                + "SET execution_status = 2, wait_resource_type = 2, next_run_at = 800, "
+                + "lock_owner = 'worker-old', lock_expires_at = 1200, version = 2 "
+                + "WHERE id = " + row.getId());
+
+        PullTaskExecutionTerminalTransition transition =
+                new PullTaskExecutionTerminalTransition(
+                        100L, row.getId(), PullTaskExecutionStatus.EXECUTING.code(), 2,
+                        PullTaskExecutionStatus.FAILED.code(), 0,
+                        PullTaskExecutionReasonCode.GROUP_BANNED.name(),
+                        PullTaskExecutionReasonCode.GROUP_BANNED.message(),
+                        900L, 900L);
+
+        assertThat(mapper.transitionTerminal(transition)).isEqualTo(1);
+        PullTaskGroupExecution terminal = mapper.selectById(row.getId());
+        assertThat(terminal.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.FAILED.code());
+        assertThat(terminal.getReasonCode()).isEqualTo("GROUP_BANNED");
+        assertThat(terminal.getReasonMessage()).isEqualTo("群已被封禁");
+        assertThat(terminal.getWaitResourceType()).isNull();
+        assertThat(terminal.getNextRunAt()).isZero();
+        assertThat(terminal.getLockOwner()).isNull();
+        assertThat(terminal.getLockExpiresAt()).isNull();
+        assertThat(terminal.getFinishedAt()).isEqualTo(900L);
+
+        assertThat(mapper.transitionProtocolResult(new PullTaskExecutionResultTransition(
+                row.getId(), 100L, terminal.getVersion(),
+                PullTaskExecutionStatus.EXECUTING.code(),
+                PullTaskExecutionStage.MANAGER_JOIN.code(),
+                PullTaskExecutionStage.MANAGER_JOIN.code(), 0, 0L, 901L))).isZero();
+        assertThat(mapper.transitionManagerJoinResult(
+                managerJoinSuccess(row.getId(), terminal.getVersion()))).isZero();
+    }
+
+    @Test
+    void unknownResultScanIncludesOrdinaryTerminalRowsButExcludesGroupBanned()
+            throws SQLException {
         insertParent(7L, 100L, "COMPLETED");
         PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
         mapper.insertDraft(row);
@@ -414,6 +500,20 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                 + "command_id, submitted_at, created_at, updated_at) VALUES "
                 + "(7, 100, " + row.getId()
                 + ", 2, 11, 22, 5, 'cmd-unknown', 400, 100, 400)");
+
+        PullTaskGroupExecution banned = draft(
+                100L, 2, "chat.whatsapp.com/BANNED", 2);
+        mapper.insertDraft(banned);
+        mapper.freezeDraftRows(100L, 500L);
+        executeRaw("UPDATE pull_task_group_execution "
+                + "SET execution_status = 5, reason_code = 'GROUP_BANNED' "
+                + "WHERE id = " + banned.getId());
+        executeRaw("INSERT INTO pull_task_account_action "
+                + "(tenant_id, task_id, group_execution_id, action_type, "
+                + "actor_group_account_id, target_group_account_id, action_status, "
+                + "command_id, submitted_at, created_at, updated_at) VALUES "
+                + "(7, 100, " + banned.getId()
+                + ", 2, 33, 44, 5, 'cmd-banned', 400, 100, 400)");
         TenantContext.clear();
 
         assertThat(mapper.selectUnknownResultCandidates(
@@ -452,7 +552,8 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                 List.of(
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.WAIT_START.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code())),
+                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                        PullTaskExecutionStage.MANAGER_JOIN.code())),
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.EXECUTING.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
@@ -472,6 +573,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                         PullTaskExecutionStatus.COMPLETED.code(),
                         PullTaskExecutionStatus.FAILED.code(),
                         PullTaskExecutionStatus.ABANDONED.code()),
+                List.of(PullTaskExecutionReasonCode.GROUP_BANNED.name()),
                 new PullTaskUnknownReconciliationCriteria.Parent(taskType, mode),
                 new PullTaskUnknownReconciliationCriteria.Facts(
                         new PullTaskUnknownReconciliationCriteria.Action(

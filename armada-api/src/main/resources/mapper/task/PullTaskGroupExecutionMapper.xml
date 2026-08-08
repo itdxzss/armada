@@ -32,6 +32,29 @@
     WHERE id = #{id}
   </select>
 
+  <select id="selectActiveByGroupLinkId"
+          resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT execution_row.*
+    FROM pull_task_group_execution execution_row
+    WHERE execution_row.group_link_id = #{groupLinkId}
+      AND execution_row.execution_status IN
+      <foreach collection="executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task parent_task
+        WHERE parent_task.id = execution_row.task_id
+          AND parent_task.tenant_id = execution_row.tenant_id
+          AND parent_task.deleted_at IS NULL
+          AND parent_task.task_type = #{parentTaskType}
+          AND parent_task.mode = #{parentTaskMode}
+          AND parent_task.status IN
+          <foreach collection="parentStatuses" item="status"
+                   open="(" separator="," close=")">#{status}</foreach>
+      )
+    ORDER BY execution_row.id ASC
+  </select>
+
   <delete id="deleteDraftByTaskId">
     DELETE FROM pull_task_group_execution
     WHERE task_id = #{taskId}
@@ -123,6 +146,9 @@
     WHERE execution_row.execution_status IN
       <foreach collection="criteria.executionStatuses" item="status"
                open="(" separator="," close=")">#{status}</foreach>
+      AND (execution_row.reason_code IS NULL OR execution_row.reason_code NOT IN
+        <foreach collection="criteria.excludedReasonCodes" item="reason"
+                 open="(" separator="," close=")">#{reason}</foreach>)
       AND EXISTS (
         SELECT 1
         FROM pull_task parent_task
@@ -334,6 +360,8 @@
     SET execution_status = #{transition.targetExecutionStatus},
         manual_paused = #{transition.targetManualPaused},
         wait_resource_type = NULL,
+        reason_code = #{transition.reasonCode},
+        reason_message = #{transition.reasonMessage},
         next_run_at = 0,
         finished_at = #{transition.finishedAt},
         lock_owner = NULL,

@@ -6,14 +6,19 @@ import java.util.List;
 public record PullTaskUnknownReconciliationCriteria(
         Scope scope,
         List<Integer> executionStatuses,
+        List<String> excludedReasonCodes,
         Parent parent,
         Facts facts) {
 
-    /** 固化执行状态范围。 */
+    /** 固化执行状态和排除原因范围。 */
     public PullTaskUnknownReconciliationCriteria {
         executionStatuses = List.copyOf(executionStatuses);
+        excludedReasonCodes = List.copyOf(excludedReasonCodes);
         if (executionStatuses.isEmpty()) {
             throw new IllegalArgumentException("未知结果扫描的执行状态不能为空");
+        }
+        if (excludedReasonCodes.isEmpty()) {
+            throw new IllegalArgumentException("未知结果扫描的排除原因不能为空");
         }
     }
 

@@ -65,6 +65,23 @@ public interface PullTaskGroupExecutionMapper {
     PullTaskGroupExecution selectById(@Param("id") long id);
 
     /**
+     * 按群入口读取当前租户内仍可终止的普通拉群执行行。
+     *
+     * @param groupLinkId 群入口 ID
+     * @param executionStatuses 可终止执行状态
+     * @param parentTaskType 父任务类型
+     * @param parentTaskMode 父任务模式
+     * @param parentStatuses 可处理父任务状态
+     * @return 符合条件的执行行，按主键升序
+     */
+    List<PullTaskGroupExecution> selectActiveByGroupLinkId(
+            @Param("groupLinkId") long groupLinkId,
+            @Param("executionStatuses") List<Integer> executionStatuses,
+            @Param("parentTaskType") String parentTaskType,
+            @Param("parentTaskMode") String parentTaskMode,
+            @Param("parentStatuses") List<String> parentStatuses);
+
+    /**
      * 删除任务下尚未冻结的草稿执行行，支撑创建页的"清除全部"。
      *
      * @param taskId 拉群任务 ID

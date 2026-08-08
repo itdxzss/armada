@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.dto.PullTaskExecutionManualTransition;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
@@ -10,6 +11,7 @@ import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -18,8 +20,9 @@ import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
+import com.armada.task.service.PullTaskGroupBanTerminationService;
 import com.armada.task.service.PullTaskStandardExecutionLifecycleService;
-import java.util.Set;
+import java.util.List;
 import java.util.function.LongSupplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -28,16 +31,17 @@ import org.springframework.transaction.annotation.Transactional;
 /** 使用执行行版本号 CAS 实现单群暂停、恢复和永久放弃。 */
 @Service
 public class PullTaskStandardExecutionLifecycleServiceImpl
-        implements PullTaskStandardExecutionLifecycleService {
+        implements PullTaskStandardExecutionLifecycleService,
+        PullTaskGroupBanTerminationService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final int NOT_PAUSED = 0;
     private static final int MANUALLY_PAUSED = 1;
-    private static final Set<Integer> NON_TERMINAL_STATUSES = Set.of(
+    private static final List<Integer> NON_TERMINAL_STATUSES = List.of(
             PullTaskExecutionStatus.WAIT_START.code(),
             PullTaskExecutionStatus.EXECUTING.code(),
             PullTaskExecutionStatus.WAIT_RESOURCE.code());
-    private static final Set<String> ACTIVE_PARENT_STATUSES = Set.of(
+    private static final List<String> ACTIVE_PARENT_STATUSES = List.of(
             PullTaskStandardStatus.EXECUTING.name(),
             PullTaskStandardStatus.PAUSED.name());
 
@@ -126,13 +130,51 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
         long now = currentTimeMillis.getAsLong();
         PullTaskExecutionTerminalTransition transition = new PullTaskExecutionTerminalTransition(
                 taskId, executionId, execution.getExecutionStatus(), execution.getVersion(),
-                PullTaskExecutionStatus.ABANDONED.code(), NOT_PAUSED, now, now);
+                PullTaskExecutionStatus.ABANDONED.code(), NOT_PAUSED,
+                null, null, now, now);
         if (resources.executionMapper().transitionTerminal(transition) != 1) {
             concurrentChange();
         }
         cancelNotSubmitted(taskId, executionId, now);
         releasePullers(executionId, now);
         completionService.completeIfTerminalByExecutionId(executionId, now);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void terminateBannedGroup(long tenantId, long groupLinkId) {
+        Long previousTenantId = TenantContext.get();
+        try {
+            TenantContext.set(tenantId);
+            List<PullTaskGroupExecution> executions =
+                    resources.executionMapper().selectActiveByGroupLinkId(
+                            groupLinkId,
+                            NON_TERMINAL_STATUSES,
+                            PullTaskType.STANDARD.name(),
+                            NORMAL_LINK_MODE,
+                            ACTIVE_PARENT_STATUSES);
+            long now = currentTimeMillis.getAsLong();
+            for (PullTaskGroupExecution execution : executions) {
+                terminateBannedExecution(execution, now);
+            }
+        } finally {
+            restoreTenant(previousTenantId);
+        }
+    }
+
+    /** 把一条仍可运行的群执行行推进为封禁失败，并清理只属于该行的待执行事实。 */
+    private void terminateBannedExecution(PullTaskGroupExecution execution, long now) {
+        PullTaskExecutionTerminalTransition transition = new PullTaskExecutionTerminalTransition(
+                execution.getTaskId(), execution.getId(), execution.getExecutionStatus(),
+                execution.getVersion(), PullTaskExecutionStatus.FAILED.code(), NOT_PAUSED,
+                PullTaskExecutionReasonCode.GROUP_BANNED.name(),
+                PullTaskExecutionReasonCode.GROUP_BANNED.message(), now, now);
+        if (resources.executionMapper().transitionTerminal(transition) != 1) {
+            throw new IllegalStateException("群封禁终止执行行发生并发变化");
+        }
+        cancelNotSubmitted(execution.getTaskId(), execution.getId(), now);
+        releasePullers(execution.getId(), now);
+        completionService.completeIfTerminalByExecutionId(execution.getId(), now);
     }
 
     private void cancelNotSubmitted(long taskId, long executionId, long now) {
@@ -248,5 +290,13 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
 
     private static void concurrentChange() {
         throw new BusinessException(ErrorCode.CONFLICT, "群执行状态已变化，请刷新后重试");
+    }
+
+    private static void restoreTenant(Long previousTenantId) {
+        if (previousTenantId == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.set(previousTenantId);
+        }
     }
 }

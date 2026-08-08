@@ -69,6 +69,7 @@ class GroupMetadataSyncTaskServiceImplTest {
     void deferDoesNotConsumeAnAttemptAndOnlineResumesMatchingGroups() {
         GroupMetadataSyncTaskServiceImpl service = service();
         GroupMetadataSyncTask task = runningTask(0);
+        task.setStatus(GroupMetadataSyncStatus.PENDING.code());
 
         service.defer(task, 5_000L);
         service.resumeDeferredForAccount(77L, 6_000L);
@@ -76,8 +77,7 @@ class GroupMetadataSyncTaskServiceImplTest {
         ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
         verify(mapper).defer(captor.capture(), eq(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
-                GroupMetadataSyncStatus.RETRY_WAIT.code(),
-                GroupMetadataSyncStatus.SUCCEEDED.code())));
+                GroupMetadataSyncStatus.RETRY_WAIT.code())));
         assertThat(captor.getValue().getStatus()).isEqualTo(GroupMetadataSyncStatus.DEFERRED.code());
         assertThat(captor.getValue().getAttemptCount()).isZero();
         verify(mapper).resumeDeferredForAccount(
@@ -86,6 +86,24 @@ class GroupMetadataSyncTaskServiceImplTest {
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
                 6_000L);
+    }
+
+    @Test
+    void deferPeriodicRefreshKeepsSuccessfulSnapshotAvailableAndReschedulesIt() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+        GroupMetadataSyncTask task = runningTask(0);
+        task.setStatus(GroupMetadataSyncStatus.SUCCEEDED.code());
+        task.setLastSuccessAt(4_000L);
+
+        service.defer(task, 5_000L);
+
+        ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
+        verify(mapper).defer(captor.capture(), eq(List.of(
+                GroupMetadataSyncStatus.SUCCEEDED.code())));
+        assertThat(captor.getValue().getStatus()).isEqualTo(GroupMetadataSyncStatus.SUCCEEDED.code());
+        assertThat(captor.getValue().getNextRunAt()).isEqualTo(65_000L);
+        assertThat(captor.getValue().getLastErrorCode()).isNull();
+        assertThat(captor.getValue().getLastErrorMessage()).isNull();
     }
 
     @Test
@@ -105,7 +123,7 @@ class GroupMetadataSyncTaskServiceImplTest {
     }
 
     @Test
-    void findDuePrioritizesTriggeredTasksBeforePeriodicRefreshes() {
+    void findDueLimitsPeriodicRefreshesSoTheyCannotDelayNewGroupSynchronization() {
         GroupMetadataSyncTaskServiceImpl service = service();
         GroupMetadataSyncTask triggered = runningTask(0);
         triggered.setId(1L);
@@ -114,14 +132,56 @@ class GroupMetadataSyncTaskServiceImplTest {
         when(mapper.selectDueCandidates(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 2))
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
                 .thenReturn(List.of(triggered));
         when(mapper.selectDueCandidates(
                 List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 1))
                 .thenReturn(List.of(periodic));
 
-        assertThat(service.findDue(10_000L, 2)).containsExactly(triggered, periodic);
+        assertThat(service.findDue(10_000L, 20)).containsExactly(triggered, periodic);
+    }
+
+    @Test
+    void findDueLimitsAlreadySynchronizedPendingWorkToOneRefreshPerRun() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+        GroupMetadataSyncTask firstRefresh = runningTask(0);
+        firstRefresh.setId(1L);
+        firstRefresh.setStatus(GroupMetadataSyncStatus.PENDING.code());
+        firstRefresh.setLastSuccessAt(8_000L);
+        GroupMetadataSyncTask secondRefresh = runningTask(0);
+        secondRefresh.setId(2L);
+        secondRefresh.setStatus(GroupMetadataSyncStatus.RETRY_WAIT.code());
+        secondRefresh.setLastSuccessAt(7_000L);
+        when(mapper.selectDueCandidates(List.of(
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
+                .thenReturn(List.of(firstRefresh, secondRefresh));
+
+        assertThat(service.findDue(10_000L, 20)).containsExactly(firstRefresh);
+    }
+
+    @Test
+    void findDuePreservesRealtimeEventAndManualRefreshThroughput() {
+        GroupMetadataSyncTask participantChanged = runningTask(0);
+        participantChanged.setId(1L);
+        participantChanged.setStatus(GroupMetadataSyncStatus.PENDING.code());
+        participantChanged.setTriggerSource(GroupMetadataSyncTrigger.PARTICIPANT_CHANGED.code());
+        participantChanged.setLastSuccessAt(8_000L);
+        GroupMetadataSyncTask manualRefresh = runningTask(0);
+        manualRefresh.setId(2L);
+        manualRefresh.setStatus(GroupMetadataSyncStatus.PENDING.code());
+        manualRefresh.setTriggerSource(GroupMetadataSyncTrigger.MANUAL_REFRESH.code());
+        manualRefresh.setLastSuccessAt(7_000L);
+        when(mapper.selectDueCandidates(List.of(
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
+                .thenReturn(List.of(participantChanged, manualRefresh));
+
+        assertThat(service().findDue(10_000L, 20))
+                .containsExactly(participantChanged, manualRefresh);
     }
 
     @Test

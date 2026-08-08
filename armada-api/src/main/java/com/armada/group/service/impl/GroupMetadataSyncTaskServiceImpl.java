@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskService {
 
     private static final int MAX_ATTEMPTS = 4;
+    private static final int MAX_REFRESH_TASKS_PER_RUN = 1;
     private static final long[] RETRY_DELAYS_MS = {60_000L, 300_000L, 1_800_000L};
     private static final int ERROR_CODE_MAX_LENGTH = 64;
     private static final int ERROR_MESSAGE_MAX_LENGTH = 512;
@@ -26,6 +27,10 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
             GroupMetadataSyncStatus.RETRY_WAIT.code());
     private static final List<Integer> PERIODIC_STATUSES = List.of(
             GroupMetadataSyncStatus.SUCCEEDED.code());
+    private static final List<Integer> REALTIME_REFRESH_TRIGGERS = List.of(
+            GroupMetadataSyncTrigger.PARTICIPANT_CHANGED.code(),
+            GroupMetadataSyncTrigger.METADATA_CHANGED.code(),
+            GroupMetadataSyncTrigger.MANUAL_REFRESH.code());
     private static final List<Integer> CLAIMABLE_STATUSES = List.of(
             GroupMetadataSyncStatus.PENDING.code(),
             GroupMetadataSyncStatus.RETRY_WAIT.code(),
@@ -99,20 +104,35 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     @Override
     public List<GroupMetadataSyncTask> findDue(long now, int limit) {
         int pageSize = Math.max(1, limit);
-        List<GroupMetadataSyncTask> triggered = mapper.selectDueCandidates(
+        List<GroupMetadataSyncTask> candidates = mapper.selectDueCandidates(
                 TRIGGERED_STATUSES,
                 GroupMetadataSyncStatus.SUCCEEDED.code(),
                 now,
                 pageSize);
-        if (triggered.size() >= pageSize) {
-            return triggered;
+        List<GroupMetadataSyncTask> due = new ArrayList<>();
+        GroupMetadataSyncTask refreshCandidate = null;
+        for (GroupMetadataSyncTask candidate : candidates) {
+            if (isForegroundTask(candidate)) {
+                due.add(candidate);
+                if (due.size() >= pageSize) {
+                    return List.copyOf(due);
+                }
+            } else if (refreshCandidate == null) {
+                refreshCandidate = candidate;
+            }
         }
-        List<GroupMetadataSyncTask> due = new ArrayList<>(triggered);
+        // 已有成功快照的事件、重试和账号上线恢复都属于刷新工作。协议读取在同一轮次
+        // 串行执行，因此所有刷新来源合计只允许一个，避免存量积压阻塞新群首次同步。
+        if (refreshCandidate != null) {
+            due.add(refreshCandidate);
+            return List.copyOf(due);
+        }
+        int periodicLimit = Math.min(MAX_REFRESH_TASKS_PER_RUN, pageSize - due.size());
         due.addAll(mapper.selectDueCandidates(
                 PERIODIC_STATUSES,
                 GroupMetadataSyncStatus.SUCCEEDED.code(),
                 now,
-                pageSize - triggered.size()));
+                periodicLimit));
         return List.copyOf(due);
     }
 
@@ -152,12 +172,21 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     @Override
     @Transactional
     public void defer(GroupMetadataSyncTask task, long now) {
+        if (GroupMetadataSyncStatus.SUCCEEDED.code() == valueOrZero(task.getStatus())) {
+            GroupMetadataSyncTask row = completion(task, GroupMetadataSyncStatus.SUCCEEDED, now);
+            row.setAttemptCount(0);
+            row.setNextRunAt(now + periodicRefreshMs);
+            row.setLastErrorCode(null);
+            row.setLastErrorMessage(null);
+            mapper.defer(row, PERIODIC_STATUSES);
+            return;
+        }
         GroupMetadataSyncTask row = completion(task, GroupMetadataSyncStatus.DEFERRED, now);
         row.setAttemptCount(Math.max(0, valueOrZero(task.getAttemptCount())));
         row.setNextRunAt(null);
         row.setLastErrorCode("NO_EXECUTION_ACCOUNT");
         row.setLastErrorMessage("暂无在线且仍在群内的可用账号");
-        mapper.defer(row, CLAIMABLE_STATUSES);
+        mapper.defer(row, TRIGGERED_STATUSES);
     }
 
     @Override
@@ -196,6 +225,13 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     private static boolean isChangeTrigger(GroupMetadataSyncTrigger trigger) {
         return trigger == GroupMetadataSyncTrigger.PARTICIPANT_CHANGED
                 || trigger == GroupMetadataSyncTrigger.METADATA_CHANGED;
+    }
+
+    private static boolean isForegroundTask(GroupMetadataSyncTask task) {
+        return task.getLastSuccessAt() == null
+                || (GroupMetadataSyncStatus.PENDING.code() == valueOrZero(task.getStatus())
+                && task.getTriggerSource() != null
+                && REALTIME_REFRESH_TRIGGERS.contains(task.getTriggerSource()));
     }
 
     private static GroupMetadataSyncTask completion(

@@ -213,7 +213,7 @@ public class NormalGroupCreationProtocolResultService
                     "SUCCESS".equals(leaveStatus) && index == 0, now);
         }
         metadataSyncTaskService.enqueue(
-                groupLinkId, GroupMetadataSyncTrigger.BACKFILL, now);
+                groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, now);
         if (mapper.completeProtocolFlow(
                 item.id(), expectedStep, event.commandId(), leaveStatus,
                 event.eventId() == null ? event.commandId() : event.eventId(), now) != 1) {

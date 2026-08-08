@@ -193,7 +193,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 null, null, null));
 
         verify(metadataSyncTaskService).enqueue(
-                eq(101L), eq(GroupMetadataSyncTrigger.BACKFILL), anyLong());
+                eq(101L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
     }
 
     @Test

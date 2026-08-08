@@ -243,6 +243,39 @@ class GroupMetadataSyncTaskMapperDbTest {
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 10)).hasSize(1);
     }
 
+    @Test
+    void dueCandidatesPrioritizeGroupsWithoutAnySuccessfulSnapshot() throws SQLException {
+        insertGroupLink("wa://group/already-synchronized@g.us", 4,
+                "already-synchronized@g.us", "INVITE-CODE");
+        GroupMetadataSyncTask refresh = storedTask(GroupMetadataSyncStatus.PENDING, 1_000L);
+        refresh.setLastSuccessAt(900L);
+        insertTask(TENANT_ID, refresh);
+
+        long newGroupLinkId = 102L;
+        insertGroupLink(newGroupLinkId, "wa://group/new-group@g.us", 4,
+                "new-group@g.us", null);
+        GroupMetadataSyncTask initialSync = pendingTask(GroupMetadataSyncTrigger.BASELINE_CAPTURED, 2_000L);
+        initialSync.setGroupLinkId(newGroupLinkId);
+        insertTask(TENANT_ID, initialSync);
+
+        long changedGroupLinkId = 103L;
+        insertGroupLink(changedGroupLinkId, "wa://group/changed-group@g.us", 4,
+                "changed-group@g.us", "CHANGED-INVITE-CODE");
+        GroupMetadataSyncTask participantChanged = pendingTask(
+                GroupMetadataSyncTrigger.PARTICIPANT_CHANGED, 1_500L);
+        participantChanged.setGroupLinkId(changedGroupLinkId);
+        participantChanged.setLastSuccessAt(1_400L);
+        insertTask(TENANT_ID, participantChanged);
+
+        assertThat(mapper.selectDueCandidates(
+                java.util.List.of(
+                        GroupMetadataSyncStatus.PENDING.code(),
+                        GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 10))
+                .extracting(GroupMetadataSyncTask::getGroupLinkId)
+                .containsExactly(newGroupLinkId, changedGroupLinkId, GROUP_LINK_ID);
+    }
+
     private static GroupMetadataSyncTask pendingTask(
             GroupMetadataSyncTrigger trigger,
             long now) {
@@ -279,7 +312,7 @@ class GroupMetadataSyncTaskMapperDbTest {
                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OLD_ERROR', '旧错误', ?, ?)
                      """)) {
             statement.setLong(1, tenantId);
-            statement.setLong(2, GROUP_LINK_ID);
+            statement.setLong(2, task.getGroupLinkId());
             statement.setInt(3, task.getStatus());
             statement.setInt(4, task.getTriggerSource());
             statement.setInt(5, task.getAttemptCount());
@@ -317,6 +350,15 @@ class GroupMetadataSyncTaskMapperDbTest {
             int origin,
             String groupJid,
             String inviteCode) throws SQLException {
+        insertGroupLink(GROUP_LINK_ID, linkUrl, origin, groupJid, inviteCode);
+    }
+
+    private void insertGroupLink(
+            long groupLinkId,
+            String linkUrl,
+            int origin,
+            String groupJid,
+            String inviteCode) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement link = connection.prepareStatement("""
                      INSERT INTO group_link (id, tenant_id, link_url, origin, deleted_at)
@@ -327,13 +369,13 @@ class GroupMetadataSyncTaskMapperDbTest {
                          tenant_id, group_link_id, group_jid, invite_code
                      ) VALUES (?, ?, ?, ?)
                      """)) {
-            link.setLong(1, GROUP_LINK_ID);
+            link.setLong(1, groupLinkId);
             link.setLong(2, TENANT_ID);
             link.setString(3, linkUrl);
             link.setInt(4, origin);
             link.executeUpdate();
             preview.setLong(1, TENANT_ID);
-            preview.setLong(2, GROUP_LINK_ID);
+            preview.setLong(2, groupLinkId);
             preview.setString(3, groupJid);
             preview.setString(4, inviteCode);
             preview.executeUpdate();

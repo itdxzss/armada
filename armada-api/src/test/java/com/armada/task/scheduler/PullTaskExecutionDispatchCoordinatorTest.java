@@ -6,9 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.service.GroupInvitePageFetcher;
-import com.armada.group.service.GroupInvitePageMetadata;
-import com.armada.group.service.GroupInvitePageProbe;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionLease;
@@ -57,6 +54,14 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         PullTaskExecutionStage.CLOSING.code());
         assertThat(captor.getValue().eligibleStates())
                 .filteredOn(state -> state.executionStatus()
+                        == com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_START.code())
+                .singleElement()
+                .extracting(state -> state.stages())
+                .asList()
+                .containsExactly(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                        PullTaskExecutionStage.MANAGER_JOIN.code());
+        assertThat(captor.getValue().eligibleStates())
+                .filteredOn(state -> state.executionStatus()
                         == com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_RESOURCE.code())
                 .singleElement()
                 .extracting(state -> state.stages())
@@ -75,24 +80,20 @@ class PullTaskExecutionDispatchCoordinatorTest {
         PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
         PullTaskExecutionTransactionService transactions =
                 mock(PullTaskExecutionTransactionService.class);
-        GroupInvitePageFetcher fetcher = mock(GroupInvitePageFetcher.class);
         PullTaskManagerJoinProcessor managerJoinProcessor =
                 mock(PullTaskManagerJoinProcessor.class);
         PullTaskExecutionDispatchProperties properties = properties();
         PullTaskGroupExecution first = claimed(11L, 7L, "chat.whatsapp.com/AAAA");
         PullTaskGroupExecution second = claimed(12L, 7L, "chat.whatsapp.com/BBBB");
         PullTaskExecutionWork work = work(first, "worker-fixed", 2);
-        GroupInvitePageProbe profile = new GroupInvitePageProbe(
-                new GroupInvitePageMetadata("AAAA", "真实群", null), true);
         when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(2);
         when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of(first, second));
         when(transactions.prepare(first, "worker-fixed", 1_000L)).thenReturn(Optional.of(work));
         when(transactions.prepare(second, "worker-fixed", 1_000L)).thenReturn(Optional.empty());
-        when(fetcher.probe(first.getNormalizedLink())).thenReturn(profile);
-        when(transactions.applyLinkValidation(work, profile, 1_000L, 2_000L))
+        when(transactions.advanceLegacyLinkValidation(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
         PullTaskExecutionDispatchCoordinator coordinator = new PullTaskExecutionDispatchCoordinator(
-                mapper, stageRouter(new PullTaskLinkValidationProcessor(transactions, fetcher),
+                mapper, stageRouter(new PullTaskLinkValidationProcessor(transactions),
                         managerJoinProcessor),
                 mock(PullTaskResourceRecoveryTransactionService.class),
                 properties, "worker-fixed");
@@ -103,41 +104,32 @@ class PullTaskExecutionDispatchCoordinatorTest {
     }
 
     @Test
-    void oneProbeExceptionIsDeferredAndDoesNotStopLaterRows() {
+    void oneLegacyPreparationLossDoesNotStopLaterRows() {
         PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
         PullTaskExecutionTransactionService transactions =
                 mock(PullTaskExecutionTransactionService.class);
-        GroupInvitePageFetcher fetcher = mock(GroupInvitePageFetcher.class);
         PullTaskManagerJoinProcessor managerJoinProcessor =
                 mock(PullTaskManagerJoinProcessor.class);
         PullTaskExecutionDispatchProperties properties = properties();
         PullTaskGroupExecution first = claimed(11L, 7L, "chat.whatsapp.com/AAAA");
         PullTaskGroupExecution second = claimed(12L, 8L, "chat.whatsapp.com/BBBB");
-        PullTaskExecutionWork firstWork = work(first, "worker-fixed", 2);
         PullTaskExecutionWork secondWork = work(second, "worker-fixed", 2);
-        GroupInvitePageProbe secondProbe = new GroupInvitePageProbe(
-                new GroupInvitePageMetadata("BBBB", "第二群", null), true);
         when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(2);
         when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of(first, second));
-        when(transactions.prepare(first, "worker-fixed", 1_000L))
-                .thenReturn(Optional.of(firstWork));
+        when(transactions.prepare(first, "worker-fixed", 1_000L)).thenReturn(Optional.empty());
         when(transactions.prepare(second, "worker-fixed", 1_000L))
                 .thenReturn(Optional.of(secondWork));
-        when(fetcher.probe(first.getNormalizedLink())).thenThrow(new IllegalStateException("network"));
-        when(fetcher.probe(second.getNormalizedLink())).thenReturn(secondProbe);
-        when(transactions.applyLinkValidation(firstWork, null, 1_000L, 2_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
-        when(transactions.applyLinkValidation(secondWork, secondProbe, 1_000L, 2_000L))
+        when(transactions.advanceLegacyLinkValidation(secondWork, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
         PullTaskExecutionDispatchCoordinator coordinator = new PullTaskExecutionDispatchCoordinator(
-                mapper, stageRouter(new PullTaskLinkValidationProcessor(transactions, fetcher),
+                mapper, stageRouter(new PullTaskLinkValidationProcessor(transactions),
                         managerJoinProcessor),
                 mock(PullTaskResourceRecoveryTransactionService.class),
                 properties, "worker-fixed");
 
         assertThat(coordinator.dispatchOnce(1_000L))
-                .isEqualTo(new PullTaskExecutionDispatchStats(2, 2,
-                        new PullTaskExecutionDispatchStats.Outcomes(1, 0, 1, 0)));
+                .isEqualTo(new PullTaskExecutionDispatchStats(2, 1,
+                        new PullTaskExecutionDispatchStats.Outcomes(1, 0, 0, 1)));
     }
 
     @Test

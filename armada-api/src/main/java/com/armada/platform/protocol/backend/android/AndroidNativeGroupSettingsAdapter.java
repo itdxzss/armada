@@ -6,7 +6,7 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.routing.GroupSettingsBackend;
 
-/** Android Zhuan 群设置后端，本期只开放发言权限。 */
+/** Android Zhuan 群设置后端。 */
 public final class AndroidNativeGroupSettingsAdapter implements GroupSettingsBackend {
 
     private final AndroidNativeClient client;
@@ -48,7 +48,14 @@ public final class AndroidNativeGroupSettingsAdapter implements GroupSettingsBac
 
     @Override
     public void setAddMembersAllowed(ProtocolAccountRef account, String groupJid, boolean enabled) {
-        throw unsupported(account, "member-add");
+        requireAccount(account);
+        AndroidDecodedResponse response = decoder.decode(
+                client.setGroupMemberAddMode(
+                        account.wsPhone(), requireGroup(groupJid), enabled));
+        if (!response.success()) {
+            throw errorMapper.toException(
+                    response, account, "group.settings.member-add", null);
+        }
     }
 
     @Override

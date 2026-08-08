@@ -48,6 +48,7 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
         assertThat(result.createdAtSeconds()).isNull();
         assertThat(result.participantsComplete()).isTrue();
         assertThat(result.announce()).isFalse();
+        assertThat(result.memberAddMode()).isNull();
         assertThat(result.stateAbnormal()).isFalse();
         assertThat(result.participantMutationSupported()).isTrue();
         assertThat(result.participants()).hasSize(3);
@@ -89,6 +90,42 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
         GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
 
         assertThat(result.announce()).isTrue();
+    }
+
+    @Test
+    void mapsAndroidMemberAddModeToUnifiedBooleanPermission() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"普通成员可拉人群",
+                          "GroupId":"120363001@g.us",
+                          "MemberAddMode":"all_member_add",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.memberAddMode()).isTrue();
+    }
+
+    @Test
+    void mapsAndroidAdminOnlyAddModeToFalse() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"仅管理员可拉人群",
+                          "GroupId":"120363001@g.us",
+                          "MemberAddMode":"admin_add",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.memberAddMode()).isFalse();
     }
 
     @Test

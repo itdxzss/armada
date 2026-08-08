@@ -39,7 +39,7 @@ public interface PullTaskGroupExecutionMapper {
     /** 初始化草稿行后写入，避免 Mapper XML 固化业务值。 */
     default int insertDraft(PullTaskGroupExecution row) {
         row.setExecutionStatus(PullTaskExecutionStatus.DRAFT.code());
-        row.setStage(PullTaskExecutionStage.LINK_VALIDATION.code());
+        row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
         row.setManualPaused(0);
         row.setNextManagerIndex(0);
         row.setNextPullerIndex(0);

@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountGroupService;
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupFolderService;
 import com.armada.group.model.vo.GroupFolderOptionVO;
@@ -554,13 +553,8 @@ class PullTaskStandardCreateServiceTest {
         }
 
         @Bean
-        GroupInvitePageFetcher invitePageFetcher() {
-            return mock(GroupInvitePageFetcher.class);
-        }
-
-        @Bean
-        PullTaskLinkProbeService probeService(GroupInvitePageFetcher fetcher) {
-            return new PullTaskLinkProbeService(fetcher, Runnable::run);
+        PullTaskLinkProbeService probeService() {
+            return new PullTaskLinkProbeService();
         }
 
         @Bean

@@ -3,8 +3,6 @@ package com.armada.task.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.group.service.GroupInvitePageMetadata;
-import com.armada.group.service.GroupInvitePageProbe;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -44,7 +42,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
-/** EX-01 单租户短事务、父任务并发槽位与链接校验检查点集成测试。 */
+/** EX-01 单租户短事务、父任务并发槽位与旧阶段本地推进集成测试。 */
 @SpringJUnitConfig(PullTaskExecutionTransactionServiceTest.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -156,12 +154,10 @@ class PullTaskExecutionTransactionServiceTest {
     }
 
     @Test
-    void validProfileAdvancesToManagerJoinAndReleasesLease() throws SQLException {
-        PullTaskExecutionWork work = prepareSingle("worker-1");
-        GroupInvitePageProbe probe = new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(work.inviteCode(), "真实群", null), true);
+    void legacyLinkValidationAdvancesLocallyAndReleasesLease() throws SQLException {
+        PullTaskExecutionWork work = prepareLegacySingle("worker-1");
 
-        assertThat(transactionService.applyLinkValidation(work, probe, 700L, 5_000L))
+        assertThat(transactionService.advanceLegacyLinkValidation(work, 700L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         TenantContext.set(7L);
@@ -172,64 +168,10 @@ class PullTaskExecutionTransactionServiceTest {
         assertThat(saved.getLockOwner()).isNull();
     }
 
-    @Test
-    void reachablePageWithoutProfileFailsTheExecutionRow() throws SQLException {
-        PullTaskExecutionWork work = prepareSingle("worker-1");
-        GroupInvitePageProbe probe = new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(work.inviteCode(), null, null), true);
-
-        assertThat(transactionService.applyLinkValidation(work, probe, 700L, 5_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.FAILED);
-
-        TenantContext.set(7L);
-        PullTaskGroupExecution saved = executionMapper.selectByTaskId(100L).get(0);
-        assertThat(saved.getExecutionStatus()).isEqualTo(5);
-        assertThat(saved.getReasonCode()).isEqualTo("LINK_INVALID");
-        assertThat(saved.getFinishedAt()).isEqualTo(700L);
-        assertThat(saved.getLockOwner()).isNull();
-        assertThat(taskStatus(100L)).isEqualTo("COMPLETED");
-    }
-
-    @Test
-    void oneFailedExecutionDoesNotCompleteParentWhileAnotherExecutionIsPending()
-            throws SQLException {
+    private PullTaskExecutionWork prepareLegacySingle(String lockOwner) throws SQLException {
         seedParent(100L, "EXECUTING");
         insertAndFreeze(100L, 1, LINK);
-        insertAndFreeze(100L, 2, "chat.whatsapp.com/BBBBBBBBBBBBBBBBBBBBBB");
-        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
-        PullTaskExecutionWork work = transactionService
-                .prepare(claimed, "worker-1", 600L).orElseThrow();
-        GroupInvitePageProbe probe = new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(work.inviteCode(), null, null), true);
-
-        assertThat(transactionService.applyLinkValidation(work, probe, 700L, 5_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.FAILED);
-
-        TenantContext.set(7L);
-        assertThat(taskStatus(100L)).isEqualTo("EXECUTING");
-    }
-
-    @Test
-    void unreachablePageDefersWithoutMarkingLinkInvalid() throws SQLException {
-        PullTaskExecutionWork work = prepareSingle("worker-1");
-        GroupInvitePageProbe probe = new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(work.inviteCode(), null, null), false);
-
-        assertThat(transactionService.applyLinkValidation(work, probe, 700L, 5_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-
-        TenantContext.set(7L);
-        PullTaskGroupExecution saved = executionMapper.selectByTaskId(100L).get(0);
-        assertThat(saved.getExecutionStatus()).isEqualTo(2);
-        assertThat(saved.getStage()).isEqualTo(1);
-        assertThat(saved.getReasonCode()).isEqualTo("LINK_PROBE_INCOMPLETE");
-        assertThat(saved.getNextRunAt()).isEqualTo(5_700L);
-        assertThat(saved.getFinishedAt()).isNull();
-    }
-
-    private PullTaskExecutionWork prepareSingle(String lockOwner) throws SQLException {
-        seedParent(100L, "EXECUTING");
-        insertAndFreeze(100L, 1, LINK);
+        execute("UPDATE pull_task_group_execution SET stage = 1 WHERE task_id = 100");
         PullTaskGroupExecution claimed = claim(1, lockOwner, 1_000L).get(0);
         return transactionService.prepare(claimed, lockOwner, 600L).orElseThrow();
     }
@@ -242,7 +184,8 @@ class PullTaskExecutionTransactionServiceTest {
                 List.of(
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.WAIT_START.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code())),
+                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                        PullTaskExecutionStage.MANAGER_JOIN.code())),
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.EXECUTING.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
@@ -307,18 +250,6 @@ class PullTaskExecutionTransactionServiceTest {
         }
     }
 
-    private String taskStatus(long taskId) throws SQLException {
-        try (var connection = dataSource.getConnection();
-             var statement = connection.prepareStatement(
-                     "SELECT status FROM pull_task WHERE id = ?")) {
-            statement.setLong(1, taskId);
-            try (var result = statement.executeQuery()) {
-                result.next();
-                return result.getString(1);
-            }
-        }
-    }
-
     private Optional<PullTaskExecutionWork> prepareTogether(
             PullTaskGroupExecution candidate,
             CountDownLatch ready,
@@ -377,17 +308,9 @@ class PullTaskExecutionTransactionServiceTest {
         @Bean
         PullTaskExecutionTransactionService transactionService(PullTaskMapper taskMapper,
                 PullTaskStandardSettingMapper settingMapper,
-                PullTaskGroupExecutionMapper executionMapper,
-                PullTaskParentCompletionService parentCompletionService) {
-            return new PullTaskExecutionTransactionService(
-                    taskMapper, settingMapper, executionMapper, parentCompletionService);
-        }
-
-        @Bean
-        PullTaskParentCompletionService parentCompletionService(
-                PullTaskMapper taskMapper,
                 PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper);
+            return new PullTaskExecutionTransactionService(
+                    taskMapper, settingMapper, executionMapper);
         }
     }
 }

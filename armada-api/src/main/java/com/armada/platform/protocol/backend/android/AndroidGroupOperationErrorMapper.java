@@ -87,9 +87,12 @@ public final class AndroidGroupOperationErrorMapper {
             return ProtocolErrorCode.TIMEOUT;
         }
         boolean unauthorized = "401".equals(response.rawProtocolCode())
+                || "403".equals(response.rawProtocolCode())
                 || message.contains("not-authorized")
                 || message.contains("not authorized")
-                || message.contains("code: 401");
+                || message.contains("forbidden")
+                || message.contains("code: 401")
+                || message.contains("code: 403");
         if (unauthorized) {
             return ProtocolErrorCode.GROUP_PERMISSION_DENIED;
         }

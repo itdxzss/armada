@@ -26,6 +26,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
+import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -36,8 +37,9 @@ class PullTaskManagerJoinResultServiceImplTest {
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
     private final PullTaskParentCompletionService completionService = mock(PullTaskParentCompletionService.class);
+    private final PullTaskExecutionDispatchProperties properties = properties();
     private final PullTaskManagerJoinResultServiceImpl service = new PullTaskManagerJoinResultServiceImpl(
-            actionMapper, accountMapper, executionMapper, completionService);
+            actionMapper, accountMapper, executionMapper, completionService, properties);
 
     @AfterEach
     void clearTenant() {
@@ -100,7 +102,59 @@ class PullTaskManagerJoinResultServiceImplTest {
         verify(executionMapper).transitionManagerJoinResult(transition.capture());
         assertThat(transition.getValue().target().stage())
                 .isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
-        assertThat(transition.getValue().target().nextRunAt()).isEqualTo(5_000L);
+        assertThat(transition.getValue().target().reasonMessage())
+                .isEqualTo("进群结果暂未确认");
+        assertThat(transition.getValue().target().nextRunAt()).isEqualTo(35_000L);
+    }
+
+    @Test
+    void permanentInviteFailureFailsTheExecutionWithAStableChineseReason() {
+        stubOpenFacts();
+
+        boolean handled = service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1",
+                PullTaskManagerJoinProtocolOutcome.FAILED,
+                null, "INVITE_REVOKED", "raw protocol text", false, 5_000L));
+
+        assertThat(handled).isTrue();
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(transition.capture());
+        assertThat(transition.getValue().target().executionStatus())
+                .isEqualTo(PullTaskExecutionStatus.FAILED.code());
+        assertThat(transition.getValue().target().reasonCode()).isEqualTo("INVITE_REVOKED");
+        assertThat(transition.getValue().target().reasonMessage())
+                .isEqualTo("群邀请链接已失效");
+        verify(completionService).completeIfTerminalByExecutionId(11L, 5_000L);
+    }
+
+    @Test
+    void retryableProtocolFailureKeepsTheExecutionAndUsesBackoff() {
+        stubOpenFacts();
+
+        boolean handled = service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1",
+                PullTaskManagerJoinProtocolOutcome.FAILED,
+                null, "RATE_LIMITED", "raw protocol text", true, 5_000L));
+
+        assertThat(handled).isTrue();
+        ArgumentCaptor<PullTaskFactTransition> actionTransition =
+                ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(actionMapper).transitionResult(actionTransition.capture());
+        assertThat(actionTransition.getValue().targetStatus())
+                .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
+        assertThat(actionTransition.getValue().result().reasonMessage())
+                .isEqualTo("进群请求被限流，请稍后重试");
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> executionTransition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(executionTransition.capture());
+        assertThat(executionTransition.getValue().target().executionStatus())
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(executionTransition.getValue().target().stage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
+        assertThat(executionTransition.getValue().target().reasonMessage())
+                .isEqualTo("进群请求被限流，请稍后重试");
+        assertThat(executionTransition.getValue().target().nextRunAt()).isEqualTo(35_000L);
     }
 
     @Test
@@ -133,6 +187,21 @@ class PullTaskManagerJoinResultServiceImplTest {
         row.setActionStatus(PullTaskActionStatus.SUBMITTED.code());
         row.setCommandId("cmd-pull-1");
         return row;
+    }
+
+    private void stubOpenFacts() {
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(manager());
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
+    }
+
+    private static PullTaskExecutionDispatchProperties properties() {
+        PullTaskExecutionDispatchProperties properties = new PullTaskExecutionDispatchProperties();
+        properties.setRetryDelayMs(30_000L);
+        return properties;
     }
 
     private static PullTaskGroupAccount manager() {

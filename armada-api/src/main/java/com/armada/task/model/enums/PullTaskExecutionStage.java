@@ -3,7 +3,7 @@ package com.armada.task.model.enums;
 /** 群链接执行行业务阶段；与 pull_task_group_execution.stage 的 TINYINT 取值一一对应。 */
 public enum PullTaskExecutionStage {
 
-    /** 链接校验：确认链接有效并解析群 JID。 */
+    /** 历史链接校验阶段：旧执行行由调度器在本地直接推进，不再访问公开邀请页。 */
     LINK_VALIDATION(1),
     /** 管理入群：管理分组账号踩链接进入目标群。 */
     MANAGER_JOIN(2),

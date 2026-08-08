@@ -21,12 +21,14 @@ import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
+import com.armada.task.model.dto.PullTaskMemberAddPermissionWork;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
@@ -143,6 +145,53 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         assertThat(saved.getGroupJid()).isEqualTo("120363group@g.us");
         assertThat(saved.getNextRunAt()).isEqualTo(60_610L);
         assertThat(saved.getLockOwner()).isNull();
+    }
+
+    @Test
+    void permissionPreparationResolvesManagerWithoutAllocatingPuller() {
+        ProtocolAccountRef manager = new ProtocolAccountRef(
+                901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+
+        PullTaskMemberAddPermissionPreparation preparation =
+                service.prepareMemberAddPermission(candidate, "worker-1", 610L);
+
+        assertThat(preparation.ready()).isTrue();
+        assertThat(preparation.work().manager()).isEqualTo(manager);
+        assertThat(preparation.work().groupJid()).isEqualTo("120363group@g.us");
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.PULLER.code())).isEmpty();
+        assertThat(actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.SAVE_CONTACT.code())).isEmpty();
+    }
+
+    @Test
+    void unconfirmedPermissionDefersCurrentStageWithoutAllocatingPuller() {
+        ProtocolAccountRef manager = new ProtocolAccountRef(
+                901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        PullTaskMemberAddPermissionWork work = service.prepareMemberAddPermission(
+                candidate, "worker-1", 610L).work();
+
+        PullTaskExecutionDispatchResult result = service.deferMemberAddPermission(
+                work,
+                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED,
+                620L);
+
+        assertThat(result).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectByTaskId(100L).get(0);
+        assertThat(saved.getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+        assertThat(saved.getReasonCode()).isEqualTo(
+                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED.name());
+        assertThat(saved.getNextRunAt()).isEqualTo(30_620L);
+        assertThat(saved.getLockOwner()).isNull();
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.PULLER.code())).isEmpty();
     }
 
     @Test

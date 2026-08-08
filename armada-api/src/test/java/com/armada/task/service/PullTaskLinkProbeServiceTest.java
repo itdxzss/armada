@@ -2,16 +2,7 @@ package com.armada.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-import com.armada.group.service.GroupInvitePageFetcher;
-import com.armada.group.service.GroupInvitePageMetadata;
-import com.armada.group.service.GroupInvitePageProbe;
 import com.armada.shared.exception.BusinessException;
 import com.armada.task.model.enums.PullTaskStandardLinkLineStatus;
 import com.armada.task.service.PullTaskLinkProbeService.LinkLine;
@@ -19,10 +10,9 @@ import com.armada.task.service.PullTaskLinkProbeService.ProbeResult;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** 群链接六态判定测试；抓取端口全部 mock，不出网。 */
+/** 群链接创建计划的本地格式、去重和占用判定测试。 */
 class PullTaskLinkProbeServiceTest {
 
     private static final String CODE_A = "AAAAAAAAAAAAAAAAAAAAAA";
@@ -30,20 +20,10 @@ class PullTaskLinkProbeServiceTest {
     private static final String LINK_A = "chat.whatsapp.com/" + CODE_A;
     private static final String LINK_B = "chat.whatsapp.com/" + CODE_B;
 
-    private GroupInvitePageFetcher fetcher;
-    private PullTaskLinkProbeService service;
-
-    @BeforeEach
-    void setUp() {
-        fetcher = mock(GroupInvitePageFetcher.class);
-        // 同步执行器让并发路径在测试里变确定；生产注入有界线程池。
-        service = new PullTaskLinkProbeService(fetcher, Runnable::run);
-    }
+    private final PullTaskLinkProbeService service = new PullTaskLinkProbeService();
 
     @Test
-    void marksValidWhenPageReachableWithProfile() {
-        stubProfile(LINK_A);
-
+    void marksFormatValidWithoutRequestingThePublicInvitePage() {
         ProbeResult result = service.probe("https://" + LINK_A, Set.of());
 
         assertThat(result.lines()).singleElement().satisfies(line -> {
@@ -55,32 +35,7 @@ class PullTaskLinkProbeServiceTest {
     }
 
     @Test
-    void marksExpiredAndKeepsItOutOfThePool() {
-        stubNoProfile(LINK_A);
-
-        ProbeResult result = service.probe(LINK_A, Set.of());
-
-        assertThat(result.lines().get(0).status())
-                .isEqualTo(PullTaskStandardLinkLineStatus.LINK_EXPIRED);
-        assertThat(result.poolLinks()).isEmpty();
-    }
-
-    @Test
-    void marksProbeIncompleteButStillEntersThePool() {
-        stubUnreachable(LINK_A);
-
-        ProbeResult result = service.probe(LINK_A, Set.of());
-
-        // 抓不到可能只是本系统网络抖动，启动时还会再校验一次，不能当成用户链接失效。
-        assertThat(result.lines().get(0).status())
-                .isEqualTo(PullTaskStandardLinkLineStatus.PROBE_INCOMPLETE);
-        assertThat(result.poolLinks()).containsExactly(LINK_A);
-    }
-
-    @Test
-    void reportsInvalidFormatWithOriginalLineNumberAndSkipsFetch() {
-        stubProfile(LINK_A);
-
+    void reportsInvalidFormatWithOriginalLineNumber() {
         ProbeResult result = service.probe("不是链接\n" + LINK_A, Set.of());
 
         assertThat(result.lines()).extracting(LinkLine::lineNo, LinkLine::status)
@@ -90,13 +45,10 @@ class PullTaskLinkProbeServiceTest {
                         org.assertj.core.groups.Tuple.tuple(
                                 2, PullTaskStandardLinkLineStatus.VALID));
         assertThat(result.lines().get(0).reason()).isNotBlank();
-        verify(fetcher, times(1)).probe(anyString());
     }
 
     @Test
     void ignoresBlankLinesWithoutConsumingLineNumbers() {
-        stubProfile(LINK_A);
-
         ProbeResult result = service.probe("\n\n" + LINK_A, Set.of());
 
         assertThat(result.lines()).singleElement()
@@ -104,9 +56,7 @@ class PullTaskLinkProbeServiceTest {
     }
 
     @Test
-    void marksBatchDuplicateAndFetchesOnlyOnce() {
-        stubProfile(LINK_A);
-
+    void marksBatchDuplicateAndKeepsOnlyTheFirstLink() {
         ProbeResult result = service.probe(LINK_A + "\nhttps://" + LINK_A + "/", Set.of());
 
         assertThat(result.lines()).extracting(LinkLine::lineNo, LinkLine::status)
@@ -116,20 +66,16 @@ class PullTaskLinkProbeServiceTest {
                         org.assertj.core.groups.Tuple.tuple(
                                 2, PullTaskStandardLinkLineStatus.DUPLICATE));
         assertThat(result.poolLinks()).containsExactly(LINK_A);
-        verify(fetcher, times(1)).probe(LINK_A);
     }
 
     @Test
-    void marksOccupiedWithoutFetchingAtAll() {
-        stubProfile(LINK_B);
-
+    void marksOccupiedAndKeepsOtherFormatValidLinks() {
         ProbeResult result = service.probe(LINK_A + "\n" + LINK_B, Set.of(LINK_A));
 
         assertThat(result.lines()).extracting(LinkLine::status)
                 .containsExactly(PullTaskStandardLinkLineStatus.OCCUPIED,
                         PullTaskStandardLinkLineStatus.VALID);
         assertThat(result.poolLinks()).containsExactly(LINK_B);
-        verify(fetcher, never()).probe(LINK_A);
     }
 
     @Test
@@ -141,7 +87,6 @@ class PullTaskLinkProbeServiceTest {
         assertThatThrownBy(() -> service.probe(text, Set.of()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining(String.valueOf(PullTaskLinkProbeService.MAX_VALID_LINK_COUNT));
-        verify(fetcher, never()).probe(anyString());
     }
 
     @Test
@@ -167,22 +112,4 @@ class PullTaskLinkProbeServiceTest {
         assertThat(PullTaskLinkProbeService.candidateLinks("  ")).isEmpty();
     }
 
-    private void stubProfile(String normalizedLink) {
-        when(fetcher.probe(normalizedLink)).thenReturn(new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(inviteCode(normalizedLink), "真实群名", null), true));
-    }
-
-    private void stubNoProfile(String normalizedLink) {
-        when(fetcher.probe(normalizedLink)).thenReturn(new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(inviteCode(normalizedLink), null, null), true));
-    }
-
-    private void stubUnreachable(String normalizedLink) {
-        when(fetcher.probe(normalizedLink)).thenReturn(new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(inviteCode(normalizedLink), null, null), false));
-    }
-
-    private static String inviteCode(String normalizedLink) {
-        return normalizedLink.substring(normalizedLink.lastIndexOf('/') + 1);
-    }
 }

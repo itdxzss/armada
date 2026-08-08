@@ -46,10 +46,9 @@ public class PullTaskExecutionStageRouter {
     public PullTaskExecutionDispatchResult process(
             PullTaskGroupExecution candidate,
             String lockOwner,
-            long now,
-            long retryDelayMs) {
+            long now) {
         if (candidate.getStage() == PullTaskExecutionStage.LINK_VALIDATION.code()) {
-            return linkValidationProcessor.process(candidate, lockOwner, now, retryDelayMs);
+            return linkValidationProcessor.process(candidate, lockOwner, now);
         }
         if (candidate.getStage() == PullTaskExecutionStage.MANAGER_JOIN.code()) {
             return managerJoinProcessor.process(candidate, lockOwner, now);

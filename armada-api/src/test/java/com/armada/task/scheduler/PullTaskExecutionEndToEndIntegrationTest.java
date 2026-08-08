@@ -9,9 +9,6 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.group.service.GroupInvitePageFetcher;
-import com.armada.group.service.GroupInvitePageMetadata;
-import com.armada.group.service.GroupInvitePageProbe;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -26,11 +23,14 @@ import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.port.ContactPort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -470,14 +470,6 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return template.getMapper(PullTaskPullCallMapper.class);
         }
 
-        @Bean GroupInvitePageFetcher invitePageFetcher() {
-            GroupInvitePageFetcher fetcher = mock(GroupInvitePageFetcher.class);
-            when(fetcher.probe("chat.whatsapp.com/AAAA")).thenReturn(
-                    new GroupInvitePageProbe(
-                            new GroupInvitePageMetadata("AAAA", "group", null), true));
-            return fetcher;
-        }
-
         @Bean AccountProtocolLookupService accountLookup() {
             AccountProtocolLookupService lookup = mock(AccountProtocolLookupService.class);
             when(lookup.findRandomOnlineNormalByGroupId(88L)).thenReturn(Optional.of(MANAGER));
@@ -547,13 +539,12 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskParentCompletionService parentCompletion) {
             return new PullTaskExecutionTransactionService(
-                    taskMapper, settingMapper, executionMapper, parentCompletion);
+                    taskMapper, settingMapper, executionMapper);
         }
 
         @Bean PullTaskLinkValidationProcessor linkProcessor(
-                PullTaskExecutionTransactionService transactions,
-                GroupInvitePageFetcher fetcher) {
-            return new PullTaskLinkValidationProcessor(transactions, fetcher);
+                PullTaskExecutionTransactionService transactions) {
+            return new PullTaskLinkValidationProcessor(transactions);
         }
 
         @Bean PullTaskManagerJoinProcessor managerJoinProcessor(
@@ -563,14 +554,16 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskParentCompletionService parentCompletion, GroupJoinPort joinPort,
                 GroupMemberListPort memberListPort,
                 com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
-                PullTaskExecutionDispatchProperties properties) {
+                PullTaskExecutionDispatchProperties properties,
+                PullTaskExecutionTransactionService executionTransactions) {
             PullTaskManagerJoinResources resources = new PullTaskManagerJoinResources(
                     executionMapper, lookup, parentCompletion, outboxService, properties);
             PullTaskManagerJoinTransactionService transactions =
                     new PullTaskManagerJoinTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
             return new PullTaskManagerJoinProcessor(
-                    transactions, mock(PullTaskSupplementManagerProcessor.class),
+                    executionTransactions, transactions,
+                    mock(PullTaskSupplementManagerProcessor.class),
                     joinPort, memberListPort);
         }
 
@@ -582,9 +575,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskParentCompletionService completionService) {
+                PullTaskParentCompletionService completionService,
+                PullTaskExecutionDispatchProperties properties) {
             return new PullTaskManagerJoinResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, completionService);
+                    actionMapper, accountMapper, executionMapper, completionService, properties);
         }
 
         @Bean PullTaskManagerAdminResultService managerAdminResultService(
@@ -624,8 +618,16 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerPullerContactTransactionService transactions =
                     new PullTaskManagerPullerContactTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
+            FixedAccountGroupMetadataPort metadataPort =
+                    mock(FixedAccountGroupMetadataPort.class);
+            GroupMetadataResult metadata = mock(GroupMetadataResult.class);
+            when(metadata.memberAddMode()).thenReturn(true);
+            when(metadataPort.getMetadata(any(), any())).thenReturn(metadata);
             return new PullTaskManagerPullerContactProcessor(
-                    transactions, mock(PullTaskSupplementPullerProcessor.class));
+                    transactions,
+                    mock(PullTaskSupplementPullerProcessor.class),
+                    metadataPort,
+                    mock(GroupSettingsPort.class));
         }
 
         @Bean PullTaskPullerInviteProcessor pullerInviteProcessor(

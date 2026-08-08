@@ -8,6 +8,7 @@ import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
+import com.armada.task.model.dto.PullTaskMemberAddPermissionWork;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -103,6 +104,99 @@ public class PullTaskManagerPullerContactTransactionService {
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    /**
+     * 在短事务内复核租约并解析用于设置普通成员添加权限的任务管理员。
+     *
+     * <p>该方法不占用拉手，也不创建联系人动作；协议读写由事务外 Processor 执行。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public PullTaskMemberAddPermissionPreparation prepareMemberAddPermission(
+            PullTaskGroupExecution candidate, String lockOwner, long now) {
+        if (!hasIdentity(candidate)) {
+            return PullTaskMemberAddPermissionPreparation.completed(
+                    PullTaskExecutionDispatchResult.LOST);
+        }
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(candidate.getTenantId());
+        try {
+            PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
+            if (!isDispatchable(parent, candidate, lockOwner)) {
+                resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
+                return PullTaskMemberAddPermissionPreparation.completed(
+                        PullTaskExecutionDispatchResult.LOST);
+            }
+            List<PullTaskGroupAccount> managers = availableManagers(candidate.getId());
+            if (managers.isEmpty()) {
+                return PullTaskMemberAddPermissionPreparation.completed(
+                        waitForManager(candidate, now));
+            }
+            Map<Long, ProtocolAccountRef> accounts = accountMap(managers);
+            ProtocolAccountRef manager = managers.stream()
+                    .map(PullTaskGroupAccount::getAccountId)
+                    .map(accounts::get)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+            if (manager == null) {
+                return PullTaskMemberAddPermissionPreparation.completed(
+                        waitForManager(candidate, now));
+            }
+            if (candidate.getGroupJid() == null || candidate.getGroupJid().isBlank()) {
+                return PullTaskMemberAddPermissionPreparation.completed(
+                        deferMemberAddPermission(
+                                candidate,
+                                PullTaskExecutionReasonCode
+                                        .GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED,
+                                now));
+            }
+            return PullTaskMemberAddPermissionPreparation.ready(
+                    new PullTaskMemberAddPermissionWork(
+                            candidate.getTenantId(),
+                            candidate.getId(),
+                            candidate.getVersion(),
+                            lockOwner,
+                            candidate.getGroupJid(),
+                            manager));
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    /** 延迟尚未确认的普通成员添加权限并释放当前执行租约。 */
+    @Transactional(rollbackFor = Exception.class)
+    public PullTaskExecutionDispatchResult deferMemberAddPermission(
+            PullTaskMemberAddPermissionWork work,
+            PullTaskExecutionReasonCode reason,
+            long now) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(work.tenantId());
+        try {
+            PullTaskGroupExecution candidate = new PullTaskGroupExecution();
+            candidate.setId(work.executionId());
+            candidate.setVersion(work.expectedVersion());
+            candidate.setLockOwner(work.lockOwner());
+            return deferMemberAddPermission(candidate, reason, now);
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    private PullTaskExecutionDispatchResult deferMemberAddPermission(
+            PullTaskGroupExecution candidate,
+            PullTaskExecutionReasonCode reason,
+            long now) {
+        PullTaskGroupExecution update = transition(candidate, now);
+        update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+        update.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+        update.setReasonCode(reason.name());
+        update.setReasonMessage(reason.message());
+        update.setNextRunAt(now + resources.properties().getRetryDelayMs());
+        return resources.executionMapper().transitionClaimed(
+                update, PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()) == 1
+                ? PullTaskExecutionDispatchResult.DEFERRED
+                : PullTaskExecutionDispatchResult.LOST;
     }
 
     private List<PullTaskGroupAccount> availableManagers(long executionId) {

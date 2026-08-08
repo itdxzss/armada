@@ -62,6 +62,21 @@ class AndroidGroupOperationErrorMapperTest {
     }
 
     @Test
+    void classifiesRaw403AndForbiddenAsGroupPermissionDenied() {
+        ProtocolException rawCodeException = mapper.toException(
+                response("permission failed", null, "403"),
+                account(), "group.settings.member-add", "item:13");
+        ProtocolException messageException = mapper.toException(
+                response("forbidden", null, null),
+                account(), "group.settings.member-add", "item:14");
+
+        assertThat(rawCodeException.errorCode())
+                .isEqualTo(ProtocolErrorCode.GROUP_PERMISSION_DENIED);
+        assertThat(messageException.errorCode())
+                .isEqualTo(ProtocolErrorCode.GROUP_PERMISSION_DENIED);
+    }
+
+    @Test
     void preservesSafeMetadataAndCanonicalContext() {
         ProtocolException exception = mapper.toException(
                 response("sensitive native response", null, "999"),

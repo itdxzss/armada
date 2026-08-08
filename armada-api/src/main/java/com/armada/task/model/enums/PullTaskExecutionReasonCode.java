@@ -3,10 +3,10 @@ package com.armada.task.model.enums;
 /** 普通群链接执行链路的持久化原因码与脱敏说明。 */
 public enum PullTaskExecutionReasonCode {
 
-    /** 公开邀请页可达，但没有任何真实群资料。 */
+    /** 历史兼容原因码；新任务由协议进群结果判断链接是否失效。 */
     LINK_INVALID("群链接已失效"),
 
-    /** 公开邀请页暂时不可达，不能据此判定链接失效。 */
+    /** 历史兼容原因码；取消公开邀请页预检后不再生成。 */
     LINK_PROBE_INCOMPLETE("群链接校验暂不可用"),
 
     /** 管理分组当前没有可执行协议动作的在线正常账号。 */
@@ -26,6 +26,12 @@ public enum PullTaskExecutionReasonCode {
 
     /** 提权命令已有结果，但实时成员列表尚未确认目标权限。 */
     MANAGER_ADMIN_UNCONFIRMED("管理员权限结果暂未确认"),
+
+    /** 管理员账号尚未确认普通成员可以添加群成员。 */
+    GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED("普通成员添加群成员权限尚未确认"),
+
+    /** 当前管理账号没有修改普通成员添加群成员权限的管理员权限。 */
+    GROUP_MEMBER_ADD_PERMISSION_DENIED("管理员账号无权开启普通成员添加群成员权限"),
 
     /** 拉手分组当前没有可占用且可执行协议动作的在线正常账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),

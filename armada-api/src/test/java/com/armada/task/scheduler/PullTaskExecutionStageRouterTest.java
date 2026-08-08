@@ -28,7 +28,7 @@ class PullTaskExecutionStageRouterTest {
         when(contact.process(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
 
-        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+        assertThat(router.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
         verify(contact).process(candidate, "worker-1", 1_000L);
     }
@@ -50,7 +50,7 @@ class PullTaskExecutionStageRouterTest {
         when(invite.process(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
-        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+        assertThat(router.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(invite).process(candidate, "worker-1", 1_000L);
     }
@@ -71,7 +71,7 @@ class PullTaskExecutionStageRouterTest {
         when(pullExecution.process(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
-        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+        assertThat(router.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(pullExecution).process(candidate, "worker-1", 1_000L);
     }
@@ -92,7 +92,7 @@ class PullTaskExecutionStageRouterTest {
         when(materialAdmin.process(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
-        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+        assertThat(router.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(materialAdmin).process(candidate, "worker-1", 1_000L);
     }
@@ -113,7 +113,7 @@ class PullTaskExecutionStageRouterTest {
         when(pullExecution.close(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
 
-        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+        assertThat(router.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
         verify(pullExecution).close(candidate, "worker-1", 1_000L);
     }
@@ -134,7 +134,7 @@ class PullTaskExecutionStageRouterTest {
         when(managerAdmin.process(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
-        assertThat(router.process(candidate, "worker-1", 1_000L, 2_000L))
+        assertThat(router.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(managerAdmin).process(candidate, "worker-1", 1_000L);
         verify(contact, org.mockito.Mockito.never())

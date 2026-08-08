@@ -18,6 +18,8 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private static final String GROUP_CREATE_URI_PREFIX = "/ws/v1/groups/create/";
     private static final String GROUP_ANNOUNCEMENT_URI_PREFIX =
             "/ws/v1/groups/settings/sendmessage/";
+    private static final String GROUP_MEMBER_ADD_MODE_URI_PREFIX =
+            "/ws/v1/groups/settings/join-mode/";
     private static final String GROUP_MEMBERS_ADD_URI_PREFIX = "/ws/v1/groups/members/add/";
     private static final String GROUP_ADMIN_SET_URI_PREFIX = "/ws/v1/groups/admin/set/";
     private static final String GROUP_INVITE_URI_PREFIX = "/ws/v1/groups/qrcode/";
@@ -144,9 +146,30 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
             boolean membersCanSend) {
         return httpExecutor.postTyped(
                 GROUP_ANNOUNCEMENT_URI_PREFIX + requireDigits(wsPhone),
-                new AnnouncementRequest(
+                new GroupPermissionRequest(
                         requireText(groupJid, GROUP_JID_FIELD),
                         membersCanSend),
+                AndroidResponseEnvelope.class);
+    }
+
+    /**
+     * 按 Zhuan 原生 {@code group_id/state} 请求结构设置普通成员添加权限。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param groupJid 带 {@code @g.us} 的 WhatsApp 群 JID
+     * @param membersCanAdd 普通成员是否可以添加群成员
+     * @return Android 原生响应包
+     */
+    @Override
+    public AndroidResponseEnvelope setGroupMemberAddMode(
+            String wsPhone,
+            String groupJid,
+            boolean membersCanAdd) {
+        return httpExecutor.postTyped(
+                GROUP_MEMBER_ADD_MODE_URI_PREFIX + requireDigits(wsPhone),
+                new GroupPermissionRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        membersCanAdd),
                 AndroidResponseEnvelope.class);
     }
 
@@ -231,9 +254,9 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private record CreateGroupRequest(String subject, List<String> participants) {
     }
 
-    private record AnnouncementRequest(
+    private record GroupPermissionRequest(
             @JsonProperty("group_id") String groupId,
-            @JsonProperty("state") boolean membersCanSend) {
+            @JsonProperty("state") boolean enabled) {
     }
 
     private record GroupMembersRequest(

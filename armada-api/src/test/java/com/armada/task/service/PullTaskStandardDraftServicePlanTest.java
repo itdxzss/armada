@@ -2,14 +2,10 @@ package com.armada.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.group.service.GroupInvitePageFetcher;
-import com.armada.group.service.GroupInvitePageMetadata;
-import com.armada.group.service.GroupInvitePageProbe;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -49,7 +45,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 创建页匹配追加流程的 H2 集成测试；邀请页抓取全部 mock，不出网。 */
+/** 创建页本地匹配追加流程的 H2 集成测试。 */
 @SpringJUnitConfig(PullTaskStandardDraftServicePlanTest.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -69,9 +65,6 @@ class PullTaskStandardDraftServicePlanTest {
     private PullTaskStandardDraftService service;
 
     @Autowired
-    private GroupInvitePageFetcher fetcher;
-
-    @Autowired
     private GroupFolderService groupFolderService;
 
     @Autowired
@@ -85,8 +78,6 @@ class PullTaskStandardDraftServicePlanTest {
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         org.mockito.Mockito.reset(groupFolderService);
-        when(fetcher.probe(anyString())).thenAnswer(invocation ->
-                reachableWithProfile(invocation.getArgument(0)));
     }
 
     @AfterEach
@@ -169,17 +160,15 @@ class PullTaskStandardDraftServicePlanTest {
     }
 
     @Test
-    void keepsExpiredLinkOutOfThePool() {
-        when(fetcher.probe(LINK_A)).thenReturn(reachableWithoutProfile(LINK_A));
-
+    void keepsEveryFormatValidLinkInThePoolForProtocolValidation() {
         PullTaskStandardDraftVO view = service.plan(null, LINK_A + "\n" + LINK_B,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.linkLines()).extracting(PullTaskStandardLinkLineVO::status)
-                .containsExactly(PullTaskStandardLinkLineStatus.LINK_EXPIRED,
+                .containsExactly(PullTaskStandardLinkLineStatus.VALID,
                         PullTaskStandardLinkLineStatus.VALID);
-        assertThat(view.rows()).singleElement()
-                .satisfies(row -> assertThat(row.normalizedLink()).isEqualTo(LINK_B));
+        assertThat(view.rows()).hasSize(1);
+        assertThat(view.remainingLinkCount()).isEqualTo(1);
     }
 
     @Test
@@ -279,20 +268,6 @@ class PullTaskStandardDraftServicePlanTest {
                 content.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static GroupInvitePageProbe reachableWithProfile(String link) {
-        return new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(inviteCode(link), "真实群名", null), true);
-    }
-
-    private static GroupInvitePageProbe reachableWithoutProfile(String link) {
-        return new GroupInvitePageProbe(
-                new GroupInvitePageMetadata(inviteCode(link), null, null), true);
-    }
-
-    private static String inviteCode(String link) {
-        return link.substring(link.lastIndexOf('/') + 1);
-    }
-
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement
     @Import(MyBatisConfig.class)
@@ -338,19 +313,13 @@ class PullTaskStandardDraftServicePlanTest {
         }
 
         @Bean
-        GroupInvitePageFetcher invitePageFetcher() {
-            return mock(GroupInvitePageFetcher.class);
-        }
-
-        @Bean
         GroupFolderService groupFolderService() {
             return mock(GroupFolderService.class);
         }
 
         @Bean
-        PullTaskLinkProbeService probeService(GroupInvitePageFetcher fetcher) {
-            // 同步执行器让并发路径在测试里变确定。
-            return new PullTaskLinkProbeService(fetcher, Runnable::run);
+        PullTaskLinkProbeService probeService() {
+            return new PullTaskLinkProbeService();
         }
 
         @Bean

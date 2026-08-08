@@ -17,12 +17,17 @@ import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.task.model.dto.PullTaskManagerJoinWork;
 import com.armada.task.model.dto.PullTaskManagerJoinPayload;
+import com.armada.task.model.dto.PullTaskExecutionLease;
+import com.armada.task.model.dto.PullTaskExecutionWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskExecutionStatus;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class PullTaskManagerJoinProcessorTest {
 
+    private final PullTaskExecutionTransactionService executionTransactions =
+            mock(PullTaskExecutionTransactionService.class);
     private final PullTaskManagerJoinTransactionService transactions =
             mock(PullTaskManagerJoinTransactionService.class);
     private final GroupJoinPort joinPort = mock(GroupJoinPort.class);
@@ -31,7 +36,30 @@ class PullTaskManagerJoinProcessorTest {
             mock(PullTaskSupplementManagerProcessor.class);
     private final PullTaskManagerJoinProcessor processor =
             new PullTaskManagerJoinProcessor(
-                    transactions, supplementProcessor, joinPort, memberListPort);
+                    executionTransactions, transactions,
+                    supplementProcessor, joinPort, memberListPort);
+
+    @Test
+    void startsNewManagerJoinRowBeforeSubmittingTheProtocolCommand() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setExecutionStatus(PullTaskExecutionStatus.WAIT_START.code());
+        candidate.setVersion(1);
+        PullTaskExecutionWork started = new PullTaskExecutionWork(
+                7L, 11L, "chat.whatsapp.com/AAAA", "AAAA",
+                new PullTaskExecutionLease("worker-1", 2));
+        when(executionTransactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(java.util.Optional.of(started));
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.completed(
+                        PullTaskExecutionDispatchResult.DEFERRED));
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(candidate.getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(candidate.getVersion()).isEqualTo(2);
+        verify(executionTransactions).prepare(candidate, "worker-1", 1_000L);
+    }
 
     @Test
     void advancesOnlyAfterTheSelectedManagerAppearsInTheLiveMemberList() {
@@ -72,6 +100,26 @@ class PullTaskManagerJoinProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(transactions).complete(work, unknown, 1_000L);
+    }
+
+    @Test
+    void pendingApprovalKeepsGroupJidAndDefersForLaterVerification() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskManagerJoinWork work = work();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
+        when(joinPort.join(work.joinCommand()))
+                .thenReturn(new GroupJoinResult(
+                        "120363group@g.us", GroupJoinOutcome.PENDING_APPROVAL));
+        PullTaskManagerJoinOutcome unknown = PullTaskManagerJoinOutcome.unconfirmed(
+                "120363group@g.us", "MANAGER_JOIN_PENDING_APPROVAL");
+        when(transactions.complete(work, unknown, 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(memberListPort, never()).list(work.memberListQuery("120363group@g.us"));
         verify(transactions).complete(work, unknown, 1_000L);
     }
 

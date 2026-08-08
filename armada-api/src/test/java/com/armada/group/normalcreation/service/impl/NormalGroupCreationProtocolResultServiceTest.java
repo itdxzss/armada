@@ -1,0 +1,271 @@
+package com.armada.group.normalcreation.service.impl;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
+
+import com.armada.account.service.AccountService;
+import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.service.GroupLinkService;
+import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedEvent;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.tenant.TenantContext;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+class NormalGroupCreationProtocolResultServiceTest {
+
+    private final NormalGroupCreationMapper mapper =
+            org.mockito.Mockito.mock(NormalGroupCreationMapper.class);
+    private final NormalGroupCreationCommandDispatcher dispatcher =
+            org.mockito.Mockito.mock(NormalGroupCreationCommandDispatcher.class);
+    private final GroupLinkRegistryService registry =
+            org.mockito.Mockito.mock(GroupLinkRegistryService.class);
+    private final GroupLinkService groupLinkService =
+            org.mockito.Mockito.mock(GroupLinkService.class);
+    private final AccountService accountService =
+            org.mockito.Mockito.mock(AccountService.class);
+    private final NormalGroupCreationProtocolResultService service =
+            new NormalGroupCreationProtocolResultService(
+                    mapper, dispatcher, registry, groupLinkService, accountService);
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void contactPrepare_waitsUntilEveryDirectionSucceedsBeforeCreatingGroup() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("SUCCESS"),
+                isNull(), isNull(), anyLong())).thenReturn(1);
+        when(mapper.countIncompleteContactDirections(21L)).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-creator", "SUCCESS",
+                382L, "creator-web", "WEB", 31L,
+                "CREATOR_SAVE_MEMBER", null, null, null));
+
+        verify(dispatcher, never()).enqueueCreatorAction(item, "GROUP_CREATE");
+        verify(mapper, never()).startGroupCreate(anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
+    }
+
+    @Test
+    void contactPrepare_lastSuccessEnqueuesCreateWithCreatorBackend() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("SUCCESS"),
+                isNull(), isNull(), anyLong())).thenReturn(1);
+        when(mapper.countIncompleteContactDirections(21L)).thenReturn(0);
+        when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
+        when(mapper.startGroupCreate(
+                org.mockito.ArgumentMatchers.eq(21L),
+                org.mockito.ArgumentMatchers.eq("cmd-create"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-member", "SUCCESS",
+                383L, "member-android", "ANDROID", 31L,
+                "MEMBER_SAVE_CREATOR", null, null, null));
+
+        verify(dispatcher).enqueueCreatorAction(item, "GROUP_CREATE");
+        verify(mapper).startGroupCreate(
+                org.mockito.ArgumentMatchers.eq(21L),
+                org.mockito.ArgumentMatchers.eq("cmd-create"), anyLong());
+    }
+
+    @Test
+    void contactPrepare_duplicateResultDoesNotAdvanceOrFailTheItem() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("SUCCESS"),
+                isNull(), isNull(), anyLong())).thenReturn(0);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-creator", "SUCCESS",
+                382L, "creator-web", "WEB", 31L,
+                "CREATOR_SAVE_MEMBER", null, null, null));
+
+        verify(mapper, never()).countIncompleteContactDirections(anyLong());
+        verify(dispatcher, never()).enqueueCreatorAction(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        verifyNoMoreInteractions(dispatcher);
+    }
+
+    @Test
+    void groupCreate_successPersistsGroupAndOnlyThenEnqueuesSettings() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(dispatcher.enqueueCreatorAction(item, "GROUP_SETTINGS_APPLY"))
+                .thenReturn("cmd-settings");
+        when(mapper.startGroupSettings(
+                org.mockito.ArgumentMatchers.eq(21L),
+                org.mockito.ArgumentMatchers.eq("cmd-create"),
+                org.mockito.ArgumentMatchers.eq("cmd-settings"),
+                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
+                org.mockito.ArgumentMatchers.eq("普群001"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "SUCCESS",
+                382L, "creator-web", "WEB", null, null,
+                "120363001@g.us", null, null));
+
+        verify(mapper).startGroupSettings(
+                org.mockito.ArgumentMatchers.eq(21L),
+                org.mockito.ArgumentMatchers.eq("cmd-create"),
+                org.mockito.ArgumentMatchers.eq("cmd-settings"),
+                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
+                org.mockito.ArgumentMatchers.eq("普群001"), anyLong());
+        verify(mapper).markParticipantsCreated(
+                org.mockito.ArgumentMatchers.eq(21L), anyLong());
+    }
+
+    @Test
+    void groupCreate_blankTemplateFinalizesSubjectFromFrozenPrefixAndGroupJid() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP",
+                "", "ABCDEFGHI");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(dispatcher.enqueueCreatorAction(item, "GROUP_SETTINGS_APPLY"))
+                .thenReturn("cmd-settings");
+        when(mapper.startGroupSettings(
+                eq(21L), eq("cmd-create"), eq("cmd-settings"),
+                eq("120363000001234@g.us"), eq("ABCDEFGHI01234"), anyLong()))
+                .thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "SUCCESS",
+                382L, "creator-web", "WEB", null, null,
+                "120363000001234@g.us", null, null));
+
+        verify(mapper).startGroupSettings(
+                eq(21L), eq("cmd-create"), eq("cmd-settings"),
+                eq("120363000001234@g.us"), eq("ABCDEFGHI01234"), anyLong());
+    }
+
+    @Test
+    void groupCreate_partialFailureIsNeverMarkedCreatedAndMigratesToSuccessGroup() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("CREATED_PARTIAL"),
+                eq("PARTICIPANTS_NOT_CONFIRMED"), eq("部分成员未确认"),
+                eq("120363001@g.us"), eq("evt-1"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "FAILED",
+                382L, "creator-web", "WEB", null, null,
+                "120363001@g.us", "PARTICIPANTS_NOT_CONFIRMED", "部分成员未确认"));
+
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("CREATED_PARTIAL"),
+                eq("PARTICIPANTS_NOT_CONFIRMED"), eq("部分成员未确认"),
+                eq("120363001@g.us"), eq("evt-1"), anyLong());
+        verify(accountService).migrateGroup(List.of(382L), 91L);
+        verify(mapper, never()).completeProtocolFlow(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void resultWithWrongProtocolBackendIsRejectedBeforeStateMutation() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+
+        assertThatThrownBy(() -> service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "SUCCESS",
+                382L, "creator-web", "ANDROID", null, null,
+                "120363001@g.us", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("协议后端不匹配");
+
+        verify(dispatcher, never()).enqueueCreatorAction(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        verify(mapper, never()).startGroupSettings(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    private static ItemWork item(
+            String step,
+            String createCommandId,
+            String settingsCommandId,
+            String leaveCommandId,
+            String groupJid,
+            String leavePolicy) {
+        return item(step, createCommandId, settingsCommandId, leaveCommandId,
+                groupJid, leavePolicy, "普群{no}", "普群001");
+    }
+
+    private static ItemWork item(
+            String step,
+            String createCommandId,
+            String settingsCommandId,
+            String leaveCommandId,
+            String groupJid,
+            String leavePolicy,
+            String groupNameTemplate,
+            String groupSubject) {
+        return new ItemWork(
+                21L, 1L, 9L, groupSubject, groupNameTemplate,
+                382L, "creator-web", "WEB", "911",
+                groupJid, "RUNNING", step, "SENT",
+                createCommandId, settingsCommandId, leaveCommandId,
+                leavePolicy, null, 91L, 92L,
+                true, true, true, false, 0);
+    }
+
+    private static MemberWork member() {
+        return new MemberWork(
+                31L, 383L, "member-android", "ANDROID", "922",
+                "PENDING", "PENDING",
+                "cmd-contact-creator", "cmd-contact-member", "PENDING");
+    }
+
+    private static ProtocolNormalGroupCreationResultReportedEvent event(
+            String action,
+            String commandId,
+            String outcome,
+            Long accountId,
+            String protocolAccountId,
+            String backend,
+            Long memberId,
+            String direction,
+            String groupJid,
+            String reasonCode,
+            String reasonMessage) {
+        return new ProtocolNormalGroupCreationResultReportedEvent(
+                "evt-1", 1L, 9L, 21L, memberId, direction, action,
+                accountId, protocolAccountId, backend, commandId, 1, outcome,
+                groupJid, reasonCode, reasonMessage, false, 1000L, "worker-1");
+    }
+}

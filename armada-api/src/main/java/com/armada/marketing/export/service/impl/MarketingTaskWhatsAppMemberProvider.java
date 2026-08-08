@@ -47,6 +47,8 @@ public class MarketingTaskWhatsAppMemberProvider {
     private static final int MAX_OBSERVER_CANDIDATES = 2;
     private static final String INVITE_URL_PREFIX = "https://chat.whatsapp.com/";
     private static final String INVITE_UNAVAILABLE = "无权限获取";
+    private static final String NO_SNAPSHOT_AND_OBSERVER_REASON =
+            "数据库中没有群成员快照且没有可用的实际发送账号";
 
     private final MarketingTaskExportMapper mapper;
     private final AccountProtocolLookupService accountLookupService;
@@ -228,7 +230,9 @@ public class MarketingTaskWhatsAppMemberProvider {
             resolveGroupInvite(group, groupJid, context);
             return new GroupSnapshot(group, fresh);
         }
-        String reason = attempted == 0 ? "没有可用的实际发送账号" : "协议查询失败";
+        String reason = attempted == 0
+                ? NO_SNAPSHOT_AND_OBSERVER_REASON
+                : "协议查询失败";
         log.warn("WhatsApp群查询最终失败 taskId={} groupJid={} reason={} candidateAccountIds={} "
                         + "resolvedAndroidAccountIds={} attempted={} maxAttempts={} lastExceptionType={}",
                 group.getTaskId(), groupJid, reason, candidates, resolvedCandidates, attempted,
@@ -292,7 +296,11 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         group.setGroupMemberCount(Math.toIntExact(
                 cached.members().stream().filter(WhatsappGroupMemberStateVO::inGroup).count()));
-        group.setSpeechPermission(speechPermission(cached, observerPhone));
+        if (cached.announce() != null) {
+            group.setSpeechPermission(speechPermission(cached, observerPhone));
+        } else if (normalize(group.getSpeechPermission()) == null) {
+            group.setSpeechPermission("未确认");
+        }
     }
 
     private static String speechPermission(

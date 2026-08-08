@@ -38,6 +38,19 @@ server:
   port: 8080
 
 armada:
+  normal-group-creation:
+    kafka:
+      web-command-topic: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:protocol.web.normal-group.commands.v1}
+      android-command-topic: ${NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC:protocol.android.normal-group.commands.v1}
+      result-topic: ${NORMAL_GROUP_CREATION_RESULT_TOPIC:protocol.normal-group.events.v1}
+      result-group-id: ${NORMAL_GROUP_CREATION_RESULT_GROUP_ID:armada-api-normal-group-results}
+      result-concurrency: ${NORMAL_GROUP_CREATION_RESULT_CONCURRENCY:4}
+    admission:
+      key-prefix: ${NORMAL_GROUP_CREATION_ADMISSION_KEY_PREFIX:armada:normal-group-creation:admission:}
+      max-active-tasks: ${NORMAL_GROUP_CREATION_MAX_ACTIVE_TASKS:20}
+      max-in-flight-groups: ${NORMAL_GROUP_CREATION_MAX_IN_FLIGHT_GROUPS:5000}
+      tenant-requests-per-minute: ${NORMAL_GROUP_CREATION_TENANT_REQUESTS_PER_MINUTE:10}
+      user-requests-per-minute: ${NORMAL_GROUP_CREATION_USER_REQUESTS_PER_MINUTE:5}
   pull-task:
     avatar:
       storage-dir: ${ARMADA_PULL_TASK_AVATAR_STORAGE_DIR:/app/data/pull-task-avatars}

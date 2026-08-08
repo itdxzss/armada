@@ -87,6 +87,21 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
 
     /** {@inheritDoc} */
     @Override
+    public List<ProtocolAccountRef> findOnlineNormalStrictByGroupId(Long groupId) {
+        if (groupId == null) {
+            return List.of();
+        }
+        return accountMapper.selectOnlineNormalByGroupId(
+                        groupId,
+                        AccountStateCode.NORMAL,
+                        AccountLoginStateCode.ONLINE).stream()
+                .map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public Optional<ProtocolAccountRef> findRandomOnlineNormalWebByGroupId(Long groupId) {
         if (groupId == null) {
             LOGGER.info("账号协议 Web 随机选号无候选: groupId为空");
@@ -177,6 +192,19 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         return Optional.of(new ProtocolAccountRef(
                 account.getId(),
                 ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                account.getProtocolAccountId(),
+                account.getWsPhone()));
+    }
+
+    private static Optional<ProtocolAccountRef> toStrictProtocolRef(Account account) {
+        if (account == null
+                || !hasText(account.getProtocolAccountId())
+                || !hasText(account.getWsPhone())) {
+            return Optional.empty();
+        }
+        return Optional.of(new ProtocolAccountRef(
+                account.getId(),
+                ProtocolBackend.fromExplicitProtocolId(account.getProtocolId()),
                 account.getProtocolAccountId(),
                 account.getWsPhone()));
     }

@@ -1,6 +1,7 @@
 package com.armada.marketing.export.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +27,7 @@ import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupInvitePort;
+import com.armada.shared.exception.BusinessException;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -155,13 +157,14 @@ class MarketingTaskWhatsAppMemberProviderTest {
     }
 
     @Test
-    void collectUsesCompleteCacheWhenObserverIsUnavailable() {
+    void collectUsesDurableSnapshotWhenObserverIsUnavailableAndPreservesStoredMetadata() {
         MarketingTaskGroupExportRow group = group();
         group.setGroupJid("120363-TEST@G.US");
+        group.setSpeechPermission("仅管理员可发言（发送账号可发言）");
         group.setObserverAccountId(10L);
         group.setObserverCandidateRank(1);
         WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
-                "120363-test@g.us", "缓存群名", false, 900L, 10L,
+                "120363-test@g.us", null, null, 900L, null,
                 List.of(new WhatsappGroupMemberStateVO(
                         "551100000002@s.whatsapp.net", "551100000002",
                         false, false, "", true, "FULL_SNAPSHOT", 900L)));
@@ -185,15 +188,41 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
 
         assertThat(groups).singleElement().satisfies(row -> {
-            assertThat(row.getGroupName()).isEqualTo("缓存群名");
+            assertThat(row.getGroupName()).isEqualTo("旧群名");
             assertThat(row.getGroupLink()).isEqualTo("无权限获取");
             assertThat(row.getGroupMemberCount()).isEqualTo(1);
-            assertThat(row.getSpeechPermission()).isEqualTo("所有成员可发言");
+            assertThat(row.getSpeechPermission()).isEqualTo("仅管理员可发言（发送账号可发言）");
         });
         assertThat(members).singleElement()
                 .satisfies(row -> assertThat(row.getMemberPhone()).isEqualTo("551100000002"));
         org.mockito.Mockito.verifyNoInteractions(metadataPort);
         verify(accountLookupService).findActiveProtocolRefs(List.of(10L));
+    }
+
+    @Test
+    void collectExplainsWhenNeitherDatabaseSnapshotNorActiveObserverExists() {
+        MarketingTaskGroupExportRow group = group();
+        group.setObserverAccountId(10L);
+        group.setObserverCandidateRank(1);
+        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of());
+        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of());
+        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
+                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
+                departedMemberService, joinFactService);
+
+        assertThatThrownBy(() -> provider.streamFull(
+                request(phone -> null),
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(
+                        ignored -> { }, ignored -> { })))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("数据库中没有群成员快照且没有可用的实际发送账号");
+        org.mockito.Mockito.verifyNoInteractions(metadataPort);
     }
 
     @Test

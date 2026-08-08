@@ -8,10 +8,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
+import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.dto.WhatsappGroupMemberCacheHeaderWrite;
 import com.armada.group.model.dto.WhatsappGroupMemberStateWrite;
+import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheRow;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -28,6 +30,72 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class WhatsappGroupMemberCacheServiceImplTest {
 
     @Mock private WhatsappGroupMemberCacheMapper mapper;
+    @Mock private WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
+
+    @Test
+    void findByGroupJidsFallsBackToLatestDurableSnapshot() {
+        when(mapper.selectByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of());
+        when(memberSnapshotMapper.selectByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of(
+                        durableMember(99L, "120363-test@g.us", "old@s.whatsapp.net", null,
+                                false, false, 800L),
+                        durableMember(101L, "120363-test@g.us",
+                                "15550000001@s.whatsapp.net", "15550000001",
+                                true, false, 1_000L),
+                        durableMember(101L, "120363-test@g.us",
+                                "15550000002@s.whatsapp.net", "15550000002",
+                                false, false, 1_000L)));
+        WhatsappGroupMemberCacheServiceImpl service =
+                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+
+        var result = service.findByGroupJids(7L, List.of("120363-TEST@G.US"));
+
+        assertThat(result).containsOnlyKeys("120363-test@g.us");
+        assertThat(result.get("120363-test@g.us")).satisfies(snapshot -> {
+            assertThat(snapshot.subject()).isNull();
+            assertThat(snapshot.announce()).isNull();
+            assertThat(snapshot.snapshotAt()).isEqualTo(1_000L);
+            assertThat(snapshot.observerAccountId()).isNull();
+            assertThat(snapshot.members()).hasSize(2)
+                    .extracting(member -> member.participantJid())
+                    .containsExactly(
+                            "15550000001@s.whatsapp.net",
+                            "15550000002@s.whatsapp.net");
+            assertThat(snapshot.members()).allSatisfy(member -> {
+                assertThat(member.inGroup()).isTrue();
+                assertThat(member.stateSource()).isEqualTo("FULL_SNAPSHOT");
+                assertThat(member.stateUpdatedAt()).isEqualTo(1_000L);
+            });
+        });
+    }
+
+    @Test
+    void findByGroupJidsKeepsMarketingCacheAndFallsBackOnlyForMissingGroups() {
+        when(mapper.selectByGroupJids(
+                        7L, List.of("120363-cached@g.us", "120363-missing@g.us")))
+                .thenReturn(List.of(new WhatsappGroupMemberCacheRow(
+                        "120363-cached@g.us", "营销缓存群", false, 2_000L, 10L,
+                        "15550000001@s.whatsapp.net", "15550000001",
+                        false, false, "member", true, "ADD_EVENT", 2_000L)));
+        when(memberSnapshotMapper.selectByGroupJids(7L, List.of("120363-missing@g.us")))
+                .thenReturn(List.of(durableMember(
+                        102L, "120363-missing@g.us",
+                        "15550000002@s.whatsapp.net", "15550000002",
+                        false, false, 1_000L)));
+        WhatsappGroupMemberCacheServiceImpl service =
+                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+
+        var result = service.findByGroupJids(7L, List.of(
+                "120363-missing@g.us", "120363-cached@g.us"));
+
+        assertThat(result).containsOnlyKeys("120363-cached@g.us", "120363-missing@g.us");
+        assertThat(result.get("120363-cached@g.us").subject()).isEqualTo("营销缓存群");
+        assertThat(result.get("120363-cached@g.us").members()).singleElement()
+                .satisfies(member -> assertThat(member.stateSource()).isEqualTo("ADD_EVENT"));
+        assertThat(result.get("120363-missing@g.us").members()).singleElement()
+                .satisfies(member -> assertThat(member.stateSource()).isEqualTo("FULL_SNAPSHOT"));
+        verify(memberSnapshotMapper).selectByGroupJids(7L, List.of("120363-missing@g.us"));
+    }
 
     @Test
     void replaceCompleteSnapshotArbitratesHeaderThenAtomicallyReplacesMembers() {
@@ -46,7 +114,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         "120363-test@g.us", "真实群", true, 1_000L, 10L,
                         "15550000001@s.whatsapp.net", "15550000001",
                         true, false, "admin", true, "FULL_SNAPSHOT", 1_000L)));
-        WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
+        WhatsappGroupMemberCacheServiceImpl service =
+                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
         GroupMetadataResult metadata = new GroupMetadataResult(
                 "120363-test@g.us", "真实群", null, null, null,
                 true, true, null, null, null,
@@ -108,7 +177,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         "120363-test@g.us", "较新群", false, 2_000L, 11L,
                         "15550000002@s.whatsapp.net", "15550000002",
                         false, false, "", true, "FULL_SNAPSHOT", 2_000L)));
-        WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
+        WhatsappGroupMemberCacheServiceImpl service =
+                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
         GroupMetadataResult older = new GroupMetadataResult(
                 "120363-test@g.us", "旧群", null, null, null,
                 true, false, null, null, null,
@@ -137,7 +207,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
 
     @Test
     void eventsUpdateCachedMembershipWithExplicitSources() {
-        WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
+        WhatsappGroupMemberCacheServiceImpl service =
+                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
         service.applyJoins(List.of(
                 new WhatsappGroupJoinFact(
                         7L, "120363-test@g.us", "15550000001@s.whatsapp.net", "15550000001",
@@ -198,7 +269,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
 
     @Test
     void keepsLidAsCacheKeyWhenPhoneAliasIsPresent() {
-        WhatsappGroupMemberCacheServiceImpl service = new WhatsappGroupMemberCacheServiceImpl(mapper);
+        WhatsappGroupMemberCacheServiceImpl service =
+                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
 
         service.applyJoins(List.of(new WhatsappGroupJoinFact(
                 7L, "120363-test@g.us", "123456789012345:9@lid", "5218129230974",
@@ -212,6 +284,29 @@ class WhatsappGroupMemberCacheServiceImplTest {
             assertThat(state.participantJid()).isEqualTo("123456789012345@lid");
             assertThat(state.phone()).isEqualTo("5218129230974");
         });
+    }
+
+    private static WhatsappGroupMemberSnapshot durableMember(
+            Long groupLinkId,
+            String groupJid,
+            String participantJid,
+            String phone,
+            boolean admin,
+            boolean owner,
+            long snapshotAt) {
+        WhatsappGroupMemberSnapshot row = new WhatsappGroupMemberSnapshot();
+        row.setTenantId(7L);
+        row.setGroupLinkId(groupLinkId);
+        row.setGroupJid(groupJid);
+        row.setParticipantJid(participantJid);
+        row.setPhone(phone);
+        row.setRole(owner ? "superadmin" : admin ? "admin" : "member");
+        row.setIsAdmin(admin);
+        row.setIsOwner(owner);
+        row.setSnapshotAt(snapshotAt);
+        row.setCreatedAt(snapshotAt);
+        row.setUpdatedAt(snapshotAt);
+        return row;
     }
 
 }

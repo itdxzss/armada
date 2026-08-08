@@ -30,10 +30,11 @@ class HttpContactAdapterTest {
                         {
                           "accountId": "acc_7",
                           "contact": {
-                            "name": "8613900000000"
+                            "fullName": "8613900000000",
+                            "saveOnPrimaryAddressbook": true
                           }
                         }
-                        """))
+                        """, true))
                 .andRespond(withSuccess("""
                         {
                           "ok": true

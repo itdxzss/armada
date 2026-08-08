@@ -4,6 +4,7 @@ import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncComman
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
+import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
@@ -144,6 +145,15 @@ public interface ProtocolCommandOutboxService {
     /** 批量写入普通拉群单个 A/a 料子提权命令。 */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskMaterialAdminCommands(
             List<ProtocolPullTaskMaterialAdminCommandRequest> commands);
+
+    /**
+     * 批量写入新建普群协议动作命令。
+     *
+     * <p>每条命令严格按实际执行账号的 backend 路由：WEB 只进 master Topic，ANDROID
+     * 只进 Android group-action Topic。联系人准备的两个方向因此可以落到不同协议 Topic。</p>
+     */
+    ProtocolCommandOutboxEnqueueResult enqueueNormalGroupCreationCommands(
+            List<ProtocolNormalGroupCreationCommandRequest> commands);
 
     /**
      * 批量写入已经由协议 backend 编码的营销消息 outbox 命令。

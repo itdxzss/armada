@@ -32,4 +32,24 @@ public enum ProtocolBackend {
         }
         return WEB;
     }
+
+    /**
+     * 严格解析必须显式配置的协议后端；用于新建普群等跨后端副作用链路。
+     *
+     * @param protocolId 账号表 protocol_id
+     * @return 显式 WEB 或 ANDROID
+     * @throws IllegalArgumentException 空值或未知值
+     */
+    public static ProtocolBackend fromExplicitProtocolId(String protocolId) {
+        if (protocolId == null || protocolId.isBlank()) {
+            throw new IllegalArgumentException("protocol_id 必须显式配置为 WEB 或 ANDROID");
+        }
+        String normalized = protocolId.trim();
+        for (ProtocolBackend backend : values()) {
+            if (backend.name().equalsIgnoreCase(normalized)) {
+                return backend;
+            }
+        }
+        throw new IllegalArgumentException("不支持的 protocol_id: " + normalized);
+    }
 }

@@ -4,6 +4,7 @@ import com.armada.platform.kafka.consumer.group.ProtocolPullTaskBatchParticipant
 import com.armada.platform.kafka.consumer.group.ProtocolPullTaskBatchParticipantResultReportedSink;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
+import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,7 @@ public class ProtocolPullTaskBatchParticipantResultAdapter
                 event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.pullCallId(),
                 event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
                 event.targetJid(), PullTaskBatchParticipantProtocolOutcome.valueOf(event.outcome()),
+                PullTaskParticipantExecutionState.valueOf(event.executionState()),
                 event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
     }
 }

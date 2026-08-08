@@ -1,7 +1,6 @@
 package com.armada.task.mapper;
 
 import com.armada.task.model.dto.PullTaskCallReassignment;
-import com.armada.task.model.dto.PullTaskCallReschedule;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskPullerAssignment;
@@ -104,14 +103,6 @@ public interface PullTaskPullCallMapper {
      */
     int reassignPuller(@Param("reassignment") PullTaskCallReassignment reassignment);
 
-    /**
-     * 拉手账号未上线时按原命令 ID CAS 退回计划态，保留已经冻结的料子和站台。
-     *
-     * @param change 调用、命令和状态条件
-     * @return 1 表示退回成功；0 表示命令已被其他结果收敛
-     */
-    int rescheduleSubmitted(@Param("change") PullTaskCallReschedule change);
-
     /** 兼容业务入口；只有计划态调用允许改派。 */
     default int reassignPlannedPuller(long id,
                                       long expectedPullerGroupAccountId,
@@ -162,6 +153,20 @@ public interface PullTaskPullCallMapper {
      * @return 调用行；不存在或不属于当前租户时为 null
      */
     PullTaskPullCall selectByCommandId(@Param("commandId") String commandId);
+
+    /** 跨实例至多一次认领异常批次的群成员名单查询。 */
+    int claimRosterCheck(
+            @Param("id") long id,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("now") long now);
+
+    /** 完成已经认领的名单查询；CLAIMED 不允许退回 NOT_STARTED。 */
+    int finishRosterCheck(
+            @Param("id") long id,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("now") long now);
 
     /** 任务结束时取消仍处于计划态、尚未提交协议命令的调用。 */
     int cancelPlannedByTask(@Param("taskId") long taskId,

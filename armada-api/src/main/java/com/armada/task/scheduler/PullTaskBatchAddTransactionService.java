@@ -10,11 +10,15 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
+import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -22,6 +26,8 @@ import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
@@ -94,7 +100,7 @@ public class PullTaskBatchAddTransactionService {
                     release(candidate.getId(), lockOwner, now);
                     return PullTaskExecutionDispatchResult.LOST;
                 }
-                return deferSubmitted(candidate, now);
+                return deferSubmitted(candidate, null, now);
             }
             if (!isDispatchable(parent, candidate, call,
                     requestedCall == null ? null : requestedCall.getId(), lockOwner)) {
@@ -128,7 +134,8 @@ public class PullTaskBatchAddTransactionService {
             if (nextAllowedAt.isPresent()) {
                 return deferForInterval(candidate, nextAllowedAt.get(), now);
             }
-            scope = new BatchScope(active.role(), scope.stations(), scope.materials());
+            scope = new BatchScope(
+                    active.role(), scope.stations(), scope.materials(), scope.attempts());
             ProtocolCommandOutboxEnqueueResult enqueued = resources.outboxService()
                     .enqueuePullTaskBatchAddCommands(List.of(
                             new ProtocolPullTaskBatchAddCommandRequest(
@@ -141,8 +148,13 @@ public class PullTaskBatchAddTransactionService {
                     call.getId(), enqueued.commandIds().get(0), now) != 1) {
                 throw new IllegalStateException("批量拉人调用提交状态写入失败");
             }
+            if (resources.attemptMapper().markSubmittedByCall(call.getId(), now)
+                    != scope.attempts().size()) {
+                throw new IllegalStateException("批量拉人逐号码提交状态写入数量不一致");
+            }
+            markParticipantPullers(scope.attempts(), call, now);
             markStationsJoining(scope.stations(), now);
-            return deferSubmitted(candidate, now);
+            return deferSubmitted(candidate, active.nextPullerCursor(), now);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -163,11 +175,15 @@ public class PullTaskBatchAddTransactionService {
                 .stream()
                 .filter(row -> Objects.equals(row.getPullCallId(), call.getId()))
                 .toList();
+        List<PullTaskPullCallMemberAttempt> attempts = resources.attemptMapper()
+                .selectByCallAndStatus(
+                        call.getId(), PullTaskParticipantAttemptStatus.PLANNED.code());
         if (puller == null || stations.size() != call.getPlannedStationCount()
-                || materials.size() != call.getPlannedMaterialCount()) {
+                || materials.size() != call.getPlannedMaterialCount()
+                || attempts.size() != stations.size() + materials.size()) {
             return Optional.empty();
         }
-        return Optional.of(new BatchScope(puller, stations, materials));
+        return Optional.of(new BatchScope(puller, stations, materials, attempts));
     }
 
     private Optional<ActivePuller> resolveActivePuller(
@@ -181,7 +197,9 @@ public class PullTaskBatchAddTransactionService {
         Map<Long, ProtocolAccountRef> active = activeProtocolRefs(pullers);
         ProtocolAccountRef current = active.get(scope.puller().getAccountId());
         if (current != null) {
-            return Optional.of(new ActivePuller(scope.puller(), current, false));
+            return Optional.of(new ActivePuller(
+                    scope.puller(), current, false,
+                    nextPullerCursor(pullers, scope.puller().getId())));
         }
         groupAccountMapper.markUnavailable(
                 scope.puller().getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
@@ -191,15 +209,12 @@ public class PullTaskBatchAddTransactionService {
             if (protocol == null || Objects.equals(replacement.getId(), scope.puller().getId())) {
                 continue;
             }
-            if (resources.pullCallMapper().reassignPlannedPuller(
-                    call.getId(), scope.puller().getId(), replacement.getId(),
-                    replacement.getAccountId(), now) != 1) {
-                throw new IllegalStateException("拉人调用改派发生并发变化");
-            }
-            call.setPullerGroupAccountId(replacement.getId());
-            call.setPullerAccountId(replacement.getAccountId());
-            return Optional.of(new ActivePuller(replacement, protocol, true));
+            cancelPlannedCall(call, scope.attempts(), now);
+            return Optional.of(new ActivePuller(
+                    replacement, protocol, true,
+                    nextPullerCursor(pullers, replacement.getId())));
         }
+        cancelPlannedCall(call, scope.attempts(), now);
         return Optional.empty();
     }
 
@@ -215,6 +230,103 @@ public class PullTaskBatchAddTransactionService {
             }
         }
         return result;
+    }
+
+    private void cancelPlannedCall(
+            PullTaskPullCall call,
+            List<PullTaskPullCallMemberAttempt> attempts,
+            long now) {
+        for (PullTaskPullCallMemberAttempt attempt : attempts) {
+            releasePlannedParticipant(attempt, now);
+            PullTaskParticipantAttemptTransition transition =
+                    new PullTaskParticipantAttemptTransition(
+                            new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
+                            new PullTaskParticipantAttemptTransition.Expected(List.of(
+                                    PullTaskParticipantAttemptStatus.PLANNED.code())),
+                            new PullTaskParticipantAttemptTransition.Target(
+                                    PullTaskParticipantAttemptStatus.CANCELED.code(),
+                                    null, null, null),
+                            PullTaskFactResult.reason(
+                                    "PULLER_UNAVAILABLE", "批次提交前拉手不可用"));
+            if (resources.attemptMapper().transition(transition) != 1) {
+                throw new IllegalStateException("取消计划逐号码执行记录失败");
+            }
+        }
+        PullTaskFactTransition transition = new PullTaskFactTransition(
+                call.getId(), List.of(PullTaskPullCallStatus.PLANNED.code()),
+                PullTaskPullCallStatus.CANCELED.code(),
+                PullTaskFactResult.reason("PULLER_UNAVAILABLE", "批次提交前拉手不可用"), now);
+        if (resources.pullCallMapper().transitionResult(transition) != 1) {
+            throw new IllegalStateException("取消拉手不可用的计划批次失败");
+        }
+    }
+
+    private void releasePlannedParticipant(
+            PullTaskPullCallMemberAttempt attempt,
+            long now) {
+        PullTaskParticipantAggregateTransition transition =
+                new PullTaskParticipantAggregateTransition(
+                        new PullTaskParticipantAggregateTransition.Scope(
+                                attempt.getParticipantRefId(), attempt.getId(), now),
+                        new PullTaskParticipantAggregateTransition.Expected(
+                                List.of(pendingAggregateStatus(attempt)),
+                                attempt.getFailureCountBefore()),
+                        new PullTaskParticipantAggregateTransition.Target(
+                                releasedAggregateStatus(attempt),
+                                attempt.getFailureCountBefore(), null, null),
+                        PullTaskFactResult.reason(
+                                "PULLER_UNAVAILABLE", "批次提交前拉手不可用"));
+        int changed = attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                ? materialMapper.transitionPullAttempt(transition)
+                : groupAccountMapper.transitionMembershipAttempt(transition);
+        if (changed != 1) {
+            throw new IllegalStateException("取消计划批次参与者占用失败");
+        }
+    }
+
+    private static int pendingAggregateStatus(PullTaskPullCallMemberAttempt attempt) {
+        return attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                ? com.armada.task.model.enums.PullTaskMaterialPullStatus.SUBMITTED.code()
+                : PullTaskGroupAccountMembershipStatus.JOINING.code();
+    }
+
+    private static int releasedAggregateStatus(PullTaskPullCallMemberAttempt attempt) {
+        return attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                ? com.armada.task.model.enums.PullTaskMaterialPullStatus.UNCONSUMED.code()
+                : PullTaskGroupAccountMembershipStatus.NOT_JOINED.code();
+    }
+
+    private void markParticipantPullers(
+            List<PullTaskPullCallMemberAttempt> attempts,
+            PullTaskPullCall call,
+            long now) {
+        for (PullTaskPullCallMemberAttempt attempt : attempts) {
+            PullTaskParticipantAttemptBinding binding = new PullTaskParticipantAttemptBinding(
+                    attempt.getParticipantRefId(), attempt.getId(), call.getId(),
+                    call.getPullerGroupAccountId(), now);
+            int changed = attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                    ? materialMapper.markPullAttemptSubmitted(binding)
+                    : groupAccountMapper.markMembershipAttemptSubmitted(binding);
+            if (changed != 1) {
+                throw new IllegalStateException("参与者最近执行拉手写入失败");
+            }
+        }
+    }
+
+    private static int nextPullerCursor(
+            List<PullTaskGroupAccount> pullers,
+            long currentPullerId) {
+        for (int index = 0; index < pullers.size(); index++) {
+            if (!Objects.equals(pullers.get(index).getId(), currentPullerId)) {
+                continue;
+            }
+            if (index + 1 >= pullers.size()) {
+                return 0;
+            }
+            Integer nextRoleSeq = pullers.get(index + 1).getRoleSeq();
+            return nextRoleSeq == null ? 0 : nextRoleSeq;
+        }
+        return 0;
     }
 
     private PullTaskExecutionDispatchResult waitForPuller(
@@ -301,7 +413,9 @@ public class PullTaskBatchAddTransactionService {
     }
 
     private PullTaskExecutionDispatchResult deferSubmitted(
-            PullTaskGroupExecution candidate, long now) {
+            PullTaskGroupExecution candidate,
+            Integer nextPullerCursor,
+            long now) {
         PullTaskGroupExecution update = new PullTaskGroupExecution();
         update.setId(candidate.getId());
         update.setVersion(candidate.getVersion());
@@ -309,6 +423,7 @@ public class PullTaskBatchAddTransactionService {
         update.setGroupJid(candidate.getGroupJid());
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         update.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
+        update.setNextPullerIndex(nextPullerCursor);
         update.setNextRunAt(Math.addExact(
                 now, resources.properties().getResultReconciliationDelayMs()));
         update.setUpdatedAt(now);
@@ -394,13 +509,15 @@ public class PullTaskBatchAddTransactionService {
     private record BatchScope(
             PullTaskGroupAccount puller,
             List<PullTaskGroupAccount> stations,
-            List<PullTaskMaterialMember> materials) {
+            List<PullTaskMaterialMember> materials,
+            List<PullTaskPullCallMemberAttempt> attempts) {
     }
 
     private record ActivePuller(
             PullTaskGroupAccount role,
             ProtocolAccountRef protocol,
-            boolean reassigned) {
+            boolean reassigned,
+            int nextPullerCursor) {
     }
 
 }

@@ -109,7 +109,7 @@ class PullTaskPullerInviteTransactionIntegrationTest {
     }
 
     @Test
-    void managersRotateOnePullerAtATimeAndCallbackWaitsThreeSecondsAfterResult() {
+    void managersRotateOnePullerAtATimeAndCallbackRespectsOperationDelay() {
         when(outboxService.enqueuePullTaskPullerInviteCommands(anyList()))
                 .thenReturn(enqueued("cmd-invite-1"))
                 .thenReturn(enqueued("cmd-invite-2"));
@@ -126,9 +126,9 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 first, 901L, "8613800000902@s.whatsapp.net",
                 PullTaskPullerInviteProtocolOutcome.SUCCESS, 620L))).isTrue();
 
-        assertThat(claimedAt("too-early", 3_619L)).isEmpty();
-        PullTaskGroupExecution secondCandidate = claim("worker-2", 3_620L, 4_000L);
-        assertThat(service.prepare(secondCandidate, "worker-2", 3_630L))
+        assertThat(claimedAt("too-early", 4_619L)).isEmpty();
+        PullTaskGroupExecution secondCandidate = claim("worker-2", 4_620L, 5_000L);
+        assertThat(service.prepare(secondCandidate, "worker-2", 4_630L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         PullTaskAccountAction second = inviteActions().get(1);
         assertInvite(second, 903L, 904L, "cmd-invite-2");
@@ -137,11 +137,11 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 .isZero();
         assertThat(resultService.apply(callback(
                 second, 903L, "8613800000904@s.whatsapp.net",
-                PullTaskPullerInviteProtocolOutcome.FAILED, 3_640L))).isTrue();
+                PullTaskPullerInviteProtocolOutcome.FAILED, 4_640L))).isTrue();
 
-        assertThat(claimedAt("too-early-again", 6_639L)).isEmpty();
-        PullTaskGroupExecution finishCandidate = claim("worker-3", 6_640L, 7_000L);
-        assertThat(service.prepare(finishCandidate, "worker-3", 6_650L))
+        assertThat(claimedAt("too-early-again", 8_639L)).isEmpty();
+        PullTaskGroupExecution finishCandidate = claim("worker-3", 8_640L, 9_000L);
+        assertThat(service.prepare(finishCandidate, "worker-3", 8_650L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         TenantContext.set(7L);
@@ -485,9 +485,14 @@ class PullTaskPullerInviteTransactionIntegrationTest {
         PullTaskPullerInviteResultService resultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
-                PullTaskGroupExecutionMapper executionMapper) {
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskPullerInviteResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper);
+                    actionMapper, accountMapper, executionMapper, delayPolicy);
+        }
+
+        @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {
+            return new PullTaskOperationDelayPolicy(() -> 4_000L);
         }
     }
 }

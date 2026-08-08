@@ -19,6 +19,7 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
@@ -66,8 +67,11 @@ class PullTaskUnknownResultReconciliationServiceTest {
         memberListPort = mock(GroupMemberListPort.class);
         service = new PullTaskUnknownResultReconciliationService(
                 new PullTaskUnknownResultResources(
-                        actionMapper, callMapper, materialMapper, accountMapper),
-                accountLookup, memberListPort, executionMapper);
+                        actionMapper, callMapper,
+                        mock(PullTaskPullCallMemberAttemptMapper.class),
+                        materialMapper, accountMapper),
+                accountLookup, memberListPort, executionMapper,
+                mock(PullTaskPullCallReconciliationService.class));
     }
 
     @Test

@@ -30,6 +30,15 @@ public class PullTaskMaterialMember {
     /** 入群结果，取值见 PullTaskMaterialPullStatus。 */
     private Integer pullStatus;
 
+    /** 累计对当前有效执行生效的明确失败次数。 */
+    private Long pullFailureCount;
+
+    /** 当前活动逐号码执行记录 ID。 */
+    private Long activePullAttemptId;
+
+    /** 最近一次真实执行拉手角色行 ID。 */
+    private Long lastPullerGroupAccountId;
+
     /** 入群失败原因码。 */
     private String pullReasonCode;
 
@@ -130,6 +139,30 @@ public class PullTaskMaterialMember {
 
     public void setPullStatus(Integer pullStatus) {
         this.pullStatus = pullStatus;
+    }
+
+    public Long getPullFailureCount() {
+        return pullFailureCount;
+    }
+
+    public void setPullFailureCount(Long pullFailureCount) {
+        this.pullFailureCount = pullFailureCount;
+    }
+
+    public Long getActivePullAttemptId() {
+        return activePullAttemptId;
+    }
+
+    public void setActivePullAttemptId(Long activePullAttemptId) {
+        this.activePullAttemptId = activePullAttemptId;
+    }
+
+    public Long getLastPullerGroupAccountId() {
+        return lastPullerGroupAccountId;
+    }
+
+    public void setLastPullerGroupAccountId(Long lastPullerGroupAccountId) {
+        this.lastPullerGroupAccountId = lastPullerGroupAccountId;
     }
 
     public String getPullReasonCode() {

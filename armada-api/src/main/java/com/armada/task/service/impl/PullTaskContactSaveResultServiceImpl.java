@@ -17,6 +17,7 @@ import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import com.armada.task.service.PullTaskContactSaveResultService;
 import java.util.List;
 import java.util.Objects;
@@ -33,6 +34,7 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
+    private final PullTaskOperationDelayPolicy delayPolicy;
 
     /**
      * 创建联系人结果状态机。
@@ -44,10 +46,12 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
     public PullTaskContactSaveResultServiceImpl(
             PullTaskAccountActionMapper actionMapper,
             PullTaskGroupAccountMapper accountMapper,
-            PullTaskGroupExecutionMapper executionMapper) {
+            PullTaskGroupExecutionMapper executionMapper,
+            PullTaskOperationDelayPolicy delayPolicy) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
+        this.delayPolicy = delayPolicy;
     }
 
     /** {@inheritDoc} */
@@ -86,7 +90,9 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
                     execution.getId(), execution.getTaskId(), execution.getVersion(),
                     PullTaskExecutionStatus.EXECUTING.code(),
                     lane.expectedStage(),
-                    targetStage, null, 0L, callback.occurredAt()));
+                    targetStage, null,
+                    delayPolicy.nextSideEffectAt(callback.occurredAt()),
+                    callback.occurredAt()));
             if (executionWrite != 1 && actionWrite == WriteResult.UPDATED) {
                 throw new IllegalStateException("联系人结果执行行唤醒 CAS 失败");
             }

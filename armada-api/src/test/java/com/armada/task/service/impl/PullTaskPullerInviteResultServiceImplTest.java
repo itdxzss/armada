@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -24,6 +25,7 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -33,8 +35,10 @@ class PullTaskPullerInviteResultServiceImplTest {
     private final PullTaskAccountActionMapper actionMapper = mock(PullTaskAccountActionMapper.class);
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
+    private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
     private final PullTaskPullerInviteResultServiceImpl service =
-            new PullTaskPullerInviteResultServiceImpl(actionMapper, accountMapper, executionMapper);
+            new PullTaskPullerInviteResultServiceImpl(
+                    actionMapper, accountMapper, executionMapper, delayPolicy);
 
     @AfterEach
     void clearTenant() {
@@ -42,7 +46,7 @@ class PullTaskPullerInviteResultServiceImplTest {
     }
 
     @Test
-    void successWritesActionAndMembershipThenWaitsThreeSecondsAfterResult() {
+    void successWritesActionAndMembershipThenPersistsRandomSilence() {
         stubContext();
         when(actionMapper.transitionResult(any())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
@@ -66,7 +70,7 @@ class PullTaskPullerInviteResultServiceImplTest {
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
         assertThat(executionChange.getValue().targetStage())
                 .isEqualTo(PullTaskExecutionStage.PULLER_INVITE.code());
-        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(4_100L);
+        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(5_100L);
         assertThat(TenantContext.get()).isNull();
     }
 
@@ -185,5 +189,12 @@ class PullTaskPullerInviteResultServiceImplTest {
         row.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         row.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
         return row;
+    }
+
+    private static PullTaskOperationDelayPolicy delayPolicy() {
+        PullTaskOperationDelayPolicy policy = mock(PullTaskOperationDelayPolicy.class);
+        when(policy.nextSideEffectAt(anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0, Long.class) + 4_000L);
+        return policy;
     }
 }

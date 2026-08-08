@@ -151,15 +151,15 @@ class PullTaskStationSelectionContactIntegrationTest {
         PullTaskAccountAction first = submittedAction();
         applyCallback(first, PullTaskContactSaveOutcome.FAILED, 620L);
 
-        PullTaskGroupExecution secondCandidate = claim("worker-2", 700L, 1_000L);
-        assertThat(contactService.prepare(secondCandidate, call, "worker-2", 710L))
+        PullTaskGroupExecution secondCandidate = claim("worker-2", 4_620L, 5_000L);
+        assertThat(contactService.prepare(secondCandidate, call, "worker-2", 4_630L))
                 .isEqualTo(PullTaskStationContactStepResult.MORE_CONTACTS);
         PullTaskAccountAction second = submittedAction();
         assertThat(second.getId()).isNotEqualTo(first.getId());
-        applyCallback(second, PullTaskContactSaveOutcome.SUCCESS, 720L);
+        applyCallback(second, PullTaskContactSaveOutcome.SUCCESS, 4_640L);
 
-        PullTaskGroupExecution readyCandidate = claim("worker-3", 800L, 1_100L);
-        assertThat(contactService.prepare(readyCandidate, call, "worker-3", 810L))
+        PullTaskGroupExecution readyCandidate = claim("worker-3", 8_640L, 9_000L);
+        assertThat(contactService.prepare(readyCandidate, call, "worker-3", 8_650L))
                 .isEqualTo(PullTaskStationContactStepResult.CALL_READY);
 
         TenantContext.set(7L);
@@ -501,9 +501,14 @@ class PullTaskStationSelectionContactIntegrationTest {
         PullTaskContactSaveResultService contactResultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
-                PullTaskGroupExecutionMapper executionMapper) {
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskContactSaveResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper);
+                    actionMapper, accountMapper, executionMapper, delayPolicy);
+        }
+
+        @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {
+            return new PullTaskOperationDelayPolicy(() -> 4_000L);
         }
     }
 }

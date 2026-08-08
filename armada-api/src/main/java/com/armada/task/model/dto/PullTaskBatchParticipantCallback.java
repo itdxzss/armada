@@ -1,6 +1,7 @@
 package com.armada.task.model.dto;
 
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
+import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import java.util.Objects;
 
 /**
@@ -16,6 +17,7 @@ import java.util.Objects;
  * @param attemptNo 协议尝试次数
  * @param targetJid 结果对应的成员 JID
  * @param outcome 单成员结果
+ * @param executionState 号码相对协议副作用调用的执行阶段
  * @param reasonCode 原因码
  * @param reasonMessage 已脱敏原因描述
  * @param retryable 是否可重试
@@ -32,6 +34,7 @@ public record PullTaskBatchParticipantCallback(
         int attemptNo,
         String targetJid,
         PullTaskBatchParticipantProtocolOutcome outcome,
+        PullTaskParticipantExecutionState executionState,
         String reasonCode,
         String reasonMessage,
         boolean retryable,
@@ -52,5 +55,45 @@ public record PullTaskBatchParticipantCallback(
         commandId = commandId.trim();
         targetJid = targetJid.trim();
         outcome = Objects.requireNonNull(outcome, "outcome 不能为空");
+        executionState = Objects.requireNonNull(executionState, "executionState 不能为空");
+        boolean explicit = outcome == PullTaskBatchParticipantProtocolOutcome.SUCCESS
+                || outcome == PullTaskBatchParticipantProtocolOutcome.FAILED;
+        boolean valid = explicit
+                ? executionState == PullTaskParticipantExecutionState.STARTED
+                : executionState == PullTaskParticipantExecutionState.NOT_STARTED
+                        || executionState == PullTaskParticipantExecutionState.UNCERTAIN;
+        if (!valid) {
+            throw new IllegalArgumentException("批量拉人回调结果与执行阶段不匹配");
+        }
+    }
+
+    /**
+     * 兼容既有任务域单测和内部调用；协议入口必须显式传入执行阶段。
+     */
+    public PullTaskBatchParticipantCallback(
+            long tenantId,
+            long pullTaskId,
+            long groupExecutionId,
+            long pullCallId,
+            long accountId,
+            String protocolAccountId,
+            String commandId,
+            int attemptNo,
+            String targetJid,
+            PullTaskBatchParticipantProtocolOutcome outcome,
+            String reasonCode,
+            String reasonMessage,
+            boolean retryable,
+            long occurredAt) {
+        this(tenantId, pullTaskId, groupExecutionId, pullCallId, accountId,
+                protocolAccountId, commandId, attemptNo, targetJid, outcome,
+                inferredExecutionState(outcome), reasonCode, reasonMessage, retryable, occurredAt);
+    }
+
+    private static PullTaskParticipantExecutionState inferredExecutionState(
+            PullTaskBatchParticipantProtocolOutcome outcome) {
+        return outcome == PullTaskBatchParticipantProtocolOutcome.UNKNOWN
+                ? PullTaskParticipantExecutionState.UNCERTAIN
+                : PullTaskParticipantExecutionState.STARTED;
     }
 }

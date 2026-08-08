@@ -176,6 +176,9 @@ public final class PullTaskNormalLinkSchema {
                 admin_required TINYINT NOT NULL DEFAULT 0,
                 pull_call_id BIGINT,
                 pull_status TINYINT NOT NULL DEFAULT 0,
+                pull_failure_count BIGINT NOT NULL DEFAULT 0,
+                active_pull_attempt_id BIGINT,
+                last_puller_group_account_id BIGINT,
                 pull_reason_code VARCHAR(64),
                 pull_reason_message VARCHAR(255),
                 wa_jid VARCHAR(128),
@@ -209,6 +212,9 @@ public final class PullTaskNormalLinkSchema {
                 selection_mode TINYINT NOT NULL DEFAULT 1,
                 entry_mode TINYINT,
                 membership_status TINYINT NOT NULL DEFAULT 0,
+                membership_failure_count BIGINT NOT NULL DEFAULT 0,
+                active_pull_attempt_id BIGINT,
+                last_puller_group_account_id BIGINT,
                 membership_reason_code VARCHAR(64),
                 membership_reason_message VARCHAR(255),
                 membership_result_at BIGINT,
@@ -273,6 +279,9 @@ public final class PullTaskNormalLinkSchema {
                 planned_material_count INT NOT NULL,
                 planned_station_count INT NOT NULL,
                 call_status TINYINT NOT NULL DEFAULT 1,
+                roster_check_status TINYINT NOT NULL DEFAULT 0,
+                roster_check_started_at BIGINT,
+                roster_check_finished_at BIGINT,
                 command_id VARCHAR(64),
                 idempotency_key VARCHAR(64) NOT NULL,
                 reason_code VARCHAR(64),
@@ -284,6 +293,41 @@ public final class PullTaskNormalLinkSchema {
                 CONSTRAINT uq_pull_task_call_seq UNIQUE (tenant_id, group_execution_id, call_seq),
                 CONSTRAINT uq_pull_task_call_idempotency UNIQUE (tenant_id, idempotency_key),
                 CONSTRAINT uq_pull_task_call_command UNIQUE (tenant_id, command_id)
+            )
+            """;
+
+    /** 批量拉人逐号码不可变执行台账。 */
+    static final String PULL_CALL_MEMBER_ATTEMPT = """
+            CREATE TABLE pull_task_pull_call_member_attempt (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id BIGINT NOT NULL,
+                task_id BIGINT NOT NULL,
+                group_execution_id BIGINT NOT NULL,
+                pull_call_id BIGINT NOT NULL,
+                participant_type TINYINT NOT NULL,
+                participant_ref_id BIGINT NOT NULL,
+                target_phone VARCHAR(32) NOT NULL,
+                target_jid VARCHAR(128),
+                puller_group_account_id BIGINT NOT NULL,
+                attempt_no INT NOT NULL,
+                failure_count_before BIGINT NOT NULL DEFAULT 0,
+                lifecycle_status TINYINT NOT NULL DEFAULT 1,
+                active_slot TINYINT DEFAULT 1,
+                protocol_outcome VARCHAR(16),
+                execution_state VARCHAR(16),
+                reason_code VARCHAR(64),
+                reason_message VARCHAR(255),
+                submitted_at BIGINT,
+                result_at BIGINT,
+                released_at BIGINT,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                CONSTRAINT uq_pull_task_attempt_call_participant UNIQUE
+                    (tenant_id, pull_call_id, participant_type, participant_ref_id),
+                CONSTRAINT uq_pull_task_attempt_active UNIQUE
+                    (tenant_id, group_execution_id, participant_type, participant_ref_id, active_slot),
+                CONSTRAINT uq_pull_task_attempt_sequence UNIQUE
+                    (tenant_id, group_execution_id, participant_type, participant_ref_id, attempt_no)
             )
             """;
 
@@ -319,7 +363,7 @@ public final class PullTaskNormalLinkSchema {
     public static String[] all() {
         return new String[] {
             PULL_TASK, STANDARD_SETTING, STANDARD_GROUP_SETTING, GROUP_EXECUTION,
-            MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_CALL,
+            MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_CALL, PULL_CALL_MEMBER_ATTEMPT,
         };
     }
 }

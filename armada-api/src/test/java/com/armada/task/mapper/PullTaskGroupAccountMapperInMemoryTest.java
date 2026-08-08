@@ -8,6 +8,8 @@ import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
@@ -302,6 +304,150 @@ class PullTaskGroupAccountMapperInMemoryTest {
         assertThat(mapper.selectByExecutionAndRole(EXEC_A, PullTaskGroupAccountRole.PULLER.code()))
                 .isEmpty();
         assertThat(mapper.releaseAllPullersOfExecution(EXEC_A, 800L)).isZero();
+    }
+
+    @Test
+    void stationAttemptBindingRetriesThreeTimesAndFourthFailureIsTerminal() {
+        PullTaskGroupAccount station = role(
+                100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        mapper.insert(station);
+        long priorAttemptId = 0L;
+
+        for (int failure = 1; failure <= 4; failure++) {
+            long attemptId = 1_000L + failure;
+            long callId = 2_000L + failure;
+            assertThat(mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                    station.getId(), attemptId, callId, 701L, 100L + failure)))
+                    .isEqualTo(1);
+            assertThat(mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                    station.getId(), attemptId + 100L, callId + 100L, 702L, 150L + failure)))
+                    .isZero();
+            if (priorAttemptId > 0) {
+                assertThat(mapper.transitionMembershipAttempt(stationTransition(
+                        station.getId(), priorAttemptId,
+                        new PullTaskParticipantAggregateTransition.Expected(
+                                List.of(PullTaskGroupAccountMembershipStatus.JOINING.code()),
+                                failure - 1L),
+                        new PullTaskParticipantAggregateTransition.Target(
+                                PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                                failure, null, null)))).isZero();
+            }
+            int targetStatus = failure < 4
+                    ? PullTaskGroupAccountMembershipStatus.NOT_JOINED.code()
+                    : PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code();
+            Long targetCallId = failure < 4 ? null : callId;
+            assertThat(mapper.transitionMembershipAttempt(stationTransition(
+                    station.getId(), attemptId,
+                    new PullTaskParticipantAggregateTransition.Expected(
+                            List.of(PullTaskGroupAccountMembershipStatus.JOINING.code()),
+                            failure - 1L),
+                    new PullTaskParticipantAggregateTransition.Target(
+                            targetStatus, failure, targetCallId, null)))).isEqualTo(1);
+            priorAttemptId = attemptId;
+            if (failure < 4) {
+                PullTaskGroupAccount saved = mapper.selectPendingStations(EXEC_A, 10).get(0);
+                assertThat(saved.getMembershipFailureCount()).isEqualTo((long) failure);
+                assertThat(saved.getPullCallId()).isNull();
+                assertThat(saved.getActivePullAttemptId()).isNull();
+            }
+        }
+
+        assertThat(mapper.selectPendingStations(EXEC_A, 10)).isEmpty();
+        assertThat(mapper.selectById(station.getId()))
+                .satisfies(saved -> {
+                    assertThat(saved.getMembershipStatus())
+                            .isEqualTo(PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code());
+                    assertThat(saved.getMembershipFailureCount()).isEqualTo(4L);
+                });
+    }
+
+    @Test
+    void stationUnknownReleaseDoesNotConsumeFailureCount() {
+        PullTaskGroupAccount station = role(
+                100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        mapper.insert(station);
+        mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                station.getId(), 1_001L, 2_001L, 701L, 100L));
+
+        assertThat(mapper.transitionMembershipAttempt(stationTransition(
+                station.getId(), 1_001L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskGroupAccountMembershipStatus.JOINING.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                        0L, null, null)))).isEqualTo(1);
+
+        assertThat(mapper.selectPendingStations(EXEC_A, 1)).singleElement()
+                .satisfies(saved -> {
+                    assertThat(saved.getMembershipFailureCount()).isZero();
+                    assertThat(saved.getPullCallId()).isNull();
+                    assertThat(saved.getActivePullAttemptId()).isNull();
+                });
+    }
+
+    @Test
+    void stationSuccessCannotDowngradeAndLateSuccessKeepsNewerAttemptPointer() {
+        PullTaskGroupAccount direct = role(
+                100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        PullTaskGroupAccount late = role(
+                100L, EXEC_A, 921L, PullTaskGroupAccountRole.STATION, 2);
+        mapper.insert(direct);
+        mapper.insert(late);
+        mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                direct.getId(), 1_001L, 2_001L, 701L, 100L));
+        assertThat(mapper.promoteMembershipSuccess(stationTransition(
+                direct.getId(), 1_001L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskGroupAccountMembershipStatus.JOINING.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code(),
+                        0L, 2_001L, null)))).isEqualTo(1);
+        assertThat(mapper.transitionMembershipAttempt(stationTransition(
+                direct.getId(), 1_001L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskGroupAccountMembershipStatus.IN_GROUP.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(),
+                        1L, 2_001L, null)))).isZero();
+
+        mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                late.getId(), 1_010L, 2_010L, 701L, 110L));
+        mapper.transitionMembershipAttempt(stationTransition(
+                late.getId(), 1_010L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskGroupAccountMembershipStatus.JOINING.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                        0L, null, null)));
+        mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                late.getId(), 1_011L, 2_011L, 702L, 120L));
+
+        assertThat(mapper.promoteMembershipSuccess(stationTransition(
+                late.getId(), 1_010L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code(),
+                        0L, 2_010L, null)))).isEqualTo(1);
+        assertThat(mapper.selectById(late.getId()))
+                .satisfies(saved -> {
+                    assertThat(saved.getMembershipStatus())
+                            .isEqualTo(PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
+                    assertThat(saved.getPullCallId()).isEqualTo(2_010L);
+                    assertThat(saved.getActivePullAttemptId()).isEqualTo(1_011L);
+                });
+    }
+
+    private PullTaskParticipantAggregateTransition stationTransition(
+            long participantId,
+            long attemptId,
+            PullTaskParticipantAggregateTransition.Expected expected,
+            PullTaskParticipantAggregateTransition.Target target) {
+        return new PullTaskParticipantAggregateTransition(
+                new PullTaskParticipantAggregateTransition.Scope(participantId, attemptId, 500L),
+                expected,
+                target,
+                PullTaskFactResult.success(null, 500L));
     }
 
     @Test

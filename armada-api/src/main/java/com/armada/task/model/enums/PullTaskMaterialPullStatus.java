@@ -9,7 +9,7 @@ public enum PullTaskMaterialPullStatus {
     SUBMITTED(1),
     /** 成功：协议确认已入群。 */
     SUCCESS(2),
-    /** 失败：协议明确失败，终态，不重试、不换拉手。 */
+    /** 最终失败：首次执行及 3 次重试均得到明确失败后进入。 */
     FAILED(3),
     /** 结果未知：只能由状态查询或协议回调收敛，不得伪装成成功或失败。 */
     UNKNOWN(4),

@@ -6,6 +6,7 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import org.springframework.stereotype.Component;
 
 /** LC-02 单群生命周期向执行事实传播状态所需的 Mapper 集合。 */
@@ -15,6 +16,7 @@ public record PullTaskStandardExecutionLifecycleResources(
         PullTaskGroupAccountMapper accountMapper,
         PullTaskAccountActionMapper actionMapper,
         PullTaskPullCallMapper pullCallMapper,
+        PullTaskPullCallMemberAttemptMapper attemptMapper,
         PullTaskMaterialMemberMapper materialMapper,
         ProtocolCommandOutboxService outboxService) {
 }

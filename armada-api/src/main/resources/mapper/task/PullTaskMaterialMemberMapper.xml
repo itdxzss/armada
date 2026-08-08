@@ -37,6 +37,8 @@
     WHERE group_execution_id = #{groupExecutionId}
       AND pull_status = #{pullStatus}
       AND pull_call_id IS NULL
+      AND active_pull_attempt_id IS NULL
+      AND pull_failure_count &lt; #{maxFailureCount}
     ORDER BY member_seq ASC
     LIMIT #{limit}
   </select>
@@ -51,6 +53,68 @@
       AND pull_status = #{expectedStatus}
       AND id IN
       <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
+  <update id="bindPullAttemptIfEligible">
+    UPDATE pull_task_material_member
+    SET pull_call_id = #{binding.pullCallId},
+        pull_status = #{guard.targetStatus},
+        active_pull_attempt_id = #{binding.attemptId},
+        pull_reason_code = NULL,
+        pull_reason_message = NULL,
+        pull_result_at = NULL,
+        updated_at = #{binding.now}
+    WHERE id = #{binding.participantId}
+      AND pull_status = #{guard.expectedStatus}
+      AND pull_call_id IS NULL
+      AND active_pull_attempt_id IS NULL
+      AND pull_failure_count &lt; #{guard.maxFailureCount}
+  </update>
+
+  <update id="markPullAttemptSubmitted">
+    UPDATE pull_task_material_member
+    SET last_puller_group_account_id = #{binding.pullerGroupAccountId},
+        updated_at = #{binding.now}
+    WHERE id = #{binding.participantId}
+      AND active_pull_attempt_id = #{binding.attemptId}
+      AND pull_call_id = #{binding.pullCallId}
+  </update>
+
+  <update id="transitionPullAttempt">
+    UPDATE pull_task_material_member
+    SET pull_status = #{transition.target.status},
+        pull_failure_count = #{transition.target.failureCount},
+        pull_call_id = #{transition.target.pullCallId},
+        active_pull_attempt_id = #{transition.target.activeAttemptId},
+        pull_reason_code = #{transition.result.reasonCode},
+        pull_reason_message = #{transition.result.reasonMessage},
+        wa_jid = COALESCE(#{transition.result.resultJid}, wa_jid),
+        pull_result_at = #{transition.result.occurredAt},
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.participantId}
+      AND active_pull_attempt_id = #{transition.scope.attemptId}
+      AND pull_failure_count = #{transition.expected.failureCount}
+      AND pull_status IN
+      <foreach collection="transition.expected.statuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="promotePullSuccess">
+    UPDATE pull_task_material_member
+    SET pull_status = #{transition.target.status},
+        pull_call_id = #{transition.target.pullCallId},
+        active_pull_attempt_id = CASE
+          WHEN active_pull_attempt_id = #{transition.scope.attemptId}
+            THEN #{transition.target.activeAttemptId}
+          ELSE active_pull_attempt_id
+        END,
+        pull_reason_code = NULL,
+        pull_reason_message = NULL,
+        wa_jid = COALESCE(#{transition.result.resultJid}, wa_jid),
+        pull_result_at = #{transition.result.occurredAt},
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.participantId}
+      AND pull_status &lt;&gt; #{transition.target.status}
   </update>
 
   <update id="transitionPullResult">
@@ -154,6 +218,8 @@
   <update id="cancelPlannedByTask">
     UPDATE pull_task_material_member
     SET pull_status = #{targetPullStatus},
+        pull_call_id = NULL,
+        active_pull_attempt_id = NULL,
         pull_result_at = #{now},
         updated_at = #{now}
     WHERE pull_status = #{expectedPullStatus}
@@ -193,6 +259,8 @@
   <update id="cancelPlannedByExecution">
     UPDATE pull_task_material_member
     SET pull_status = #{targetPullStatus},
+        pull_call_id = NULL,
+        active_pull_attempt_id = NULL,
         pull_result_at = #{now},
         updated_at = #{now}
     WHERE group_execution_id = #{groupExecutionId}
@@ -218,6 +286,9 @@
   <update id="cancelUnpublishedSubmittedPull">
     UPDATE pull_task_material_member
     SET pull_status = #{targetStatus},
+        pull_call_id = CASE WHEN #{releaseBinding} THEN NULL ELSE pull_call_id END,
+        active_pull_attempt_id = CASE
+          WHEN #{releaseBinding} THEN NULL ELSE active_pull_attempt_id END,
         pull_result_at = #{now},
         updated_at = #{now}
     WHERE pull_status = #{expectedStatus}

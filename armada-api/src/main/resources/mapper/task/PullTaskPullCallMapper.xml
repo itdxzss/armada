@@ -61,20 +61,6 @@
       AND call_status = #{reassignment.expectedStatus}
   </update>
 
-  <update id="rescheduleSubmitted">
-    UPDATE pull_task_pull_call
-    SET call_status = #{change.status.target},
-        command_id = NULL,
-        submitted_at = NULL,
-        reason_code = #{change.reasonCode},
-        reason_message = #{change.reasonMessage},
-        result_at = NULL,
-        updated_at = #{change.scope.now}
-    WHERE id = #{change.scope.callId}
-      AND command_id = #{change.scope.expectedCommandId}
-      AND call_status = #{change.status.expected}
-  </update>
-
   <update id="transitionResult">
     UPDATE pull_task_pull_call
     SET call_status = #{transition.targetStatus},
@@ -93,6 +79,24 @@
     FROM pull_task_pull_call
     WHERE command_id = #{commandId}
   </select>
+
+  <update id="claimRosterCheck">
+    UPDATE pull_task_pull_call
+    SET roster_check_status = #{targetStatus},
+        roster_check_started_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND roster_check_status = #{expectedStatus}
+  </update>
+
+  <update id="finishRosterCheck">
+    UPDATE pull_task_pull_call
+    SET roster_check_status = #{targetStatus},
+        roster_check_finished_at = #{now},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND roster_check_status = #{expectedStatus}
+  </update>
 
   <update id="cancelPlannedByTask">
     UPDATE pull_task_pull_call

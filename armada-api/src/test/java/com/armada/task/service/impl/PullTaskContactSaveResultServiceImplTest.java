@@ -2,6 +2,7 @@ package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +24,7 @@ import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -33,8 +35,10 @@ class PullTaskContactSaveResultServiceImplTest {
     private final PullTaskAccountActionMapper actionMapper = mock(PullTaskAccountActionMapper.class);
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
+    private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
     private final PullTaskContactSaveResultServiceImpl service =
-            new PullTaskContactSaveResultServiceImpl(actionMapper, accountMapper, executionMapper);
+            new PullTaskContactSaveResultServiceImpl(
+                    actionMapper, accountMapper, executionMapper, delayPolicy);
 
     @AfterEach
     void clearTenant() {
@@ -65,7 +69,7 @@ class PullTaskContactSaveResultServiceImplTest {
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
         assertThat(executionChange.getValue().targetStage())
                 .isEqualTo(PullTaskExecutionStage.PULLER_INVITE.code());
-        assertThat(executionChange.getValue().nextRunAt()).isZero();
+        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(9_000L);
         assertThat(TenantContext.get()).isNull();
     }
 
@@ -95,7 +99,7 @@ class PullTaskContactSaveResultServiceImplTest {
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
         assertThat(executionChange.getValue().targetStage())
                 .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
-        assertThat(executionChange.getValue().nextRunAt()).isZero();
+        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(9_000L);
     }
 
     @Test
@@ -165,7 +169,7 @@ class PullTaskContactSaveResultServiceImplTest {
                 .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
         assertThat(executionChange.getValue().targetStage())
                 .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
-        assertThat(executionChange.getValue().nextRunAt()).isZero();
+        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(9_000L);
     }
 
     @Test
@@ -262,5 +266,12 @@ class PullTaskContactSaveResultServiceImplTest {
         PullTaskGroupExecution row = execution();
         row.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         return row;
+    }
+
+    private static PullTaskOperationDelayPolicy delayPolicy() {
+        PullTaskOperationDelayPolicy policy = mock(PullTaskOperationDelayPolicy.class);
+        when(policy.nextSideEffectAt(anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0, Long.class) + 4_000L);
+        return policy;
     }
 }

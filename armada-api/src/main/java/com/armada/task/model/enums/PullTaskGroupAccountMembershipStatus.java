@@ -9,7 +9,7 @@ public enum PullTaskGroupAccountMembershipStatus {
     JOINING(1),
     /** 在群：已确认在群，可承担后续职责。 */
     IN_GROUP(2),
-    /** 入群失败：明确失败，终态。 */
+    /** 最终入群失败：首次执行及 3 次重试均明确失败后进入。 */
     JOIN_FAILED(3),
     /** 结果未知：由查询或回调收敛。 */
     UNKNOWN(4);

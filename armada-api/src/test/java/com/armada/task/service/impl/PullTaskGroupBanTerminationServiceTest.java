@@ -16,6 +16,7 @@ import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -38,6 +39,7 @@ class PullTaskGroupBanTerminationServiceTest {
     @Mock private PullTaskGroupAccountMapper accountMapper;
     @Mock private PullTaskAccountActionMapper actionMapper;
     @Mock private PullTaskPullCallMapper pullCallMapper;
+    @Mock private PullTaskPullCallMemberAttemptMapper attemptMapper;
     @Mock private PullTaskMaterialMemberMapper materialMapper;
     @Mock private ProtocolCommandOutboxService outboxService;
     @Mock private PullTaskParentCompletionService completionService;
@@ -50,7 +52,7 @@ class PullTaskGroupBanTerminationServiceTest {
         PullTaskStandardExecutionLifecycleResources resources =
                 new PullTaskStandardExecutionLifecycleResources(
                         executionMapper, accountMapper, actionMapper, pullCallMapper,
-                        materialMapper, outboxService);
+                        attemptMapper, materialMapper, outboxService);
         service = new PullTaskStandardExecutionLifecycleServiceImpl(
                 taskMapper, resources, completionService, dispatchTrigger, () -> 900L);
         TenantContext.set(99L);

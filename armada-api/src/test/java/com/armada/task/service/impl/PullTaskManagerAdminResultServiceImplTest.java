@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -27,6 +28,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -37,9 +39,10 @@ class PullTaskManagerAdminResultServiceImplTest {
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
     private final PullTaskExecutionDispatchProperties properties = properties();
+    private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
     private final PullTaskManagerAdminResultServiceImpl service =
             new PullTaskManagerAdminResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, properties);
+                    actionMapper, accountMapper, executionMapper, properties, delayPolicy);
 
     @AfterEach
     void clearTenant() {
@@ -64,7 +67,7 @@ class PullTaskManagerAdminResultServiceImplTest {
         assertThat(target.stage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
         assertThat(target.reasonCode()).isEqualTo(
                 PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.name());
-        assertThat(target.nextRunAt()).isZero();
+        assertThat(target.nextRunAt()).isEqualTo(9_000L);
     }
 
     @Test
@@ -87,7 +90,7 @@ class PullTaskManagerAdminResultServiceImplTest {
         assertThat(target.reasonCode()).isEqualTo(
                 PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED.name());
         assertThat(target.reasonMessage()).isEqualTo("提权账号已无群管理员权限");
-        assertThat(target.nextRunAt()).isZero();
+        assertThat(target.nextRunAt()).isEqualTo(9_000L);
     }
 
     @Test
@@ -258,5 +261,13 @@ class PullTaskManagerAdminResultServiceImplTest {
         PullTaskExecutionDispatchProperties result = new PullTaskExecutionDispatchProperties();
         result.setRetryDelayMs(30_000L);
         return result;
+    }
+
+    private static PullTaskOperationDelayPolicy delayPolicy() {
+        PullTaskOperationDelayPolicy policy = mock(PullTaskOperationDelayPolicy.class);
+        when(policy.maxDeadline(anyLong(), anyLong())).thenAnswer(invocation -> Math.max(
+                invocation.getArgument(0, Long.class),
+                invocation.getArgument(1, Long.class) + 4_000L));
+        return policy;
     }
 }

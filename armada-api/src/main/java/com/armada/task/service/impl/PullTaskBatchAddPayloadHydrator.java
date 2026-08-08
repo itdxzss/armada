@@ -5,25 +5,24 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddRefere
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.service.ProtocolCommandPayloadHydrator;
-import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
-import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
-import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
-import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
@@ -38,7 +37,7 @@ public class PullTaskBatchAddPayloadHydrator implements ProtocolCommandPayloadHy
 
     private final PullTaskPullCallMapper callMapper;
     private final PullTaskGroupAccountMapper accountMapper;
-    private final PullTaskMaterialMemberMapper materialMapper;
+    private final PullTaskPullCallMemberAttemptMapper attemptMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
     private final ObjectMapper objectMapper;
 
@@ -46,12 +45,12 @@ public class PullTaskBatchAddPayloadHydrator implements ProtocolCommandPayloadHy
     public PullTaskBatchAddPayloadHydrator(
             PullTaskPullCallMapper callMapper,
             PullTaskGroupAccountMapper accountMapper,
-            PullTaskMaterialMemberMapper materialMapper,
+            PullTaskPullCallMemberAttemptMapper attemptMapper,
             PullTaskGroupExecutionMapper executionMapper,
             ObjectMapper objectMapper) {
         this.callMapper = callMapper;
         this.accountMapper = accountMapper;
-        this.materialMapper = materialMapper;
+        this.attemptMapper = attemptMapper;
         this.executionMapper = executionMapper;
         this.objectMapper = objectMapper;
     }
@@ -79,18 +78,17 @@ public class PullTaskBatchAddPayloadHydrator implements ProtocolCommandPayloadHy
                 throw validation("普通拉群批量命令调用或执行行不一致 commandId=" + row.getCommandId());
             }
             PullTaskGroupAccount puller = puller(reference.groupExecutionId(), call);
-            List<PullTaskGroupAccount> stations = stations(reference.groupExecutionId(), call);
-            List<PullTaskMaterialMember> materials = materials(reference.groupExecutionId(), call);
+            List<PullTaskPullCallMemberAttempt> attempts = attemptMapper.selectByCallAndStatus(
+                    call.getId(), PullTaskParticipantAttemptStatus.SUBMITTED.code());
             if (!validPuller(puller, call, reference)
-                    || stations.size() != call.getPlannedStationCount()
-                    || materials.size() != call.getPlannedMaterialCount()) {
+                    || !validAttemptCounts(attempts, call)) {
                 throw validation("普通拉群批量命令冻结参与者不完整 commandId=" + row.getCommandId());
             }
             return objectMapper.valueToTree(new WirePayload(
                     reference.tenantId(), reference.pullTaskId(), reference.groupExecutionId(),
                     reference.pullCallId(), puller.getAccountId(), row.getProtocolAccountId(),
                     puller.getAccountPhone(), backend(row).name(), execution.getGroupJid(),
-                    participantJids(stations, materials), "ADD", TIMEOUT_MS, 1,
+                    participantJids(attempts), "ADD", TIMEOUT_MS, 1,
                     reference.source()));
         } finally {
             restoreTenant(previousTenant);
@@ -150,22 +148,6 @@ public class PullTaskBatchAddPayloadHydrator implements ProtocolCommandPayloadHy
                 .findFirst().orElse(null);
     }
 
-    private List<PullTaskGroupAccount> stations(long executionId, PullTaskPullCall call) {
-        return accountMapper.selectByExecutionAndRole(
-                        executionId, PullTaskGroupAccountRole.STATION.code())
-                .stream()
-                .filter(row -> Objects.equals(row.getPullCallId(), call.getId()))
-                .toList();
-    }
-
-    private List<PullTaskMaterialMember> materials(long executionId, PullTaskPullCall call) {
-        return materialMapper.selectByExecution(executionId).stream()
-                .filter(row -> Objects.equals(row.getPullCallId(), call.getId()))
-                .filter(row -> Objects.equals(
-                        row.getPullStatus(), PullTaskMaterialPullStatus.SUBMITTED.code()))
-                .toList();
-    }
-
     private static boolean validPuller(
             PullTaskGroupAccount puller,
             PullTaskPullCall call,
@@ -178,15 +160,25 @@ public class PullTaskBatchAddPayloadHydrator implements ProtocolCommandPayloadHy
                 && !puller.getAccountPhone().isBlank();
     }
 
+    private static boolean validAttemptCounts(
+            List<PullTaskPullCallMemberAttempt> attempts,
+            PullTaskPullCall call) {
+        if (attempts == null) {
+            return false;
+        }
+        long stations = attempts.stream().filter(row -> Objects.equals(
+                row.getParticipantType(), PullTaskParticipantType.STATION.code())).count();
+        long materials = attempts.stream().filter(row -> Objects.equals(
+                row.getParticipantType(), PullTaskParticipantType.MATERIAL.code())).count();
+        return stations == call.getPlannedStationCount()
+                && materials == call.getPlannedMaterialCount()
+                && attempts.stream().allMatch(row -> row.getTargetJid() != null
+                        && !row.getTargetJid().isBlank());
+    }
+
     private static List<String> participantJids(
-            List<PullTaskGroupAccount> stations,
-            List<PullTaskMaterialMember> materials) {
-        List<String> result = new ArrayList<>(stations.size() + materials.size());
-        stations.stream().map(PullTaskGroupAccount::getAccountPhone)
-                .map(WhatsappJids::userJid).forEach(result::add);
-        materials.stream().map(PullTaskMaterialMember::getNormalizedPhone)
-                .map(WhatsappJids::userJid).forEach(result::add);
-        return List.copyOf(result);
+            List<PullTaskPullCallMemberAttempt> attempts) {
+        return attempts.stream().map(PullTaskPullCallMemberAttempt::getTargetJid).toList();
     }
 
     private static ProtocolBackend backend(ProtocolCommandOutbox row) {

@@ -302,7 +302,8 @@ class ProtocolGroupEventConsumerTest {
                     "accountId":902,"protocolAccountId":"puller-902",
                     "commandId":"cmd-batch-1","attemptNo":1,
                     "targetJid":"8613800000903@s.whatsapp.net",
-                    "outcome":"UNKNOWN","reasonCode":"PARTICIPANT_ADD_TIMEOUT",
+                    "outcome":"UNKNOWN","executionState":"UNCERTAIN",
+                    "reasonCode":"PARTICIPANT_ADD_TIMEOUT",
                     "reasonMessage":"timed out","retryable":true,"timestamp":5000
                   }
                 }
@@ -317,9 +318,38 @@ class ProtocolGroupEventConsumerTest {
                 new ProtocolPullTaskBatchParticipantResultReportedEvent(
                         "puller-902:group.action_result_reported:cmd-batch-1:8613800000903_s_whatsapp_net",
                         7L, 100L, 11L, 801L, 902L, "puller-902", "cmd-batch-1", 1,
-                        "8613800000903@s.whatsapp.net", "UNKNOWN",
+                        "8613800000903@s.whatsapp.net", "UNKNOWN", "UNCERTAIN",
                         "PARTICIPANT_ADD_TIMEOUT", "timed out", true, 5_000L, "worker-a"));
         verifyNoInteractions(actionResultSink);
+    }
+
+    @Test
+    void onMessage_batchAddResultRejectsMissingUnknownOrIllegalExecutionState() {
+        String missing = batchParticipantResultJson("FAILED", null);
+        String unknown = batchParticipantResultJson("FAILED", "BROKEN");
+        String wrongCase = batchParticipantResultJson("FAILED", "started");
+        String illegalPair = batchParticipantResultJson("FAILED", "NOT_STARTED");
+
+        assertThatThrownBy(() -> consumer.onMessage(missing)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(unknown)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(wrongCase)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(illegalPair)).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(batchParticipantResultSink);
+    }
+
+    private static String batchParticipantResultJson(String outcome, String executionState) {
+        String stateJson = executionState == null
+                ? ""
+                : ",\"executionState\":\"" + executionState + "\"";
+        return """
+                {"event":"group.action_result_reported","accountId":"puller-902","data":{
+                  "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"pullCallId":801,
+                  "source":"pull_task_batch_add","operation":"PARTICIPANT_ADD",
+                  "accountId":902,"protocolAccountId":"puller-902","commandId":"cmd-batch-1",
+                  "attemptNo":1,"targetJid":"8613800000903@s.whatsapp.net",
+                  "outcome":"%s"%s,"retryable":false
+                }}
+                """.formatted(outcome, stateJson);
     }
 
     @Test

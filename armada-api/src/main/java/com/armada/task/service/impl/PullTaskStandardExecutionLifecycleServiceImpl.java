@@ -16,6 +16,8 @@ import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
@@ -37,6 +39,8 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final int NOT_PAUSED = 0;
     private static final int MANUALLY_PAUSED = 1;
+    private static final String LIFECYCLE_CANCELED = "LIFECYCLE_CANCELED";
+    private static final String LIFECYCLE_CANCELED_MESSAGE = "任务或执行行已结束，未发出的拉人操作已取消";
     private static final List<Integer> NON_TERMINAL_STATUSES = List.of(
             PullTaskExecutionStatus.WAIT_START.code(),
             PullTaskExecutionStatus.EXECUTING.code(),
@@ -197,17 +201,45 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
                 executionId, PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(), now);
+        resources.accountMapper().cancelPlannedStationMembershipByExecution(
+                executionId, PullTaskGroupAccountRole.STATION.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                PullTaskPullCallStatus.PLANNED.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                now);
+        resources.attemptMapper().cancelPlannedByExecution(
+                executionId, PullTaskParticipantAttemptStatus.PLANNED.code(),
+                PullTaskParticipantAttemptStatus.CANCELED.code(),
+                PullTaskPullCallStatus.PLANNED.code(),
+                PullTaskParticipantExecutionState.NOT_STARTED.name(),
+                LIFECYCLE_CANCELED, LIFECYCLE_CANCELED_MESSAGE, now);
         resources.materialMapper().cancelPendingAdminByExecution(
                 executionId, PullTaskMaterialAdminStatus.PENDING.code(),
                 PullTaskMaterialAdminStatus.CANCELED.code(), now);
         resources.materialMapper().cancelUnpublishedSubmittedPull(
                 taskId, executionId, PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(),
-                ProtocolCommandOutboxStatus.CANCELED.code(), now);
+                ProtocolCommandOutboxStatus.CANCELED.code(), true, now);
         resources.materialMapper().cancelUnpublishedSubmittedPull(
                 taskId, executionId, PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskMaterialPullStatus.UNKNOWN.code(),
-                ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), now);
+                ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), false, now);
+        resources.accountMapper().cancelUnpublishedSubmittedStationMembership(
+                taskId, executionId, PullTaskGroupAccountRole.STATION.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(), true, now);
+        resources.accountMapper().cancelUnpublishedSubmittedStationMembership(
+                taskId, executionId, PullTaskGroupAccountRole.STATION.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.UNKNOWN.code(),
+                ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), false, now);
+        resources.attemptMapper().cancelUnpublishedSubmitted(
+                taskId, executionId, PullTaskParticipantAttemptStatus.SUBMITTED.code(),
+                PullTaskParticipantAttemptStatus.CANCELED.code(),
+                ProtocolCommandOutboxStatus.CANCELED.code(),
+                PullTaskParticipantExecutionState.NOT_STARTED.name(),
+                LIFECYCLE_CANCELED, LIFECYCLE_CANCELED_MESSAGE, now);
         resources.materialMapper().cancelUnpublishedSubmittedAdmin(
                 taskId, executionId, PullTaskMaterialAdminStatus.SUBMITTED.code(),
                 PullTaskMaterialAdminStatus.CANCELED.code(),

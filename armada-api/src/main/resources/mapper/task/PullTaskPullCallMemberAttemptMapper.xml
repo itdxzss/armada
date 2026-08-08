@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper">
+
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_pull_call_member_attempt (
+      task_id, group_execution_id, pull_call_id,
+      participant_type, participant_ref_id, target_phone, target_jid,
+      puller_group_account_id, attempt_no, failure_count_before,
+      lifecycle_status, active_slot, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{groupExecutionId}, #{pullCallId},
+      #{participantType}, #{participantRefId}, #{targetPhone}, #{targetJid},
+      #{pullerGroupAccountId}, #{attemptNo}, #{failureCountBefore},
+      #{lifecycleStatus}, #{activeSlot}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectByCall"
+          resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
+    SELECT *
+    FROM pull_task_pull_call_member_attempt
+    WHERE pull_call_id = #{pullCallId}
+    ORDER BY id ASC
+  </select>
+
+  <select id="selectById"
+          resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
+    SELECT *
+    FROM pull_task_pull_call_member_attempt
+    WHERE id = #{id}
+  </select>
+
+  <select id="selectByCallAndStatus"
+          resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
+    SELECT *
+    FROM pull_task_pull_call_member_attempt
+    WHERE pull_call_id = #{pullCallId}
+      AND lifecycle_status = #{lifecycleStatus}
+    ORDER BY id ASC
+  </select>
+
+  <select id="selectNextAttemptNo" resultType="java.lang.Integer">
+    SELECT COALESCE(MAX(attempt_no), 0) + 1
+    FROM pull_task_pull_call_member_attempt
+    WHERE group_execution_id = #{groupExecutionId}
+      AND participant_type = #{participantType}
+      AND participant_ref_id = #{participantRefId}
+  </select>
+
+  <select id="selectByCallAndTarget"
+          resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
+    SELECT *
+    FROM pull_task_pull_call_member_attempt
+    WHERE pull_call_id = #{pullCallId}
+      AND target_jid = #{targetJid}
+  </select>
+
+  <update id="transition">
+    UPDATE pull_task_pull_call_member_attempt
+    SET lifecycle_status = #{transition.target.lifecycleStatus},
+        active_slot = #{transition.target.activeSlot},
+        protocol_outcome = #{transition.target.protocolOutcome},
+        execution_state = #{transition.target.executionState},
+        reason_code = #{transition.result.reasonCode},
+        reason_message = #{transition.result.reasonMessage},
+        target_jid = COALESCE(#{transition.result.resultJid}, target_jid),
+        result_at = #{transition.result.occurredAt},
+        released_at = #{transition.target.releasedAt},
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.attemptId}
+      AND lifecycle_status IN
+      <foreach collection="transition.expected.lifecycleStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="transitionCallParticipants">
+    UPDATE pull_task_pull_call_member_attempt
+    SET lifecycle_status = #{targetStatus},
+        submitted_at = #{now},
+        updated_at = #{now}
+    WHERE pull_call_id = #{pullCallId}
+      AND lifecycle_status = #{expectedStatus}
+      AND active_slot = 1
+  </update>
+
+  <update id="cancelPlannedByTask">
+    UPDATE pull_task_pull_call_member_attempt
+    SET lifecycle_status = #{targetStatus},
+        active_slot = NULL,
+        execution_state = #{executionState},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        released_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND lifecycle_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        WHERE call_row.id = pull_task_pull_call_member_attempt.pull_call_id
+          AND call_row.call_status = #{plannedCallStatus}
+      )
+  </update>
+
+  <update id="cancelPlannedByExecution">
+    UPDATE pull_task_pull_call_member_attempt
+    SET lifecycle_status = #{targetStatus},
+        active_slot = NULL,
+        execution_state = #{executionState},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        released_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND lifecycle_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        WHERE call_row.id = pull_task_pull_call_member_attempt.pull_call_id
+          AND call_row.call_status = #{plannedCallStatus}
+      )
+  </update>
+
+  <update id="cancelUnpublishedSubmitted">
+    UPDATE pull_task_pull_call_member_attempt
+    SET lifecycle_status = #{targetStatus},
+        active_slot = NULL,
+        execution_state = #{executionState},
+        reason_code = #{reasonCode},
+        reason_message = #{reasonMessage},
+        result_at = #{now},
+        released_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      <if test="groupExecutionId != null">
+        AND group_execution_id = #{groupExecutionId}
+      </if>
+      AND lifecycle_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        JOIN protocol_command_outbox outbox_row
+          ON outbox_row.command_id = call_row.command_id
+        WHERE call_row.id = pull_task_pull_call_member_attempt.pull_call_id
+          AND outbox_row.status = #{canceledOutboxStatus}
+          AND outbox_row.deleted_at IS NULL
+      )
+  </update>
+
+</mapper>

@@ -22,6 +22,7 @@ import com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import com.armada.task.service.PullTaskManagerJoinResultService;
 import java.util.List;
 import java.util.Objects;
@@ -49,6 +50,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskParentCompletionService completionService;
     private final PullTaskExecutionDispatchProperties properties;
+    private final PullTaskOperationDelayPolicy delayPolicy;
 
     /**
      * 创建管理员踩链接结果状态机。
@@ -64,12 +66,14 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskParentCompletionService completionService,
-            PullTaskExecutionDispatchProperties properties) {
+            PullTaskExecutionDispatchProperties properties,
+            PullTaskOperationDelayPolicy delayPolicy) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.completionService = completionService;
         this.properties = properties;
+        this.delayPolicy = delayPolicy;
     }
 
     /**
@@ -107,9 +111,14 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                 }
                 return false;
             }
+            if (actionWrite == WriteResult.ALREADY_TARGET
+                    && membershipWrite == WriteResult.ALREADY_TARGET) {
+                return true;
+            }
+            long nextRunAt = nextRunAt(callback, kind, properties.getRetryDelayMs());
             int advanced = executionMapper.transitionManagerJoinResult(
                     executionTransition(execution, callback, kind, reasonMessage,
-                            properties.getRetryDelayMs()));
+                            nextRunAt));
             if (advanced == 1 && kind == ResultKind.EXECUTION_FAILED) {
                 completionService.completeIfTerminalByExecutionId(execution.getId(), callback.occurredAt());
             }
@@ -117,6 +126,21 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private long nextRunAt(
+            PullTaskManagerJoinCallback callback,
+            ResultKind kind,
+            long retryDelayMs) {
+        if (kind == ResultKind.SUCCESS) {
+            return delayPolicy.nextSideEffectAt(callback.occurredAt());
+        }
+        if (kind == ResultKind.UNKNOWN) {
+            return delayPolicy.maxDeadline(
+                    Math.addExact(callback.occurredAt(), retryDelayMs),
+                    callback.occurredAt());
+        }
+        return 0L;
     }
 
     private WriteResult writeAction(
@@ -164,12 +188,12 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskManagerJoinCallback callback,
             ResultKind kind,
             String reasonMessage,
-            long retryDelayMs) {
+            long nextRunAt) {
         PullTaskManagerJoinResultTransition.Target target = switch (kind) {
             case SUCCESS -> new PullTaskManagerJoinResultTransition.Target(
                     PullTaskExecutionStatus.EXECUTING.code(),
                     PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                    callback.groupJid(), null, null, null, 0L, null);
+                    callback.groupJid(), null, null, null, nextRunAt, null);
             case EXECUTION_FAILED -> new PullTaskManagerJoinResultTransition.Target(
                     PullTaskExecutionStatus.FAILED.code(),
                     PullTaskExecutionStage.MANAGER_JOIN.code(),
@@ -184,7 +208,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                     PullTaskExecutionStatus.EXECUTING.code(),
                     PullTaskExecutionStage.MANAGER_JOIN.code(),
                     callback.groupJid(), null, callback.reasonCode(), reasonMessage,
-                    Math.addExact(callback.occurredAt(), retryDelayMs), null);
+                    nextRunAt, null);
         };
         return new PullTaskManagerJoinResultTransition(
                 execution.getId(), execution.getTaskId(), execution.getVersion(),

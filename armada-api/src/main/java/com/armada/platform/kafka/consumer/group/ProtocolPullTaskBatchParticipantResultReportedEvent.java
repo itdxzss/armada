@@ -14,6 +14,7 @@ package com.armada.platform.kafka.consumer.group;
  * @param attemptNo 协议尝试次数
  * @param targetJid 本次回写的成员 JID
  * @param outcome 单成员结果：SUCCESS、FAILED 或 UNKNOWN
+ * @param executionState 号码相对协议副作用调用的执行阶段
  * @param reasonCode 结果原因码
  * @param reasonMessage 已脱敏原因描述
  * @param retryable 是否可重试
@@ -32,6 +33,7 @@ public record ProtocolPullTaskBatchParticipantResultReportedEvent(
         int attemptNo,
         String targetJid,
         String outcome,
+        String executionState,
         String reasonCode,
         String reasonMessage,
         boolean retryable,

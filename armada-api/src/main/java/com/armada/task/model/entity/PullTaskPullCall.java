@@ -33,6 +33,15 @@ public class PullTaskPullCall {
     /** 调用状态，取值见 PullTaskPullCallStatus。 */
     private Integer callStatus;
 
+    /** 异常批次名单核实状态，取值见 PullTaskPullCallRosterCheckStatus。 */
+    private Integer rosterCheckStatus;
+
+    /** 名单核实持久化认领时间(epoch 毫秒)。 */
+    private Long rosterCheckStartedAt;
+
+    /** 名单核实完成时间(epoch 毫秒)。 */
+    private Long rosterCheckFinishedAt;
+
     /** 协议命令 ID；回调按此定位。 */
     private String commandId;
 
@@ -135,6 +144,30 @@ public class PullTaskPullCall {
 
     public void setCallStatus(Integer callStatus) {
         this.callStatus = callStatus;
+    }
+
+    public Integer getRosterCheckStatus() {
+        return rosterCheckStatus;
+    }
+
+    public void setRosterCheckStatus(Integer rosterCheckStatus) {
+        this.rosterCheckStatus = rosterCheckStatus;
+    }
+
+    public Long getRosterCheckStartedAt() {
+        return rosterCheckStartedAt;
+    }
+
+    public void setRosterCheckStartedAt(Long rosterCheckStartedAt) {
+        this.rosterCheckStartedAt = rosterCheckStartedAt;
+    }
+
+    public Long getRosterCheckFinishedAt() {
+        return rosterCheckFinishedAt;
+    }
+
+    public void setRosterCheckFinishedAt(Long rosterCheckFinishedAt) {
+        this.rosterCheckFinishedAt = rosterCheckFinishedAt;
     }
 
     public String getCommandId() {

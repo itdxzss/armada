@@ -106,7 +106,7 @@
 | `0` | `NOT_JOINED` | 未入群 |
 | `1` | `JOINING` | 入群中，命令已发出等待结果 |
 | `2` | `IN_GROUP` | 已确认在群 |
-| `3` | `JOIN_FAILED` | 入群明确失败 |
+| `3` | `JOIN_FAILED` | 累计第 4 次明确失败后的最终入群失败 |
 | `4` | `UNKNOWN` | 入群结果无法确认 |
 
 失败或不确定原因看 `membership_reason_code` 和 `membership_reason_message`。这两列与 `unavailable_reason_code`（账号可用性原因）不同源，不要混用。
@@ -159,11 +159,11 @@
 
 ### 料子入群与提权
 
-料子入群 `pull_status`：`0` 未消费、`1` 已提交、`2` 成功、`3` 失败、`4` 结果未知、`5` 取消。
+料子入群 `pull_status`：`0` 待拉取（含明确失败未达 4 次及未知释放）、`1` 已提交、`2` 成功、`3` 第 4 次明确失败后的最终失败、`4` 结果未知、`5` 取消。
 
 料子提权 `admin_status`：`0` 不需要、`1` 待执行、`2` 已提交、`3` 成功、`4` 失败、`5` 结果未知、`6` 取消。
 
-料子入群明确失败后不换拉手重试；提权失败不反向修改该号码已经确认的入群成功结果。
+料子号和站台号的明确失败都会释放并重试，最多额外重试 3 次；`pull_failure_count` / `membership_failure_count` 记录累计明确失败数。未知释放不增加计数。`active_pull_attempt_id` 非空表示当前有计划或已提交 attempt；排查重复占用时必须同时查看 `pull_task_pull_call_member_attempt`。提权失败仍不反向修改已经确认的入群成功结果。
 
 ### 执行行原因码
 

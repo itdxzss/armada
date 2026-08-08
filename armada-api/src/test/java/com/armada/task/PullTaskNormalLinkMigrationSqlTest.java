@@ -23,6 +23,8 @@ class PullTaskNormalLinkMigrationSqlTest {
     private static final Path MEMBERSHIP_RESULT_MIGRATION = Path.of(
             "src/main/resources/db/migration/"
                     + "V094__pull_task_group_account_membership_result.sql");
+    private static final Path PARTICIPANT_ATTEMPT_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V106__pull_task_participant_attempt.sql");
 
     private String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);
@@ -121,5 +123,21 @@ class PullTaskNormalLinkMigrationSqlTest {
                 .contains("ADD COLUMN membership_reason_message VARCHAR(255)")
                 .contains("ADD COLUMN membership_result_at BIGINT");
         assertThat(sql()).doesNotContain("membership_reason_code");
+    }
+
+    @Test
+    void participantRetryMigrationAddsOnlyNewStructureWithoutHistoricalBackfill()
+            throws IOException {
+        String attemptSql = Files.readString(
+                PARTICIPANT_ATTEMPT_MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(attemptSql)
+                .contains("CREATE TABLE pull_task_pull_call_member_attempt")
+                .contains("pull_failure_count BIGINT NOT NULL DEFAULT 0")
+                .contains("membership_failure_count BIGINT NOT NULL DEFAULT 0")
+                .contains("roster_check_status TINYINT NOT NULL DEFAULT 0")
+                .doesNotContainIgnoringCase("INSERT INTO pull_task_pull_call_member_attempt")
+                .doesNotContainIgnoringCase("UPDATE pull_task_material_member")
+                .doesNotContainIgnoringCase("UPDATE pull_task_group_account");
     }
 }

@@ -3,6 +3,8 @@ package com.armada.task.mapper;
 import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskMaterialPullResult;
+import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -66,13 +68,37 @@ public interface PullTaskMaterialMemberMapper {
     List<PullTaskMaterialMember> selectUnconsumedByStatus(
             @Param("groupExecutionId") long groupExecutionId,
             @Param("pullStatus") int pullStatus,
+            @Param("maxFailureCount") long maxFailureCount,
             @Param("limit") int limit);
 
     /** 未消费状态由 Java 枚举传入 XML。 */
     default List<PullTaskMaterialMember> selectUnconsumed(long groupExecutionId, int limit) {
         return selectUnconsumedByStatus(
-                groupExecutionId, PullTaskMaterialPullStatus.UNCONSUMED.code(), limit);
+                groupExecutionId, PullTaskMaterialPullStatus.UNCONSUMED.code(), 4L, limit);
     }
+
+    /** 以待拉状态、失败上限和空活动指针 CAS 绑定本次 attempt。 */
+    int bindPullAttemptIfEligible(
+            @Param("binding") PullTaskParticipantAttemptBinding binding,
+            @Param("guard") PullTaskParticipantAttemptBinding.Guard guard);
+
+    /** 使用普通链接料子的固定待拉守卫。 */
+    default int bindPullAttempt(PullTaskParticipantAttemptBinding binding) {
+        return bindPullAttemptIfEligible(
+                binding, PullTaskParticipantAttemptBinding.materialGuard());
+    }
+
+    /** 批次真实提交时记录最近执行拉手，必须仍由同一活动 attempt 持有。 */
+    int markPullAttemptSubmitted(
+            @Param("binding") PullTaskParticipantAttemptBinding binding);
+
+    /** 只有当前活动 attempt 和精确失败计数都匹配时才推进聚合状态。 */
+    int transitionPullAttempt(
+            @Param("transition") PullTaskParticipantAggregateTransition transition);
+
+    /** 单调提升为成功；旧 attempt 成功不得清除更新 attempt 的活动指针。 */
+    int promotePullSuccess(
+            @Param("transition") PullTaskParticipantAggregateTransition transition);
 
     /**
      * 把选中的料子绑定到一次拉人调用。
@@ -226,6 +252,7 @@ public interface PullTaskMaterialMemberMapper {
             @Param("expectedStatus") int expectedStatus,
             @Param("targetStatus") int targetStatus,
             @Param("canceledOutboxStatus") int canceledOutboxStatus,
+            @Param("releaseBinding") boolean releaseBinding,
             @Param("now") long now);
 
     /** 取消已写入命令但 Outbox 尚未发布的料子提权。 */

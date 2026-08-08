@@ -1,7 +1,9 @@
 package com.armada.task.scheduler;
 
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
@@ -11,6 +13,7 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -22,6 +25,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountSource;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
@@ -101,7 +105,25 @@ public class PullTaskPullCallPlanningTransactionService {
             List<PullTaskMaterialMember> available = materialMapper.selectUnconsumed(
                     candidate.getId(), setting.getPullCountMax());
             if (available.isEmpty()) {
-                return finishMaterials(candidate, now);
+                PullTaskStationCandidates retryStations = resources.stationSelectionService()
+                        .findPendingRetryCandidates(candidate, setting);
+                if (retryStations.accounts().isEmpty() && retryStations.sufficient()) {
+                    return finishMaterials(candidate, now);
+                }
+                if (!retryStations.sufficient()) {
+                    return waitForResource(candidate, PullTaskWaitResourceType.STATION,
+                            PullTaskExecutionReasonCode.STATION_UNAVAILABLE,
+                            retryStations.missingCount(), now);
+                }
+                List<PullTaskGroupAccount> pullers = availablePullers(
+                        candidate.getId(), setting.getPullerGroupId());
+                if (pullers.isEmpty()) {
+                    return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
+                            PullTaskExecutionReasonCode.PULLER_UNAVAILABLE,
+                            setting.getPullerCountPerGroup(), now);
+                }
+                return plan(candidate, new PlanInput(
+                        pullers, List.of(), retryStations), history, now);
             }
             List<PullTaskGroupAccount> pullers = availablePullers(
                     candidate.getId(), setting.getPullerGroupId());
@@ -144,14 +166,62 @@ public class PullTaskPullCallPlanningTransactionService {
         CallCounts counts = new CallCounts(
                 history.size() + 1, materials.size(), input.stations().accounts().size());
         PullTaskPullCall call = insertCall(candidate, puller, counts, now);
-        List<Long> materialIds = materials.stream().map(PullTaskMaterialMember::getId).toList();
-        if (materialMapper.assignToCall(materialIds, call.getId(), now) != materialIds.size()) {
-            throw new IllegalStateException("本次料子绑定发生并发变化");
+        List<PullTaskGroupAccount> stations = resources.stationSelectionService()
+                .reserve(candidate, input.stations().accounts(), now);
+        for (PullTaskGroupAccount station : stations) {
+            PullTaskPullCallMemberAttempt attempt = insertAttempt(
+                    candidate, call, puller,
+                    new AttemptCandidate(
+                            PullTaskParticipantType.STATION, station.getId(),
+                            station.getAccountPhone(), station.getMembershipFailureCount()),
+                    now);
+            if (groupAccountMapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                    station.getId(), attempt.getId(), call.getId(), puller.getId(), now)) != 1) {
+                throw new IllegalStateException("本次站台 attempt 绑定发生并发变化");
+            }
         }
-        resources.stationSelectionService().bind(
-                candidate, call.getId(), input.stations().accounts(), now);
+        for (PullTaskMaterialMember material : materials) {
+            PullTaskPullCallMemberAttempt attempt = insertAttempt(
+                    candidate, call, puller,
+                    new AttemptCandidate(
+                            PullTaskParticipantType.MATERIAL, material.getId(),
+                            material.getNormalizedPhone(), material.getPullFailureCount()),
+                    now);
+            if (materialMapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                    material.getId(), attempt.getId(), call.getId(), puller.getId(), now)) != 1) {
+                throw new IllegalStateException("本次料子 attempt 绑定发生并发变化");
+            }
+        }
         call.setCallStatus(PullTaskPullCallStatus.PLANNED.code());
         return PullTaskPullCallPreparation.ready(call);
+    }
+
+    private PullTaskPullCallMemberAttempt insertAttempt(
+            PullTaskGroupExecution candidate,
+            PullTaskPullCall call,
+            PullTaskGroupAccount puller,
+            AttemptCandidate participant,
+            long now) {
+        int attemptNo = resources.attemptMapper().selectNextAttemptNo(
+                candidate.getId(), participant.type().code(), participant.refId());
+        PullTaskPullCallMemberAttempt row = new PullTaskPullCallMemberAttempt();
+        row.setTaskId(candidate.getTaskId());
+        row.setGroupExecutionId(candidate.getId());
+        row.setPullCallId(call.getId());
+        row.setParticipantType(participant.type().code());
+        row.setParticipantRefId(participant.refId());
+        row.setTargetPhone(participant.phone());
+        row.setTargetJid(WhatsappJids.userJid(participant.phone()));
+        row.setPullerGroupAccountId(puller.getId());
+        row.setAttemptNo(attemptNo);
+        row.setFailureCountBefore(participant.failureCount() == null
+                ? 0L : participant.failureCount());
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        if (resources.attemptMapper().insertPlanned(row) != 1 || row.getId() == null) {
+            throw new IllegalStateException("逐号码执行记录写入失败");
+        }
+        return row;
     }
 
     private PullTaskPullCall insertCall(
@@ -311,5 +381,12 @@ public class PullTaskPullCallPlanningTransactionService {
     }
 
     private record CallCounts(int callSeq, int materialCount, int stationCount) {
+    }
+
+    private record AttemptCandidate(
+            PullTaskParticipantType type,
+            long refId,
+            String phone,
+            Long failureCount) {
     }
 }

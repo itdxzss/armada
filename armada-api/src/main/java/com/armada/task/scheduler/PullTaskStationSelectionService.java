@@ -9,6 +9,7 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
+import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskGroupAccountSource;
 import com.armada.task.model.enums.PullTaskSelectionMode;
@@ -77,8 +78,11 @@ public class PullTaskStationSelectionService {
                 execution.getId(), PullTaskGroupAccountRole.STATION.code());
         Set<Long> usedAccountIds = new HashSet<>();
         existing.stream().map(PullTaskGroupAccount::getAccountId).forEach(usedAccountIds::add);
+        Set<Long> reusableAccountIds = new HashSet<>();
+        existing.stream().filter(PullTaskStationSelectionService::reusableStation)
+                .map(PullTaskGroupAccount::getAccountId).forEach(reusableAccountIds::add);
         LinkedHashMap<Long, ProtocolAccountRef> selected = new LinkedHashMap<>();
-        addSupplementCandidates(existing, selected, excluded, required);
+        addReusableCandidates(existing, selected, excluded, required);
         List<ProtocolAccountRef> groupCandidates = accountLookup
                 .findOnlineNormalByGroupId(setting.getStationGroupId());
         if (groupCandidates != null) {
@@ -87,7 +91,8 @@ public class PullTaskStationSelectionService {
                     break;
                 }
                 if (eligible(account, excluded)
-                        && usedAccountIds.add(account.armadaAccountId())) {
+                        && (reusableAccountIds.contains(account.armadaAccountId())
+                            || usedAccountIds.add(account.armadaAccountId()))) {
                     selected.putIfAbsent(account.armadaAccountId(), account);
                 }
             }
@@ -95,6 +100,40 @@ public class PullTaskStationSelectionService {
         List<ProtocolAccountRef> accounts = List.copyOf(selected.values());
         return new PullTaskStationCandidates(
                 accounts, Math.max(required - accounts.size(), 0));
+    }
+
+    /**
+     * 读取已经失败或未知释放、等待再次拉取的站台，不混入新的站台账号。
+     *
+     * <p>用于料子已经全部收口后的站台独立重试；返回的缺口只针对本次选中的既有
+     * 待重试行，避免按每批站台配置继续扩张站台集合。</p>
+     */
+    public PullTaskStationCandidates findPendingRetryCandidates(
+            PullTaskGroupExecution execution,
+            PullTaskStandardSetting setting) {
+        int limit = setting.getStationCountPerCall() == null
+                ? 0 : setting.getStationCountPerCall();
+        if (limit <= 0) {
+            return new PullTaskStationCandidates(List.of(), 0);
+        }
+        List<PullTaskGroupAccount> pending = groupAccountMapper.selectPendingStations(
+                execution.getId(), limit);
+        if (pending.isEmpty()) {
+            return new PullTaskStationCandidates(List.of(), 0);
+        }
+        List<Long> ids = pending.stream().map(PullTaskGroupAccount::getAccountId).toList();
+        List<ProtocolAccountRef> active = accountLookup.findActiveProtocolRefs(ids);
+        java.util.Map<Long, ProtocolAccountRef> byId = new java.util.HashMap<>();
+        if (active != null) {
+            active.stream().filter(java.util.Objects::nonNull)
+                    .forEach(ref -> byId.putIfAbsent(ref.armadaAccountId(), ref));
+        }
+        List<ProtocolAccountRef> selected = pending.stream()
+                .map(row -> byId.get(row.getAccountId()))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        return new PullTaskStationCandidates(
+                selected, Math.max(pending.size() - selected.size(), 0));
     }
 
     /** 把已通过足量门禁的候选绑定到指定调用。 */
@@ -122,10 +161,34 @@ public class PullTaskStationSelectionService {
         return List.copyOf(rows);
     }
 
+    /**
+     * 为新版逐号码计划准备站台角色行，但不提前写 pull_call_id；活动 attempt 绑定负责占用。
+     */
+    public List<PullTaskGroupAccount> reserve(
+            PullTaskGroupExecution execution,
+            List<ProtocolAccountRef> selected,
+            long now) {
+        List<PullTaskGroupAccount> existing = groupAccountMapper.selectByExecutionAndRole(
+                execution.getId(), PullTaskGroupAccountRole.STATION.code());
+        java.util.Map<Long, PullTaskGroupAccount> reusable = new java.util.HashMap<>();
+        existing.stream().filter(PullTaskStationSelectionService::reusableStation)
+                .forEach(row -> reusable.putIfAbsent(row.getAccountId(), row));
+        int nextSeq = existing.stream().map(PullTaskGroupAccount::getRoleSeq)
+                .filter(value -> value != null).max(Integer::compareTo).orElse(0) + 1;
+        List<PullTaskGroupAccount> rows = new ArrayList<>(selected.size());
+        for (ProtocolAccountRef account : selected) {
+            PullTaskGroupAccount row = reusable.get(account.armadaAccountId());
+            rows.add(row == null
+                    ? insert(execution, account, null, nextSeq++, now)
+                    : row);
+        }
+        return List.copyOf(rows);
+    }
+
     private PullTaskGroupAccount insert(
             PullTaskGroupExecution execution,
             ProtocolAccountRef account,
-            long pullCallId,
+            Long pullCallId,
             int roleSeq,
             long now) {
         PullTaskGroupAccount row = new PullTaskGroupAccount();
@@ -147,13 +210,13 @@ public class PullTaskStationSelectionService {
         return row;
     }
 
-    private void addSupplementCandidates(
+    private void addReusableCandidates(
             List<PullTaskGroupAccount> existing,
             LinkedHashMap<Long, ProtocolAccountRef> selected,
             Set<String> excludedPhones,
             int required) {
         List<PullTaskGroupAccount> rows = existing.stream()
-                .filter(PullTaskStationSelectionService::unassignedSupplement).toList();
+                .filter(PullTaskStationSelectionService::reusableStation).toList();
         if (rows.isEmpty()) {
             return;
         }
@@ -240,5 +303,16 @@ public class PullTaskStationSelectionService {
                 PullTaskGroupAccountSource.SUPPLEMENT.code())
                 && java.util.Objects.equals(row.getAvailabilityStatus(),
                 PullTaskGroupAccountAvailability.AVAILABLE.code());
+    }
+
+    private static boolean reusableStation(PullTaskGroupAccount row) {
+        return row.getPullCallId() == null
+                && row.getActivePullAttemptId() == null
+                && java.util.Objects.equals(row.getMembershipStatus(),
+                        PullTaskGroupAccountMembershipStatus.NOT_JOINED.code())
+                && (row.getMembershipFailureCount() == null
+                        || row.getMembershipFailureCount() < 4)
+                && java.util.Objects.equals(row.getAvailabilityStatus(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code());
     }
 }

@@ -9,4 +9,9 @@ public record PullTaskUnknownResultReconciliationStats(
     public static PullTaskUnknownResultReconciliationStats empty() {
         return new PullTaskUnknownResultReconciliationStats(0, 0);
     }
+
+    /** @return 新版逐号码核实后释放回待拉池的数量 */
+    public int released() {
+        return markedUnknown;
+    }
 }

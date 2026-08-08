@@ -4,6 +4,7 @@ import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import org.springframework.stereotype.Component;
 
 /** 未知结果收敛所需的任务域 Mapper 集合。 */
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Component;
 public record PullTaskUnknownResultResources(
         PullTaskAccountActionMapper actionMapper,
         PullTaskPullCallMapper callMapper,
+        PullTaskPullCallMemberAttemptMapper attemptMapper,
         PullTaskMaterialMemberMapper materialMapper,
         PullTaskGroupAccountMapper accountMapper) {
 }

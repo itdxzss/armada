@@ -2,6 +2,7 @@ package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,9 +13,8 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
-import com.armada.task.mapper.PullTaskStandardSettingMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
-import com.armada.task.model.dto.PullTaskCallReschedule;
 import com.armada.task.model.dto.PullTaskCommandCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
@@ -39,6 +39,7 @@ import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.scheduler.PullTaskUnknownResultResources;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,8 @@ class PullTaskProtocolResultCallbackServiceImplTest {
     private PullTaskMaterialMemberMapper materialMapper;
     private PullTaskGroupAccountMapper accountMapper;
     private PullTaskGroupExecutionMapper executionMapper;
-    private PullTaskStandardSettingMapper settingMapper;
+    private PullTaskPullCallParticipantResultService participantResultService;
+    private PullTaskOperationDelayPolicy delayPolicy;
     private PullTaskProtocolResultCallbackServiceImpl service;
 
     @BeforeEach
@@ -61,11 +63,19 @@ class PullTaskProtocolResultCallbackServiceImplTest {
         materialMapper = mock(PullTaskMaterialMemberMapper.class);
         accountMapper = mock(PullTaskGroupAccountMapper.class);
         executionMapper = mock(PullTaskGroupExecutionMapper.class);
-        settingMapper = mock(PullTaskStandardSettingMapper.class);
+        participantResultService = mock(PullTaskPullCallParticipantResultService.class);
+        delayPolicy = mock(PullTaskOperationDelayPolicy.class);
+        when(delayPolicy.nextSideEffectAt(anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0, Long.class) + 4_000L);
+        when(delayPolicy.maxDeadline(anyLong(), anyLong())).thenAnswer(invocation -> Math.max(
+                invocation.getArgument(0, Long.class),
+                invocation.getArgument(1, Long.class) + 4_000L));
         service = new PullTaskProtocolResultCallbackServiceImpl(
                 new PullTaskUnknownResultResources(
-                        actionMapper, callMapper, materialMapper, accountMapper),
-                executionMapper, settingMapper);
+                        actionMapper, callMapper,
+                        mock(PullTaskPullCallMemberAttemptMapper.class),
+                        materialMapper, accountMapper),
+                executionMapper, participantResultService, delayPolicy);
     }
 
     @Test
@@ -103,185 +113,15 @@ class PullTaskProtocolResultCallbackServiceImplTest {
     }
 
     @Test
-    void pullCallParticipantCallbackWritesOnlyReportedTargetWhileOthersArePending() {
-        PullTaskPullCall call = submittedCall();
-        PullTaskMaterialMember confirmed = material(
-                41L, 31L, "8613800000001", PullTaskMaterialPullStatus.SUBMITTED.code());
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
-        when(executionMapper.selectById(1L)).thenReturn(execution());
-        when(materialMapper.selectByExecution(1L)).thenReturn(List.of(confirmed));
-        stubAccounts(1L, List.of(puller()));
-        when(materialMapper.transitionPullResult(any())).thenReturn(1);
-        when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(1);
-        when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
-
-        boolean handled = service.handlePullCallParticipant(callback(
+    void pullCallParticipantCallbackDelegatesToAttemptStateMachine() {
+        PullTaskBatchParticipantCallback callback = callback(
                 "8613800000001@s.whatsapp.net",
-                PullTaskBatchParticipantProtocolOutcome.SUCCESS));
+                PullTaskBatchParticipantProtocolOutcome.SUCCESS);
+        when(participantResultService.handle(callback)).thenReturn(true);
 
-        assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> materialChanges =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(materialMapper).transitionPullResult(materialChanges.capture());
-        assertThat(materialChanges.getValue().targetStatus())
-                .isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code());
-        verify(callMapper, never()).transitionResult(any());
-        verify(executionMapper, never()).transitionProtocolResult(any());
-    }
+        assertThat(service.handlePullCallParticipant(callback)).isTrue();
 
-    @Test
-    void offlinePullerReschedulesFrozenCallWithoutWritingParticipantFailure() {
-        PullTaskPullCall call = submittedCall();
-        PullTaskMaterialMember material = material(
-                41L, 31L, "8613800000001", PullTaskMaterialPullStatus.SUBMITTED.code());
-        PullTaskGroupAccount puller = puller();
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
-        when(executionMapper.selectById(1L)).thenReturn(execution());
-        when(materialMapper.selectByExecution(1L)).thenReturn(List.of(material));
-        stubAccounts(1L, List.of(puller));
-        when(callMapper.rescheduleSubmitted(any())).thenReturn(1);
-        when(accountMapper.markUnavailable(
-                puller.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
-                "ACCOUNT_NOT_ONLINE", null, 5_000L)).thenReturn(1);
-        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
-
-        boolean handled = service.handlePullCallParticipant(callback(
-                "8613800000001@s.whatsapp.net",
-                PullTaskBatchParticipantProtocolOutcome.FAILED,
-                "ACCOUNT_NOT_ONLINE"));
-
-        assertThat(handled).isTrue();
-        verify(materialMapper, never()).transitionPullResult(any());
-        verify(accountMapper, never()).transitionMembership(any());
-        ArgumentCaptor<PullTaskCallReschedule> callChange =
-                ArgumentCaptor.forClass(PullTaskCallReschedule.class);
-        verify(callMapper).rescheduleSubmitted(callChange.capture());
-        assertThat(callChange.getValue().status().target())
-                .isEqualTo(PullTaskPullCallStatus.PLANNED.code());
-        assertThat(callChange.getValue().scope().expectedCommandId()).isEqualTo("cmd-call");
-        ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
-                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
-        verify(executionMapper).transitionProtocolResult(executionChange.capture());
-        assertThat(executionChange.getValue().targetStage())
-                .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
-        assertThat(executionChange.getValue().nextRunAt()).isZero();
-    }
-
-    @Test
-    void lastPullCallParticipantFinalizesCallAndAdvancesExecutionWithCas() {
-        PullTaskPullCall call = submittedCall();
-        PullTaskGroupAccount station = account(
-                51L, PullTaskGroupAccountRole.STATION, 31L,
-                PullTaskGroupAccountMembershipStatus.JOINING.code());
-        station.setAccountPhone("8613800000002");
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
-        when(executionMapper.selectById(1L)).thenReturn(execution());
-        when(materialMapper.selectByExecution(1L)).thenReturn(List.of());
-        stubAccounts(1L, List.of(puller(), station));
-        when(accountMapper.transitionMembership(any())).thenReturn(1);
-        when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(0);
-        when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
-        when(callMapper.transitionResult(any())).thenReturn(1);
-        when(materialMapper.selectUnconsumed(1L, 1)).thenReturn(List.of());
-        when(materialMapper.selectPendingAdmin(any(Long.class), any(Integer.class),
-                any(Integer.class), any(Integer.class))).thenReturn(List.of());
-        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
-
-        boolean handled = service.handlePullCallParticipant(callback(
-                "8613800000002@s.whatsapp.net",
-                PullTaskBatchParticipantProtocolOutcome.SUCCESS));
-
-        assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> callChange =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(callMapper).transitionResult(callChange.capture());
-        assertThat(callChange.getValue().targetStatus())
-                .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
-        ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
-                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
-        verify(executionMapper).transitionProtocolResult(executionChange.capture());
-        assertThat(executionChange.getValue().targetStage())
-                .isEqualTo(PullTaskExecutionStage.CLOSING.code());
-        assertThat(executionChange.getValue().nextPullerIndex()).isZero();
-    }
-
-    @Test
-    void lateParticipantCallbackConvergesUnknownCallAfterExecutionAdvanced() {
-        PullTaskPullCall call = submittedCall();
-        call.setCallStatus(PullTaskPullCallStatus.UNKNOWN.code());
-        PullTaskMaterialMember material = material(
-                41L, 31L, "8613800000001", PullTaskMaterialPullStatus.UNKNOWN.code());
-        PullTaskGroupExecution advanced = execution();
-        advanced.setStage(PullTaskExecutionStage.CLOSING.code());
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
-        when(executionMapper.selectById(1L)).thenReturn(advanced);
-        when(materialMapper.selectByExecution(1L)).thenReturn(List.of(material));
-        stubAccounts(1L, List.of(puller()));
-        when(materialMapper.transitionPullResult(any())).thenReturn(1);
-        when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(0);
-        when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
-        when(callMapper.transitionResult(any())).thenReturn(1);
-
-        boolean handled = service.handlePullCallParticipant(callback(
-                "8613800000001@s.whatsapp.net",
-                PullTaskBatchParticipantProtocolOutcome.SUCCESS));
-
-        assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> callChange =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(callMapper).transitionResult(callChange.capture());
-        assertThat(callChange.getValue().expectedStatuses())
-                .containsExactly(PullTaskPullCallStatus.UNKNOWN.code());
-        assertThat(callChange.getValue().targetStatus())
-                .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
-        verify(executionMapper, never()).transitionProtocolResult(any());
-    }
-
-    @Test
-    void duplicateParticipantCallbackRemainsIdempotentAfterCallWrittenBack() {
-        PullTaskPullCall call = submittedCall();
-        call.setCallStatus(PullTaskPullCallStatus.WRITTEN_BACK.code());
-        PullTaskMaterialMember material = material(
-                41L, 31L, "8613800000001", PullTaskMaterialPullStatus.SUCCESS.code());
-        PullTaskGroupExecution advanced = execution();
-        advanced.setStage(PullTaskExecutionStage.CLOSING.code());
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
-        when(executionMapper.selectById(1L)).thenReturn(advanced);
-        when(materialMapper.selectByExecution(1L)).thenReturn(List.of(material));
-        stubAccounts(1L, List.of(puller()));
-
-        boolean handled = service.handlePullCallParticipant(callback(
-                "8613800000001@s.whatsapp.net",
-                PullTaskBatchParticipantProtocolOutcome.SUCCESS));
-
-        assertThat(handled).isTrue();
-        verify(materialMapper, never()).transitionPullResult(any());
-        verify(callMapper, never()).transitionResult(any());
-        verify(executionMapper, never()).transitionProtocolResult(any());
-    }
-
-    @Test
-    void lateUnknownCallDoesNotAdvanceCursorAgainWhenExecutionStageIsStillPulling() {
-        PullTaskPullCall call = submittedCall();
-        call.setCallStatus(PullTaskPullCallStatus.UNKNOWN.code());
-        PullTaskMaterialMember material = material(
-                41L, 31L, "8613800000001", PullTaskMaterialPullStatus.UNKNOWN.code());
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
-        when(executionMapper.selectById(1L)).thenReturn(execution());
-        when(materialMapper.selectByExecution(1L)).thenReturn(List.of(material));
-        stubAccounts(1L, List.of(puller()));
-        when(materialMapper.transitionPullResult(any())).thenReturn(1);
-        when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(0);
-        when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
-        when(callMapper.transitionResult(any())).thenReturn(1);
-
-        boolean handled = service.handlePullCallParticipant(callback(
-                "8613800000001@s.whatsapp.net",
-                PullTaskBatchParticipantProtocolOutcome.SUCCESS));
-
-        assertThat(handled).isTrue();
-        verify(callMapper).transitionResult(any());
-        verify(executionMapper, never()).transitionProtocolResult(any());
+        verify(participantResultService).handle(callback);
     }
 
     @Test

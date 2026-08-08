@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -27,6 +28,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -38,8 +40,10 @@ class PullTaskManagerJoinResultServiceImplTest {
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
     private final PullTaskParentCompletionService completionService = mock(PullTaskParentCompletionService.class);
     private final PullTaskExecutionDispatchProperties properties = properties();
+    private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
     private final PullTaskManagerJoinResultServiceImpl service = new PullTaskManagerJoinResultServiceImpl(
-            actionMapper, accountMapper, executionMapper, completionService, properties);
+            actionMapper, accountMapper, executionMapper, completionService, properties,
+            delayPolicy);
 
     @AfterEach
     void clearTenant() {
@@ -78,6 +82,7 @@ class PullTaskManagerJoinResultServiceImplTest {
                 .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
         assertThat(executionTransition.getValue().target().stage())
                 .isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        assertThat(executionTransition.getValue().target().nextRunAt()).isEqualTo(9_000L);
         assertThat(executionTransition.getValue().target().groupJid()).isEqualTo("120363group@g.us");
         assertThat(TenantContext.get()).isNull();
     }
@@ -202,6 +207,16 @@ class PullTaskManagerJoinResultServiceImplTest {
         PullTaskExecutionDispatchProperties properties = new PullTaskExecutionDispatchProperties();
         properties.setRetryDelayMs(30_000L);
         return properties;
+    }
+
+    private static PullTaskOperationDelayPolicy delayPolicy() {
+        PullTaskOperationDelayPolicy policy = mock(PullTaskOperationDelayPolicy.class);
+        when(policy.nextSideEffectAt(anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0, Long.class) + 4_000L);
+        when(policy.maxDeadline(anyLong(), anyLong())).thenAnswer(invocation -> Math.max(
+                invocation.getArgument(0, Long.class),
+                invocation.getArgument(1, Long.class) + 4_000L));
+        return policy;
     }
 
     private static PullTaskGroupAccount manager() {

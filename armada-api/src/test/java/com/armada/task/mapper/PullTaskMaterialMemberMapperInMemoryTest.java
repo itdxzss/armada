@@ -9,6 +9,8 @@ import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskMaterialPullResult;
+import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -259,6 +261,145 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         assertThat(mapper.selectUnconsumed(EXECUTION, 10)).isEmpty();
         assertThat(mapper.selectByAdminCommandId("cmd-admin-1")).isNull();
     }
+
+    @Test
+    void attemptBindingAndFourExplicitFailuresUseCasAndRetryLimit() {
+        mapper.batchInsert(List.of(member(1, "8613800000001", 0)));
+        PullTaskMaterialMember material = mapper.selectUnconsumed(EXECUTION, 1).get(0);
+        long priorAttemptId = 0L;
+
+        for (int failure = 1; failure <= 4; failure++) {
+            long attemptId = 1_000L + failure;
+            long callId = 2_000L + failure;
+            assertThat(mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                    material.getId(), attemptId, callId, 701L, 100L + failure)))
+                    .isEqualTo(1);
+            assertThat(mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                    material.getId(), attemptId + 100L, callId + 100L, 702L, 150L + failure)))
+                    .isZero();
+            if (priorAttemptId > 0) {
+                assertThat(mapper.transitionPullAttempt(materialTransition(
+                        material.getId(), priorAttemptId,
+                        new PullTaskParticipantAggregateTransition.Expected(
+                                List.of(PullTaskMaterialPullStatus.SUBMITTED.code()), failure - 1L),
+                        new PullTaskParticipantAggregateTransition.Target(
+                                PullTaskMaterialPullStatus.UNCONSUMED.code(), failure, null, null))))
+                        .isZero();
+            }
+            int targetStatus = failure < 4
+                    ? PullTaskMaterialPullStatus.UNCONSUMED.code()
+                    : PullTaskMaterialPullStatus.FAILED.code();
+            Long targetCallId = failure < 4 ? null : callId;
+            assertThat(mapper.transitionPullAttempt(materialTransition(
+                    material.getId(), attemptId,
+                    new PullTaskParticipantAggregateTransition.Expected(
+                            List.of(PullTaskMaterialPullStatus.SUBMITTED.code()), failure - 1L),
+                    new PullTaskParticipantAggregateTransition.Target(
+                            targetStatus, failure, targetCallId, null)))).isEqualTo(1);
+            priorAttemptId = attemptId;
+            if (failure < 4) {
+                PullTaskMaterialMember saved = mapper.selectUnconsumed(EXECUTION, 10).get(0);
+                assertThat(saved.getPullFailureCount()).isEqualTo((long) failure);
+                assertThat(saved.getPullCallId()).isNull();
+                assertThat(saved.getActivePullAttemptId()).isNull();
+            }
+        }
+
+        assertThat(mapper.selectUnconsumed(EXECUTION, 10)).isEmpty();
+        assertThat(mapper.selectByExecution(EXECUTION)).singleElement()
+                .satisfies(saved -> {
+                    assertThat(saved.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.FAILED.code());
+                    assertThat(saved.getPullFailureCount()).isEqualTo(4L);
+                });
+    }
+
+    @Test
+    void unknownReleaseReturnsToPoolWithoutConsumingFailureCount() {
+        mapper.batchInsert(List.of(member(1, "8613800000001", 0)));
+        PullTaskMaterialMember material = mapper.selectUnconsumed(EXECUTION, 1).get(0);
+        mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                material.getId(), 1_001L, 2_001L, 701L, 100L));
+
+        assertThat(mapper.transitionPullAttempt(materialTransition(
+                material.getId(), 1_001L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskMaterialPullStatus.SUBMITTED.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskMaterialPullStatus.UNCONSUMED.code(), 0L, null, null))))
+                .isEqualTo(1);
+
+        assertThat(mapper.selectUnconsumed(EXECUTION, 1)).singleElement()
+                .satisfies(saved -> {
+                    assertThat(saved.getPullFailureCount()).isZero();
+                    assertThat(saved.getPullCallId()).isNull();
+                    assertThat(saved.getActivePullAttemptId()).isNull();
+                });
+    }
+
+    @Test
+    void successIsMonotonicAndLateSuccessPreservesNewerActiveAttempt() {
+        mapper.batchInsert(List.of(
+                member(1, "8613800000001", 0),
+                member(2, "8613800000002", 0)));
+        List<PullTaskMaterialMember> rows = mapper.selectUnconsumed(EXECUTION, 2);
+        PullTaskMaterialMember direct = rows.get(0);
+        mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                direct.getId(), 1_001L, 2_001L, 701L, 100L));
+        PullTaskParticipantAggregateTransition success = materialTransition(
+                direct.getId(), 1_001L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskMaterialPullStatus.SUBMITTED.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskMaterialPullStatus.SUCCESS.code(), 0L, 2_001L, null));
+        assertThat(mapper.promotePullSuccess(success)).isEqualTo(1);
+        assertThat(mapper.transitionPullAttempt(materialTransition(
+                direct.getId(), 1_001L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskMaterialPullStatus.SUCCESS.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskMaterialPullStatus.FAILED.code(), 1L, 2_001L, null))))
+                .isZero();
+
+        PullTaskMaterialMember late = rows.get(1);
+        mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                late.getId(), 1_010L, 2_010L, 701L, 110L));
+        mapper.transitionPullAttempt(materialTransition(
+                late.getId(), 1_010L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskMaterialPullStatus.SUBMITTED.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskMaterialPullStatus.UNCONSUMED.code(), 0L, null, null)));
+        mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                late.getId(), 1_011L, 2_011L, 702L, 120L));
+
+        assertThat(mapper.promotePullSuccess(materialTransition(
+                late.getId(), 1_010L,
+                new PullTaskParticipantAggregateTransition.Expected(
+                        List.of(PullTaskMaterialPullStatus.UNCONSUMED.code()), 0L),
+                new PullTaskParticipantAggregateTransition.Target(
+                        PullTaskMaterialPullStatus.SUCCESS.code(), 0L, 2_010L, null))))
+                .isEqualTo(1);
+        assertThat(mapper.selectByExecution(EXECUTION).get(1))
+                .satisfies(saved -> {
+                    assertThat(saved.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code());
+                    assertThat(saved.getPullCallId()).isEqualTo(2_010L);
+                    assertThat(saved.getActivePullAttemptId()).isEqualTo(1_011L);
+                });
+    }
+
+    private PullTaskParticipantAggregateTransition materialTransition(
+            long participantId,
+            long attemptId,
+            PullTaskParticipantAggregateTransition.Expected expected,
+            PullTaskParticipantAggregateTransition.Target target) {
+        return new PullTaskParticipantAggregateTransition(
+                new PullTaskParticipantAggregateTransition.Scope(participantId, attemptId, 500L),
+                expected,
+                target,
+                PullTaskFactResult.success(TARGET_JID, 500L));
+    }
+
+    private static final String TARGET_JID = "8613800000001@s.whatsapp.net";
 
     private PullTaskMaterialMember member(int seq, String phone, int adminRequired) {
         PullTaskMaterialMember row = new PullTaskMaterialMember();

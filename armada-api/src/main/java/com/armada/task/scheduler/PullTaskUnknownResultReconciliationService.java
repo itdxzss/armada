@@ -14,6 +14,7 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -61,17 +62,20 @@ public class PullTaskUnknownResultReconciliationService {
     private final AccountProtocolLookupService accountLookup;
     private final GroupMemberListPort memberListPort;
     private final PullTaskGroupExecutionMapper executionMapper;
+    private final PullTaskPullCallReconciliationService pullCallReconciliationService;
 
     /** 构造未知结果收敛服务。 */
     public PullTaskUnknownResultReconciliationService(
             PullTaskUnknownResultResources resources,
             AccountProtocolLookupService accountLookup,
             GroupMemberListPort memberListPort,
-            PullTaskGroupExecutionMapper executionMapper) {
+            PullTaskGroupExecutionMapper executionMapper,
+            PullTaskPullCallReconciliationService pullCallReconciliationService) {
         this.resources = resources;
         this.accountLookup = accountLookup;
         this.memberListPort = memberListPort;
         this.executionMapper = executionMapper;
+        this.pullCallReconciliationService = pullCallReconciliationService;
     }
 
     /**
@@ -86,12 +90,23 @@ public class PullTaskUnknownResultReconciliationService {
                 .selectByExecution(execution.getId());
         List<PullTaskAccountAction> actions = resources.actionMapper()
                 .selectByExecutionAndStatuses(execution.getId(), ACTION_OPEN);
-        MemberSnapshot snapshot = queryMembers(execution, accounts, now);
+        Map<Long, List<PullTaskPullCallMemberAttempt>> attemptsByCall = new LinkedHashMap<>();
+        for (PullTaskPullCall call : calls) {
+            attemptsByCall.put(call.getId(), resources.attemptMapper().selectByCall(call.getId()));
+        }
+        boolean legacySnapshotRequired = !actions.isEmpty()
+                || hasOpenAdminFacts(materials, accounts)
+                || calls.stream().anyMatch(call -> CALL_OPEN.contains(call.getCallStatus())
+                && attemptsByCall.getOrDefault(call.getId(), List.of()).isEmpty());
+        MemberSnapshot snapshot = legacySnapshotRequired
+                ? queryMembers(execution, accounts, now)
+                : MemberSnapshot.unavailable();
         Counter counter = new Counter();
         ReconciliationContext context = new ReconciliationContext(
                 snapshot, submittedCutoff, now, counter);
         reconcileActions(actions, accounts, context);
-        reconcileCalls(execution, calls, materials, accounts, context);
+        reconcileCalls(
+                execution, calls, materials, accounts, attemptsByCall, context);
         reconcileAdmins(materials, accounts, context);
         return counter.snapshot();
     }
@@ -150,9 +165,18 @@ public class PullTaskUnknownResultReconciliationService {
             List<PullTaskPullCall> calls,
             List<PullTaskMaterialMember> materials,
             List<PullTaskGroupAccount> accounts,
+            Map<Long, List<PullTaskPullCallMemberAttempt>> attemptsByCall,
             ReconciliationContext context) {
         for (PullTaskPullCall call : calls) {
             if (call.getCallStatus() == null || !CALL_OPEN.contains(call.getCallStatus())) {
+                continue;
+            }
+            List<PullTaskPullCallMemberAttempt> attempts = attemptsByCall
+                    .getOrDefault(call.getId(), List.of());
+            if (!attempts.isEmpty()) {
+                context.counter().add(pullCallReconciliationService.reconcile(
+                        execution, call, attempts, accounts,
+                        context.cutoff(), context.now()));
                 continue;
             }
             boolean stale = staleSubmitted(
@@ -289,6 +313,21 @@ public class PullTaskUnknownResultReconciliationService {
             }
         }
         reconcileAccountAdmins(accounts, context);
+    }
+
+    private static boolean hasOpenAdminFacts(
+            List<PullTaskMaterialMember> materials,
+            List<PullTaskGroupAccount> accounts) {
+        boolean materialOpen = materials.stream().anyMatch(row ->
+                row.getAdminStatus() != null && ADMIN_OPEN.contains(row.getAdminStatus()));
+        if (materialOpen) {
+            return true;
+        }
+        return accounts.stream().anyMatch(row -> row.getAdminStatus() != null
+                && (Objects.equals(row.getAdminStatus(),
+                PullTaskGroupAccountAdminStatus.SUBMITTED.code())
+                || Objects.equals(row.getAdminStatus(),
+                PullTaskGroupAccountAdminStatus.UNKNOWN.code())));
     }
 
     private void reconcileAccountAdmins(
@@ -470,6 +509,11 @@ public class PullTaskUnknownResultReconciliationService {
 
         private void unknown(int changed) {
             markedUnknown += changed;
+        }
+
+        private void add(PullTaskUnknownResultReconciliationStats stats) {
+            confirmed += stats.confirmed();
+            markedUnknown += stats.markedUnknown();
         }
 
         private PullTaskUnknownResultReconciliationStats snapshot() {

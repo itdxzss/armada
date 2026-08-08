@@ -40,6 +40,7 @@ import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.dto.PullTaskManagerJoinCallback;
@@ -73,6 +74,7 @@ import com.armada.task.service.impl.PullTaskManagerJoinResultServiceImpl;
 import com.armada.task.service.impl.PullTaskManagerAdminResultServiceImpl;
 import com.armada.task.service.impl.PullTaskPullerInviteResultServiceImpl;
 import com.armada.task.service.impl.PullTaskProtocolResultCallbackServiceImpl;
+import com.armada.task.service.impl.PullTaskPullCallParticipantResultService;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.List;
@@ -192,7 +194,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
     @Test
     void executesOneLinkAndOneMaterialThroughClosing() throws SQLException {
-        for (int round = 0; round < 20 && !"COMPLETED".equals(taskStatus()); round++) {
+        for (int round = 0; round < 50 && !"COMPLETED".equals(taskStatus()); round++) {
             long now = 1_000L + round * 1_000L;
             coordinator.dispatchOnce(now);
             applyManagerJoinCallbackIfSubmitted(now + 100L);
@@ -435,7 +437,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     "mapper/task/PullTaskGroupAccountMapper.xml",
                     "mapper/task/PullTaskAccountActionMapper.xml",
                     "mapper/task/PullTaskMaterialMemberMapper.xml",
-                    "mapper/task/PullTaskPullCallMapper.xml");
+                    "mapper/task/PullTaskPullCallMapper.xml",
+                    "mapper/task/PullTaskPullCallMemberAttemptMapper.xml");
         }
 
         @Bean SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {
@@ -468,6 +471,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean PullTaskPullCallMapper callMapper(SqlSessionTemplate template) {
             return template.getMapper(PullTaskPullCallMapper.class);
+        }
+
+        @Bean PullTaskPullCallMemberAttemptMapper attemptMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullCallMemberAttemptMapper.class);
         }
 
         @Bean AccountProtocolLookupService accountLookup() {
@@ -576,34 +583,39 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskParentCompletionService completionService,
-                PullTaskExecutionDispatchProperties properties) {
+                PullTaskExecutionDispatchProperties properties,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskManagerJoinResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, completionService, properties);
+                    actionMapper, accountMapper, executionMapper, completionService, properties,
+                    delayPolicy);
         }
 
         @Bean PullTaskManagerAdminResultService managerAdminResultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskExecutionDispatchProperties properties) {
+                PullTaskExecutionDispatchProperties properties,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskManagerAdminResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, properties);
+                    actionMapper, accountMapper, executionMapper, properties, delayPolicy);
         }
 
         @Bean PullTaskContactSaveResultService contactSaveResultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
-                PullTaskGroupExecutionMapper executionMapper) {
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskContactSaveResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper);
+                    actionMapper, accountMapper, executionMapper, delayPolicy);
         }
 
         @Bean PullTaskPullerInviteResultService pullerInviteResultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
-                PullTaskGroupExecutionMapper executionMapper) {
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskPullerInviteResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper);
+                    actionMapper, accountMapper, executionMapper, delayPolicy);
         }
 
         @Bean PullTaskManagerPullerContactProcessor managerPullerContactProcessor(
@@ -661,6 +673,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupAccountMapper accountMapper, PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskMaterialMemberMapper materialMapper, PullTaskPullCallMapper callMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
                 AccountProtocolLookupService lookup,
                 GroupParticipantPort participantPort, PullTaskBatchSizeSelector sizeSelector,
                 PullTaskStationSelectionService stationSelection,
@@ -669,7 +682,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskExecutionDispatchProperties properties) {
             PullTaskPullCallPlanningResources planningResources =
                     new PullTaskPullCallPlanningResources(
-                            callMapper, executionMapper, stationSelection, sizeSelector, lookup);
+                            callMapper, attemptMapper, executionMapper,
+                            stationSelection, sizeSelector, lookup);
             PullTaskPullCallPlanningTransactionService planning =
                     new PullTaskPullCallPlanningTransactionService(
                             taskMapper, settingMapper, accountMapper, materialMapper,
@@ -684,7 +698,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     new PullTaskPullerStationContactProcessor(contactTransactions);
             PullTaskBatchAddResources batchResources =
                     new PullTaskBatchAddResources(
-                            executionMapper, lookup, callMapper, outboxService, properties);
+                            executionMapper, lookup, callMapper, attemptMapper,
+                            outboxService, properties);
             PullTaskBatchAddTransactionService batchTransactions =
                     new PullTaskBatchAddTransactionService(
                             taskMapper, settingMapper, accountMapper,
@@ -700,18 +715,35 @@ class PullTaskExecutionEndToEndIntegrationTest {
         @Bean PullTaskUnknownResultResources unknownResultResources(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskPullCallMapper callMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
                 PullTaskMaterialMemberMapper materialMapper,
                 PullTaskGroupAccountMapper accountMapper) {
             return new PullTaskUnknownResultResources(
-                    actionMapper, callMapper, materialMapper, accountMapper);
+                    actionMapper, callMapper, attemptMapper,
+                    materialMapper, accountMapper);
         }
 
         @Bean PullTaskProtocolResultCallbackService protocolResultCallbackService(
                 PullTaskUnknownResultResources resources,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskStandardSettingMapper settingMapper) {
+                PullTaskPullCallParticipantResultService participantResultService,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskProtocolResultCallbackServiceImpl(
-                    resources, executionMapper, settingMapper);
+                    resources, executionMapper,
+                    participantResultService, delayPolicy);
+        }
+
+        @Bean PullTaskPullCallParticipantResultService participantResultService(
+                PullTaskUnknownResultResources resources,
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskStandardSettingMapper settingMapper,
+                PullTaskOperationDelayPolicy delayPolicy) {
+            return new PullTaskPullCallParticipantResultService(
+                    resources, executionMapper, settingMapper, delayPolicy);
+        }
+
+        @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {
+            return new PullTaskOperationDelayPolicy(() -> 4_000L);
         }
 
         @Bean PullTaskExecutionStageRouter stageRouter(

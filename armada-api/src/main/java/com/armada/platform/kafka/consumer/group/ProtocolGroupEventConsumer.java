@@ -44,6 +44,10 @@ public class ProtocolGroupEventConsumer {
     /** 群动作结果只允许明确成功或明确失败。 */
     private static final Set<String> SUPPORTED_ACTION_OUTCOMES = Set.of("SUCCESS", "FAILED", "UNKNOWN");
 
+    /** 批量拉人逐号码执行阶段使用大小写敏感的固定协议值。 */
+    private static final Set<String> SUPPORTED_PARTICIPANT_EXECUTION_STATES = Set.of(
+            "NOT_STARTED", "STARTED", "UNCERTAIN");
+
     /** Kafka 事件 JSON 解析器。 */
     private final ObjectMapper objectMapper;
 
@@ -196,6 +200,12 @@ public class ProtocolGroupEventConsumer {
         if (!SUPPORTED_ACTION_OUTCOMES.contains(outcome)) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议批量拉人结果 outcome 非法");
         }
+        String executionState = requiredText(
+                data, "executionState", "协议批量拉人结果缺少 data.executionState");
+        if (!SUPPORTED_PARTICIPANT_EXECUTION_STATES.contains(executionState)
+                || !validParticipantResultState(outcome, executionState)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议批量拉人结果 executionState 非法");
+        }
         Boolean retryable = booleanValue(data, "retryable");
         if (retryable == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议批量拉人结果缺少 data.retryable");
@@ -205,11 +215,22 @@ public class ProtocolGroupEventConsumer {
                 new ProtocolPullTaskBatchParticipantResultReportedEvent(
                         eventId, tenantId, pullTaskId, groupExecutionId, pullCallId,
                         accountId, protocolAccountId, commandId, attemptNo, targetJid, outcome,
+                        executionState,
                         text(data, "reasonCode"), text(data, "reasonMessage"), retryable,
                         timestamp == null ? 0L : timestamp, text(envelope, "workerId"));
         log.info("协议批量拉人单成员结果收到 eventId={} tenantId={} pullCallId={} commandId={} outcome={}",
                 event.eventId(), event.tenantId(), event.pullCallId(), event.commandId(), event.outcome());
         batchParticipantResultReportedSink.handleBatchParticipantResultReported(event);
+    }
+
+    /** 只允许协议端约定的四种 outcome × executionState 组合。 */
+    private static boolean validParticipantResultState(String outcome, String executionState) {
+        return switch (outcome) {
+            case "SUCCESS", "FAILED" -> "STARTED".equals(executionState);
+            case "UNKNOWN" -> "NOT_STARTED".equals(executionState)
+                    || "UNCERTAIN".equals(executionState);
+            default -> false;
+        };
     }
 
     /** 群健康允许实时通知缺少链接主键，由群域按租户和群 JID 解析。 */

@@ -2,6 +2,7 @@ package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
@@ -10,13 +11,17 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -27,11 +32,14 @@ class PullTaskBatchAddPayloadHydratorTest {
     private final PullTaskPullCallMapper callMapper = mock(PullTaskPullCallMapper.class);
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskMaterialMemberMapper materialMapper = mock(PullTaskMaterialMemberMapper.class);
+    private final PullTaskPullCallMemberAttemptMapper attemptMapper =
+            mock(PullTaskPullCallMemberAttemptMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final PullTaskBatchAddPayloadHydrator hydrator =
             new PullTaskBatchAddPayloadHydrator(
-                    callMapper, accountMapper, materialMapper, executionMapper, objectMapper);
+                    callMapper, accountMapper, attemptMapper,
+                    executionMapper, objectMapper);
 
     @Test
     void hydratesFrozenStationAndMaterialTargetsFromSubmittedCall() throws Exception {
@@ -39,9 +47,13 @@ class PullTaskBatchAddPayloadHydratorTest {
         when(callMapper.selectByCommandId("cmd-batch-1")).thenReturn(call());
         when(accountMapper.selectByExecutionAndRole(11L, PullTaskGroupAccountRole.PULLER.code()))
                 .thenReturn(List.of(puller()));
-        when(accountMapper.selectByExecutionAndRole(11L, PullTaskGroupAccountRole.STATION.code()))
-                .thenReturn(List.of(station()));
-        when(materialMapper.selectByExecution(11L)).thenReturn(List.of(material()));
+        when(attemptMapper.selectByCallAndStatus(
+                801L, PullTaskParticipantAttemptStatus.SUBMITTED.code()))
+                .thenReturn(List.of(
+                        attempt(1L, PullTaskParticipantType.STATION,
+                                "8613800000911@s.whatsapp.net"),
+                        attempt(2L, PullTaskParticipantType.MATERIAL,
+                                "8613900000001@s.whatsapp.net")));
         when(executionMapper.selectById(11L)).thenReturn(execution());
         JsonNode reference = objectMapper.valueToTree(
                 new ProtocolPullTaskBatchAddCommandRequest(
@@ -61,6 +73,7 @@ class PullTaskBatchAddPayloadHydratorTest {
                 .containsExactly(
                         "8613800000911@s.whatsapp.net",
                         "8613900000001@s.whatsapp.net");
+        verifyNoInteractions(materialMapper);
     }
 
     private static ProtocolCommandOutbox outbox() {
@@ -119,6 +132,17 @@ class PullTaskBatchAddPayloadHydratorTest {
         row.setPullCallId(801L);
         row.setNormalizedPhone("8613900000001");
         row.setPullStatus(PullTaskMaterialPullStatus.SUBMITTED.code());
+        return row;
+    }
+
+    private static PullTaskPullCallMemberAttempt attempt(
+            long id, PullTaskParticipantType type, String targetJid) {
+        PullTaskPullCallMemberAttempt row = new PullTaskPullCallMemberAttempt();
+        row.setId(id);
+        row.setPullCallId(801L);
+        row.setParticipantType(type.code());
+        row.setTargetJid(targetJid);
+        row.setLifecycleStatus(PullTaskParticipantAttemptStatus.SUBMITTED.code());
         return row;
     }
 

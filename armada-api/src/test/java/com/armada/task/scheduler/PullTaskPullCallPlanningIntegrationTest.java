@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
@@ -11,6 +13,7 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -19,6 +22,7 @@ import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
@@ -30,6 +34,9 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.enums.PullTaskParticipantType;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
@@ -45,6 +52,7 @@ import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
 import com.armada.task.service.impl.PullTaskProtocolResultCallbackServiceImpl;
+import com.armada.task.service.impl.PullTaskPullCallParticipantResultService;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.List;
@@ -78,10 +86,13 @@ class PullTaskPullCallPlanningIntegrationTest {
     @Autowired private PullTaskGroupAccountMapper groupAccountMapper;
     @Autowired private PullTaskMaterialMemberMapper materialMapper;
     @Autowired private PullTaskPullCallMapper pullCallMapper;
+    @Autowired private PullTaskPullCallMemberAttemptMapper attemptMapper;
     @Autowired private AccountProtocolLookupService accountLookup;
     @Autowired private PullTaskPullCallPlanningTransactionService service;
     @Autowired private PullTaskBatchAddTransactionService batchService;
     @Autowired private PullTaskProtocolResultCallbackService callbackService;
+    @Autowired private PullTaskPullCallReconciliationService reconciliationService;
+    @Autowired private GroupMemberListPort memberListPort;
     @Autowired private ProtocolCommandOutboxService outboxService;
 
     private Long executionId;
@@ -144,14 +155,23 @@ class PullTaskPullCallPlanningIntegrationTest {
         TenantContext.set(7L);
         assertThat(first.getPlannedMaterialCount()).isEqualTo(2);
         assertThat(first.getPlannedStationCount()).isEqualTo(1);
+        assertThat(attemptMapper.selectByCall(first.getId()))
+                .extracting(row -> row.getParticipantType())
+                .containsExactly(
+                        PullTaskParticipantType.STATION.code(),
+                        PullTaskParticipantType.MATERIAL.code(),
+                        PullTaskParticipantType.MATERIAL.code());
         assertThat(materialMapper.selectByExecution(executionId))
                 .filteredOn(row -> first.getId().equals(row.getPullCallId()))
-                .hasSize(2);
+                .hasSize(2)
+                .allMatch(row -> row.getActivePullAttemptId() != null);
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.STATION.code()))
                 .singleElement()
-                .extracting(PullTaskGroupAccount::getPullCallId)
-                .isEqualTo(first.getId());
+                .satisfies(row -> {
+                    assertThat(row.getPullCallId()).isEqualTo(first.getId());
+                    assertThat(row.getActivePullAttemptId()).isNotNull();
+                });
 
         finishPlannedCall(first, 700L);
         PullTaskGroupExecution secondCandidate = claim("worker-2", 800L, 1_100L);
@@ -246,10 +266,19 @@ class PullTaskPullCallPlanningIntegrationTest {
         PullTaskPullCall savedCall = pullCallMapper.selectByExecution(executionId).get(0);
         assertThat(savedCall.getCallStatus())
                 .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
+        List<Long> retriedMaterialIds = attemptMapper.selectByCall(call.getId()).stream()
+                .filter(row -> row.getParticipantType()
+                        == PullTaskParticipantType.MATERIAL.code())
+                .map(row -> row.getParticipantRefId()).toList();
         assertThat(materialMapper.selectByExecution(executionId))
-                .filteredOn(row -> call.getId().equals(row.getPullCallId()))
-                .extracting(PullTaskMaterialMember::getPullStatus)
-                .containsOnly(PullTaskMaterialPullStatus.FAILED.code());
+                .filteredOn(row -> retriedMaterialIds.contains(row.getId()))
+                .allSatisfy(row -> {
+                    assertThat(row.getPullStatus())
+                            .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+                    assertThat(row.getPullFailureCount()).isEqualTo(1L);
+                    assertThat(row.getPullCallId()).isNull();
+                    assertThat(row.getActivePullAttemptId()).isNull();
+                });
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.STATION.code()))
                 .singleElement()
@@ -259,6 +288,222 @@ class PullTaskPullCallPlanningIntegrationTest {
         assertThat(savedExecution.getStage())
                 .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
         assertThat(savedExecution.getLockOwner()).isNull();
+    }
+
+    @Test
+    void failedStationIsRetriedAfterAllMaterialsHaveSucceeded() throws SQLException {
+        execute("UPDATE pull_task_standard_setting "
+                + "SET pull_count_min=3, pull_count_max=3, pull_interval_seconds=0 "
+                + "WHERE task_id=100");
+        when(accountLookup.findOnlineNormalByGroupId(90L))
+                .thenReturn(List.of(account(911L)));
+        when(accountLookup.findActiveProtocolRefs(List.of(902L)))
+                .thenReturn(List.of(account(902L)));
+        when(accountLookup.findActiveProtocolRefs(List.of(911L)))
+                .thenReturn(List.of(account(911L)));
+        PullTaskGroupExecution firstCandidate = claim("worker-1", 600L, 900L);
+        PullTaskPullCall first = service.prepare(
+                firstCandidate, "worker-1", 610L).call();
+        assertThat(batchService.prepare(firstCandidate, first, "worker-1", 620L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        applyBatchResults(first, PullTaskBatchParticipantProtocolOutcome.FAILED,
+                PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                "STATION_REJECTED", 630L);
+
+        TenantContext.set(7L);
+        PullTaskGroupAccount station = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.STATION.code()).get(0);
+        assertThat(station.getMembershipStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code());
+        assertThat(station.getMembershipFailureCount()).isEqualTo(1L);
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getStage())
+                .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
+        assertThat(materialMapper.selectUnconsumed(executionId, 1)).isEmpty();
+
+        PullTaskGroupExecution retryCandidate = claim("worker-2", 4_700L, 5_000L);
+        PullTaskPullCall retry = service.prepare(
+                retryCandidate, "worker-2", 4_710L).call();
+
+        TenantContext.set(7L);
+        assertThat(retry.getPlannedMaterialCount()).isZero();
+        assertThat(retry.getPlannedStationCount()).isEqualTo(1);
+        assertThat(attemptMapper.selectByCall(retry.getId())).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getParticipantType())
+                            .isEqualTo(PullTaskParticipantType.STATION.code());
+                    assertThat(row.getParticipantRefId()).isEqualTo(station.getId());
+                    assertThat(row.getAttemptNo()).isEqualTo(2);
+                    assertThat(row.getFailureCountBefore()).isEqualTo(1L);
+                });
+        assertThat(batchService.prepare(retryCandidate, retry, "worker-2", 4_720L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        applyBatchResults(retry, PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                PullTaskBatchParticipantProtocolOutcome.SUCCESS, null, 4_730L);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getStage())
+                .isEqualTo(PullTaskExecutionStage.CLOSING.code());
+    }
+
+    @Test
+    void blockedPullerReleasesOnlyUnresolvedTargetsAndNextPullerTakesOver()
+            throws SQLException {
+        execute("UPDATE pull_task_standard_setting "
+                + "SET pull_count_min=10, pull_count_max=10, pull_interval_seconds=0, "
+                + "puller_count_per_group=2, station_count_per_call=0 WHERE task_id=100");
+        materialMapper.batchInsert(List.of(
+                material(4), material(5), material(6), material(7),
+                material(8), material(9), material(10)));
+        PullTaskGroupAccount replacement = puller(903L, 2);
+        groupAccountMapper.insert(replacement);
+        groupAccountMapper.updateMembership(replacement.getId(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+        ProtocolAccountRef pullerA = account(902L);
+        ProtocolAccountRef pullerB = account(903L);
+        when(accountLookup.findOnlineNormalByGroupId(89L))
+                .thenReturn(List.of(pullerA, pullerB));
+        when(accountLookup.findActiveProtocolRefs(List.of(902L, 903L)))
+                .thenReturn(List.of(pullerA, pullerB));
+        when(memberListPort.list(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        PullTaskGroupExecution firstCandidate = claim("worker-a", 600L, 900L);
+        PullTaskPullCall first = service.prepare(
+                firstCandidate, "worker-a", 610L).call();
+        assertThat(first.getPullerAccountId()).isEqualTo(902L);
+        assertThat(batchService.prepare(firstCandidate, first, "worker-a", 620L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        List<PullTaskMaterialMember> firstBatch = materialMapper
+                .selectByExecution(executionId).stream()
+                .filter(row -> first.getId().equals(row.getPullCallId()))
+                .toList();
+        assertThat(firstBatch).hasSize(10);
+        PullTaskPullCall submitted = callById(first.getId());
+        for (int index = 0; index < 4; index++) {
+            assertThat(applyParticipant(
+                    submitted, firstBatch.get(index).getNormalizedPhone(),
+                    PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                    null, 630L + index)).isTrue();
+        }
+        assertThat(applyParticipant(
+                submitted, firstBatch.get(4).getNormalizedPhone(),
+                PullTaskBatchParticipantProtocolOutcome.FAILED,
+                "ACCOUNT_NOT_ONLINE", 634L)).isTrue();
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
+        PullTaskPullCall staleCall = callById(first.getId());
+        PullTaskUnknownResultReconciliationStats stats = reconciliationService.reconcile(
+                execution, staleCall, attemptMapper.selectByCall(first.getId()),
+                groupAccountMapper.selectByExecutionAndRole(
+                        executionId, PullTaskGroupAccountRole.PULLER.code()),
+                5_000L, 5_100L);
+
+        assertThat(stats.confirmed()).isZero();
+        assertThat(stats.released()).isEqualTo(5);
+        verify(memberListPort, times(1)).list(org.mockito.ArgumentMatchers.any());
+        List<PullTaskMaterialMember> settled = materialMapper.selectByExecution(executionId);
+        assertThat(settled.subList(0, 4))
+                .allSatisfy(row -> assertThat(row.getPullStatus())
+                        .isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code()));
+        assertThat(settled.get(4).getPullStatus())
+                .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+        assertThat(settled.get(4).getPullFailureCount()).isEqualTo(1L);
+        assertThat(settled.subList(5, 10)).allSatisfy(row -> {
+            assertThat(row.getPullStatus())
+                    .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+            assertThat(row.getPullFailureCount()).isZero();
+            assertThat(row.getPullCallId()).isNull();
+            assertThat(row.getActivePullAttemptId()).isNull();
+        });
+        assertThat(callById(first.getId()).getCallStatus())
+                .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
+
+        PullTaskGroupExecution takeoverCandidate = claim("worker-b", 5_200L, 5_500L);
+        PullTaskPullCall takeover = service.prepare(
+                takeoverCandidate, "worker-b", 5_210L).call();
+
+        TenantContext.set(7L);
+        assertThat(takeover.getPullerAccountId()).isEqualTo(903L);
+        assertThat(attemptMapper.selectByCall(takeover.getId()))
+                .extracting(row -> row.getParticipantRefId())
+                .containsExactlyElementsOf(settled.subList(4, 10).stream()
+                        .map(PullTaskMaterialMember::getId).toList());
+        assertThat(attemptMapper.selectByCall(first.getId()))
+                .extracting(row -> row.getLifecycleStatus())
+                .containsExactly(
+                        PullTaskParticipantAttemptStatus.CLOSED.code(),
+                        PullTaskParticipantAttemptStatus.CLOSED.code(),
+                        PullTaskParticipantAttemptStatus.CLOSED.code(),
+                        PullTaskParticipantAttemptStatus.CLOSED.code(),
+                        PullTaskParticipantAttemptStatus.CLOSED.code(),
+                        PullTaskParticipantAttemptStatus.RELEASED.code(),
+                        PullTaskParticipantAttemptStatus.RELEASED.code(),
+                        PullTaskParticipantAttemptStatus.RELEASED.code(),
+                        PullTaskParticipantAttemptStatus.RELEASED.code(),
+                        PullTaskParticipantAttemptStatus.RELEASED.code());
+    }
+
+    @Test
+    void tenSecondPullIntervalDominatesFourSecondRandomSilence() throws SQLException {
+        execute("UPDATE pull_task_standard_setting "
+                + "SET pull_interval_seconds=10 WHERE task_id=100");
+        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(account(911L)));
+        when(accountLookup.findActiveProtocolRefs(List.of(902L)))
+                .thenReturn(List.of(account(902L)));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        PullTaskPullCall call = service.prepare(candidate, "worker-1", 610L).call();
+        assertThat(batchService.prepare(candidate, call, "worker-1", 620L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        applyBatchResults(call, PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                PullTaskBatchParticipantProtocolOutcome.SUCCESS, null, 630L);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getNextRunAt())
+                .isEqualTo(10_620L);
+    }
+
+    @Test
+    void fourSecondRandomSilenceDominatesTwoSecondPullInterval() throws SQLException {
+        execute("UPDATE pull_task_standard_setting "
+                + "SET pull_interval_seconds=2 WHERE task_id=100");
+        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(account(911L)));
+        when(accountLookup.findActiveProtocolRefs(List.of(902L)))
+                .thenReturn(List.of(account(902L)));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        PullTaskPullCall call = service.prepare(candidate, "worker-1", 610L).call();
+        assertThat(batchService.prepare(candidate, call, "worker-1", 620L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        applyBatchResults(call, PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                PullTaskBatchParticipantProtocolOutcome.SUCCESS, null, 630L);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getNextRunAt())
+                .isEqualTo(4_632L);
+    }
+
+    @Test
+    void notStartedBatchAddsNoRandomSilenceDeadline() {
+        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(account(911L)));
+        when(accountLookup.findActiveProtocolRefs(List.of(902L)))
+                .thenReturn(List.of(account(902L)));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        PullTaskPullCall call = service.prepare(candidate, "worker-1", 610L).call();
+        assertThat(batchService.prepare(candidate, call, "worker-1", 620L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        applyBatchResults(call, PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.NOT_STARTED,
+                "OWNER_UNAVAILABLE", 630L);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getNextRunAt())
+                .isEqualTo(1_620L);
     }
 
     @Test
@@ -332,9 +577,9 @@ class PullTaskPullCallPlanningIntegrationTest {
         applyBatchResults(firstCall, PullTaskBatchParticipantProtocolOutcome.SUCCESS,
                 PullTaskBatchParticipantProtocolOutcome.SUCCESS, null, 630L);
 
-        PullTaskGroupExecution secondCandidate = claim("worker-2", 700L, 1_000L);
+        PullTaskGroupExecution secondCandidate = claim("worker-2", 4_700L, 5_000L);
         PullTaskPullCall secondCall = service
-                .prepare(secondCandidate, "worker-2", 710L).call();
+                .prepare(secondCandidate, "worker-2", 4_710L).call();
 
         assertThat(firstCall.getPullerAccountId()).isEqualTo(902L);
         assertThat(secondCall.getPullerAccountId()).isEqualTo(903L);
@@ -374,16 +619,16 @@ class PullTaskPullCallPlanningIntegrationTest {
         execute("UPDATE pull_task_group_account SET availability_status=3 "
                 + "WHERE group_execution_id=" + executionId + " AND account_id=902");
 
-        PullTaskGroupExecution secondCandidate = claim("worker-2", 700L, 1_000L);
+        PullTaskGroupExecution secondCandidate = claim("worker-2", 4_700L, 5_000L);
         PullTaskPullCall secondCall = service
-                .prepare(secondCandidate, "worker-2", 710L).call();
+                .prepare(secondCandidate, "worker-2", 4_710L).call();
 
         assertThat(firstCall.getPullerAccountId()).isEqualTo(902L);
         assertThat(secondCall.getPullerAccountId()).isEqualTo(903L);
     }
 
     @Test
-    void offlinePullerReassignsAndResubmitsTheSameFrozenCall() {
+    void submittedCallNeverReturnsToPlannedWhenPullerCallbackReportsOffline() {
         PullTaskGroupAccount secondPuller = puller(903L, 2);
         groupAccountMapper.insert(secondPuller);
         groupAccountMapper.updateMembership(secondPuller.getId(),
@@ -414,35 +659,11 @@ class PullTaskPullCallPlanningIntegrationTest {
                 .isTrue();
 
         TenantContext.set(7L);
-        PullTaskPullCall reset = pullCallMapper.selectByExecution(executionId).get(0);
-        assertThat(reset.getId()).isEqualTo(frozen.getId());
-        assertThat(reset.getCallStatus()).isEqualTo(PullTaskPullCallStatus.PLANNED.code());
-        assertThat(materialMapper.selectByExecution(executionId))
-                .filteredOn(row -> frozen.getId().equals(row.getPullCallId()))
-                .extracting(PullTaskMaterialMember::getPullStatus)
-                .containsOnly(PullTaskMaterialPullStatus.SUBMITTED.code());
-
-        when(accountLookup.findActiveProtocolRefs(List.of(903L)))
-                .thenReturn(List.of(secondRef));
-        PullTaskGroupExecution reassignCandidate = claim("worker-2", 640L, 900L);
-        PullTaskPullCall samePlan = service
-                .prepare(reassignCandidate, "worker-2", 650L).call();
-        assertThat(samePlan.getId()).isEqualTo(frozen.getId());
-        assertThat(batchService.prepare(reassignCandidate, samePlan, "worker-2", 660L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-
-        PullTaskGroupExecution submitCandidate = claim("worker-3", 670L, 900L);
-        PullTaskPullCall reassigned = service
-                .prepare(submitCandidate, "worker-3", 680L).call();
-        assertThat(batchService.prepare(submitCandidate, reassigned, "worker-3", 690L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-
-        TenantContext.set(7L);
-        PullTaskPullCall secondSubmission = pullCallMapper.selectByExecution(executionId).get(0);
-        assertThat(secondSubmission.getId()).isEqualTo(frozen.getId());
-        assertThat(secondSubmission.getPullerAccountId()).isEqualTo(903L);
-        assertThat(secondSubmission.getCommandId()).isNotEqualTo(firstSubmission.getCommandId());
-        assertThat(secondSubmission.getCallStatus())
+        PullTaskPullCall unchanged = pullCallMapper.selectByExecution(executionId).get(0);
+        assertThat(unchanged.getId()).isEqualTo(frozen.getId());
+        assertThat(unchanged.getPullerAccountId()).isEqualTo(902L);
+        assertThat(unchanged.getCommandId()).isEqualTo(firstSubmission.getCommandId());
+        assertThat(unchanged.getCallStatus())
                 .isEqualTo(PullTaskPullCallStatus.SUBMITTED.code());
     }
 
@@ -517,13 +738,24 @@ class PullTaskPullCallPlanningIntegrationTest {
 
         assertThat(prepared).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         TenantContext.set(7L);
-        PullTaskPullCall saved = pullCallMapper.selectByExecution(executionId).get(0);
-        assertThat(saved.getPullerGroupAccountId()).isEqualTo(replacement.getId());
-        assertThat(saved.getCallStatus()).isEqualTo(PullTaskPullCallStatus.PLANNED.code());
+        PullTaskPullCall canceled = pullCallMapper.selectByExecution(executionId).get(0);
+        assertThat(canceled.getCallStatus()).isEqualTo(PullTaskPullCallStatus.CANCELED.code());
+        assertThat(attemptMapper.selectByCall(canceled.getId()))
+                .allMatch(row -> row.getActiveSlot() == null);
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.PULLER.code()).get(0)
                 .getAvailabilityStatus())
                 .isEqualTo(PullTaskGroupAccountAvailability.OFFLINE.code());
+
+        PullTaskGroupExecution retryCandidate = claim("worker-2", 630L, 900L);
+        PullTaskPullCall replacementCall = service
+                .prepare(retryCandidate, "worker-2", 640L).call();
+        assertThat(replacementCall.getId()).isNotEqualTo(canceled.getId());
+        assertThat(replacementCall.getPullerGroupAccountId()).isEqualTo(replacement.getId());
+        TenantContext.set(7L);
+        assertThat(attemptMapper.selectByCall(replacementCall.getId()))
+                .extracting(row -> row.getAttemptNo())
+                .containsOnly(2);
     }
 
     @Test
@@ -543,7 +775,7 @@ class PullTaskPullCallPlanningIntegrationTest {
         assertThat(saved.getWaitResourceType()).isEqualTo(PullTaskWaitResourceType.PULLER.code());
         assertThat(saved.getLockOwner()).isNull();
         assertThat(pullCallMapper.selectByExecution(executionId).get(0).getCallStatus())
-                .isEqualTo(PullTaskPullCallStatus.PLANNED.code());
+                .isEqualTo(PullTaskPullCallStatus.CANCELED.code());
     }
 
     @Test
@@ -580,7 +812,7 @@ class PullTaskPullCallPlanningIntegrationTest {
     }
 
     @Test
-    void unknownParticipantResultsRemainIndependentUnknownFacts() {
+    void uncertainParticipantResultsRemainOpenForOneBatchReconciliation() {
         ProtocolAccountRef pullerRef = new ProtocolAccountRef(
                 902L, ProtocolBackend.WEB, "puller-902", "8613800000902");
         when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(account(911L)));
@@ -595,16 +827,24 @@ class PullTaskPullCallPlanningIntegrationTest {
 
         TenantContext.set(7L);
         assertThat(pullCallMapper.selectByExecution(executionId).get(0).getCallStatus())
-                .isEqualTo(PullTaskPullCallStatus.UNKNOWN.code());
+                .isEqualTo(PullTaskPullCallStatus.SUBMITTED.code());
+        assertThat(attemptMapper.selectByCall(call.getId()))
+                .allSatisfy(row -> {
+                    assertThat(row.getLifecycleStatus())
+                            .isEqualTo(PullTaskParticipantAttemptStatus.SUBMITTED.code());
+                    assertThat(row.getProtocolOutcome()).isEqualTo("UNKNOWN");
+                    assertThat(row.getExecutionState())
+                            .isEqualTo(PullTaskParticipantExecutionState.UNCERTAIN);
+                });
         assertThat(materialMapper.selectByExecution(executionId))
                 .filteredOn(row -> call.getId().equals(row.getPullCallId()))
                 .extracting(PullTaskMaterialMember::getPullStatus)
-                .containsOnly(PullTaskMaterialPullStatus.UNKNOWN.code());
+                .containsOnly(PullTaskMaterialPullStatus.SUBMITTED.code());
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.STATION.code()))
                 .singleElement()
                 .extracting(PullTaskGroupAccount::getMembershipStatus)
-                .isEqualTo(PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
     }
 
     @Test
@@ -686,6 +926,35 @@ class PullTaskPullCallPlanningIntegrationTest {
         }
     }
 
+    private void applyBatchResults(
+            PullTaskPullCall call,
+            PullTaskBatchParticipantProtocolOutcome stationOutcome,
+            PullTaskBatchParticipantProtocolOutcome materialOutcome,
+            PullTaskParticipantExecutionState executionState,
+            String reasonCode,
+            long now) {
+        TenantContext.set(7L);
+        PullTaskPullCall submitted = pullCallMapper.selectByExecution(executionId).stream()
+                .filter(row -> row.getId().equals(call.getId()))
+                .findFirst().orElseThrow();
+        long occurredAt = now;
+        for (PullTaskGroupAccount station : groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.STATION.code())) {
+            if (call.getId().equals(station.getPullCallId())) {
+                assertThat(applyParticipant(
+                        submitted, station.getAccountPhone(), stationOutcome,
+                        executionState, reasonCode, occurredAt++)).isTrue();
+            }
+        }
+        for (PullTaskMaterialMember material : materialMapper.selectByExecution(executionId)) {
+            if (call.getId().equals(material.getPullCallId())) {
+                assertThat(applyParticipant(
+                        submitted, material.getNormalizedPhone(), materialOutcome,
+                        executionState, reasonCode, occurredAt++)).isTrue();
+            }
+        }
+    }
+
     private boolean applyParticipant(
             PullTaskPullCall call,
             String phone,
@@ -699,6 +968,20 @@ class PullTaskPullCallPlanningIntegrationTest {
                 outcome == PullTaskBatchParticipantProtocolOutcome.UNKNOWN, occurredAt));
     }
 
+    private boolean applyParticipant(
+            PullTaskPullCall call,
+            String phone,
+            PullTaskBatchParticipantProtocolOutcome outcome,
+            PullTaskParticipantExecutionState executionState,
+            String reasonCode,
+            long occurredAt) {
+        return callbackService.handlePullCallParticipant(new PullTaskBatchParticipantCallback(
+                7L, 100L, executionId, call.getId(), call.getPullerAccountId(),
+                "protocol-" + call.getPullerAccountId(), call.getCommandId(), 1,
+                phone + "@s.whatsapp.net", outcome, executionState,
+                reasonCode, null, false, occurredAt));
+    }
+
     private PullTaskGroupExecution claim(String owner, long now, long expiresAt) {
         TenantContext.clear();
         executionMapper.claimDue(new PullTaskExecutionClaimCriteria(
@@ -710,6 +993,12 @@ class PullTaskPullCallPlanningIntegrationTest {
                         PullTaskType.STANDARD.name(), "NORMAL_LINK",
                         PullTaskStandardStatus.EXECUTING.name())));
         return executionMapper.selectClaimed(owner, now).get(0);
+    }
+
+    private PullTaskPullCall callById(long callId) {
+        return pullCallMapper.selectByExecution(executionId).stream()
+                .filter(row -> row.getId().equals(callId))
+                .findFirst().orElseThrow();
     }
 
     private PullTaskGroupAccount puller() {
@@ -800,7 +1089,8 @@ class PullTaskPullCallPlanningIntegrationTest {
                     "mapper/task/PullTaskGroupExecutionMapper.xml",
                     "mapper/task/PullTaskGroupAccountMapper.xml",
                     "mapper/task/PullTaskMaterialMemberMapper.xml",
-                    "mapper/task/PullTaskPullCallMapper.xml");
+                    "mapper/task/PullTaskPullCallMapper.xml",
+                    "mapper/task/PullTaskPullCallMemberAttemptMapper.xml");
         }
 
         @Bean PullTaskMapper taskMapper(SqlSessionTemplate template) {
@@ -827,12 +1117,20 @@ class PullTaskPullCallPlanningIntegrationTest {
             return template.getMapper(PullTaskPullCallMapper.class);
         }
 
+        @Bean PullTaskPullCallMemberAttemptMapper attemptMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullCallMemberAttemptMapper.class);
+        }
+
         @Bean AccountProtocolLookupService accountLookup() {
             return mock(AccountProtocolLookupService.class);
         }
 
         @Bean ProtocolCommandOutboxService outboxService() {
             return mock(ProtocolCommandOutboxService.class);
+        }
+
+        @Bean GroupMemberListPort memberListPort() {
+            return mock(GroupMemberListPort.class);
         }
 
         @Bean PullTaskExecutionDispatchProperties dispatchProperties() {
@@ -855,12 +1153,13 @@ class PullTaskPullCallPlanningIntegrationTest {
 
         @Bean PullTaskPullCallPlanningResources planningResources(
                 PullTaskPullCallMapper pullCallMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskStationSelectionService stationSelectionService,
                 PullTaskBatchSizeSelector batchSizeSelector,
                 AccountProtocolLookupService accountLookup) {
             return new PullTaskPullCallPlanningResources(
-                    pullCallMapper, executionMapper, stationSelectionService,
+                    pullCallMapper, attemptMapper, executionMapper, stationSelectionService,
                     batchSizeSelector, accountLookup);
         }
 
@@ -878,10 +1177,12 @@ class PullTaskPullCallPlanningIntegrationTest {
                 PullTaskGroupExecutionMapper executionMapper,
                 AccountProtocolLookupService accountLookup,
                 PullTaskPullCallMapper pullCallMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
                 ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskBatchAddResources(
-                    executionMapper, accountLookup, pullCallMapper, outboxService, properties);
+                    executionMapper, accountLookup, pullCallMapper, attemptMapper,
+                    outboxService, properties);
         }
 
         @Bean PullTaskBatchAddTransactionService batchAddService(
@@ -897,18 +1198,44 @@ class PullTaskPullCallPlanningIntegrationTest {
         @Bean PullTaskUnknownResultResources unknownResultResources(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskPullCallMapper pullCallMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
                 PullTaskMaterialMemberMapper materialMapper,
                 PullTaskGroupAccountMapper accountMapper) {
             return new PullTaskUnknownResultResources(
-                    actionMapper, pullCallMapper, materialMapper, accountMapper);
+                    actionMapper, pullCallMapper, attemptMapper,
+                    materialMapper, accountMapper);
         }
 
         @Bean PullTaskProtocolResultCallbackService callbackService(
                 PullTaskUnknownResultResources resources,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskStandardSettingMapper settingMapper) {
+                PullTaskPullCallParticipantResultService participantResultService,
+                PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskProtocolResultCallbackServiceImpl(
-                    resources, executionMapper, settingMapper);
+                    resources, executionMapper,
+                    participantResultService, delayPolicy);
+        }
+
+        @Bean PullTaskPullCallParticipantResultService participantResultService(
+                PullTaskUnknownResultResources resources,
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskStandardSettingMapper settingMapper,
+                PullTaskOperationDelayPolicy delayPolicy) {
+            return new PullTaskPullCallParticipantResultService(
+                    resources, executionMapper, settingMapper, delayPolicy);
+        }
+
+        @Bean PullTaskPullCallReconciliationService reconciliationService(
+                PullTaskUnknownResultResources resources,
+                AccountProtocolLookupService accountLookup,
+                GroupMemberListPort memberListPort,
+                PullTaskPullCallParticipantResultService participantResultService) {
+            return new PullTaskPullCallReconciliationService(
+                    resources, accountLookup, memberListPort, participantResultService);
+        }
+
+        @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {
+            return new PullTaskOperationDelayPolicy(() -> 4_000L);
         }
 
         @Bean SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {

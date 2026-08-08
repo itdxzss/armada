@@ -3,6 +3,8 @@ package com.armada.task.mapper;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.dto.PullTaskStationBinding;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
@@ -54,6 +56,18 @@ public interface PullTaskGroupAccountMapper {
     List<PullTaskGroupAccount> selectByExecutionAndRole(
             @Param("groupExecutionId") long groupExecutionId,
             @Param("roleType") int roleType);
+
+    /** 选择失败次数未达上限且没有活动 attempt 的待拉站台。 */
+    List<PullTaskGroupAccount> selectPendingStationsByGuard(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("guard") PullTaskParticipantAttemptBinding.Guard guard,
+            @Param("limit") int limit);
+
+    /** 使用普通链接站台固定守卫选择待拉池。 */
+    default List<PullTaskGroupAccount> selectPendingStations(long groupExecutionId, int limit) {
+        return selectPendingStationsByGuard(
+                groupExecutionId, PullTaskParticipantAttemptBinding.stationGuard(), limit);
+    }
 
     /**
      * 按角色统计执行行当前可用账号数，供详情页现算"当前数 / 计划数"。
@@ -228,9 +242,61 @@ public interface PullTaskGroupAccountMapper {
     /** 把未分配的补充站台按角色、来源和可用性 CAS 绑定到一次调用。 */
     int bindStationToPullCall(@Param("binding") PullTaskStationBinding binding);
 
+    /** 以角色、可用性、失败上限和空活动指针 CAS 绑定站台 attempt。 */
+    int bindMembershipAttemptIfEligible(
+            @Param("binding") PullTaskParticipantAttemptBinding binding,
+            @Param("guard") PullTaskParticipantAttemptBinding.Guard guard);
+
+    /** 使用普通链接站台固定守卫绑定 attempt。 */
+    default int bindMembershipAttempt(PullTaskParticipantAttemptBinding binding) {
+        return bindMembershipAttemptIfEligible(
+                binding, PullTaskParticipantAttemptBinding.stationGuard());
+    }
+
+    /** 批次真实提交时记录站台最近执行拉手。 */
+    int markMembershipAttemptSubmitted(
+            @Param("binding") PullTaskParticipantAttemptBinding binding);
+
+    /** 当前活动 attempt 与失败计数匹配时推进站台聚合状态。 */
+    int transitionMembershipAttempt(
+            @Param("transition") PullTaskParticipantAggregateTransition transition);
+
+    /** 单调提升站台为在群；迟到成功不得清除更新 attempt 的活动指针。 */
+    int promoteMembershipSuccess(
+            @Param("transition") PullTaskParticipantAggregateTransition transition);
+
     /** 统计一次拉人调用中仍处于指定在群状态的站台数量。 */
     int countByPullCallAndMembershipStatuses(
             @Param("criteria") PullTaskFactStatusCriteria criteria);
+
+    /** 任务结束时释放尚未提交协议命令的计划站台。 */
+    int cancelPlannedStationMembershipByTask(
+            @Param("taskId") long taskId,
+            @Param("roleType") int roleType,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("plannedCallStatus") int plannedCallStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("now") long now);
+
+    /** 单群结束时释放尚未提交协议命令的计划站台。 */
+    int cancelPlannedStationMembershipByExecution(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("roleType") int roleType,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("plannedCallStatus") int plannedCallStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("now") long now);
+
+    /** Outbox 已确认未发布时取消站台提交；发布不明只标未知并保留活动绑定。 */
+    int cancelUnpublishedSubmittedStationMembership(
+            @Param("taskId") long taskId,
+            @Param("groupExecutionId") Long groupExecutionId,
+            @Param("roleType") int roleType,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus,
+            @Param("canceledOutboxStatus") int canceledOutboxStatus,
+            @Param("releaseBinding") boolean releaseBinding,
+            @Param("now") long now);
 
     /** 以允许的原状态集合 CAS 更新管理账号实时权限事实。 */
     int transitionAdminStatus(

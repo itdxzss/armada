@@ -31,6 +31,21 @@
     ORDER BY role_seq ASC
   </select>
 
+  <select id="selectPendingStationsByGuard"
+          resultType="com.armada.task.model.entity.PullTaskGroupAccount">
+    SELECT *
+    FROM pull_task_group_account
+    WHERE group_execution_id = #{groupExecutionId}
+      AND role_type = #{guard.participantRole}
+      AND availability_status = #{guard.availabilityStatus}
+      AND membership_status = #{guard.expectedStatus}
+      AND pull_call_id IS NULL
+      AND active_pull_attempt_id IS NULL
+      AND membership_failure_count &lt; #{guard.maxFailureCount}
+    ORDER BY role_seq ASC
+    LIMIT #{limit}
+  </select>
+
   <!-- 详情页的"当前可用数 / 计划数"现算，不在执行行上存资源快照列。 -->
   <select id="countAvailableByRole"
           resultType="com.armada.task.model.vo.PullTaskGroupAccountRoleCount">
@@ -183,6 +198,76 @@
       AND pull_call_id IS NULL
   </update>
 
+  <update id="bindMembershipAttemptIfEligible">
+    UPDATE pull_task_group_account
+    SET pull_call_id = #{binding.pullCallId},
+        membership_status = #{guard.targetStatus},
+        active_pull_attempt_id = #{binding.attemptId},
+        membership_reason_code = NULL,
+        membership_reason_message = NULL,
+        membership_result_at = NULL,
+        updated_at = #{binding.now}
+    WHERE id = #{binding.participantId}
+      AND role_type = #{guard.participantRole}
+      AND availability_status = #{guard.availabilityStatus}
+      AND membership_status = #{guard.expectedStatus}
+      AND pull_call_id IS NULL
+      AND active_pull_attempt_id IS NULL
+      AND membership_failure_count &lt; #{guard.maxFailureCount}
+  </update>
+
+  <update id="markMembershipAttemptSubmitted">
+    UPDATE pull_task_group_account
+    SET last_puller_group_account_id = #{binding.pullerGroupAccountId},
+        updated_at = #{binding.now}
+    WHERE id = #{binding.participantId}
+      AND active_pull_attempt_id = #{binding.attemptId}
+      AND pull_call_id = #{binding.pullCallId}
+  </update>
+
+  <update id="transitionMembershipAttempt">
+    UPDATE pull_task_group_account
+    SET membership_status = #{transition.target.status},
+        membership_failure_count = #{transition.target.failureCount},
+        pull_call_id = #{transition.target.pullCallId},
+        active_pull_attempt_id = #{transition.target.activeAttemptId},
+        membership_reason_code = #{transition.result.reasonCode},
+        membership_reason_message = #{transition.result.reasonMessage},
+        membership_result_at = #{transition.result.occurredAt},
+        joined_at =
+        <choose>
+          <when test="transition.target.success">
+            COALESCE(#{transition.result.occurredAt}, joined_at)
+          </when>
+          <otherwise>joined_at</otherwise>
+        </choose>,
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.participantId}
+      AND active_pull_attempt_id = #{transition.scope.attemptId}
+      AND membership_failure_count = #{transition.expected.failureCount}
+      AND membership_status IN
+      <foreach collection="transition.expected.statuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="promoteMembershipSuccess">
+    UPDATE pull_task_group_account
+    SET membership_status = #{transition.target.status},
+        pull_call_id = #{transition.target.pullCallId},
+        active_pull_attempt_id = CASE
+          WHEN active_pull_attempt_id = #{transition.scope.attemptId}
+            THEN #{transition.target.activeAttemptId}
+          ELSE active_pull_attempt_id
+        END,
+        membership_reason_code = NULL,
+        membership_reason_message = NULL,
+        membership_result_at = #{transition.result.occurredAt},
+        joined_at = COALESCE(#{transition.result.occurredAt}, joined_at),
+        updated_at = #{transition.scope.now}
+    WHERE id = #{transition.scope.participantId}
+      AND membership_status &lt;&gt; #{transition.target.status}
+  </update>
+
   <select id="countByPullCallAndMembershipStatuses" resultType="java.lang.Integer">
     SELECT COUNT(*)
     FROM pull_task_group_account
@@ -191,6 +276,67 @@
       <foreach collection="criteria.statuses" item="status"
                open="(" separator="," close=")">#{status}</foreach>
   </select>
+
+  <update id="cancelPlannedStationMembershipByTask">
+    UPDATE pull_task_group_account
+    SET membership_status = #{targetStatus},
+        pull_call_id = NULL,
+        active_pull_attempt_id = NULL,
+        membership_result_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND role_type = #{roleType}
+      AND membership_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        WHERE call_row.id = pull_task_group_account.pull_call_id
+          AND call_row.call_status = #{plannedCallStatus}
+      )
+  </update>
+
+  <update id="cancelPlannedStationMembershipByExecution">
+    UPDATE pull_task_group_account
+    SET membership_status = #{targetStatus},
+        pull_call_id = NULL,
+        active_pull_attempt_id = NULL,
+        membership_result_at = #{now},
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND role_type = #{roleType}
+      AND membership_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        WHERE call_row.id = pull_task_group_account.pull_call_id
+          AND call_row.call_status = #{plannedCallStatus}
+      )
+  </update>
+
+  <update id="cancelUnpublishedSubmittedStationMembership">
+    UPDATE pull_task_group_account
+    SET membership_status = #{targetStatus},
+        pull_call_id = CASE WHEN #{releaseBinding} THEN NULL ELSE pull_call_id END,
+        active_pull_attempt_id = CASE
+          WHEN #{releaseBinding} THEN NULL ELSE active_pull_attempt_id END,
+        membership_result_at = #{now},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      <if test="groupExecutionId != null">
+        AND group_execution_id = #{groupExecutionId}
+      </if>
+      AND role_type = #{roleType}
+      AND membership_status = #{expectedStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        JOIN protocol_command_outbox outbox_row
+          ON outbox_row.command_id = call_row.command_id
+        WHERE call_row.id = pull_task_group_account.pull_call_id
+          AND outbox_row.status = #{canceledOutboxStatus}
+          AND outbox_row.deleted_at IS NULL
+      )
+  </update>
 
   <update id="transitionAdminStatus">
     UPDATE pull_task_group_account

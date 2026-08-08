@@ -7,9 +7,9 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskFactResult;
-import com.armada.task.model.dto.PullTaskCallReschedule;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskPullCallRosterCheckStatus;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.List;
@@ -149,30 +149,26 @@ class PullTaskPullCallMapperInMemoryTest {
     }
 
     @Test
-    void offlinePullerResetUsesCommandAndStatusCasWhileKeepingFrozenPlan() {
+    void rosterCheckCanBeClaimedOnlyOnceAndNeverReturnsToNotStarted() {
         PullTaskPullCall call = planned(1, "idem-1");
         mapper.insertPlanned(call);
-        mapper.markSubmitted(call.getId(), "cmd-1", 1000L);
-        PullTaskCallReschedule.Status status = new PullTaskCallReschedule.Status(
-                PullTaskPullCallStatus.SUBMITTED.code(),
-                PullTaskPullCallStatus.PLANNED.code());
+        mapper.markSubmitted(call.getId(), "cmd-1", 1_000L);
 
-        assertThat(mapper.rescheduleSubmitted(new PullTaskCallReschedule(
-                new PullTaskCallReschedule.Scope(call.getId(), "stale-command", 1100L),
-                status, "ACCOUNT_NOT_ONLINE", "offline"))).isZero();
-        assertThat(mapper.rescheduleSubmitted(new PullTaskCallReschedule(
-                new PullTaskCallReschedule.Scope(call.getId(), "cmd-1", 1200L),
-                status, "ACCOUNT_NOT_ONLINE", "offline"))).isEqualTo(1);
+        assertThat(mapper.claimRosterCheck(
+                call.getId(), PullTaskPullCallRosterCheckStatus.NOT_STARTED.code(),
+                PullTaskPullCallRosterCheckStatus.CLAIMED.code(), 61_000L)).isEqualTo(1);
+        assertThat(mapper.claimRosterCheck(
+                call.getId(), PullTaskPullCallRosterCheckStatus.NOT_STARTED.code(),
+                PullTaskPullCallRosterCheckStatus.CLAIMED.code(), 61_001L)).isZero();
+        assertThat(mapper.finishRosterCheck(
+                call.getId(), PullTaskPullCallRosterCheckStatus.CLAIMED.code(),
+                PullTaskPullCallRosterCheckStatus.SUCCEEDED.code(), 61_100L)).isEqualTo(1);
 
-        assertThat(mapper.selectByCommandId("cmd-1")).isNull();
-        assertThat(mapper.selectPlannedByExecution(EXECUTION))
-                .singleElement()
-                .satisfies(saved -> {
-                    assertThat(saved.getId()).isEqualTo(call.getId());
-                    assertThat(saved.getIdempotencyKey()).isEqualTo("idem-1");
-                    assertThat(saved.getReasonCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
-                    assertThat(saved.getSubmittedAt()).isNull();
-                });
+        PullTaskPullCall saved = mapper.selectByCommandId("cmd-1");
+        assertThat(saved.getRosterCheckStatus())
+                .isEqualTo(PullTaskPullCallRosterCheckStatus.SUCCEEDED.code());
+        assertThat(saved.getRosterCheckStartedAt()).isEqualTo(61_000L);
+        assertThat(saved.getRosterCheckFinishedAt()).isEqualTo(61_100L);
     }
 
     @Test

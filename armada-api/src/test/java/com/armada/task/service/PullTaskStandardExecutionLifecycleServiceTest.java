@@ -18,6 +18,7 @@ import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
@@ -123,6 +124,20 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(intColumn("action_status", "pull_task_account_action", 303L)).isEqualTo(2);
         assertThat(intColumn("call_status", "pull_task_pull_call", 401L)).isEqualTo(5);
         assertThat(intColumn("call_status", "pull_task_pull_call", 402L)).isEqualTo(2);
+        assertThat(intColumn("lifecycle_status",
+                "pull_task_pull_call_member_attempt", 701L)).isEqualTo(5);
+        assertThat(intColumn("lifecycle_status",
+                "pull_task_pull_call_member_attempt", 702L)).isEqualTo(5);
+        assertThat(intColumn("lifecycle_status",
+                "pull_task_pull_call_member_attempt", 703L)).isEqualTo(2);
+        assertThat(longColumn("active_pull_attempt_id",
+                "pull_task_material_member", 501L)).isNull();
+        assertThat(longColumn("pull_call_id", "pull_task_material_member", 501L)).isNull();
+        assertThat(intColumn("membership_status", "pull_task_group_account", 111L)).isZero();
+        assertThat(longColumn("active_pull_attempt_id",
+                "pull_task_group_account", 111L)).isNull();
+        assertThat(longColumn("active_pull_attempt_id",
+                "pull_task_material_member", 502L)).isEqualTo(703L);
         assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
         verify(outboxService).cancelPendingPullTaskCommands(1L, 11L, 900L);
     }
@@ -219,10 +234,22 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 + "(402, 7, 1, 11, 2, 101, 501, 1, 0, 2, 'submitted', 100, 100)");
         execute("INSERT INTO pull_task_material_member "
                 + "(id, tenant_id, group_execution_id, member_seq, source_line_no, normalized_phone, "
-                + "admin_required, pull_call_id, pull_status, admin_status, created_at, updated_at) VALUES "
-                + "(501, 7, 11, 1, 1, '861001', 0, 401, 1, 0, 100, 100), "
-                + "(502, 7, 11, 2, 2, '861002', 0, 402, 1, 0, 100, 100), "
-                + "(503, 7, 12, 1, 1, '861003', 0, NULL, 0, 0, 100, 100)");
+                + "admin_required, pull_call_id, pull_status, active_pull_attempt_id, admin_status, created_at, updated_at) VALUES "
+                + "(501, 7, 11, 1, 1, '861001', 0, 401, 1, 701, 0, 100, 100), "
+                + "(502, 7, 11, 2, 2, '861002', 0, 402, 1, 703, 0, 100, 100), "
+                + "(503, 7, 12, 1, 1, '861003', 0, NULL, 0, NULL, 0, 100, 100)");
+        execute("INSERT INTO pull_task_group_account "
+                + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, role_type, "
+                + "role_seq, membership_status, active_pull_attempt_id, pull_call_id, "
+                + "availability_status, created_at, updated_at) VALUES "
+                + "(111, 7, 1, 11, 701, '86701', 3, 1, 1, 702, 401, 1, 100, 100)");
+        execute("INSERT INTO pull_task_pull_call_member_attempt "
+                + "(id, tenant_id, task_id, group_execution_id, pull_call_id, participant_type, "
+                + "participant_ref_id, target_phone, target_jid, puller_group_account_id, "
+                + "attempt_no, lifecycle_status, active_slot, submitted_at, created_at, updated_at) VALUES "
+                + "(701, 7, 1, 11, 401, 1, 501, '861001', '861001@s.whatsapp.net', 101, 1, 1, 1, NULL, 100, 100), "
+                + "(702, 7, 1, 11, 401, 2, 111, '86701', '86701@s.whatsapp.net', 101, 1, 1, 1, NULL, 100, 100), "
+                + "(703, 7, 1, 11, 402, 1, 502, '861002', '861002@s.whatsapp.net', 101, 1, 2, 1, 100, 100, 100)");
     }
 
     private int intColumn(String column, String table, long id) {
@@ -305,6 +332,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                     "mapper/task/PullTaskGroupAccountMapper.xml",
                     "mapper/task/PullTaskAccountActionMapper.xml",
                     "mapper/task/PullTaskPullCallMapper.xml",
+                    "mapper/task/PullTaskPullCallMemberAttemptMapper.xml",
                     "mapper/task/PullTaskMaterialMemberMapper.xml");
         }
 
@@ -332,6 +360,10 @@ class PullTaskStandardExecutionLifecycleServiceTest {
             return template.getMapper(PullTaskPullCallMapper.class);
         }
 
+        @Bean PullTaskPullCallMemberAttemptMapper attemptMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullCallMemberAttemptMapper.class);
+        }
+
         @Bean PullTaskMaterialMemberMapper materialMapper(SqlSessionTemplate template) {
             return template.getMapper(PullTaskMaterialMemberMapper.class);
         }
@@ -356,11 +388,12 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskPullCallMapper pullCallMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
                 PullTaskMaterialMemberMapper materialMapper,
                 ProtocolCommandOutboxService outboxService) {
             return new PullTaskStandardExecutionLifecycleResources(
                     executionMapper, accountMapper, actionMapper, pullCallMapper,
-                    materialMapper, outboxService);
+                    attemptMapper, materialMapper, outboxService);
         }
 
         @Bean

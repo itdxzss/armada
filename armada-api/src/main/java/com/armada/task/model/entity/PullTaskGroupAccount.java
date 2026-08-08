@@ -39,6 +39,15 @@ public class PullTaskGroupAccount {
     /** 在群状态，取值见 PullTaskGroupAccountMembershipStatus。 */
     private Integer membershipStatus;
 
+    /** 站台累计明确入群失败次数。 */
+    private Long membershipFailureCount;
+
+    /** 站台当前活动逐号码执行记录 ID。 */
+    private Long activePullAttemptId;
+
+    /** 站台最近一次真实执行拉手角色行 ID。 */
+    private Long lastPullerGroupAccountId;
+
     /** 进群失败或不确定原因码。 */
     private String membershipReasonCode;
 
@@ -172,6 +181,30 @@ public class PullTaskGroupAccount {
 
     public void setMembershipStatus(Integer membershipStatus) {
         this.membershipStatus = membershipStatus;
+    }
+
+    public Long getMembershipFailureCount() {
+        return membershipFailureCount;
+    }
+
+    public void setMembershipFailureCount(Long membershipFailureCount) {
+        this.membershipFailureCount = membershipFailureCount;
+    }
+
+    public Long getActivePullAttemptId() {
+        return activePullAttemptId;
+    }
+
+    public void setActivePullAttemptId(Long activePullAttemptId) {
+        this.activePullAttemptId = activePullAttemptId;
+    }
+
+    public Long getLastPullerGroupAccountId() {
+        return lastPullerGroupAccountId;
+    }
+
+    public void setLastPullerGroupAccountId(Long lastPullerGroupAccountId) {
+        this.lastPullerGroupAccountId = lastPullerGroupAccountId;
     }
 
     public String getMembershipReasonCode() {

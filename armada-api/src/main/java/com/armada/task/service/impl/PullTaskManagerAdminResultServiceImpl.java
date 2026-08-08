@@ -19,6 +19,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
+import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import com.armada.task.service.PullTaskManagerAdminResultService;
 import java.util.List;
 import java.util.Objects;
@@ -41,17 +42,20 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskExecutionDispatchProperties properties;
+    private final PullTaskOperationDelayPolicy delayPolicy;
 
     /** 创建任务管理员提权结果状态机。 */
     public PullTaskManagerAdminResultServiceImpl(
             PullTaskAccountActionMapper actionMapper,
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
-            PullTaskExecutionDispatchProperties properties) {
+            PullTaskExecutionDispatchProperties properties,
+            PullTaskOperationDelayPolicy delayPolicy) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.properties = properties;
+        this.delayPolicy = delayPolicy;
     }
 
     /** {@inheritDoc} */
@@ -97,7 +101,8 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                             PullTaskExecutionStatus.EXECUTING.code(),
                             PullTaskExecutionStage.MANAGER_ADMIN.code(),
                             null, null, target.executionReason().name(),
-                            target.executionMessage(), target.nextRunAt(), null),
+                            target.executionMessage(), delayPolicy.maxDeadline(
+                            target.nextRunAt(), callback.occurredAt()), null),
                     callback.occurredAt());
             if (executionMapper.transitionManagerJoinResult(transition) != 1) {
                 throw new IllegalStateException("管理员设置执行行唤醒 CAS 失败");

@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInviteResultService {
 
-    private static final long INVITE_INTERVAL_MS = 1_000L;
+    private static final long INVITE_RESULT_DELAY_MS = 3_000L;
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
     private static final List<Integer> MEMBERSHIP_OPEN = List.of(
@@ -81,15 +81,14 @@ public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInvi
                     && membershipWrite == WriteResult.ALREADY_TARGET) {
                 return true;
             }
-            long submittedAt = action.getSubmittedAt() == null
-                    ? callback.occurredAt() : action.getSubmittedAt();
             int executionWrite = executionMapper.transitionProtocolResult(
                     new PullTaskExecutionResultTransition(
                     execution.getId(), execution.getTaskId(), execution.getVersion(),
                     PullTaskExecutionStatus.EXECUTING.code(),
                     PullTaskExecutionStage.PULLER_INVITE.code(),
                     PullTaskExecutionStage.PULLER_INVITE.code(),
-                    null, Math.addExact(submittedAt, INVITE_INTERVAL_MS), callback.occurredAt()));
+                    null, Math.addExact(callback.occurredAt(), INVITE_RESULT_DELAY_MS),
+                    callback.occurredAt()));
             if (executionWrite != 1
                     && (actionWrite == WriteResult.UPDATED
                     || membershipWrite == WriteResult.UPDATED)) {

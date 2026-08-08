@@ -117,13 +117,12 @@ class PullTaskStandardReadServiceTest {
                 .isEqualTo("/api/pull-tasks/standard/group-avatars/avatar.png");
         verify(executionMapper, never()).selectByTaskId(100L);
         var detail = service.execution(100L, 11L);
-        assertThat(detail.execution().groupJid()).isEqualTo("120***********0000@g.us");
-        assertThat(detail.execution().groupJid()).doesNotContain("120363000000000000");
+        assertThat(detail.execution().groupJid()).isEqualTo("120363000000000000@g.us");
         assertThat(detail.roles()).hasSize(4)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
                 .singleElement()
                 .satisfies(row -> {
-                    assertThat(row.accountPhone()).isEqualTo("861******0503");
+                    assertThat(row.accountPhone()).isEqualTo("8613800000503");
                     assertThat(row.membershipReasonCode()).isEqualTo("PRIVACY_BLOCKED");
                     assertThat(row.membershipReasonMessage()).isEqualTo("privacy blocked");
                     assertThat(row.membershipResultAt()).isEqualTo(5_000L);
@@ -138,7 +137,7 @@ class PullTaskStandardReadServiceTest {
                 .extracting(row -> row.actionStatus()).isEqualTo(3);
         assertThat(service.members(100L, 11L)).singleElement()
                 .satisfies(row -> {
-                    assertThat(row.normalizedPhone()).isEqualTo("861******0001");
+                    assertThat(row.normalizedPhone()).isEqualTo("8613900000001");
                     assertThat(row.waJid()).isEqualTo("861******0001@s.whatsapp.net");
                     assertThat(row.pullStatus()).isEqualTo(3);
                     assertThat(row.pullReasonCode()).isEqualTo("PRIVACY");

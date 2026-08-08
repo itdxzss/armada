@@ -187,7 +187,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
             PullTaskGroupExecution row,
             PullTaskStandardExecutionAggregate aggregate) {
         return new PullTaskStandardExecutionSummaryVO(
-                row.getId(), value(row.getSeq()), row.getNormalizedLink(), maskJid(row.getGroupJid()),
+                row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
                 value(row.getExecutionStatus()), value(row.getStage()),
                 Integer.valueOf(1).equals(row.getManualPaused()),
                 row.getWaitResourceType(),
@@ -285,7 +285,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private static PullTaskStandardRoleVO role(PullTaskGroupAccount row) {
         return new PullTaskStandardRoleVO(
-                row.getId(), row.getAccountId(), maskIdentifier(row.getAccountPhone()),
+                row.getId(), row.getAccountId(), row.getAccountPhone(),
                 value(row.getRoleType()),
                 value(row.getRoleSeq()), value(row.getMembershipStatus()),
                 value(row.getAdminStatus()),
@@ -312,13 +312,13 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private static PullTaskStandardMemberVO member(PullTaskMaterialMember row) {
         return new PullTaskStandardMemberVO(
-                row.getId(), value(row.getMemberSeq()), maskIdentifier(row.getNormalizedPhone()),
+                row.getId(), value(row.getMemberSeq()), row.getNormalizedPhone(),
                 Integer.valueOf(1).equals(row.getAdminRequired()), row.getPullCallId(),
                 value(row.getPullStatus()), row.getPullReasonCode(), row.getPullReasonMessage(),
                 maskJid(row.getWaJid()), value(row.getAdminStatus()), row.getAdminReasonCode());
     }
 
-    /** 详情接口只保留稳定识别片段，完整号码和 JID 继续留在事实表内。 */
+    /** 成员 WhatsApp JID 仅返回稳定识别片段，完整值继续留在事实表内。 */
     private static String maskJid(String value) {
         if (value == null || value.isBlank()) {
             return value;

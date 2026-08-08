@@ -42,7 +42,7 @@ class PullTaskPullerInviteResultServiceImplTest {
     }
 
     @Test
-    void successWritesActionAndMembershipThenWakesAtOneSecondBoundary() {
+    void successWritesActionAndMembershipThenWaitsThreeSecondsAfterResult() {
         stubContext();
         when(actionMapper.transitionResult(any())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
@@ -66,7 +66,7 @@ class PullTaskPullerInviteResultServiceImplTest {
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
         assertThat(executionChange.getValue().targetStage())
                 .isEqualTo(PullTaskExecutionStage.PULLER_INVITE.code());
-        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(2_000L);
+        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(4_100L);
         assertThat(TenantContext.get()).isNull();
     }
 

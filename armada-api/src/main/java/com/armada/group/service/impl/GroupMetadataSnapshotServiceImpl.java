@@ -5,6 +5,7 @@ import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.observability.GroupMetadataSyncMetrics;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import com.armada.group.service.GroupMetadataSnapshotService;
 import com.armada.group.service.GroupMetadataSyncProtocolPorts;
@@ -30,6 +31,7 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
 
     private final GroupMetadataSyncProtocolPorts ports;
     private final GroupMetadataSnapshotPersistence persistence;
+    private final GroupExecutionAccountSelector executionAccountSelector;
     private final CountryService countryService;
     private final GroupMetadataSyncMetrics metrics;
 
@@ -37,10 +39,12 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
     public GroupMetadataSnapshotServiceImpl(
             GroupMetadataSyncProtocolPorts ports,
             GroupMetadataSnapshotPersistence persistence,
+            GroupExecutionAccountSelector executionAccountSelector,
             CountryService countryService,
             GroupMetadataSyncMetrics metrics) {
         this.ports = ports;
         this.persistence = persistence;
+        this.executionAccountSelector = executionAccountSelector;
         this.countryService = countryService;
         this.metrics = metrics;
     }
@@ -53,16 +57,31 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         if (!metadata.participantsComplete()) {
             throw new IllegalStateException("群 metadata 成员快照不完整");
         }
-        String inviteCode = account.groupAdmin() ? safeInviteCode(account, groupJid) : null;
         long completedAt = System.currentTimeMillis();
         List<WhatsappGroupMemberSnapshot> members = normalizeMembers(
                 task.getGroupLinkId(), groupJid, metadata, completedAt);
+        List<String> freshAdminPhones = members.stream()
+                .filter(row -> Boolean.TRUE.equals(row.getIsAdmin()))
+                .map(WhatsappGroupMemberSnapshot::getPhone)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        int completedAttempts = Math.max(
+                0, (task.getAttemptCount() == null ? 0 : task.getAttemptCount()) - 1);
+        GroupExecutionAccount inviteAccount = executionAccountSelector.findAdminByPhones(
+                        task.getGroupLinkId(), freshAdminPhones, completedAttempts)
+                .orElseGet(() -> freshAdminPhones.isEmpty() && account.groupAdmin() ? account : null);
+        String inviteCode = inviteAccount == null ? null : safeInviteCode(inviteAccount, groupJid);
         String ownerPhone = confirmedOwnerPhone(metadata, members);
         CountryReferenceVO country = resolveCountry(ownerPhone);
         GroupLinkPreview preview = preview(
                 task, metadata, inviteCode, ownerPhone, country, observedAt, completedAt);
         if (persistence.persist(preview, members)) {
             metrics.recordSnapshotMembers(members.size());
+        }
+        if (Boolean.TRUE.equals(task.getInviteRequired()) && inviteCode == null) {
+            throw new IllegalStateException("自建群邀请码暂未取得");
         }
     }
 

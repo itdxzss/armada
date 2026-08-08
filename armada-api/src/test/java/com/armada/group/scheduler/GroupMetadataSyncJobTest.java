@@ -38,8 +38,8 @@ class GroupMetadataSyncJobTest {
         GroupExecutionAccount account = new GroupExecutionAccount(77L, null, "acc_77", "acc_77", true);
         when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(List.of(deferred, executable));
-        when(selector.find(10L)).thenReturn(Optional.empty());
-        when(selector.find(20L)).thenReturn(Optional.of(account));
+        when(selector.find(10L, 0)).thenReturn(Optional.empty());
+        when(selector.find(20L, 0)).thenReturn(Optional.of(account));
         when(taskService.claim(
                 org.mockito.ArgumentMatchers.eq(executable),
                 org.mockito.ArgumentMatchers.eq(account),
@@ -66,8 +66,8 @@ class GroupMetadataSyncJobTest {
         GroupExecutionAccount account2 = new GroupExecutionAccount(72L, null, "acc_72", "acc_72", true);
         when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(List.of(failed, succeeded));
-        when(selector.find(10L)).thenReturn(Optional.of(account1));
-        when(selector.find(20L)).thenReturn(Optional.of(account2));
+        when(selector.find(10L, 0)).thenReturn(Optional.of(account1));
+        when(selector.find(20L, 0)).thenReturn(Optional.of(account2));
         when(taskService.claim(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), anyLong(), anyLong(),
                 org.mockito.ArgumentMatchers.any())).thenReturn(true);

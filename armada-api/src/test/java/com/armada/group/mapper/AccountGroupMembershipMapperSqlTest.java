@@ -31,15 +31,17 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
-    void selectGroupExecutionAccount_prefersOnlineAdminThenMostRecentlySeen() throws IOException {
+    void selectGroupExecutionAccountsSupportRotationAndFreshAdminPhones() throws IOException {
         String xml = mapperXml();
-        assertTrue(xml.contains("<select id=\"selectGroupExecutionAccount\""));
+        assertTrue(xml.contains("<select id=\"selectGroupExecutionAccounts\""));
+        assertTrue(xml.contains("<select id=\"selectGroupExecutionAccountsByPhones\""));
         assertTrue(xml.contains("s.login_state = #{onlineLoginState}"));
         assertTrue(xml.contains("m.deleted_at IS NULL"));
-        assertTrue(xml.contains("m.membership_status IN (1, 2)"));
+        assertTrue(xml.contains("m.membership_status = 1"));
         assertTrue(xml.contains("a.deleted_at IS NULL"));
         assertTrue(xml.contains("ORDER BY COALESCE(m.is_admin, 0) DESC, COALESCE(m.last_seen_at, 0) DESC, m.id ASC"));
-        assertTrue(xml.contains("LIMIT 1"));
+        assertTrue(xml.contains("a.ws_phone IN"));
+        assertTrue(xml.contains("LIMIT #{limit}"));
     }
 
     @Test

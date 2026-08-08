@@ -68,7 +68,9 @@ public class GroupMetadataSyncJob {
     }
 
     private TaskResult process(GroupMetadataSyncTask task) {
-        Optional<GroupExecutionAccount> selected = selector.find(task.getGroupLinkId());
+        Optional<GroupExecutionAccount> selected = selector.find(
+                task.getGroupLinkId(),
+                task.getAttemptCount() == null ? 0 : task.getAttemptCount());
         long now = System.currentTimeMillis();
         if (selected.isEmpty()) {
             taskService.defer(task, now);

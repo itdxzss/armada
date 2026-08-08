@@ -300,12 +300,30 @@ public interface AccountGroupMembershipMapper {
      *
      * @param groupLinkId      群链接 ID
      * @param onlineLoginState 在线登录态码
-     * @return 查询账号;没有可用账号时返回 null
+     * @return 有界候选账号列表
      */
-    GroupExecutionAccount selectGroupExecutionAccount(
+    List<GroupExecutionAccount> selectGroupExecutionAccounts(
             @Param("groupLinkId") Long groupLinkId,
             @Param("onlineLoginState") int onlineLoginState,
-            @Param("normalAccountState") int normalAccountState);
+            @Param("normalAccountState") int normalAccountState,
+            @Param("limit") int limit);
+
+    /**
+     * 从新鲜 metadata 已确认的管理员手机号中选择在线在群账号。
+     *
+     * @param groupLinkId 群入口 ID
+     * @param phones 新鲜 metadata 确认的管理员手机号
+     * @param onlineLoginState 在线登录态码
+     * @param normalAccountState 正常账号态码
+     * @param limit 最大候选数
+     * @return 按最近在群时间稳定排序的候选
+     */
+    List<GroupExecutionAccount> selectGroupExecutionAccountsByPhones(
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("phones") List<String> phones,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("limit") int limit);
 
     /**
      * 普通一致性读选出本次完整快照中缺失的账号群关系 ID。

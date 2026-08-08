@@ -82,7 +82,14 @@
                  THEN SUBSTRING(link.link_url, CHAR_LENGTH('wa://group/') + 1)
                ELSE NULL
              END
-           ) AS groupJid
+           ) AS groupJid,
+           CASE
+             WHEN link.origin = 4
+               AND link.link_url LIKE 'wa://group/%'
+               AND NULLIF(TRIM(preview.invite_code), '') IS NULL
+               THEN TRUE
+             ELSE FALSE
+           END AS inviteRequired
     FROM group_metadata_sync_task task
     INNER JOIN group_link link
       ON link.tenant_id = task.tenant_id

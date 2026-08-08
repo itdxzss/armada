@@ -44,14 +44,18 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
                 WHERE account_id = ? AND group_jid = ? AND deleted_at IS NULL
                 """, now + 40_000, kickedAdminAccountId, "120363selector@g.us");
 
-        Optional<GroupExecutionAccount> selected = selector.find(groupLinkId);
+        Optional<GroupExecutionAccount> selected = selector.find(groupLinkId, 0);
 
         assertThat(selected).contains(new GroupExecutionAccount(
                 adminAccountId, null, "acc_923310000002", "923310000002", true));
+        assertThat(selector.findAdminByPhones(
+                groupLinkId, java.util.List.of("923310000001"), 0))
+                .contains(new GroupExecutionAccount(
+                        ordinaryAccountId, null, "acc_923310000001", "923310000001", false));
 
         try {
             TenantContext.set(2L);
-            assertThat(selector.find(groupLinkId)).isEmpty();
+            assertThat(selector.find(groupLinkId, 0)).isEmpty();
         } finally {
             TenantContext.set(TEST_TENANT_ID);
         }

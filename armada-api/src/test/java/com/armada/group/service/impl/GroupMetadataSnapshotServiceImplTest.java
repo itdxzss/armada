@@ -12,6 +12,7 @@ import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.observability.GroupMetadataSyncMetrics;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import com.armada.group.service.GroupMetadataSyncProtocolPorts;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
@@ -23,6 +24,7 @@ import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -43,14 +45,21 @@ class GroupMetadataSnapshotServiceImplTest {
     private GroupMetadataSnapshotPersistence persistence;
 
     @Mock
+    private GroupExecutionAccountSelector selector;
+
+    @Mock
     private CountryService countryService;
 
     @Test
     void administratorPersistsCompleteMetadataInviteGeoAndOwnerFirstSnapshot() {
         GroupMetadataSyncTask task = task();
-        GroupExecutionAccount account = account(true);
+        GroupExecutionAccount account = new GroupExecutionAccount(
+                77L, "WEB", "acc_77", "8613800000000", true);
         when(metadataPort.getMetadata(account.protocolRef(), task.getGroupJid()))
                 .thenReturn(metadata(1_722_470_400L, true));
+        when(selector.findAdminByPhones(
+                task.getGroupLinkId(), List.of("8613800000000"), 0))
+                .thenReturn(Optional.of(account));
         when(invitePort.getInvite(account.protocolRef(), task.getGroupJid()))
                 .thenReturn(new GroupInviteResult(task.getGroupJid(), "invite-code", "url"));
         when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
@@ -83,6 +92,32 @@ class GroupMetadataSnapshotServiceImplTest {
     }
 
     @Test
+    void staleAdminFlagUsesFreshMetadataOwnerToReadInvite() {
+        GroupMetadataSyncTask task = task();
+        task.setAttemptCount(1);
+        GroupExecutionAccount reader = account(false);
+        GroupExecutionAccount freshOwner = new GroupExecutionAccount(
+                78L, "WEB", "acc_owner", "8613800000000", false);
+        when(metadataPort.getMetadata(reader.protocolRef(), task.getGroupJid()))
+                .thenReturn(metadata(1_722_470_400L, true));
+        when(selector.findAdminByPhones(
+                task.getGroupLinkId(), List.of("8613800000000"), 0))
+                .thenReturn(Optional.of(freshOwner));
+        when(invitePort.getInvite(freshOwner.protocolRef(), task.getGroupJid()))
+                .thenReturn(new GroupInviteResult(task.getGroupJid(), "fresh-invite", "url"));
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
+                .thenReturn(Map.of());
+        when(persistence.persist(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyList())).thenReturn(true);
+
+        service().execute(task, reader);
+
+        ArgumentCaptor<GroupLinkPreview> preview = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(persistence).persist(preview.capture(), org.mockito.ArgumentMatchers.anyList());
+        assertThat(preview.getValue().getInviteCode()).isEqualTo("fresh-invite");
+    }
+
+    @Test
     void ordinaryMemberDoesNotReadInviteAndFutureCreationRemainsUnknown() {
         GroupMetadataSyncTask task = task();
         GroupExecutionAccount account = account(false);
@@ -100,6 +135,32 @@ class GroupMetadataSnapshotServiceImplTest {
         assertThat(preview.getValue().getGroupCreatedAt()).isNull();
         assertThat(preview.getValue().getInviteCode()).isNull();
         verifyNoInteractions(invitePort);
+    }
+
+    @Test
+    void androidSelfBuiltGroupRetriesAfterInviteReadTemporarilyFails() {
+        GroupMetadataSyncTask task = task();
+        task.setInviteRequired(true);
+        GroupExecutionAccount account = new GroupExecutionAccount(
+                77L, "ANDROID", "acc_77", "8613800000000", true);
+        when(metadataPort.getMetadata(account.protocolRef(), task.getGroupJid()))
+                .thenReturn(metadata(1_722_470_400L, true));
+        when(selector.findAdminByPhones(
+                task.getGroupLinkId(), List.of("8613800000000"), 0))
+                .thenReturn(Optional.of(account));
+        when(invitePort.getInvite(account.protocolRef(), task.getGroupJid()))
+                .thenThrow(new IllegalStateException("Android invite temporarily unavailable"));
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
+                .thenReturn(Map.of());
+        when(persistence.persist(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyList())).thenReturn(true);
+
+        assertThatThrownBy(() -> service().execute(task, account))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("邀请码暂未取得");
+
+        verify(persistence).persist(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test
@@ -122,6 +183,7 @@ class GroupMetadataSnapshotServiceImplTest {
         return new GroupMetadataSnapshotServiceImpl(
                 new GroupMetadataSyncProtocolPorts(metadataPort, invitePort),
                 persistence,
+                selector,
                 countryService,
                 new GroupMetadataSyncMetrics());
     }

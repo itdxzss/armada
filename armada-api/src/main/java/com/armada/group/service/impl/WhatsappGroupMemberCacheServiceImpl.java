@@ -1,10 +1,12 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
+import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.dto.WhatsappGroupMemberCacheHeaderWrite;
 import com.armada.group.model.dto.WhatsappGroupMemberStateWrite;
+import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheRow;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheSnapshotVO;
@@ -18,11 +20,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** MySQL 实现的 WhatsApp 群成员完整缓存服务。 */
+/** MySQL 实现的 WhatsApp 群成员缓存服务，专用缓存缺失时复用耐久完整快照。 */
 @Service
 public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberCacheService {
 
@@ -30,9 +33,13 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
     private static final int WRITE_BATCH_SIZE = 200;
 
     private final WhatsappGroupMemberCacheMapper mapper;
+    private final WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
 
-    public WhatsappGroupMemberCacheServiceImpl(WhatsappGroupMemberCacheMapper mapper) {
+    public WhatsappGroupMemberCacheServiceImpl(
+            WhatsappGroupMemberCacheMapper mapper,
+            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper) {
         this.mapper = mapper;
+        this.memberSnapshotMapper = memberSnapshotMapper;
     }
 
     @Override
@@ -66,7 +73,82 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
         }
         Map<String, WhatsappGroupMemberCacheSnapshotVO> result = new LinkedHashMap<>();
         builders.forEach((groupJid, builder) -> result.put(groupJid, builder.build()));
+        addDurableSnapshotFallbacks(tenantId, normalized, result);
         return Map.copyOf(result);
+    }
+
+    private void addDurableSnapshotFallbacks(
+            Long tenantId,
+            List<String> normalizedGroupJids,
+            Map<String, WhatsappGroupMemberCacheSnapshotVO> result) {
+        List<String> missingGroupJids = normalizedGroupJids.stream()
+                .filter(groupJid -> !result.containsKey(groupJid))
+                .toList();
+        if (missingGroupJids.isEmpty()) {
+            return;
+        }
+        List<WhatsappGroupMemberSnapshot> durableRows = new ArrayList<>();
+        for (int start = 0; start < missingGroupJids.size(); start += QUERY_BATCH_SIZE) {
+            durableRows.addAll(memberSnapshotMapper.selectByGroupJids(
+                    tenantId,
+                    missingGroupJids.subList(
+                            start, Math.min(start + QUERY_BATCH_SIZE, missingGroupJids.size()))));
+        }
+        Map<String, WhatsappGroupMemberSnapshot> latestByGroup = new LinkedHashMap<>();
+        for (WhatsappGroupMemberSnapshot row : durableRows) {
+            if (row == null || row.getGroupJid() == null || row.getGroupJid().isBlank()) {
+                continue;
+            }
+            String groupJid = canonicalGroupJid(row.getGroupJid());
+            latestByGroup.merge(groupJid, row, WhatsappGroupMemberCacheServiceImpl::laterSnapshot);
+        }
+        Map<String, List<WhatsappGroupMemberStateVO>> membersByGroup = new LinkedHashMap<>();
+        for (WhatsappGroupMemberSnapshot row : durableRows) {
+            if (row == null || row.getGroupJid() == null || row.getGroupJid().isBlank()) {
+                continue;
+            }
+            String groupJid = canonicalGroupJid(row.getGroupJid());
+            WhatsappGroupMemberSnapshot latest = latestByGroup.get(groupJid);
+            if (latest == null || !sameSnapshot(latest, row)) {
+                continue;
+            }
+            membersByGroup.computeIfAbsent(groupJid, ignored -> new ArrayList<>())
+                    .add(new WhatsappGroupMemberStateVO(
+                            row.getParticipantJid(), row.getPhone(), row.getIsAdmin(), row.getIsOwner(),
+                            row.getRole(), true, WhatsappGroupMemberStateSource.FULL_SNAPSHOT.name(),
+                            row.getSnapshotAt()));
+        }
+        latestByGroup.forEach((groupJid, latest) -> {
+            List<WhatsappGroupMemberStateVO> members = membersByGroup.getOrDefault(groupJid, List.of())
+                    .stream()
+                    .sorted(Comparator.comparing(
+                            WhatsappGroupMemberStateVO::participantJid,
+                            Comparator.nullsLast(String::compareTo)))
+                    .toList();
+            result.putIfAbsent(groupJid, new WhatsappGroupMemberCacheSnapshotVO(
+                    groupJid, null, null, latest.getSnapshotAt(), null, members));
+        });
+    }
+
+    private static WhatsappGroupMemberSnapshot laterSnapshot(
+            WhatsappGroupMemberSnapshot left,
+            WhatsappGroupMemberSnapshot right) {
+        int bySnapshotAt = Long.compare(sortable(left.getSnapshotAt()), sortable(right.getSnapshotAt()));
+        if (bySnapshotAt != 0) {
+            return bySnapshotAt < 0 ? right : left;
+        }
+        return sortable(left.getGroupLinkId()) < sortable(right.getGroupLinkId()) ? right : left;
+    }
+
+    private static boolean sameSnapshot(
+            WhatsappGroupMemberSnapshot left,
+            WhatsappGroupMemberSnapshot right) {
+        return Objects.equals(left.getGroupLinkId(), right.getGroupLinkId())
+                && Objects.equals(left.getSnapshotAt(), right.getSnapshotAt());
+    }
+
+    private static long sortable(Long value) {
+        return value == null ? Long.MIN_VALUE : value;
     }
 
     @Override

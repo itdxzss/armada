@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -33,4 +34,16 @@ public interface WhatsappGroupMemberSnapshotMapper {
      */
     List<WhatsappGroupMemberSnapshot> selectByGroupLinkId(
             @Param("groupLinkId") Long groupLinkId);
+
+    /**
+     * 按显式租户和群 JID 批量查询可供其他业务复用的完整成员快照。
+     *
+     * @param tenantId 租户 ID
+     * @param groupJids 已规范化群 JID
+     * @return 所有匹配群入口的快照成员；调用方负责选择最新完整快照
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<WhatsappGroupMemberSnapshot> selectByGroupJids(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJids") List<String> groupJids);
 }

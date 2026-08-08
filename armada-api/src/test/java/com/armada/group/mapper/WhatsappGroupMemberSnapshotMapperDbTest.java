@@ -107,6 +107,33 @@ class WhatsappGroupMemberSnapshotMapperDbTest {
         assertThat(mapper.selectByGroupLinkId(GROUP_LINK_ID)).isEmpty();
     }
 
+    @Test
+    void selectByGroupJidsUsesExplicitTenantAndGroupScope() {
+        mapper.insertBatch(List.of(member(
+                "8613800000000@s.whatsapp.net", "8613800000000", true, false, 1_000L)));
+        TenantContext.set(OTHER_TENANT_ID);
+        mapper.insertBatch(List.of(member(
+                "51943333070@s.whatsapp.net", "51943333070", false, false, 2_000L)));
+        TenantContext.set(TENANT_ID);
+
+        assertThat(mapper.selectByGroupJids(TENANT_ID, List.of("120363-snapshot@g.us")))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getTenantId()).isEqualTo(TENANT_ID);
+                    assertThat(row.getParticipantJid())
+                            .isEqualTo("8613800000000@s.whatsapp.net");
+                });
+        assertThat(mapper.selectByGroupJids(OTHER_TENANT_ID, List.of("120363-snapshot@g.us")))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getTenantId()).isEqualTo(OTHER_TENANT_ID);
+                    assertThat(row.getParticipantJid())
+                            .isEqualTo("51943333070@s.whatsapp.net");
+                });
+        assertThat(mapper.selectByGroupJids(TENANT_ID, List.of("120363-other@g.us")))
+                .isEmpty();
+    }
+
     private static WhatsappGroupMemberSnapshot member(
             String participantJid,
             String phone,
@@ -146,6 +173,11 @@ class WhatsappGroupMemberSnapshotMapperDbTest {
                     CONSTRAINT uq_whatsapp_group_member
                         UNIQUE (tenant_id, group_link_id, participant_jid)
                 )
+                """);
+        execute("""
+                CREATE INDEX idx_whatsapp_group_jid_snapshot
+                ON whatsapp_group_member_snapshot
+                    (tenant_id, group_jid, snapshot_at, group_link_id)
                 """);
     }
 

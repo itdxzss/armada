@@ -30,4 +30,16 @@
     ORDER BY is_owner DESC, is_admin DESC, participant_jid ASC, id ASC
   </select>
 
+  <select id="selectByGroupJids"
+          resultType="com.armada.group.model.entity.WhatsappGroupMemberSnapshot">
+    SELECT id, tenant_id, group_link_id, group_jid, participant_jid, phone, role,
+           is_admin, is_owner, snapshot_at, created_at, updated_at
+    FROM whatsapp_group_member_snapshot
+    WHERE tenant_id = #{tenantId}
+      AND group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+  </select>
+
 </mapper>

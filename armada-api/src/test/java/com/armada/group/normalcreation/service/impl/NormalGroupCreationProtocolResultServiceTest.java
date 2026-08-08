@@ -10,11 +10,13 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedEvent;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
@@ -32,11 +34,14 @@ class NormalGroupCreationProtocolResultServiceTest {
             org.mockito.Mockito.mock(GroupLinkRegistryService.class);
     private final GroupLinkService groupLinkService =
             org.mockito.Mockito.mock(GroupLinkService.class);
+    private final GroupMetadataSyncTaskService metadataSyncTaskService =
+            org.mockito.Mockito.mock(GroupMetadataSyncTaskService.class);
     private final AccountService accountService =
             org.mockito.Mockito.mock(AccountService.class);
     private final NormalGroupCreationProtocolResultService service =
             new NormalGroupCreationProtocolResultService(
-                    mapper, dispatcher, registry, groupLinkService, accountService);
+                    mapper, dispatcher, registry, groupLinkService,
+                    metadataSyncTaskService, accountService);
 
     @AfterEach
     void clearTenant() {
@@ -160,6 +165,35 @@ class NormalGroupCreationProtocolResultServiceTest {
         verify(mapper).startGroupSettings(
                 eq(21L), eq("cmd-create"), eq("cmd-settings"),
                 eq("120363000001234@g.us"), eq("ABCDEFGHI01234"), anyLong());
+    }
+
+    @Test
+    void androidSettingsSuccessEnqueuesMetadataSyncForInviteLink() {
+        ItemWork item = new ItemWork(
+                21L, 1L, 9L, "普群001", "普群{no}",
+                382L, "creator-android", "ANDROID", "911",
+                "120363001@g.us", "RUNNING", "APPLYING_SETTINGS", "SENT",
+                null, "cmd-settings", null,
+                "KEEP", null, 91L, 92L,
+                true, true, true, false, 0);
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectItemWork(21L)).thenReturn(item);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(member()));
+        when(registry.registerSelfBuiltGroup(
+                eq("120363001@g.us"), eq("普群001"), eq(382L), eq("911"),
+                eq(2), anyLong())).thenReturn(101L);
+        when(mapper.updateGroupLink(eq(21L), eq(101L), anyLong())).thenReturn(1);
+        when(mapper.completeProtocolFlow(
+                eq(21L), eq("APPLYING_SETTINGS"), eq("cmd-settings"), eq("SKIPPED"),
+                eq("evt-1"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_SETTINGS_APPLY", "cmd-settings", "SUCCESS",
+                382L, "creator-android", "ANDROID", null, null,
+                null, null, null));
+
+        verify(metadataSyncTaskService).enqueue(
+                eq(101L), eq(GroupMetadataSyncTrigger.BACKFILL), anyLong());
     }
 
     @Test

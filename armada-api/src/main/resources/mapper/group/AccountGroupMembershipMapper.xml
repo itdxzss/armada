@@ -692,7 +692,7 @@
       AND deleted_at IS NULL
   </update>
 
-  <select id="selectGroupExecutionAccount" resultType="com.armada.group.model.vo.GroupExecutionAccount">
+  <sql id="groupExecutionAccountColumnsAndJoins">
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
@@ -715,10 +715,27 @@
     WHERE m.group_link_id = #{groupLinkId}
       AND m.deleted_at IS NULL
       AND m.membership_status = 1
+  </sql>
+
+  <select id="selectGroupExecutionAccounts"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <include refid="groupExecutionAccountColumnsAndJoins"/>
     ORDER BY COALESCE(m.is_admin, 0) DESC,
              COALESCE(m.last_seen_at, 0) DESC,
              m.id ASC
-    LIMIT 1
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectGroupExecutionAccountsByPhones"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <include refid="groupExecutionAccountColumnsAndJoins"/>
+      AND a.ws_phone IN
+      <foreach collection="phones" item="phone" open="(" separator="," close=")">
+        #{phone}
+      </foreach>
+    ORDER BY COALESCE(m.last_seen_at, 0) DESC,
+             m.id ASC
+    LIMIT #{limit}
   </select>
 
   <select id="selectMissingMembershipIds" resultType="long">

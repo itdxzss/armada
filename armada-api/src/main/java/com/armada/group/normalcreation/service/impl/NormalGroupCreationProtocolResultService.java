@@ -1,12 +1,14 @@
 package com.armada.group.normalcreation.service.impl;
 
 import com.armada.account.service.AccountService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedSink;
 import com.armada.shared.exception.BusinessException;
@@ -31,6 +33,7 @@ public class NormalGroupCreationProtocolResultService
     private final NormalGroupCreationCommandDispatcher commandDispatcher;
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupLinkService groupLinkService;
+    private final GroupMetadataSyncTaskService metadataSyncTaskService;
     private final AccountService accountService;
 
     public NormalGroupCreationProtocolResultService(
@@ -38,11 +41,13 @@ public class NormalGroupCreationProtocolResultService
             NormalGroupCreationCommandDispatcher commandDispatcher,
             GroupLinkRegistryService groupLinkRegistryService,
             GroupLinkService groupLinkService,
+            GroupMetadataSyncTaskService metadataSyncTaskService,
             AccountService accountService) {
         this.mapper = mapper;
         this.commandDispatcher = commandDispatcher;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.groupLinkService = groupLinkService;
+        this.metadataSyncTaskService = metadataSyncTaskService;
         this.accountService = accountService;
     }
 
@@ -207,6 +212,8 @@ public class NormalGroupCreationProtocolResultService
                     groupLinkId, item.groupJid(), member.memberAccountId(),
                     "SUCCESS".equals(leaveStatus) && index == 0, now);
         }
+        metadataSyncTaskService.enqueue(
+                groupLinkId, GroupMetadataSyncTrigger.BACKFILL, now);
         if (mapper.completeProtocolFlow(
                 item.id(), expectedStep, event.commandId(), leaveStatus,
                 event.eventId() == null ? event.commandId() : event.eventId(), now) != 1) {

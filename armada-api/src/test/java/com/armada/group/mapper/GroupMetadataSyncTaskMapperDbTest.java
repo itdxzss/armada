@@ -171,6 +171,25 @@ class GroupMetadataSyncTaskMapperDbTest {
         assertThat(countTasks(OTHER_TENANT_ID)).isEqualTo(1);
     }
 
+    @Test
+    void dueSelfBuiltGroupWithoutInviteRequiresInviteUntilCodeExists() throws SQLException {
+        insertGroupLink("wa://group/120363created@g.us", 4,
+                "120363created@g.us", null);
+        mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.BACKFILL, 1_000L),
+                GroupMetadataSyncStatus.RUNNING.code());
+
+        GroupMetadataSyncTask missingInvite = mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()), 1_000L, 10).get(0);
+        assertThat(missingInvite.getGroupJid()).isEqualTo("120363created@g.us");
+        assertThat(missingInvite.getInviteRequired()).isTrue();
+
+        execute("UPDATE group_link_preview SET invite_code = 'INVITE-CODE'");
+
+        GroupMetadataSyncTask withInvite = mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()), 1_000L, 10).get(0);
+        assertThat(withInvite.getInviteRequired()).isFalse();
+    }
+
     private static GroupMetadataSyncTask pendingTask(
             GroupMetadataSyncTrigger trigger,
             long now) {
@@ -240,8 +259,53 @@ class GroupMetadataSyncTaskMapperDbTest {
         execute("DELETE FROM group_metadata_sync_task");
     }
 
+    private void insertGroupLink(
+            String linkUrl,
+            int origin,
+            String groupJid,
+            String inviteCode) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement link = connection.prepareStatement("""
+                     INSERT INTO group_link (id, tenant_id, link_url, origin, deleted_at)
+                     VALUES (?, ?, ?, ?, NULL)
+                     """);
+             PreparedStatement preview = connection.prepareStatement("""
+                     INSERT INTO group_link_preview (
+                         tenant_id, group_link_id, group_jid, invite_code
+                     ) VALUES (?, ?, ?, ?)
+                     """)) {
+            link.setLong(1, GROUP_LINK_ID);
+            link.setLong(2, TENANT_ID);
+            link.setString(3, linkUrl);
+            link.setInt(4, origin);
+            link.executeUpdate();
+            preview.setLong(1, TENANT_ID);
+            preview.setLong(2, GROUP_LINK_ID);
+            preview.setString(3, groupJid);
+            preview.setString(4, inviteCode);
+            preview.executeUpdate();
+        }
+    }
+
     private void resetSchema() throws SQLException {
         execute("DROP ALL OBJECTS");
+        execute("""
+                CREATE TABLE group_link (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    link_url VARCHAR(255) NOT NULL,
+                    origin TINYINT NOT NULL,
+                    deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE group_link_preview (
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128),
+                    invite_code VARCHAR(64)
+                )
+                """);
         execute("""
                 CREATE TABLE group_metadata_sync_task (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,

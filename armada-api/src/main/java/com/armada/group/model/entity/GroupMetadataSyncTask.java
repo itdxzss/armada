@@ -15,6 +15,9 @@ public class GroupMetadataSyncTask {
     /** 调度查询解析出的 WhatsApp 群 JID；非任务表持久列。 */
     private String groupJid;
 
+    /** 调度查询计算出的自建群邀请码必需标记；非任务表持久列。 */
+    private Boolean inviteRequired;
+
     /** 任务状态稳定码。 */
     private Integer status;
 
@@ -84,6 +87,14 @@ public class GroupMetadataSyncTask {
 
     public void setGroupJid(String groupJid) {
         this.groupJid = groupJid;
+    }
+
+    public Boolean getInviteRequired() {
+        return inviteRequired;
+    }
+
+    public void setInviteRequired(Boolean inviteRequired) {
+        this.inviteRequired = inviteRequired;
     }
 
     public Integer getStatus() {

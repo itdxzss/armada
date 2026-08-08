@@ -353,7 +353,11 @@ public class PullTaskSupplementManagerTransactionService {
             PullTaskSupplementManagerOutcome outcome,
             long now) {
         PullTaskGroupExecution update = transition(work, now);
-        fillWait(update, outcome.reasonCode(), outcome.reasonMessage());
+        if (outcome.kind() == PullTaskSupplementManagerOutcome.Kind.ENTRY_PENDING_APPROVAL) {
+            fillPendingApprovalWait(update, outcome.reasonCode(), outcome.reasonMessage());
+        } else {
+            fillWait(update, outcome.reasonCode(), outcome.reasonMessage());
+        }
         PullTaskExecutionDispatchResult result = transition(
                 update, PullTaskExecutionDispatchResult.DEFERRED);
         if (result != PullTaskExecutionDispatchResult.LOST) {
@@ -433,6 +437,9 @@ public class PullTaskSupplementManagerTransactionService {
             case ENTRY_CONFIRMED -> new EntryResult(
                     PullTaskActionStatus.SUCCESS.code(),
                     PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), true, false);
+            case ENTRY_PENDING_APPROVAL -> new EntryResult(
+                    PullTaskActionStatus.PENDING_APPROVAL.code(),
+                    PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code(), false, false);
             case ENTRY_FAILED -> new EntryResult(
                     PullTaskActionStatus.FAILED.code(),
                     PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), false, true);
@@ -476,6 +483,15 @@ public class PullTaskSupplementManagerTransactionService {
         update.setWaitResourceType(PullTaskWaitResourceType.MANAGER.code());
         update.setReasonCode(reasonCode);
         update.setReasonMessage(reasonMessage + "，缺口人数=1");
+    }
+
+    private static void fillPendingApprovalWait(
+            PullTaskGroupExecution update, String reasonCode, String reasonMessage) {
+        update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        update.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        update.setWaitResourceType(PullTaskWaitResourceType.APPROVAL.code());
+        update.setReasonCode(reasonCode);
+        update.setReasonMessage(reasonMessage);
     }
 
     private static boolean supplement(PullTaskGroupAccount row) {

@@ -8,6 +8,7 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
+import com.armada.task.model.enums.PullTaskWaitResourceType;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -115,7 +116,11 @@ public class PullTaskExecutionDispatchCoordinator {
                                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                         PullTaskExecutionStage.PULLER_INVITE.code(),
                                         PullTaskExecutionStage.PULL_EXECUTION.code(),
-                                        PullTaskExecutionStage.MATERIAL_ADMIN.code()))),
+                                        PullTaskExecutionStage.MATERIAL_ADMIN.code()),
+                                List.of(
+                                        PullTaskWaitResourceType.MANAGER.code(),
+                                        PullTaskWaitResourceType.PULLER.code(),
+                                        PullTaskWaitResourceType.STATION.code()))),
                 new PullTaskExecutionClaimCriteria.Parent(
                         PullTaskType.STANDARD.name(), NORMAL_LINK_MODE,
                         PullTaskStandardStatus.EXECUTING.name()),

@@ -15,6 +15,7 @@ import com.armada.task.model.enums.JoinTaskFailureReason;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
@@ -34,6 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoinResultService {
 
+    private static final String PENDING_APPROVAL_MESSAGE =
+            "管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停";
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
     private static final List<Integer> MEMBERSHIP_OPEN = List.of(
@@ -152,6 +155,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             case SUCCESS -> PullTaskActionStatus.SUCCESS.code();
             case MANAGER_FAILED, EXECUTION_FAILED -> PullTaskActionStatus.FAILED.code();
             case UNKNOWN -> PullTaskActionStatus.UNKNOWN.code();
+            case PENDING_APPROVAL -> PullTaskActionStatus.PENDING_APPROVAL.code();
         };
         if (Objects.equals(action.getActionStatus(), target)) {
             return WriteResult.ALREADY_TARGET;
@@ -171,6 +175,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             case SUCCESS -> PullTaskGroupAccountMembershipStatus.IN_GROUP.code();
             case MANAGER_FAILED, EXECUTION_FAILED -> PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code();
             case UNKNOWN -> PullTaskGroupAccountMembershipStatus.UNKNOWN.code();
+            case PENDING_APPROVAL -> PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code();
         };
         if (Objects.equals(manager.getMembershipStatus(), target)) {
             return WriteResult.ALREADY_TARGET;
@@ -204,6 +209,12 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                     PullTaskExecutionStage.MANAGER_JOIN.code(),
                     null, PullTaskWaitResourceType.MANAGER.code(),
                     callback.reasonCode(), reasonMessage, 0L, null);
+            case PENDING_APPROVAL -> new PullTaskManagerJoinResultTransition.Target(
+                    PullTaskExecutionStatus.WAIT_RESOURCE.code(),
+                    PullTaskExecutionStage.MANAGER_JOIN.code(),
+                    callback.groupJid(), PullTaskWaitResourceType.APPROVAL.code(),
+                    PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.name(),
+                    reasonMessage, 0L, null);
             case UNKNOWN -> new PullTaskManagerJoinResultTransition.Target(
                     PullTaskExecutionStatus.EXECUTING.code(),
                     PullTaskExecutionStage.MANAGER_JOIN.code(),
@@ -219,6 +230,9 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
     }
 
     private static ResultKind classify(PullTaskManagerJoinCallback callback) {
+        if (callback.outcome() == PullTaskManagerJoinProtocolOutcome.PENDING_APPROVAL) {
+            return ResultKind.PENDING_APPROVAL;
+        }
         if ((callback.outcome() == PullTaskManagerJoinProtocolOutcome.JOINED
                 || callback.outcome() == PullTaskManagerJoinProtocolOutcome.ALREADY_JOINED)
                 && callback.groupJid() != null && !callback.groupJid().isBlank()) {
@@ -272,6 +286,9 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         if (kind == ResultKind.SUCCESS) {
             return null;
         }
+        if (kind == ResultKind.PENDING_APPROVAL) {
+            return PENDING_APPROVAL_MESSAGE;
+        }
         if (callback.reasonCode() == null || callback.reasonCode().isBlank()) {
             return "进群结果暂未确认";
         }
@@ -294,6 +311,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         SUCCESS,
         MANAGER_FAILED,
         EXECUTION_FAILED,
+        PENDING_APPROVAL,
         UNKNOWN
     }
 

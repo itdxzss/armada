@@ -12,7 +12,9 @@ public enum PullTaskGroupAccountMembershipStatus {
     /** 最终入群失败：首次执行及 3 次重试均明确失败后进入。 */
     JOIN_FAILED(3),
     /** 结果未知：由查询或回调收敛。 */
-    UNKNOWN(4);
+    UNKNOWN(4),
+    /** 已提交入群申请，等待目标群管理员审批。 */
+    PENDING_APPROVAL(5);
 
     private final int code;
 

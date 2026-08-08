@@ -183,6 +183,37 @@ class PullTaskManagerJoinTransactionServiceTest {
     }
 
     @Test
+    void pendingApprovalPausesOnlyThisGroupWithoutSchedulingAnotherJoin() {
+        PullTaskManagerJoinWork work = work();
+        when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
+                eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
+        when(actionMapper.writeBackResult(601L, PullTaskActionStatus.PENDING_APPROVAL.code(),
+                "MANAGER_JOIN_PENDING_APPROVAL",
+                "管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停", NOW)).thenReturn(1);
+        when(groupAccountMapper.updateMembership(501L,
+                PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code(), null, NOW))
+                .thenReturn(1);
+
+        PullTaskExecutionDispatchResult result = service.complete(
+                work, PullTaskManagerJoinOutcome.pendingApproval("120363group@g.us"), NOW);
+
+        assertThat(result).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        ArgumentCaptor<PullTaskGroupExecution> update =
+                ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executionMapper).transitionClaimed(update.capture(),
+                eq(PullTaskExecutionStage.MANAGER_JOIN.code()));
+        assertThat(update.getValue().getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(update.getValue().getWaitResourceType())
+                .isEqualTo(PullTaskWaitResourceType.APPROVAL.code());
+        assertThat(update.getValue().getReasonCode())
+                .isEqualTo("MANAGER_JOIN_PENDING_APPROVAL");
+        assertThat(update.getValue().getReasonMessage())
+                .isEqualTo("管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停");
+        assertThat(update.getValue().getNextRunAt()).isZero();
+    }
+
+    @Test
     void submittedWebJoinIsRecoveredWithFullLinkAndTheSameOperationId() {
         PullTaskGroupExecution candidate = candidate();
         candidate.setGroupJid("120363group@g.us");

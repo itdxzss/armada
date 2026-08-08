@@ -8,7 +8,9 @@ public enum PullTaskWaitResourceType {
     /** 等待拉手：本行可用拉手降为 0。 */
     PULLER(2),
     /** 等待站台：本次调用可分配站台不足配置数量。 */
-    STATION(3);
+    STATION(3),
+    /** 等待目标群管理员审批已提交的管理员入群申请。 */
+    APPROVAL(4);
 
     private final int code;
 

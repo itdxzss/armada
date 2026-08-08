@@ -14,7 +14,9 @@ public enum PullTaskActionStatus {
     /** 结果未知：由查询或回调收敛，不得伪装成成功或失败。 */
     UNKNOWN(5),
     /** 取消：任务结束时尚未发出的动作。 */
-    CANCELED(6);
+    CANCELED(6),
+    /** 已提交管理员入群申请，等待目标群管理员审批。 */
+    PENDING_APPROVAL(7);
 
     private final int code;
 

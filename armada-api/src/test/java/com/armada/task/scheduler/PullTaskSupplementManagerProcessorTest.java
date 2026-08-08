@@ -96,7 +96,7 @@ class PullTaskSupplementManagerProcessorTest {
     }
 
     @Test
-    void pendingLinkApprovalStaysUnknownUntilMembershipCanBeConfirmed() {
+    void pendingLinkApprovalPausesWithoutQueryingMembership() {
         PullTaskGroupExecution candidate = candidate();
         PullTaskSupplementManagerWork work = work(
                 PullTaskSupplementManagerOperation.JOIN_BY_LINK, target(), target(), false);
@@ -104,10 +104,8 @@ class PullTaskSupplementManagerProcessorTest {
                 .thenReturn(PullTaskSupplementManagerPreparation.ready(work));
         when(joinPort.join(work.joinCommand())).thenReturn(
                 new GroupJoinResult("120363group@g.us", GroupJoinOutcome.PENDING_APPROVAL));
-        when(memberListPort.list(work.targetMemberQuery())).thenReturn(List.of());
         PullTaskSupplementManagerOutcome outcome =
-                PullTaskSupplementManagerOutcome.entryUnknown(
-                        "MANAGER_JOIN_PENDING_APPROVAL");
+                PullTaskSupplementManagerOutcome.entryPendingApproval();
         when(transactions.complete(work, outcome, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -115,6 +113,7 @@ class PullTaskSupplementManagerProcessorTest {
                 .contains(PullTaskExecutionDispatchResult.DEFERRED);
 
         verify(transactions).complete(work, outcome, 1_000L);
+        verify(memberListPort, never()).list(work.targetMemberQuery());
     }
 
     @Test

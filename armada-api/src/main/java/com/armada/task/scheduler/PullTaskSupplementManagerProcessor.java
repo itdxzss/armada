@@ -31,8 +31,6 @@ public class PullTaskSupplementManagerProcessor {
             LoggerFactory.getLogger(PullTaskSupplementManagerProcessor.class);
     private static final String ENTRY_UNKNOWN = "MANAGER_MEMBERSHIP_UNCONFIRMED";
     private static final String ADMIN_UNKNOWN = "MANAGER_ADMIN_PERMISSION_UNCONFIRMED";
-    private static final String ENTRY_PENDING_APPROVAL =
-            PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.name();
     private static final Set<String> SUCCESS_CODES = Set.of(
             "OK", "200", "SUCCESS", "ALREADY_IN", "ALREADY_ADMIN");
     private static final Set<ProtocolErrorCode> UNCERTAIN_ERRORS = EnumSet.of(
@@ -95,20 +93,18 @@ public class PullTaskSupplementManagerProcessor {
         if (work.verificationOnly()) {
             return verifyMembership(work, CommandFact.unknown(ENTRY_UNKNOWN));
         }
-        CommandFact fact = work.operation() == PullTaskSupplementManagerOperation.JOIN_BY_LINK
-                ? join(work) : invite(work);
+        if (work.operation() == PullTaskSupplementManagerOperation.JOIN_BY_LINK) {
+            GroupJoinResult result = joinPort.join(work.joinCommand());
+            if (result != null && result.joined()) {
+                return PullTaskSupplementManagerOutcome.entryConfirmed();
+            }
+            if (result != null && result.outcome() == GroupJoinOutcome.PENDING_APPROVAL) {
+                return PullTaskSupplementManagerOutcome.entryPendingApproval();
+            }
+            return verifyMembership(work, CommandFact.unknown(ENTRY_UNKNOWN));
+        }
+        CommandFact fact = invite(work);
         return verifyMembership(work, fact);
-    }
-
-    private CommandFact join(PullTaskSupplementManagerWork work) {
-        GroupJoinResult result = joinPort.join(work.joinCommand());
-        if (result != null && result.joined()) {
-            return CommandFact.success();
-        }
-        if (result != null && result.outcome() == GroupJoinOutcome.PENDING_APPROVAL) {
-            return CommandFact.unknown(ENTRY_PENDING_APPROVAL);
-        }
-        return CommandFact.unknown(ENTRY_UNKNOWN);
     }
 
     private CommandFact invite(PullTaskSupplementManagerWork work) {

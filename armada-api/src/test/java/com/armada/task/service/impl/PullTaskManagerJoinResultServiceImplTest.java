@@ -26,6 +26,7 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome;
+import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
@@ -110,6 +111,41 @@ class PullTaskManagerJoinResultServiceImplTest {
         assertThat(transition.getValue().target().reasonMessage())
                 .isEqualTo("进群结果暂未确认");
         assertThat(transition.getValue().target().nextRunAt()).isEqualTo(35_000L);
+    }
+
+    @Test
+    void pendingApprovalPausesOnlyTheGroupWithoutSchedulingAnotherJoin() {
+        stubOpenFacts();
+
+        boolean handled = service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1",
+                PullTaskManagerJoinProtocolOutcome.PENDING_APPROVAL,
+                "120363group@g.us", "JOIN_PENDING_APPROVAL", "raw protocol text", false, 5_000L));
+
+        assertThat(handled).isTrue();
+        ArgumentCaptor<PullTaskFactTransition> actionTransition =
+                ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(actionMapper).transitionResult(actionTransition.capture());
+        assertThat(actionTransition.getValue().targetStatus())
+                .isEqualTo(PullTaskActionStatus.PENDING_APPROVAL.code());
+        ArgumentCaptor<PullTaskFactTransition> membershipTransition =
+                ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(accountMapper).transitionMembership(membershipTransition.capture());
+        assertThat(membershipTransition.getValue().targetStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code());
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> executionTransition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(executionTransition.capture());
+        assertThat(executionTransition.getValue().target().executionStatus())
+                .isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(executionTransition.getValue().target().waitResourceType())
+                .isEqualTo(PullTaskWaitResourceType.APPROVAL.code());
+        assertThat(executionTransition.getValue().target().reasonCode())
+                .isEqualTo("MANAGER_JOIN_PENDING_APPROVAL");
+        assertThat(executionTransition.getValue().target().reasonMessage())
+                .isEqualTo("管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停");
+        assertThat(executionTransition.getValue().target().nextRunAt()).isZero();
+        verify(completionService, never()).completeIfTerminalByExecutionId(anyLong(), anyLong());
     }
 
     @Test

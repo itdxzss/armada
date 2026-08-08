@@ -12,6 +12,7 @@ import com.armada.task.model.dto.PullTaskExecutionLease;
 import com.armada.task.model.dto.PullTaskExecutionWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskWaitResourceType;
 import java.util.List;
 import java.util.Optional;
 import org.mockito.ArgumentCaptor;
@@ -73,6 +74,16 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         PullTaskExecutionStage.PULLER_INVITE.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code());
+        assertThat(captor.getValue().eligibleStates())
+                .filteredOn(state -> state.executionStatus()
+                        == com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_RESOURCE.code())
+                .singleElement()
+                .extracting(state -> state.waitResourceTypes())
+                .asList()
+                .containsExactly(
+                        PullTaskWaitResourceType.MANAGER.code(),
+                        PullTaskWaitResourceType.PULLER.code(),
+                        PullTaskWaitResourceType.STATION.code());
     }
 
     @Test

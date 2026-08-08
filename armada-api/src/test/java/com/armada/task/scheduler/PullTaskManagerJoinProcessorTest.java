@@ -62,49 +62,24 @@ class PullTaskManagerJoinProcessorTest {
     }
 
     @Test
-    void advancesOnlyAfterTheSelectedManagerAppearsInTheLiveMemberList() {
+    void freshJoinedResultAdvancesWithoutQueryingTheLiveMemberList() {
         PullTaskGroupExecution candidate = candidate();
         PullTaskManagerJoinWork work = work();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerJoinPreparation.ready(work));
         when(joinPort.join(work.joinCommand()))
                 .thenReturn(new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
-        when(memberListPort.list(work.memberListQuery("120363group@g.us")))
-                .thenReturn(List.of(new GroupParticipantResult(
-                        "8613800000901@s.whatsapp.net", "8613800000901",
-                        false, false, null)));
         when(transactions.complete(work,
                 PullTaskManagerJoinOutcome.confirmed("120363group@g.us"), 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        verify(memberListPort, never()).list(work.memberListQuery("120363group@g.us"));
     }
 
     @Test
-    void missingSelfMembershipIsPersistedAsUnknownInsteadOfSuccess() {
-        PullTaskGroupExecution candidate = candidate();
-        PullTaskManagerJoinWork work = work();
-        when(transactions.prepare(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
-        when(joinPort.join(work.joinCommand()))
-                .thenReturn(new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
-        when(memberListPort.list(work.memberListQuery("120363group@g.us")))
-                .thenReturn(List.of(new GroupParticipantResult(
-                        "8613800000002@s.whatsapp.net", "8613800000002",
-                        false, false, null)));
-        PullTaskManagerJoinOutcome unknown = PullTaskManagerJoinOutcome.unconfirmed(
-                "120363group@g.us", "MANAGER_MEMBERSHIP_UNCONFIRMED");
-        when(transactions.complete(work, unknown, 1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
-
-        assertThat(processor.process(candidate, "worker-1", 1_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verify(transactions).complete(work, unknown, 1_000L);
-    }
-
-    @Test
-    void pendingApprovalKeepsGroupJidAndDefersForLaterVerification() {
+    void pendingApprovalPausesTheGroupWithoutQueryingTheLiveMemberList() {
         PullTaskGroupExecution candidate = candidate();
         PullTaskManagerJoinWork work = work();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
@@ -112,36 +87,15 @@ class PullTaskManagerJoinProcessorTest {
         when(joinPort.join(work.joinCommand()))
                 .thenReturn(new GroupJoinResult(
                         "120363group@g.us", GroupJoinOutcome.PENDING_APPROVAL));
-        PullTaskManagerJoinOutcome unknown = PullTaskManagerJoinOutcome.unconfirmed(
-                "120363group@g.us", "MANAGER_JOIN_PENDING_APPROVAL");
-        when(transactions.complete(work, unknown, 1_000L))
+        PullTaskManagerJoinOutcome pending = PullTaskManagerJoinOutcome.pendingApproval(
+                "120363group@g.us");
+        when(transactions.complete(work, pending, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(memberListPort, never()).list(work.memberListQuery("120363group@g.us"));
-        verify(transactions).complete(work, unknown, 1_000L);
-    }
-
-    @Test
-    void memberListFailureAfterJoinIsUnknownEvenWhenTheQueryErrorIsNonRetryable() {
-        PullTaskGroupExecution candidate = candidate();
-        PullTaskManagerJoinWork work = work();
-        when(transactions.prepare(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
-        when(joinPort.join(work.joinCommand()))
-                .thenReturn(new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
-        when(memberListPort.list(work.memberListQuery("120363group@g.us")))
-                .thenThrow(new ProtocolException(
-                        ProtocolErrorCode.GROUP_PERMISSION_DENIED, "query denied"));
-        PullTaskManagerJoinOutcome unknown = PullTaskManagerJoinOutcome.unconfirmed(
-                "120363group@g.us", "MANAGER_MEMBERSHIP_UNCONFIRMED");
-        when(transactions.complete(work, unknown, 1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
-
-        assertThat(processor.process(candidate, "worker-1", 1_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verify(transactions).complete(work, unknown, 1_000L);
+        verify(transactions).complete(work, pending, 1_000L);
     }
 
     @Test

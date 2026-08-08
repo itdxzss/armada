@@ -368,6 +368,30 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         assertThat(executionMapper.selectClaimed("worker-1", 600L)).isEmpty();
     }
 
+    @Test
+    void pendingManagerApprovalIsNotClaimedForAutomaticResourceRecovery() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN,
+                PullTaskWaitResourceType.APPROVAL, "管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停");
+        TenantContext.clear();
+
+        int claimed = executionMapper.claimDue(new PullTaskExecutionClaimCriteria(
+                new PullTaskExecutionClaimCriteria.Lease(
+                        1, 600L, "worker-1", 1_100L),
+                List.of(new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.WAIT_RESOURCE.code(),
+                        List.of(PullTaskExecutionStage.MANAGER_JOIN.code()),
+                        List.of(
+                                PullTaskWaitResourceType.MANAGER.code(),
+                                PullTaskWaitResourceType.PULLER.code(),
+                                PullTaskWaitResourceType.STATION.code()))),
+                new PullTaskExecutionClaimCriteria.Parent(
+                        PullTaskType.STANDARD.name(), "NORMAL_LINK",
+                        PullTaskStandardStatus.EXECUTING.name())));
+
+        assertThat(claimed).isZero();
+        assertThat(executionMapper.selectClaimed("worker-1", 600L)).isEmpty();
+    }
+
     private void waitAt(
             PullTaskExecutionStage stage,
             PullTaskWaitResourceType resourceType,

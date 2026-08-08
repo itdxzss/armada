@@ -23,6 +23,7 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskSupplementManagerOperation;
+import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import javax.sql.DataSource;
@@ -140,6 +141,33 @@ class PullTaskSupplementManagerTransactionIntegrationTest {
                 .isEqualTo(PullTaskSupplementManagerOperation.MANAGER_INVITE);
         assertThat(prepared.work().actor().armadaAccountId()).isEqualTo(901L);
         assertThat(prepared.work().target().armadaAccountId()).isEqualTo(902L);
+    }
+
+    @Test
+    void pendingApprovalPersistsAGroupScopedPause() {
+        PullTaskSupplementManagerPreparation entry = transactions.prepare(
+                executionMapper.selectById(11L), "worker", NOW);
+
+        assertThat(transactions.complete(
+                entry.work(), PullTaskSupplementManagerOutcome.entryPendingApproval(), NOW))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("action_status", "pull_task_account_action", 201L))
+                .isEqualTo(PullTaskActionStatus.PENDING_APPROVAL.code());
+        assertThat(intColumn("membership_status", "pull_task_group_account", 102L))
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code());
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 11L))
+                .isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(intColumn("wait_resource_type", "pull_task_group_execution", 11L))
+                .isEqualTo(PullTaskWaitResourceType.APPROVAL.code());
+        assertThat(jdbc.queryForObject(
+                "SELECT reason_code FROM pull_task_group_execution WHERE id = 11", String.class))
+                .isEqualTo("MANAGER_JOIN_PENDING_APPROVAL");
+        assertThat(jdbc.queryForObject(
+                "SELECT reason_message FROM pull_task_group_execution WHERE id = 11", String.class))
+                .isEqualTo("管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停");
+        assertThat(jdbc.queryForObject(
+                "SELECT next_run_at FROM pull_task_group_execution WHERE id = 11", Long.class))
+                .isZero();
     }
 
     private void reclaim() {

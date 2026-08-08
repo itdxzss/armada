@@ -13,7 +13,7 @@ public enum PullTaskExecutionReasonCode {
     MANAGER_UNAVAILABLE("当前没有可用管理员"),
 
     /** 管理账号已提交入群申请，尚未确认在群。 */
-    MANAGER_JOIN_PENDING_APPROVAL("管理员入群等待审批"),
+    MANAGER_JOIN_PENDING_APPROVAL("管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停"),
 
     /** 协议调用或实时成员查询没有形成可确认的在群结果。 */
     MANAGER_MEMBERSHIP_UNCONFIRMED("管理员在群结果无法确认"),

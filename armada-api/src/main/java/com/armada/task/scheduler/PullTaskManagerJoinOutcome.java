@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
+
 /**
  * 管理员踩链接与实时在群复核后的业务结果。
  *
@@ -17,18 +19,27 @@ public record PullTaskManagerJoinOutcome(
     /** 管理员入群结果分类。 */
     public enum Kind {
         CONFIRMED,
+        PENDING_APPROVAL,
         MANAGER_FAILED,
         EXECUTION_FAILED,
         UNCONFIRMED
     }
 
-    /** @return 已通过实时成员列表确认在群 */
+    /** @return 协议已确认账号在群 */
     public static PullTaskManagerJoinOutcome confirmed(String groupJid) {
         if (groupJid == null || groupJid.isBlank()) {
             throw new IllegalArgumentException("确认管理员在群时 groupJid 不能为空");
         }
         return new PullTaskManagerJoinOutcome(
                 Kind.CONFIRMED, groupJid.trim(), null, null);
+    }
+
+    /** @return 已提交入群申请，当前执行行必须等待审批而非重试踩链接 */
+    public static PullTaskManagerJoinOutcome pendingApproval(String groupJid) {
+        return new PullTaskManagerJoinOutcome(
+                Kind.PENDING_APPROVAL, groupJid,
+                PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.name(),
+                PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.message());
     }
 
     /** @return 协议明确失败 */

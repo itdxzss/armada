@@ -2,6 +2,7 @@ package com.armada.task.scheduler;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
@@ -17,7 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** 在事务外执行管理员踩链接，并以实时成员列表确认在群。 */
+/** 在事务外执行管理员踩链接；仅在重启恢复已有群 JID 时实时复核成员关系。 */
 @Component
 public class PullTaskManagerJoinProcessor {
 
@@ -68,7 +69,7 @@ public class PullTaskManagerJoinProcessor {
         PullTaskManagerJoinWork work = preparation.work();
         PullTaskManagerJoinOutcome outcome;
         try {
-            outcome = joinAndVerify(work);
+            outcome = joinOrVerifyRecovery(work);
         } catch (RuntimeException ex) {
             outcome = exceptionOutcome(ex);
             if (ex instanceof ProtocolException protocol) {
@@ -107,20 +108,21 @@ public class PullTaskManagerJoinProcessor {
         return true;
     }
 
-    private PullTaskManagerJoinOutcome joinAndVerify(PullTaskManagerJoinWork work) {
+    private PullTaskManagerJoinOutcome joinOrVerifyRecovery(PullTaskManagerJoinWork work) {
         if (work.payload().knownGroupJid() != null
                 && !work.payload().knownGroupJid().isBlank()) {
             return verifyMembership(work, work.payload().knownGroupJid());
         }
         GroupJoinResult result = joinPort.join(work.joinCommand());
-        if (result == null || !result.joined() || result.groupJid().isBlank()) {
-            String reason = result != null && result.outcome() != null
-                    ? PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.name()
-                    : PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name();
-            return PullTaskManagerJoinOutcome.unconfirmed(
-                    result == null ? null : result.groupJid(), reason);
+        if (result != null && result.outcome() == GroupJoinOutcome.PENDING_APPROVAL) {
+            return PullTaskManagerJoinOutcome.pendingApproval(result.groupJid());
         }
-        return verifyMembership(work, result.groupJid());
+        if (result == null || !result.joined() || result.groupJid().isBlank()) {
+            return PullTaskManagerJoinOutcome.unconfirmed(
+                    result == null ? null : result.groupJid(),
+                    PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());
+        }
+        return PullTaskManagerJoinOutcome.confirmed(result.groupJid());
     }
 
     private PullTaskManagerJoinOutcome verifyMembership(

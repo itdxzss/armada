@@ -109,7 +109,12 @@
          AND stage IN
          <foreach collection="state.stages" item="stage" open="(" separator="," close=")">
            #{stage}
-         </foreach>)
+         </foreach>
+         <if test="!state.waitResourceTypes.isEmpty()">
+           AND wait_resource_type IN
+           <foreach collection="state.waitResourceTypes" item="waitResourceType"
+                    open="(" separator="," close=")">#{waitResourceType}</foreach>
+         </if>)
       </foreach>
     )
       AND manual_paused = #{criteria.eligibleManualPaused}

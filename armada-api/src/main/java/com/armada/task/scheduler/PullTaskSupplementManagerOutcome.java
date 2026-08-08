@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
+
 /** 补充管理员单步协议调用和实时事实复核结果。 */
 public record PullTaskSupplementManagerOutcome(
         Kind kind,
@@ -9,6 +11,7 @@ public record PullTaskSupplementManagerOutcome(
     /** 入群与提权两类单步结果。 */
     public enum Kind {
         ENTRY_CONFIRMED,
+        ENTRY_PENDING_APPROVAL,
         ENTRY_FAILED,
         ENTRY_UNKNOWN,
         ADMIN_CONFIRMED,
@@ -19,6 +22,14 @@ public record PullTaskSupplementManagerOutcome(
     /** @return 已实时确认目标账号在群 */
     public static PullTaskSupplementManagerOutcome entryConfirmed() {
         return new PullTaskSupplementManagerOutcome(Kind.ENTRY_CONFIRMED, null, null);
+    }
+
+    /** @return 已提交入群申请，等待目标群管理员审批。 */
+    public static PullTaskSupplementManagerOutcome entryPendingApproval() {
+        return new PullTaskSupplementManagerOutcome(
+                Kind.ENTRY_PENDING_APPROVAL,
+                PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.name(),
+                PullTaskExecutionReasonCode.MANAGER_JOIN_PENDING_APPROVAL.message());
     }
 
     /** @return 入群动作明确失败 */

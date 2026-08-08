@@ -119,7 +119,8 @@ public class PullTaskManagerJoinTransactionService {
             return switch (outcome.kind()) {
                 case CONFIRMED -> PullTaskExecutionDispatchResult.ADVANCED;
                 case EXECUTION_FAILED -> PullTaskExecutionDispatchResult.FAILED;
-                case MANAGER_FAILED, UNCONFIRMED -> PullTaskExecutionDispatchResult.DEFERRED;
+                case PENDING_APPROVAL, MANAGER_FAILED, UNCONFIRMED ->
+                        PullTaskExecutionDispatchResult.DEFERRED;
             };
         } finally {
             restoreTenant(previousTenant);
@@ -353,6 +354,15 @@ public class PullTaskManagerJoinTransactionService {
             update.setFinishedAt(now);
             return update;
         }
+        if (outcome.kind() == PullTaskManagerJoinOutcome.Kind.PENDING_APPROVAL) {
+            update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+            update.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+            update.setGroupJid(outcome.groupJid());
+            update.setWaitResourceType(PullTaskWaitResourceType.APPROVAL.code());
+            update.setReasonCode(outcome.reasonCode());
+            update.setReasonMessage(outcome.reasonMessage());
+            return update;
+        }
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
         update.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
         update.setGroupJid(outcome.groupJid());
@@ -368,6 +378,7 @@ public class PullTaskManagerJoinTransactionService {
             long now) {
         int status = switch (outcome.kind()) {
             case CONFIRMED -> PullTaskActionStatus.SUCCESS.code();
+            case PENDING_APPROVAL -> PullTaskActionStatus.PENDING_APPROVAL.code();
             case MANAGER_FAILED, EXECUTION_FAILED -> PullTaskActionStatus.FAILED.code();
             case UNCONFIRMED -> PullTaskActionStatus.UNKNOWN.code();
         };
@@ -383,6 +394,7 @@ public class PullTaskManagerJoinTransactionService {
             long now) {
         int membership = switch (outcome.kind()) {
             case CONFIRMED -> PullTaskGroupAccountMembershipStatus.IN_GROUP.code();
+            case PENDING_APPROVAL -> PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code();
             case MANAGER_FAILED, EXECUTION_FAILED ->
                     PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code();
             case UNCONFIRMED -> PullTaskGroupAccountMembershipStatus.UNKNOWN.code();

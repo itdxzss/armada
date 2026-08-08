@@ -179,15 +179,68 @@ class GroupMetadataSyncTaskMapperDbTest {
                 GroupMetadataSyncStatus.RUNNING.code());
 
         GroupMetadataSyncTask missingInvite = mapper.selectDueCandidates(
-                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()), 1_000L, 10).get(0);
+                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         assertThat(missingInvite.getGroupJid()).isEqualTo("120363created@g.us");
         assertThat(missingInvite.getInviteRequired()).isTrue();
 
         execute("UPDATE group_link_preview SET invite_code = 'INVITE-CODE'");
 
         GroupMetadataSyncTask withInvite = mapper.selectDueCandidates(
-                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()), 1_000L, 10).get(0);
+                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         assertThat(withInvite.getInviteRequired()).isFalse();
+    }
+
+    @Test
+    void legacySucceededTaskWithoutNextRunCanBeClaimedForPeriodicRefresh() throws SQLException {
+        insertGroupLink("wa://group/120363created@g.us", 4,
+                "120363created@g.us", "INVITE-CODE");
+        GroupMetadataSyncTask succeeded = storedTask(GroupMetadataSyncStatus.SUCCEEDED, 1_000L);
+        succeeded.setAttemptCount(0);
+        succeeded.setNextRunAt(null);
+        succeeded.setLastSuccessAt(800L);
+        insertTask(TENANT_ID, succeeded);
+
+        GroupMetadataSyncTask due = mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
+        GroupMetadataSyncTask claim = new GroupMetadataSyncTask();
+        claim.setId(due.getId());
+        claim.setTenantId(due.getTenantId());
+        claim.setStatus(GroupMetadataSyncStatus.RUNNING.code());
+        claim.setAttemptCount(1);
+        claim.setExecutionAccountId(501L);
+        claim.setLeaseUntil(3_000L);
+        claim.setLastStartedAt(1_000L);
+        claim.setUpdatedAt(1_000L);
+
+        assertThat(mapper.claim(
+                claim,
+                java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
+                GroupMetadataSyncStatus.RUNNING.code(),
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                3,
+                1)).isEqualTo(1);
+        assertThat(mapper.selectByGroupLinkId(GROUP_LINK_ID).getStatus())
+                .isEqualTo(GroupMetadataSyncStatus.RUNNING.code());
+    }
+
+    @Test
+    void scheduledSucceededTaskIsNotDueBeforePeriodicRefreshTime() throws SQLException {
+        insertGroupLink("wa://group/120363created@g.us", 4,
+                "120363created@g.us", "INVITE-CODE");
+        GroupMetadataSyncTask succeeded = storedTask(GroupMetadataSyncStatus.SUCCEEDED, 2_000L);
+        succeeded.setAttemptCount(0);
+        succeeded.setLastSuccessAt(1_000L);
+        insertTask(TENANT_ID, succeeded);
+
+        assertThat(mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 1_999L, 10)).isEmpty();
+        assertThat(mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 10)).hasSize(1);
     }
 
     private static GroupMetadataSyncTask pendingTask(

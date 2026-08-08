@@ -1,13 +1,19 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupMetadataSyncLimits;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -18,12 +24,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class GroupMetadataSyncTaskServiceImplTest {
 
+    private static final long PERIODIC_REFRESH_MS = 60_000L;
+
     @Mock
     private GroupMetadataSyncTaskMapper mapper;
 
     @Test
     void enqueueDebouncesChangeEventsButRunsDurableFactsImmediately() {
-        GroupMetadataSyncTaskServiceImpl service = new GroupMetadataSyncTaskServiceImpl(mapper, 2_000L);
+        GroupMetadataSyncTaskServiceImpl service = service();
 
         service.enqueue(10L, GroupMetadataSyncTrigger.METADATA_CHANGED, 1_000L);
         service.enqueue(11L, GroupMetadataSyncTrigger.BASELINE_CAPTURED, 1_000L);
@@ -36,7 +44,7 @@ class GroupMetadataSyncTaskServiceImplTest {
 
     @Test
     void failUsesOneFiveThirtyMinuteRetriesThenPermanentFailure() {
-        GroupMetadataSyncTaskServiceImpl service = new GroupMetadataSyncTaskServiceImpl(mapper, 2_000L);
+        GroupMetadataSyncTaskServiceImpl service = service();
 
         for (int attempt = 1; attempt <= 4; attempt++) {
             GroupMetadataSyncTask task = runningTask(attempt);
@@ -59,14 +67,17 @@ class GroupMetadataSyncTaskServiceImplTest {
 
     @Test
     void deferDoesNotConsumeAnAttemptAndOnlineResumesMatchingGroups() {
-        GroupMetadataSyncTaskServiceImpl service = new GroupMetadataSyncTaskServiceImpl(mapper, 2_000L);
+        GroupMetadataSyncTaskServiceImpl service = service();
         GroupMetadataSyncTask task = runningTask(0);
 
         service.defer(task, 5_000L);
         service.resumeDeferredForAccount(77L, 6_000L);
 
         ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
-        verify(mapper).defer(captor.capture(), org.mockito.ArgumentMatchers.anyList());
+        verify(mapper).defer(captor.capture(), eq(List.of(
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncStatus.RETRY_WAIT.code(),
+                GroupMetadataSyncStatus.SUCCEEDED.code())));
         assertThat(captor.getValue().getStatus()).isEqualTo(GroupMetadataSyncStatus.DEFERRED.code());
         assertThat(captor.getValue().getAttemptCount()).isZero();
         verify(mapper).resumeDeferredForAccount(
@@ -75,6 +86,72 @@ class GroupMetadataSyncTaskServiceImplTest {
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
                 6_000L);
+    }
+
+    @Test
+    void succeedSchedulesPeriodicRefreshAndResetsFailureAttempts() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+        GroupMetadataSyncTask task = runningTask(3);
+
+        service.succeed(task, 10_000L);
+
+        ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
+        verify(mapper).finish(captor.capture(), anyInt());
+        GroupMetadataSyncTask completed = captor.getValue();
+        assertThat(completed.getStatus()).isEqualTo(GroupMetadataSyncStatus.SUCCEEDED.code());
+        assertThat(completed.getAttemptCount()).isZero();
+        assertThat(completed.getNextRunAt()).isEqualTo(70_000L);
+        assertThat(completed.getLastSuccessAt()).isEqualTo(10_000L);
+    }
+
+    @Test
+    void findDuePrioritizesTriggeredTasksBeforePeriodicRefreshes() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+        GroupMetadataSyncTask triggered = runningTask(0);
+        triggered.setId(1L);
+        GroupMetadataSyncTask periodic = runningTask(0);
+        periodic.setId(2L);
+        when(mapper.selectDueCandidates(List.of(
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 2))
+                .thenReturn(List.of(triggered));
+        when(mapper.selectDueCandidates(
+                List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 1))
+                .thenReturn(List.of(periodic));
+
+        assertThat(service.findDue(10_000L, 2)).containsExactly(triggered, periodic);
+    }
+
+    @Test
+    void claimAcceptsSucceededTaskSelectedForPeriodicRefresh() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+        GroupMetadataSyncTask periodic = runningTask(0);
+        periodic.setStatus(GroupMetadataSyncStatus.SUCCEEDED.code());
+        periodic.setNextRunAt(null);
+        GroupExecutionAccount account = new GroupExecutionAccount(
+                77L, "web", "protocol-account", "919000000000", true);
+        when(mapper.claim(
+                any(GroupMetadataSyncTask.class),
+                eq(List.of(
+                        GroupMetadataSyncStatus.PENDING.code(),
+                        GroupMetadataSyncStatus.RETRY_WAIT.code(),
+                        GroupMetadataSyncStatus.SUCCEEDED.code())),
+                eq(GroupMetadataSyncStatus.RUNNING.code()),
+                eq(GroupMetadataSyncStatus.SUCCEEDED.code()),
+                eq(3),
+                eq(1))).thenReturn(1);
+
+        assertThat(service.claim(
+                periodic, account, 10_000L, 20_000L, new GroupMetadataSyncLimits(3, 1)))
+                .isTrue();
+        assertThat(periodic.getStatus()).isEqualTo(GroupMetadataSyncStatus.RUNNING.code());
+        assertThat(periodic.getAttemptCount()).isEqualTo(1);
+    }
+
+    private GroupMetadataSyncTaskServiceImpl service() {
+        return new GroupMetadataSyncTaskServiceImpl(mapper, 2_000L, PERIODIC_REFRESH_MS);
     }
 
     private static GroupMetadataSyncTask runningTask(int attempts) {

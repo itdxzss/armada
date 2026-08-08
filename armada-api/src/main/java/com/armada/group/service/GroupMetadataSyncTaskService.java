@@ -30,7 +30,7 @@ public interface GroupMetadataSyncTaskService {
     /** 无执行账号时延期，不消耗尝试次数。 */
     void defer(GroupMetadataSyncTask task, long now);
 
-    /** 标记成功；运行中收到新触发时由 SQL 自动回到待执行。 */
+    /** 标记成功并安排周期对账；运行中收到新触发时由 SQL 自动优先回到待执行。 */
     void succeed(GroupMetadataSyncTask task, long now);
 
     /** 按 1/5/30 分钟退避记录失败，第四次进入失败终态。 */

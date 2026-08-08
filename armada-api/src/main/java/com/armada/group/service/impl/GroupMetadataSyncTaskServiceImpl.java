@@ -7,6 +7,7 @@ import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.service.GroupMetadataSyncLimits;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,16 +21,34 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     private static final long[] RETRY_DELAYS_MS = {60_000L, 300_000L, 1_800_000L};
     private static final int ERROR_CODE_MAX_LENGTH = 64;
     private static final int ERROR_MESSAGE_MAX_LENGTH = 512;
+    private static final List<Integer> TRIGGERED_STATUSES = List.of(
+            GroupMetadataSyncStatus.PENDING.code(),
+            GroupMetadataSyncStatus.RETRY_WAIT.code());
+    private static final List<Integer> PERIODIC_STATUSES = List.of(
+            GroupMetadataSyncStatus.SUCCEEDED.code());
+    private static final List<Integer> CLAIMABLE_STATUSES = List.of(
+            GroupMetadataSyncStatus.PENDING.code(),
+            GroupMetadataSyncStatus.RETRY_WAIT.code(),
+            GroupMetadataSyncStatus.SUCCEEDED.code());
 
     private final GroupMetadataSyncTaskMapper mapper;
     private final long changeDebounceMs;
+    private final long periodicRefreshMs;
 
-    /** 创建同步任务状态机。 */
+    /**
+     * 创建同步任务状态机。
+     *
+     * @param mapper 同步任务数据访问
+     * @param changeDebounceMs 群变更事件合并窗口
+     * @param periodicRefreshMs 成功快照的周期对账间隔
+     */
     public GroupMetadataSyncTaskServiceImpl(
             GroupMetadataSyncTaskMapper mapper,
-            @Value("${armada.group-metadata-sync.change-debounce-ms:2000}") long changeDebounceMs) {
+            @Value("${armada.group-metadata-sync.change-debounce-ms:2000}") long changeDebounceMs,
+            @Value("${armada.group-metadata-sync.periodic-refresh-ms:60000}") long periodicRefreshMs) {
         this.mapper = mapper;
         this.changeDebounceMs = Math.max(0L, changeDebounceMs);
+        this.periodicRefreshMs = Math.max(1_000L, periodicRefreshMs);
     }
 
     @Override
@@ -79,10 +98,22 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
 
     @Override
     public List<GroupMetadataSyncTask> findDue(long now, int limit) {
-        return mapper.selectDueCandidates(
-                List.of(GroupMetadataSyncStatus.PENDING.code(), GroupMetadataSyncStatus.RETRY_WAIT.code()),
+        int pageSize = Math.max(1, limit);
+        List<GroupMetadataSyncTask> triggered = mapper.selectDueCandidates(
+                TRIGGERED_STATUSES,
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
                 now,
-                Math.max(1, limit));
+                pageSize);
+        if (triggered.size() >= pageSize) {
+            return triggered;
+        }
+        List<GroupMetadataSyncTask> due = new ArrayList<>(triggered);
+        due.addAll(mapper.selectDueCandidates(
+                PERIODIC_STATUSES,
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                now,
+                pageSize - triggered.size()));
+        return List.copyOf(due);
     }
 
     @Override
@@ -102,8 +133,9 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         claim.setUpdatedAt(now);
         int affected = mapper.claim(
                 claim,
-                List.of(GroupMetadataSyncStatus.PENDING.code(), GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                CLAIMABLE_STATUSES,
                 GroupMetadataSyncStatus.RUNNING.code(),
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
                 Math.max(1, limits.tenantConcurrency()),
                 Math.max(1, limits.accountConcurrency()));
         if (affected == 1) {
@@ -125,15 +157,15 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         row.setNextRunAt(null);
         row.setLastErrorCode("NO_EXECUTION_ACCOUNT");
         row.setLastErrorMessage("暂无在线且仍在群内的可用账号");
-        mapper.defer(row, List.of(
-                GroupMetadataSyncStatus.PENDING.code(),
-                GroupMetadataSyncStatus.RETRY_WAIT.code()));
+        mapper.defer(row, CLAIMABLE_STATUSES);
     }
 
     @Override
     @Transactional
     public void succeed(GroupMetadataSyncTask task, long now) {
         GroupMetadataSyncTask row = completion(task, GroupMetadataSyncStatus.SUCCEEDED, now);
+        row.setAttemptCount(0);
+        row.setNextRunAt(now + periodicRefreshMs);
         row.setLastSuccessAt(now);
         row.setLastErrorCode(null);
         row.setLastErrorMessage(null);

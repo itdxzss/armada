@@ -43,18 +43,41 @@ public interface GroupMetadataSyncTaskMapper {
     int recoverExpiredLeasesAll(@Param("row") GroupMetadataSyncTask row,
                                 @Param("runningStatus") int runningStatus);
 
-    /** 跨租户读取到期候选小页。 */
+    /**
+     * 跨租户读取到期候选小页；历史成功任务缺少下次执行时间时也纳入一次周期对账。
+     *
+     * @param statuses 本次允许读取的状态
+     * @param periodicStatus 周期对账使用的成功状态码
+     * @param now 当前时间(epoch 毫秒)
+     * @param limit 最多读取行数
+     * @return 按到期时间排序的候选任务
+     */
     @InterceptorIgnore(tenantLine = "true")
     List<GroupMetadataSyncTask> selectDueCandidates(
             @Param("statuses") List<Integer> statuses,
+            @Param("periodicStatus") int periodicStatus,
             @Param("now") long now,
             @Param("limit") int limit);
 
-    /** 在租户与账号并发上限内原子领取任务。 */
+    /**
+     * 在租户与账号并发上限内原子领取任务。
+     *
+     * <p>周期能力上线前的成功任务没有 next_run_at，允许按成功状态领取一次；
+     * 完成后会写入正常的下一次执行时间。</p>
+     *
+     * @param row 本次领取要写入的运行状态
+     * @param eligibleStatuses 允许领取的原状态
+     * @param runningStatus 运行中状态码
+     * @param periodicStatus 周期对账使用的成功状态码
+     * @param tenantConcurrency 租户并发上限
+     * @param accountConcurrency 账号并发上限
+     * @return 成功领取返回 1，否则返回 0
+     */
     @InterceptorIgnore(tenantLine = "true")
     int claim(@Param("row") GroupMetadataSyncTask row,
               @Param("eligibleStatuses") List<Integer> eligibleStatuses,
               @Param("runningStatus") int runningStatus,
+              @Param("periodicStatus") int periodicStatus,
               @Param("tenantConcurrency") int tenantConcurrency,
               @Param("accountConcurrency") int accountConcurrency);
 

@@ -102,8 +102,10 @@
       <foreach collection="statuses" item="status" open="(" separator="," close=")">
         #{status}
       </foreach>
-      AND task.next_run_at IS NOT NULL
-      AND task.next_run_at &lt;= #{now}
+      AND (
+        (task.next_run_at IS NOT NULL AND task.next_run_at &lt;= #{now})
+        OR (task.status = #{periodicStatus} AND task.next_run_at IS NULL)
+      )
     ORDER BY task.next_run_at ASC, task.id ASC
     LIMIT #{limit}
   </select>
@@ -123,8 +125,10 @@
       <foreach collection="eligibleStatuses" item="status" open="(" separator="," close=")">
         #{status}
       </foreach>
-      AND next_run_at IS NOT NULL
-      AND next_run_at &lt;= #{row.updatedAt}
+      AND (
+        (next_run_at IS NOT NULL AND next_run_at &lt;= #{row.updatedAt})
+        OR (status = #{periodicStatus} AND next_run_at IS NULL)
+      )
       AND (
         SELECT running_count FROM (
           SELECT COUNT(*) AS running_count

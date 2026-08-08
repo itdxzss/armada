@@ -1,5 +1,6 @@
 package com.armada.group.service.impl;
 
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -15,13 +16,16 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
 
     private final GroupLinkPreviewMapper previewMapper;
     private final WhatsappGroupMemberSnapshotMapper memberMapper;
+    private final GroupLinkMapper groupLinkMapper;
 
     /** 创建快照持久化实现。 */
     public GroupMetadataSnapshotPersistenceImpl(
             GroupLinkPreviewMapper previewMapper,
-            WhatsappGroupMemberSnapshotMapper memberMapper) {
+            WhatsappGroupMemberSnapshotMapper memberMapper,
+            GroupLinkMapper groupLinkMapper) {
         this.previewMapper = previewMapper;
         this.memberMapper = memberMapper;
+        this.groupLinkMapper = groupLinkMapper;
     }
 
     @Override
@@ -29,6 +33,11 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
     public boolean persist(GroupLinkPreview preview, List<WhatsappGroupMemberSnapshot> members) {
         if (previewMapper.upsertMetadataSnapshot(preview) <= 0) {
             return false;
+        }
+        String subject = preview.getWaSubject();
+        if (subject != null && !subject.isBlank()) {
+            groupLinkMapper.updateGroupName(
+                    preview.getGroupLinkId(), subject, preview.getUpdatedAt());
         }
         memberMapper.deleteByGroupLinkId(preview.getGroupLinkId());
         if (members != null && !members.isEmpty()) {

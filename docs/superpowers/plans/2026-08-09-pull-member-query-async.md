@@ -1,279 +1,105 @@
 # 普通拉群成员查询异步化 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Goal:** 消除普通拉群批次派发被同步群成员查询阻塞的问题，同时保持现有拉群状态机和副作用幂等语义。
 
-**Goal:** 将普通拉群所有成员查询从同步 HTTP 改为 Outbox/Kafka 异步命令，并让批次派发与未知结果收敛互不阻塞。
+**Architecture:** 派发与未知收敛使用两个独立单线程调度器。后端用一张查询表和既有 Outbox 将群成员读取发到现有 Kafka topic；Web/Android 协议消费者读取群元数据后把过滤结果发回现有 group-events topic。后端幂等落结果并精准唤醒等待的执行行或收敛调度器。
 
-**Architecture:** 后端阶段处理器在本地事务中创建成员查询业务记录和协议 Outbox 行；协议 Worker 通过账号 operation gate 读取 `groupMetadata` 并发布过滤后的成员事实事件。后端 Kafka consumer 幂等写回查询结果、推进等待的普通拉群执行行。派发和未知结果收敛分别由独立单线程调度器执行，数据库租约和版本条件仍是并发边界。
-
-**Tech Stack:** Java 17, Spring Boot, MyBatis/Flyway, Kafka, TypeScript, Fastify, Baileys, Jest, Maven.
-
-## Global Constraints
-
-- 仅覆盖普通拉群（`NORMAL_LINK`）；不扩大到营销建群和营销拉群。
-- 业务事务只写数据库和 Outbox；不得在调度线程直接调用协议 HTTP。
-- 所有 Kafka 命令和事件以 `commandId` 幂等；重复/迟到结果不得重复推进状态。
-- 协议结果只返回请求的目标成员事实，不回传无关完整群成员名单。
-- Worker 读取群元数据必须经既有 account/group operation gate，与拉人操作串行。
+**Constraints:** 仅普通拉群；不新增物理 topic、Redis 查询状态、业务阶段或专用超时调度器；普通流程“管理员↔拉手加联系人→管理员邀请拉手”不变。
 
 ---
 
-### Task 1: 将未知结果收敛移到独立调度器
-
-**Files:**
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskExecutionDispatchScheduler.java`
-- Create: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskUnknownResultReconciliationScheduler.java`
-- Modify: `armada-api/src/test/java/com/armada/task/scheduler/PullTaskExecutionDispatchSchedulerTest.java`
-- Create: `armada-api/src/test/java/com/armada/task/scheduler/PullTaskUnknownResultReconciliationSchedulerTest.java`
-
-**Interfaces:**
-- Consumes: `PullTaskExecutionDispatchCoordinator#dispatchOnce()` and `PullTaskUnknownResultReconciliationCoordinator#reconcileIfDue()`.
-- Produces: two independent lifecycle-managed scheduled executors; dispatch trigger never invokes reconciliation.
-
-- [ ] **Step 1: Write failing scheduler-isolation tests**
-
-```java
-@Test
-void dispatchRunDoesNotInvokeUnknownResultReconciliation() {
-    scheduler.start();
-    verify(coordinator, timeout(500)).dispatchOnce();
-    verifyNoInteractions(reconciliationCoordinator);
-}
-
-@Test
-void reconciliationSchedulerRunsWithoutBlockingDispatchScheduler() {
-    reconciliationScheduler.start();
-    verify(reconciliationCoordinator, timeout(500)).reconcileIfDue();
-}
-```
+## Task 1：隔离派发与未知结果收敛执行器
 
-- [ ] **Step 2: Run the two tests to verify the first one fails because dispatch currently invokes reconciliation**
-
-Run: `mvn -pl armada-api -Dtest=PullTaskExecutionDispatchSchedulerTest test`
-
-- [ ] **Step 3: Move reconciliation lifecycle ownership into the new scheduler**
-
-```java
-@Component
-public class PullTaskUnknownResultReconciliationScheduler {
-    @PostConstruct
-    public void start() {
-        executor.scheduleWithFixedDelay(
-                this::reconcileSafely, 0L,
-                properties.getResultReconciliationIntervalMs(), TimeUnit.MILLISECONDS);
-    }
-}
-```
-
-Remove the `PullTaskUnknownResultReconciliationCoordinator` dependency and the second `try` block from `PullTaskExecutionDispatchScheduler#runOnceSafely`. Keep both executors single-threaded and daemonized.
+**Backend files**
 
-- [ ] **Step 4: Run scheduler tests**
+- Modify `PullTaskExecutionDispatchScheduler.java`
+- Create `PullTaskUnknownResultReconciliationScheduler.java`
+- Modify/create对应 scheduler tests
 
-Run: `mvn -pl armada-api -Dtest=PullTaskExecutionDispatchSchedulerTest,PullTaskUnknownResultReconciliationSchedulerTest test`
+1. 先写失败测试：用 latch 阻塞收敛 coordinator，同时证明 dispatch coordinator 仍能执行；验证 dispatch scheduler 不再调用收敛。
+2. 运行定向 Maven 测试，确认因当前同线程实现而失败。
+3. 从派发 scheduler 删除收敛依赖；新增独立单线程 daemon scheduler，提供合并重复信号的 `trigger()`。
+4. 运行 scheduler 测试并提交。
 
-- [ ] **Step 5: Commit**
+## Task 2：后端成员查询表与 Outbox 命令
 
-```bash
-git add armada-api/src/main/java/com/armada/task/scheduler/PullTaskExecutionDispatchScheduler.java \
-  armada-api/src/main/java/com/armada/task/scheduler/PullTaskUnknownResultReconciliationScheduler.java \
-  armada-api/src/test/java/com/armada/task/scheduler/PullTaskExecutionDispatchSchedulerTest.java \
-  armada-api/src/test/java/com/armada/task/scheduler/PullTaskUnknownResultReconciliationSchedulerTest.java
-git commit -m "feat: isolate pull task reconciliation scheduler"
-```
+**Backend files**
 
-### Task 2: 定义成员查询 Outbox 模型与协议 Kafka 契约
+- Create `V108__pull_task_member_query.sql`
+- Create query entity/mapper/XML/status/purpose/result DTO
+- Modify `ProtocolCommandOutboxService*`、Outbox mapper/cancel SQL
+- Create `PullTaskMemberQueryPayloadHydrator`
+- Create query service and focused tests
 
-**Files:**
-- Create: `armada-api/src/main/resources/db/migration/V108__pull_task_member_query.sql`
-- Create: `armada-api/src/main/java/com/armada/task/model/entity/PullTaskMemberQuery.java`
-- Create: `armada-api/src/main/java/com/armada/task/mapper/PullTaskMemberQueryMapper.java`
-- Create: `armada-api/src/main/resources/mapper/task/PullTaskMemberQueryMapper.xml`
-- Create: `armada-api/src/main/java/com/armada/platform/protocol/model/command/ProtocolPullTaskMemberQueryCommandRequest.java`
-- Modify: `armada-api/src/main/java/com/armada/platform/protocol/service/ProtocolCommandOutboxService.java`
-- Modify: `armada-api/src/main/java/com/armada/platform/protocol/service/impl/ProtocolCommandOutboxServiceImpl.java`
-- Modify: `protocol-layer/src/commands/types.ts`
-- Modify: `protocol-layer/src/commands/worker-consumer.ts`
-- Create: `protocol-layer/src/commands/group-members-query-executor.ts`
-- Create: `protocol-layer/src/commands/group-members-query-executor.test.ts`
+1. 先写 mapper/事务/Outbox 路由失败测试。
+2. 创建单表模型：一次查询尝试一行，目标和结果使用 JSON；`command_id` 唯一，业务状态和执行行有索引。
+3. 同一事务内依次插入 PENDING 查询、创建 Outbox、回绑 `commandId`；发布只能在提交后发生。
+4. Web 命令路由到既有 master topic，Android 路由到既有 group-action topic，key 为协议账号。
+5. Outbox 发布时 hydrate 目标 JSON；取消任务时同时取消尚未投递的查询命令。
+6. `requestOrRead` 返回 `PENDING/AVAILABLE/FAILED`；已过期查询在下次调用时关闭并创建下一尝试，不加超时 scheduler。
 
-**Interfaces:**
-- Produces `group.members.query.requested` command, payload fields `{tenantId,pullTaskId,groupExecutionId,queryId,purpose,groupJid,targetJids,protocolAccountId,commandId}`.
-- Produces `group.members.result_reported` data fields `{tenantId,pullTaskId,groupExecutionId,queryId,purpose,commandId,outcome,participants,reasonCode,reasonMessage,timestamp}`.
+## Task 3：Web 协议层执行异步成员查询
 
-- [ ] **Step 1: Write failing mapper and command tests**
+**Web protocol files**
 
-```java
-assertThat(mapper.insertPending(query)).isEqualTo(1);
-assertThat(query.commandId()).isNotBlank();
-assertThat(outboxService.enqueuePullTaskMemberQueryCommands(List.of(request))
-        .insertedCount()).isEqualTo(1);
-```
+- Modify command/event types、worker/master consumers、stream consumer、event subjects/publisher wiring
+- Create member-query executor/event builder and Jest tests
 
-```ts
-expect(parseMasterCommand(command).ok).toBe(true)
-await executeWorkerCommand(command, deps)
-expect(sock.groupMetadata).toHaveBeenCalledWith(groupJid)
-expect(publisher.publish).toHaveBeenCalledWith('group.members.result_reported', accountId,
-  expect.objectContaining({ commandId, outcome: 'SUCCESS', participants: [expectedParticipant] }))
-```
+1. 先写命令解析、目标过滤、无 owner、发布失败不确认的失败测试。
+2. 增加 `group.members.query.requested`，在既有 account/group operation gate 内调用 `groupMetadata`。
+3. 用 participant `id`、`phoneNumber`/LID 映射匹配请求目标，仅返回所需事实。
+4. 发布 `group.members.result_reported`；master 无 owner 时发布 FAILED。
+5. 不使用 action Redis state；broker ack 后才 XACK，失败时安全重读。
 
-- [ ] **Step 2: Run focused tests and verify missing mapper/command handling fails**
+## Task 4：Android 协议层执行异步成员查询
 
-Run: `mvn -pl armada-api -Dtest=PullTaskMemberQueryMapperIntegrationTest test`
+**Android protocol files（先按项目 AGENTS 复核准确路径）**
 
-Run: `npm test -- group-members-query-executor.test.ts`
+- Modify group-action command router/start wiring/result publisher
+- Create member-query command/executor/event and Go tests
 
-- [ ] **Step 3: Implement the durable query and Worker executor**
+1. 先写 group-action topic 命令解析、账号串行 gate、目标过滤、无账号/读取失败、发布失败的失败测试。
+2. 在现有账号操作通道内调用已有群成员 IQ/client 能力。
+3. 结果发布到既有 group-events topic，字段与 Web 完全一致。
+4. 只读查询不增加 action Redis 状态，发布成功后才确认消费。
 
-The migration creates a query table with tenant/execution scope, purpose, protocol account, group JID, command ID, status, attempt count, requested/completed timestamps and error fields; it has a unique key for `command_id` and an index on open query state. The executor obtains the socket, calls `groupMetadata`, filters participants to normalized requested JIDs, publishes exactly one success or failed result, and persists command state before publishing so replay republishes rather than calls WhatsApp again.
+## Task 5：后端消费结果并精准唤醒
 
-- [ ] **Step 4: Run focused backend and protocol tests**
+**Backend files**
 
-Run: `mvn -pl armada-api -Dtest=PullTaskMemberQueryMapperIntegrationTest,ProtocolCommandOutboxServiceImplTest test`
+- Modify `ProtocolGroupEventConsumer`
+- Create member-query result event/sink/service
+- Modify query mapper and execution-row wake SQL
+- Tests for parsing/idempotency/wake-up
 
-Run: `npm test -- group-members-query-executor.test.ts worker-consumer.test.ts`
+1. 先写失败测试：合法事件落库并唤醒；重复、账号不匹配和旧 `commandId` 不推进。
+2. 严格校验 envelope、协议账号、查询/任务/执行行关联和终态枚举。
+3. 条件更新当前 PENDING 查询，保存过滤结果或失败原因。
+4. 阶段用途仅在任务/阶段/租约仍匹配时把 `next_run_at` 提前；提交后触发 dispatch scheduler。
+5. 收敛用途提交后触发 reconciliation scheduler，不等待固定周期。
 
-- [ ] **Step 5: Commit backend and protocol changes separately**
+## Task 6：替换普通拉群的同步 HTTP 成员查询
 
-```bash
-git -C /Users/daishuaishuai/IdeaProjects/armada/armada/.worktrees/codex-pull-member-query-async commit -m "feat: enqueue pull task member queries"
-git -C /Users/daishuaishuai/IdeaProjects/armada-protocol/armada-protocol/.worktrees/codex-group-member-query-async commit -m "feat: execute group member queries from kafka"
-```
+**Backend callers**
 
-### Task 3: 消费成员查询结果并驱动普通拉群执行行
+- `PullTaskManagerJoinProcessor`
+- `PullTaskManagerAdminProcessor`
+- `PullTaskSupplementPullerProcessor`
+- `PullTaskSupplementManagerProcessor`
+- `PullTaskPullCallReconciliationService`
+- `PullTaskUnknownResultReconciliationService`
 
-**Files:**
-- Modify: `armada-api/src/main/java/com/armada/platform/kafka/consumer/group/ProtocolGroupEventConsumer.java`
-- Create: `armada-api/src/main/java/com/armada/platform/kafka/consumer/group/ProtocolPullTaskMemberQueryResultReportedEvent.java`
-- Create: `armada-api/src/main/java/com/armada/platform/kafka/consumer/group/ProtocolPullTaskMemberQueryResultReportedSink.java`
-- Create: `armada-api/src/main/java/com/armada/task/service/impl/PullTaskMemberQueryResultServiceImpl.java`
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskExecutionDispatchScheduler.java`
-- Create: `armada-api/src/test/java/com/armada/platform/kafka/consumer/group/ProtocolGroupEventConsumerMemberQueryTest.java`
-- Create: `armada-api/src/test/java/com/armada/task/service/impl/PullTaskMemberQueryResultServiceImplTest.java`
+1. 对六个类先写失败测试：调用 query service 后，`PENDING` 不调用旧 `GroupMemberListPort`，也不重复 join/invite/promote。
+2. 将九处同步 `memberListPort.list(...)` 改为共享 `requestOrRead(...)`。
+3. `PENDING` 时保留现有 `SUBMITTED/UNKNOWN` 动作状态并释放租约；结果唤醒后使用 `verificationOnly` 只验证。
+4. 补拉手主流程继续“双方加联系人→管理员邀请”；手工 `JOIN_BY_LINK` 分支等待查询时不得再次 join。
+5. FAILED 沿用现有保守的 unknown/retry 语义，不把查询失败推断成拉人失败。
 
-**Interfaces:**
-- Consumes the Task 2 result event and `PullTaskMemberQueryMapper#finishIfPending`.
-- Produces a persisted snapshot and dispatch trigger only after an accepted result.
+## Task 7：跨模块验证与发布复核
 
-- [ ] **Step 1: Write failing result-consumer tests**
-
-```java
-consumer.onMessage(memberQueryResultJson(commandId, "SUCCESS"));
-verify(resultSink).handleMemberQueryResultReported(eventCaptor.capture());
-
-assertThat(service.handle(event)).isTrue();
-verify(dispatchScheduler).trigger();
-assertThat(service.handle(event)).isFalse(); // duplicate event
-```
-
-- [ ] **Step 2: Run tests to verify the new event is currently skipped**
-
-Run: `mvn -pl armada-api -Dtest=ProtocolGroupEventConsumerMemberQueryTest,PullTaskMemberQueryResultServiceImplTest test`
-
-- [ ] **Step 3: Add strict parsing and idempotent result settlement**
-
-Require envelope/account consistency, command/query/execution relation and only `SUCCESS` or `FAILED`. Persist the filtered snapshot atomically with terminal query state. A successful or failed first result triggers the dispatcher; duplicate, late or mismatched results are logged and do not alter business facts.
-
-- [ ] **Step 4: Run focused tests**
-
-Run: `mvn -pl armada-api -Dtest=ProtocolGroupEventConsumerMemberQueryTest,PullTaskMemberQueryResultServiceImplTest test`
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -m "feat: consume pull task member query results"
-```
-
-### Task 4: 用异步成员事实替换普通拉群各阶段 HTTP 调用
-
-**Files:**
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerJoinProcessor.java`
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerAdminProcessor.java`
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskSupplementPullerProcessor.java`
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskSupplementManagerProcessor.java`
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskUnknownResultReconciliationService.java`
-- Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskPullCallReconciliationService.java`
-- Create: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskMemberQueryService.java`
-- Create: `armada-api/src/test/java/com/armada/task/scheduler/PullTaskMemberQueryServiceTest.java`
-- Modify: existing processor and reconciliation tests adjacent to each modified class.
-
-**Interfaces:**
-- Consumes `PullTaskMemberQueryService#requestOrRead(QueryRequest)`.
-- Produces `PENDING`, `AVAILABLE`, or `FAILED` facts; callers dispatch follow-up protocol actions only from `AVAILABLE` facts.
-
-- [ ] **Step 1: Write failing processor tests proving no direct member-list port call occurs**
-
-```java
-processor.process(work);
-verify(memberQueryService).requestOrRead(expectedQuery);
-verifyNoInteractions(memberListPort);
-
-when(memberQueryService.requestOrRead(expectedQuery)).thenReturn(MemberFacts.pending());
-processor.process(work);
-verifyNoInteractions(joinPort, participantPort);
-```
-
-- [ ] **Step 2: Run the processor/reconciliation test group and verify old HTTP mocks fail**
-
-Run: `mvn -pl armada-api -Dtest=PullTaskManagerJoinProcessorTest,PullTaskManagerAdminProcessorTest,PullTaskSupplementPullerProcessorTest,PullTaskSupplementManagerProcessorTest,PullTaskUnknownResultReconciliationServiceTest,PullTaskPullCallReconciliationServiceTest test`
-
-- [ ] **Step 3: Implement a shared request-or-read service**
-
-For each caller, compute a stable purpose plus target JIDs. If a completed snapshot exists, return it; if an open query exists, return `PENDING`; otherwise atomically insert the query and its Outbox command then return `PENDING`. Replace every `memberListPort.list(...)` call in the six normal-pull classes with this service. On `PENDING`, persist/keep the existing stage wait state and return; on `FAILED`, preserve existing conservative unknown/retry behavior.
-
-- [ ] **Step 4: Run all six focused test classes**
-
-Run: `mvn -pl armada-api -Dtest=PullTaskManagerJoinProcessorTest,PullTaskManagerAdminProcessorTest,PullTaskSupplementPullerProcessorTest,PullTaskSupplementManagerProcessorTest,PullTaskUnknownResultReconciliationServiceTest,PullTaskPullCallReconciliationServiceTest,PullTaskMemberQueryServiceTest test`
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -m "feat: make pull task member checks asynchronous"
-```
-
-### Task 5: 集成验证与运行说明
-
-**Files:**
-- Modify: `armada-api/src/test/java/com/armada/task/scheduler/PullTaskExecutionEndToEndIntegrationTest.java`
-- Modify: `armada-api/src/main/resources/application.yml`
-- Modify: `.harness/changes/pull-task-member-query-async/design.md`
-
-**Interfaces:**
-- Verifies the production configuration continues to use one dispatch worker and one reconciliation worker.
-- Verifies a slow/unfinished member query cannot delay next due batch dispatch.
-
-- [ ] **Step 1: Write the end-to-end regression test**
-
-```java
-givenPendingMemberQueryForOtherExecution();
-givenDuePullBatch(executionId, dueAt);
-dispatchCoordinator.dispatchOnce();
-assertThat(outboxRowsForPullBatch(executionId)).hasSize(1);
-assertThat(memberQueryStatus(otherExecutionId)).isEqualTo(PENDING);
-```
-
-- [ ] **Step 2: Run it before final configuration/documentation changes**
-
-Run: `mvn -pl armada-api -Dtest=PullTaskExecutionEndToEndIntegrationTest test`
-
-- [ ] **Step 3: Document configuration and operational signals**
-
-Add explicit comments for `result-reconciliation-interval-ms`, separate reconciliation scheduler, query timeout/retry parameters and Kafka result topic. Record the expected logs/metrics keyed by `commandId`, `queryId`, `executionId` and `purpose` in the design document.
-
-- [ ] **Step 4: Run complete relevant suites**
-
-Run: `mvn -pl armada-api test`
-
-Run: `npm test`
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -m "test: cover asynchronous pull task member checks"
-```
-
-## Self-review
-
-- Scope coverage: Task 1 removes head-of-line scheduler blocking; Tasks 2–3 define and persist the Kafka command/result contract; Task 4 replaces every normal-pull `GroupMemberListPort` caller; Task 5 proves the original delayed-batch regression and documents operation.
-- Placeholder scan: no TBD/TODO or unspecified error handling remains; failure and duplicate paths are explicitly covered by Tasks 2–4.
-- Type consistency: every result carries `commandId`, `queryId`, `purpose`, tenant/task/execution identifiers and target facts; these are defined in Task 2 and consumed unchanged in Tasks 3–4.
+1. 后端：scheduler 隔离、查询事务、Outbox 路由、超时/取消、重复/迟到结果、六类调用方测试。
+2. Web：parser、gate、成员过滤、no-owner、broker retry tests。
+3. Android：router、account lane、成员过滤、failure/retry tests。
+4. 集成回归：阻塞未知收敛时，到期拉人批次仍及时生成 Outbox；查询等待不重复业务副作用。
+5. `rg` 确认普通拉群六个类不再引用 `GroupMemberListPort`；营销路径保留不动。
+6. 复核迁移、配置、结构化日志与部署顺序：协议消费者先上线，后端生产者后开启；无新物理 topic。

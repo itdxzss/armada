@@ -123,8 +123,8 @@ class PullTaskUnknownResultReconciliationServiceTest {
     }
 
     @Test
-    void staleSubmittedContactBecomesUnknownWhenMembershipCannotProveIt() {
-        PullTaskGroupExecution execution = execution(null);
+    void staleSubmittedContactBecomesUnknownWithoutQueryingGroupMembers() {
+        PullTaskGroupExecution execution = execution("123@g.us");
         PullTaskAccountAction action = action(
                 41L, PullTaskAccountActionType.SAVE_CONTACT.code(),
                 PullTaskActionStatus.SUBMITTED.code(), 20_000L);
@@ -135,7 +135,12 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 .thenReturn(List.of(action));
         when(callMapper.selectByExecution(execution.getId())).thenReturn(List.of());
         when(materialMapper.selectByExecution(execution.getId())).thenReturn(List.of());
-        stubAccounts(execution.getId(), List.of());
+        PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",
+                new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        stubAccounts(execution.getId(), List.of(manager));
+        when(accountLookup.findActiveProtocolRefs(List.of(101L)))
+                .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
         when(actionMapper.transitionResult(any())).thenReturn(1);
 
         PullTaskUnknownResultReconciliationStats stats =

@@ -50,23 +50,25 @@ class PullTaskManagerAdminResultServiceImplTest {
     }
 
     @Test
-    void successKeepsManagerUnconfirmedAndWakesStageThree() {
+    void successConfirmsManagerWithoutRealtimeVerification() {
         stubContext(action());
         when(actionMapper.transitionManagerAdminResult(
                 eq(711L), eq("cmd-promote-2"), eq(2), anyList(),
                 eq(PullTaskActionStatus.SUCCESS.code()), eq(false),
                 eq(null), eq(null), eq(5_000L))).thenReturn(1);
+        when(accountMapper.transitionAdminStatus(
+                eq(501L), anyList(), eq(PullTaskGroupAccountAdminStatus.SUCCESS.code()),
+                eq(5_000L))).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
         assertThat(service.apply(callback(PullTaskManagerAdminProtocolOutcome.SUCCESS,
                 null, false))).isTrue();
 
-        verify(accountMapper, never()).transitionAdminStatus(
+        verify(accountMapper).transitionAdminStatus(
                 eq(501L), anyList(), eq(PullTaskGroupAccountAdminStatus.SUCCESS.code()), eq(5_000L));
         PullTaskManagerJoinResultTransition.Target target = capturedExecutionTarget();
         assertThat(target.stage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
-        assertThat(target.reasonCode()).isEqualTo(
-                PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.name());
+        assertThat(target.reasonCode()).isNull();
         assertThat(target.nextRunAt()).isEqualTo(9_000L);
     }
 
@@ -101,7 +103,7 @@ class PullTaskManagerAdminResultServiceImplTest {
                 eq(PullTaskActionStatus.FAILED.code()), eq(true),
                 eq("RATE_LIMITED"), eq("群操作触发限流，稍后重试"), eq(5_000L))).thenReturn(1);
         when(accountMapper.transitionAdminStatus(
-                eq(501L), anyList(), eq(PullTaskGroupAccountAdminStatus.UNKNOWN.code()),
+                eq(501L), anyList(), eq(PullTaskGroupAccountAdminStatus.PENDING.code()),
                 eq(5_000L))).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 

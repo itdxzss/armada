@@ -187,6 +187,50 @@ class NormalGroupCreationMapperH2Test {
     }
 
     @Test
+    void retryContactCommandsReplacePendingAndUnknownFencingTokens() throws SQLException {
+        insertItem(8L, "PREPARING_CONTACTS", "NONE", "FAILED", null, 1, 0, 0);
+        execute("""
+                INSERT INTO normal_group_creation_item_member (
+                  id, tenant_id, task_id, item_id, member_order, member_account_id,
+                  member_protocol_account_id, member_protocol_backend, member_ws_phone,
+                  creator_saved_member_status, member_saved_creator_status,
+                  creator_save_command_id, member_save_command_id,
+                  participant_status, created_at, updated_at
+                ) VALUES (
+                  81, 7, 99, 8, 1, 21, 'acc_21', 'ANDROID', '10021',
+                  'PENDING', 'UNKNOWN', 'cmd-creator-old', 'cmd-member-old',
+                  'PENDING', 100, 100
+                )
+                """);
+
+        assertThat(mapper.bindContactCommand(
+                81L, "CREATOR_SAVE_MEMBER", "PENDING", "cmd-creator-retry", 200L))
+                .isEqualTo(1);
+        assertThat(mapper.bindContactCommand(
+                81L, "MEMBER_SAVE_CREATOR", "UNKNOWN", "cmd-member-retry", 210L))
+                .isEqualTo(1);
+        assertThat(mapper.applyContactResult(
+                81L, "CREATOR_SAVE_MEMBER", "cmd-creator-old", "SUCCESS",
+                null, null, 220L)).isZero();
+        assertThat(mapper.applyContactResult(
+                81L, "MEMBER_SAVE_CREATOR", "cmd-member-old", "SUCCESS",
+                null, null, 230L)).isZero();
+        assertThat(mapper.applyContactResult(
+                81L, "CREATOR_SAVE_MEMBER", "cmd-creator-retry", "SUCCESS",
+                null, null, 240L)).isEqualTo(1);
+        assertThat(mapper.applyContactResult(
+                81L, "MEMBER_SAVE_CREATOR", "cmd-member-retry", "SUCCESS",
+                null, null, 250L)).isEqualTo(1);
+
+        assertThat(mapper.selectMemberWorks(8L)).singleElement().satisfies(member -> {
+            assertThat(member.creatorSavedMemberStatus()).isEqualTo("SUCCESS");
+            assertThat(member.memberSavedCreatorStatus()).isEqualTo("SUCCESS");
+            assertThat(member.creatorSaveCommandId()).isEqualTo("cmd-creator-retry");
+            assertThat(member.memberSaveCommandId()).isEqualTo("cmd-member-retry");
+        });
+    }
+
+    @Test
     void failedCreateWithReturnedGroupJidConvergesToPartialAndCannotBeCompleted() throws SQLException {
         insertItem(6L, "CREATING_GROUP", "SENT", "RUNNING", null, 0, 1, 0);
         execute("""

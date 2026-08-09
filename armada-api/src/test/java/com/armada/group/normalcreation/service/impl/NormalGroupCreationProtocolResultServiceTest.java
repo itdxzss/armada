@@ -116,6 +116,47 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
+    void contactPrepare_resultFromReplacedCommandIsIgnoredAfterRetry() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = new MemberWork(
+                31L, 383L, "member-android", "ANDROID", "922",
+                "PENDING", "SUCCESS",
+                "cmd-contact-creator-retry", "cmd-contact-member", "PENDING");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-creator-old", "SUCCESS",
+                382L, "creator-web", "WEB", 31L,
+                "CREATOR_SAVE_MEMBER", null, null, null));
+
+        verify(mapper, never()).applyContactResult(
+                anyLong(), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator-old"),
+                eq("SUCCESS"), isNull(), isNull(), anyLong());
+        verify(dispatcher, never()).enqueueCreatorAction(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void contactPrepare_currentCommandWithWrongBackendIsRejected() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+
+        assertThatThrownBy(() -> service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-creator", "SUCCESS",
+                382L, "creator-web", "ANDROID", 31L,
+                "CREATOR_SAVE_MEMBER", null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("协议后端不匹配");
+
+        verify(mapper, never()).applyContactResult(
+                anyLong(), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"),
+                eq("SUCCESS"), isNull(), isNull(), anyLong());
+    }
+
+    @Test
     void groupCreate_successPersistsGroupAndOnlyThenEnqueuesSettings() {
         ItemWork item = item(
                 "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");

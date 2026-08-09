@@ -493,6 +493,66 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
+    void kickMembersAndroidProtocolOkConfirmsRemovalWithSameAccount() {
+        givenLiveTarget();
+        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
+                7L, "ANDROID", "android_7", "919000000001", true));
+        when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
+                .thenReturn(
+                        metadataWithParticipants(List.of(participant(
+                                "member@s.whatsapp.net", false, false))),
+                        metadataWithParticipants(List.of()));
+        when(groupParticipantPort.updateParticipants(
+                androidAccount(),
+                "120363detail@g.us",
+                List.of("member@s.whatsapp.net"),
+                GroupParticipantAction.REMOVE))
+                .thenReturn(new GroupParticipantBatchResult(
+                        false,
+                        List.of(new GroupParticipantBatchResult.Item(
+                                "member@s.whatsapp.net", "OK", "200"))));
+
+        GroupMemberBatchResultVO result = service.kickMembers(
+                10L,
+                new GroupMemberBatchCommandDTO(List.of("member@s.whatsapp.net")));
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.results().get(0).status()).isEqualTo("OK");
+        verify(groupMetadataPort, org.mockito.Mockito.times(2))
+                .getMetadata(androidAccount(), "120363detail@g.us");
+    }
+
+    @Test
+    void kickMembersProtocolOkButMemberStillPresentIsNotReportedSuccessful() {
+        givenLiveTarget();
+        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        GroupMetadataResult memberStillPresent = metadataWithParticipants(List.of(participant(
+                "member@s.whatsapp.net", false, false)));
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
+                .thenReturn(memberStillPresent, memberStillPresent);
+        when(groupParticipantPort.updateParticipants(
+                webAccount(),
+                "120363detail@g.us",
+                List.of("member@s.whatsapp.net"),
+                GroupParticipantAction.REMOVE))
+                .thenReturn(new GroupParticipantBatchResult(
+                        false,
+                        List.of(new GroupParticipantBatchResult.Item(
+                                "member@s.whatsapp.net", "OK", "200"))));
+
+        GroupMemberBatchResultVO result = service.kickMembers(
+                10L,
+                new GroupMemberBatchCommandDTO(List.of("member@s.whatsapp.net")));
+
+        assertThat(result.ok()).isFalse();
+        assertThat(result.partial()).isTrue();
+        assertThat(result.results().get(0).status()).isEqualTo("UNKNOWN");
+        assertThat(result.results().get(0).reason()).contains("待确认");
+        verify(groupMetadataPort, org.mockito.Mockito.times(2))
+                .getMetadata(webAccount(), "120363detail@g.us");
+    }
+
+    @Test
     void promoteMembersPermissionDeniedDoesNotSelectAnotherAccount() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
@@ -641,6 +701,11 @@ class GroupDetailServiceImplTest {
 
     private static ProtocolAccountRef webAccount() {
         return new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true).protocolRef();
+    }
+
+    private static ProtocolAccountRef androidAccount() {
+        return new GroupExecutionAccount(
+                7L, "ANDROID", "android_7", "919000000001", true).protocolRef();
     }
 
     private void givenLiveTarget() {

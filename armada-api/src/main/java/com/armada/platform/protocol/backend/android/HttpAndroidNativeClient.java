@@ -21,6 +21,8 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private static final String GROUP_MEMBER_ADD_MODE_URI_PREFIX =
             "/ws/v1/groups/settings/join-mode/";
     private static final String GROUP_MEMBERS_ADD_URI_PREFIX = "/ws/v1/groups/members/add/";
+    private static final String GROUP_MEMBER_REMOVE_URI_PREFIX =
+            "/ws/v1/groups/members/remove/";
     private static final String GROUP_ADMIN_SET_URI_PREFIX = "/ws/v1/groups/admin/set/";
     private static final String GROUP_INVITE_URI_PREFIX = "/ws/v1/groups/qrcode/";
     private static final String GROUP_LEAVE_URI_PREFIX = "/ws/v1/groups/leave/";
@@ -202,6 +204,19 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     }
 
     @Override
+    public AndroidResponseEnvelope removeGroupMember(
+            String wsPhone,
+            String groupJid,
+            String participant) {
+        return httpExecutor.postTyped(
+                GROUP_MEMBER_REMOVE_URI_PREFIX + requireDigits(wsPhone),
+                new GroupMemberRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        requireText(participant, "participant")),
+                AndroidResponseEnvelope.class);
+    }
+
+    @Override
     public AndroidResponseEnvelope groupInvite(String wsPhone, String groupJid) {
         return groupRequest(GROUP_INVITE_URI_PREFIX, wsPhone, groupJid);
     }
@@ -267,6 +282,11 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private record GroupAdminRequest(
             @JsonProperty("group_id") String groupId,
             @JsonProperty("state") boolean enabled,
+            String participant) {
+    }
+
+    private record GroupMemberRequest(
+            @JsonProperty("group_id") String groupId,
             String participant) {
     }
 

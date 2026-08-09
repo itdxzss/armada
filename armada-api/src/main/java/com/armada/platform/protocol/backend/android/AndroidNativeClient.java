@@ -104,6 +104,19 @@ public interface AndroidNativeClient {
             String participant,
             boolean enabled);
 
+    /**
+     * 使用 Android 原生接口移除一个群成员。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param groupJid 带 {@code @g.us} 的 WhatsApp 群 JID
+     * @param participant 待移除成员的完整 WhatsApp JID
+     * @return Android 原生响应包
+     */
+    AndroidResponseEnvelope removeGroupMember(
+            String wsPhone,
+            String groupJid,
+            String participant);
+
     /** 使用 Android 原生接口获取群邀请链接。 */
     AndroidResponseEnvelope groupInvite(String wsPhone, String groupJid);
 

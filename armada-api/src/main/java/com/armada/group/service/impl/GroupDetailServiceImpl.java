@@ -445,7 +445,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      *
      * <p>调用协议前先读取实时 metadata：不在群内的 JID 标记为 MEMBER_NOT_FOUND，群主标记为
      * OWNER_PROTECTED，其余成员才进入协议请求。协议超时时不换号重试，而是用同一账号重新读取
-     * metadata，按角色或是否仍在群内判断每个成员是否已经生效。</p>
+     * metadata，按角色或是否仍在群内判断每个成员是否已经生效。移除动作即使收到协议 OK，
+     * 也必须使用同一账号回读确认成员确实已离群，避免把已接收但未生效的协议回执提示为成功。</p>
      *
      * @param id     群链接 ID
      * @param dto    目标成员 JID 请求
@@ -497,6 +498,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                                 actionable,
                                 action);
                 mutationResults = mapProtocolMemberResults(protocolResult);
+                if (action == GroupParticipantAction.REMOVE) {
+                    mutationResults = confirmReportedRemovals(
+                            account,
+                            target.groupJid(),
+                            actionable,
+                            mutationResults);
+                }
             } catch (ProtocolException ex) {
                 if (ex.errorCode() != ProtocolErrorCode.TIMEOUT) {
                     log.warn("群成员协议操作失败 groupLinkId={} accountId={} action={} targetCount={} code={}",
@@ -605,6 +613,57 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     item.jid(), status, memberStatusReason(status)));
         }
         return results;
+    }
+
+    /**
+     * 对协议报告成功的移除成员再次读取 WhatsApp metadata，拒绝假成功回执。
+     *
+     * <p>只复核协议状态为 OK 的目标，协议明确失败或漏回的结果保持不变。回读失败、
+     * 或目标成员仍在群内时把该项降为 UNKNOWN，确保页面不会显示踢出成功。</p>
+     *
+     * @param account         原执行账号，禁止在确认阶段重新选号
+     * @param groupJid        WhatsApp 群 JID
+     * @param actionable      实际发送给协议层的成员 JID
+     * @param protocolResults 协议逐成员结果
+     * @return 回读确认后的逐成员结果
+     */
+    private Map<String, GroupMemberOperationResultVO> confirmReportedRemovals(
+            GroupExecutionAccount account,
+            String groupJid,
+            List<String> actionable,
+            Map<String, GroupMemberOperationResultVO> protocolResults) {
+        List<String> reportedSuccesses = actionable.stream()
+                .filter(jid -> {
+                    GroupMemberOperationResultVO result = protocolResults.get(jid);
+                    return result != null && MEMBER_STATUS_OK.equals(result.status());
+                })
+                .toList();
+        if (reportedSuccesses.isEmpty()) {
+            return protocolResults;
+        }
+        Map<String, GroupParticipantResult> currentMembers;
+        try {
+            currentMembers = membersByJid(protocolPorts.metadata().getMetadata(
+                    account.protocolRef(), groupJid));
+        } catch (ProtocolException ex) {
+            log.warn("群成员移除成功回执复核失败 accountId={} targetCount={} code={}",
+                    account.accountId(), reportedSuccesses.size(), ex.errorCode());
+            currentMembers = null;
+        }
+        Map<String, GroupMemberOperationResultVO> confirmed =
+                new LinkedHashMap<>(protocolResults);
+        int confirmedCount = 0;
+        for (String jid : reportedSuccesses) {
+            boolean removed = currentMembers != null && !currentMembers.containsKey(jid);
+            String status = removed ? MEMBER_STATUS_OK : MEMBER_STATUS_UNKNOWN;
+            confirmed.put(jid, memberResult(jid, status, memberStatusReason(status)));
+            if (removed) {
+                confirmedCount++;
+            }
+        }
+        log.info("群成员移除成功回执复核完成 accountId={} targetCount={} confirmedCount={}",
+                account.accountId(), reportedSuccesses.size(), confirmedCount);
+        return confirmed;
     }
 
     /**

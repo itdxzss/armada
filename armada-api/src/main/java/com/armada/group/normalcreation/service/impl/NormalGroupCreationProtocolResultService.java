@@ -74,6 +74,9 @@ public class NormalGroupCreationProtocolResultService
                 return;
             }
             MemberWork member = validateActorAndCommand(item, event);
+            if ("CONTACT_PREPARE".equals(event.action()) && member == null) {
+                return;
+            }
             if (!"SUCCESS".equals(event.outcome())) {
                 applyFailure(item, member, event, expectedStep);
                 return;
@@ -108,6 +111,13 @@ public class NormalGroupCreationProtocolResultService
                     ? item.creatorProtocolAccountId() : member.memberProtocolAccountId();
             String expectedBackend = creatorDirection
                     ? item.creatorProtocolBackend() : member.memberProtocolBackend();
+            if (!Objects.equals(event.commandId(), expectedCommandId)) {
+                log.info("忽略已被重试替换的新建普群联系人结果 tenantId={} itemId={} memberId={} "
+                                + "direction={} commandId={}",
+                        event.tenantId(), event.itemId(), event.memberId(),
+                        event.direction(), event.commandId());
+                return null;
+            }
             requireActor(event, expectedCommandId, expectedAccountId,
                     expectedProtocolAccountId, expectedBackend);
             return member;

@@ -13,6 +13,7 @@ import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,6 +26,8 @@ import org.springframework.stereotype.Component;
 public class NormalGroupCreationCommandDispatcher {
 
     private static final int OUTBOX_BATCH_SIZE = 500;
+    private static final Set<String> RETRYABLE_CONTACT_STATUSES =
+            Set.of("PENDING", "FAILED", "UNKNOWN");
 
     private final NormalGroupCreationMapper mapper;
     private final ProtocolCommandOutboxService outboxService;
@@ -41,13 +44,13 @@ public class NormalGroupCreationCommandDispatcher {
         enqueueContactPrepare(item, members, false);
     }
 
-    /** 人工重试只重新提交明确 FAILED 的联系人方向，成功方向保持不变。 */
+    /** 人工重试重新提交所有未成功的联系人方向，成功方向保持不变。 */
     public void enqueueFailedContactPrepare(ItemWork item, List<MemberWork> members) {
         enqueueContactPrepare(item, members, true);
     }
 
     private void enqueueContactPrepare(
-            ItemWork item, List<MemberWork> members, boolean failedOnly) {
+            ItemWork item, List<MemberWork> members, boolean retryIncomplete) {
         List<DirectedCommand> directed = new ArrayList<>(members.size() * 2);
         ProtocolAccountRef creator = account(
                 item.creatorAccountId(), item.creatorProtocolBackend(),
@@ -56,21 +59,21 @@ public class NormalGroupCreationCommandDispatcher {
             ProtocolAccountRef memberAccount = account(
                     member.memberAccountId(), member.memberProtocolBackend(),
                     member.memberProtocolAccountId(), member.memberWsPhone());
-            validateRetryStatus(member.creatorSavedMemberStatus(), failedOnly);
-            validateRetryStatus(member.memberSavedCreatorStatus(), failedOnly);
-            if (!failedOnly || "FAILED".equals(member.creatorSavedMemberStatus())) {
+            validateRetryStatus(member.creatorSavedMemberStatus(), retryIncomplete);
+            validateRetryStatus(member.memberSavedCreatorStatus(), retryIncomplete);
+            if (!retryIncomplete || !"SUCCESS".equals(member.creatorSavedMemberStatus())) {
                 directed.add(new DirectedCommand(member.id(), "CREATOR_SAVE_MEMBER",
-                        failedOnly ? "FAILED" : "PENDING",
+                        retryIncomplete ? member.creatorSavedMemberStatus() : "PENDING",
                         request(item, member.id(), "CREATOR_SAVE_MEMBER", "CONTACT_PREPARE", creator)));
             }
-            if (!failedOnly || "FAILED".equals(member.memberSavedCreatorStatus())) {
+            if (!retryIncomplete || !"SUCCESS".equals(member.memberSavedCreatorStatus())) {
                 directed.add(new DirectedCommand(member.id(), "MEMBER_SAVE_CREATOR",
-                        failedOnly ? "FAILED" : "PENDING",
+                        retryIncomplete ? member.memberSavedCreatorStatus() : "PENDING",
                         request(item, member.id(), "MEMBER_SAVE_CREATOR", "CONTACT_PREPARE", memberAccount)));
             }
         }
         if (directed.isEmpty()) {
-            throw validation("没有明确失败的联系人方向可重试");
+            throw validation("没有未成功的联系人方向可重试");
         }
         long now = System.currentTimeMillis();
         for (int from = 0; from < directed.size(); from += OUTBOX_BATCH_SIZE) {
@@ -95,9 +98,11 @@ public class NormalGroupCreationCommandDispatcher {
         }
     }
 
-    private static void validateRetryStatus(String status, boolean failedOnly) {
-        if (failedOnly && !List.of("SUCCESS", "FAILED").contains(status)) {
-            throw validation("联系人方向仍在处理中或结果未知，需先完成对账");
+    private static void validateRetryStatus(String status, boolean retryIncomplete) {
+        if (retryIncomplete
+                && !"SUCCESS".equals(status)
+                && !RETRYABLE_CONTACT_STATUSES.contains(status)) {
+            throw validation("联系人方向状态异常，无法重试");
         }
     }
 

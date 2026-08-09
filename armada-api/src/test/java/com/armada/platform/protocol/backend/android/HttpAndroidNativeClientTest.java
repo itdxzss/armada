@@ -70,6 +70,18 @@ class HttpAndroidNativeClientTest {
                 .andRespond(withSuccess(
                         "{\"Code\":0,\"Data\":\"\",\"Msg\":\"\"}",
                         MediaType.APPLICATION_JSON));
+        server.expect(requestTo(
+                        "http://android.internal/ws/v1/groups/members/remove/919000000001"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "group_id":"120363001@g.us",
+                          "participant":"919000000002@s.whatsapp.net"
+                        }
+                        """))
+                .andRespond(withSuccess(
+                        "{\"Code\":0,\"Data\":\"删除群成员成功\",\"Msg\":\"\"}",
+                        MediaType.APPLICATION_JSON));
         server.expect(requestTo("http://android.internal/ws/v1/groups/qrcode/919000000001"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("{\"group_id\":\"120363001@g.us\"}"))
@@ -89,6 +101,10 @@ class HttpAndroidNativeClientTest {
                 List.of("919000000002@s.whatsapp.net")).code()).isZero();
         assertThat(client.setGroupAnnouncement(
                 "919000000001", "120363001@g.us", false).code()).isZero();
+        assertThat(client.removeGroupMember(
+                "919000000001",
+                "120363001@g.us",
+                "919000000002@s.whatsapp.net").code()).isZero();
         assertThat(client.groupInvite(
                 "919000000001", "120363001@g.us").code()).isZero();
         server.verify();

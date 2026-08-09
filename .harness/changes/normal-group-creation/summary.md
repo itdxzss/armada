@@ -91,6 +91,10 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
   `command_id` 和唯一索引。
 - 明确 `FAILED` 的明细允许按当前 action 生成新 commandId 人工重试；不更换冻结账号和
   backend。
+- 联系人准备失败项重试时保留已经 `SUCCESS` 的方向，并为 `PENDING/FAILED/UNKNOWN` 的
+  所有未成功方向生成新 commandId；业务人员无需新建任务即可在原任务、原明细继续建群。
+- 联系人方向换新 commandId 后，旧命令的迟到结果只记录并忽略，不得覆盖新一轮状态或推进
+  建群；当前 commandId 的账号和 backend 校验仍保持严格。
 - `RESULT_UNKNOWN`、`CREATED_PARTIAL` 不允许直接重放可能已产生副作用的动作。
 - 重试权限/退群时重置该步骤状态；退群也计入后处理尝试次数。
 - 旧的内部阶段 consumer、publisher、execution service、账号锁与三个业务 Topic 配置已
@@ -151,3 +155,9 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
   backend、权限字段缺失拒绝、旧/新 Topic 账号互斥和超时等待底层结束；Coordinator 定向
   测试通过，`go vet ./internal/armada ./internal/coordinator` 通过。`-race` 因当前环境没有
   Linux CGO C 编译器未能执行，账号锁仍有同账号互斥、不同账号并行、错误后释放测试覆盖。
+
+### 2026-08-09 原任务联系人重试修复
+
+- 新增联系人 `PENDING/UNKNOWN` 方向换新 commandId 的 H2 Mapper XML 回归测试，以及旧
+  commandId 迟到结果隔离测试。
+- 三个核心定向测试类共 22 项通过；完整新建普群相关测试集共 51 项通过。

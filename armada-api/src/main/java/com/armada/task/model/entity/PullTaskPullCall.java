@@ -15,14 +15,23 @@ public class PullTaskPullCall {
     /** 所属执行行 ID(→pull_task_group_execution.id)。 */
     private Long groupExecutionId;
 
+    /** 所属拉人波次 ID；历史完成调用可为空。 */
+    private Long pullWaveId;
+
     /** 本执行行内调用序号。 */
     private Integer callSeq;
+
+    /** 波次内稳定调用序号。 */
+    private Integer waveCallSeq;
 
     /** 执行本次调用的拉手角色行 ID(→pull_task_group_account.id)。 */
     private Long pullerGroupAccountId;
 
     /** 执行本次调用的拉手账号 ID(→account.id)。 */
     private Long pullerAccountId;
+
+    /** 本次调用绑定的拉手分配代际。 */
+    private Long pullerAssignmentSeq;
 
     /** 本次计划料子人数(闭区间随机结果，不含站台)。 */
     private Integer plannedMaterialCount;
@@ -98,12 +107,28 @@ public class PullTaskPullCall {
         this.groupExecutionId = groupExecutionId;
     }
 
+    public Long getPullWaveId() {
+        return pullWaveId;
+    }
+
+    public void setPullWaveId(Long pullWaveId) {
+        this.pullWaveId = pullWaveId;
+    }
+
     public Integer getCallSeq() {
         return callSeq;
     }
 
     public void setCallSeq(Integer callSeq) {
         this.callSeq = callSeq;
+    }
+
+    public Integer getWaveCallSeq() {
+        return waveCallSeq;
+    }
+
+    public void setWaveCallSeq(Integer waveCallSeq) {
+        this.waveCallSeq = waveCallSeq;
     }
 
     public Long getPullerGroupAccountId() {
@@ -120,6 +145,14 @@ public class PullTaskPullCall {
 
     public void setPullerAccountId(Long pullerAccountId) {
         this.pullerAccountId = pullerAccountId;
+    }
+
+    public Long getPullerAssignmentSeq() {
+        return pullerAssignmentSeq;
+    }
+
+    public void setPullerAssignmentSeq(Long pullerAssignmentSeq) {
+        this.pullerAssignmentSeq = pullerAssignmentSeq;
     }
 
     public Integer getPlannedMaterialCount() {

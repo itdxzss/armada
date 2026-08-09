@@ -11,6 +11,8 @@ import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
+import com.armada.task.model.dto.PullTaskPlannedCallPrune;
+import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
@@ -22,15 +24,14 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
-import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
-import com.armada.task.model.enums.PullTaskMaterialAdminTiming;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskRosterObservation;
 import com.armada.task.scheduler.PullTaskUnknownResultResources;
-import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -44,8 +45,8 @@ public class PullTaskPullCallParticipantResultService {
 
     static final int MAX_FAILURE_RETRY_COUNT = 3;
     static final int MAX_EXPLICIT_FAILURE_COUNT = MAX_FAILURE_RETRY_COUNT + 1;
-    private static final int ADMIN_REQUIRED = 1;
     private static final long MILLIS_PER_MINUTE = 60_000L;
+    private static final String ROSTER_QUERY_UNAVAILABLE = "ROSTER_QUERY_UNAVAILABLE";
     private static final Set<String> RISK_REASON_CODES = Set.of(
             ProtocolErrorCode.RATE_LIMITED.name(),
             ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED.name());
@@ -53,6 +54,10 @@ public class PullTaskPullCallParticipantResultService {
             ProtocolErrorCode.ACCOUNT_NOT_FOUND.name(),
             ProtocolErrorCode.ACCOUNT_NOT_ONLINE.name(),
             ProtocolErrorCode.NEED_REAUTH.name());
+    private static final String GROUP_PERMISSION_DENIED =
+            ProtocolErrorCode.GROUP_PERMISSION_DENIED.name();
+    private static final String GROUP_UNAVAILABLE =
+            ProtocolErrorCode.GROUP_UNAVAILABLE.name();
     private static final List<Integer> CALLBACK_CALL_STATUSES = List.of(
             PullTaskPullCallStatus.SUBMITTED.code(),
             PullTaskPullCallStatus.UNKNOWN.code(),
@@ -61,18 +66,18 @@ public class PullTaskPullCallParticipantResultService {
     private final PullTaskUnknownResultResources resources;
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskStandardSettingMapper settingMapper;
-    private final PullTaskOperationDelayPolicy delayPolicy;
+    private final PullTaskPullCallResultCoordination coordination;
 
     /** 创建逐号码结果服务。 */
     public PullTaskPullCallParticipantResultService(
             PullTaskUnknownResultResources resources,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskStandardSettingMapper settingMapper,
-            PullTaskOperationDelayPolicy delayPolicy) {
+            PullTaskPullCallResultCoordination coordination) {
         this.resources = resources;
         this.executionMapper = executionMapper;
         this.settingMapper = settingMapper;
-        this.delayPolicy = delayPolicy;
+        this.coordination = coordination;
     }
 
     /** 按冻结调用和目标 JID 幂等收敛一个参与者结果。 */
@@ -106,6 +111,9 @@ public class PullTaskPullCallParticipantResultService {
             if (alreadyApplied(attempt, callback)) {
                 return true;
             }
+            if (finalUnknownAttempt(attempt)) {
+                return applyLateFinalUnknownAttempt(attempt, callback);
+            }
             boolean handled;
             if (Objects.equals(attempt.getLifecycleStatus(),
                     PullTaskParticipantAttemptStatus.SUBMITTED.code())) {
@@ -119,8 +127,9 @@ public class PullTaskPullCallParticipantResultService {
             if (!handled) {
                 return false;
             }
-            applyPullerAvailability(puller, callback);
-            closeCallIfReady(call, execution, callback.occurredAt(), true);
+            applyAccountFailure(puller, call, execution, callback);
+            closeCallIfReady(
+                    call, execution, callback.tenantId(), callback.occurredAt());
             return true;
         } finally {
             restoreTenant(previousTenant);
@@ -129,13 +138,14 @@ public class PullTaskPullCallParticipantResultService {
 
     /** 使用一次群成员名单的本地比对结果收口未知或缺失的逐号码执行。 */
     @Transactional(rollbackFor = Exception.class)
-    public boolean settleUncertain(
-            long tenantId,
-            PullTaskPullCall call,
-            PullTaskGroupExecution execution,
-            PullTaskPullCallMemberAttempt attempt,
-            boolean present,
-            long now) {
+    public boolean settleUncertain(PullTaskUncertainParticipantSettlement settlement) {
+        PullTaskUncertainParticipantSettlement.Context context = settlement.context();
+        long tenantId = context.tenantId();
+        PullTaskPullCall call = context.call();
+        PullTaskGroupExecution execution = context.execution();
+        PullTaskPullCallMemberAttempt attempt = settlement.attempt();
+        PullTaskRosterObservation observation = settlement.observation();
+        long now = settlement.now();
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
@@ -148,19 +158,19 @@ public class PullTaskPullCallParticipantResultService {
                 return false;
             }
             PullTaskParticipantAttemptTransition attemptTransition =
-                    rosterAttemptTransition(attempt, present, now);
+                    rosterAttemptTransition(attempt, observation, now);
             if (resources.attemptMapper().transition(attemptTransition) != 1) {
                 return false;
             }
             PullTaskParticipantAggregateTransition aggregate =
-                    rosterAggregateTransition(attempt, present, now);
+                    rosterAggregateTransition(attempt, observation, now);
             int changed = isMaterial(attempt)
                     ? resources.materialMapper().transitionPullAttempt(aggregate)
                     : resources.accountMapper().transitionMembershipAttempt(aggregate);
             if (changed != 1) {
                 throw new IllegalStateException("名单核实结果与参与者聚合状态不一致");
             }
-            closeCallIfReady(call, execution, now, false);
+            closeCallIfReady(call, execution, tenantId, now);
             return true;
         } finally {
             restoreTenant(previousTenant);
@@ -169,45 +179,63 @@ public class PullTaskPullCallParticipantResultService {
 
     private static PullTaskParticipantAttemptTransition rosterAttemptTransition(
             PullTaskPullCallMemberAttempt attempt,
-            boolean present,
+            PullTaskRosterObservation observation,
             long now) {
+        boolean present = observation == PullTaskRosterObservation.PRESENT;
+        boolean absent = observation == PullTaskRosterObservation.ABSENT;
         return new PullTaskParticipantAttemptTransition(
                 new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
                 new PullTaskParticipantAttemptTransition.Expected(List.of(
                         PullTaskParticipantAttemptStatus.SUBMITTED.code())),
                 new PullTaskParticipantAttemptTransition.Target(
-                        present ? PullTaskParticipantAttemptStatus.CLOSED.code()
-                                : PullTaskParticipantAttemptStatus.RELEASED.code(),
+                        absent ? PullTaskParticipantAttemptStatus.RELEASED.code()
+                                : PullTaskParticipantAttemptStatus.CLOSED.code(),
                         present ? PullTaskBatchParticipantProtocolOutcome.SUCCESS.name()
                                 : PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name(),
                         present ? PullTaskParticipantExecutionState.STARTED
                                 : PullTaskParticipantExecutionState.UNCERTAIN,
-                        present ? null : now),
+                        absent ? now : null),
                 present
                         ? PullTaskFactResult.success(attempt.getTargetJid(), now)
-                        : new PullTaskFactResult(
+                        : rosterFailure(observation, now));
+    }
+
+    private static PullTaskFactResult rosterFailure(
+            PullTaskRosterObservation observation,
+            long now) {
+        return observation == PullTaskRosterObservation.ABSENT
+                ? new PullTaskFactResult(
                                 "ROSTER_NOT_PRESENT", "群成员名单未确认该号码在群",
-                                null, now));
+                                null, now)
+                : new PullTaskFactResult(
+                        ROSTER_QUERY_UNAVAILABLE, "群成员名单查询不可用，结果保持未知",
+                        null, now);
     }
 
     private static PullTaskParticipantAggregateTransition rosterAggregateTransition(
             PullTaskPullCallMemberAttempt attempt,
-            boolean present,
+            PullTaskRosterObservation observation,
             long now) {
         long failureCount = value(attempt.getFailureCountBefore());
+        boolean present = observation == PullTaskRosterObservation.PRESENT;
+        int targetStatus = switch (observation) {
+            case PRESENT -> successStatus(attempt);
+            case ABSENT -> pendingStatus(attempt);
+            case UNAVAILABLE -> unknownStatus(attempt);
+        };
         return new PullTaskParticipantAggregateTransition(
                 new PullTaskParticipantAggregateTransition.Scope(
                         attempt.getParticipantRefId(), attempt.getId(), now),
                 new PullTaskParticipantAggregateTransition.Expected(
                         List.of(submittedStatus(attempt)), failureCount),
                 new PullTaskParticipantAggregateTransition.Target(
-                        present ? successStatus(attempt) : pendingStatus(attempt),
-                        failureCount, present ? attempt.getPullCallId() : null, null),
+                        targetStatus, failureCount,
+                        observation == PullTaskRosterObservation.ABSENT
+                                ? null : attempt.getPullCallId(),
+                        null),
                 present
                         ? PullTaskFactResult.success(attempt.getTargetJid(), now)
-                        : new PullTaskFactResult(
-                                "ROSTER_NOT_PRESENT", "群成员名单未确认该号码在群",
-                                null, now));
+                        : rosterFailure(observation, now));
     }
 
     private boolean applyCurrentAttempt(
@@ -268,6 +296,32 @@ public class PullTaskPullCallParticipantResultService {
         if (callback.outcome() != PullTaskBatchParticipantProtocolOutcome.SUCCESS) {
             return true;
         }
+        return promoteLateSuccess(attempt, callback);
+    }
+
+    private boolean applyLateFinalUnknownAttempt(
+            PullTaskPullCallMemberAttempt attempt,
+            PullTaskBatchParticipantCallback callback) {
+        PullTaskParticipantAttemptTransition transition =
+                new PullTaskParticipantAttemptTransition(
+                        new PullTaskParticipantAttemptTransition.Scope(
+                                attempt.getId(), callback.occurredAt()),
+                        new PullTaskParticipantAttemptTransition.Expected(List.of(
+                                PullTaskParticipantAttemptStatus.CLOSED.code())),
+                        new PullTaskParticipantAttemptTransition.Target(
+                                PullTaskParticipantAttemptStatus.CLOSED.code(),
+                                callback.outcome().name(), callback.executionState(), null),
+                        callbackFact(callback));
+        if (resources.attemptMapper().transition(transition) != 1) {
+            return false;
+        }
+        return callback.outcome() != PullTaskBatchParticipantProtocolOutcome.SUCCESS
+                || promoteLateSuccess(attempt, callback);
+    }
+
+    private boolean promoteLateSuccess(
+            PullTaskPullCallMemberAttempt attempt,
+            PullTaskBatchParticipantCallback callback) {
         AggregateSnapshot snapshot = aggregateSnapshot(attempt);
         if (snapshot == null) {
             throw new IllegalStateException("迟到成功缺少参与者聚合状态");
@@ -316,21 +370,11 @@ public class PullTaskPullCallParticipantResultService {
                 newerCall.getCallStatus(), PullTaskPullCallStatus.PLANNED.code())) {
             return;
         }
-        List<PullTaskPullCallMemberAttempt> planned = resources.attemptMapper()
-                .selectByCall(newerCall.getId()).stream()
-                .filter(row -> Objects.equals(
-                        row.getLifecycleStatus(), PullTaskParticipantAttemptStatus.PLANNED.code()))
-                .toList();
-        for (PullTaskPullCallMemberAttempt participant : planned) {
-            cancelPlannedParticipant(participant, now);
-        }
-        PullTaskFactTransition callTransition = new PullTaskFactTransition(
-                newerCall.getId(), List.of(PullTaskPullCallStatus.PLANNED.code()),
-                PullTaskPullCallStatus.CANCELED.code(),
-                PullTaskFactResult.reason(
-                        "LATE_PARTICIPANT_SUCCESS", "迟到成功使未提交批次失效"), now);
-        if (resources.callMapper().transitionResult(callTransition) != 1) {
-            throw new IllegalStateException("迟到成功取消更新计划批次失败");
+        cancelPlannedParticipant(newer, now);
+        if (resources.callMapper().prunePlannedParticipant(new PullTaskPlannedCallPrune(
+                newerCall.getId(), newer.getParticipantType(),
+                PullTaskPullCallStatus.PLANNED.code(), now)) != 1) {
+            throw new IllegalStateException("迟到成功收缩更新计划调用失败");
         }
     }
 
@@ -391,8 +435,8 @@ public class PullTaskPullCallParticipantResultService {
     private void closeCallIfReady(
             PullTaskPullCall call,
             PullTaskGroupExecution execution,
-            long now,
-            boolean sampleSideEffectDelay) {
+            long tenantId,
+            long now) {
         int expectedCount = value(call.getPlannedMaterialCount())
                 + value(call.getPlannedStationCount());
         if (expectedCount <= 0) {
@@ -415,93 +459,55 @@ public class PullTaskPullCallParticipantResultService {
         if (resources.callMapper().transitionResult(transition) != 1) {
             throw new IllegalStateException("逐号码全部收口后关闭批次失败");
         }
+        if (call.getPullWaveId() != null) {
+            coordination.waveProgress().wakeCollecting(
+                    tenantId, execution.getId(), call.getPullWaveId(), now);
+            return;
+        }
         if (!activePullCallStage(execution)) {
             return;
         }
-        int targetStage = targetStage(execution.getId(), execution.getTaskId());
-        long nextRunAt = batchNextRunAt(
-                call, attempts, targetStage, now, sampleSideEffectDelay);
         if (executionMapper.transitionProtocolResult(new PullTaskExecutionResultTransition(
                 execution.getId(), execution.getTaskId(), execution.getVersion(),
                 PullTaskExecutionStatus.EXECUTING.code(),
-                PullTaskExecutionStage.PULL_EXECUTION.code(), targetStage,
-                null, nextRunAt, now)) != 1) {
-            throw new IllegalStateException("逐号码批次收口后唤醒执行行失败");
+                PullTaskExecutionStage.PULL_EXECUTION.code(),
+                PullTaskExecutionStage.PULL_EXECUTION.code(),
+                null, now, now)) != 1) {
+            throw new IllegalStateException("历史逐号码批次收口后唤醒执行行失败");
         }
     }
 
-    private long batchNextRunAt(
-            PullTaskPullCall call,
-            List<PullTaskPullCallMemberAttempt> attempts,
-            int targetStage,
-            long now,
-            boolean sampleSideEffectDelay) {
-        if (targetStage == PullTaskExecutionStage.CLOSING.code()) {
-            return 0L;
-        }
-        PullTaskStandardSetting setting = settingMapper.selectByTaskId(call.getTaskId());
-        if (setting == null) {
-            throw new IllegalStateException("批次收口缺少普通拉群冻结配置");
-        }
-        long intervalDeadline = 0L;
-        if (call.getSubmittedAt() != null && setting.getPullIntervalSeconds() != null
-                && setting.getPullIntervalSeconds() > 0) {
-            intervalDeadline = Math.addExact(call.getSubmittedAt(), Math.multiplyExact(
-                    setting.getPullIntervalSeconds().longValue(), 1_000L));
-        }
-        boolean sideEffectOccurred = attempts.stream().anyMatch(row ->
-                row.getExecutionState() != null
-                        && row.getExecutionState()
-                        != PullTaskParticipantExecutionState.NOT_STARTED);
-        return sampleSideEffectDelay && sideEffectOccurred
-                ? delayPolicy.maxDeadline(intervalDeadline, now)
-                : intervalDeadline;
-    }
-
-    private int targetStage(long executionId, long taskId) {
-        boolean hasPendingAdmin = !resources.materialMapper().selectPendingAdmin(
-                executionId, ADMIN_REQUIRED, PullTaskMaterialPullStatus.SUCCESS.code(),
-                PullTaskMaterialAdminStatus.PENDING.code()).isEmpty();
-        boolean hasUnconsumed = !resources.materialMapper()
-                .selectUnconsumed(executionId, 1).isEmpty();
-        boolean hasPendingStation = !resources.accountMapper()
-                .selectPendingStations(executionId, 1).isEmpty();
-        if (!hasPendingAdmin) {
-            return hasUnconsumed || hasPendingStation
-                    ? PullTaskExecutionStage.PULL_EXECUTION.code()
-                    : PullTaskExecutionStage.CLOSING.code();
-        }
-        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
-        if (setting == null || setting.getMaterialAdminTiming() == null) {
-            throw new IllegalStateException("料子提权设置时机缺失");
-        }
-        return Objects.equals(setting.getMaterialAdminTiming(),
-                PullTaskMaterialAdminTiming.IMMEDIATE.code())
-                || (!hasUnconsumed && !hasPendingStation)
-                ? PullTaskExecutionStage.MATERIAL_ADMIN.code()
-                : PullTaskExecutionStage.PULL_EXECUTION.code();
-    }
-
-    private void applyPullerAvailability(
+    private void applyAccountFailure(
             PullTaskGroupAccount puller,
+            PullTaskPullCall call,
+            PullTaskGroupExecution execution,
             PullTaskBatchParticipantCallback callback) {
-        String reasonCode = callback.reasonCode();
+        String reasonCode = normalizedReason(callback.reasonCode());
         if (reasonCode == null) {
             return;
         }
-        if (OFFLINE_REASON_CODES.contains(reasonCode)) {
-            if (!Objects.equals(puller.getAvailabilityStatus(),
-                    PullTaskGroupAccountAvailability.OFFLINE.code())
-                    && resources.accountMapper().markUnavailable(
-                    puller.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
-                    reasonCode, null, callback.occurredAt()) != 1) {
-                throw new IllegalStateException("拉手离线状态写入失败");
-            }
+        if (GROUP_UNAVAILABLE.equals(reasonCode)) {
+            coordination.groupFailure().terminate(
+                    callback.tenantId(), execution.getId(),
+                    PullTaskExecutionReasonCode.GROUP_UNAVAILABLE,
+                    callback.occurredAt());
             return;
         }
-        if (!RISK_REASON_CODES.contains(reasonCode)
-                || Objects.equals(puller.getAvailabilityStatus(),
-                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code())) {
+        if (OFFLINE_REASON_CODES.contains(reasonCode)) {
+            markPullerUnavailable(puller, call, execution,
+                    new PullerUnavailability(
+                            PullTaskGroupAccountAvailability.OFFLINE.code(),
+                            reasonCode, null, callback.occurredAt()));
+            return;
+        }
+        if (GROUP_PERMISSION_DENIED.equals(reasonCode)) {
+            markPullerUnavailable(puller, call, execution,
+                    new PullerUnavailability(
+                            PullTaskGroupAccountAvailability.REMOVED.code(),
+                            reasonCode, null, callback.occurredAt()));
+            return;
+        }
+        if (!RISK_REASON_CODES.contains(reasonCode)) {
             return;
         }
         PullTaskStandardSetting setting = settingMapper.selectByTaskId(callback.pullTaskId());
@@ -512,11 +518,32 @@ public class PullTaskPullCallParticipantResultService {
                 || setting.getPullerRiskMinutes() <= 0
                 ? null : Math.addExact(callback.occurredAt(), Math.multiplyExact(
                 setting.getPullerRiskMinutes().longValue(), MILLIS_PER_MINUTE));
-        if (resources.accountMapper().markUnavailable(
-                puller.getId(), PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
-                reasonCode, cooldownUntil, callback.occurredAt()) != 1) {
-            throw new IllegalStateException("拉手风控冷却状态写入失败");
+        markPullerUnavailable(puller, call, execution,
+                new PullerUnavailability(
+                        PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                        reasonCode, cooldownUntil, callback.occurredAt()));
+    }
+
+    private void markPullerUnavailable(
+            PullTaskGroupAccount puller,
+            PullTaskPullCall call,
+            PullTaskGroupExecution execution,
+            PullerUnavailability target) {
+        if (!Objects.equals(puller.getAvailabilityStatus(), target.availability())
+                && resources.accountMapper().markUnavailable(
+                puller.getId(), target.availability(),
+                target.reasonCode(), target.cooldownUntil(), target.now()) != 1) {
+            throw new IllegalStateException("拉手账号级不可用状态写入失败");
         }
+        coordination.stickyPullers().invalidateIfCurrent(
+                execution, call, target.reasonCode(), target.now());
+    }
+
+    private static String normalizedReason(String reasonCode) {
+        if (reasonCode == null || reasonCode.isBlank()) {
+            return null;
+        }
+        return reasonCode.trim().toUpperCase(Locale.ROOT);
     }
 
     private static boolean activePullCallStage(PullTaskGroupExecution execution) {
@@ -524,6 +551,13 @@ public class PullTaskPullCallParticipantResultService {
                 PullTaskExecutionStatus.EXECUTING.code())
                 && Objects.equals(execution.getStage(),
                 PullTaskExecutionStage.PULL_EXECUTION.code());
+    }
+
+    private record PullerUnavailability(
+            int availability,
+            String reasonCode,
+            Long cooldownUntil,
+            long now) {
     }
 
     private static PullTaskParticipantAggregateTransition aggregateTransition(
@@ -587,6 +621,15 @@ public class PullTaskPullCallParticipantResultService {
         return Objects.equals(attempt.getLifecycleStatus(), target.lifecycleStatus())
                 && Objects.equals(attempt.getProtocolOutcome(), callback.outcome().name())
                 && attempt.getExecutionState() == callback.executionState();
+    }
+
+    private static boolean finalUnknownAttempt(PullTaskPullCallMemberAttempt attempt) {
+        return Objects.equals(attempt.getLifecycleStatus(),
+                PullTaskParticipantAttemptStatus.CLOSED.code())
+                && Objects.equals(attempt.getProtocolOutcome(),
+                PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name())
+                && attempt.getExecutionState() == PullTaskParticipantExecutionState.UNCERTAIN
+                && Objects.equals(attempt.getReasonCode(), ROSTER_QUERY_UNAVAILABLE);
     }
 
     private static boolean matchesAttempt(
@@ -658,6 +701,12 @@ public class PullTaskPullCallParticipantResultService {
         return isMaterial(attempt)
                 ? PullTaskMaterialPullStatus.FAILED.code()
                 : PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code();
+    }
+
+    private static int unknownStatus(PullTaskPullCallMemberAttempt attempt) {
+        return isMaterial(attempt)
+                ? PullTaskMaterialPullStatus.UNKNOWN.code()
+                : PullTaskGroupAccountMembershipStatus.UNKNOWN.code();
     }
 
     private static String normalizedTargetJid(String targetJid) {

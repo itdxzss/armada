@@ -4,7 +4,7 @@ package com.armada.task.model.vo;
 public record PullTaskStandardCallVO(
         long callId,
         int callSeq,
-        long pullerAccountId,
+        Long pullerAccountId,
         int plannedMaterialCount,
         int plannedStationCount,
         int callStatus,

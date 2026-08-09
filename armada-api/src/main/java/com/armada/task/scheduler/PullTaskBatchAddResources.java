@@ -2,18 +2,13 @@ package com.armada.task.scheduler;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
-import com.armada.task.mapper.PullTaskGroupExecutionMapper;
-import com.armada.task.mapper.PullTaskPullCallMapper;
-import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import org.springframework.stereotype.Component;
 
-/** EX-06 聚合批量拉人的执行行、账号域和调用依赖。 */
+/** 聚合批量拉人命令、拉手状态、持久化检查点和静默策略。 */
 @Component
 public record PullTaskBatchAddResources(
-        PullTaskGroupExecutionMapper executionMapper,
+        PullTaskBatchAddPersistence persistence,
         AccountProtocolLookupService accountLookup,
-        PullTaskPullCallMapper pullCallMapper,
-        PullTaskPullCallMemberAttemptMapper attemptMapper,
         ProtocolCommandOutboxService outboxService,
-        PullTaskExecutionDispatchProperties properties) {
+        PullTaskOperationDelayPolicy delayPolicy) {
 }

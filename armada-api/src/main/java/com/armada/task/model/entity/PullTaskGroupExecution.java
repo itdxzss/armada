@@ -72,6 +72,15 @@ public class PullTaskGroupExecution {
     /** 下一拉手角色序号游标；按角色稳定顺序轮询。 */
     private Integer nextPullerIndex;
 
+    /** 当前活动拉人波次 ID。 */
+    private Long activePullWaveId;
+
+    /** 当前粘性拉手角色行 ID。 */
+    private Long activePullerGroupAccountId;
+
+    /** 粘性拉手分配代际；每次有效换号递增。 */
+    private Long pullerAssignmentSeq;
+
     /** 下次可调度时间(epoch 毫秒)；0 表示立即可调度。 */
     private Long nextRunAt;
 
@@ -281,6 +290,30 @@ public class PullTaskGroupExecution {
 
     public void setNextPullerIndex(Integer nextPullerIndex) {
         this.nextPullerIndex = nextPullerIndex;
+    }
+
+    public Long getActivePullWaveId() {
+        return activePullWaveId;
+    }
+
+    public void setActivePullWaveId(Long activePullWaveId) {
+        this.activePullWaveId = activePullWaveId;
+    }
+
+    public Long getActivePullerGroupAccountId() {
+        return activePullerGroupAccountId;
+    }
+
+    public void setActivePullerGroupAccountId(Long activePullerGroupAccountId) {
+        this.activePullerGroupAccountId = activePullerGroupAccountId;
+    }
+
+    public Long getPullerAssignmentSeq() {
+        return pullerAssignmentSeq;
+    }
+
+    public void setPullerAssignmentSeq(Long pullerAssignmentSeq) {
+        this.pullerAssignmentSeq = pullerAssignmentSeq;
     }
 
     public Long getNextRunAt() {

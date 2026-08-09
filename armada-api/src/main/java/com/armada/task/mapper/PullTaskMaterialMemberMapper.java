@@ -5,9 +5,12 @@ import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskMaterialPullResult;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
+import com.armada.task.model.dto.PullTaskParticipantPlanBinding;
+import com.armada.task.model.dto.PullTaskPullWaveCandidate;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -77,15 +80,38 @@ public interface PullTaskMaterialMemberMapper {
                 groupExecutionId, PullTaskMaterialPullStatus.UNCONSUMED.code(), 4L, limit);
     }
 
+    /** 读取并稳定排序完整初始波次候选，不做数量截断。 */
+    List<PullTaskPullWaveCandidate> selectInitialWaveCandidatesByStatus(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("participantType") int participantType,
+            @Param("pullStatus") int pullStatus,
+            @Param("maxFailureCount") long maxFailureCount);
+
+    /** 使用普通链接料子的固定初始候选条件。 */
+    default List<PullTaskPullWaveCandidate> selectInitialWaveCandidates(long groupExecutionId) {
+        return selectInitialWaveCandidatesByStatus(
+                groupExecutionId,
+                PullTaskParticipantType.MATERIAL.code(),
+                PullTaskMaterialPullStatus.UNCONSUMED.code(),
+                4L);
+    }
+
     /** 以待拉状态、失败上限和空活动指针 CAS 绑定本次 attempt。 */
     int bindPullAttemptIfEligible(
-            @Param("binding") PullTaskParticipantAttemptBinding binding,
+            @Param("binding") PullTaskParticipantPlanBinding binding,
             @Param("guard") PullTaskParticipantAttemptBinding.Guard guard);
 
     /** 使用普通链接料子的固定待拉守卫。 */
-    default int bindPullAttempt(PullTaskParticipantAttemptBinding binding) {
+    default int bindPullAttempt(PullTaskParticipantPlanBinding binding) {
         return bindPullAttemptIfEligible(
                 binding, PullTaskParticipantAttemptBinding.materialGuard());
+    }
+
+    /** 兼容旧单调用规划入口；真实拉手仍只在提交阶段写入聚合。 */
+    default int bindPullAttempt(PullTaskParticipantAttemptBinding binding) {
+        return bindPullAttempt(new PullTaskParticipantPlanBinding(
+                binding.participantId(), binding.attemptId(),
+                binding.pullCallId(), binding.now()));
     }
 
     /** 批次真实提交时记录最近执行拉手，必须仍由同一活动 attempt 持有。 */

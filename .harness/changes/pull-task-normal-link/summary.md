@@ -1,5 +1,14 @@
 # 变更记录：普通群链接拉群任务 —— 数据层（M1）
 
+## 2026-08-09 增量：V107 拉人波次与粘性拉手
+
+- 新增 `pull_task_pull_wave`，在数据库层保证每条执行行最多一个派发中/收集中波次。
+- `pull_task_group_execution` 新增活动波次、活动拉手和拉手分配代际字段。
+- `pull_task_pull_call` 与逐号码 attempt 台账新增波次和分配代际关联；计划态拉手允许为空。
+- V107 只新增/放宽结构，不回填历史数据；历史未完成调用由运行时兼容逻辑接管。
+- 实施与验证证据持续记录在
+  `.harness/changes/2026-08-09-normal-link-pull-wave-dispatch.md`。
+
 - 日期 / 分支 / worktree: 2026-08-03 / `feature/pull-task-normal-group-link` / `/mnt/d/ideaProject/armada`
 - 需求来源: `docs/superpowers/specs/2026-08-02-pull-task-normal-link-data-model-design.md`；
   `docs/adr/0001-limit-pull-task-v2-to-group-link-mode.md` ~ `0009-defer-manual-operation-audit-log.md`；

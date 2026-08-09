@@ -2,6 +2,8 @@ package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -17,6 +19,7 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
+import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
@@ -28,6 +31,7 @@ import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallRosterCheckStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskRosterObservation;
 import com.armada.task.service.impl.PullTaskPullCallParticipantResultService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -86,9 +90,11 @@ class PullTaskPullCallReconciliationServiceTest {
                 new GroupParticipantResult(
                         present.getTargetJid(), "8613800000001", false, false, null)));
         when(participantResultService.settleUncertain(
-                7L, call, execution, present, true, NOW)).thenReturn(true);
+                settlement(execution, call, present, PullTaskRosterObservation.PRESENT)))
+                .thenReturn(true);
         when(participantResultService.settleUncertain(
-                7L, call, execution, missing, false, NOW)).thenReturn(true);
+                settlement(execution, call, missing, PullTaskRosterObservation.ABSENT)))
+                .thenReturn(true);
         when(callMapper.finishRosterCheck(
                 31L, PullTaskPullCallRosterCheckStatus.CLAIMED.code(),
                 PullTaskPullCallRosterCheckStatus.SUCCEEDED.code(), NOW)).thenReturn(1);
@@ -99,11 +105,11 @@ class PullTaskPullCallReconciliationServiceTest {
 
         verify(memberListPort).list(any());
         verify(participantResultService).settleUncertain(
-                7L, call, execution, present, true, NOW);
+                settlement(execution, call, present, PullTaskRosterObservation.PRESENT));
         verify(participantResultService).settleUncertain(
-                7L, call, execution, missing, false, NOW);
+                settlement(execution, call, missing, PullTaskRosterObservation.ABSENT));
         verify(participantResultService, never()).settleUncertain(
-                7L, call, execution, notStarted, false, NOW);
+                settlement(execution, call, notStarted, PullTaskRosterObservation.ABSENT));
         verify(attemptMapper).transition(any());
         assertThat(stats).isEqualTo(new PullTaskUnknownResultReconciliationStats(1, 1));
     }
@@ -125,13 +131,30 @@ class PullTaskPullCallReconciliationServiceTest {
                 .isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
 
         verify(memberListPort, never()).list(any());
-        verify(participantResultService, never()).settleUncertain(
-                any(Long.class), any(), any(), any(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any(Long.class));
+        verify(participantResultService, never()).settleUncertain(any());
     }
 
     @Test
-    void noUsableInGroupAccountSkipsQueryAndReleasesAllTargets() {
+    void scanBeforeSixtySecondProtectionExpiresDoesNothing() {
+        PullTaskGroupExecution execution = execution();
+        PullTaskPullCall call = call(PullTaskPullCallRosterCheckStatus.NOT_STARTED, null);
+        call.setSubmittedAt(CUTOFF + 1);
+        PullTaskPullCallMemberAttempt attempt = attempt(
+                41L, "8613800000001@s.whatsapp.net", "UNKNOWN",
+                PullTaskParticipantExecutionState.UNCERTAIN,
+                PullTaskParticipantAttemptStatus.SUBMITTED);
+
+        assertThat(service.reconcile(
+                execution, call, List.of(attempt), List.of(manager()), CUTOFF, NOW))
+                .isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
+
+        verify(callMapper, never()).claimRosterCheck(
+                anyLong(), anyInt(), anyInt(), anyLong());
+        verify(memberListPort, never()).list(any());
+    }
+
+    @Test
+    void noUsableInGroupAccountSkipsQueryAndClosesFinalUnknown() {
         PullTaskGroupExecution execution = execution();
         PullTaskPullCall call = call(PullTaskPullCallRosterCheckStatus.NOT_STARTED, null);
         PullTaskPullCallMemberAttempt attempt = attempt(
@@ -142,7 +165,8 @@ class PullTaskPullCallReconciliationServiceTest {
                 31L, PullTaskPullCallRosterCheckStatus.NOT_STARTED.code(),
                 PullTaskPullCallRosterCheckStatus.CLAIMED.code(), NOW)).thenReturn(1);
         when(participantResultService.settleUncertain(
-                7L, call, execution, attempt, false, NOW)).thenReturn(true);
+                settlement(execution, call, attempt, PullTaskRosterObservation.UNAVAILABLE)))
+                .thenReturn(true);
         when(callMapper.finishRosterCheck(
                 31L, PullTaskPullCallRosterCheckStatus.CLAIMED.code(),
                 PullTaskPullCallRosterCheckStatus.SKIPPED.code(), NOW)).thenReturn(1);
@@ -153,7 +177,53 @@ class PullTaskPullCallReconciliationServiceTest {
 
         verify(memberListPort, never()).list(any());
         verify(participantResultService).settleUncertain(
-                7L, call, execution, attempt, false, NOW);
+                settlement(execution, call, attempt, PullTaskRosterObservation.UNAVAILABLE));
+    }
+
+    @Test
+    void httpFailureClosesEveryUncertainAttemptAsFinalUnknown() {
+        PullTaskGroupExecution execution = execution();
+        PullTaskPullCall call = call(PullTaskPullCallRosterCheckStatus.NOT_STARTED, null);
+        PullTaskPullCallMemberAttempt attempt = attempt(
+                41L, "8613800000001@s.whatsapp.net", "UNKNOWN",
+                PullTaskParticipantExecutionState.UNCERTAIN,
+                PullTaskParticipantAttemptStatus.SUBMITTED);
+        when(callMapper.claimRosterCheck(
+                31L, PullTaskPullCallRosterCheckStatus.NOT_STARTED.code(),
+                PullTaskPullCallRosterCheckStatus.CLAIMED.code(), NOW)).thenReturn(1);
+        when(accountLookup.findActiveProtocolRefs(List.of(71L)))
+                .thenReturn(List.of(protocol()));
+        when(memberListPort.list(any())).thenThrow(new IllegalStateException("http failed"));
+        when(participantResultService.settleUncertain(
+                settlement(execution, call, attempt, PullTaskRosterObservation.UNAVAILABLE)))
+                .thenReturn(true);
+        when(callMapper.finishRosterCheck(
+                31L, PullTaskPullCallRosterCheckStatus.CLAIMED.code(),
+                PullTaskPullCallRosterCheckStatus.FAILED.code(), NOW)).thenReturn(1);
+
+        assertThat(service.reconcile(
+                execution, call, List.of(attempt), List.of(manager()), CUTOFF, NOW))
+                .isEqualTo(new PullTaskUnknownResultReconciliationStats(0, 1));
+
+        verify(participantResultService).settleUncertain(
+                settlement(execution, call, attempt, PullTaskRosterObservation.UNAVAILABLE));
+    }
+
+    @Test
+    void notStartedAttemptNeverTriggersRosterQuery() {
+        PullTaskGroupExecution execution = execution();
+        PullTaskPullCall call = call(PullTaskPullCallRosterCheckStatus.NOT_STARTED, null);
+        PullTaskPullCallMemberAttempt attempt = attempt(
+                41L, "8613800000001@s.whatsapp.net", "UNKNOWN",
+                PullTaskParticipantExecutionState.NOT_STARTED,
+                PullTaskParticipantAttemptStatus.SUBMITTED);
+
+        assertThat(service.reconcile(
+                execution, call, List.of(attempt), List.of(manager()), CUTOFF, NOW))
+                .isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
+
+        verify(memberListPort, never()).list(any());
+        verify(participantResultService, never()).settleUncertain(any());
     }
 
     @Test
@@ -171,9 +241,7 @@ class PullTaskPullCallReconciliationServiceTest {
                 .isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
 
         verify(memberListPort, never()).list(any());
-        verify(participantResultService, never()).settleUncertain(
-                any(Long.class), any(), any(), any(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any(Long.class));
+        verify(participantResultService, never()).settleUncertain(any());
     }
 
     private static PullTaskGroupExecution execution() {
@@ -232,5 +300,15 @@ class PullTaskPullCallReconciliationServiceTest {
     private static ProtocolAccountRef protocol() {
         return new ProtocolAccountRef(
                 71L, ProtocolBackend.WEB, "protocol-71", "8613800000071");
+    }
+
+    private static PullTaskUncertainParticipantSettlement settlement(
+            PullTaskGroupExecution execution,
+            PullTaskPullCall call,
+            PullTaskPullCallMemberAttempt attempt,
+            PullTaskRosterObservation observation) {
+        return new PullTaskUncertainParticipantSettlement(
+                new PullTaskUncertainParticipantSettlement.Context(7L, call, execution),
+                attempt, observation, NOW);
     }
 }

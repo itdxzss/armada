@@ -132,7 +132,10 @@ class PullTaskStandardReadServiceTest {
                 .singleElement()
                 .satisfies(row -> assertThat(row.adminStatus()).isEqualTo(3));
         assertThat(detail.calls()).singleElement()
-                .extracting(row -> row.callStatus()).isEqualTo(3);
+                .satisfies(row -> {
+                    assertThat(row.callStatus()).isEqualTo(3);
+                    assertThat(row.pullerAccountId()).isNull();
+                });
         assertThat(detail.actions()).singleElement()
                 .extracting(row -> row.actionStatus()).isEqualTo(3);
         assertThat(service.members(100L, 11L)).singleElement()
@@ -241,7 +244,6 @@ class PullTaskStandardReadServiceTest {
         PullTaskPullCall row = new PullTaskPullCall();
         row.setId(801L);
         row.setCallSeq(1);
-        row.setPullerAccountId(1_502L);
         row.setPlannedMaterialCount(1);
         row.setPlannedStationCount(1);
         row.setCallStatus(3);

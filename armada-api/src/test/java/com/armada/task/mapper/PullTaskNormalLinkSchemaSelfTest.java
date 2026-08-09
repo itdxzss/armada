@@ -23,13 +23,14 @@ class PullTaskNormalLinkSchemaSelfTest {
     }
 
     @Test
-    void allNineTablesAreCreated() throws SQLException {
-        assertThat(PullTaskNormalLinkSchema.all()).hasSize(9);
+    void allTenTablesAreCreated() throws SQLException {
+        assertThat(PullTaskNormalLinkSchema.all()).hasSize(10);
         for (String table : new String[] {
                 "pull_task", "pull_task_standard_setting", "pull_task_group_execution",
                 "pull_task_material_member", "pull_task_group_account",
                 "pull_task_account_action", "pull_task_pull_call",
                 "pull_task_pull_call_member_attempt",
+                "pull_task_pull_wave",
                 "pull_task_standard_group_setting"}) {
             assertThat(countRows("SELECT COUNT(*) FROM " + table)).isZero();
         }

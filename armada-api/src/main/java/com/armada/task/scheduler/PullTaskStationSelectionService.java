@@ -68,21 +68,36 @@ public class PullTaskStationSelectionService {
             PullTaskGroupExecution execution,
             PullTaskStandardSetting setting,
             Set<String> excludedPhones) {
+        return findCandidates(execution, setting, excludedPhones, Set.of());
+    }
+
+    /**
+     * 为完整波次预检一次调用的站台，并排除已经分配给波次内其他调用的账号。
+     */
+    public PullTaskStationCandidates findCandidates(
+            PullTaskGroupExecution execution,
+            PullTaskStandardSetting setting,
+            Set<String> excludedPhones,
+            Set<Long> excludedAccountIds) {
         int required = setting.getStationCountPerCall() == null
                 ? 0 : setting.getStationCountPerCall();
         if (required <= 0) {
             return new PullTaskStationCandidates(List.of(), 0);
         }
         Set<String> excluded = normalizedPhones(excludedPhones);
+        Set<Long> excludedIds = excludedAccountIds == null
+                ? Set.of() : Set.copyOf(excludedAccountIds);
         List<PullTaskGroupAccount> existing = groupAccountMapper.selectByExecutionAndRole(
                 execution.getId(), PullTaskGroupAccountRole.STATION.code());
         Set<Long> usedAccountIds = new HashSet<>();
         existing.stream().map(PullTaskGroupAccount::getAccountId).forEach(usedAccountIds::add);
+        usedAccountIds.addAll(excludedIds);
         Set<Long> reusableAccountIds = new HashSet<>();
         existing.stream().filter(PullTaskStationSelectionService::reusableStation)
+                .filter(row -> !excludedIds.contains(row.getAccountId()))
                 .map(PullTaskGroupAccount::getAccountId).forEach(reusableAccountIds::add);
         LinkedHashMap<Long, ProtocolAccountRef> selected = new LinkedHashMap<>();
-        addReusableCandidates(existing, selected, excluded, required);
+        addReusableCandidates(existing, selected, excluded, excludedIds, required);
         List<ProtocolAccountRef> groupCandidates = accountLookup
                 .findOnlineNormalByGroupId(setting.getStationGroupId());
         if (groupCandidates != null) {
@@ -90,7 +105,8 @@ public class PullTaskStationSelectionService {
                 if (selected.size() >= required) {
                     break;
                 }
-                if (eligible(account, excluded)
+                if (!excludedIds.contains(account.armadaAccountId())
+                        && eligible(account, excluded)
                         && (reusableAccountIds.contains(account.armadaAccountId())
                             || usedAccountIds.add(account.armadaAccountId()))) {
                     selected.putIfAbsent(account.armadaAccountId(), account);
@@ -214,9 +230,12 @@ public class PullTaskStationSelectionService {
             List<PullTaskGroupAccount> existing,
             LinkedHashMap<Long, ProtocolAccountRef> selected,
             Set<String> excludedPhones,
+            Set<Long> excludedAccountIds,
             int required) {
         List<PullTaskGroupAccount> rows = existing.stream()
-                .filter(PullTaskStationSelectionService::reusableStation).toList();
+                .filter(PullTaskStationSelectionService::reusableStation)
+                .filter(row -> !excludedAccountIds.contains(row.getAccountId()))
+                .toList();
         if (rows.isEmpty()) {
             return;
         }

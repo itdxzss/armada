@@ -1,6 +1,9 @@
 package com.armada.task.mapper;
 
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
+import com.armada.task.model.dto.PullTaskPullWaveCandidate;
+import com.armada.task.model.dto.PullTaskPlannedCallPullerBinding;
+import com.armada.task.model.dto.PullTaskLegacyPullerGenerationBinding;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import java.util.List;
@@ -61,6 +64,35 @@ public interface PullTaskPullCallMemberAttemptMapper {
                 PullTaskParticipantAttemptStatus.SUBMITTED.code(),
                 now);
     }
+
+    /** 从指定已结算波次读取明确失败或已释放的可重试参与者。 */
+    List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
+            @Param("pullWaveId") long pullWaveId,
+            @Param("maxFailureCount") long maxFailureCount);
+
+    /** 统计波次内仍未关闭、释放或取消的 attempt。 */
+    int countOpenByWave(
+            @Param("pullWaveId") long pullWaveId,
+            @Param("openStatuses") List<Integer> openStatuses);
+
+    /** 读取波次中最早一个已提交 attempt 的提交时间。 */
+    Long selectEarliestSubmittedAtByWave(
+            @Param("pullWaveId") long pullWaveId,
+            @Param("submittedStatus") int submittedStatus);
+
+    /** 把调用下全部计划 attempt 绑定到与调用相同的拉手代际。 */
+    int bindPlannedPullerByCall(
+            @Param("binding") PullTaskPlannedCallPullerBinding binding);
+
+    /** 把历史开放调用下尚未标记波次的 attempt 原样挂到新波次。 */
+    int attachLegacyCallAttemptsToWave(
+            @Param("pullCallId") long pullCallId,
+            @Param("pullWaveId") long pullWaveId,
+            @Param("now") long now);
+
+    /** 为与粘性拉手相同的历史 attempt 补齐分配代际。 */
+    int bindLegacyPullerGeneration(
+            @Param("binding") PullTaskLegacyPullerGenerationBinding binding);
 
     /** 任务结束时取消尚未提交协议命令的计划参与者，并释放活动槽位。 */
     int cancelPlannedByTask(

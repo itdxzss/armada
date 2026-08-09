@@ -144,6 +144,9 @@ public final class PullTaskNormalLinkSchema {
                 reason_message VARCHAR(255),
                 next_manager_index INT NOT NULL DEFAULT 0,
                 next_puller_index INT NOT NULL DEFAULT 0,
+                active_pull_wave_id BIGINT,
+                active_puller_group_account_id BIGINT,
+                puller_assignment_seq BIGINT NOT NULL DEFAULT 0,
                 next_run_at BIGINT NOT NULL DEFAULT 0,
                 lock_owner VARCHAR(64),
                 lock_expires_at BIGINT,
@@ -161,6 +164,34 @@ public final class PullTaskNormalLinkSchema {
                 CONSTRAINT uq_pull_task_execution_file UNIQUE (tenant_id, task_id, source_file_index),
                 CONSTRAINT uq_pull_task_execution_link_occupancy
                     UNIQUE (tenant_id, link_occupancy_key)
+            )
+            """;
+
+    /** 普通群链接拉人的完整计划与统一结算波次。 */
+    static final String PULL_WAVE = """
+            CREATE TABLE pull_task_pull_wave (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id BIGINT NOT NULL,
+                task_id BIGINT NOT NULL,
+                group_execution_id BIGINT NOT NULL,
+                wave_no INT NOT NULL,
+                wave_type TINYINT NOT NULL,
+                wave_status TINYINT NOT NULL,
+                planned_call_count INT NOT NULL,
+                next_call_seq INT NOT NULL DEFAULT 1,
+                next_dispatch_at BIGINT NOT NULL DEFAULT 0,
+                dispatch_completed_at BIGINT,
+                settled_at BIGINT,
+                version INT NOT NULL DEFAULT 1,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                active_execution_id BIGINT GENERATED ALWAYS AS (
+                    CASE WHEN wave_status IN (1, 2) THEN group_execution_id ELSE NULL END
+                ),
+                CONSTRAINT uq_pull_task_wave_no
+                    UNIQUE (tenant_id, group_execution_id, wave_no),
+                CONSTRAINT uq_pull_task_wave_active
+                    UNIQUE (tenant_id, active_execution_id)
             )
             """;
 
@@ -273,9 +304,12 @@ public final class PullTaskNormalLinkSchema {
                 tenant_id BIGINT NOT NULL,
                 task_id BIGINT NOT NULL,
                 group_execution_id BIGINT NOT NULL,
+                pull_wave_id BIGINT,
                 call_seq INT NOT NULL,
-                puller_group_account_id BIGINT NOT NULL,
-                puller_account_id BIGINT NOT NULL,
+                wave_call_seq INT,
+                puller_group_account_id BIGINT,
+                puller_account_id BIGINT,
+                puller_assignment_seq BIGINT,
                 planned_material_count INT NOT NULL,
                 planned_station_count INT NOT NULL,
                 call_status TINYINT NOT NULL DEFAULT 1,
@@ -291,6 +325,8 @@ public final class PullTaskNormalLinkSchema {
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 CONSTRAINT uq_pull_task_call_seq UNIQUE (tenant_id, group_execution_id, call_seq),
+                CONSTRAINT uq_pull_task_call_wave_seq
+                    UNIQUE (tenant_id, pull_wave_id, wave_call_seq),
                 CONSTRAINT uq_pull_task_call_idempotency UNIQUE (tenant_id, idempotency_key),
                 CONSTRAINT uq_pull_task_call_command UNIQUE (tenant_id, command_id)
             )
@@ -304,11 +340,13 @@ public final class PullTaskNormalLinkSchema {
                 task_id BIGINT NOT NULL,
                 group_execution_id BIGINT NOT NULL,
                 pull_call_id BIGINT NOT NULL,
+                pull_wave_id BIGINT,
                 participant_type TINYINT NOT NULL,
                 participant_ref_id BIGINT NOT NULL,
                 target_phone VARCHAR(32) NOT NULL,
                 target_jid VARCHAR(128),
-                puller_group_account_id BIGINT NOT NULL,
+                puller_group_account_id BIGINT,
+                puller_assignment_seq BIGINT,
                 attempt_no INT NOT NULL,
                 failure_count_before BIGINT NOT NULL DEFAULT 0,
                 lifecycle_status TINYINT NOT NULL DEFAULT 1,
@@ -363,7 +401,8 @@ public final class PullTaskNormalLinkSchema {
     public static String[] all() {
         return new String[] {
             PULL_TASK, STANDARD_SETTING, STANDARD_GROUP_SETTING, GROUP_EXECUTION,
-            MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_CALL, PULL_CALL_MEMBER_ATTEMPT,
+            MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_WAVE,
+            PULL_CALL, PULL_CALL_MEMBER_ATTEMPT,
         };
     }
 }

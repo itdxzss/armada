@@ -19,11 +19,13 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
+import com.armada.task.mapper.PullTaskPullWaveMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
 import com.armada.task.service.impl.PullTaskStandardExecutionLifecycleResources;
 import com.armada.task.service.impl.PullTaskStandardExecutionLifecycleServiceImpl;
+import com.armada.task.service.impl.PullTaskLifecyclePullResources;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import javax.sql.DataSource;
@@ -88,7 +90,9 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     }
 
     @Test
-    void pauseOnlyStopsRequestedExecutionAndReleasesItsPullers() {
+    void pauseOnlyStopsRequestedExecutionAndKeepsItsWaveCheckpoint() throws SQLException {
+        insertActiveWave();
+
         lifecycleService.pause(1L, 11L);
 
         assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isEqualTo(1);
@@ -99,6 +103,8 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(longColumn("released_at", "pull_task_group_account", 101L)).isEqualTo(900L);
         assertThat(longColumn("released_at", "pull_task_group_account", 102L)).isNull();
         assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        assertThat(intColumn("wave_status", "pull_task_pull_wave", 801L)).isEqualTo(1);
+        assertThat(intColumn("next_call_seq", "pull_task_pull_wave", 801L)).isEqualTo(2);
     }
 
     @Test
@@ -139,6 +145,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(longColumn("active_pull_attempt_id",
                 "pull_task_material_member", 502L)).isEqualTo(703L);
         assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        assertThat(intColumn("wave_status", "pull_task_pull_wave", 801L)).isEqualTo(4);
         verify(outboxService).cancelPendingPullTaskCommands(1L, 11L, 900L);
     }
 
@@ -175,6 +182,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(intColumn("action_status", "pull_task_account_action", 302L)).isEqualTo(1);
         assertThat(longColumn("released_at", "pull_task_group_account", 101L)).isEqualTo(900L);
         assertThat(longColumn("released_at", "pull_task_group_account", 102L)).isNull();
+        assertThat(intColumn("wave_status", "pull_task_pull_wave", 801L)).isEqualTo(4);
         assertThat(TenantContext.get()).isEqualTo(99L);
         TenantContext.set(7L);
         assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
@@ -220,6 +228,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     }
 
     private void insertEndFacts() throws SQLException {
+        insertActiveWave();
         execute("INSERT INTO pull_task_account_action "
                 + "(id, tenant_id, task_id, group_execution_id, action_type, "
                 + "actor_group_account_id, target_group_account_id, action_status, created_at, updated_at) "
@@ -250,6 +259,15 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 + "(701, 7, 1, 11, 401, 1, 501, '861001', '861001@s.whatsapp.net', 101, 1, 1, 1, NULL, 100, 100), "
                 + "(702, 7, 1, 11, 401, 2, 111, '86701', '86701@s.whatsapp.net', 101, 1, 1, 1, NULL, 100, 100), "
                 + "(703, 7, 1, 11, 402, 1, 502, '861002', '861002@s.whatsapp.net', 101, 1, 2, 1, 100, 100, 100)");
+    }
+
+    private void insertActiveWave() throws SQLException {
+        execute("INSERT INTO pull_task_pull_wave "
+                + "(id, tenant_id, task_id, group_execution_id, wave_no, wave_type, "
+                + "wave_status, planned_call_count, next_call_seq, next_dispatch_at, "
+                + "version, created_at, updated_at) "
+                + "VALUES (801, 7, 1, 11, 1, 1, 1, 3, 2, 5000, 1, 100, 100)");
+        execute("UPDATE pull_task_group_execution SET active_pull_wave_id=801 WHERE id=11");
     }
 
     private int intColumn(String column, String table, long id) {
@@ -333,6 +351,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                     "mapper/task/PullTaskAccountActionMapper.xml",
                     "mapper/task/PullTaskPullCallMapper.xml",
                     "mapper/task/PullTaskPullCallMemberAttemptMapper.xml",
+                    "mapper/task/PullTaskPullWaveMapper.xml",
                     "mapper/task/PullTaskMaterialMemberMapper.xml");
         }
 
@@ -368,6 +387,10 @@ class PullTaskStandardExecutionLifecycleServiceTest {
             return template.getMapper(PullTaskMaterialMemberMapper.class);
         }
 
+        @Bean PullTaskPullWaveMapper waveMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullWaveMapper.class);
+        }
+
         @Bean PullTaskExecutionDispatchTrigger dispatchTrigger() {
             return mock(PullTaskExecutionDispatchTrigger.class);
         }
@@ -385,15 +408,22 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         @Bean
         PullTaskStandardExecutionLifecycleResources lifecycleResources(
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskGroupAccountMapper accountMapper,
                 PullTaskAccountActionMapper actionMapper,
+                PullTaskLifecyclePullResources pull,
+                ProtocolCommandOutboxService outboxService) {
+            return new PullTaskStandardExecutionLifecycleResources(
+                    executionMapper, actionMapper, pull, outboxService);
+        }
+
+        @Bean
+        PullTaskLifecyclePullResources lifecyclePullResources(
+                PullTaskGroupAccountMapper accountMapper,
                 PullTaskPullCallMapper pullCallMapper,
                 PullTaskPullCallMemberAttemptMapper attemptMapper,
                 PullTaskMaterialMemberMapper materialMapper,
-                ProtocolCommandOutboxService outboxService) {
-            return new PullTaskStandardExecutionLifecycleResources(
-                    executionMapper, accountMapper, actionMapper, pullCallMapper,
-                    attemptMapper, materialMapper, outboxService);
+                PullTaskPullWaveMapper waveMapper) {
+            return new PullTaskLifecyclePullResources(
+                    accountMapper, pullCallMapper, attemptMapper, materialMapper, waveMapper);
         }
 
         @Bean

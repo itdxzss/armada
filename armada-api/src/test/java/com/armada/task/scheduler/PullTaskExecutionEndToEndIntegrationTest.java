@@ -41,6 +41,7 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
+import com.armada.task.mapper.PullTaskPullWaveMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.dto.PullTaskManagerJoinCallback;
@@ -69,12 +70,14 @@ import com.armada.task.service.PullTaskManagerJoinResultService;
 import com.armada.task.service.PullTaskManagerAdminResultService;
 import com.armada.task.service.PullTaskPullerInviteResultService;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
+import com.armada.task.service.PullTaskGroupExecutionFailureService;
 import com.armada.task.service.impl.PullTaskContactSaveResultServiceImpl;
 import com.armada.task.service.impl.PullTaskManagerJoinResultServiceImpl;
 import com.armada.task.service.impl.PullTaskManagerAdminResultServiceImpl;
 import com.armada.task.service.impl.PullTaskPullerInviteResultServiceImpl;
 import com.armada.task.service.impl.PullTaskProtocolResultCallbackServiceImpl;
 import com.armada.task.service.impl.PullTaskPullCallParticipantResultService;
+import com.armada.task.service.impl.PullTaskPullCallResultCoordination;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import java.util.List;
@@ -438,7 +441,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     "mapper/task/PullTaskAccountActionMapper.xml",
                     "mapper/task/PullTaskMaterialMemberMapper.xml",
                     "mapper/task/PullTaskPullCallMapper.xml",
-                    "mapper/task/PullTaskPullCallMemberAttemptMapper.xml");
+                    "mapper/task/PullTaskPullCallMemberAttemptMapper.xml",
+                    "mapper/task/PullTaskPullWaveMapper.xml");
         }
 
         @Bean SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {
@@ -475,6 +479,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean PullTaskPullCallMemberAttemptMapper attemptMapper(SqlSessionTemplate template) {
             return template.getMapper(PullTaskPullCallMemberAttemptMapper.class);
+        }
+
+        @Bean PullTaskPullWaveMapper waveMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullWaveMapper.class);
         }
 
         @Bean AccountProtocolLookupService accountLookup() {
@@ -668,48 +676,129 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return new PullTaskStationSelectionService(accountMapper, lookup);
         }
 
-        @Bean PullTaskPullExecutionProcessor pullExecutionProcessor(
-                PullTaskMapper taskMapper, PullTaskStandardSettingMapper settingMapper,
-                PullTaskGroupAccountMapper accountMapper, PullTaskAccountActionMapper actionMapper,
-                PullTaskGroupExecutionMapper executionMapper,
-                PullTaskMaterialMemberMapper materialMapper, PullTaskPullCallMapper callMapper,
-                PullTaskPullCallMemberAttemptMapper attemptMapper,
-                AccountProtocolLookupService lookup,
-                GroupParticipantPort participantPort, PullTaskBatchSizeSelector sizeSelector,
+        @Bean PullTaskPullWavePlanningSelection wavePlanningSelection(
                 PullTaskStationSelectionService stationSelection,
-                PullTaskParentCompletionService parentCompletion,
+                PullTaskBatchSizeSelector sizeSelector) {
+            return new PullTaskPullWavePlanningSelection(stationSelection, sizeSelector);
+        }
+
+        @Bean PullTaskPullWavePlanningResources wavePlanningResources(
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskPullWaveMapper waveMapper,
+                PullTaskPullCallMapper callMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
+                PullTaskPullWavePlanningSelection selection) {
+            return new PullTaskPullWavePlanningResources(
+                    executionMapper, waveMapper, callMapper, attemptMapper, selection);
+        }
+
+        @Bean PullTaskPullWavePlanningTransactionService wavePlanningService(
+                PullTaskMapper taskMapper,
+                PullTaskStandardSettingMapper settingMapper,
+                PullTaskMaterialMemberMapper materialMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskPullWavePlanningResources resources) {
+            return new PullTaskPullWavePlanningTransactionService(
+                    taskMapper, settingMapper, materialMapper, accountMapper, resources);
+        }
+
+        @Bean PullTaskStickyPullerTransactionService stickyPullers(
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskPullCallMapper callMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
+                AccountProtocolLookupService lookup) {
+            return new PullTaskStickyPullerTransactionService(
+                    executionMapper, accountMapper, callMapper, attemptMapper, lookup);
+        }
+
+        @Bean PullTaskPullWaveSettlementResources settlementResources(
+                PullTaskMapper taskMapper,
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskPullWaveMapper waveMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
+                PullTaskMaterialMemberMapper materialMapper) {
+            return new PullTaskPullWaveSettlementResources(
+                    taskMapper, executionMapper, waveMapper, attemptMapper, materialMapper);
+        }
+
+        @Bean PullTaskPullWaveSettlementTransactionService settlementService(
+                PullTaskPullWaveSettlementResources resources,
+                PullTaskPullWavePlanningTransactionService planning) {
+            return new PullTaskPullWaveSettlementTransactionService(resources, planning);
+        }
+
+        @Bean PullTaskPullerStationContactProcessor pullerStationContacts(
+                PullTaskMapper taskMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskAccountActionMapper actionMapper,
+                PullTaskPullerStationContactResources resources) {
+            return new PullTaskPullerStationContactProcessor(
+                    new PullTaskPullerStationContactTransactionService(
+                            taskMapper, accountMapper, actionMapper, resources));
+        }
+
+        @Bean PullTaskPullerStationContactResources pullerStationContactResources(
+                PullTaskGroupExecutionMapper executionMapper,
+                AccountProtocolLookupService lookup,
+                PullTaskPullCallMapper callMapper,
                 com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchProperties properties) {
-            PullTaskPullCallPlanningResources planningResources =
-                    new PullTaskPullCallPlanningResources(
-                            callMapper, attemptMapper, executionMapper,
-                            stationSelection, sizeSelector, lookup);
-            PullTaskPullCallPlanningTransactionService planning =
-                    new PullTaskPullCallPlanningTransactionService(
-                            taskMapper, settingMapper, accountMapper, materialMapper,
-                            planningResources);
-            PullTaskPullerStationContactResources contactResources =
-                    new PullTaskPullerStationContactResources(
-                            executionMapper, lookup, callMapper, outboxService, properties);
-            PullTaskPullerStationContactTransactionService contactTransactions =
-                    new PullTaskPullerStationContactTransactionService(
-                            taskMapper, accountMapper, actionMapper, contactResources);
-            PullTaskPullerStationContactProcessor contacts =
-                    new PullTaskPullerStationContactProcessor(contactTransactions);
-            PullTaskBatchAddResources batchResources =
-                    new PullTaskBatchAddResources(
-                            executionMapper, lookup, callMapper, attemptMapper,
-                            outboxService, properties);
-            PullTaskBatchAddTransactionService batchTransactions =
-                    new PullTaskBatchAddTransactionService(
-                            taskMapper, settingMapper, accountMapper,
-                            materialMapper, batchResources);
-            PullTaskBatchAddProcessor batch =
-                    new PullTaskBatchAddProcessor(batchTransactions);
-            PullTaskClosingTransactionService closing =
-                    new PullTaskClosingTransactionService(
-                            taskMapper, executionMapper, accountMapper, parentCompletion);
-            return new PullTaskPullExecutionProcessor(planning, contacts, batch, closing);
+            return new PullTaskPullerStationContactResources(
+                    executionMapper, lookup, callMapper, outboxService, properties);
+        }
+
+        @Bean PullTaskBatchAddPersistence batchPersistence(
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskPullWaveMapper waveMapper,
+                PullTaskPullCallMapper callMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper) {
+            return new PullTaskBatchAddPersistence(
+                    executionMapper, waveMapper, callMapper, attemptMapper);
+        }
+
+        @Bean PullTaskBatchAddResources batchResources(
+                PullTaskBatchAddPersistence persistence,
+                AccountProtocolLookupService lookup,
+                com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
+                PullTaskOperationDelayPolicy delayPolicy) {
+            return new PullTaskBatchAddResources(
+                    persistence, lookup, outboxService, delayPolicy);
+        }
+
+        @Bean PullTaskBatchAddProcessor batchProcessor(
+                PullTaskMapper taskMapper,
+                PullTaskStandardSettingMapper settingMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskMaterialMemberMapper materialMapper,
+                PullTaskBatchAddResources resources) {
+            return new PullTaskBatchAddProcessor(new PullTaskBatchAddTransactionService(
+                    taskMapper, settingMapper, accountMapper, materialMapper, resources));
+        }
+
+        @Bean PullTaskClosingTransactionService pullClosing(
+                PullTaskMapper taskMapper,
+                PullTaskGroupExecutionMapper executionMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskParentCompletionService parentCompletion) {
+            return new PullTaskClosingTransactionService(
+                    taskMapper, executionMapper, accountMapper, parentCompletion);
+        }
+
+        @Bean PullTaskPullExecutionDispatchResources pullDispatchResources(
+                PullTaskPullWavePlanningTransactionService waves,
+                PullTaskStickyPullerTransactionService pullers,
+                PullTaskPullWaveSettlementTransactionService settlement,
+                PullTaskPullerStationContactProcessor contacts,
+                PullTaskBatchAddProcessor batch) {
+            return new PullTaskPullExecutionDispatchResources(
+                    waves, pullers, settlement, contacts, batch);
+        }
+
+        @Bean PullTaskPullExecutionProcessor pullExecutionProcessor(
+                PullTaskPullExecutionDispatchResources resources,
+                PullTaskClosingTransactionService closing) {
+            return new PullTaskPullExecutionProcessor(resources, closing);
         }
 
         @Bean PullTaskUnknownResultResources unknownResultResources(
@@ -737,9 +826,24 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskUnknownResultResources resources,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskStandardSettingMapper settingMapper,
-                PullTaskOperationDelayPolicy delayPolicy) {
+                PullTaskPullCallResultCoordination coordination) {
             return new PullTaskPullCallParticipantResultService(
-                    resources, executionMapper, settingMapper, delayPolicy);
+                    resources, executionMapper, settingMapper, coordination);
+        }
+
+        @Bean PullTaskPullWaveProgressService pullWaveProgressService(
+                PullTaskPullWaveMapper waveMapper,
+                PullTaskGroupExecutionMapper executionMapper) {
+            return new PullTaskPullWaveProgressService(waveMapper, executionMapper);
+        }
+
+        @Bean PullTaskPullCallResultCoordination pullCallResultCoordination(
+                PullTaskStickyPullerTransactionService stickyPullers,
+                PullTaskPullWaveProgressService waveProgress) {
+            return new PullTaskPullCallResultCoordination(
+                    stickyPullers,
+                    mock(PullTaskGroupExecutionFailureService.class),
+                    waveProgress);
         }
 
         @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {

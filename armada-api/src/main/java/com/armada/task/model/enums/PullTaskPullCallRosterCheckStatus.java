@@ -12,10 +12,10 @@ public enum PullTaskPullCallRosterCheckStatus {
     /** 名单读取与本地比对成功。 */
     SUCCEEDED(2),
 
-    /** 名单读取失败，未知号码按规则释放。 */
+    /** 名单读取失败，未知号码关闭为最终 UNKNOWN。 */
     FAILED(3),
 
-    /** 没有可用查询账号，跳过查询并释放。 */
+    /** 没有可用查询账号，跳过查询并关闭为最终 UNKNOWN。 */
     SKIPPED(4);
 
     private final int code;

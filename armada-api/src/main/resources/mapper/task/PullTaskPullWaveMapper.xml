@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskPullWaveMapper">
+
+  <sql id="BaseColumns">
+    id, tenant_id, task_id, group_execution_id, wave_no, wave_type, wave_status,
+    planned_call_count, next_call_seq, next_dispatch_at, dispatch_completed_at,
+    settled_at, version, created_at, updated_at
+  </sql>
+
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_pull_wave (
+      task_id, group_execution_id, wave_no, wave_type, wave_status,
+      planned_call_count, next_dispatch_at, dispatch_completed_at,
+      settled_at, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{groupExecutionId}, #{waveNo}, #{waveType}, #{waveStatus},
+      #{plannedCallCount}, #{nextDispatchAt}, #{dispatchCompletedAt},
+      #{settledAt}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.task.model.entity.PullTaskPullWave">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_pull_wave
+    WHERE id = #{id}
+  </select>
+
+  <select id="selectActiveByExecution"
+          resultType="com.armada.task.model.entity.PullTaskPullWave">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_pull_wave
+    WHERE group_execution_id = #{groupExecutionId}
+      AND wave_status IN
+      <foreach collection="statuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+    ORDER BY wave_no DESC
+    LIMIT 1
+  </select>
+
+  <update id="transition">
+    UPDATE pull_task_pull_wave
+    SET wave_status = #{transition.target.status},
+        next_call_seq = #{transition.target.nextCallSeq},
+        next_dispatch_at = #{transition.target.nextDispatchAt},
+        dispatch_completed_at = #{transition.target.dispatchCompletedAt},
+        settled_at = #{transition.target.settledAt},
+        version = version + 1,
+        updated_at = #{transition.now}
+    WHERE id = #{transition.scope.id}
+      AND group_execution_id = #{transition.scope.groupExecutionId}
+      AND wave_status = #{transition.scope.expectedStatus}
+      AND version = #{transition.scope.expectedVersion}
+  </update>
+
+  <update id="advanceDispatch">
+    UPDATE pull_task_pull_wave
+    SET wave_status = #{advance.target.waveStatus},
+        next_call_seq = #{advance.target.nextCallSeq},
+        next_dispatch_at = #{advance.target.nextDispatchAt},
+        dispatch_completed_at = #{advance.target.dispatchCompletedAt},
+        version = version + 1,
+        updated_at = #{advance.now}
+    WHERE id = #{advance.scope.waveId}
+      AND version = #{advance.scope.expectedWaveVersion}
+      AND next_call_seq = #{advance.scope.expectedCallSeq}
+      AND dispatch_completed_at IS NULL
+  </update>
+
+  <update id="wakeCollecting">
+    UPDATE pull_task_pull_wave
+    SET next_dispatch_at = LEAST(next_dispatch_at, #{now}),
+        version = version + 1,
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND group_execution_id = #{groupExecutionId}
+      AND wave_status = #{expectedStatus}
+  </update>
+
+  <update id="cancelByTask">
+    UPDATE pull_task_pull_wave
+    SET wave_status = #{targetStatus},
+        version = version + 1,
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      AND wave_status IN
+      <foreach collection="activeStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="cancelByExecution">
+    UPDATE pull_task_pull_wave
+    SET wave_status = #{targetStatus},
+        version = version + 1,
+        updated_at = #{now}
+    WHERE group_execution_id = #{groupExecutionId}
+      AND wave_status IN
+      <foreach collection="activeStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+</mapper>

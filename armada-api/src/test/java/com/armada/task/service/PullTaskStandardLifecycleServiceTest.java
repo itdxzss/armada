@@ -19,11 +19,13 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
+import com.armada.task.mapper.PullTaskPullWaveMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
 import com.armada.task.service.impl.PullTaskStandardLifecycleResources;
 import com.armada.task.service.impl.PullTaskStandardLifecycleServiceImpl;
+import com.armada.task.service.impl.PullTaskLifecyclePullResources;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
 import javax.sql.DataSource;
@@ -86,7 +88,9 @@ class PullTaskStandardLifecycleServiceTest {
     }
 
     @Test
-    void pauseStopsAllNonTerminalRowsAndReleasesPullersWithoutChangingCheckpoints() {
+    void pauseKeepsActiveWaveAndCheckpointWhileBlockingDispatch() throws SQLException {
+        insertActiveWave(801L, 1L, 11L);
+
         lifecycleService.pause(1L);
 
         PullTask task = taskMapper.selectLifecycle(1L);
@@ -103,6 +107,10 @@ class PullTaskStandardLifecycleServiceTest {
                 .isEqualTo(900L);
         assertThat(longColumn("released_at", "pull_task_group_account", 102L))
                 .isEqualTo(900L);
+        assertThat(intColumn("wave_status", "pull_task_pull_wave", 801L)).isEqualTo(1);
+        assertThat(intColumn("next_call_seq", "pull_task_pull_wave", 801L)).isEqualTo(2);
+        assertThat(longColumn("next_dispatch_at", "pull_task_pull_wave", 801L))
+                .isEqualTo(5_000L);
     }
 
     @Test
@@ -172,6 +180,7 @@ class PullTaskStandardLifecycleServiceTest {
         assertThat(intColumn("membership_status", "pull_task_group_account", 111L)).isZero();
         assertThat(intColumn("membership_status", "pull_task_group_account", 112L)).isZero();
         assertThat(intColumn("membership_status", "pull_task_group_account", 113L)).isEqualTo(1);
+        assertThat(intColumn("wave_status", "pull_task_pull_wave", 801L)).isEqualTo(4);
         verify(outboxService).cancelPendingPullTaskCommands(1L, null, 900L);
     }
 
@@ -197,6 +206,7 @@ class PullTaskStandardLifecycleServiceTest {
     }
 
     private void insertEndFacts() throws SQLException {
+        insertActiveWave(801L, 1L, 11L);
         execute("INSERT INTO pull_task_account_action "
                 + "(id, tenant_id, task_id, group_execution_id, action_type, "
                 + "actor_group_account_id, target_group_account_id, action_status, command_id, "
@@ -243,6 +253,17 @@ class PullTaskStandardLifecycleServiceTest {
                 + "(7, 'cmd-call', 'PULL_TASK_PULL_CALL', 402, 0, 100), "
                 + "(7, 'cmd-published', 'PULL_TASK_PULL_CALL', 403, 2, 100), "
                 + "(7, 'cmd-admin', 'PULL_TASK_MATERIAL_MEMBER', 505, 0, 100)");
+    }
+
+    private void insertActiveWave(long id, long taskId, long executionId) throws SQLException {
+        execute("INSERT INTO pull_task_pull_wave "
+                + "(id, tenant_id, task_id, group_execution_id, wave_no, wave_type, "
+                + "wave_status, planned_call_count, next_call_seq, next_dispatch_at, "
+                + "version, created_at, updated_at) VALUES ("
+                + id + ", 7, " + taskId + ", " + executionId
+                + ", 1, 1, 1, 3, 2, 5000, 1, 100, 100)");
+        execute("UPDATE pull_task_group_execution SET active_pull_wave_id=" + id
+                + " WHERE id=" + executionId);
     }
 
     private int intColumn(String column, long executionId) {
@@ -333,6 +354,7 @@ class PullTaskStandardLifecycleServiceTest {
                     "mapper/task/PullTaskAccountActionMapper.xml",
                     "mapper/task/PullTaskPullCallMapper.xml",
                     "mapper/task/PullTaskPullCallMemberAttemptMapper.xml",
+                    "mapper/task/PullTaskPullWaveMapper.xml",
                     "mapper/task/PullTaskMaterialMemberMapper.xml");
         }
 
@@ -369,6 +391,10 @@ class PullTaskStandardLifecycleServiceTest {
             return template.getMapper(PullTaskMaterialMemberMapper.class);
         }
 
+        @Bean PullTaskPullWaveMapper waveMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskPullWaveMapper.class);
+        }
+
         @Bean
         PullTaskExecutionDispatchTrigger dispatchTrigger() {
             return mock(PullTaskExecutionDispatchTrigger.class);
@@ -382,17 +408,24 @@ class PullTaskStandardLifecycleServiceTest {
         @Bean
         PullTaskStandardLifecycleResources lifecycleResources(
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskGroupAccountMapper accountMapper,
                 PullTaskAccountActionMapper actionMapper,
-                PullTaskPullCallMapper pullCallMapper,
-                PullTaskPullCallMemberAttemptMapper attemptMapper,
-                PullTaskMaterialMemberMapper materialMapper,
+                PullTaskLifecyclePullResources pull,
                 ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchTrigger dispatchTrigger) {
             return new PullTaskStandardLifecycleResources(
-                    executionMapper, accountMapper, actionMapper,
-                    pullCallMapper, attemptMapper, materialMapper,
+                    executionMapper, actionMapper, pull,
                     outboxService, dispatchTrigger);
+        }
+
+        @Bean
+        PullTaskLifecyclePullResources lifecyclePullResources(
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskPullCallMapper pullCallMapper,
+                PullTaskPullCallMemberAttemptMapper attemptMapper,
+                PullTaskMaterialMemberMapper materialMapper,
+                PullTaskPullWaveMapper waveMapper) {
+            return new PullTaskLifecyclePullResources(
+                    accountMapper, pullCallMapper, attemptMapper, materialMapper, waveMapper);
         }
 
         @Bean

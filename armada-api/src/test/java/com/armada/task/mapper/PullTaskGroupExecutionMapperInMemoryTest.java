@@ -10,6 +10,7 @@ import com.armada.task.model.dto.PullTaskExecutionClaimState;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
+import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -230,6 +231,37 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         assertThat(saved.getNextPullerIndex()).isEqualTo(3);
         assertThat(saved.getStage()).isEqualTo(4);
         assertThat(saved.getVersion()).isEqualTo(2);
+    }
+
+    @Test
+    void advancePullWaveDispatchRequiresMatchingWaveVersionAndLease() throws SQLException {
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        executeRaw("INSERT INTO pull_task_pull_wave "
+                + "(id, tenant_id, task_id, group_execution_id, wave_no, wave_type, "
+                + "wave_status, planned_call_count, next_call_seq, next_dispatch_at, "
+                + "version, created_at, updated_at) VALUES "
+                + "(700, 7, 100, " + row.getId() + ", 1, 1, 1, 5, 1, 1000, 1, 100, 100)");
+        executeRaw("UPDATE pull_task_group_execution SET execution_status=2, stage="
+                + PullTaskExecutionStage.PULL_EXECUTION.code()
+                + ", active_pull_wave_id=700, version=6, lock_owner='worker-1', "
+                + "lock_expires_at=5000 WHERE id=" + row.getId());
+        PullTaskPullWaveDispatchAdvance advance = new PullTaskPullWaveDispatchAdvance(
+                new PullTaskPullWaveDispatchAdvance.Scope(700L, 1, 1),
+                new PullTaskPullWaveDispatchAdvance.Target(2, 1, 11_000L, null),
+                new PullTaskPullWaveDispatchAdvance.Execution(
+                        row.getId(), 6, "worker-1"),
+                1_000L);
+
+        assertThat(mapper.advancePullWaveDispatch(advance)).isEqualTo(1);
+        assertThat(mapper.advancePullWaveDispatch(advance)).isZero();
+        assertThat(mapper.selectById(row.getId()))
+                .satisfies(saved -> {
+                    assertThat(saved.getNextRunAt()).isEqualTo(11_000L);
+                    assertThat(saved.getLastBusinessExecutedAt()).isEqualTo(1_000L);
+                    assertThat(saved.getLockOwner()).isNull();
+                    assertThat(saved.getVersion()).isEqualTo(7);
+                });
     }
 
     @Test

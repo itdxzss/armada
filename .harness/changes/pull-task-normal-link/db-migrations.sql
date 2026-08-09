@@ -1,6 +1,11 @@
 -- 普通群链接拉群任务执行域:6 张新表 + pull_task 3 个生命周期列。
 -- 不修改拉群营销表,不迁移历史营销任务。设计见
 -- docs/superpowers/specs/2026-08-02-pull-task-normal-link-data-model-design.md。
+--
+-- 2026-08-09 的 V107 波次增量以 Flyway 文件
+-- armada-api/src/main/resources/db/migration/V107__pull_task_pull_wave.sql
+-- 为唯一正向执行源，避免在伴随文档复制动态 DDL 后产生 checksum 漂移；
+-- 该迁移只新增/放宽结构，不含历史数据 DML，对应逆向 SQL 见 rollback.sql。
 
 -- pull_task 增加生命周期列;ADD COLUMN 用 information_schema 守卫保证幂等。
 SET @pull_task_started_at_sql := IF(

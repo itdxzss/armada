@@ -71,24 +71,27 @@ public class PullTaskPullerStationContactTransactionService {
         Long previousTenant = TenantContext.get();
         TenantContext.set(candidate.getTenantId());
         try {
+            PullTaskGroupExecution execution = resources.executionMapper()
+                    .selectById(candidate.getId());
             PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
-            PullTaskPullCall storedCall = currentPlannedCall(candidate.getId());
-            if (!isDispatchable(parent, candidate, storedCall,
+            PullTaskPullCall storedCall = currentPlannedCall(
+                    candidate.getId(), call == null ? null : call.getId());
+            if (!isDispatchable(parent, execution, storedCall,
                     call == null ? null : call.getId(), lockOwner)) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskStationContactStepResult.LOST;
             }
-            ContactScope scope = contactScope(candidate.getId(), storedCall);
+            ContactScope scope = contactScope(execution.getId(), storedCall);
             if (scope == null) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskStationContactStepResult.LOST;
             }
-            createActions(candidate, scope, now);
-            List<PullTaskAccountAction> actions = relevantActions(candidate.getId(), scope);
+            createActions(execution, scope, now);
+            List<PullTaskAccountAction> actions = relevantActions(execution.getId(), scope);
             if (hasSubmitted(actions)) {
-                return deferSubmitted(candidate, now, false);
+                return deferSubmitted(execution, now, false);
             }
-            return preparePending(candidate, scope, actions, now);
+            return preparePending(execution, scope, actions, now);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -247,9 +250,14 @@ public class PullTaskPullerStationContactTransactionService {
         return result;
     }
 
-    private PullTaskPullCall currentPlannedCall(long executionId) {
+    private PullTaskPullCall currentPlannedCall(long executionId, Long requestedCallId) {
+        if (requestedCallId == null) {
+            return null;
+        }
         return resources.pullCallMapper().selectPlannedByExecution(executionId)
-                .stream().findFirst().orElse(null);
+                .stream()
+                .filter(row -> Objects.equals(row.getId(), requestedCallId))
+                .findFirst().orElse(null);
     }
 
     private static boolean stationPair(

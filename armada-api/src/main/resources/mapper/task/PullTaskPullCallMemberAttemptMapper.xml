@@ -2,23 +2,31 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper">
 
+  <sql id="BaseColumns">
+    id, tenant_id, task_id, group_execution_id, pull_call_id, pull_wave_id,
+    participant_type, participant_ref_id, target_phone, target_jid,
+    puller_group_account_id, puller_assignment_seq, attempt_no, failure_count_before,
+    lifecycle_status, active_slot, protocol_outcome, execution_state,
+    reason_code, reason_message, submitted_at, result_at, released_at, created_at, updated_at
+  </sql>
+
   <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_pull_call_member_attempt (
-      task_id, group_execution_id, pull_call_id,
+      task_id, group_execution_id, pull_call_id, pull_wave_id,
       participant_type, participant_ref_id, target_phone, target_jid,
-      puller_group_account_id, attempt_no, failure_count_before,
+      puller_group_account_id, puller_assignment_seq, attempt_no, failure_count_before,
       lifecycle_status, active_slot, created_at, updated_at
     ) VALUES (
-      #{taskId}, #{groupExecutionId}, #{pullCallId},
+      #{taskId}, #{groupExecutionId}, #{pullCallId}, #{pullWaveId},
       #{participantType}, #{participantRefId}, #{targetPhone}, #{targetJid},
-      #{pullerGroupAccountId}, #{attemptNo}, #{failureCountBefore},
+      #{pullerGroupAccountId}, #{pullerAssignmentSeq}, #{attemptNo}, #{failureCountBefore},
       #{lifecycleStatus}, #{activeSlot}, #{createdAt}, #{updatedAt}
     )
   </insert>
 
   <select id="selectByCall"
           resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call_member_attempt
     WHERE pull_call_id = #{pullCallId}
     ORDER BY id ASC
@@ -26,14 +34,14 @@
 
   <select id="selectById"
           resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call_member_attempt
     WHERE id = #{id}
   </select>
 
   <select id="selectByCallAndStatus"
           resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call_member_attempt
     WHERE pull_call_id = #{pullCallId}
       AND lifecycle_status = #{lifecycleStatus}
@@ -50,7 +58,7 @@
 
   <select id="selectByCallAndTarget"
           resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call_member_attempt
     WHERE pull_call_id = #{pullCallId}
       AND target_jid = #{targetJid}
@@ -82,6 +90,99 @@
     WHERE pull_call_id = #{pullCallId}
       AND lifecycle_status = #{expectedStatus}
       AND active_slot = 1
+  </update>
+
+  <!-- 状态码与 V106 台账合同一致：3关闭、4释放；聚合成功码均为2。 -->
+  <select id="selectRetryCandidatesByWave"
+          resultType="com.armada.task.model.dto.PullTaskPullWaveCandidate">
+    SELECT attempt_row.participant_type,
+           attempt_row.participant_ref_id,
+           attempt_row.target_phone,
+           attempt_row.target_jid,
+           CASE
+             WHEN attempt_row.participant_type = 1 THEN material_row.pull_failure_count
+             ELSE station_row.membership_failure_count
+           END AS failure_count
+    FROM pull_task_pull_call_member_attempt attempt_row
+    LEFT JOIN pull_task_material_member material_row
+      ON attempt_row.participant_type = 1
+     AND material_row.id = attempt_row.participant_ref_id
+     AND material_row.group_execution_id = attempt_row.group_execution_id
+    LEFT JOIN pull_task_group_account station_row
+      ON attempt_row.participant_type = 2
+     AND station_row.id = attempt_row.participant_ref_id
+     AND station_row.group_execution_id = attempt_row.group_execution_id
+    WHERE attempt_row.pull_wave_id = #{pullWaveId}
+      AND CASE
+            WHEN attempt_row.participant_type = 1 THEN material_row.pull_failure_count
+            ELSE station_row.membership_failure_count
+          END &lt; #{maxFailureCount}
+      AND ((attempt_row.participant_type = 1 AND material_row.pull_status &lt;&gt; 2)
+        OR (attempt_row.participant_type = 2 AND station_row.membership_status &lt;&gt; 2))
+      AND ((attempt_row.lifecycle_status = 3
+            AND attempt_row.protocol_outcome = 'FAILED')
+        OR (attempt_row.lifecycle_status = 4
+            AND attempt_row.protocol_outcome = 'UNKNOWN'
+            AND attempt_row.execution_state = 'NOT_STARTED')
+        OR (attempt_row.lifecycle_status = 4
+            AND attempt_row.protocol_outcome = 'UNKNOWN'
+            AND attempt_row.execution_state = 'UNCERTAIN'
+            AND attempt_row.reason_code = 'ROSTER_NOT_PRESENT'))
+    ORDER BY attempt_row.participant_type ASC,
+             attempt_row.participant_ref_id ASC,
+             attempt_row.id ASC
+  </select>
+
+  <select id="countOpenByWave" resultType="java.lang.Integer">
+    SELECT COUNT(*)
+    FROM pull_task_pull_call_member_attempt
+    WHERE pull_wave_id = #{pullWaveId}
+      AND lifecycle_status IN
+      <foreach collection="openStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </select>
+
+  <select id="selectEarliestSubmittedAtByWave" resultType="java.lang.Long">
+    SELECT MIN(submitted_at)
+    FROM pull_task_pull_call_member_attempt
+    WHERE pull_wave_id = #{pullWaveId}
+      AND lifecycle_status = #{submittedStatus}
+      AND submitted_at IS NOT NULL
+  </select>
+
+  <update id="bindPlannedPullerByCall">
+    UPDATE pull_task_pull_call_member_attempt
+    SET puller_group_account_id = #{binding.target.pullerGroupAccountId},
+        puller_assignment_seq = #{binding.target.assignmentSeq},
+        updated_at = #{binding.now}
+    WHERE pull_call_id = #{binding.scope.pullCallId}
+      AND lifecycle_status = 1
+      AND ((#{binding.scope.expectedPullerGroupAccountId} IS NULL
+            AND puller_group_account_id IS NULL)
+        OR puller_group_account_id = #{binding.scope.expectedPullerGroupAccountId})
+      AND EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call call_row
+        WHERE call_row.id = pull_task_pull_call_member_attempt.pull_call_id
+          AND call_row.call_status = #{binding.scope.expectedCallStatus}
+      )
+  </update>
+
+  <update id="attachLegacyCallAttemptsToWave">
+    UPDATE pull_task_pull_call_member_attempt
+    SET pull_wave_id = #{pullWaveId},
+        updated_at = #{now}
+    WHERE pull_call_id = #{pullCallId}
+      AND pull_wave_id IS NULL
+  </update>
+
+  <update id="bindLegacyPullerGeneration">
+    UPDATE pull_task_pull_call_member_attempt
+    SET puller_assignment_seq = #{binding.assignmentSeq},
+        updated_at = #{binding.now}
+    WHERE pull_call_id = #{binding.pullCallId}
+      AND puller_group_account_id = #{binding.pullerGroupAccountId}
+      AND puller_assignment_seq IS NULL
   </update>
 
   <update id="cancelPlannedByTask">

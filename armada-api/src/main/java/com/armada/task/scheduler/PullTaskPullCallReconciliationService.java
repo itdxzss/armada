@@ -7,6 +7,7 @@ import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
+import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
@@ -17,6 +18,7 @@ import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskPullCallRosterCheckStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskRosterObservation;
 import com.armada.task.service.impl.PullTaskPullCallParticipantResultService;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,38 +70,63 @@ public class PullTaskPullCallReconciliationService {
         List<PullTaskPullCallMemberAttempt> unresolved = attempts.stream()
                 .filter(row -> Objects.equals(
                         row.getLifecycleStatus(), PullTaskParticipantAttemptStatus.SUBMITTED.code()))
+                .filter(row -> row.getExecutionState()
+                        != PullTaskParticipantExecutionState.NOT_STARTED)
                 .toList();
         if (unresolved.isEmpty()) {
             return PullTaskUnknownResultReconciliationStats.empty();
         }
-        persistMissingAsUncertain(unresolved, now);
         RosterDecision decision = rosterDecision(call, cutoff, now);
         if (!decision.proceed()) {
             return PullTaskUnknownResultReconciliationStats.empty();
         }
+        persistMissingAsUncertain(unresolved, now);
         MemberSnapshot snapshot = decision.query()
                 ? queryMembers(execution, accounts, call, now)
                 : MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.FAILED);
         int confirmed = 0;
         int released = 0;
         for (PullTaskPullCallMemberAttempt attempt : unresolved) {
-            boolean present = snapshot.member(attempt.getTargetJid()) != null;
-            if (participantResultService.settleUncertain(
-                    execution.getTenantId(), call, execution, attempt, present, now)) {
-                if (present) {
+            PullTaskRosterObservation observation = observation(snapshot, attempt);
+            PullTaskUncertainParticipantSettlement settlement =
+                    new PullTaskUncertainParticipantSettlement(
+                            new PullTaskUncertainParticipantSettlement.Context(
+                                    execution.getTenantId(), call, execution),
+                            attempt, observation, now);
+            if (participantResultService.settleUncertain(settlement)) {
+                if (observation == PullTaskRosterObservation.PRESENT) {
                     confirmed++;
                 } else {
                     released++;
                 }
             }
         }
-        if (decision.finish()
-                && resources.callMapper().finishRosterCheck(
-                call.getId(), PullTaskPullCallRosterCheckStatus.CLAIMED.code(),
-                snapshot.status().code(), now) != 1) {
-            throw new IllegalStateException("异常批次名单核实完成状态写入失败");
+        if (decision.finish()) {
+            if (resources.callMapper().finishRosterCheck(
+                    call.getId(), PullTaskPullCallRosterCheckStatus.CLAIMED.code(),
+                    snapshot.status().code(), now) != 1) {
+                throw new IllegalStateException("异常批次名单核实完成状态写入失败");
+            }
+            log.info("event=pull_call_roster_finished tenantId={} taskId={} "
+                            + "executionId={} waveId={} callId={} rosterStatus={} "
+                            + "unresolvedCount={} confirmedCount={} releasedCount={}",
+                    execution.getTenantId(), execution.getTaskId(), execution.getId(),
+                    call.getPullWaveId(), call.getId(), snapshot.status(),
+                    unresolved.size(), confirmed, released);
         }
         return new PullTaskUnknownResultReconciliationStats(confirmed, released);
+    }
+
+    private static PullTaskRosterObservation observation(
+            MemberSnapshot snapshot,
+            PullTaskPullCallMemberAttempt attempt) {
+        return switch (snapshot.status()) {
+            case SUCCEEDED -> snapshot.member(attempt.getTargetJid()) == null
+                    ? PullTaskRosterObservation.ABSENT
+                    : PullTaskRosterObservation.PRESENT;
+            case FAILED, SKIPPED -> PullTaskRosterObservation.UNAVAILABLE;
+            default -> throw new IllegalStateException("名单核实状态尚未完成");
+        };
     }
 
     private void persistMissingAsUncertain(

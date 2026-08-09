@@ -5,6 +5,7 @@ import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
+import com.armada.task.model.dto.PullTaskParticipantPlanBinding;
 import com.armada.task.model.dto.PullTaskStationBinding;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
@@ -244,13 +245,20 @@ public interface PullTaskGroupAccountMapper {
 
     /** 以角色、可用性、失败上限和空活动指针 CAS 绑定站台 attempt。 */
     int bindMembershipAttemptIfEligible(
-            @Param("binding") PullTaskParticipantAttemptBinding binding,
+            @Param("binding") PullTaskParticipantPlanBinding binding,
             @Param("guard") PullTaskParticipantAttemptBinding.Guard guard);
 
     /** 使用普通链接站台固定守卫绑定 attempt。 */
-    default int bindMembershipAttempt(PullTaskParticipantAttemptBinding binding) {
+    default int bindMembershipAttempt(PullTaskParticipantPlanBinding binding) {
         return bindMembershipAttemptIfEligible(
                 binding, PullTaskParticipantAttemptBinding.stationGuard());
+    }
+
+    /** 兼容旧单调用规划入口；真实拉手仍只在提交阶段写入聚合。 */
+    default int bindMembershipAttempt(PullTaskParticipantAttemptBinding binding) {
+        return bindMembershipAttempt(new PullTaskParticipantPlanBinding(
+                binding.participantId(), binding.attemptId(),
+                binding.pullCallId(), binding.now()));
     }
 
     /** 批次真实提交时记录站台最近执行拉手。 */

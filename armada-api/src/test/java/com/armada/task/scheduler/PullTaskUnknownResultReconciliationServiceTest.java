@@ -21,7 +21,6 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskFactTransition;
-import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -52,6 +51,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
     private PullTaskMaterialMemberMapper materialMapper;
     private PullTaskGroupAccountMapper accountMapper;
     private PullTaskGroupExecutionMapper executionMapper;
+    private PullTaskPullWaveProgressService waveProgress;
     private AccountProtocolLookupService accountLookup;
     private GroupMemberListPort memberListPort;
     private PullTaskUnknownResultReconciliationService service;
@@ -63,6 +63,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         materialMapper = mock(PullTaskMaterialMemberMapper.class);
         accountMapper = mock(PullTaskGroupAccountMapper.class);
         executionMapper = mock(PullTaskGroupExecutionMapper.class);
+        waveProgress = mock(PullTaskPullWaveProgressService.class);
         accountLookup = mock(AccountProtocolLookupService.class);
         memberListPort = mock(GroupMemberListPort.class);
         service = new PullTaskUnknownResultReconciliationService(
@@ -70,8 +71,11 @@ class PullTaskUnknownResultReconciliationServiceTest {
                         actionMapper, callMapper,
                         mock(PullTaskPullCallMemberAttemptMapper.class),
                         materialMapper, accountMapper),
-                accountLookup, memberListPort, executionMapper,
-                mock(PullTaskPullCallReconciliationService.class));
+                accountLookup, memberListPort,
+                new PullTaskUnknownResultCoordination(
+                        executionMapper,
+                        mock(PullTaskPullCallReconciliationService.class),
+                        waveProgress));
     }
 
     @Test
@@ -88,6 +92,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 PullTaskMaterialPullStatus.UNKNOWN.code());
         PullTaskPullCall call = call(31L, PullTaskPullCallStatus.SUBMITTED.code(), 20_000L);
         call.setPullerGroupAccountId(puller.getId());
+        call.setPullWaveId(71L);
         stubRows(execution.getId(), List.of(manager, puller), List.of(material), List.of(call));
         when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
@@ -98,7 +103,6 @@ class PullTaskUnknownResultReconciliationServiceTest {
         when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(0);
         when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
         when(callMapper.transitionResult(any())).thenReturn(1);
-        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
         PullTaskUnknownResultReconciliationStats stats =
                 service.reconcile(execution, CUTOFF, NOW);
@@ -113,12 +117,8 @@ class PullTaskUnknownResultReconciliationServiceTest {
         verify(callMapper).transitionResult(callChange.capture());
         assertThat(callChange.getValue().targetStatus())
                 .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
-        ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
-                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
-        verify(executionMapper).transitionProtocolResult(executionChange.capture());
-        assertThat(executionChange.getValue().nextPullerIndex()).isEqualTo(3);
-        assertThat(executionChange.getValue().targetStage())
-                .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
+        verify(waveProgress).wakeCollecting(7L, execution.getId(), 71L, NOW);
+        verify(executionMapper, never()).transitionProtocolResult(any());
         assertThat(stats.confirmed()).isEqualTo(2);
     }
 

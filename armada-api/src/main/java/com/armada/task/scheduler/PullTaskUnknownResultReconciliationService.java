@@ -67,19 +67,20 @@ public class PullTaskUnknownResultReconciliationService {
     private final GroupMemberListPort memberListPort;
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskPullCallReconciliationService pullCallReconciliationService;
+    private final PullTaskPullWaveProgressService waveProgress;
 
     /** 构造未知结果收敛服务。 */
     public PullTaskUnknownResultReconciliationService(
             PullTaskUnknownResultResources resources,
             AccountProtocolLookupService accountLookup,
             GroupMemberListPort memberListPort,
-            PullTaskGroupExecutionMapper executionMapper,
-            PullTaskPullCallReconciliationService pullCallReconciliationService) {
+            PullTaskUnknownResultCoordination coordination) {
         this.resources = resources;
         this.accountLookup = accountLookup;
         this.memberListPort = memberListPort;
-        this.executionMapper = executionMapper;
-        this.pullCallReconciliationService = pullCallReconciliationService;
+        this.executionMapper = coordination.executionMapper();
+        this.pullCallReconciliationService = coordination.pullCalls();
+        this.waveProgress = coordination.waveProgress();
     }
 
     /**
@@ -195,7 +196,7 @@ public class PullTaskUnknownResultReconciliationService {
                         call.getId(), CALL_OPEN, PullTaskPullCallStatus.WRITTEN_BACK.code(),
                         PullTaskFactResult.empty(), context.now()));
                 context.counter().confirm(changed);
-                wakeAfterSubmittedCall(execution, call, accounts, changed, context.now());
+                wakeAfterSubmittedCall(execution, call, changed, context.now());
             } else if (stale) {
                 int changed = resources.callMapper().transitionResult(transition(
                         call.getId(), List.of(PullTaskPullCallStatus.SUBMITTED.code()),
@@ -203,7 +204,7 @@ public class PullTaskUnknownResultReconciliationService {
                                 UNCONFIRMED, "批量拉人存在待查询或回调确认的结果"),
                         context.now()));
                 context.counter().unknown(changed);
-                wakeAfterSubmittedCall(execution, call, accounts, changed, context.now());
+                wakeAfterSubmittedCall(execution, call, changed, context.now());
             }
         }
     }
@@ -211,7 +212,6 @@ public class PullTaskUnknownResultReconciliationService {
     private void wakeAfterSubmittedCall(
             PullTaskGroupExecution execution,
             PullTaskPullCall call,
-            List<PullTaskGroupAccount> accounts,
             int callChanged,
             long now) {
         if (callChanged != 1
@@ -222,17 +222,16 @@ public class PullTaskUnknownResultReconciliationService {
                 || execution.getVersion() == null) {
             return;
         }
-        int cursor = accounts.stream()
-                .filter(row -> Objects.equals(row.getId(), call.getPullerGroupAccountId()))
-                .map(PullTaskGroupAccount::getRoleSeq)
-                .filter(Objects::nonNull)
-                .mapToInt(roleSeq -> Math.addExact(roleSeq, 1))
-                .findFirst().orElse(0);
+        if (call.getPullWaveId() != null) {
+            waveProgress.wakeCollecting(
+                    execution.getTenantId(), execution.getId(), call.getPullWaveId(), now);
+            return;
+        }
         executionMapper.transitionProtocolResult(new PullTaskExecutionResultTransition(
                 execution.getId(), execution.getTaskId(), execution.getVersion(),
                 PullTaskExecutionStatus.EXECUTING.code(),
                 PullTaskExecutionStage.PULL_EXECUTION.code(),
-                PullTaskExecutionStage.PULL_EXECUTION.code(), cursor, 0L, now));
+                PullTaskExecutionStage.PULL_EXECUTION.code(), null, now, now));
     }
 
     private void reconcileMaterials(

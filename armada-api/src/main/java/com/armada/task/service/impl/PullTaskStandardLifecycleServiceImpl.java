@@ -14,6 +14,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskStandardStatus;
@@ -45,6 +46,9 @@ public class PullTaskStandardLifecycleServiceImpl
     private static final Set<String> ENDABLE_STATUSES = Set.of(
             PullTaskStandardStatus.EXECUTING.name(),
             PullTaskStandardStatus.PAUSED.name());
+    private static final List<Integer> ACTIVE_WAVE_STATUSES = List.of(
+            PullTaskPullWaveStatus.DISPATCHING.code(),
+            PullTaskPullWaveStatus.COLLECTING.code());
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardLifecycleResources resources;
@@ -135,71 +139,74 @@ public class PullTaskStandardLifecycleServiceImpl
                 taskId, null, PullTaskActionStatus.SUBMITTED.code(),
                 PullTaskActionStatus.UNKNOWN.code(),
                 ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), now);
-        resources.materialMapper().cancelUnconsumedByTask(
+        resources.pull().materialMapper().cancelUnconsumedByTask(
                 taskId, PullTaskMaterialPullStatus.UNCONSUMED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(), now);
-        resources.materialMapper().cancelPlannedByTask(
+        resources.pull().materialMapper().cancelPlannedByTask(
                 taskId, PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(), now);
-        resources.accountMapper().cancelPlannedStationMembershipByTask(
+        resources.pull().accountMapper().cancelPlannedStationMembershipByTask(
                 taskId, PullTaskGroupAccountRole.STATION.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
                 now);
-        resources.attemptMapper().cancelPlannedByTask(
+        resources.pull().attemptMapper().cancelPlannedByTask(
                 taskId, PullTaskParticipantAttemptStatus.PLANNED.code(),
                 PullTaskParticipantAttemptStatus.CANCELED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskParticipantExecutionState.NOT_STARTED.name(),
                 LIFECYCLE_CANCELED, LIFECYCLE_CANCELED_MESSAGE, now);
-        resources.materialMapper().cancelPendingAdminByTask(
+        resources.pull().materialMapper().cancelPendingAdminByTask(
                 taskId, PullTaskMaterialAdminStatus.PENDING.code(),
                 PullTaskMaterialAdminStatus.CANCELED.code(), now);
-        resources.materialMapper().cancelUnpublishedSubmittedPull(
+        resources.pull().materialMapper().cancelUnpublishedSubmittedPull(
                 taskId, null, PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(),
                 ProtocolCommandOutboxStatus.CANCELED.code(), true, now);
-        resources.materialMapper().cancelUnpublishedSubmittedPull(
+        resources.pull().materialMapper().cancelUnpublishedSubmittedPull(
                 taskId, null, PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskMaterialPullStatus.UNKNOWN.code(),
                 ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), false, now);
-        resources.accountMapper().cancelUnpublishedSubmittedStationMembership(
+        resources.pull().accountMapper().cancelUnpublishedSubmittedStationMembership(
                 taskId, null, PullTaskGroupAccountRole.STATION.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
                 ProtocolCommandOutboxStatus.CANCELED.code(), true, now);
-        resources.accountMapper().cancelUnpublishedSubmittedStationMembership(
+        resources.pull().accountMapper().cancelUnpublishedSubmittedStationMembership(
                 taskId, null, PullTaskGroupAccountRole.STATION.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.UNKNOWN.code(),
                 ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), false, now);
-        resources.attemptMapper().cancelUnpublishedSubmitted(
+        resources.pull().attemptMapper().cancelUnpublishedSubmitted(
                 taskId, null, PullTaskParticipantAttemptStatus.SUBMITTED.code(),
                 PullTaskParticipantAttemptStatus.CANCELED.code(),
                 ProtocolCommandOutboxStatus.CANCELED.code(),
                 PullTaskParticipantExecutionState.NOT_STARTED.name(),
                 LIFECYCLE_CANCELED, LIFECYCLE_CANCELED_MESSAGE, now);
-        resources.materialMapper().cancelUnpublishedSubmittedAdmin(
+        resources.pull().materialMapper().cancelUnpublishedSubmittedAdmin(
                 taskId, null, PullTaskMaterialAdminStatus.SUBMITTED.code(),
                 PullTaskMaterialAdminStatus.CANCELED.code(),
                 ProtocolCommandOutboxStatus.CANCELED.code(), now);
-        resources.materialMapper().cancelUnpublishedSubmittedAdmin(
+        resources.pull().materialMapper().cancelUnpublishedSubmittedAdmin(
                 taskId, null, PullTaskMaterialAdminStatus.SUBMITTED.code(),
                 PullTaskMaterialAdminStatus.UNKNOWN.code(),
                 ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), now);
-        resources.pullCallMapper().cancelPlannedByTask(
+        resources.pull().pullCallMapper().cancelPlannedByTask(
                 taskId, PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskPullCallStatus.CANCELED.code(), now);
-        resources.pullCallMapper().cancelUnpublishedSubmitted(
+        resources.pull().pullCallMapper().cancelUnpublishedSubmitted(
                 taskId, null, PullTaskPullCallStatus.SUBMITTED.code(),
                 PullTaskPullCallStatus.CANCELED.code(),
                 ProtocolCommandOutboxStatus.CANCELED.code(), now);
-        resources.pullCallMapper().cancelUnpublishedSubmitted(
+        resources.pull().pullCallMapper().cancelUnpublishedSubmitted(
                 taskId, null, PullTaskPullCallStatus.SUBMITTED.code(),
                 PullTaskPullCallStatus.UNKNOWN.code(),
                 ProtocolCommandOutboxStatus.CANCEL_REQUESTED.code(), now);
+        resources.pull().waveMapper().cancelByTask(
+                taskId, ACTIVE_WAVE_STATUSES,
+                PullTaskPullWaveStatus.CANCELED.code(), now);
     }
 
     private void transition(
@@ -237,7 +244,7 @@ public class PullTaskStandardLifecycleServiceImpl
     }
 
     private void releasePullers(long taskId, long now) {
-        resources.accountMapper().releaseAllPullersOfTask(
+        resources.pull().accountMapper().releaseAllPullersOfTask(
                 taskId, PullTaskGroupAccountRole.PULLER.code(), now);
     }
 }

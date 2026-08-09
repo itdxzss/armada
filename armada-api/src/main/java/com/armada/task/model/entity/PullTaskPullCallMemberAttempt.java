@@ -10,11 +10,13 @@ public class PullTaskPullCallMemberAttempt {
     private Long taskId;
     private Long groupExecutionId;
     private Long pullCallId;
+    private Long pullWaveId;
     private Integer participantType;
     private Long participantRefId;
     private String targetPhone;
     private String targetJid;
     private Long pullerGroupAccountId;
+    private Long pullerAssignmentSeq;
     private Integer attemptNo;
     private Long failureCountBefore;
     private Integer lifecycleStatus;
@@ -69,6 +71,14 @@ public class PullTaskPullCallMemberAttempt {
         this.pullCallId = pullCallId;
     }
 
+    public Long getPullWaveId() {
+        return pullWaveId;
+    }
+
+    public void setPullWaveId(Long pullWaveId) {
+        this.pullWaveId = pullWaveId;
+    }
+
     public Integer getParticipantType() {
         return participantType;
     }
@@ -107,6 +117,14 @@ public class PullTaskPullCallMemberAttempt {
 
     public void setPullerGroupAccountId(Long pullerGroupAccountId) {
         this.pullerGroupAccountId = pullerGroupAccountId;
+    }
+
+    public Long getPullerAssignmentSeq() {
+        return pullerAssignmentSeq;
+    }
+
+    public void setPullerAssignmentSeq(Long pullerAssignmentSeq) {
+        this.pullerAssignmentSeq = pullerAssignmentSeq;
     }
 
     public Integer getAttemptNo() {

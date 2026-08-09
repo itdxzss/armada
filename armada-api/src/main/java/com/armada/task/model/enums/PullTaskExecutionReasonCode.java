@@ -36,6 +36,9 @@ public enum PullTaskExecutionReasonCode {
     /** WhatsApp 明确通知目标群已暂停或终止。 */
     GROUP_BANNED("群已被封禁"),
 
+    /** 协议明确通知目标群已满、不存在、不可访问或无法继续拉人。 */
+    GROUP_UNAVAILABLE("群当前不可继续执行拉人"),
+
     /** 拉手分组当前没有可占用且可执行协议动作的在线正常账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),
 

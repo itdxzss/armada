@@ -7,7 +7,9 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskPlannedCallPrune;
 import com.armada.task.model.entity.PullTaskPullCall;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskPullCallRosterCheckStatus;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -169,6 +171,34 @@ class PullTaskPullCallMapperInMemoryTest {
                 .isEqualTo(PullTaskPullCallRosterCheckStatus.SUCCEEDED.code());
         assertThat(saved.getRosterCheckStartedAt()).isEqualTo(61_000L);
         assertThat(saved.getRosterCheckFinishedAt()).isEqualTo(61_100L);
+    }
+
+    @Test
+    void lateSuccessPrunesOnlyOneParticipantAndCancelsOnlyAnEmptyPlannedCall() {
+        PullTaskPullCall call = planned(1, "idem-1");
+        call.setPlannedMaterialCount(1);
+        call.setPlannedStationCount(1);
+        mapper.insertPlanned(call);
+
+        assertThat(mapper.prunePlannedParticipant(new PullTaskPlannedCallPrune(
+                call.getId(), PullTaskParticipantType.MATERIAL.code(),
+                PullTaskPullCallStatus.PLANNED.code(), 1_000L))).isEqualTo(1);
+        PullTaskPullCall afterMaterial = mapper.selectByExecution(EXECUTION).get(0);
+        assertThat(afterMaterial.getPlannedMaterialCount()).isZero();
+        assertThat(afterMaterial.getPlannedStationCount()).isEqualTo(1);
+        assertThat(afterMaterial.getCallStatus())
+                .isEqualTo(PullTaskPullCallStatus.PLANNED.code());
+
+        assertThat(mapper.prunePlannedParticipant(new PullTaskPlannedCallPrune(
+                call.getId(), PullTaskParticipantType.STATION.code(),
+                PullTaskPullCallStatus.PLANNED.code(), 2_000L))).isEqualTo(1);
+        PullTaskPullCall emptyCall = mapper.selectByExecution(EXECUTION).get(0);
+        assertThat(emptyCall.getPlannedMaterialCount()).isZero();
+        assertThat(emptyCall.getPlannedStationCount()).isZero();
+        assertThat(emptyCall.getCallStatus())
+                .isEqualTo(PullTaskPullCallStatus.CANCELED.code());
+        assertThat(emptyCall.getReasonCode()).isEqualTo("LATE_PARTICIPANT_SUCCESS");
+        assertThat(emptyCall.getResultAt()).isEqualTo(2_000L);
     }
 
     @Test

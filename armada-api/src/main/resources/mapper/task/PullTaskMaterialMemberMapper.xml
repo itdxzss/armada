@@ -43,6 +43,22 @@
     LIMIT #{limit}
   </select>
 
+  <select id="selectInitialWaveCandidatesByStatus"
+          resultType="com.armada.task.model.dto.PullTaskPullWaveCandidate">
+    SELECT #{participantType} AS participant_type,
+           id AS participant_ref_id,
+           normalized_phone AS target_phone,
+           wa_jid AS target_jid,
+           pull_failure_count AS failure_count
+    FROM pull_task_material_member
+    WHERE group_execution_id = #{groupExecutionId}
+      AND pull_status = #{pullStatus}
+      AND pull_call_id IS NULL
+      AND active_pull_attempt_id IS NULL
+      AND pull_failure_count &lt; #{maxFailureCount}
+    ORDER BY member_seq ASC, id ASC
+  </select>
+
   <!-- 只绑定仍未消费的行；返回行数不足时调用方必须放弃本次调用重新取料。 -->
   <update id="assignToCallIfStatus">
     UPDATE pull_task_material_member

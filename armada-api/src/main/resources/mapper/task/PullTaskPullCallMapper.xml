@@ -2,23 +2,31 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskPullCallMapper">
 
+  <sql id="BaseColumns">
+    id, tenant_id, task_id, group_execution_id, pull_wave_id, call_seq, wave_call_seq,
+    puller_group_account_id, puller_account_id, puller_assignment_seq,
+    planned_material_count, planned_station_count, call_status, roster_check_status,
+    roster_check_started_at, roster_check_finished_at, command_id, idempotency_key,
+    reason_code, reason_message, submitted_at, result_at, created_at, updated_at
+  </sql>
+
   <!-- tenant_id 由租户拦截器注入；写入即为"计划"状态，命令尚未发出。 -->
   <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_pull_call (
-      task_id, group_execution_id, call_seq,
-      puller_group_account_id, puller_account_id,
+      task_id, group_execution_id, pull_wave_id, call_seq, wave_call_seq,
+      puller_group_account_id, puller_account_id, puller_assignment_seq,
       planned_material_count, planned_station_count,
       call_status, idempotency_key, created_at, updated_at
     ) VALUES (
-      #{taskId}, #{groupExecutionId}, #{callSeq},
-      #{pullerGroupAccountId}, #{pullerAccountId},
+      #{taskId}, #{groupExecutionId}, #{pullWaveId}, #{callSeq}, #{waveCallSeq},
+      #{pullerGroupAccountId}, #{pullerAccountId}, #{pullerAssignmentSeq},
       #{plannedMaterialCount}, #{plannedStationCount},
       #{callStatus}, #{idempotencyKey}, #{createdAt}, #{updatedAt}
     )
   </insert>
 
   <select id="selectByExecution" resultType="com.armada.task.model.entity.PullTaskPullCall">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call
     WHERE group_execution_id = #{groupExecutionId}
     ORDER BY call_seq ASC
@@ -26,11 +34,19 @@
 
   <select id="selectByExecutionAndStatus"
           resultType="com.armada.task.model.entity.PullTaskPullCall">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call
     WHERE group_execution_id = #{groupExecutionId}
       AND call_status = #{callStatus}
     ORDER BY call_seq ASC
+  </select>
+
+  <select id="selectByWaveAndSeq"
+          resultType="com.armada.task.model.entity.PullTaskPullCall">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_pull_call
+    WHERE pull_wave_id = #{pullWaveId}
+      AND wave_call_seq = #{waveCallSeq}
   </select>
 
   <!-- 走 idx_pull_task_call_puller_time (tenant_id, puller_account_id, submitted_at, id)。 -->
@@ -61,6 +77,77 @@
       AND call_status = #{reassignment.expectedStatus}
   </update>
 
+  <update id="bindPlannedPuller">
+    UPDATE pull_task_pull_call
+    SET puller_group_account_id = #{binding.target.pullerGroupAccountId},
+        puller_account_id = #{binding.target.pullerAccountId},
+        puller_assignment_seq = #{binding.target.assignmentSeq},
+        updated_at = #{binding.now}
+    WHERE id = #{binding.scope.pullCallId}
+      AND ((#{binding.scope.expectedPullerGroupAccountId} IS NULL
+            AND puller_group_account_id IS NULL)
+        OR puller_group_account_id = #{binding.scope.expectedPullerGroupAccountId})
+      AND call_status = #{binding.scope.expectedCallStatus}
+  </update>
+
+  <update id="prunePlannedParticipant">
+    UPDATE pull_task_pull_call
+    SET planned_material_count = planned_material_count
+          - CASE WHEN #{prune.participantType} = #{prune.target.materialParticipantType}
+            THEN 1 ELSE 0 END,
+        planned_station_count = planned_station_count
+          - CASE WHEN #{prune.participantType} = #{prune.target.stationParticipantType}
+            THEN 1 ELSE 0 END,
+        call_status = CASE
+          WHEN planned_material_count + planned_station_count = 1
+            THEN #{prune.target.canceledCallStatus}
+          ELSE call_status
+        END,
+        reason_code = CASE
+          WHEN planned_material_count + planned_station_count = 1
+            THEN #{prune.target.emptyCallReasonCode}
+          ELSE reason_code
+        END,
+        reason_message = CASE
+          WHEN planned_material_count + planned_station_count = 1
+            THEN #{prune.target.emptyCallReasonMessage}
+          ELSE reason_message
+        END,
+        result_at = CASE
+          WHEN planned_material_count + planned_station_count = 1 THEN #{prune.now}
+          ELSE result_at
+        END,
+        updated_at = #{prune.now}
+    WHERE id = #{prune.pullCallId}
+      AND call_status = #{prune.expectedCallStatus}
+      AND ((#{prune.participantType} = #{prune.target.materialParticipantType}
+            AND planned_material_count &gt; 0)
+        OR (#{prune.participantType} = #{prune.target.stationParticipantType}
+            AND planned_station_count &gt; 0))
+  </update>
+
+  <update id="attachOpenLegacyCallsToWave">
+    UPDATE pull_task_pull_call
+    SET pull_wave_id = #{binding.target.pullWaveId},
+        wave_call_seq = #{binding.target.waveCallSeq},
+        updated_at = #{binding.now}
+    WHERE id = #{binding.scope.callId}
+      AND group_execution_id = #{binding.scope.groupExecutionId}
+      AND pull_wave_id IS NULL
+      AND call_status IN
+      <foreach collection="binding.scope.expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="bindLegacyPullerGeneration">
+    UPDATE pull_task_pull_call
+    SET puller_assignment_seq = #{binding.assignmentSeq},
+        updated_at = #{binding.now}
+    WHERE id = #{binding.pullCallId}
+      AND puller_group_account_id = #{binding.pullerGroupAccountId}
+      AND puller_assignment_seq IS NULL
+  </update>
+
   <update id="transitionResult">
     UPDATE pull_task_pull_call
     SET call_status = #{transition.targetStatus},
@@ -75,7 +162,7 @@
   </update>
 
   <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskPullCall">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_pull_call
     WHERE command_id = #{commandId}
   </select>

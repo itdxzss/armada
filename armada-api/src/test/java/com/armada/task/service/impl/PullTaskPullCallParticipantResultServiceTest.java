@@ -2,7 +2,10 @@ package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -17,10 +20,11 @@ import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
-import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
+import com.armada.task.model.dto.PullTaskPlannedCallPrune;
+import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
@@ -38,8 +42,11 @@ import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
+import com.armada.task.model.enums.PullTaskRosterObservation;
 import com.armada.task.scheduler.PullTaskUnknownResultResources;
-import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskPullWaveProgressService;
+import com.armada.task.scheduler.PullTaskStickyPullerTransactionService;
+import com.armada.task.service.PullTaskGroupExecutionFailureService;
 import java.util.List;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -64,7 +71,9 @@ class PullTaskPullCallParticipantResultServiceTest {
     private PullTaskGroupAccountMapper accountMapper;
     private PullTaskGroupExecutionMapper executionMapper;
     private PullTaskStandardSettingMapper settingMapper;
-    private PullTaskOperationDelayPolicy delayPolicy;
+    private PullTaskStickyPullerTransactionService stickyPullers;
+    private PullTaskGroupExecutionFailureService groupFailure;
+    private PullTaskPullWaveProgressService waveProgress;
     private PullTaskPullCallParticipantResultService service;
 
     @BeforeEach
@@ -75,12 +84,16 @@ class PullTaskPullCallParticipantResultServiceTest {
         accountMapper = mock(PullTaskGroupAccountMapper.class);
         executionMapper = mock(PullTaskGroupExecutionMapper.class);
         settingMapper = mock(PullTaskStandardSettingMapper.class);
-        delayPolicy = mock(PullTaskOperationDelayPolicy.class);
+        stickyPullers = mock(PullTaskStickyPullerTransactionService.class);
+        groupFailure = mock(PullTaskGroupExecutionFailureService.class);
+        waveProgress = mock(PullTaskPullWaveProgressService.class);
         service = new PullTaskPullCallParticipantResultService(
                 new PullTaskUnknownResultResources(
                         mock(PullTaskAccountActionMapper.class), callMapper, attemptMapper,
                         materialMapper, accountMapper),
-                executionMapper, settingMapper, delayPolicy);
+                executionMapper, settingMapper,
+                new PullTaskPullCallResultCoordination(
+                        stickyPullers, groupFailure, waveProgress));
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call());
         when(executionMapper.selectById(21L)).thenReturn(execution());
         when(accountMapper.selectByExecutionAndRole(
@@ -221,8 +234,9 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
-    void lastTerminalAttemptClosesCallAndWakesExecutionOnce() {
+    void lastTerminalAttemptClosesCallAndWakesCollectingWaveOnce() {
         PullTaskPullCall call = call();
+        call.setPullWaveId(71L);
         call.setPlannedMaterialCount(1);
         call.setPlannedStationCount(0);
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
@@ -235,10 +249,6 @@ class PullTaskPullCallParticipantResultServiceTest {
         when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
         when(attemptMapper.selectByCall(31L)).thenReturn(List.of(closed));
         when(callMapper.transitionResult(any())).thenReturn(1);
-        when(materialMapper.selectPendingAdmin(any(Long.class), any(Integer.class),
-                any(Integer.class), any(Integer.class))).thenReturn(List.of());
-        when(materialMapper.selectUnconsumed(21L, 1)).thenReturn(List.of());
-        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.SUCCESS,
@@ -249,12 +259,8 @@ class PullTaskPullCallParticipantResultServiceTest {
         verify(callMapper).transitionResult(callChange.capture());
         assertThat(callChange.getValue().targetStatus())
                 .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
-        ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
-                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
-        verify(executionMapper).transitionProtocolResult(executionChange.capture());
-        assertThat(executionChange.getValue().targetStage())
-                .isEqualTo(PullTaskExecutionStage.CLOSING.code());
-        assertThat(executionChange.getValue().nextPullerIndex()).isNull();
+        verify(waveProgress).wakeCollecting(7L, 21L, 71L, 5_000L);
+        verify(executionMapper, never()).transitionProtocolResult(any());
     }
 
     @Test
@@ -338,7 +344,7 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
-    void lateSuccessCancelsWholeNewerPlannedCallBeforePromotion() {
+    void lateSuccessPrunesOnlyItsNewerPlannedAttemptBeforePromotion() {
         PullTaskPullCallMemberAttempt oldAttempt = stubAttempt(
                 PullTaskParticipantType.MATERIAL, 1L,
                 PullTaskParticipantAttemptStatus.RELEASED,
@@ -356,21 +362,18 @@ class PullTaskPullCallParticipantResultServiceTest {
         newerStation.setParticipantRefId(52L);
         PullTaskMaterialMember material = aggregateMaterial(
                 PullTaskMaterialPullStatus.SUBMITTED.code(), 1L, 42L);
-        PullTaskGroupAccount station = aggregateStation(52L, 43L);
         PullTaskPullCall newerCall = call();
         newerCall.setId(32L);
         newerCall.setCallStatus(PullTaskPullCallStatus.PLANNED.code());
+        newerCall.setPlannedMaterialCount(1);
+        newerCall.setPlannedStationCount(1);
         when(materialMapper.selectByExecution(21L)).thenReturn(List.of(material));
-        when(accountMapper.selectById(52L)).thenReturn(station);
         when(attemptMapper.selectById(42L)).thenReturn(newerMaterial);
-        when(attemptMapper.selectByCall(32L))
-                .thenReturn(List.of(newerMaterial, newerStation));
         when(callMapper.selectByExecution(21L)).thenReturn(List.of(call(), newerCall));
         when(attemptMapper.transition(any())).thenReturn(1);
         when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
-        when(accountMapper.transitionMembershipAttempt(any())).thenReturn(1);
         when(materialMapper.promotePullSuccess(any())).thenReturn(1);
-        when(callMapper.transitionResult(any())).thenReturn(1);
+        when(callMapper.prunePlannedParticipant(any())).thenReturn(1);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.SUCCESS,
@@ -378,21 +381,94 @@ class PullTaskPullCallParticipantResultServiceTest {
 
         ArgumentCaptor<PullTaskParticipantAttemptTransition> attempts =
                 ArgumentCaptor.forClass(PullTaskParticipantAttemptTransition.class);
-        verify(attemptMapper, org.mockito.Mockito.times(3)).transition(attempts.capture());
+        verify(attemptMapper, org.mockito.Mockito.times(2)).transition(attempts.capture());
         assertThat(attempts.getAllValues())
                 .extracting(row -> row.target().lifecycleStatus())
                 .containsExactly(
                         PullTaskParticipantAttemptStatus.CLOSED.code(),
-                        PullTaskParticipantAttemptStatus.CANCELED.code(),
                         PullTaskParticipantAttemptStatus.CANCELED.code());
-        ArgumentCaptor<PullTaskFactTransition> callChange =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(callMapper).transitionResult(callChange.capture());
-        assertThat(callChange.getValue().expectedStatuses())
-                .containsExactly(PullTaskPullCallStatus.PLANNED.code());
-        assertThat(callChange.getValue().targetStatus())
-                .isEqualTo(PullTaskPullCallStatus.CANCELED.code());
+        ArgumentCaptor<PullTaskPlannedCallPrune> prune =
+                ArgumentCaptor.forClass(PullTaskPlannedCallPrune.class);
+        verify(callMapper).prunePlannedParticipant(prune.capture());
+        assertThat(prune.getValue().pullCallId()).isEqualTo(32L);
+        assertThat(prune.getValue().participantType())
+                .isEqualTo(PullTaskParticipantType.MATERIAL.code());
+        verify(accountMapper, never()).transitionMembershipAttempt(any());
         verify(materialMapper).promotePullSuccess(any());
+    }
+
+    @Test
+    void needReauthMarksOfflineAndInvalidatesOnlyTheCallGeneration() {
+        stubAccountFailure("NEED_REAUTH");
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.FAILED,
+                PullTaskParticipantExecutionState.STARTED,
+                false, "NEED_REAUTH"))).isTrue();
+
+        verify(accountMapper).markUnavailable(
+                61L, PullTaskGroupAccountAvailability.OFFLINE.code(),
+                "NEED_REAUTH", null, 5_000L);
+        verify(stickyPullers).invalidateIfCurrent(
+                argThat(row -> row.getId() == 21L),
+                argThat(row -> row.getId() == 31L),
+                eq("NEED_REAUTH"), eq(5_000L));
+    }
+
+    @Test
+    void rateLimitedMarksRiskCooldownAndInvalidatesOnlyTheCallGeneration() {
+        stubAccountFailure("RATE_LIMITED");
+        PullTaskStandardSetting setting = new PullTaskStandardSetting();
+        setting.setPullerRiskMinutes(5);
+        when(settingMapper.selectByTaskId(11L)).thenReturn(setting);
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.NOT_STARTED,
+                true, "RATE_LIMITED"))).isTrue();
+
+        verify(accountMapper).markUnavailable(
+                61L, PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
+                "RATE_LIMITED", 305_000L, 5_000L);
+        verify(stickyPullers).invalidateIfCurrent(
+                argThat(row -> row.getId() == 21L),
+                argThat(row -> row.getId() == 31L),
+                eq("RATE_LIMITED"), eq(5_000L));
+    }
+
+    @Test
+    void groupPermissionDeniedRemovesPullerOnlyFromThisExecution() {
+        stubAccountFailure("GROUP_PERMISSION_DENIED");
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.FAILED,
+                PullTaskParticipantExecutionState.STARTED,
+                false, "GROUP_PERMISSION_DENIED"))).isTrue();
+
+        verify(accountMapper).markUnavailable(
+                61L, PullTaskGroupAccountAvailability.REMOVED.code(),
+                "GROUP_PERMISSION_DENIED", null, 5_000L);
+        verify(stickyPullers).invalidateIfCurrent(
+                argThat(row -> row.getId() == 21L),
+                argThat(row -> row.getId() == 31L),
+                eq("GROUP_PERMISSION_DENIED"), eq(5_000L));
+    }
+
+    @Test
+    void groupUnavailableTerminatesExecutionWithoutRotatingPuller() {
+        stubAccountFailure("GROUP_UNAVAILABLE");
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.FAILED,
+                PullTaskParticipantExecutionState.STARTED,
+                false, "GROUP_UNAVAILABLE"))).isTrue();
+
+        verify(groupFailure).terminate(
+                7L, 21L,
+                com.armada.task.model.enums.PullTaskExecutionReasonCode.GROUP_UNAVAILABLE,
+                5_000L);
+        verify(stickyPullers, never()).invalidateIfCurrent(
+                any(), any(), any(), anyLong());
     }
 
     @Test
@@ -404,8 +480,8 @@ class PullTaskPullCallParticipantResultServiceTest {
         when(attemptMapper.transition(any())).thenReturn(1);
         when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
 
-        assertThat(service.settleUncertain(
-                7L, call(), execution(), attempt, true, 6_000L)).isTrue();
+        assertThat(service.settleUncertain(settlement(
+                attempt, PullTaskRosterObservation.PRESENT, 6_000L))).isTrue();
 
         PullTaskParticipantAttemptTransition attemptChange = capturedAttempt();
         assertThat(attemptChange.target().lifecycleStatus())
@@ -427,8 +503,8 @@ class PullTaskPullCallParticipantResultServiceTest {
         when(attemptMapper.transition(any())).thenReturn(1);
         when(accountMapper.transitionMembershipAttempt(any())).thenReturn(1);
 
-        assertThat(service.settleUncertain(
-                7L, call(), execution(), attempt, false, 6_000L)).isTrue();
+        assertThat(service.settleUncertain(settlement(
+                attempt, PullTaskRosterObservation.ABSENT, 6_000L))).isTrue();
 
         PullTaskParticipantAttemptTransition attemptChange = capturedAttempt();
         assertThat(attemptChange.target().lifecycleStatus())
@@ -442,75 +518,74 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
-    void bulkCallSamplesSilenceOnceOnlyWhenWinningClosureCanRunAnotherSideEffect() {
-        PullTaskPullCall call = call();
-        call.setPlannedMaterialCount(1);
-        call.setPlannedStationCount(0);
-        call.setSubmittedAt(1_000L);
-        when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
+    void rosterUnavailableClosesAttemptAsFinalUnknownWithoutFailureCount() {
         PullTaskPullCallMemberAttempt attempt = stubAttempt(
-                PullTaskParticipantType.MATERIAL, 0L,
-                PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
-        PullTaskPullCallMemberAttempt closed = copyAttempt(
-                attempt, PullTaskParticipantAttemptStatus.CLOSED);
-        closed.setExecutionState(PullTaskParticipantExecutionState.STARTED);
+                PullTaskParticipantType.MATERIAL, 2L,
+                PullTaskParticipantAttemptStatus.SUBMITTED,
+                "UNKNOWN", PullTaskParticipantExecutionState.UNCERTAIN);
         when(attemptMapper.transition(any())).thenReturn(1);
         when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
-        when(attemptMapper.selectByCall(31L)).thenReturn(List.of(closed));
-        when(callMapper.transitionResult(any())).thenReturn(1);
-        when(materialMapper.selectPendingAdmin(any(Long.class), any(Integer.class),
-                any(Integer.class), any(Integer.class))).thenReturn(List.of());
-        when(materialMapper.selectUnconsumed(21L, 1))
-                .thenReturn(List.of(aggregateMaterial(
-                        PullTaskMaterialPullStatus.UNCONSUMED.code(), 0L, null)));
-        PullTaskStandardSetting setting = new PullTaskStandardSetting();
-        setting.setPullIntervalSeconds(2);
-        when(settingMapper.selectByTaskId(11L)).thenReturn(setting);
-        when(delayPolicy.maxDeadline(3_000L, 5_000L)).thenReturn(9_000L);
-        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
+
+        assertThat(service.settleUncertain(settlement(
+                attempt, PullTaskRosterObservation.UNAVAILABLE, 6_000L))).isTrue();
+
+        PullTaskParticipantAttemptTransition attemptChange = capturedAttempt();
+        assertThat(attemptChange.target().lifecycleStatus())
+                .isEqualTo(PullTaskParticipantAttemptStatus.CLOSED.code());
+        assertThat(attemptChange.target().protocolOutcome()).isEqualTo("UNKNOWN");
+        PullTaskParticipantAggregateTransition aggregate =
+                capturedAggregate(PullTaskParticipantType.MATERIAL);
+        assertThat(aggregate.target().status())
+                .isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code());
+        assertThat(aggregate.target().failureCount()).isEqualTo(2L);
+        assertThat(aggregate.target().activeAttemptId()).isNull();
+    }
+
+    @Test
+    void lateSuccessAfterFinalUnknownPromotesFactWithoutWakingSettledWave() {
+        PullTaskPullCall settledCall = call();
+        settledCall.setCallStatus(PullTaskPullCallStatus.WRITTEN_BACK.code());
+        settledCall.setPullWaveId(71L);
+        when(callMapper.selectByCommandId("cmd-call")).thenReturn(settledCall);
+        PullTaskPullCallMemberAttempt attempt = stubAttempt(
+                PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.CLOSED,
+                "UNKNOWN", PullTaskParticipantExecutionState.UNCERTAIN);
+        attempt.setReasonCode("ROSTER_QUERY_UNAVAILABLE");
+        PullTaskMaterialMember material = aggregateMaterial(
+                PullTaskMaterialPullStatus.UNKNOWN.code(), 0L, null);
+        when(materialMapper.selectByExecution(21L)).thenReturn(List.of(material));
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(materialMapper.promotePullSuccess(any())).thenReturn(1);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.SUCCESS,
                 PullTaskParticipantExecutionState.STARTED, false))).isTrue();
 
-        verify(delayPolicy).maxDeadline(3_000L, 5_000L);
-        ArgumentCaptor<PullTaskExecutionResultTransition> change =
-                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
-        verify(executionMapper).transitionProtocolResult(change.capture());
-        assertThat(change.getValue().nextRunAt()).isEqualTo(9_000L);
+        verify(materialMapper).promotePullSuccess(any());
+        verify(waveProgress, never()).wakeCollecting(anyLong(), anyLong(), anyLong(), anyLong());
     }
 
     @Test
-    void rosterOnlyClosureDoesNotSampleSideEffectSilence() {
-        PullTaskPullCall call = call();
-        call.setPlannedMaterialCount(0);
-        call.setPlannedStationCount(1);
+    void lateFailureAfterFinalUnknownUpdatesOnlyOldAttemptFact() {
+        PullTaskPullCall settledCall = call();
+        settledCall.setCallStatus(PullTaskPullCallStatus.WRITTEN_BACK.code());
+        settledCall.setPullWaveId(71L);
+        when(callMapper.selectByCommandId("cmd-call")).thenReturn(settledCall);
         PullTaskPullCallMemberAttempt attempt = stubAttempt(
-                PullTaskParticipantType.STATION, 0L,
-                PullTaskParticipantAttemptStatus.SUBMITTED,
+                PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.CLOSED,
                 "UNKNOWN", PullTaskParticipantExecutionState.UNCERTAIN);
-        PullTaskPullCallMemberAttempt released = copyAttempt(
-                attempt, PullTaskParticipantAttemptStatus.RELEASED);
-        released.setExecutionState(PullTaskParticipantExecutionState.UNCERTAIN);
+        attempt.setReasonCode("ROSTER_QUERY_UNAVAILABLE");
         when(attemptMapper.transition(any())).thenReturn(1);
-        when(accountMapper.transitionMembershipAttempt(any())).thenReturn(1);
-        when(attemptMapper.selectByCall(31L)).thenReturn(List.of(released));
-        when(callMapper.transitionResult(any())).thenReturn(1);
-        when(materialMapper.selectPendingAdmin(any(Long.class), any(Integer.class),
-                any(Integer.class), any(Integer.class))).thenReturn(List.of());
-        when(materialMapper.selectUnconsumed(21L, 1))
-                .thenReturn(List.of(aggregateMaterial(
-                        PullTaskMaterialPullStatus.UNCONSUMED.code(), 0L, null)));
-        PullTaskStandardSetting setting = new PullTaskStandardSetting();
-        setting.setPullIntervalSeconds(0);
-        when(settingMapper.selectByTaskId(11L)).thenReturn(setting);
-        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
-        assertThat(service.settleUncertain(
-                7L, call, execution(), attempt, false, 6_000L)).isTrue();
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.FAILED,
+                PullTaskParticipantExecutionState.STARTED, false))).isTrue();
 
-        verify(delayPolicy, never()).nextSideEffectAt(anyLong());
-        verify(delayPolicy, never()).maxDeadline(anyLong(), anyLong());
+        verify(materialMapper, never()).transitionPullAttempt(any());
+        verify(materialMapper, never()).promotePullSuccess(any());
+        verify(waveProgress, never()).wakeCollecting(anyLong(), anyLong(), anyLong(), anyLong());
     }
 
     private PullTaskPullCallMemberAttempt stubAttempt(
@@ -544,6 +619,18 @@ class PullTaskPullCallParticipantResultServiceTest {
         } else {
             when(accountMapper.transitionMembershipAttempt(any())).thenReturn(changed);
         }
+    }
+
+    private void stubAccountFailure(String reasonCode) {
+        stubAttempt(PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
+        when(accountMapper.markUnavailable(
+                anyLong(), anyInt(), any(), any(), anyLong())).thenReturn(1);
+        when(stickyPullers.invalidateIfCurrent(
+                any(), any(), org.mockito.ArgumentMatchers.eq(reasonCode), anyLong()))
+                .thenReturn(true);
     }
 
     private PullTaskParticipantAttemptTransition capturedAttempt() {
@@ -596,6 +683,7 @@ class PullTaskPullCallParticipantResultServiceTest {
         call.setGroupExecutionId(21L);
         call.setPullerGroupAccountId(61L);
         call.setPullerAccountId(71L);
+        call.setPullerAssignmentSeq(1L);
         call.setCallStatus(PullTaskPullCallStatus.SUBMITTED.code());
         call.setCommandId("cmd-call");
         return call;
@@ -604,10 +692,13 @@ class PullTaskPullCallParticipantResultServiceTest {
     private static PullTaskGroupExecution execution() {
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
         execution.setId(21L);
+        execution.setTenantId(7L);
         execution.setTaskId(11L);
         execution.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         execution.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         execution.setVersion(3);
+        execution.setActivePullerGroupAccountId(61L);
+        execution.setPullerAssignmentSeq(1L);
         return execution;
     }
 
@@ -663,8 +754,26 @@ class PullTaskPullCallParticipantResultServiceTest {
             PullTaskBatchParticipantProtocolOutcome outcome,
             PullTaskParticipantExecutionState executionState,
             boolean retryable) {
+        return callback(outcome, executionState, retryable, null);
+    }
+
+    private static PullTaskBatchParticipantCallback callback(
+            PullTaskBatchParticipantProtocolOutcome outcome,
+            PullTaskParticipantExecutionState executionState,
+            boolean retryable,
+            String reasonCode) {
         return new PullTaskBatchParticipantCallback(
                 7L, 11L, 21L, 31L, 71L, "protocol-71", "cmd-call", 1,
-                TARGET, outcome, executionState, null, null, retryable, 5_000L);
+                TARGET, outcome, executionState, reasonCode, null, retryable, 5_000L);
+    }
+
+    private static PullTaskUncertainParticipantSettlement settlement(
+            PullTaskPullCallMemberAttempt attempt,
+            PullTaskRosterObservation observation,
+            long now) {
+        return new PullTaskUncertainParticipantSettlement(
+                new PullTaskUncertainParticipantSettlement.Context(
+                        7L, call(), execution()),
+                attempt, observation, now);
     }
 }

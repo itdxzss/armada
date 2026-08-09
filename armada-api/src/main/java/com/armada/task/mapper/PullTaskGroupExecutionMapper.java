@@ -10,6 +10,11 @@ import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskResourceSupplementTransition;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
+import com.armada.task.model.dto.PullTaskStickyPullerInvalidation;
+import com.armada.task.model.dto.PullTaskStickyPullerTransition;
+import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
+import com.armada.task.model.dto.PullTaskPullWaveCollectionWake;
+import com.armada.task.model.dto.PullTaskPullWaveSettlementAdvance;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -43,6 +48,7 @@ public interface PullTaskGroupExecutionMapper {
         row.setManualPaused(0);
         row.setNextManagerIndex(0);
         row.setNextPullerIndex(0);
+        row.setPullerAssignmentSeq(0L);
         row.setNextRunAt(0L);
         row.setVersion(1);
         return insertDraftInitialized(row);
@@ -290,6 +296,48 @@ public interface PullTaskGroupExecutionMapper {
                          @Param("stage") Integer stage,
                          @Param("nextRunAt") long nextRunAt,
                          @Param("now") long now);
+
+    /**
+     * 以版本和有效租约 CAS 绑定首次创建的活动拉人波次。
+     *
+     * @param id 执行行 ID
+     * @param expectedVersion 读取时版本号
+     * @param lockOwner 当前租约持有者
+     * @param pullWaveId 新活动波次 ID
+     * @param now 更新时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int bindActivePullWave(
+            @Param("id") long id,
+            @Param("expectedVersion") int expectedVersion,
+            @Param("lockOwner") String lockOwner,
+            @Param("pullWaveId") long pullWaveId,
+            @Param("now") long now);
+
+    /**
+     * 一次调用提交后推进执行行派发时钟并释放当前租约。
+     *
+     * @param advance 波次与执行行共享的派发推进参数
+     * @return 实际更新行数
+     */
+    int advancePullWaveDispatch(
+            @Param("advance") PullTaskPullWaveDispatchAdvance advance);
+
+    /** 波次结算后替换活动指针、推进阶段并释放当前租约。 */
+    int completePullWaveSettlement(
+            @Param("advance") PullTaskPullWaveSettlementAdvance advance);
+
+    /** 只唤醒身份仍匹配的收集态拉人执行行。 */
+    int wakePullWaveCollection(
+            @Param("wake") PullTaskPullWaveCollectionWake wake);
+
+    /** 以当前拉手身份和代际 CAS 分配下一粘性拉手。 */
+    int transitionStickyPuller(
+            @Param("transition") PullTaskStickyPullerTransition transition);
+
+    /** 身份和代际都匹配时清空当前拉手，代际保持不变。 */
+    int clearStickyPuller(
+            @Param("invalidation") PullTaskStickyPullerInvalidation invalidation);
 
     /** 向任务下全部非终态执行行传播或解除人工暂停标记。 */
     int applyManualChange(@Param("change") PullTaskExecutionManualChange change);

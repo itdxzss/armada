@@ -2,39 +2,70 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskGroupExecutionMapper">
 
+  <sql id="BaseColumns">
+    id, tenant_id, task_id, seq, group_link_id, normalized_link, invite_code,
+    source_link_line_no, group_jid, source_file_index, source_file_name,
+    total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
+    execution_status, stage, manual_paused, wait_resource_type, reason_code, reason_message,
+    next_manager_index, next_puller_index, active_pull_wave_id,
+    active_puller_group_account_id, puller_assignment_seq, next_run_at,
+    lock_owner, lock_expires_at, version, started_at, finished_at,
+    last_business_executed_at, created_at, updated_at
+  </sql>
+
+  <sql id="ExecutionRowColumns">
+    execution_row.id, execution_row.tenant_id, execution_row.task_id, execution_row.seq,
+    execution_row.group_link_id, execution_row.normalized_link, execution_row.invite_code,
+    execution_row.source_link_line_no, execution_row.group_jid,
+    execution_row.source_file_index, execution_row.source_file_name,
+    execution_row.total_line_count, execution_row.valid_member_count,
+    execution_row.invalid_line_count, execution_row.duplicate_line_count,
+    execution_row.execution_status, execution_row.stage, execution_row.manual_paused,
+    execution_row.wait_resource_type, execution_row.reason_code, execution_row.reason_message,
+    execution_row.next_manager_index, execution_row.next_puller_index,
+    execution_row.active_pull_wave_id, execution_row.active_puller_group_account_id,
+    execution_row.puller_assignment_seq, execution_row.next_run_at,
+    execution_row.lock_owner, execution_row.lock_expires_at, execution_row.version,
+    execution_row.started_at, execution_row.finished_at,
+    execution_row.last_business_executed_at, execution_row.created_at, execution_row.updated_at
+  </sql>
+
   <!-- tenant_id 由租户拦截器注入；link_occupancy_key 是生成列，永不显式写入。 -->
   <insert id="insertDraftInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_execution (
       task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, group_jid,
       source_file_index, source_file_name, total_line_count, valid_member_count,
       invalid_line_count, duplicate_line_count, execution_status, stage, manual_paused,
-      next_manager_index, next_puller_index, next_run_at, version, created_at, updated_at
+      next_manager_index, next_puller_index, active_pull_wave_id,
+      active_puller_group_account_id, puller_assignment_seq,
+      next_run_at, version, created_at, updated_at
     ) VALUES (
       #{taskId}, #{seq}, #{groupLinkId}, #{normalizedLink}, #{inviteCode},
       #{sourceLinkLineNo}, #{groupJid},
       #{sourceFileIndex}, #{sourceFileName}, #{totalLineCount}, #{validMemberCount},
       #{invalidLineCount}, #{duplicateLineCount}, #{executionStatus}, #{stage},
-      #{manualPaused}, #{nextManagerIndex}, #{nextPullerIndex}, #{nextRunAt},
+      #{manualPaused}, #{nextManagerIndex}, #{nextPullerIndex}, #{activePullWaveId},
+      #{activePullerGroupAccountId}, #{pullerAssignmentSeq}, #{nextRunAt},
       #{version}, #{createdAt}, #{updatedAt}
     )
   </insert>
 
   <select id="selectByTaskId" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_group_execution
     WHERE task_id = #{taskId}
     ORDER BY seq ASC
   </select>
 
   <select id="selectById" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_group_execution
     WHERE id = #{id}
   </select>
 
   <select id="selectActiveByGroupLinkId"
           resultType="com.armada.task.model.entity.PullTaskGroupExecution">
-    SELECT execution_row.*
+    SELECT <include refid="ExecutionRowColumns"/>
     FROM pull_task_group_execution execution_row
     WHERE execution_row.group_link_id = #{groupLinkId}
       AND execution_row.execution_status IN
@@ -110,7 +141,7 @@
          <foreach collection="state.stages" item="stage" open="(" separator="," close=")">
            #{stage}
          </foreach>
-         <if test="!state.waitResourceTypes.isEmpty()">
+         <if test="state.waitResourceTypes != null and !state.waitResourceTypes.isEmpty()">
            AND wait_resource_type IN
            <foreach collection="state.waitResourceTypes" item="waitResourceType"
                     open="(" separator="," close=")">#{waitResourceType}</foreach>
@@ -137,7 +168,7 @@
   <!-- lock_expires_at 必须比对 now，否则租约静默过期后、尚未被别的实例抢占前，
        本实例仍会把这些行当作自己持有。 -->
   <select id="selectClaimed" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
-    SELECT *
+    SELECT <include refid="BaseColumns"/>
     FROM pull_task_group_execution
     WHERE lock_owner = #{lockOwner}
       AND lock_expires_at &gt; #{now}
@@ -146,7 +177,7 @@
 
   <select id="selectUnknownResultCandidates"
           resultType="com.armada.task.model.entity.PullTaskGroupExecution">
-    SELECT execution_row.*
+    SELECT <include refid="ExecutionRowColumns"/>
     FROM pull_task_group_execution execution_row
     WHERE execution_row.execution_status IN
       <foreach collection="criteria.executionStatuses" item="status"
@@ -272,6 +303,93 @@
         updated_at = #{now}
     WHERE id = #{id}
       AND version = #{expectedVersion}
+  </update>
+
+  <update id="bindActivePullWave">
+    UPDATE pull_task_group_execution
+    SET active_pull_wave_id = #{pullWaveId},
+        version = version + 1,
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND version = #{expectedVersion}
+      AND active_pull_wave_id IS NULL
+      AND lock_owner = #{lockOwner}
+      AND lock_expires_at &gt; #{now}
+  </update>
+
+  <update id="advancePullWaveDispatch">
+    UPDATE pull_task_group_execution
+    SET next_run_at = CASE
+          WHEN #{advance.target.dispatchCompletedAt} IS NULL
+            THEN #{advance.target.nextDispatchAt}
+          ELSE #{advance.now}
+        END,
+        last_business_executed_at = #{advance.now},
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{advance.now}
+    WHERE id = #{advance.execution.executionId}
+      AND version = #{advance.execution.expectedVersion}
+      AND active_pull_wave_id = #{advance.scope.waveId}
+      AND lock_owner = #{advance.execution.lockOwner}
+      AND lock_expires_at &gt; #{advance.now}
+  </update>
+
+  <update id="completePullWaveSettlement">
+    UPDATE pull_task_group_execution
+    SET active_pull_wave_id = #{advance.target.activePullWaveId},
+        stage = #{advance.target.stage},
+        wait_resource_type = NULL,
+        reason_code = NULL,
+        reason_message = NULL,
+        next_run_at = #{advance.target.nextRunAt},
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{advance.now}
+    WHERE id = #{advance.scope.executionId}
+      AND version = #{advance.scope.expectedVersion}
+      AND active_pull_wave_id = #{advance.scope.expectedPullWaveId}
+      AND lock_owner = #{advance.scope.lockOwner}
+      AND lock_expires_at &gt; #{advance.now}
+  </update>
+
+  <update id="wakePullWaveCollection">
+    UPDATE pull_task_group_execution
+    SET next_run_at = LEAST(next_run_at, #{wake.targetNextRunAt}),
+        version = version + 1,
+        updated_at = #{wake.now}
+    WHERE id = #{wake.executionId}
+      AND execution_status = #{wake.expectedExecutionStatus}
+      AND stage = #{wake.expectedStage}
+      AND active_pull_wave_id = #{wake.pullWaveId}
+  </update>
+
+  <update id="transitionStickyPuller">
+    UPDATE pull_task_group_execution
+    SET active_puller_group_account_id = #{transition.target.pullerGroupAccountId},
+        puller_assignment_seq = #{transition.target.assignmentSeq},
+        next_puller_index = #{transition.target.nextPullerIndex},
+        version = version + 1,
+        updated_at = #{transition.now}
+    WHERE id = #{transition.scope.executionId}
+      AND ((#{transition.scope.expectedPullerGroupAccountId} IS NULL
+            AND active_puller_group_account_id IS NULL)
+        OR active_puller_group_account_id =
+            #{transition.scope.expectedPullerGroupAccountId})
+      AND puller_assignment_seq = #{transition.scope.expectedAssignmentSeq}
+  </update>
+
+  <update id="clearStickyPuller">
+    UPDATE pull_task_group_execution
+    SET active_puller_group_account_id = NULL,
+        version = version + 1,
+        updated_at = #{invalidation.now}
+    WHERE id = #{invalidation.executionId}
+      AND active_puller_group_account_id =
+          #{invalidation.expectedPullerGroupAccountId}
+      AND puller_assignment_seq = #{invalidation.expectedAssignmentSeq}
   </update>
 
   <update id="transitionManagerJoinResult">

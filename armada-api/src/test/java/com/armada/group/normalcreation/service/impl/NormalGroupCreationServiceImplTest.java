@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,15 +22,11 @@ import com.armada.group.normalcreation.support.NormalGroupCreationAdmissionGuard
 import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
-import com.armada.platform.protocol.model.result.ProtocolAccountRuntimeStatus;
-import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
@@ -40,7 +35,6 @@ class NormalGroupCreationServiceImplTest {
     private final AccountGroupService accountGroupService = mock(AccountGroupService.class);
     private final AccountProtocolLookupService accountLookupService =
             mock(AccountProtocolLookupService.class);
-    private final AccountRuntimeStatusPort runtimeStatusPort = mock(AccountRuntimeStatusPort.class);
     private final GroupFolderService groupFolderService = mock(GroupFolderService.class);
     private final NormalGroupCreationMapper mapper = mock(NormalGroupCreationMapper.class);
     private final NormalGroupCreationCommandDispatcher commandDispatcher =
@@ -57,33 +51,25 @@ class NormalGroupCreationServiceImplTest {
     }
 
     @Test
-    void createRejectsDatabaseOnlineMemberThatIsNotRuntimeOnline() {
+    void createRejectsWhenDatabaseHasNoOnlineMember() {
         TenantContext.set(1L);
         ProtocolAccountRef creator = account(100L, ProtocolBackend.WEB);
-        ProtocolAccountRef staleMember = account(200L, ProtocolBackend.ANDROID);
-        when(mapper.selectTaskIdByIdempotencyKey(1L, "create-runtime-filter"))
+        when(mapper.selectTaskIdByIdempotencyKey(1L, "create-db-online-empty"))
                 .thenReturn(null);
         when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
                 .thenReturn(List.of(creator));
         when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
-                .thenReturn(List.of(staleMember));
-        when(runtimeStatusPort.status(creator))
-                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
-        when(runtimeStatusPort.status(staleMember))
-                .thenReturn(new ProtocolAccountRuntimeStatus("OFFLINE"));
+                .thenReturn(List.of());
 
         assertThatThrownBy(() -> service().create(
-                "create-runtime-filter", createRequest(), 9L))
+                "create-db-online-empty", createRequest(), 9L))
                 .hasMessageContaining("成员分组当前可执行在线账号不足");
-
-        verify(runtimeStatusPort).status(staleMember);
     }
 
     @Test
-    void createSelectsRuntimeOnlineAccountFromMemberGroup() {
+    void createUsesDatabaseOnlineAccountFromMemberGroup() {
         TenantContext.set(1L);
         ProtocolAccountRef creator = account(100L, ProtocolBackend.WEB);
-        ProtocolAccountRef staleMember = account(200L, ProtocolBackend.ANDROID);
         ProtocolAccountRef onlineMember = account(201L, ProtocolBackend.ANDROID);
         MemberWork onlineMemberWork = new MemberWork(
                 31L, 201L, "acc_201", "ANDROID", "91201",
@@ -95,13 +81,7 @@ class NormalGroupCreationServiceImplTest {
         when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
                 .thenReturn(List.of(creator));
         when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
-                .thenReturn(List.of(staleMember, onlineMember));
-        when(runtimeStatusPort.status(creator))
-                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
-        when(runtimeStatusPort.status(staleMember))
-                .thenReturn(new ProtocolAccountRuntimeStatus("OFFLINE"));
-        when(runtimeStatusPort.status(onlineMember))
-                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
+                .thenReturn(List.of(onlineMember));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(new ItemIdentity(21L, 1)));
         when(mapper.selectItemWork(21L)).thenReturn(item());
@@ -117,7 +97,7 @@ class NormalGroupCreationServiceImplTest {
     }
 
     @Test
-    void createKeepsEnoughRuntimeOnlineMembersForMultiGroupRotation() {
+    void createKeepsEnoughDatabaseOnlineMembersForMultiGroupRotation() {
         TenantContext.set(1L);
         List<ProtocolAccountRef> creators = List.of(
                 account(100L, ProtocolBackend.WEB),
@@ -135,8 +115,6 @@ class NormalGroupCreationServiceImplTest {
                 .thenReturn(creators);
         when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
                 .thenReturn(onlineMembers);
-        when(runtimeStatusPort.status(any()))
-                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(
                 new ItemIdentity(21L, 1),
@@ -154,7 +132,7 @@ class NormalGroupCreationServiceImplTest {
     }
 
     @Test
-    void retryReplacesUnavailableMemberWithRuntimeOnlineAccountFromOriginalGroup() {
+    void retryReplacesMemberThatIsNoLongerDatabaseOnlineInOriginalGroup() {
         TenantContext.set(1L);
         ItemWork item = item();
         MemberWork unavailable = new MemberWork(
@@ -164,7 +142,6 @@ class NormalGroupCreationServiceImplTest {
         MemberWork replacementWork = new MemberWork(
                 31L, 201L, "acc_201", "ANDROID", "91201",
                 "PENDING", "PENDING", null, null, "PENDING");
-        ProtocolAccountRef unavailableRef = account(200L, ProtocolBackend.ANDROID);
         ProtocolAccountRef replacement = account(201L, ProtocolBackend.ANDROID);
         when(mapper.selectItemWork(21L)).thenReturn(item);
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
@@ -172,16 +149,9 @@ class NormalGroupCreationServiceImplTest {
         when(mapper.selectMemberWorks(21L))
                 .thenReturn(
                         List.of(unavailable),
-                        List.of(unavailable),
                         List.of(replacementWork));
-        when(accountLookupService.findActiveProtocolRef(200L))
-                .thenReturn(Optional.of(unavailableRef));
-        when(runtimeStatusPort.status(unavailableRef))
-                .thenReturn(new ProtocolAccountRuntimeStatus("OFFLINE"));
         when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
-                .thenReturn(List.of(unavailableRef, replacement));
-        when(runtimeStatusPort.status(replacement))
-                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
+                .thenReturn(List.of(replacement));
         when(mapper.replaceMember(any(MemberReplacement.class))).thenReturn(1);
 
         service().retry(9L, 21L, 7L);
@@ -198,14 +168,11 @@ class NormalGroupCreationServiceImplTest {
         verify(commandDispatcher).enqueueFailedContactPrepare(
                 item, List.of(replacementWork));
         verify(mapper).refreshTaskSummary(9L, replacementCaptor.getValue().now());
-        InOrder probeBeforeTransaction = inOrder(runtimeStatusPort, transactionManager);
-        probeBeforeTransaction.verify(runtimeStatusPort).status(unavailableRef);
-        probeBeforeTransaction.verify(runtimeStatusPort).status(replacement);
-        probeBeforeTransaction.verify(transactionManager).getTransaction(any());
+        verify(accountLookupService, never()).findActiveProtocolRef(any());
     }
 
     @Test
-    void retryReusesFrozenMemberAfterItIsRuntimeOnlineAgain() {
+    void retryReusesFrozenMemberAfterItIsDatabaseOnlineAgain() {
         TenantContext.set(1L);
         ItemWork item = item();
         MemberWork recoveredMember = new MemberWork(
@@ -217,10 +184,8 @@ class NormalGroupCreationServiceImplTest {
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
         when(mapper.selectMemberAccountGroupId(9L)).thenReturn(20L);
         when(mapper.selectMemberWorks(21L)).thenReturn(List.of(recoveredMember));
-        when(accountLookupService.findActiveProtocolRef(200L))
-                .thenReturn(Optional.of(recoveredRef));
-        when(runtimeStatusPort.status(recoveredRef))
-                .thenReturn(new ProtocolAccountRuntimeStatus("ONLINE"));
+        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+                .thenReturn(List.of(recoveredRef));
 
         service().retry(9L, 21L, 7L);
 
@@ -234,7 +199,6 @@ class NormalGroupCreationServiceImplTest {
         return new NormalGroupCreationServiceImpl(
                 accountGroupService,
                 accountLookupService,
-                runtimeStatusPort,
                 groupFolderService,
                 mapper,
                 commandDispatcher,

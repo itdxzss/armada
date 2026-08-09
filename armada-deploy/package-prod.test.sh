@@ -65,6 +65,11 @@ test_app_package_templates() {
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC:-protocol.android.lifecycle.commands.v1}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC:-protocol.android.message.commands.v1}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:-protocol.android.group-join.commands.v1}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:-protocol.web.normal-group.commands.v1}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC: ${NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC:-protocol.android.normal-group.commands.v1}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'NORMAL_GROUP_CREATION_RESULT_TOPIC: ${NORMAL_GROUP_CREATION_RESULT_TOPIC:-protocol.normal-group.events.v1}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'NORMAL_GROUP_CREATION_RESULT_GROUP_ID: ${NORMAL_GROUP_CREATION_RESULT_GROUP_ID:-armada-api-normal-group-results}'
+  assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'NORMAL_GROUP_CREATION_RESULT_CONCURRENCY: ${NORMAL_GROUP_CREATION_RESULT_CONCURRENCY:-4}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROMOTION_TRACKING_ENCRYPTION_KEY: ${PROMOTION_TRACKING_ENCRYPTION_KEY:?PROMOTION_TRACKING_ENCRYPTION_KEY is required}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" 'PROMOTION_TRACKING_ENCRYPTION_KEY_ID: ${PROMOTION_TRACKING_ENCRYPTION_KEY_ID:?PROMOTION_TRACKING_ENCRYPTION_KEY_ID is required}'
   assert_file_contains "${PROD_DIR}/app/docker-compose.yml" "      IP_PROXY_UNAVAILABLE_RECHECK_BATCH_SIZE: 200"
@@ -76,6 +81,11 @@ test_app_package_templates() {
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC=protocol.android.lifecycle.commands.v1"
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC=protocol.android.message.commands.v1"
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC=protocol.android.group-join.commands.v1"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC=protocol.web.normal-group.commands.v1"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=protocol.android.normal-group.commands.v1"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "NORMAL_GROUP_CREATION_RESULT_TOPIC=protocol.normal-group.events.v1"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-api-normal-group-results"
+  assert_file_contains "${PROD_DIR}/app/.env.example" "NORMAL_GROUP_CREATION_RESULT_CONCURRENCY=4"
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROMOTION_TRACKING_ENCRYPTION_KEY=CHANGE_ME_BASE64_32_BYTE_AES_KEY"
   assert_file_contains "${PROD_DIR}/app/.env.example" "PROMOTION_TRACKING_ENCRYPTION_KEY_ID=prod-v1"
   assert_file_contains "${SCRIPT_DIR}/nginx.prebuilt.Dockerfile" "render-platform-config.sh"

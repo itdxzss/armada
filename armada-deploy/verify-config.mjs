@@ -50,6 +50,31 @@ expectIncludes(
 );
 expectIncludes(
   envExample,
+  "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC=protocol.web.normal-group.commands.v1",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
+  "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=protocol.android.normal-group.commands.v1",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
+  "NORMAL_GROUP_CREATION_RESULT_TOPIC=protocol.normal-group.events.v1",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
+  "NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-api-normal-group-results",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
+  "NORMAL_GROUP_CREATION_RESULT_CONCURRENCY=4",
+  ".env.example"
+);
+expectIncludes(
+  envExample,
   "ARMADA_PROTOCOL_RESTART_MASTER_READY_URL=http://65.2.122.109:8080/readyz",
   ".env.example"
 );
@@ -101,6 +126,31 @@ expectIncludes(
 expectIncludes(
   compose,
   "PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC: ${PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC:-protocol.android.group-join.commands.v1}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:-protocol.web.normal-group.commands.v1}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC: ${NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC:-protocol.android.normal-group.commands.v1}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "NORMAL_GROUP_CREATION_RESULT_TOPIC: ${NORMAL_GROUP_CREATION_RESULT_TOPIC:-protocol.normal-group.events.v1}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "NORMAL_GROUP_CREATION_RESULT_GROUP_ID: ${NORMAL_GROUP_CREATION_RESULT_GROUP_ID:-armada-api-normal-group-results}",
+  "docker-compose.rds.yml"
+);
+expectIncludes(
+  compose,
+  "NORMAL_GROUP_CREATION_RESULT_CONCURRENCY: ${NORMAL_GROUP_CREATION_RESULT_CONCURRENCY:-4}",
   "docker-compose.rds.yml"
 );
 expectIncludes(

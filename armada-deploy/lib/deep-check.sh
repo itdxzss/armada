@@ -6,6 +6,10 @@ remote_dir="$1"
 expected_schema="$2"
 expected_android_url="$3"
 expected_topic_prefix="$4"
+expected_normal_group_web_topic="$5"
+expected_normal_group_android_topic="$6"
+expected_normal_group_result_topic="$7"
+expected_normal_group_result_group="$8"
 cd "${remote_dir}"
 test -f .env || { echo "Armada 远端缺少 .env" >&2; exit 60; }
 env_value() {
@@ -50,6 +54,16 @@ for topic_var in \
   printf "%s\n" "${runtime_env}" | grep -F "${topic_var}=${expected_topic_prefix}" >/dev/null || {
     echo "Armada backend Android topic 未生效: ${topic_var}" >&2
     exit 66
+  }
+done
+for expected_contract in \
+  "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC=${expected_normal_group_web_topic}" \
+  "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=${expected_normal_group_android_topic}" \
+  "NORMAL_GROUP_CREATION_RESULT_TOPIC=${expected_normal_group_result_topic}" \
+  "NORMAL_GROUP_CREATION_RESULT_GROUP_ID=${expected_normal_group_result_group}"; do
+  printf "%s\n" "${runtime_env}" | grep -Fx "${expected_contract}" >/dev/null || {
+    echo "Armada backend 普群 Kafka 配置未按环境生效: ${expected_contract%%=*}" >&2
+    exit 67
   }
 done
 port="$(env_value ARMADA_HTTP_PORT)"
@@ -165,7 +179,7 @@ deep_check_validate_targets() {
 deep_check_armada() {
   info "[check] Armada"
   ssh_run \
-    "bash -s -- '${REMOTE_DIR}' '${EXPECTED_ARMADA_DB_SCHEMA}' '${EXPECTED_ANDROID_BASE_URL}' '${EXPECTED_ANDROID_TOPIC_PREFIX}'" \
+    "bash -s -- '${REMOTE_DIR}' '${EXPECTED_ARMADA_DB_SCHEMA}' '${EXPECTED_ANDROID_BASE_URL}' '${EXPECTED_ANDROID_TOPIC_PREFIX}' '${EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC}' '${EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC}' '${EXPECTED_NORMAL_GROUP_RESULT_TOPIC}' '${EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID}'" \
     <<<"${deep_armada_check_payload}"
   ok "[check] Armada"
 }

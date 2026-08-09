@@ -10,6 +10,8 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountStateChangedEvent;
+import com.armada.account.service.AccountStateEventService;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
@@ -38,10 +40,12 @@ class NormalGroupCreationProtocolResultServiceTest {
             org.mockito.Mockito.mock(GroupMetadataSyncTaskService.class);
     private final AccountService accountService =
             org.mockito.Mockito.mock(AccountService.class);
+    private final AccountStateEventService accountStateEventService =
+            org.mockito.Mockito.mock(AccountStateEventService.class);
     private final NormalGroupCreationProtocolResultService service =
             new NormalGroupCreationProtocolResultService(
                     mapper, dispatcher, registry, groupLinkService,
-                    metadataSyncTaskService, accountService);
+                    metadataSyncTaskService, accountService, accountStateEventService);
 
     @AfterEach
     void clearTenant() {
@@ -122,6 +126,9 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq("ACCOUNT_NOT_ONLINE"),
                 eq("成员账号当前不在线，请将对应成员账号重新上线后重试"),
                 isNull(), eq("evt-1"), anyLong());
+        verify(accountStateEventService).applyStateChanged(new AccountStateChangedEvent(
+                1L, 383L, "member-android", null, "OFFLINE", 1000L,
+                "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null));
     }
 
     @Test
@@ -151,6 +158,9 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq("ACCOUNT_NOT_ONLINE"),
                 eq("建群账号当前不在线，请重新上线后重试"),
                 isNull(), eq("evt-1"), anyLong());
+        verify(accountStateEventService).applyStateChanged(new AccountStateChangedEvent(
+                1L, 382L, "creator-web", null, "OFFLINE", 1000L,
+                "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null));
     }
 
     @Test
@@ -316,6 +326,8 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq("PARTICIPANTS_NOT_CONFIRMED"), eq("部分成员未确认"),
                 eq("120363001@g.us"), eq("evt-1"), anyLong());
         verify(accountService).migrateGroup(List.of(382L), 91L);
+        verify(accountStateEventService, never()).applyStateChanged(
+                org.mockito.ArgumentMatchers.any(AccountStateChangedEvent.class));
         verify(mapper, never()).completeProtocolFlow(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString(),

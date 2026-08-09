@@ -86,6 +86,18 @@ public final class NormalGroupCreationRecords {
             Integer ephemeralDurationSeconds) {
     }
 
+    /** 联系人准备重试时替换成员执行账号。 */
+    public record MemberReplacement(
+            Long memberId,
+            Long itemId,
+            Long expectedMemberAccountId,
+            Long memberAccountId,
+            String memberProtocolAccountId,
+            String memberProtocolBackend,
+            String memberWsPhone,
+            long now) {
+    }
+
     /** 执行时使用的成员冻结事实。 */
     public record MemberWork(
             Long id,

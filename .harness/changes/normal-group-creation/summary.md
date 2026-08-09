@@ -89,10 +89,12 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
 
 - V101 三张任务表继续保存业务事实；V102 为 item/member 增加当前 action 的真实
   `command_id` 和唯一索引。
-- 明确 `FAILED` 的明细允许按当前 action 生成新 commandId 人工重试；不更换冻结账号和
-  backend。
-- 联系人准备失败项重试时保留已经 `SUCCESS` 的方向，并为 `PENDING/FAILED/UNKNOWN` 的
-  所有未成功方向生成新 commandId；业务人员无需新建任务即可在原任务、原明细继续建群。
+- 明确 `FAILED` 的明细允许按当前 action 生成新 commandId 人工重试；建群账号及已进入
+  群创建、设置、退群阶段的 backend 不更换。
+- 联系人准备失败项重试时，读取原成员分组最新的数据库在线状态：冻结成员已重新上线则继续复用；
+  未上线则从原成员分组重新选择数据库正常且在线的账号。替换成员时
+  两个联系人方向都重置为 `PENDING` 并清空旧 commandId；不替换时保留已 `SUCCESS` 方向。
+  业务人员无需新建任务即可在原任务、原明细继续建群。
 - 联系人方向换新 commandId 后，旧命令的迟到结果只记录并忽略，不得覆盖新一轮状态或推进
   建群；当前 commandId 的账号和 backend 校验仍保持严格。
 - `RESULT_UNKNOWN`、`CREATED_PARTIAL` 不允许直接重放可能已产生副作用的动作。
@@ -161,3 +163,33 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
 - 新增联系人 `PENDING/UNKNOWN` 方向换新 commandId 的 H2 Mapper XML 回归测试，以及旧
   commandId 迟到结果隔离测试。
 - 三个核心定向测试类共 22 项通过；完整新建普群相关测试集共 51 项通过。
+
+### 2026-08-09 执行在线状态收敛修复
+
+- 账号列表的“在线”来自 `account_state.login_state` 的最后一次协议状态事件快照；Web
+  普群还要求账号存在有效 owner worker 与会话，Android 普群还要求 owner 节点上存在有效
+  `WaApp`。因此数据库快照不能单独证明账号当前可执行建群。
+- Web/Android 普群消费者回传当前命令的 `ACCOUNT_NOT_ONLINE` 后，Armada 仅在该结果通过
+  `commandId + accountId + protocolAccountId + protocolBackend` 校验并成功落为当前失败结果时，
+  使用结果时间戳把实际 actor 收敛为 `OFFLINE`。联系人双向准备分别收敛建群账号或成员账号，
+  后续步骤收敛建群账号。
+- 状态收敛沿用 `AccountStateEventService` 的时间水位，并在同一事务内先锁定 `account_state`
+  行再检查和更新；迟到或并发的旧离线结果不能覆盖更新的 `ONLINE` 事件。账号真正重新上线后，
+  业务人员仍在原任务、原明细点击重试，无需新建普群任务。
+- 普群派生的 `OFFLINE` 是执行就绪度探测，低于正式协议状态事件：同一时间水位已有 `ONLINE`
+  时跳过；若它先到，只修正页面登录态，不释放 IP 或触发账号生命周期副作用，随后同水位的正式
+  `ONLINE` 仍可恢复在线，最终结果不依赖并发抢锁顺序。
+- Web master 的无 owner 分支只发布统一 `group.action_result_reported`，不再额外发布
+  `account.state_changed`；账户状态统一由 Armada 的结果状态机收敛，避免重复释放 IP 或重复触发
+  账号状态副作用。
+
+### 2026-08-09 成员分组在线筛选与原任务重试修正
+
+- 新建任务以账号正式上下线事件维护的 `account_state.login_state=ONLINE` 为准，并同时校验生命周期正常、
+  分组归属和协议身份完整；不再额外调用协议状态接口，避免节点归属恢复过程把已重新上线账号误筛掉。
+- `PREPARING_CONTACTS` 失败重试时，锁定失败明细后读取原成员分组最新的数据库在线账号；冻结成员已重新
+  上线则原号重试，否则选择其他在线账号，且不得与建群账号或已冻结成员重复。
+- 替换使用失败阶段与联系人状态条件更新，重置旧错误和两个 commandId；旧账号的迟到
+  回执无法命中新一轮 fencing。
+- 重试只执行数据库查询和短事务更新，不再包含协议 HTTP 探测；item 行锁继续串行化并发重试，
+  成员条件更新继续防止旧结果或并发状态覆盖新一轮命令。

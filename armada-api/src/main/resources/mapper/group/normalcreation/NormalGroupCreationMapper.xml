@@ -149,6 +149,44 @@
     ORDER BY member_order ASC, id ASC
   </select>
 
+  <select id="selectMemberAccountGroupId" resultType="long">
+    SELECT member_account_group_id
+    FROM normal_group_creation_task
+    WHERE id = #{taskId}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <update id="replaceMember">
+    UPDATE normal_group_creation_item_member member
+    SET member.member_account_id = #{row.memberAccountId},
+        member.member_protocol_account_id = #{row.memberProtocolAccountId},
+        member.member_protocol_backend = #{row.memberProtocolBackend},
+        member.member_ws_phone = #{row.memberWsPhone},
+        member.creator_saved_member_status = 'PENDING',
+        member.member_saved_creator_status = 'PENDING',
+        member.creator_save_command_id = NULL,
+        member.member_save_command_id = NULL,
+        member.participant_status = 'PENDING',
+        member.participant_raw_status = NULL,
+        member.last_error_code = NULL,
+        member.last_error_message = NULL,
+        member.updated_at = #{row.now}
+    WHERE member.id = #{row.memberId}
+      AND member.item_id = #{row.itemId}
+      AND member.member_account_id = #{row.expectedMemberAccountId}
+      AND member.member_saved_creator_status IN ('PENDING', 'FAILED', 'UNKNOWN')
+      AND member.participant_status = 'PENDING'
+      AND EXISTS (
+        SELECT 1
+        FROM normal_group_creation_item item
+        WHERE item.tenant_id = member.tenant_id
+          AND item.id = member.item_id
+          AND item.status = 'FAILED'
+          AND item.current_step = 'PREPARING_CONTACTS'
+      )
+  </update>
+
   <select id="selectItemWorkForUpdate"
           resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$ItemWork">
     SELECT item.id, item.tenant_id, item.task_id, item.group_subject,

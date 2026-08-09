@@ -4,6 +4,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemInse
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemIdentity;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
@@ -61,6 +62,9 @@ public interface NormalGroupCreationMapper {
     /** 查询一个计划群的冻结执行事实。 */
     ItemWork selectItemWork(@Param("itemId") Long itemId);
 
+    /** 查询任务冻结的成员账号分组，用于联系人准备失败后的成员替换。 */
+    Long selectMemberAccountGroupId(@Param("taskId") Long taskId);
+
     /** 锁定一个计划群及任务冻结事实，串行处理统一结果 Topic 的并发回执。 */
     @InterceptorIgnore(tenantLine = "true")
     ItemWork selectItemWorkForUpdate(@Param("tenantId") Long tenantId,
@@ -68,6 +72,9 @@ public interface NormalGroupCreationMapper {
 
     /** 查询一个计划群的冻结成员。 */
     List<MemberWork> selectMemberWorks(@Param("itemId") Long itemId);
+
+    /** 明确失败的联系人准备重试前，替换一个当前不可执行的成员账号。 */
+    int replaceMember(@Param("row") MemberReplacement row);
 
     /** 锁定一条成员冻结事实。 */
     @InterceptorIgnore(tenantLine = "true")

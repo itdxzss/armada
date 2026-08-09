@@ -49,7 +49,7 @@ class AccountStateEventServiceImplTest {
         AccountStateChangedEvent event = event("ONLINE", "LOGIN_REPLACED",
                 2_000L, "LOGIN_REPLACED", 440, "batch_online", "oa_440");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         service().applyStateChanged(event);
 
@@ -69,7 +69,7 @@ class AccountStateEventServiceImplTest {
         AccountStateChangedEvent event = event("ONLINE", "NEED_REAUTH",
                 2_000L, "NEED_REAUTH", 440, "batch_online", "oa_440");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         service().applyStateChanged(event);
 
@@ -88,7 +88,7 @@ class AccountStateEventServiceImplTest {
         AccountStateChangedEvent event = event("VERIFYING", "ONLINE",
                 2_000L, "ONLINE_CONFIRMED", null, "login_replaced_takeover", "oa_takeover");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         service().applyStateChanged(event);
 
@@ -107,7 +107,7 @@ class AccountStateEventServiceImplTest {
         AccountStateChangedEvent event = event("OFFLINE", "VERIFYING",
                 2_000L, "ws_open", null, "batch_online", "oa_verifying");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         service().applyStateChanged(event);
 
@@ -126,7 +126,7 @@ class AccountStateEventServiceImplTest {
         AccountStateChangedEvent event = event("ONLINE", "OFFLINE",
                 2_000L, "OFFLINE", null, "batch_offline", "oa_stop");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         service().applyStateChanged(event);
 
@@ -145,7 +145,7 @@ class AccountStateEventServiceImplTest {
         AccountStateChangedEvent event = event("ONLINE", "OFFLINE",
                 2_000L, "OFFLINE", null, "batch_online", "oa_retry");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         service().applyStateChanged(event);
 
@@ -177,7 +177,7 @@ class AccountStateEventServiceImplTest {
                 null,
                 null);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         AccountStateEventServiceImpl service = new AccountStateEventServiceImpl(
                 accountMapper,
@@ -255,7 +255,7 @@ class AccountStateEventServiceImplTest {
                 null,
                 null);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
-        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState);
+        when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
         AccountStateEventServiceImpl service = new AccountStateEventServiceImpl(
                 accountMapper,

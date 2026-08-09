@@ -7,6 +7,8 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemInse
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemIdentity;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationCreateDTO;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationSettingsDTO;
@@ -25,12 +27,17 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** 新建普群任务创建、冻结与查询实现。 */
 @Service
@@ -48,6 +55,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     private final NormalGroupCreationMapper mapper;
     private final NormalGroupCreationCommandDispatcher commandDispatcher;
     private final NormalGroupCreationAdmissionGuard admissionGuard;
+    private final TransactionTemplate transactionTemplate;
     private final SecureRandom random = new SecureRandom();
 
     public NormalGroupCreationServiceImpl(
@@ -56,13 +64,15 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             GroupFolderService groupFolderService,
             NormalGroupCreationMapper mapper,
             NormalGroupCreationCommandDispatcher commandDispatcher,
-            NormalGroupCreationAdmissionGuard admissionGuard) {
+            NormalGroupCreationAdmissionGuard admissionGuard,
+            PlatformTransactionManager transactionManager) {
         this.accountGroupService = accountGroupService;
         this.accountLookupService = accountLookupService;
         this.groupFolderService = groupFolderService;
         this.mapper = mapper;
         this.commandDispatcher = commandDispatcher;
         this.admissionGuard = admissionGuard;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @Override
@@ -80,26 +90,20 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         }
         ValidatedRequest validated = validate(request);
         admissionGuard.checkRate(tenantId, userId);
-        List<ProtocolAccountRef> creators;
-        List<ProtocolAccountRef> members;
-        try {
-            creators = new ArrayList<>(accountLookupService.findOnlineNormalStrictByGroupId(
-                    validated.adminGroupId()));
-            members = new ArrayList<>(accountLookupService.findOnlineNormalStrictByGroupId(
-                    validated.memberGroupId()));
-        } catch (IllegalArgumentException ex) {
-            throw validation("账号分组包含未明确配置 WEB/ANDROID 协议的在线账号");
-        }
-        if (creators.size() < validated.groupCount()) {
-            throw validation("管理员分组可用在线账号不足，需要 " + validated.groupCount()
-                    + " 个，实际 " + creators.size() + " 个");
-        }
-        if (members.size() < validated.memberCount()) {
-            throw validation("成员分组可用在线账号不足，每群需要 " + validated.memberCount()
-                    + " 个，实际 " + members.size() + " 个");
-        }
+        List<ProtocolAccountRef> creators =
+                new ArrayList<>(strictOnlineGroupAccounts(validated.adminGroupId()));
+        List<ProtocolAccountRef> members =
+                new ArrayList<>(strictOnlineGroupAccounts(validated.memberGroupId()));
         creators.sort((left, right) -> left.armadaAccountId().compareTo(right.armadaAccountId()));
         Collections.shuffle(members, random);
+        if (creators.size() < validated.groupCount()) {
+            throw validation("管理员分组当前可执行在线账号不足，需要 " + validated.groupCount()
+                    + " 个，实际 " + creators.size() + " 个");
+        }
+        if (!hasMemberCapacity(members, creators, validated.memberCount())) {
+            throw validation("成员分组当前可执行在线账号不足，每群需要 "
+                    + validated.memberCount() + " 个，实际 " + members.size() + " 个");
+        }
 
         List<FrozenGroup> groups = new ArrayList<>(validated.groupCount());
         for (int index = 0; index < validated.groupCount(); index++) {
@@ -221,23 +225,29 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public void retry(long taskId, long itemId, long userId) {
         Long tenantId = TenantContext.get();
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
         }
+        transactionTemplate.executeWithoutResult(status ->
+                retryInTransaction(tenantId, taskId, itemId));
+    }
+
+    private void retryInTransaction(
+            Long tenantId,
+            long taskId,
+            long itemId) {
         ItemWork item = mapper.selectItemWorkForUpdate(tenantId, itemId);
-        if (item == null || !item.taskId().equals(taskId)) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群明细不存在");
-        }
-        if (!"FAILED".equals(item.status())) {
-            throw validation("仅允许重试结果明确失败的新建普群明细");
-        }
+        validateRetryItem(item, taskId);
         long now = System.currentTimeMillis();
         if ("PREPARING_CONTACTS".equals(item.currentStep())) {
-            commandDispatcher.enqueueFailedContactPrepare(
-                    item, mapper.selectMemberWorks(item.id()));
+            List<MemberWork> currentMembers = mapper.selectMemberWorks(item.id());
+            Map<Long, ProtocolAccountRef> replacements =
+                    selectRetryMemberReplacements(item, currentMembers);
+            List<MemberWork> dispatchMembers = applyRetryMemberReplacements(
+                    item, currentMembers, replacements, now);
+            commandDispatcher.enqueueFailedContactPrepare(item, dispatchMembers);
         } else if (List.of("CREATING_GROUP", "APPLYING_SETTINGS", "LEAVING_GROUP")
                 .contains(item.currentStep())) {
             String action = switch (item.currentStep()) {
@@ -255,6 +265,126 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw validation("当前阶段不支持重试");
         }
         mapper.refreshTaskSummary(taskId, now);
+    }
+
+    private static void validateRetryItem(ItemWork item, long taskId) {
+        if (item == null || !item.taskId().equals(taskId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群明细不存在");
+        }
+        if (!"FAILED".equals(item.status())) {
+            throw validation("仅允许重试结果明确失败的新建普群明细");
+        }
+        if (!List.of("PREPARING_CONTACTS", "CREATING_GROUP", "APPLYING_SETTINGS", "LEAVING_GROUP")
+                .contains(item.currentStep())) {
+            throw validation("当前阶段不支持重试");
+        }
+    }
+
+    private Map<Long, ProtocolAccountRef> selectRetryMemberReplacements(
+            ItemWork item,
+            List<MemberWork> members) {
+        Long memberAccountGroupId = mapper.selectMemberAccountGroupId(item.taskId());
+        if (memberAccountGroupId == null) {
+            throw unavailable();
+        }
+        Set<Long> reservedAccountIds = new HashSet<>();
+        reservedAccountIds.add(item.creatorAccountId());
+        members.stream().map(MemberWork::memberAccountId).forEach(reservedAccountIds::add);
+        List<ProtocolAccountRef> candidates =
+                new ArrayList<>(strictOnlineGroupAccounts(memberAccountGroupId));
+        Collections.shuffle(candidates, random);
+        Map<Long, ProtocolAccountRef> candidatesByAccountId = new HashMap<>();
+        for (ProtocolAccountRef candidate : candidates) {
+            candidatesByAccountId.put(candidate.armadaAccountId(), candidate);
+        }
+        Map<Long, ProtocolAccountRef> replacements = new HashMap<>();
+        for (MemberWork member : members) {
+            if ("SUCCESS".equals(member.memberSavedCreatorStatus())) {
+                continue;
+            }
+            ProtocolAccountRef current = candidatesByAccountId.get(member.memberAccountId());
+            if (current != null) {
+                if (!sameProtocolIdentity(member, current)) {
+                    replacements.put(member.id(), current);
+                }
+                continue;
+            }
+            ProtocolAccountRef replacement = findReplacement(candidates, reservedAccountIds)
+                    .orElseThrow(() -> validation(
+                            "成员分组没有其他当前可执行在线账号，请将成员账号上线后重试"));
+            replacements.put(member.id(), replacement);
+            reservedAccountIds.add(replacement.armadaAccountId());
+        }
+        return Map.copyOf(replacements);
+    }
+
+    private List<MemberWork> applyRetryMemberReplacements(
+            ItemWork item,
+            List<MemberWork> members,
+            Map<Long, ProtocolAccountRef> replacements,
+            long now) {
+        for (MemberWork member : members) {
+            ProtocolAccountRef replacement = replacements.get(member.id());
+            if (replacement != null) {
+                replaceMember(item, member, replacement, now);
+            }
+        }
+        return replacements.isEmpty() ? members : mapper.selectMemberWorks(item.id());
+    }
+
+    private void replaceMember(
+            ItemWork item,
+            MemberWork member,
+            ProtocolAccountRef replacement,
+            long now) {
+        MemberReplacement row = new MemberReplacement(
+                member.id(), item.id(), member.memberAccountId(), replacement.armadaAccountId(),
+                replacement.protocolAccountId(), replacement.backend().name(),
+                replacement.wsPhone(), now);
+        if (mapper.replaceMember(row) != 1) {
+            throw unavailable();
+        }
+    }
+
+    private Optional<ProtocolAccountRef> findReplacement(
+            List<ProtocolAccountRef> candidates,
+            Set<Long> reservedAccountIds) {
+        return candidates.stream()
+                .filter(candidate -> !reservedAccountIds.contains(candidate.armadaAccountId()))
+                .findFirst();
+    }
+
+    private List<ProtocolAccountRef> strictOnlineGroupAccounts(Long groupId) {
+        try {
+            return accountLookupService.findOnlineNormalStrictByGroupId(groupId);
+        } catch (IllegalArgumentException ex) {
+            throw validation("账号分组包含未明确配置 WEB/ANDROID 协议的在线账号");
+        }
+    }
+
+    private static boolean hasMemberCapacity(
+            List<ProtocolAccountRef> members,
+            List<ProtocolAccountRef> creators,
+            int memberCount) {
+        if (members.size() < memberCount) {
+            return false;
+        }
+        if (members.size() > memberCount) {
+            return true;
+        }
+        Set<Long> memberIds = new HashSet<>();
+        members.stream().map(ProtocolAccountRef::armadaAccountId).forEach(memberIds::add);
+        return creators.stream().noneMatch(
+                creator -> memberIds.contains(creator.armadaAccountId()));
+    }
+
+    private static boolean sameProtocolIdentity(
+            MemberWork member,
+            ProtocolAccountRef account) {
+        return member.memberAccountId().equals(account.armadaAccountId())
+                && member.memberProtocolAccountId().equals(account.protocolAccountId())
+                && member.memberProtocolBackend().equals(account.backend().name())
+                && member.memberWsPhone().equals(account.wsPhone());
     }
 
     private ValidatedRequest validate(NormalGroupCreationCreateDTO request) {

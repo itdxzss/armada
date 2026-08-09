@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -37,6 +40,9 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 统一群动作结果事件类型。 */
     public static final String EVENT_GROUP_ACTION_RESULT_REPORTED = "group.action_result_reported";
 
+    /** Web/Android 统一群成员查询结果事件类型。 */
+    public static final String EVENT_GROUP_MEMBERS_RESULT_REPORTED = "group.members.result_reported";
+
     /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
     private static final Set<String> SUPPORTED_JOIN_OUTCOMES = Set.of(
             "JOINED", "ALREADY_JOINED", "PENDING_APPROVAL", "FAILED");
@@ -47,6 +53,18 @@ public class ProtocolGroupEventConsumer {
     /** 批量拉人逐号码执行阶段使用大小写敏感的固定协议值。 */
     private static final Set<String> SUPPORTED_PARTICIPANT_EXECUTION_STATES = Set.of(
             "NOT_STARTED", "STARTED", "UNCERTAIN");
+
+    /** 成员查询只允许成功或明确失败。 */
+    private static final Set<String> SUPPORTED_MEMBER_QUERY_OUTCOMES = Set.of("SUCCESS", "FAILED");
+
+    /** 成员查询只允许当前普通拉群状态机实际使用的六类用途。 */
+    private static final Set<String> SUPPORTED_MEMBER_QUERY_PURPOSES = Set.of(
+            "MANAGER_JOIN_MEMBERSHIP", "MANAGER_ADMIN_MEMBERSHIP",
+            "SUPPLEMENT_PULLER_MEMBERSHIP", "SUPPLEMENT_MANAGER_MEMBERSHIP",
+            "PULL_CALL_RECONCILIATION", "UNKNOWN_RESULT_RECONCILIATION");
+
+    /** 成员查询事件只能由当前接入的两种协议后端发出。 */
+    private static final Set<String> SUPPORTED_PROTOCOL_BACKENDS = Set.of("WEB", "ANDROID");
 
     /** Kafka 事件 JSON 解析器。 */
     private final ObjectMapper objectMapper;
@@ -63,6 +81,9 @@ public class ProtocolGroupEventConsumer {
     /** 普通链接批量拉人逐成员结果下游处理边界。 */
     private final ProtocolPullTaskBatchParticipantResultReportedSink batchParticipantResultReportedSink;
 
+    /** 普通拉群异步成员查询结果下游处理边界。 */
+    private final ProtocolGroupMembersResultReportedSink membersResultReportedSink;
+
     /**
      * 创建协议群组事件 consumer。
      *
@@ -77,12 +98,14 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolGroupJoinResultReportedSink joinResultReportedSink,
                                       ProtocolGroupActionResultReportedSink actionResultReportedSink,
                                       ProtocolPullTaskBatchParticipantResultReportedSink
-                                              batchParticipantResultReportedSink) {
+                                              batchParticipantResultReportedSink,
+                                      ProtocolGroupMembersResultReportedSink membersResultReportedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
         this.actionResultReportedSink = actionResultReportedSink;
         this.batchParticipantResultReportedSink = batchParticipantResultReportedSink;
+        this.membersResultReportedSink = membersResultReportedSink;
     }
 
     /**
@@ -103,9 +126,106 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_HEALTH_REPORTED -> handleHealthReported(envelope, eventId);
             case EVENT_GROUP_JOIN_RESULT_REPORTED -> handleJoinResultReported(envelope, eventId);
             case EVENT_GROUP_ACTION_RESULT_REPORTED -> handleActionResultReported(envelope, eventId);
+            case EVENT_GROUP_MEMBERS_RESULT_REPORTED -> handleMembersResultReported(envelope, eventId);
             default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
         }
+    }
+
+    /** 校验异步成员查询的完整关联与事实结构，再交给任务域做当前尝试 CAS。 */
+    private void handleMembersResultReported(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        if (!"pull_task_member_query".equals(requiredText(
+                data, "source", "协议成员查询结果缺少 data.source"))) {
+            throw validation("协议成员查询结果 source 非法");
+        }
+        long tenantId = requiredLong(data, "tenantId");
+        long pullTaskId = requiredLong(data, "pullTaskId");
+        long groupExecutionId = requiredLong(data, "groupExecutionId");
+        long queryId = requiredLong(data, "queryId");
+        String purpose = requiredText(data, "purpose", "协议成员查询结果缺少 data.purpose");
+        if (!SUPPORTED_MEMBER_QUERY_PURPOSES.contains(purpose)) {
+            throw validation("协议成员查询结果 purpose 非法");
+        }
+        long accountId = requiredLong(data, "accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议成员查询结果缺少 data.protocolAccountId");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) {
+            throw validation("协议成员查询结果账号关联不一致");
+        }
+        String protocolBackend = requiredText(
+                data, "protocolBackend", "协议成员查询结果缺少 data.protocolBackend");
+        if (!SUPPORTED_PROTOCOL_BACKENDS.contains(protocolBackend)) {
+            throw validation("协议成员查询结果 protocolBackend 非法");
+        }
+        String commandId = requiredText(data, "commandId", "协议成员查询结果缺少 data.commandId");
+        Integer attemptNo = integer(data, "attemptNo");
+        if (attemptNo == null || attemptNo <= 0) {
+            throw validation("协议成员查询结果 attemptNo 非法");
+        }
+        String outcome = requiredText(data, "outcome", "协议成员查询结果缺少 data.outcome")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_MEMBER_QUERY_OUTCOMES.contains(outcome)) {
+            throw validation("协议成员查询结果 outcome 非法");
+        }
+        String groupJid = requiredText(data, "groupJid", "协议成员查询结果缺少 data.groupJid");
+        List<ProtocolGroupMemberFact> members = memberFacts(data.path("members"), outcome);
+        Boolean retryable = booleanValue(data, "retryable");
+        if (retryable == null) {
+            throw validation("协议成员查询结果缺少 data.retryable");
+        }
+        long timestamp = requiredLong(data, "timestamp");
+        ProtocolGroupMembersResultReportedEvent event = new ProtocolGroupMembersResultReportedEvent(
+                eventId, tenantId, pullTaskId, groupExecutionId, queryId, purpose,
+                accountId, protocolAccountId, protocolBackend, commandId, attemptNo,
+                outcome, groupJid, members, text(data, "reasonCode"),
+                text(data, "reasonMessage"), retryable, timestamp,
+                text(envelope, "workerId"));
+        log.info("协议群成员查询结果收到 eventId={} tenantId={} queryId={} commandId={} outcome={}",
+                event.eventId(), event.tenantId(), event.queryId(), event.commandId(), event.outcome());
+        membersResultReportedSink.handleMembersResultReported(event);
+    }
+
+    private static List<ProtocolGroupMemberFact> memberFacts(JsonNode node, String outcome) {
+        if (!node.isArray()) {
+            throw validation("协议成员查询结果 members 非数组");
+        }
+        if ("FAILED".equals(outcome) && !node.isEmpty()) {
+            throw validation("协议成员查询失败结果不能携带成员事实");
+        }
+        List<ProtocolGroupMemberFact> members = new ArrayList<>();
+        Set<String> targets = new HashSet<>();
+        for (JsonNode fact : node) {
+            if (!fact.isObject()) {
+                throw validation("协议成员查询结果 member 非对象");
+            }
+            String targetJid = requiredText(
+                    fact, "targetJid", "协议成员查询结果缺少 member.targetJid");
+            if (!targets.add(targetJid)) {
+                throw validation("协议成员查询结果 targetJid 重复");
+            }
+            Boolean inGroup = booleanValue(fact, "inGroup");
+            Boolean admin = booleanValue(fact, "admin");
+            if (inGroup == null || admin == null || admin && !inGroup) {
+                throw validation("协议成员查询结果成员事实非法");
+            }
+            String participantJid = text(fact, "participantJid");
+            String phoneNumber = text(fact, "phoneNumber");
+            if (!inGroup && (hasText(participantJid) || hasText(phoneNumber))) {
+                throw validation("协议成员查询结果非群成员携带身份事实");
+            }
+            members.add(new ProtocolGroupMemberFact(
+                    targetJid, participantJid, phoneNumber, inGroup, admin));
+        }
+        return List.copyOf(members);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static BusinessException validation(String message) {
+        return new BusinessException(ErrorCode.VALIDATION, message);
     }
 
     /** 校验拉群账号动作结果的完整关联字段并传给任务状态机。 */

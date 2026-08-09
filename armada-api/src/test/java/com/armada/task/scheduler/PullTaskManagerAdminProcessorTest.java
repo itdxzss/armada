@@ -6,11 +6,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.model.vo.GroupExecutionAccount;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
-import com.armada.platform.protocol.port.GroupMemberListPort;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerAdminWork;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -21,14 +23,16 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class PullTaskManagerAdminProcessorTest {
 
     private final PullTaskManagerAdminTransactionService transactions =
             mock(PullTaskManagerAdminTransactionService.class);
-    private final GroupMemberListPort memberListPort = mock(GroupMemberListPort.class);
+    private final PullTaskMemberQueryAwaitService memberQueryAwaitService =
+            mock(PullTaskMemberQueryAwaitService.class);
     private final PullTaskManagerAdminProcessor processor =
-            new PullTaskManagerAdminProcessor(transactions, memberListPort);
+            new PullTaskManagerAdminProcessor(transactions, memberQueryAwaitService);
 
     @Test
     void managerAlreadyAdminAdvancesWithoutSendingPromote() {
@@ -36,8 +40,7 @@ class PullTaskManagerAdminProcessorTest {
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.PENDING, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of(
-                member("906", true), member("15", true)));
+        queryReturns(member("906", true), member("15", true));
         when(transactions.confirmManagerAdmin(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
 
@@ -53,8 +56,7 @@ class PullTaskManagerAdminProcessorTest {
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.PENDING, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of(
-                member("906", false), member("15", false), member("887", true)));
+        queryReturns(member("906", false), member("15", false));
         when(transactions.rejectPromoter(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -70,8 +72,7 @@ class PullTaskManagerAdminProcessorTest {
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.PENDING, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of(
-                member("906", true), member("15", false)));
+        queryReturns(member("906", true), member("15", false));
         when(transactions.submitOrDefer(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -86,8 +87,7 @@ class PullTaskManagerAdminProcessorTest {
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.SUCCESS, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of(
-                member("906", true), member("15", false)));
+        queryReturns(member("906", true), member("15", false));
         when(transactions.deferUnconfirmed(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -95,6 +95,15 @@ class PullTaskManagerAdminProcessorTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(transactions).deferUnconfirmed(work, 1_000L);
         verify(transactions, never()).confirmManagerAdmin(work, 1_000L);
+        ArgumentCaptor<PullTaskMemberQueryRequest> request =
+                ArgumentCaptor.forClass(PullTaskMemberQueryRequest.class);
+        verify(memberQueryAwaitService).readOrDefer(
+                org.mockito.ArgumentMatchers.eq(7L), request.capture(),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq("worker-1"),
+                org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.MANAGER_ADMIN.code()),
+                org.mockito.ArgumentMatchers.eq(1_000L));
+        assertThat(request.getValue().businessKey()).contains(":post:1");
     }
 
     @Test
@@ -106,7 +115,7 @@ class PullTaskManagerAdminProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verify(memberListPort, never()).list(org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(memberQueryAwaitService);
     }
 
     @Test
@@ -120,8 +129,7 @@ class PullTaskManagerAdminProcessorTest {
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.FAILED, true);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of(
-                member("906", true), member("15", false)));
+        queryReturns(member("906", true), member("15", false));
         when(transactions.submitOrDefer(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -178,8 +186,20 @@ class PullTaskManagerAdminProcessorTest {
         return row;
     }
 
-    private static GroupParticipantResult member(String phone, boolean admin) {
-        return new GroupParticipantResult(
-                phone + "@s.whatsapp.net", phone, admin, false, admin ? "admin" : null);
+    private void queryReturns(PullTaskMemberFact... facts) {
+        when(memberQueryAwaitService.readOrDefer(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(PullTaskMemberQueryResult.available(701L, List.of(facts)));
+    }
+
+    private static PullTaskMemberFact member(String phone, boolean admin) {
+        return new PullTaskMemberFact(
+                phone + "@s.whatsapp.net", phone + "@s.whatsapp.net", phone,
+                true, admin);
     }
 }

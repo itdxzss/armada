@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
@@ -12,9 +13,9 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
-import com.armada.platform.protocol.port.GroupMemberListPort;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerJoinWork;
 import com.armada.task.model.dto.PullTaskManagerJoinPayload;
 import com.armada.task.model.dto.PullTaskExecutionLease;
@@ -31,13 +32,14 @@ class PullTaskManagerJoinProcessorTest {
     private final PullTaskManagerJoinTransactionService transactions =
             mock(PullTaskManagerJoinTransactionService.class);
     private final GroupJoinPort joinPort = mock(GroupJoinPort.class);
-    private final GroupMemberListPort memberListPort = mock(GroupMemberListPort.class);
+    private final PullTaskMemberQueryAwaitService memberQueryAwaitService =
+            mock(PullTaskMemberQueryAwaitService.class);
     private final PullTaskSupplementManagerProcessor supplementProcessor =
             mock(PullTaskSupplementManagerProcessor.class);
     private final PullTaskManagerJoinProcessor processor =
             new PullTaskManagerJoinProcessor(
                     executionTransactions, transactions,
-                    supplementProcessor, joinPort, memberListPort);
+                    supplementProcessor, joinPort, memberQueryAwaitService);
 
     @Test
     void startsNewManagerJoinRowBeforeSubmittingTheProtocolCommand() {
@@ -75,7 +77,7 @@ class PullTaskManagerJoinProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
-        verify(memberListPort, never()).list(work.memberListQuery("120363group@g.us"));
+        verifyNoInteractions(memberQueryAwaitService);
     }
 
     @Test
@@ -94,7 +96,7 @@ class PullTaskManagerJoinProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verify(memberListPort, never()).list(work.memberListQuery("120363group@g.us"));
+        verifyNoInteractions(memberQueryAwaitService);
         verify(transactions).complete(work, pending, 1_000L);
     }
 
@@ -122,10 +124,18 @@ class PullTaskManagerJoinProcessorTest {
         PullTaskManagerJoinWork work = recoveryWork();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerJoinPreparation.ready(work));
-        when(memberListPort.list(work.memberListQuery("120363group@g.us")))
-                .thenReturn(List.of(new GroupParticipantResult(
-                        "8613800000901@s.whatsapp.net", "8613800000901",
-                        false, false, null)));
+        when(memberQueryAwaitService.readOrDefer(
+                org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq("worker-1"),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq(1_000L)))
+                .thenReturn(PullTaskMemberQueryResult.available(701L, List.of(
+                        new PullTaskMemberFact(
+                                "8613800000901@s.whatsapp.net",
+                                "8613800000901@s.whatsapp.net", "8613800000901",
+                                true, false))));
         PullTaskManagerJoinOutcome confirmed =
                 PullTaskManagerJoinOutcome.confirmed("120363group@g.us");
         when(transactions.complete(work, confirmed, 1_000L))
@@ -135,6 +145,29 @@ class PullTaskManagerJoinProcessorTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
         verify(joinPort, never()).join(work.joinCommand());
         verify(transactions).complete(work, confirmed, 1_000L);
+    }
+
+    @Test
+    void restartRecoveryPendingQueryReleasesLeaseWithoutCompletingStage() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskManagerJoinWork work = recoveryWork();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
+        when(memberQueryAwaitService.readOrDefer(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(PullTaskMemberQueryResult.pending(701L, 31_000L));
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(transactions, never()).complete(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong());
     }
 
     private static PullTaskGroupExecution candidate() {

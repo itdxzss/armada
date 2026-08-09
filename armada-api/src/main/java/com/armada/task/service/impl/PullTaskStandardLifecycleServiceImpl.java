@@ -13,6 +13,7 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskMemberQueryStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
@@ -128,6 +129,10 @@ public class PullTaskStandardLifecycleServiceImpl
 
     private void cancelNotSubmitted(long taskId, long now) {
         resources.outboxService().cancelPendingPullTaskCommands(taskId, null, now);
+        resources.memberQueryMapper().cancelPending(
+                taskId, null, PullTaskMemberQueryStatus.PENDING.code(),
+                PullTaskMemberQueryStatus.CANCELED.code(), now,
+                "PULL_TASK_ENDED", "pull task ended");
         resources.actionMapper().cancelPendingByTask(
                 taskId, PullTaskActionStatus.PENDING.code(),
                 PullTaskActionStatus.CANCELED.code(), now);

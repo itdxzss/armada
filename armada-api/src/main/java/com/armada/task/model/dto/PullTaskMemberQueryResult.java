@@ -6,6 +6,7 @@ import java.util.List;
 public record PullTaskMemberQueryResult(
         State state,
         Long queryId,
+        Long nextCheckAt,
         List<PullTaskMemberFact> members,
         String errorCode,
         String errorMessage
@@ -20,14 +21,16 @@ public record PullTaskMemberQueryResult(
         FAILED
     }
 
-    public static PullTaskMemberQueryResult pending(Long queryId) {
-        return new PullTaskMemberQueryResult(State.PENDING, queryId, List.of(), null, null);
+    public static PullTaskMemberQueryResult pending(Long queryId, Long nextCheckAt) {
+        return new PullTaskMemberQueryResult(
+                State.PENDING, queryId, nextCheckAt, List.of(), null, null);
     }
 
     public static PullTaskMemberQueryResult available(
             Long queryId,
             List<PullTaskMemberFact> members) {
-        return new PullTaskMemberQueryResult(State.AVAILABLE, queryId, members, null, null);
+        return new PullTaskMemberQueryResult(
+                State.AVAILABLE, queryId, null, members, null, null);
     }
 
     public static PullTaskMemberQueryResult failed(
@@ -35,6 +38,6 @@ public record PullTaskMemberQueryResult(
             String errorCode,
             String errorMessage) {
         return new PullTaskMemberQueryResult(
-                State.FAILED, queryId, List.of(), errorCode, errorMessage);
+                State.FAILED, queryId, null, List.of(), errorCode, errorMessage);
     }
 }

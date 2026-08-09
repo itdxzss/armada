@@ -13,6 +13,7 @@ import com.armada.task.service.impl.PullTaskMemberQueryCommandService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.dao.DuplicateKeyException;
@@ -54,7 +55,7 @@ public class PullTaskMemberQueryService {
         validateIdentity(request, latest);
         if (Objects.equals(latest.getQueryStatus(), PullTaskMemberQueryStatus.PENDING.code())) {
             if (latest.getDeadlineAt() != null && latest.getDeadlineAt() > now) {
-                return PullTaskMemberQueryResult.pending(latest.getId());
+                return PullTaskMemberQueryResult.pending(latest.getId(), latest.getDeadlineAt());
             }
             int expired = mapper.expirePending(
                     latest.getId(), PullTaskMemberQueryStatus.PENDING.code(),
@@ -79,12 +80,17 @@ public class PullTaskMemberQueryService {
         }
         validateIdentity(request, row);
         if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.PENDING.code())) {
-            return PullTaskMemberQueryResult.pending(row.getId());
+            return PullTaskMemberQueryResult.pending(row.getId(), row.getDeadlineAt());
         }
         if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.SUCCEEDED.code())) {
             return PullTaskMemberQueryResult.available(row.getId(), readMembers(row));
         }
         if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.EXPIRED.code())) {
+            return create(request, now);
+        }
+        if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.FAILED.code())
+                && row.getCompletedAt() != null
+                && row.getCompletedAt() + properties.getRetryDelayMs() <= now) {
             return create(request, now);
         }
         return PullTaskMemberQueryResult.failed(
@@ -99,7 +105,7 @@ public class PullTaskMemberQueryService {
                             request.purpose(), request.actor(), request.groupJid(),
                             request.targetJids(), now,
                             Math.addExact(now, properties.getMemberQueryTimeoutMs())));
-            return PullTaskMemberQueryResult.pending(created.getId());
+            return PullTaskMemberQueryResult.pending(created.getId(), created.getDeadlineAt());
         } catch (DuplicateKeyException ex) {
             PullTaskMemberQuery concurrent = mapper.selectLatestByBusinessKey(
                     request.groupExecutionId(), request.businessKey());
@@ -107,7 +113,8 @@ public class PullTaskMemberQueryService {
                 throw ex;
             }
             validateIdentity(request, concurrent);
-            return PullTaskMemberQueryResult.pending(concurrent.getId());
+            return PullTaskMemberQueryResult.pending(
+                    concurrent.getId(), concurrent.getDeadlineAt());
         }
     }
 
@@ -124,15 +131,47 @@ public class PullTaskMemberQueryService {
         }
     }
 
-    private static void validateIdentity(
+    private void validateIdentity(
             PullTaskMemberQueryRequest request,
             PullTaskMemberQuery row) {
         if (!Objects.equals(row.getTaskId(), request.taskId())
                 || !Objects.equals(row.getGroupExecutionId(), request.groupExecutionId())
                 || !Objects.equals(row.getBusinessKey(), request.businessKey())
-                || !Objects.equals(row.getPurpose(), request.purpose().name())) {
-            throw conflict("成员查询业务键关联不一致 businessKey=" + request.businessKey());
+                || !Objects.equals(row.getPurpose(), request.purpose().name())
+                || !Objects.equals(row.getAccountId(), request.actor().armadaAccountId())
+                || !Objects.equals(row.getProtocolAccountId(),
+                request.actor().protocolAccountId())
+                || !Objects.equals(row.getProtocolBackend(), request.actor().backend().name())
+                || !Objects.equals(row.getWsPhone(), request.actor().wsPhone())
+                || !Objects.equals(row.getGroupJid(), request.groupJid().trim())
+                || !readTargets(row).equals(normalizedTargets(request.targetJids()))) {
+            throw conflict("成员查询业务键冻结身份不一致 businessKey="
+                    + request.businessKey());
         }
+    }
+
+    private List<String> readTargets(PullTaskMemberQuery row) {
+        try {
+            List<String> targets = objectMapper.readValue(
+                    row.getTargetJidsJson(), new TypeReference<>() { });
+            if (targets == null) {
+                throw validation("成员查询冻结目标为空 queryId=" + row.getId());
+            }
+            return List.copyOf(targets);
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            throw validation("成员查询冻结目标 JSON 非法 queryId=" + row.getId());
+        }
+    }
+
+    private static List<String> normalizedTargets(List<String> targets) {
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String target : targets) {
+            if (target == null || target.isBlank()) {
+                throw validation("成员查询目标 JID 不能为空");
+            }
+            normalized.add(target.trim());
+        }
+        return List.copyOf(normalized);
     }
 
     private static void validateRequest(PullTaskMemberQueryRequest request, long now) {
@@ -146,6 +185,7 @@ public class PullTaskMemberQueryService {
                 || now <= 0) {
             throw validation("成员查询读取参数非法");
         }
+        normalizedTargets(request.targetJids());
     }
 
     private static BusinessException validation(String message) {

@@ -1,11 +1,14 @@
 package com.armada.task.scheduler;
 
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
-import com.armada.platform.protocol.port.GroupMemberListPort;
+import com.armada.platform.protocol.util.WhatsappJids;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerAdminWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskActionStatus;
-import java.util.List;
+import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
@@ -14,14 +17,14 @@ import org.springframework.stereotype.Component;
 public class PullTaskManagerAdminProcessor {
 
     private final PullTaskManagerAdminTransactionService transactions;
-    private final GroupMemberListPort memberListPort;
+    private final PullTaskMemberQueryAwaitService memberQueryAwaitService;
 
     /** 创建管理员设置阶段处理器。 */
     public PullTaskManagerAdminProcessor(
             PullTaskManagerAdminTransactionService transactions,
-            GroupMemberListPort memberListPort) {
+            PullTaskMemberQueryAwaitService memberQueryAwaitService) {
         this.transactions = transactions;
-        this.memberListPort = memberListPort;
+        this.memberQueryAwaitService = memberQueryAwaitService;
     }
 
     /** 执行一条处于 MANAGER_ADMIN 阶段的执行行。 */
@@ -33,15 +36,33 @@ public class PullTaskManagerAdminProcessor {
             return preparation.result();
         }
         PullTaskManagerAdminWork work = preparation.work();
-        PullTaskManagerAdminObservation observation;
-        try {
-            observation = observe(
-                    memberListPort.list(work.memberQuery()),
-                    work.promoter().wsPhone(),
-                    work.manager().getAccountPhone());
-        } catch (RuntimeException exception) {
+        String promoterJid = WhatsappJids.userJid(work.promoter().wsPhone());
+        String managerJid = WhatsappJids.userJid(work.manager().getAccountPhone());
+        Integer actionStatus = work.action().getActionStatus();
+        boolean postSubmission = Objects.equals(
+                actionStatus, PullTaskActionStatus.SUBMITTED.code())
+                || Objects.equals(actionStatus, PullTaskActionStatus.SUCCESS.code())
+                || Objects.equals(actionStatus, PullTaskActionStatus.UNKNOWN.code());
+        String queryPhase = postSubmission ? "post" : "pre";
+        PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDefer(
+                work.tenantId(), new PullTaskMemberQueryRequest(
+                        work.taskId(), work.executionId(),
+                        "manager-admin-membership:" + work.action().getId()
+                                + ":" + work.promoter().accountId()
+                                + ":" + queryPhase + ":" + work.action().getAttemptNo(),
+                        PullTaskMemberQueryPurpose.MANAGER_ADMIN_MEMBERSHIP,
+                        work.promoter().protocolRef(), work.groupJid(),
+                        java.util.List.of(promoterJid, managerJid)),
+                work.expectedVersion(), work.lockOwner(),
+                PullTaskExecutionStage.MANAGER_ADMIN.code(), now);
+        if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return PullTaskExecutionDispatchResult.DEFERRED;
+        }
+        if (query.state() == PullTaskMemberQueryResult.State.FAILED) {
             return transactions.deferObservation(work, now);
         }
+        PullTaskManagerAdminObservation observation = new PullTaskManagerAdminObservation(
+                hasAdmin(query.members(), promoterJid), hasAdmin(query.members(), managerJid));
         if (observation.managerAlreadyAdmin()) {
             return transactions.confirmManagerAdmin(work, now);
         }
@@ -55,42 +76,16 @@ public class PullTaskManagerAdminProcessor {
         return transactions.submitOrDefer(work, now);
     }
 
-    private static PullTaskManagerAdminObservation observe(
-            List<GroupParticipantResult> members,
-            String promoterPhone,
-            String managerPhone) {
-        return new PullTaskManagerAdminObservation(
-                hasAdmin(members, promoterPhone), hasAdmin(members, managerPhone));
-    }
-
-    private static boolean hasAdmin(List<GroupParticipantResult> members, String accountPhone) {
+    private static boolean hasAdmin(
+            java.util.List<PullTaskMemberFact> members, String targetJid) {
         if (members == null || members.isEmpty()) {
             return false;
         }
-        String expected = phone(accountPhone);
         return members.stream()
                 .filter(Objects::nonNull)
-                .filter(member -> Boolean.TRUE.equals(member.admin())
-                        || Boolean.TRUE.equals(member.owner()))
-                .filter(member -> expected.equals(phone(
-                        member.phone() == null ? member.jid() : member.phone())))
+                .filter(PullTaskMemberFact::admin)
+                .filter(member -> targetJid.equals(member.targetJid()))
                 .findAny()
                 .isPresent();
-    }
-
-    private static String phone(String value) {
-        if (value == null) {
-            return "";
-        }
-        String normalized = value.trim();
-        int at = normalized.indexOf('@');
-        if (at >= 0) {
-            normalized = normalized.substring(0, at);
-        }
-        int device = normalized.indexOf(':');
-        if (device >= 0) {
-            normalized = normalized.substring(0, device);
-        }
-        return normalized.replaceAll("[^0-9]", "");
     }
 }

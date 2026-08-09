@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.task.model.entity.PullTaskMemberQuery;
+import com.armada.task.model.dto.PullTaskMemberQuerySettlement;
 import com.armada.task.model.enums.PullTaskMemberQueryStatus;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import javax.sql.DataSource;
@@ -91,6 +92,30 @@ class PullTaskMemberQueryMapperInMemoryTest {
                 .isEqualTo(PullTaskMemberQueryStatus.CANCELED.code());
         assertThat(mapper.selectById(other.getId()).getQueryStatus())
                 .isEqualTo(PullTaskMemberQueryStatus.PENDING.code());
+    }
+
+    @Test
+    void settlePendingIsIdempotentAndRejectsOldCommand() {
+        PullTaskMemberQuery first = query(1, 100L);
+        mapper.insertInitialized(first);
+        mapper.bindCommandId(
+                first.getId(), PullTaskMemberQueryStatus.PENDING.code(), "cmd-query-1", 110L);
+
+        PullTaskMemberQuerySettlement wrong = new PullTaskMemberQuerySettlement(
+                first.getId(), "old-command", PullTaskMemberQueryStatus.PENDING.code(),
+                PullTaskMemberQueryStatus.SUCCEEDED.code(), "[]", null, null, 150L);
+        assertThat(mapper.settlePending(wrong)).isZero();
+
+        PullTaskMemberQuerySettlement success = new PullTaskMemberQuerySettlement(
+                first.getId(), "cmd-query-1", PullTaskMemberQueryStatus.PENDING.code(),
+                PullTaskMemberQueryStatus.SUCCEEDED.code(),
+                "[{\"targetJid\":\"456@s.whatsapp.net\",\"inGroup\":false,\"admin\":false}]",
+                null, null, 151L);
+        assertThat(mapper.settlePending(success)).isEqualTo(1);
+        assertThat(mapper.settlePending(success)).isZero();
+        PullTaskMemberQuery stored = mapper.selectById(first.getId());
+        assertThat(stored.getQueryStatus()).isEqualTo(PullTaskMemberQueryStatus.SUCCEEDED.code());
+        assertThat(stored.getCompletedAt()).isEqualTo(151L);
     }
 
     private static PullTaskMemberQuery query(int attemptNo, long now) {

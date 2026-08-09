@@ -87,4 +87,17 @@
       AND query_status = #{expectedStatus}
   </update>
 
+  <update id="settlePending">
+    UPDATE pull_task_member_query
+    SET query_status = #{settlement.targetStatus},
+        result_json = #{settlement.resultJson},
+        completed_at = #{settlement.completedAt},
+        error_code = #{settlement.errorCode},
+        error_message = #{settlement.errorMessage},
+        updated_at = #{settlement.completedAt}
+    WHERE id = #{settlement.queryId}
+      AND command_id = #{settlement.commandId}
+      AND query_status = #{settlement.expectedStatus}
+  </update>
+
 </mapper>

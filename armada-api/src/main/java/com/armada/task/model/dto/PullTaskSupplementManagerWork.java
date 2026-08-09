@@ -1,7 +1,6 @@
 package com.armada.task.model.dto;
 
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
-import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.task.model.enums.PullTaskSupplementManagerOperation;
@@ -43,18 +42,6 @@ public record PullTaskSupplementManagerWork(
     /** @return 目标账号的用户 JID */
     public String targetJid() {
         return WhatsappJids.userJid(target().wsPhone());
-    }
-
-    /** @return 使用目标账号确认其成员及权限事实的查询 */
-    public GroupMemberListQuery targetMemberQuery() {
-        return new GroupMemberListQuery(
-                target(), groupJid(), payload.group().operationId() + ":target-verify");
-    }
-
-    /** @return 使用执行账号确认其管理员权限的查询 */
-    public GroupMemberListQuery actorPermissionQuery() {
-        return new GroupMemberListQuery(
-                actor(), groupJid(), payload.group().operationId() + ":actor-verify");
     }
 
     /** @return 只允许查询收敛，不得重放协议命令 */

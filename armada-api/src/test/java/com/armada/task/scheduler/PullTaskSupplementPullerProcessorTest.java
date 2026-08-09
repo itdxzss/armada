@@ -10,10 +10,10 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
-import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.task.model.dto.PullTaskExecutionLease;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskSupplementPullerPayload;
 import com.armada.task.model.dto.PullTaskSupplementPullerWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -28,16 +28,16 @@ class PullTaskSupplementPullerProcessorTest {
 
     private PullTaskSupplementPullerTransactionService transactions;
     private GroupJoinPort joinPort;
-    private GroupMemberListPort memberListPort;
+    private PullTaskMemberQueryAwaitService memberQueryAwaitService;
     private PullTaskSupplementPullerProcessor processor;
 
     @BeforeEach
     void setUp() {
         transactions = mock(PullTaskSupplementPullerTransactionService.class);
         joinPort = mock(GroupJoinPort.class);
-        memberListPort = mock(GroupMemberListPort.class);
+        memberQueryAwaitService = mock(PullTaskMemberQueryAwaitService.class);
         processor = new PullTaskSupplementPullerProcessor(
-                transactions, joinPort, memberListPort);
+                transactions, joinPort, memberQueryAwaitService);
     }
 
     @Test
@@ -48,7 +48,7 @@ class PullTaskSupplementPullerProcessorTest {
                 .thenReturn(PullTaskSupplementPullerPreparation.ready(work));
         when(joinPort.join(work.joinCommand())).thenReturn(
                 new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of(member()));
+        queryReturns(true);
         PullTaskSupplementPullerOutcome outcome =
                 PullTaskSupplementPullerOutcome.confirmed();
         when(transactions.complete(work, outcome, 1_000L))
@@ -67,7 +67,7 @@ class PullTaskSupplementPullerProcessorTest {
         PullTaskSupplementPullerWork work = work(true);
         when(transactions.prepare(candidate, "worker", 1_000L))
                 .thenReturn(PullTaskSupplementPullerPreparation.ready(work));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of());
+        queryReturns(false);
         PullTaskSupplementPullerOutcome outcome =
                 PullTaskSupplementPullerOutcome.unknown(
                         "PULLER_MEMBERSHIP_UNCONFIRMED");
@@ -88,7 +88,7 @@ class PullTaskSupplementPullerProcessorTest {
                 .thenReturn(PullTaskSupplementPullerPreparation.ready(work));
         when(joinPort.join(work.joinCommand())).thenReturn(
                 new GroupJoinResult("120363group@g.us", GroupJoinOutcome.PENDING_APPROVAL));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of());
+        queryReturns(false);
         PullTaskSupplementPullerOutcome outcome =
                 PullTaskSupplementPullerOutcome.unknown("PULLER_JOIN_PENDING_APPROVAL");
         when(transactions.complete(work, outcome, 1_000L))
@@ -108,7 +108,7 @@ class PullTaskSupplementPullerProcessorTest {
                 .thenReturn(PullTaskSupplementPullerPreparation.ready(work));
         when(joinPort.join(work.joinCommand())).thenReturn(
                 new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
-        when(memberListPort.list(work.memberQuery())).thenReturn(List.of());
+        queryReturns(false);
         PullTaskSupplementPullerOutcome outcome =
                 PullTaskSupplementPullerOutcome.unknown(
                         "PULLER_MEMBERSHIP_UNCONFIRMED");
@@ -159,8 +159,19 @@ class PullTaskSupplementPullerProcessorTest {
                 902L, ProtocolBackend.WEB, "acc-902", "8613800000902");
     }
 
-    private static GroupParticipantResult member() {
-        return new GroupParticipantResult(
-                "8613800000902@s.whatsapp.net", "8613800000902", false, false, null);
+    private void queryReturns(boolean inGroup) {
+        when(memberQueryAwaitService.readOrDefer(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(PullTaskMemberQueryResult.available(701L, List.of(
+                        new PullTaskMemberFact(
+                                "8613800000902@s.whatsapp.net",
+                                inGroup ? "8613800000902@s.whatsapp.net" : null,
+                                inGroup ? "8613800000902" : null,
+                                inGroup, false))));
     }
 }

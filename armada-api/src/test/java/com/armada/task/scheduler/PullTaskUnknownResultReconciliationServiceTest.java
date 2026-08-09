@@ -12,8 +12,6 @@ import static org.mockito.Mockito.when;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
-import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -21,6 +19,8 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -53,7 +53,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
     private PullTaskGroupExecutionMapper executionMapper;
     private PullTaskPullWaveProgressService waveProgress;
     private AccountProtocolLookupService accountLookup;
-    private GroupMemberListPort memberListPort;
+    private PullTaskMemberQueryService memberQueryService;
     private PullTaskUnknownResultReconciliationService service;
 
     @BeforeEach
@@ -65,13 +65,13 @@ class PullTaskUnknownResultReconciliationServiceTest {
         executionMapper = mock(PullTaskGroupExecutionMapper.class);
         waveProgress = mock(PullTaskPullWaveProgressService.class);
         accountLookup = mock(AccountProtocolLookupService.class);
-        memberListPort = mock(GroupMemberListPort.class);
+        memberQueryService = mock(PullTaskMemberQueryService.class);
         service = new PullTaskUnknownResultReconciliationService(
                 new PullTaskUnknownResultResources(
                         actionMapper, callMapper,
                         mock(PullTaskPullCallMemberAttemptMapper.class),
                         materialMapper, accountMapper),
-                accountLookup, memberListPort,
+                accountLookup, memberQueryService,
                 new PullTaskUnknownResultCoordination(
                         executionMapper,
                         mock(PullTaskPullCallReconciliationService.class),
@@ -96,9 +96,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         stubRows(execution.getId(), List.of(manager, puller), List.of(material), List.of(call));
         when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
-        when(memberListPort.list(any())).thenReturn(List.of(
-                new GroupParticipantResult("8613800000099@s.whatsapp.net",
-                        "8613800000099", false, false, null)));
+        queryReturns(member("8613800000099", false));
         when(materialMapper.transitionPullResult(any())).thenReturn(1);
         when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(0);
         when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
@@ -151,7 +149,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         verify(actionMapper).transitionResult(change.capture());
         assertThat(change.getValue().targetStatus())
                 .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
-        verify(memberListPort, never()).list(any());
+        verify(memberQueryService, never()).requestOrRead(any(), anyLong());
         assertThat(stats.markedUnknown()).isOne();
     }
 
@@ -168,9 +166,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         stubRows(execution.getId(), List.of(manager), List.of(material), List.of());
         when(accountLookup.findActiveProtocolRefs(List.of(101L)))
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
-        when(memberListPort.list(any())).thenReturn(List.of(
-                new GroupParticipantResult(material.getWaJid(), material.getNormalizedPhone(),
-                        true, false, "admin")));
+        queryReturns(member(material.getNormalizedPhone(), true));
         when(materialMapper.transitionAdminResult(any())).thenReturn(1);
 
         PullTaskUnknownResultReconciliationStats stats =
@@ -206,13 +202,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 .thenReturn(List.of(action));
         when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(102L, promoter.getAccountPhone())));
-        when(memberListPort.list(any())).thenReturn(List.of(
-                new GroupParticipantResult(
-                        "8613800000001@s.whatsapp.net", "8613800000001",
-                        false, false, null),
-                new GroupParticipantResult(
-                        "8613800000002@s.whatsapp.net", "8613800000002",
-                        true, false, "admin")));
+        queryReturns(member("8613800000001", false), member("8613800000002", true));
         when(actionMapper.transitionManagerAdminObservation(
                 anyLong(), any(), anyInt(),
                 org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), anyLong()))
@@ -252,10 +242,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 .thenReturn(List.of(action));
         when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(102L, promoter.getAccountPhone())));
-        when(memberListPort.list(any())).thenReturn(List.of(
-                new GroupParticipantResult(
-                        "8613800000001@s.whatsapp.net", "8613800000001",
-                        true, false, "admin")));
+        queryReturns(member("8613800000001", true), member("8613800000002", true));
         when(actionMapper.transitionManagerAdminObservation(
                 anyLong(), any(), anyInt(),
                 org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), anyLong()))
@@ -355,6 +342,16 @@ class PullTaskUnknownResultReconciliationServiceTest {
     private static ProtocolAccountRef protocol(long accountId, String phone) {
         return new ProtocolAccountRef(
                 accountId, ProtocolBackend.WEB, "protocol-" + accountId, phone);
+    }
+
+    private void queryReturns(PullTaskMemberFact... members) {
+        when(memberQueryService.requestOrRead(any(), anyLong()))
+                .thenReturn(PullTaskMemberQueryResult.available(701L, List.of(members)));
+    }
+
+    private static PullTaskMemberFact member(String phone, boolean admin) {
+        String jid = phone + "@s.whatsapp.net";
+        return new PullTaskMemberFact(jid, jid, phone, true, admin);
     }
 
     private record AccountState(int role, Long callId, int membership) {

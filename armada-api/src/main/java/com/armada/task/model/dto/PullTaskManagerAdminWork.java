@@ -1,7 +1,6 @@
 package com.armada.task.model.dto;
 
 import com.armada.group.model.vo.GroupExecutionAccount;
-import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 
@@ -31,10 +30,4 @@ public record PullTaskManagerAdminWork(
         PullTaskGroupAccount promoterRole,
         PullTaskAccountAction action) {
 
-    /** @return 使用候选既有管理员读取实时成员列表的命令 */
-    public GroupMemberListQuery memberQuery() {
-        return new GroupMemberListQuery(
-                promoter.protocolRef(), groupJid,
-                "pull-task-manager-admin-verify:" + executionId + ":" + promoter.accountId());
-    }
 }

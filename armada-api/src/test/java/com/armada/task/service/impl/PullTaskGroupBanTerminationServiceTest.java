@@ -39,6 +39,7 @@ class PullTaskGroupBanTerminationServiceTest {
     @Mock private PullTaskGroupExecutionMapper executionMapper;
     @Mock private PullTaskGroupAccountMapper accountMapper;
     @Mock private PullTaskAccountActionMapper actionMapper;
+    @Mock private com.armada.task.mapper.PullTaskMemberQueryMapper memberQueryMapper;
     @Mock private PullTaskPullCallMapper pullCallMapper;
     @Mock private PullTaskPullCallMemberAttemptMapper attemptMapper;
     @Mock private PullTaskMaterialMemberMapper materialMapper;
@@ -53,7 +54,7 @@ class PullTaskGroupBanTerminationServiceTest {
     void setUp() {
         PullTaskStandardExecutionLifecycleResources resources =
                 new PullTaskStandardExecutionLifecycleResources(
-                        executionMapper, actionMapper,
+                        executionMapper, actionMapper, memberQueryMapper,
                         new PullTaskLifecyclePullResources(
                                 accountMapper, pullCallMapper, attemptMapper,
                                 materialMapper, waveMapper),

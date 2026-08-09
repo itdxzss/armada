@@ -409,12 +409,18 @@ class PullTaskStandardLifecycleServiceTest {
         PullTaskStandardLifecycleResources lifecycleResources(
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskAccountActionMapper actionMapper,
+                com.armada.task.mapper.PullTaskMemberQueryMapper memberQueryMapper,
                 PullTaskLifecyclePullResources pull,
                 ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchTrigger dispatchTrigger) {
             return new PullTaskStandardLifecycleResources(
-                    executionMapper, actionMapper, pull,
+                    executionMapper, actionMapper, memberQueryMapper, pull,
                     outboxService, dispatchTrigger);
+        }
+
+        @Bean
+        com.armada.task.mapper.PullTaskMemberQueryMapper memberQueryMapper() {
+            return mock(com.armada.task.mapper.PullTaskMemberQueryMapper.class);
         }
 
         @Bean

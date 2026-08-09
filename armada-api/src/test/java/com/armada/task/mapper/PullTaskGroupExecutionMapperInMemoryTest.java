@@ -10,6 +10,8 @@ import com.armada.task.model.dto.PullTaskExecutionClaimState;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
+import com.armada.task.model.dto.PullTaskMemberQueryDefer;
+import com.armada.task.model.dto.PullTaskMemberQueryWake;
 import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -215,6 +217,40 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         assertThat(released.getLockExpiresAt()).isNull();
         // releaseLock 是本文件里唯一曾经遗漏 updated_at 的 UPDATE；这里钉住不能再漏。
         assertThat(released.getUpdatedAt()).isEqualTo(650L);
+    }
+
+    @Test
+    void memberQueryDeferAndWakeRequireExactLeaseAndStage() throws SQLException {
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        executeRaw("UPDATE pull_task_group_execution SET execution_status=2, stage=3, "
+                + "version=4, next_run_at=0, lock_owner='worker-1', lock_expires_at=5000 "
+                + "WHERE id=" + row.getId());
+
+        assertThat(mapper.deferForMemberQuery(new PullTaskMemberQueryDefer(
+                row.getId(), 100L, 4, PullTaskExecutionStatus.EXECUTING.code(),
+                PullTaskExecutionStage.MANAGER_ADMIN.code(), "worker-1", 31_000L, 1_000L)))
+                .isEqualTo(1);
+        assertThat(mapper.deferForMemberQuery(new PullTaskMemberQueryDefer(
+                row.getId(), 100L, 4, PullTaskExecutionStatus.EXECUTING.code(),
+                PullTaskExecutionStage.MANAGER_ADMIN.code(), "worker-1", 31_000L, 1_000L)))
+                .isZero();
+
+        PullTaskGroupExecution deferred = mapper.selectById(row.getId());
+        assertThat(deferred.getLockOwner()).isNull();
+        assertThat(deferred.getNextRunAt()).isEqualTo(31_000L);
+        assertThat(deferred.getVersion()).isEqualTo(5);
+
+        assertThat(mapper.wakeForMemberQuery(new PullTaskMemberQueryWake(
+                row.getId(), 100L, PullTaskExecutionStatus.EXECUTING.code(),
+                PullTaskExecutionStage.MANAGER_JOIN.code(), 2_000L, 2_000L))).isZero();
+        assertThat(mapper.wakeForMemberQuery(new PullTaskMemberQueryWake(
+                row.getId(), 100L, PullTaskExecutionStatus.EXECUTING.code(),
+                PullTaskExecutionStage.MANAGER_ADMIN.code(), 2_000L, 2_000L))).isEqualTo(1);
+        assertThat(mapper.selectById(row.getId())).satisfies(woken -> {
+            assertThat(woken.getNextRunAt()).isEqualTo(2_000L);
+            assertThat(woken.getVersion()).isEqualTo(6);
+        });
     }
 
     @Test

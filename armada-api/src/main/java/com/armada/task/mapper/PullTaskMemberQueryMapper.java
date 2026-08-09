@@ -1,6 +1,7 @@
 package com.armada.task.mapper;
 
 import com.armada.task.model.entity.PullTaskMemberQuery;
+import com.armada.task.model.dto.PullTaskMemberQuerySettlement;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -44,4 +45,7 @@ public interface PullTaskMemberQueryMapper {
             @Param("now") long now,
             @Param("errorCode") String errorCode,
             @Param("errorMessage") String errorMessage);
+
+    /** 只收敛 commandId 仍匹配的当前 PENDING 尝试。 */
+    int settlePending(@Param("settlement") PullTaskMemberQuerySettlement settlement);
 }

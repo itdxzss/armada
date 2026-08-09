@@ -15,6 +15,8 @@ import com.armada.task.model.dto.PullTaskStickyPullerTransition;
 import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
 import com.armada.task.model.dto.PullTaskPullWaveCollectionWake;
 import com.armada.task.model.dto.PullTaskPullWaveSettlementAdvance;
+import com.armada.task.model.dto.PullTaskMemberQueryWake;
+import com.armada.task.model.dto.PullTaskMemberQueryDefer;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -330,6 +332,12 @@ public interface PullTaskGroupExecutionMapper {
     /** 只唤醒身份仍匹配的收集态拉人执行行。 */
     int wakePullWaveCollection(
             @Param("wake") PullTaskPullWaveCollectionWake wake);
+
+    /** 成员查询完成后只唤醒仍在原阶段、且已经释放租约的执行行。 */
+    int wakeForMemberQuery(@Param("wake") PullTaskMemberQueryWake wake);
+
+    /** 成员查询尚未完成时，以当前有效租约释放执行行直到查询截止时间。 */
+    int deferForMemberQuery(@Param("defer") PullTaskMemberQueryDefer defer);
 
     /** 以当前拉手身份和代际 CAS 分配下一粘性拉手。 */
     int transitionStickyPuller(

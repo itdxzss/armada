@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -84,6 +85,43 @@ class PullTaskMemberQueryServiceTest {
         verify(commandService, never()).create(any());
     }
 
+    @Test
+    void failedQueryRetriesOnlyAfterConfiguredBackoff() {
+        PullTaskMemberQueryMapper mapper = mock(PullTaskMemberQueryMapper.class);
+        PullTaskMemberQueryCommandService commandService =
+                mock(PullTaskMemberQueryCommandService.class);
+        PullTaskMemberQuery failed = row(PullTaskMemberQueryStatus.FAILED, 2_000L);
+        failed.setCompletedAt(1_000L);
+        failed.setErrorCode("MEMBER_QUERY_FAILED");
+        PullTaskMemberQuery retry = row(PullTaskMemberQueryStatus.PENDING, 41_000L);
+        retry.setId(702L);
+        retry.setAttemptNo(2);
+        when(mapper.selectLatestByBusinessKey(11L, "manager:601")).thenReturn(failed);
+        when(commandService.create(any())).thenReturn(retry);
+        PullTaskMemberQueryService service = service(mapper, commandService);
+
+        assertThat(service.requestOrRead(request(), 10_000L).state())
+                .isEqualTo(PullTaskMemberQueryResult.State.FAILED);
+        assertThat(service.requestOrRead(request(), 31_000L).queryId()).isEqualTo(702L);
+        verify(commandService).create(any());
+    }
+
+    @Test
+    void rejectsBusinessKeyReuseWithDifferentFrozenQueryIdentity() {
+        PullTaskMemberQueryMapper mapper = mock(PullTaskMemberQueryMapper.class);
+        PullTaskMemberQueryCommandService commandService =
+                mock(PullTaskMemberQueryCommandService.class);
+        PullTaskMemberQuery row = row(PullTaskMemberQueryStatus.SUCCEEDED, 2_000L);
+        row.setResultJson("[]");
+        row.setGroupJid("different@g.us");
+        when(mapper.selectLatestByBusinessKey(11L, "manager:601")).thenReturn(row);
+        PullTaskMemberQueryService service = service(mapper, commandService);
+
+        assertThatThrownBy(() -> service.requestOrRead(request(), 1_000L))
+                .hasMessageContaining("业务键冻结身份不一致");
+        verify(commandService, never()).create(any());
+    }
+
     private static PullTaskMemberQueryService service(
             PullTaskMemberQueryMapper mapper,
             PullTaskMemberQueryCommandService commandService) {
@@ -110,6 +148,12 @@ class PullTaskMemberQueryServiceTest {
         row.setGroupExecutionId(11L);
         row.setBusinessKey("manager:601");
         row.setPurpose(PullTaskMemberQueryPurpose.MANAGER_JOIN_MEMBERSHIP.name());
+        row.setAccountId(0L);
+        row.setProtocolAccountId("acc-web");
+        row.setProtocolBackend("WEB");
+        row.setWsPhone("acc-web");
+        row.setGroupJid("123@g.us");
+        row.setTargetJidsJson("[\"456@s.whatsapp.net\"]");
         row.setQueryStatus(status.code());
         row.setDeadlineAt(deadlineAt);
         row.setAttemptNo(1);

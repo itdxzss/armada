@@ -58,6 +58,7 @@ zhuan_validate_fleet_inputs() {
 }
 
 zhuan_fleet_run() {
+  LC_ALL=C \
   REPO="${ZHUAN_DIR}" \
   KEYS_DIR="${ZHUAN_FLEET_KEYS_DIR}" \
   NODES_CONF="${ZHUAN_FLEET_CONFIG}" \
@@ -127,7 +128,7 @@ zhuan_deploy_selected() {
   case "${ZHUAN_DEPLOY_MODE}" in
     fleet)
       info "按 coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node 滚动部署 Zhuan fleet..."
-      zhuan_fleet_run all
+      armada_capture_docker_build_output "Zhuan fleet" zhuan_fleet_run all
       info "检查 coordinator 和 ${ZHUAN_FLEET_EXPECTED_NODES} 台 Zhuan 节点..."
       zhuan_verify_fleet_health
       ;;
@@ -243,7 +244,7 @@ zhuan_prepare_remote() {
 }
 
 zhuan_sync_source() {
-  rsync -rltz --delete -e "${ZHUAN_RSYNC_SSH}" \
+  armada_rsync "Zhuan source" -rltz --delete -e "${ZHUAN_RSYNC_SSH}" \
     --exclude='/.git/' \
     --exclude='/.idea/' \
     --exclude='/.gocache/' \
@@ -280,7 +281,7 @@ zhuan_sync_source() {
 }
 
 zhuan_deploy_remote() {
-  zhuan_ssh_run \
+  armada_capture_docker_build_output "Zhuan image" zhuan_ssh_run \
     "bash -s -- '${ZHUAN_REMOTE_DIR}' '${ZHUAN_COMPOSE_FILE}' '${ZHUAN_START_SERVICES}'" \
     <<<"${zhuan_remote_deploy_payload}"
 }

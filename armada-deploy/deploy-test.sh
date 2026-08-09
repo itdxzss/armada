@@ -730,43 +730,44 @@ if [ "${ASSUME_YES}" != 1 ]; then
   esac
 fi
 SUMMARY_ENABLED=1
+armada_metrics_init
 
 if [ "${BUILD_BE}" = 1 ]; then
   ACTIVE_COMPONENT=backend
-  armada_build_backend
+  armada_measure "backend local build" armada_build_backend
   ACTIVE_COMPONENT=""
 fi
 
 if [ "${BUILD_FE}" = 1 ]; then
   ACTIVE_COMPONENT=frontend
-  armada_build_frontend
+  armada_measure "frontend local build" armada_build_frontend
   ACTIVE_COMPONENT=""
 fi
 
 if [ "${BUILD_PROTOCOL}" = 1 ]; then
   ACTIVE_COMPONENT=protocol
-  protocol_build_local
+  armada_measure "Baileys local build" protocol_build_local
   ACTIVE_COMPONENT=""
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   ACTIVE_COMPONENT=armada
   info "检查 Armada SSH 连通性..."
-  ssh_run true || die "Armada SSH 连接失败"
+  armada_measure_or_die "Armada SSH connectivity" "Armada SSH 连接失败" ssh_run true
   ok "Armada 服务器可达"
   ACTIVE_COMPONENT=""
 fi
 if [ "${BUILD_PROTOCOL}" = 1 ]; then
   ACTIVE_COMPONENT=protocol
   info "检查协议 SSH 连通性..."
-  protocol_ssh_run true || die "协议 SSH 连接失败"
+  armada_measure_or_die "Baileys SSH connectivity" "协议 SSH 连接失败" protocol_ssh_run true
   ok "协议服务器可达"
   ACTIVE_COMPONENT=""
 fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
   ACTIVE_COMPONENT=zhuan
   info "检查 Zhuan SSH 连通性..."
-  zhuan_check_connectivity || die "Zhuan SSH 连接失败"
+  armada_measure_or_die "Zhuan SSH connectivity" "Zhuan SSH 连接失败" zhuan_check_connectivity
   ok "Zhuan 部署目标可达"
   ACTIVE_COMPONENT=""
 fi
@@ -775,13 +776,13 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   ACTIVE_COMPONENT=protocol
   STATUS_PROTOCOL=RUNNING
   info "准备协议远端目录..."
-  protocol_prepare_remote
+  armada_measure "Baileys remote prepare" protocol_prepare_remote
   info "同步协议层源码..."
-  protocol_sync_source
+  armada_measure "Baileys source sync" protocol_sync_source
   info "构建并重载协议层..."
-  protocol_deploy_remote
+  armada_measure "Baileys remote build/reload" protocol_deploy_remote
   info "检查协议层访问..."
-  protocol_verify_health
+  armada_measure "Baileys health check" protocol_verify_health
   STATUS_PROTOCOL=SUCCESS
   ACTIVE_COMPONENT=""
   ok "协议层可访问"
@@ -790,7 +791,7 @@ fi
 if [ "${BUILD_ZHUAN}" = 1 ]; then
   ACTIVE_COMPONENT=zhuan
   STATUS_ZHUAN=RUNNING
-  zhuan_deploy_selected
+  armada_measure "Zhuan deployment" zhuan_deploy_selected
   STATUS_ZHUAN=SUCCESS
   ACTIVE_COMPONENT=""
   ok "Zhuan 协议可访问"
@@ -801,28 +802,28 @@ if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   if [ "${BUILD_BE}" = 1 ]; then STATUS_BACKEND=RUNNING; fi
   if [ "${BUILD_FE}" = 1 ]; then STATUS_FRONTEND=RUNNING; fi
   info "准备 Armada 远端目录..."
-  armada_prepare_remote
+  armada_measure "Armada remote prepare" armada_prepare_remote
   ok "Armada 远端 .env 已包含必需数据库配置"
 
   info "同步 Armada 部署编排文件..."
-  armada_sync_assets
+  armada_measure "Armada assets sync" armada_sync_assets
 fi
 
 if [ "${BUILD_BE}" = 1 ]; then
   info "同步后端 jar..."
-  armada_sync_backend
+  armada_measure "backend jar sync" armada_sync_backend
 fi
 
 if [ "${BUILD_FE}" = 1 ]; then
   info "同步前端 dist..."
-  armada_sync_frontend
+  armada_measure "frontend dist sync" armada_sync_frontend
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
   info "启动 Armada 容器..."
-  armada_start
+  armada_measure "Armada image build/start" armada_start
   info "检查 Armada 容器状态..."
-  armada_verify_selected "${BUILD_BE}" "${BUILD_FE}"
+  armada_measure "Armada health check" armada_verify_selected "${BUILD_BE}" "${BUILD_FE}"
   if [ "${BUILD_BE}" = 1 ]; then STATUS_BACKEND=SUCCESS; fi
   if [ "${BUILD_FE}" = 1 ]; then STATUS_FRONTEND=SUCCESS; fi
   ACTIVE_COMPONENT=""

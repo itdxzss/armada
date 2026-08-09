@@ -87,7 +87,7 @@ REMOTE_CHECK
 }
 
 armada_sync_assets() {
-  rsync -az -e "${RSYNC_SSH}" \
+  armada_rsync "Armada assets" -az -e "${RSYNC_SSH}" \
     "${DEPLOY_ASSET_DIR}/backend.prebuilt.Dockerfile" \
     "${DEPLOY_ASSET_DIR}/nginx.prebuilt.Dockerfile" \
     "${DEPLOY_ASSET_DIR}/render-platform-config.sh" \
@@ -99,20 +99,21 @@ armada_sync_assets() {
 }
 
 armada_sync_backend() {
-  rsync -a --partial -e "${RSYNC_SSH}" \
+  armada_rsync "backend jar" -a --partial -e "${RSYNC_SSH}" \
     "${JAR_PATH}" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/armada-api/target/${JAR_NAME}"
 }
 
 armada_sync_frontend() {
   # Keep old hashed chunks because browsers may still reference cached entry bundles.
-  rsync -az -e "${RSYNC_SSH}" \
+  armada_rsync "frontend dist" -az -e "${RSYNC_SSH}" \
     "${FRONTEND_DIR}/dist/" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/wheel-saas-pure-web/dist/"
 }
 
 armada_start() {
-  ssh_run "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' AUTH_SESSION_KEY_PREFIX='armada:${ENV_ID}:' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+  armada_capture_docker_build_output "Armada images" ssh_run \
+    "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' AUTH_SESSION_KEY_PREFIX='armada:${ENV_ID}:' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
 }
 
 armada_wait_backend_ready() {

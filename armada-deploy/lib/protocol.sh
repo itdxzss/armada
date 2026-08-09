@@ -111,27 +111,27 @@ protocol_prepare_remote() {
 }
 
 protocol_sync_source() {
-  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+  armada_rsync "Baileys source" -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
     "${PROTOCOL_LAYER_DIR}/src/" \
     "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/src/"
-  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+  armada_rsync "Baileys deploy config" -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
     "${PROTOCOL_LAYER_DIR}/deploy/" \
     "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/deploy/"
-  rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+  armada_rsync "Baileys OpenAPI" -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
     "${PROTOCOL_DIR}/openapi/" \
     "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/openapi/"
-  rsync -az -e "${PROTOCOL_RSYNC_SSH}" \
+  armada_rsync "Baileys manifests" -az -e "${PROTOCOL_RSYNC_SSH}" \
     "${PROTOCOL_LAYER_DIR}/package.json" \
     "${PROTOCOL_LAYER_DIR}/package-lock.json" \
     "${PROTOCOL_LAYER_DIR}/tsconfig.json" \
     "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/"
   if [ -f "${PROTOCOL_LAYER_DIR}/jest.config.mjs" ]; then
-    rsync -az -e "${PROTOCOL_RSYNC_SSH}" \
+    armada_rsync "Baileys Jest config" -az -e "${PROTOCOL_RSYNC_SSH}" \
       "${PROTOCOL_LAYER_DIR}/jest.config.mjs" \
       "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/"
   fi
   if [ -d "${PROTOCOL_LAYER_DIR}/patches" ]; then
-    rsync -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
+    armada_rsync "Baileys patches" -az --delete -e "${PROTOCOL_RSYNC_SSH}" \
       "${PROTOCOL_LAYER_DIR}/patches/" \
       "${PROTOCOL_SSH_USER}@${PROTOCOL_SSH_HOST}:${PROTOCOL_REMOTE_DIR}/protocol-layer/patches/"
   fi

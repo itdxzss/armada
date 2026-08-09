@@ -17,6 +17,44 @@
 
 后续排查优先使用 `taskId` 找到 `executionId`，再使用 `commandId` 串联 Armada、Outbox 和协议层。不要在聊天或排查记录中粘贴完整号码、完整群链接、私钥、密码或命令载荷。
 
+## 快速诊断入口
+
+页面任务列表的 `#123` 就是 `pull_task.id=123`。测试提报统一使用：
+
+```text
+排查 test1 拉群任务 #123
+时间：14:20
+现象：页面一直执行中
+```
+
+本地一键只读诊断：
+
+```bash
+bash armada-deploy/tools/pull-task-diagnose.sh \
+  --env test1 \
+  --task-id '#123' \
+  --observed-at '14:20' \
+  --symptom '页面一直执行中'
+```
+
+大任务已知异常群执行行时，用 `--execution-id` 收窄：
+
+```bash
+bash armada-deploy/tools/pull-task-diagnose.sh \
+  --env test1 --task-id '#123' --execution-id 456
+```
+
+工具会：
+
+- 要求显式选择 `test1` 或 `perf2`，不提供生产环境入口。
+- 先读取后端运行时和 `pull_task.task_type/mode`，避免拿本地新代码或错误状态机解释环境数据。
+- 对 `STANDARD/NORMAL_LINK` 先输出任务/执行行摘要，再复用本手册结果 9 定点输出异常 `executionId/commandId`。
+- 对 `GROUP_MARKETING` 自动转到任务级聚合摘要，不套用普通拉群的七阶段状态机。
+- 只执行 `SET` / `SELECT` / `WITH`；不会重试、恢复、释放资源、修改状态或重启服务。
+- 不查询或输出完整号码、群链接、WhatsApp JID 和命令 payload。MySQL 密码只在远端进程环境中使用。
+
+该入口输出的“异常候选”仍不等于最终故障结论；有 `commandId` 时再进入 Armada / Outbox / 协议日志核对，无候选时不盲查协议层。
+
 ## 快速判断顺序
 
 ```text

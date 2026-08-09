@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="${SCRIPT_DIR}/deploy-test.sh"
 WIN_SCRIPT="${SCRIPT_DIR}/deploy-test-win.sh"
 ARTIFACT_LIB="${SCRIPT_DIR}/lib/artifact.sh"
+COMMON_LIB="${SCRIPT_DIR}/lib/common.sh"
 
 fail() {
   printf 'FAIL %s\n' "$*" >&2
@@ -29,6 +30,69 @@ test_assert_contains_handles_large_haystack() {
   local large_haystack
   large_haystack="$(awk 'BEGIN { print "needle"; for (i = 0; i < 20000; i++) print "padding" }')"
   assert_contains "${large_haystack}" "needle"
+}
+
+test_deployment_metrics_summarize_stage_duration() {
+  local metrics_log out
+  metrics_log="$(mktemp)"
+  [ -f "${COMMON_LIB}" ] || fail "expected deployment common library: ${COMMON_LIB}"
+  # shellcheck source=/dev/null
+  . "${COMMON_LIB}"
+  armada_init_colors
+
+  armada_metrics_init "${metrics_log}"
+  armada_metrics_record_stage "backend-build" 12 0
+  out="$(print_deployment_metrics_summary)"
+  rm -f "${metrics_log}"
+
+  assert_contains "${out}" "阶段 backend-build: 12s (SUCCESS)"
+}
+
+test_deployment_metrics_summarize_rsync_transfer() {
+  local metrics_log out rsync_log
+  metrics_log="$(mktemp)"
+  rsync_log="$(mktemp)"
+  # shellcheck source=/dev/null
+  . "${COMMON_LIB}"
+  armada_init_colors
+
+  cat >"${rsync_log}" <<'STATS'
+Number of files: 18 (reg: 16, dir: 2)
+Number of regular files transferred: 3
+Total transferred file size: 2,097,152 bytes
+STATS
+  armada_metrics_init "${metrics_log}"
+  armada_metrics_record_rsync_stats "backend-jar" "${rsync_log}"
+  out="$(print_deployment_metrics_summary)"
+  rm -f "${metrics_log}" "${rsync_log}"
+
+  assert_contains "${out}" "同步 backend-jar: scanned=18 changed=3 transferred=2.0 MiB"
+}
+
+test_deployment_metrics_summarize_docker_cache() {
+  local build_log metrics_log out
+  build_log="$(mktemp)"
+  metrics_log="$(mktemp)"
+  # shellcheck source=/dev/null
+  . "${COMMON_LIB}"
+  armada_init_colors
+
+  cat >"${build_log}" <<'BUILD'
+#1 [internal] load build definition from Dockerfile
+#1 DONE 0.0s
+#2 [internal] load metadata for docker.io/library/alpine:3.20
+#2 CACHED
+#3 [1/2] FROM docker.io/library/alpine:3.20
+#3 CACHED
+#4 [2/2] COPY app.jar /app/
+#4 DONE 0.1s
+BUILD
+  armada_metrics_init "${metrics_log}"
+  armada_metrics_record_docker_cache "zhuan-image" "${build_log}"
+  out="$(print_deployment_metrics_summary)"
+  rm -f "${build_log}" "${metrics_log}"
+
+  assert_contains "${out}" "Docker zhuan-image: cache=2/4 (50%)"
 }
 
 test_backend_jar_resolution_requires_one_executable_jar() {
@@ -348,7 +412,7 @@ test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
   command_log="$(cat "${ZHUAN_FIXTURE_COMMAND_LOG}")"
   payload_log="$(cat "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
 
-  assert_contains "${command_log}" "RSYNC <-rltz> <--delete>"
+  assert_contains "${command_log}" "RSYNC <--stats> <-rltz> <--delete>"
   assert_contains "${command_log}" "ssh -i '${ZHUAN_FIXTURE_KEY}'"
   assert_contains "${command_log}" "<--exclude=/.env>"
   assert_contains "${command_log}" "<--exclude=*.key>"
@@ -395,7 +459,7 @@ test_test1_zhuan_invokes_existing_fleet_orchestrator() {
   assert_contains "${command_log}" "<NODES_CONF=${ZHUAN_FIXTURE_FLEET_CONFIG}>"
   assert_contains "${command_log}" "<--dry-run> <all>"
   assert_contains "${command_log}" "<all>"
-  assert_not_contains "${command_log}" "RSYNC <-rltz>"
+  assert_not_contains "${command_log}" "RSYNC <--stats> <-rltz>"
 }
 
 test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint() {
@@ -406,6 +470,13 @@ test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint() {
   assert_contains "${win_content}" 'coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node'
   assert_contains "${win_content}" "zhuan_check_connectivity"
   assert_contains "${win_content}" "zhuan_deploy_selected"
+}
+
+test_windows_help_loads_profile() {
+  local out
+  out="$(bash "${WIN_SCRIPT}" --help)"
+  assert_contains "${out}" "deploy-test-win.sh - 部署 armada API"
+  assert_contains "${out}" "--full"
 }
 
 test_zhuan_remote_failure_stops_before_health_check() {
@@ -560,7 +631,7 @@ test_protocol_transport_is_direct_for_test1() {
   cleanup_protocol_command_fixture
 
   assert_contains "${command_log}" "SSH <-i> <${PROTOCOL_FIXTURE_KEY}>"
-  assert_contains "${command_log}" "RSYNC <-az> <--delete> <-e> <ssh -i '${PROTOCOL_FIXTURE_KEY}'"
+  assert_contains "${command_log}" "RSYNC <--stats> <-az> <--delete> <-e> <ssh -i '${PROTOCOL_FIXTURE_KEY}'"
   assert_not_contains "${command_log}" "ProxyCommand="
 }
 
@@ -1004,7 +1075,7 @@ test_zhuan_sync_preserves_remote_runtime_files() {
   local script_content
   script_content="$(cat "${SCRIPT_DIR}/lib/zhuan.sh")"
 
-  assert_contains "${script_content}" 'rsync -rltz --delete -e "${ZHUAN_RSYNC_SSH}"'
+  assert_contains "${script_content}" 'armada_rsync "Zhuan source" -rltz --delete -e "${ZHUAN_RSYNC_SSH}"'
   assert_not_contains "${script_content}" '--exclude-from="${ZHUAN_DIR}/.dockerignore"'
   assert_contains "${script_content}" "--exclude='/.git/'"
   assert_contains "${script_content}" "--exclude='/server'"
@@ -1239,10 +1310,14 @@ test_backend_jar_resolution_requires_one_executable_jar
 test_backend_deploy_uses_stable_staging_name
 test_armada_compose_passes_promotion_token_encryption_config_to_backend
 test_assert_contains_handles_large_haystack
+test_deployment_metrics_summarize_stage_duration
+test_deployment_metrics_summarize_rsync_transfer
+test_deployment_metrics_summarize_docker_cache
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload
 test_zhuan_dry_run_invokes_no_external_commands
 test_test1_zhuan_invokes_existing_fleet_orchestrator
 test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint
+test_windows_help_loads_profile
 test_zhuan_remote_failure_stops_before_health_check
 test_zhuan_perf_uses_perf_compose_without_local_redis
 test_zhuan_rsync_filters_preserve_runtime_files_and_modes

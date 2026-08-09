@@ -51,10 +51,7 @@ public final class AndroidNativeGroupParticipantAdapter implements GroupParticip
             case ADD -> add(account, jid, normalized);
             case PROMOTE -> setAdmin(account, jid, normalized, true);
             case DEMOTE -> setAdmin(account, jid, normalized, false);
-            case REMOVE -> throw new ProtocolException(
-                    ProtocolErrorCode.GROUP_CAPABILITY_UNSUPPORTED,
-                    "Android 协议暂不支持移除群成员")
-                    .withContext(ProtocolBackend.ANDROID, "group.participants.remove", null);
+            case REMOVE -> remove(account, jid, normalized);
         };
     }
 
@@ -87,6 +84,32 @@ public final class AndroidNativeGroupParticipantAdapter implements GroupParticip
                 partial = true;
             }
             results.add(new GroupParticipantBatchResult.Item(participant, status, error));
+        }
+        return new GroupParticipantBatchResult(partial, List.copyOf(results));
+    }
+
+    private GroupParticipantBatchResult remove(
+            ProtocolAccountRef account,
+            String groupJid,
+            List<String> participants) {
+        List<GroupParticipantBatchResult.Item> results = new ArrayList<>(participants.size());
+        boolean partial = false;
+        for (String participant : participants) {
+            AndroidDecodedResponse response = decoder.decode(client.removeGroupMember(
+                    account.wsPhone(), groupJid, participant));
+            if (response.success()) {
+                results.add(new GroupParticipantBatchResult.Item(
+                        participant, "OK", response.rawProtocolCode()));
+                continue;
+            }
+            ProtocolException failure = errorMapper.toException(
+                    response, account, "group.participants.remove", null);
+            if (failure.errorCode() == ProtocolErrorCode.TIMEOUT) {
+                throw failure;
+            }
+            results.add(new GroupParticipantBatchResult.Item(
+                    participant, "FAILED", failure.errorCode().name()));
+            partial = true;
         }
         return new GroupParticipantBatchResult(partial, List.copyOf(results));
     }

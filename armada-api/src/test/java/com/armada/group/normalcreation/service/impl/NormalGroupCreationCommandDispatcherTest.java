@@ -56,4 +56,56 @@ class NormalGroupCreationCommandDispatcherTest {
         verify(mapper).bindContactCommand(
                 eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("FAILED"), eq("cmd-retry"), anyLong());
     }
+
+    @Test
+    void failedContactRetryReissuesEveryDirectionThatHasNotSucceeded() {
+        NormalGroupCreationMapper mapper = mock(NormalGroupCreationMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        NormalGroupCreationCommandDispatcher dispatcher =
+                new NormalGroupCreationCommandDispatcher(mapper, outbox);
+        ItemWork item = new ItemWork(
+                21L, 1L, 9L, "普群001", "普群{no}",
+                382L, "creator-web", "WEB", "911",
+                null, "FAILED", "PREPARING_CONTACTS", "NONE",
+                null, null, null, "KEEP", null, 91L, 92L,
+                true, false, true, false, 0);
+        MemberWork pendingMember = new MemberWork(
+                31L, 383L, "member-android-1", "ANDROID", "922",
+                "PENDING", "SUCCESS", "cmd-old-pending", "cmd-old-success", "PENDING");
+        MemberWork unknownMember = new MemberWork(
+                32L, 384L, "member-android-2", "ANDROID", "933",
+                "UNKNOWN", "FAILED", "cmd-old-unknown", "cmd-old-failed", "PENDING");
+        when(outbox.enqueueNormalGroupCreationCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null, List.of("cmd-retry-pending", "cmd-retry-unknown", "cmd-retry-failed"), 3));
+        when(mapper.bindContactCommand(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("PENDING"),
+                eq("cmd-retry-pending"), anyLong())).thenReturn(1);
+        when(mapper.bindContactCommand(
+                eq(32L), eq("CREATOR_SAVE_MEMBER"), eq("UNKNOWN"),
+                eq("cmd-retry-unknown"), anyLong())).thenReturn(1);
+        when(mapper.bindContactCommand(
+                eq(32L), eq("MEMBER_SAVE_CREATOR"), eq("FAILED"),
+                eq("cmd-retry-failed"), anyLong())).thenReturn(1);
+        when(mapper.markContactPrepareSubmitted(eq(21L), anyLong())).thenReturn(1);
+
+        dispatcher.enqueueFailedContactPrepare(item, List.of(pendingMember, unknownMember));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolNormalGroupCreationCommandRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueueNormalGroupCreationCommands(captor.capture());
+        assertThat(captor.getValue()).extracting(ProtocolNormalGroupCreationCommandRequest::direction)
+                .containsExactly(
+                        "CREATOR_SAVE_MEMBER", "CREATOR_SAVE_MEMBER", "MEMBER_SAVE_CREATOR");
+        verify(mapper).bindContactCommand(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("PENDING"),
+                eq("cmd-retry-pending"), anyLong());
+        verify(mapper).bindContactCommand(
+                eq(32L), eq("CREATOR_SAVE_MEMBER"), eq("UNKNOWN"),
+                eq("cmd-retry-unknown"), anyLong());
+        verify(mapper).bindContactCommand(
+                eq(32L), eq("MEMBER_SAVE_CREATOR"), eq("FAILED"),
+                eq("cmd-retry-failed"), anyLong());
+    }
 }

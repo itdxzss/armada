@@ -27,10 +27,10 @@ public enum NormalGroupCreationErrorMessage {
             "SENDER_UNAVAILABLE",
             "Android 建群执行器暂不可用，请联系管理员处理"),
 
-    /** 建群账号不在线。 */
+    /** 历史结果未携带执行账号角色。 */
     ACCOUNT_NOT_ONLINE(
             "ACCOUNT_NOT_ONLINE",
-            "建群账号当前不在线，请重新上线后重试"),
+            "执行账号当前不在线，请检查建群账号和成员账号后重试"),
 
     /** 目标号码没有注册 WhatsApp。 */
     CONTACT_NOT_REGISTERED(
@@ -82,6 +82,10 @@ public enum NormalGroupCreationErrorMessage {
     private static final String APP_STATE_KEY_STORE_REASON = "failed to store generated app state key";
     private static final String APP_STATE_KEY_SHARE_REASON = "failed to share app state key";
     private static final String APP_STATE_KEY_ACTIVATION_REASON = "failed to persist the active app state key";
+    private static final String CREATOR_ACCOUNT_NOT_ONLINE_MESSAGE =
+            "建群账号当前不在线，请重新上线后重试";
+    private static final String MEMBER_ACCOUNT_NOT_ONLINE_MESSAGE =
+            "成员账号当前不在线，请将对应成员账号重新上线后重试";
 
     private static final String INTEGRITY_BLOCK_MESSAGE =
             "WhatsApp 风控拦截了建群操作，请更换健康账号或稍后重试";
@@ -99,7 +103,7 @@ public enum NormalGroupCreationErrorMessage {
     /**
      * 将协议层错误转换为新建普群任务详情中的中文业务说明。
      *
-     * <p>数据库和日志仍保留协议原始信息；这里只处理 API 出参，未知英文按当前阶段降级为中文提示。</p>
+     * <p>数据库保留协议原因码；这里只处理 API 出参，未知英文按当前阶段降级为中文提示。</p>
      *
      * @param errorCode 协议结果原因码
      * @param originalMessage 协议原始原因说明
@@ -122,6 +126,11 @@ public enum NormalGroupCreationErrorMessage {
         if (TIMEOUT_CODE.equals(errorCode)) {
             return timeoutMessage(currentStep);
         }
+        if (ACCOUNT_NOT_ONLINE.code.equals(errorCode)
+                && (CREATOR_ACCOUNT_NOT_ONLINE_MESSAGE.equals(originalMessage)
+                || MEMBER_ACCOUNT_NOT_ONLINE_MESSAGE.equals(originalMessage))) {
+            return originalMessage;
+        }
         for (NormalGroupCreationErrorMessage value : values()) {
             if (value.code.equals(errorCode)) {
                 return value.message;
@@ -131,6 +140,13 @@ public enum NormalGroupCreationErrorMessage {
             return originalMessage;
         }
         return fallbackMessage(currentStep);
+    }
+
+    /** 返回联系人准备方向对应的账号离线运营提示。 */
+    public static String accountNotOnlineMessage(boolean memberAccount) {
+        return memberAccount
+                ? MEMBER_ACCOUNT_NOT_ONLINE_MESSAGE
+                : CREATOR_ACCOUNT_NOT_ONLINE_MESSAGE;
     }
 
     private static Optional<String> protocolSpecificMessage(String normalizedMessage) {

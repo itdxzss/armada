@@ -5,6 +5,7 @@ import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.enums.NormalGroupCreationErrorMessage;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
@@ -28,6 +29,7 @@ public class NormalGroupCreationProtocolResultService
 
     private static final Logger log =
             LoggerFactory.getLogger(NormalGroupCreationProtocolResultService.class);
+    private static final String ACCOUNT_NOT_ONLINE = "ACCOUNT_NOT_ONLINE";
 
     private final NormalGroupCreationMapper mapper;
     private final NormalGroupCreationCommandDispatcher commandDispatcher;
@@ -74,6 +76,9 @@ public class NormalGroupCreationProtocolResultService
                 return;
             }
             MemberWork member = validateActorAndCommand(item, event);
+            if ("CONTACT_PREPARE".equals(event.action()) && member == null) {
+                return;
+            }
             if (!"SUCCESS".equals(event.outcome())) {
                 applyFailure(item, member, event, expectedStep);
                 return;
@@ -108,6 +113,13 @@ public class NormalGroupCreationProtocolResultService
                     ? item.creatorProtocolAccountId() : member.memberProtocolAccountId();
             String expectedBackend = creatorDirection
                     ? item.creatorProtocolBackend() : member.memberProtocolBackend();
+            if (!Objects.equals(event.commandId(), expectedCommandId)) {
+                log.info("忽略已被重试替换的新建普群联系人结果 tenantId={} itemId={} memberId={} "
+                                + "direction={} commandId={}",
+                        event.tenantId(), event.itemId(), event.memberId(),
+                        event.direction(), event.commandId());
+                return null;
+            }
             requireActor(event, expectedCommandId, expectedAccountId,
                     expectedProtocolAccountId, expectedBackend);
             return member;
@@ -229,10 +241,11 @@ public class NormalGroupCreationProtocolResultService
             ProtocolNormalGroupCreationResultReportedEvent event,
             String expectedStep) {
         long now = System.currentTimeMillis();
+        FailureDetails failure = failureDetails(event);
         if (member != null) {
             if (mapper.applyContactResult(
                     member.id(), event.direction(), event.commandId(), event.outcome(),
-                    event.reasonCode(), safeMessage(event), now) != 1) {
+                    failure.code(), failure.message(), now) != 1) {
                 return;
             }
         }
@@ -245,7 +258,7 @@ public class NormalGroupCreationProtocolResultService
                 ? "RESULT_UNKNOWN" : groupExists ? "CREATED_PARTIAL" : "FAILED";
         if (mapper.failProtocolAction(
                 item.id(), expectedStep, event.commandId(), status,
-                event.reasonCode(), safeMessage(event),
+                failure.code(), failure.message(),
                 createdGroupJid,
                 event.eventId() == null ? event.commandId() : event.eventId(), now) != 1) {
             return;
@@ -253,6 +266,22 @@ public class NormalGroupCreationProtocolResultService
         migrateCreator(item.creatorAccountId(), groupExists
                 ? item.successMigrationGroupId() : item.failedMigrationGroupId());
         mapper.refreshTaskSummary(item.taskId(), now);
+    }
+
+    private static FailureDetails failureDetails(
+            ProtocolNormalGroupCreationResultReportedEvent event) {
+        if (!ACCOUNT_NOT_ONLINE.equals(event.reasonCode())) {
+            return new FailureDetails(event.reasonCode(), safeMessage(event));
+        }
+        if ("CONTACT_PREPARE".equals(event.action())
+                && "MEMBER_SAVE_CREATOR".equals(event.direction())) {
+            return new FailureDetails(
+                    event.reasonCode(),
+                    NormalGroupCreationErrorMessage.accountNotOnlineMessage(true));
+        }
+        return new FailureDetails(
+                event.reasonCode(),
+                NormalGroupCreationErrorMessage.accountNotOnlineMessage(false));
     }
 
     private void migrateCreator(Long accountId, Long targetGroupId) {
@@ -297,5 +326,8 @@ public class NormalGroupCreationProtocolResultService
 
     private static BusinessException unavailable(String message) {
         return new BusinessException(ErrorCode.AUTH_SERVICE_UNAVAILABLE, message);
+    }
+
+    private record FailureDetails(String code, String message) {
     }
 }

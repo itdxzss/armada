@@ -41,6 +41,21 @@ public interface AccountStateMapper {
     AccountState selectByAccountId(@Param("accountId") Long accountId);
 
     /**
+     * 按 account_id 锁定状态行并返回当前时间水位。
+     *
+     * <p>账号状态事件必须在同一事务内先调用本方法再更新，防止旧事件完成 Java 水位检查后，
+     * 被并发的新事件提交并反向覆盖。调用方不得在事务外使用。</p>
+     *
+     * @param tenantId  租户 ID
+     * @param accountId 账号主键
+     * @return 已加排他锁的账号状态行；不存在时返回 null
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    AccountState selectByTenantAndAccountIdForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("accountId") Long accountId);
+
+    /**
      * 批量读取账号状态行。
      *
      * <p>用于批量抢登前的全量状态校验,调用方必须确认返回行数与请求账号数一致。</p>

@@ -26,6 +26,16 @@
     LIMIT 1
   </select>
 
+  <!-- 状态事件事务内锁定账号状态行，使时间水位检查与后续更新不可被并发事件穿透。 -->
+  <select id="selectByTenantAndAccountIdForUpdate"
+          resultType="com.armada.account.model.entity.AccountState">
+    SELECT * FROM account_state
+    WHERE tenant_id = #{tenantId}
+      AND account_id = #{accountId}
+    LIMIT 1
+    FOR UPDATE
+  </select>
+
   <select id="selectByAccountIds" resultType="com.armada.account.model.entity.AccountState">
     SELECT account_id, account_state, login_state, mute_status, last_state_sync_time
     FROM account_state

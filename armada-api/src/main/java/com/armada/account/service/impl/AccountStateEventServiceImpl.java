@@ -60,6 +60,11 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static final String SOURCE_BATCH_OFFLINE_COMMAND = "batch_offline";
     /** 手动离线命令来源,用于停止抢登循环。 */
     private static final String SOURCE_MANUAL_OFFLINE_COMMAND = "manual_offline";
+    /** 普群执行端运行态探测来源；只修正登录态，不执行正式离线副作用。 */
+    private static final String SOURCE_NORMAL_GROUP_CREATION = "normal_group_creation";
+    /** 普群执行端确认账号当前不可执行的语义。 */
+    private static final String SEMANTIC_NORMAL_GROUP_ACCOUNT_NOT_ONLINE =
+            "NORMAL_GROUP_ACCOUNT_NOT_ONLINE";
     /** 上游未给 semantic 时的默认来源。 */
     private static final String SOURCE_STATE_CHANGED = "STATE_CHANGED";
     /** 封禁状态来源。 */
@@ -145,7 +150,10 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
 
         // occurredAt 是状态收敛的业务时间。协议未上报时退回本机时间,保证仍可更新 last_state_sync_time。
         long occurredAt = event.occurredAt() == null ? System.currentTimeMillis() : event.occurredAt();
-        AccountState currentState = stateMapper.selectByAccountId(account.getId());
+        // 时间水位检查和后续状态更新必须持有同一行锁；否则两个 Kafka Topic 并发时，
+        // 旧事件可能在检查通过后晚于新 ONLINE 提交并把账号反向覆盖为离线。
+        AccountState currentState = stateMapper.selectByTenantAndAccountIdForUpdate(
+                event.tenantId(), account.getId());
 
         // 延迟到达的旧离线/解绑事件不能覆盖更新的在线或抢登状态。
         if (isStaleEvent(currentState, occurredAt)) {
@@ -155,14 +163,21 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                     occurredAt, currentState.getLastStateSyncTime());
             return false;
         }
+        // 普群失败结果是一次低置信度运行态探测。同一毫秒已有正式 ONLINE 时，ONLINE 优先，
+        // 避免派生 OFFLINE 因抢锁顺序覆盖真实上线事件。
+        if (isLowerPriorityNormalGroupOffline(currentState, event, occurredAt)) {
+            log.warn("普群运行态离线结果跳过,同一时间水位已有在线状态 accountId={} protocolAccountId={} "
+                            + "occurredAt={}",
+                    account.getId(), event.protocolAccountId(), occurredAt);
+            return false;
+        }
         long updatedAt = System.currentTimeMillis();
         String stateSource = stateSource(event);
 
         // 生命周期状态会同时影响 account_state 和 login_state,例如被抢登、封禁、解绑、抢登中续上线。
         // 这类状态必须先处理,不能落入下面只更新登录态的兜底分支。
         if (applyLifecycleTransition(account, currentState, event, stateSource, occurredAt, updatedAt)) {
-            releaseIpIfOffline(account, event, occurredAt);
-            applySideEffects(account, event, occurredAt);
+            applyOfflineSideEffects(account, event, occurredAt);
             log.info("协议账号状态事件已按生命周期收敛 accountId={} protocolAccountId={} from={} to={} "
                             + "semantic={} rawCode={} occurredAt={}",
                     account.getId(), event.protocolAccountId(), event.from(), event.to(),
@@ -174,8 +189,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         AccountState row = updateRow(account.getId(), mapLoginState(event.to()), null,
                 stateSource, null, occurredAt, updatedAt);
         int updated = stateMapper.updateLoginState(row);
-        releaseIpIfOffline(account, event, occurredAt);
-        applySideEffects(account, event, occurredAt);
+        applyOfflineSideEffects(account, event, occurredAt);
         log.info("协议账号状态事件已更新登录态 accountId={} protocolAccountId={} from={} to={} loginState={} "
                         + "stateSource={} updated={} occurredAt={}",
                 account.getId(), event.protocolAccountId(), event.from(), event.to(), row.getLoginState(),
@@ -285,6 +299,37 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         return currentState != null
                 && currentState.getLastStateSyncTime() != null
                 && occurredAt < currentState.getLastStateSyncTime();
+    }
+
+    private static boolean isLowerPriorityNormalGroupOffline(
+            AccountState currentState,
+            AccountStateChangedEvent event,
+            long occurredAt) {
+        return isNormalGroupReadinessOffline(event)
+                && currentState != null
+                && currentState.getLoginState() != null
+                && currentState.getLoginState() == AccountLoginStateCode.ONLINE
+                && currentState.getLastStateSyncTime() != null
+                && occurredAt == currentState.getLastStateSyncTime();
+    }
+
+    private void applyOfflineSideEffects(
+            Account account,
+            AccountStateChangedEvent event,
+            long occurredAt) {
+        // 建群失败只能证明当前协议节点不可执行，不能证明账号已正式断线。
+        // 因此只收敛页面登录态，不释放 IP，也不触发导入结算、抢登等生命周期副作用。
+        if (isNormalGroupReadinessOffline(event)) {
+            return;
+        }
+        releaseIpIfOffline(account, event, occurredAt);
+        applySideEffects(account, event, occurredAt);
+    }
+
+    private static boolean isNormalGroupReadinessOffline(AccountStateChangedEvent event) {
+        return STATE_OFFLINE.equalsIgnoreCase(event.to())
+                && SOURCE_NORMAL_GROUP_CREATION.equalsIgnoreCase(event.source())
+                && SEMANTIC_NORMAL_GROUP_ACCOUNT_NOT_ONLINE.equalsIgnoreCase(event.semantic());
     }
 
     private void markBanned(Account account, long occurredAt, long updatedAt) {

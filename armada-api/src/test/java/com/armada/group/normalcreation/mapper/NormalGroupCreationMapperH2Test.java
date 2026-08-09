@@ -6,6 +6,7 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemIdentity;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -117,7 +118,8 @@ class NormalGroupCreationMapperH2Test {
                   last_error_code VARCHAR(64),
                   last_error_message VARCHAR(512),
                   created_at BIGINT NOT NULL,
-                  updated_at BIGINT NOT NULL
+                  updated_at BIGINT NOT NULL,
+                  UNIQUE (tenant_id, item_id, member_account_id)
                 )
                 """);
         execute("""
@@ -125,6 +127,7 @@ class NormalGroupCreationMapperH2Test {
                   id BIGINT PRIMARY KEY,
                   tenant_id BIGINT NOT NULL,
                   idempotency_key VARCHAR(64),
+                  member_account_group_id BIGINT,
                   total_count INT NOT NULL,
                   status VARCHAR(24) NOT NULL,
                   deleted_at BIGINT,
@@ -228,6 +231,59 @@ class NormalGroupCreationMapperH2Test {
             assertThat(member.creatorSaveCommandId()).isEqualTo("cmd-creator-retry");
             assertThat(member.memberSaveCommandId()).isEqualTo("cmd-member-retry");
         });
+    }
+
+    @Test
+    void failedContactRetryCanReplaceUnavailableMemberAndFenceOldResults() throws SQLException {
+        execute("""
+                INSERT INTO normal_group_creation_task (
+                  id, tenant_id, idempotency_key, member_account_group_id,
+                  total_count, status, deleted_at
+                ) VALUES (99, 7, 'replace-member', 20, 1, 'FAILED', NULL)
+                """);
+        insertItem(9L, "PREPARING_CONTACTS", "NONE", "FAILED", null, 1, 0, 0);
+        execute("""
+                INSERT INTO normal_group_creation_item_member (
+                  id, tenant_id, task_id, item_id, member_order, member_account_id,
+                  member_protocol_account_id, member_protocol_backend, member_ws_phone,
+                  creator_saved_member_status, member_saved_creator_status,
+                  creator_save_command_id, member_save_command_id,
+                  participant_status, participant_raw_status,
+                  last_error_code, last_error_message, created_at, updated_at
+                ) VALUES (
+                  91, 7, 99, 9, 1, 21, 'acc_21', 'ANDROID', '10021',
+                  'SUCCESS', 'FAILED', 'cmd-creator-old', 'cmd-member-old',
+                  'PENDING', 'OFFLINE', 'ACCOUNT_NOT_ONLINE', '旧账号不在线', 100, 100
+                )
+                """);
+
+        assertThat(mapper.selectMemberAccountGroupId(99L)).isEqualTo(20L);
+        assertThat(mapper.replaceMember(new MemberReplacement(
+                91L, 9L, 999L, 22L, "acc_22", "ANDROID", "10022", 190L)))
+                .isZero();
+        assertThat(mapper.replaceMember(new MemberReplacement(
+                91L, 9L, 21L, 22L, "acc_22", "ANDROID", "10022", 200L)))
+                .isEqualTo(1);
+
+        assertThat(mapper.selectMemberWorks(9L)).singleElement().satisfies(member -> {
+            assertThat(member.memberAccountId()).isEqualTo(22L);
+            assertThat(member.memberProtocolAccountId()).isEqualTo("acc_22");
+            assertThat(member.memberProtocolBackend()).isEqualTo("ANDROID");
+            assertThat(member.memberWsPhone()).isEqualTo("10022");
+            assertThat(member.creatorSavedMemberStatus()).isEqualTo("PENDING");
+            assertThat(member.memberSavedCreatorStatus()).isEqualTo("PENDING");
+            assertThat(member.creatorSaveCommandId()).isNull();
+            assertThat(member.memberSaveCommandId()).isNull();
+        });
+        assertThat(memberValue(91L, "participant_raw_status")).isNull();
+        assertThat(memberValue(91L, "last_error_code")).isNull();
+        assertThat(memberValue(91L, "last_error_message")).isNull();
+        assertThat(mapper.applyContactResult(
+                91L, "CREATOR_SAVE_MEMBER", "cmd-creator-old", "SUCCESS",
+                null, null, 210L)).isZero();
+        assertThat(mapper.applyContactResult(
+                91L, "MEMBER_SAVE_CREATOR", "cmd-member-old", "SUCCESS",
+                null, null, 220L)).isZero();
     }
 
     @Test
@@ -473,6 +529,17 @@ class NormalGroupCreationMapperH2Test {
              Statement statement = connection.createStatement();
              ResultSet result = statement.executeQuery(
                      "SELECT " + column + " FROM normal_group_creation_item WHERE id = " + id)) {
+            assertThat(result.next()).isTrue();
+            return result.getString(1);
+        }
+    }
+
+    private String memberValue(long id, String column) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(
+                     "SELECT " + column
+                             + " FROM normal_group_creation_item_member WHERE id = " + id)) {
             assertThat(result.next()).isTrue();
             return result.getString(1);
         }

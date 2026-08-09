@@ -1,6 +1,8 @@
 package com.armada.group.normalcreation.service.impl;
 
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountStateChangedEvent;
+import com.armada.account.service.AccountStateEventService;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
@@ -30,6 +32,9 @@ public class NormalGroupCreationProtocolResultService
     private static final Logger log =
             LoggerFactory.getLogger(NormalGroupCreationProtocolResultService.class);
     private static final String ACCOUNT_NOT_ONLINE = "ACCOUNT_NOT_ONLINE";
+    private static final String ACCOUNT_OFFLINE_STATE = "OFFLINE";
+    private static final String ACCOUNT_OFFLINE_SEMANTIC = "NORMAL_GROUP_ACCOUNT_NOT_ONLINE";
+    private static final String NORMAL_GROUP_CREATION_SOURCE = "normal_group_creation";
 
     private final NormalGroupCreationMapper mapper;
     private final NormalGroupCreationCommandDispatcher commandDispatcher;
@@ -37,6 +42,7 @@ public class NormalGroupCreationProtocolResultService
     private final GroupLinkService groupLinkService;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
     private final AccountService accountService;
+    private final AccountStateEventService accountStateEventService;
 
     public NormalGroupCreationProtocolResultService(
             NormalGroupCreationMapper mapper,
@@ -44,13 +50,15 @@ public class NormalGroupCreationProtocolResultService
             GroupLinkRegistryService groupLinkRegistryService,
             GroupLinkService groupLinkService,
             GroupMetadataSyncTaskService metadataSyncTaskService,
-            AccountService accountService) {
+            AccountService accountService,
+            AccountStateEventService accountStateEventService) {
         this.mapper = mapper;
         this.commandDispatcher = commandDispatcher;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.groupLinkService = groupLinkService;
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.accountService = accountService;
+        this.accountStateEventService = accountStateEventService;
     }
 
     /**
@@ -263,9 +271,30 @@ public class NormalGroupCreationProtocolResultService
                 event.eventId() == null ? event.commandId() : event.eventId(), now) != 1) {
             return;
         }
+        reconcileOfflineActor(event, now);
         migrateCreator(item.creatorAccountId(), groupExists
                 ? item.successMigrationGroupId() : item.failedMigrationGroupId());
         mapper.refreshTaskSummary(item.taskId(), now);
+    }
+
+    private void reconcileOfflineActor(
+            ProtocolNormalGroupCreationResultReportedEvent event,
+            long receivedAt) {
+        if (!ACCOUNT_NOT_ONLINE.equals(event.reasonCode())) {
+            return;
+        }
+        long occurredAt = event.timestamp() > 0 ? event.timestamp() : receivedAt;
+        accountStateEventService.applyStateChanged(new AccountStateChangedEvent(
+                event.tenantId(),
+                event.accountId(),
+                event.protocolAccountId(),
+                null,
+                ACCOUNT_OFFLINE_STATE,
+                occurredAt,
+                ACCOUNT_OFFLINE_SEMANTIC,
+                null,
+                NORMAL_GROUP_CREATION_SOURCE,
+                null));
     }
 
     private static FailureDetails failureDetails(

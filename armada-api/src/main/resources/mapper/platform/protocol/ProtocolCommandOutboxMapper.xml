@@ -246,6 +246,15 @@
               AND execution_row.id = #{executionId}
             </if>
         ))
+        OR (aggregate_type = #{memberQueryAggregateType} AND EXISTS (
+          SELECT 1
+          FROM pull_task_member_query query_row
+          WHERE query_row.id = protocol_command_outbox.aggregate_id
+            AND query_row.task_id = #{taskId}
+            <if test="executionId != null">
+              AND query_row.group_execution_id = #{executionId}
+            </if>
+        ))
       )
   </update>
 

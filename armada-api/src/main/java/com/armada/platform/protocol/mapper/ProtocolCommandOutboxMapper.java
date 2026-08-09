@@ -431,6 +431,7 @@ public interface ProtocolCommandOutboxMapper {
             @Param("accountActionAggregateType") String accountActionAggregateType,
             @Param("pullCallAggregateType") String pullCallAggregateType,
             @Param("materialAggregateType") String materialAggregateType,
+            @Param("memberQueryAggregateType") String memberQueryAggregateType,
             @Param("cancelableStatuses") List<Integer> cancelableStatuses,
             @Param("dispatchingStatus") int dispatchingStatus,
             @Param("canceledStatus") int canceledStatus,

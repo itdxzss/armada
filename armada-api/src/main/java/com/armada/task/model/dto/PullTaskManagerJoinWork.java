@@ -1,7 +1,6 @@
 package com.armada.task.model.dto;
 
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
-import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 
 /**
  * 已持久化角色账号和踩链接动作、可在事务外调用协议层的工作项。
@@ -23,12 +22,6 @@ public record PullTaskManagerJoinWork(
     public GroupJoinCommand joinCommand() {
         return new GroupJoinCommand(
                 payload.account(), payload.inviteLink(), payload.operationId());
-    }
-
-    /** @return 使用同一账号复核目标群实时成员的查询 */
-    public GroupMemberListQuery memberListQuery(String groupJid) {
-        return new GroupMemberListQuery(
-                payload.account(), groupJid, payload.operationId() + ":verify");
     }
 
     /** @return 当前租约持有者 */

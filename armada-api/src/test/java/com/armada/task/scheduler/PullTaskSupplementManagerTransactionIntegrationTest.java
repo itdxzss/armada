@@ -114,6 +114,9 @@ class PullTaskSupplementManagerTransactionIntegrationTest {
         assertThat(admin.work().target().armadaAccountId()).isEqualTo(902L);
         assertThat(admin.work().verificationOnly()).isFalse();
         assertThat(intColumn("admin_status", "pull_task_group_account", 102L))
+                .isEqualTo(PullTaskGroupAccountAdminStatus.PENDING.code());
+        assertThat(transactions.markAdminSubmitted(admin.work(), NOW + 1)).isTrue();
+        assertThat(intColumn("admin_status", "pull_task_group_account", 102L))
                 .isEqualTo(PullTaskGroupAccountAdminStatus.SUBMITTED.code());
 
         assertThat(transactions.complete(

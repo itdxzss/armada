@@ -369,6 +369,41 @@ public final class PullTaskNormalLinkSchema {
             )
             """;
 
+    /** 普通拉群异步群成员查询；一行代表一次查询尝试。 */
+    static final String MEMBER_QUERY = """
+            CREATE TABLE pull_task_member_query (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id BIGINT NOT NULL,
+                task_id BIGINT NOT NULL,
+                group_execution_id BIGINT NOT NULL,
+                business_key VARCHAR(191) NOT NULL,
+                purpose VARCHAR(64) NOT NULL,
+                command_id VARCHAR(64),
+                account_id BIGINT NOT NULL,
+                protocol_account_id VARCHAR(128) NOT NULL,
+                protocol_backend VARCHAR(16) NOT NULL,
+                ws_phone VARCHAR(32) NOT NULL,
+                group_jid VARCHAR(191) NOT NULL,
+                target_jids_json VARCHAR(4000) NOT NULL,
+                result_json VARCHAR(8000),
+                query_status TINYINT NOT NULL,
+                attempt_no INT NOT NULL,
+                requested_at BIGINT NOT NULL,
+                deadline_at BIGINT NOT NULL,
+                completed_at BIGINT,
+                error_code VARCHAR(64),
+                error_message VARCHAR(1000),
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                active_business_key VARCHAR(191) GENERATED ALWAYS AS (
+                    CASE WHEN query_status = 1 THEN business_key ELSE NULL END
+                ),
+                CONSTRAINT uq_pull_task_member_query_open
+                    UNIQUE (tenant_id, group_execution_id, active_business_key),
+                CONSTRAINT uq_pull_task_member_query_command UNIQUE (command_id)
+            )
+            """;
+
     /** 生命周期测试需要验证普通拉群命令取消与业务事实同事务收敛。 */
     static final String PROTOCOL_COMMAND_OUTBOX = """
             CREATE TABLE protocol_command_outbox (
@@ -388,7 +423,7 @@ public final class PullTaskNormalLinkSchema {
             )
             """;
 
-    /** 仅供涉及协议命令取消的测试按需追加，不属于普通拉群自己的七张表。 */
+    /** 仅供涉及协议命令取消的测试按需追加，不属于普通拉群自己的表。 */
     public static String protocolCommandOutbox() {
         return PROTOCOL_COMMAND_OUTBOX;
     }
@@ -402,7 +437,7 @@ public final class PullTaskNormalLinkSchema {
         return new String[] {
             PULL_TASK, STANDARD_SETTING, STANDARD_GROUP_SETTING, GROUP_EXECUTION,
             MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_WAVE,
-            PULL_CALL, PULL_CALL_MEMBER_ATTEMPT,
+            PULL_CALL, PULL_CALL_MEMBER_ATTEMPT, MEMBER_QUERY,
         };
     }
 }

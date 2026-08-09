@@ -28,6 +28,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
@@ -199,6 +200,54 @@ class ProtocolCommandOutboxServiceImplTest {
                     .doesNotContain("wsPhone")
                     .doesNotContain("\"contact\":")
                     .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskMemberQueryCommandsPersistsReferencesAndReusesExistingTopics()
+            throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-query-web", "cmd-query-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskMemberQueryCommands(List.of(
+                            new ProtocolPullTaskMemberQueryCommandRequest(
+                                    1L, 9L, 11L, 701L,
+                                    new ProtocolAccountRef(
+                                            382L, ProtocolBackend.WEB, "acc-web", "911")),
+                            new ProtocolPullTaskMemberQueryCommandRequest(
+                                    1L, 9L, 11L, 702L,
+                                    new ProtocolAccountRef(
+                                            383L, ProtocolBackend.ANDROID,
+                                            "acc-android", "922"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            assertThat(result.commandIds())
+                    .containsExactly("cmd-query-web", "cmd-query-android");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.members.query.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                    .containsOnly("PULL_TASK_MEMBER_QUERY");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                    .containsExactly(701L, 702L);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                    .containsExactly("acc-web", "acc-android");
+
+            JsonNode reference = objectMapper.readTree(rows.get(0).getPayloadJson());
+            assertThat(reference.fieldNames())
+                    .toIterable()
+                    .containsExactlyInAnyOrder(
+                            "tenantId", "pullTaskId", "groupExecutionId", "queryId", "source");
+            assertThat(reference.path("queryId").asLong()).isEqualTo(701L);
         } finally {
             TenantContext.clear();
         }
@@ -1016,6 +1065,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 eq("PULL_TASK_ACCOUNT_ACTION"),
                 eq("PULL_TASK_PULL_CALL"),
                 eq("PULL_TASK_MATERIAL_MEMBER"),
+                eq("PULL_TASK_MEMBER_QUERY"),
                 eq(List.of(
                         ProtocolCommandOutboxStatus.PENDING.code(),
                         ProtocolCommandOutboxStatus.LOCKED.code())),
@@ -1032,6 +1082,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 "PULL_TASK_ACCOUNT_ACTION",
                 "PULL_TASK_PULL_CALL",
                 "PULL_TASK_MATERIAL_MEMBER",
+                "PULL_TASK_MEMBER_QUERY",
                 List.of(
                         ProtocolCommandOutboxStatus.PENDING.code(),
                         ProtocolCommandOutboxStatus.LOCKED.code()),

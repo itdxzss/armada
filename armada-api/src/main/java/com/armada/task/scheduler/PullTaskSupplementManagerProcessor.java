@@ -6,13 +6,15 @@ import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
-import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskSupplementManagerWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
+import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskSupplementManagerOperation;
 import java.util.EnumSet;
 import java.util.List;
@@ -42,23 +44,23 @@ public class PullTaskSupplementManagerProcessor {
     private final PullTaskSupplementManagerTransactionService transactions;
     private final GroupJoinPort joinPort;
     private final GroupParticipantPort participantPort;
-    private final GroupMemberListPort memberListPort;
+    private final PullTaskMemberQueryAwaitService memberQueryAwaitService;
 
     /**
      * @param transactions 补充管理员短事务
      * @param joinPort 踩链接端口
      * @param participantPort 邀请与提权端口
-     * @param memberListPort 实时成员与权限事实端口
+     * @param memberQueryAwaitService 异步成员与权限事实等待服务
      */
     public PullTaskSupplementManagerProcessor(
             PullTaskSupplementManagerTransactionService transactions,
             GroupJoinPort joinPort,
             GroupParticipantPort participantPort,
-            GroupMemberListPort memberListPort) {
+            PullTaskMemberQueryAwaitService memberQueryAwaitService) {
         this.transactions = transactions;
         this.joinPort = joinPort;
         this.participantPort = participantPort;
-        this.memberListPort = memberListPort;
+        this.memberQueryAwaitService = memberQueryAwaitService;
     }
 
     /** 若当前管理员检查点属于人工补充则处理，否则返回空让原链路继续。 */
@@ -73,15 +75,22 @@ public class PullTaskSupplementManagerProcessor {
             return Optional.of(preparation.result());
         }
         PullTaskSupplementManagerWork work = preparation.work();
-        PullTaskSupplementManagerOutcome outcome = execute(work);
+        PullTaskSupplementManagerOutcome outcome = execute(work, candidate.getTaskId(), now);
+        if (outcome == null) {
+            return Optional.of(PullTaskExecutionDispatchResult.DEFERRED);
+        }
         return Optional.of(transactions.complete(work, outcome, now));
     }
 
-    private PullTaskSupplementManagerOutcome execute(PullTaskSupplementManagerWork work) {
+    private PullTaskSupplementManagerOutcome execute(
+            PullTaskSupplementManagerWork work, long taskId, long now) {
         try {
             return work.operation() == PullTaskSupplementManagerOperation.PROMOTE_ADMIN
-                    ? promote(work) : enter(work);
+                    ? promote(work, taskId, now) : enter(work, taskId, now);
         } catch (RuntimeException exception) {
+            if (exception instanceof MemberQueryLeaseLostException) {
+                throw exception;
+            }
             log.warn("补充管理员协议异常 tenantId={} executionId={} roleRowId={} operation={} errorType={}",
                     work.tenantId(), work.executionId(), work.targetGroupAccountId(),
                     work.operation(), exception.getClass().getSimpleName());
@@ -89,9 +98,10 @@ public class PullTaskSupplementManagerProcessor {
         }
     }
 
-    private PullTaskSupplementManagerOutcome enter(PullTaskSupplementManagerWork work) {
+    private PullTaskSupplementManagerOutcome enter(
+            PullTaskSupplementManagerWork work, long taskId, long now) {
         if (work.verificationOnly()) {
-            return verifyMembership(work, CommandFact.unknown(ENTRY_UNKNOWN));
+            return verifyMembership(work, taskId, now, CommandFact.unknown(ENTRY_UNKNOWN));
         }
         if (work.operation() == PullTaskSupplementManagerOperation.JOIN_BY_LINK) {
             GroupJoinResult result = joinPort.join(work.joinCommand());
@@ -101,10 +111,10 @@ public class PullTaskSupplementManagerProcessor {
             if (result != null && result.outcome() == GroupJoinOutcome.PENDING_APPROVAL) {
                 return PullTaskSupplementManagerOutcome.entryPendingApproval();
             }
-            return verifyMembership(work, CommandFact.unknown(ENTRY_UNKNOWN));
+            return verifyMembership(work, taskId, now, CommandFact.unknown(ENTRY_UNKNOWN));
         }
         CommandFact fact = invite(work);
-        return verifyMembership(work, fact);
+        return verifyMembership(work, taskId, now, fact);
     }
 
     private CommandFact invite(PullTaskSupplementManagerWork work) {
@@ -115,10 +125,17 @@ public class PullTaskSupplementManagerProcessor {
     }
 
     private PullTaskSupplementManagerOutcome verifyMembership(
-            PullTaskSupplementManagerWork work, CommandFact fact) {
-        GroupParticipantResult target = findMember(
-                memberListPort.list(work.targetMemberQuery()), work.target().wsPhone());
-        if (target != null) {
+            PullTaskSupplementManagerWork work,
+            long taskId,
+            long now,
+            CommandFact fact) {
+        PullTaskMemberQueryResult query = query(
+                work, taskId, now, work.target(), work.targetJid(),
+                "supplement-manager-entry:" + work.actionId());
+        if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return null;
+        }
+        if (inGroup(query, work.targetJid())) {
             return PullTaskSupplementManagerOutcome.entryConfirmed();
         }
         if (fact.kind() == CommandKind.FAILED) {
@@ -128,32 +145,60 @@ public class PullTaskSupplementManagerProcessor {
                 hasText(fact.reasonCode()) ? fact.reasonCode() : ENTRY_UNKNOWN);
     }
 
-    private PullTaskSupplementManagerOutcome promote(PullTaskSupplementManagerWork work) {
-        GroupParticipantResult target = findMember(
-                memberListPort.list(work.targetMemberQuery()), work.target().wsPhone());
-        if (hasAdminPermission(target)) {
+    private PullTaskSupplementManagerOutcome promote(
+            PullTaskSupplementManagerWork work, long taskId, long now) {
+        String targetPhase = work.verificationOnly() ? "post" : "pre";
+        PullTaskMemberQueryResult targetQuery = query(
+                work, taskId, now, work.target(), work.targetJid(),
+                "supplement-manager-admin-" + targetPhase + ":" + work.targetGroupAccountId());
+        if (targetQuery.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return null;
+        }
+        if (targetQuery.state() == PullTaskMemberQueryResult.State.FAILED) {
+            return PullTaskSupplementManagerOutcome.adminUnknown(ADMIN_UNKNOWN);
+        }
+        if (hasAdminPermission(targetQuery, work.targetJid())) {
             return PullTaskSupplementManagerOutcome.adminConfirmed();
         }
         if (work.verificationOnly()) {
             return PullTaskSupplementManagerOutcome.adminUnknown(ADMIN_UNKNOWN);
         }
-        GroupParticipantResult actor = findMember(
-                memberListPort.list(work.actorPermissionQuery()), work.actor().wsPhone());
-        if (!hasAdminPermission(actor)) {
+        String actorJid = com.armada.platform.protocol.util.WhatsappJids.userJid(
+                work.actor().wsPhone());
+        PullTaskMemberQueryResult actorQuery = query(
+                work, taskId, now, work.actor(), actorJid,
+                "supplement-manager-actor-admin:" + work.targetGroupAccountId());
+        if (actorQuery.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return null;
+        }
+        if (actorQuery.state() == PullTaskMemberQueryResult.State.FAILED) {
+            return PullTaskSupplementManagerOutcome.adminUnknown(ADMIN_UNKNOWN);
+        }
+        if (!hasAdminPermission(actorQuery, actorJid)) {
             return PullTaskSupplementManagerOutcome.adminFailed(
                     ProtocolErrorCode.GROUP_PERMISSION_DENIED.name());
+        }
+        if (!transactions.markAdminSubmitted(work, now)) {
+            throw new MemberQueryLeaseLostException();
         }
         CommandFact fact = commandFact(participantPort.updateParticipants(
                 work.actor(), work.groupJid(), List.of(work.targetJid()),
                 GroupParticipantAction.PROMOTE), work.targetJid(), "MANAGER_PROMOTE_FAILED");
-        return verifyAdminAfterCommand(work, fact);
+        return verifyAdminAfterCommand(work, taskId, now, fact);
     }
 
     private PullTaskSupplementManagerOutcome verifyAdminAfterCommand(
-            PullTaskSupplementManagerWork work, CommandFact fact) {
-        GroupParticipantResult target = findMember(
-                memberListPort.list(work.targetMemberQuery()), work.target().wsPhone());
-        if (hasAdminPermission(target)) {
+            PullTaskSupplementManagerWork work,
+            long taskId,
+            long now,
+            CommandFact fact) {
+        PullTaskMemberQueryResult query = query(
+                work, taskId, now, work.target(), work.targetJid(),
+                "supplement-manager-admin-post:" + work.targetGroupAccountId());
+        if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return null;
+        }
+        if (hasAdminPermission(query, work.targetJid())) {
             return PullTaskSupplementManagerOutcome.adminConfirmed();
         }
         if (fact.kind() == CommandKind.FAILED) {
@@ -200,21 +245,33 @@ public class PullTaskSupplementManagerProcessor {
         return CommandFact.unknown(ProtocolErrorCode.UNKNOWN.name());
     }
 
-    private static GroupParticipantResult findMember(
-            List<GroupParticipantResult> members, String identity) {
-        if (members == null || members.isEmpty()) {
-            return null;
-        }
-        String expected = phone(identity);
-        return members.stream().filter(java.util.Objects::nonNull)
-                .filter(member -> expected.equals(phone(
-                        member.phone() == null ? member.jid() : member.phone())))
-                .findFirst().orElse(null);
+    private PullTaskMemberQueryResult query(
+            PullTaskSupplementManagerWork work,
+            long taskId,
+            long now,
+            com.armada.platform.protocol.model.command.ProtocolAccountRef actor,
+            String targetJid,
+            String businessKey) {
+        return memberQueryAwaitService.readOrDefer(
+                work.tenantId(), new PullTaskMemberQueryRequest(
+                        taskId, work.executionId(), businessKey,
+                        PullTaskMemberQueryPurpose.SUPPLEMENT_MANAGER_MEMBERSHIP,
+                        actor, work.groupJid(), List.of(targetJid)),
+                work.expectedVersion(), work.lockOwner(),
+                PullTaskExecutionStage.MANAGER_JOIN.code(), now);
     }
 
-    private static boolean hasAdminPermission(GroupParticipantResult member) {
-        return member != null
-                && (Boolean.TRUE.equals(member.admin()) || Boolean.TRUE.equals(member.owner()));
+    private static boolean inGroup(PullTaskMemberQueryResult query, String targetJid) {
+        return query.state() == PullTaskMemberQueryResult.State.AVAILABLE
+                && query.members().stream().anyMatch(
+                fact -> targetJid.equals(fact.targetJid()) && fact.inGroup());
+    }
+
+    private static boolean hasAdminPermission(
+            PullTaskMemberQueryResult query, String targetJid) {
+        return query.state() == PullTaskMemberQueryResult.State.AVAILABLE
+                && query.members().stream().filter(java.util.Objects::nonNull)
+                .anyMatch(fact -> targetJid.equals(fact.targetJid()) && fact.admin());
     }
 
     private static boolean sameIdentity(String first, String second) {
@@ -254,5 +311,9 @@ public class PullTaskSupplementManagerProcessor {
         private static CommandFact unknown(String reasonCode) {
             return new CommandFact(CommandKind.UNKNOWN, reasonCode);
         }
+    }
+
+    /** 预写提权状态 CAS 失败时让外层协调器释放租约，不把它误判为协议未知。 */
+    private static final class MemberQueryLeaseLostException extends RuntimeException {
     }
 }

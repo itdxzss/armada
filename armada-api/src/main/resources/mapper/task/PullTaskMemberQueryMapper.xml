@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskMemberQueryMapper">
+
+  <sql id="BaseColumns">
+    id, tenant_id, task_id, group_execution_id, business_key, purpose, command_id,
+    account_id, protocol_account_id, protocol_backend, ws_phone, group_jid,
+    target_jids_json, result_json, query_status, attempt_no, requested_at, deadline_at,
+    completed_at, error_code, error_message, created_at, updated_at
+  </sql>
+
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_member_query (
+      task_id, group_execution_id, business_key, purpose,
+      account_id, protocol_account_id, protocol_backend, ws_phone, group_jid,
+      target_jids_json, query_status, attempt_no, requested_at, deadline_at,
+      created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{groupExecutionId}, #{businessKey}, #{purpose},
+      #{accountId}, #{protocolAccountId}, #{protocolBackend}, #{wsPhone}, #{groupJid},
+      #{targetJidsJson}, #{queryStatus}, #{attemptNo}, #{requestedAt}, #{deadlineAt},
+      #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.task.model.entity.PullTaskMemberQuery">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_member_query
+    WHERE id = #{id}
+  </select>
+
+  <select id="selectByCommandId" resultType="com.armada.task.model.entity.PullTaskMemberQuery">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_member_query
+    WHERE command_id = #{commandId}
+  </select>
+
+  <select id="selectLatestByBusinessKey"
+          resultType="com.armada.task.model.entity.PullTaskMemberQuery">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_member_query
+    WHERE group_execution_id = #{groupExecutionId}
+      AND business_key = #{businessKey}
+    ORDER BY attempt_no DESC, id DESC
+    LIMIT 1
+  </select>
+
+  <select id="selectNextAttemptNo" resultType="java.lang.Integer">
+    SELECT COALESCE(MAX(attempt_no), 0) + 1
+    FROM pull_task_member_query
+    WHERE group_execution_id = #{groupExecutionId}
+      AND business_key = #{businessKey}
+  </select>
+
+  <update id="bindCommandId">
+    UPDATE pull_task_member_query
+    SET command_id = #{commandId},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND query_status = #{expectedStatus}
+      AND command_id IS NULL
+  </update>
+
+  <update id="expirePending">
+    UPDATE pull_task_member_query
+    SET query_status = #{targetStatus},
+        completed_at = #{now},
+        error_code = #{errorCode},
+        error_message = #{errorMessage},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND query_status = #{expectedStatus}
+      AND deadline_at &lt;= #{now}
+  </update>
+
+  <update id="cancelPending">
+    UPDATE pull_task_member_query
+    SET query_status = #{targetStatus},
+        completed_at = #{now},
+        error_code = #{errorCode},
+        error_message = #{errorMessage},
+        updated_at = #{now}
+    WHERE task_id = #{taskId}
+      <if test="groupExecutionId != null">
+        AND group_execution_id = #{groupExecutionId}
+      </if>
+      AND query_status = #{expectedStatus}
+  </update>
+
+  <update id="settlePending">
+    UPDATE pull_task_member_query
+    SET query_status = #{settlement.targetStatus},
+        result_json = #{settlement.resultJson},
+        completed_at = #{settlement.completedAt},
+        error_code = #{settlement.errorCode},
+        error_message = #{settlement.errorMessage},
+        updated_at = #{settlement.completedAt}
+    WHERE id = #{settlement.queryId}
+      AND command_id = #{settlement.commandId}
+      AND query_status = #{settlement.expectedStatus}
+  </update>
+
+</mapper>

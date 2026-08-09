@@ -196,18 +196,29 @@ public class PullTaskSupplementManagerTransactionService {
                 PullTaskGroupAccountAdminStatus.PENDING.code());
         boolean verificationOnly = !pending || Objects.equals(
                 actorRef.armadaAccountId(), targetRef.armadaAccountId());
-        if (!verificationOnly && accountMapper.transitionAdminStatus(
-                target.getId(), List.of(PullTaskGroupAccountAdminStatus.PENDING.code()),
-                PullTaskGroupAccountAdminStatus.SUBMITTED.code(), now) != 1) {
-            return PullTaskSupplementManagerPreparation.completed(
-                    PullTaskExecutionDispatchResult.LOST);
-        }
         AccountRefs refs = new AccountRefs(actorRef, targetRef);
         WorkSpec spec = new WorkSpec(
                 PullTaskSupplementManagerOperation.PROMOTE_ADMIN, refs,
                 "pull-task-manager-admin:" + target.getId(), verificationOnly);
         return PullTaskSupplementManagerPreparation.ready(
                 work(candidate, target, null, spec));
+    }
+
+    /** 所有异步前置事实已就绪后，紧邻协议提权调用预写 SUBMITTED。 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean markAdminSubmitted(PullTaskSupplementManagerWork work, long now) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(work.tenantId());
+        try {
+            return work.operation() == PullTaskSupplementManagerOperation.PROMOTE_ADMIN
+                    && !work.verificationOnly()
+                    && accountMapper.transitionAdminStatus(
+                    work.targetGroupAccountId(),
+                    List.of(PullTaskGroupAccountAdminStatus.PENDING.code()),
+                    PullTaskGroupAccountAdminStatus.SUBMITTED.code(), now) == 1;
+        } finally {
+            restoreTenant(previousTenant);
+        }
     }
 
     private AccountRefs entryRefs(

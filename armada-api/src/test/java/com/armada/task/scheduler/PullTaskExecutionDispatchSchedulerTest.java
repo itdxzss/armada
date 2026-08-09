@@ -30,10 +30,8 @@ class PullTaskExecutionDispatchSchedulerTest {
         });
         PullTaskExecutionDispatchProperties properties = new PullTaskExecutionDispatchProperties();
         properties.setFixedDelayMs(5L);
-        PullTaskUnknownResultReconciliationCoordinator reconciliation =
-                mock(PullTaskUnknownResultReconciliationCoordinator.class);
         PullTaskExecutionDispatchScheduler scheduler =
-                new PullTaskExecutionDispatchScheduler(coordinator, reconciliation, properties);
+                new PullTaskExecutionDispatchScheduler(coordinator, properties);
 
         try {
             scheduler.start();
@@ -51,15 +49,55 @@ class PullTaskExecutionDispatchSchedulerTest {
                 mock(PullTaskExecutionDispatchCoordinator.class);
         PullTaskExecutionDispatchProperties properties = new PullTaskExecutionDispatchProperties();
         properties.setEnabled(false);
-        PullTaskUnknownResultReconciliationCoordinator reconciliation =
-                mock(PullTaskUnknownResultReconciliationCoordinator.class);
         PullTaskExecutionDispatchScheduler scheduler =
-                new PullTaskExecutionDispatchScheduler(coordinator, reconciliation, properties);
+                new PullTaskExecutionDispatchScheduler(coordinator, properties);
 
         scheduler.start();
         scheduler.trigger();
 
         verifyNoInteractions(coordinator);
-        verifyNoInteractions(reconciliation);
+    }
+
+    @Test
+    void blockedReconciliationMustNotDelayNextDispatch() throws Exception {
+        CountDownLatch reconciliationStarted = new CountDownLatch(1);
+        CountDownLatch releaseReconciliation = new CountDownLatch(1);
+        CountDownLatch secondDispatch = new CountDownLatch(1);
+        AtomicInteger dispatchCalls = new AtomicInteger();
+        PullTaskExecutionDispatchCoordinator coordinator =
+                mock(PullTaskExecutionDispatchCoordinator.class);
+        when(coordinator.dispatchOnce()).thenAnswer(invocation -> {
+            if (dispatchCalls.incrementAndGet() == 2) {
+                secondDispatch.countDown();
+            }
+            return PullTaskExecutionDispatchStats.empty();
+        });
+        PullTaskUnknownResultReconciliationCoordinator reconciliation =
+                mock(PullTaskUnknownResultReconciliationCoordinator.class);
+        when(reconciliation.reconcileIfDue()).thenAnswer(invocation -> {
+            reconciliationStarted.countDown();
+            releaseReconciliation.await(2, TimeUnit.SECONDS);
+            return null;
+        });
+        PullTaskExecutionDispatchProperties properties = new PullTaskExecutionDispatchProperties();
+        properties.setFixedDelayMs(60_000L);
+        PullTaskExecutionDispatchScheduler dispatchScheduler =
+                new PullTaskExecutionDispatchScheduler(coordinator, properties);
+        PullTaskUnknownResultReconciliationScheduler reconciliationScheduler =
+                new PullTaskUnknownResultReconciliationScheduler(reconciliation, properties);
+
+        try {
+            reconciliationScheduler.start();
+            assertThat(reconciliationStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            dispatchScheduler.start();
+
+            dispatchScheduler.trigger();
+
+            assertThat(secondDispatch.await(300, TimeUnit.MILLISECONDS)).isTrue();
+        } finally {
+            releaseReconciliation.countDown();
+            dispatchScheduler.destroy();
+            reconciliationScheduler.destroy();
+        }
     }
 }

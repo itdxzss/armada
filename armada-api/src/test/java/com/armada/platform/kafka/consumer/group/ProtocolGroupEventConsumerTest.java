@@ -36,13 +36,93 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolPullTaskBatchParticipantResultReportedSink batchParticipantResultSink;
 
+    @Mock
+    private ProtocolGroupMembersResultReportedSink membersResultSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
         consumer = new ProtocolGroupEventConsumer(
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
-                batchParticipantResultSink);
+                batchParticipantResultSink, membersResultSink);
+    }
+
+    @Test
+    void onMessage_memberQuerySuccessDispatchesStrictCorrelationAndFacts() {
+        String raw = """
+                {
+                  "eventId":"manager-901:group.members.result_reported:cmd-query-1",
+                  "event":"group.members.result_reported",
+                  "accountId":"manager-901",
+                  "workerId":"worker-a",
+                  "data":{
+                    "source":"pull_task_member_query",
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"queryId":701,
+                    "purpose":"MANAGER_ADMIN_MEMBERSHIP",
+                    "accountId":901,"protocolAccountId":"manager-901","protocolBackend":"WEB",
+                    "commandId":"cmd-query-1","attemptNo":2,"outcome":"SUCCESS",
+                    "groupJid":"120363group@g.us",
+                    "members":[{
+                      "targetJid":"8613800000902@s.whatsapp.net",
+                      "participantJid":"8613800000902:5@s.whatsapp.net",
+                      "phoneNumber":"8613800000902","inGroup":true,"admin":true
+                    }],
+                    "reasonCode":"","reasonMessage":"","retryable":false,
+                    "timestamp":1782712801000
+                  }
+                }
+                """;
+
+        consumer.onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupMembersResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupMembersResultReportedEvent.class);
+        verify(membersResultSink).handleMembersResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupMembersResultReportedEvent(
+                "manager-901:group.members.result_reported:cmd-query-1",
+                7L, 100L, 11L, 701L, "MANAGER_ADMIN_MEMBERSHIP",
+                901L, "manager-901", "WEB", "cmd-query-1", 2, "SUCCESS",
+                "120363group@g.us",
+                java.util.List.of(new ProtocolGroupMemberFact(
+                        "8613800000902@s.whatsapp.net",
+                        "8613800000902:5@s.whatsapp.net", "8613800000902", true, true)),
+                "", "", false, 1782712801000L, "worker-a"));
+    }
+
+    @Test
+    void onMessage_memberQueryRejectsAccountMismatchAndMalformedFacts() {
+        String accountMismatch = memberQueryResultJson(
+                "other-account", "SUCCESS",
+                "[{\"targetJid\":\"1@s.whatsapp.net\",\"inGroup\":false,\"admin\":false}]");
+        String adminOutsideGroup = memberQueryResultJson(
+                "manager-901", "SUCCESS",
+                "[{\"targetJid\":\"1@s.whatsapp.net\",\"inGroup\":false,\"admin\":true}]");
+        String failedWithMembers = memberQueryResultJson(
+                "manager-901", "FAILED",
+                "[{\"targetJid\":\"1@s.whatsapp.net\",\"inGroup\":false,\"admin\":false}]");
+
+        assertThatThrownBy(() -> consumer.onMessage(accountMismatch))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(adminOutsideGroup))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> consumer.onMessage(failedWithMembers))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(membersResultSink);
+    }
+
+    private static String memberQueryResultJson(
+            String envelopeAccountId, String outcome, String members) {
+        return """
+                {"event":"group.members.result_reported","accountId":"%s","data":{
+                  "source":"pull_task_member_query","tenantId":7,"pullTaskId":100,
+                  "groupExecutionId":11,"queryId":701,"purpose":"MANAGER_ADMIN_MEMBERSHIP",
+                  "accountId":901,"protocolAccountId":"manager-901","protocolBackend":"WEB",
+                  "commandId":"cmd-query-1","attemptNo":1,"outcome":"%s",
+                  "groupJid":"120363group@g.us","members":%s,
+                  "reasonCode":"FAILED","reasonMessage":"failed","retryable":false,"timestamp":5
+                }}
+                """.formatted(envelopeAccountId, outcome, members);
     }
 
     @Test

@@ -19,6 +19,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinComma
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -79,6 +80,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     public static final String COMMAND_TYPE_NORMAL_GROUP_CREATION_REQUESTED =
             "group.normal_creation.requested";
 
+    /** 群成员事实查询命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_MEMBERS_QUERY_REQUESTED =
+            "group.members.query.requested";
+
     /** 营销消息发送命令类型。 */
     public static final String COMMAND_TYPE_MESSAGE_SEND_REQUESTED = "message.send.requested";
 
@@ -100,6 +105,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 普通拉群料子成员聚合类型。 */
     public static final String AGGREGATE_TYPE_PULL_TASK_MATERIAL_MEMBER =
             "PULL_TASK_MATERIAL_MEMBER";
+
+    /** 普通拉群成员查询聚合类型。 */
+    public static final String AGGREGATE_TYPE_PULL_TASK_MEMBER_QUERY =
+            "PULL_TASK_MEMBER_QUERY";
 
     /** 新建普群计划群聚合类型。 */
     public static final String AGGREGATE_TYPE_NORMAL_GROUP_CREATION_ITEM =
@@ -247,6 +256,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION,
                 AGGREGATE_TYPE_PULL_TASK_PULL_CALL,
                 AGGREGATE_TYPE_PULL_TASK_MATERIAL_MEMBER,
+                AGGREGATE_TYPE_PULL_TASK_MEMBER_QUERY,
                 List.of(
                         ProtocolCommandOutboxStatus.PENDING.code(),
                         ProtocolCommandOutboxStatus.LOCKED.code()),
@@ -515,6 +525,31 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             }
             commandIds.add(commandId);
             rows.add(toPullTaskMaterialAdminOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskMemberQueryCommands(
+            List<ProtocolPullTaskMemberQueryCommandRequest> commands) {
+        validatePullTaskMemberQueryCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskMemberQueryCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskMemberQueryOutboxRow(command, commandId, now));
         }
         Long firstTaskId = commands.get(0).pullTaskId();
         String commonBatchId = commands.stream()
@@ -926,6 +961,33 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setAggregateId(command.materialId());
         row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
                 ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把普通拉群成员查询引用转换为按协议后端路由的待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskMemberQueryOutboxRow(
+            ProtocolPullTaskMemberQueryCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_MEMBERS_QUERY_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_MEMBER_QUERY);
+        row.setAggregateId(command.queryId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic()
+                : masterCommandProperties.getTopic());
         row.setKafkaKey(command.actor().protocolAccountId());
         row.setProtocolAccountId(command.actor().protocolAccountId());
         row.setProtocolBackend(command.actor().backend().name());
@@ -1500,6 +1562,34 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                     || isBlank(command.actor().wsPhone())) {
                 throw new BusinessException(ErrorCode.VALIDATION,
                         "普通拉群料子提权协议命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验普通拉群成员查询命令和当前租户。 */
+    private void validatePullTaskMemberQueryCommands(
+            List<ProtocolPullTaskMemberQueryCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群成员查询命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群成员查询命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskMemberQueryCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null || command.pullTaskId() <= 0
+                    || command.groupExecutionId() == null || command.groupExecutionId() <= 0
+                    || command.queryId() == null || command.queryId() <= 0
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "普通拉群成员查询命令缺少必要字段或租户不一致");
             }
         }
     }

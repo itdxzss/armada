@@ -60,6 +60,14 @@ class PullTaskOutboxCancellationMapperInMemoryTest {
                         + "normalized_phone, admin_required, pull_status, admin_status, "
                         + "admin_command_id, created_at, updated_at) VALUES "
                         + "(501, 7, 11, 1, 1, '861001', 1, 2, 2, 'cmd-admin', 100, 100)",
+                "INSERT INTO pull_task_member_query "
+                        + "(id, tenant_id, task_id, group_execution_id, business_key, purpose, "
+                        + "command_id, account_id, protocol_account_id, protocol_backend, ws_phone, group_jid, "
+                        + "target_jids_json, query_status, attempt_no, requested_at, deadline_at, "
+                        + "created_at, updated_at) VALUES "
+                        + "(601, 7, 1, 11, 'manager:1', 'MANAGER_JOIN', 'cmd-query', "
+                        + "382, 'acc-web', 'WEB', '911', '123@g.us', '[\"456@s.whatsapp.net\"]', "
+                        + "1, 1, 100, 1000, 100, 100)",
                 "INSERT INTO protocol_command_outbox "
                         + "(tenant_id, command_id, aggregate_type, aggregate_id, status, updated_at) VALUES "
                         + "(7, 'cmd-action', 'PULL_TASK_ACCOUNT_ACTION', 301, 0, 100), "
@@ -68,7 +76,8 @@ class PullTaskOutboxCancellationMapperInMemoryTest {
                         + "(7, 'cmd-dispatching', 'PULL_TASK_ACCOUNT_ACTION', 303, 5, 100), "
                         + "(7, 'cmd-transition', 'PULL_TASK_ACCOUNT_ACTION', 302, 1, 100), "
                         + "(7, 'cmd-call', 'PULL_TASK_PULL_CALL', 401, 0, 100), "
-                        + "(7, 'cmd-admin', 'PULL_TASK_MATERIAL_MEMBER', 501, 0, 100)");
+                        + "(7, 'cmd-admin', 'PULL_TASK_MATERIAL_MEMBER', 501, 0, 100), "
+                        + "(7, 'cmd-query', 'PULL_TASK_MEMBER_QUERY', 601, 0, 100)");
     }
 
     @AfterEach
@@ -83,12 +92,14 @@ class PullTaskOutboxCancellationMapperInMemoryTest {
                 "PULL_TASK_ACCOUNT_ACTION",
                 "PULL_TASK_PULL_CALL",
                 "PULL_TASK_MATERIAL_MEMBER",
+                "PULL_TASK_MEMBER_QUERY",
                 java.util.List.of(0, 1), 5, 4, 6, "PULL_TASK_ENDED", 900L);
 
-        assertThat(canceled).isEqualTo(5);
+        assertThat(canceled).isEqualTo(6);
         assertThat(status("cmd-action")).isEqualTo(4);
         assertThat(status("cmd-call")).isEqualTo(4);
         assertThat(status("cmd-admin")).isEqualTo(4);
+        assertThat(status("cmd-query")).isEqualTo(4);
         assertThat(status("cmd-other")).isZero();
         assertThat(status("cmd-locked")).isEqualTo(4);
         assertThat(status("cmd-dispatching")).isEqualTo(6);

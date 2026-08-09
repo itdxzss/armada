@@ -366,6 +366,34 @@
       AND active_pull_wave_id = #{wake.pullWaveId}
   </update>
 
+  <update id="wakeForMemberQuery">
+    UPDATE pull_task_group_execution
+    SET next_run_at = LEAST(next_run_at, #{wake.targetNextRunAt}),
+        version = version + 1,
+        updated_at = #{wake.now}
+    WHERE id = #{wake.executionId}
+      AND task_id = #{wake.taskId}
+      AND execution_status = #{wake.expectedExecutionStatus}
+      AND stage = #{wake.expectedStage}
+      AND lock_owner IS NULL
+  </update>
+
+  <update id="deferForMemberQuery">
+    UPDATE pull_task_group_execution
+    SET next_run_at = #{defer.nextRunAt},
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{defer.now}
+    WHERE id = #{defer.executionId}
+      AND task_id = #{defer.taskId}
+      AND version = #{defer.expectedVersion}
+      AND execution_status = #{defer.expectedExecutionStatus}
+      AND stage = #{defer.expectedStage}
+      AND lock_owner = #{defer.lockOwner}
+      AND lock_expires_at &gt; #{defer.now}
+  </update>
+
   <update id="transitionStickyPuller">
     UPDATE pull_task_group_execution
     SET active_puller_group_account_id = #{transition.target.pullerGroupAccountId},

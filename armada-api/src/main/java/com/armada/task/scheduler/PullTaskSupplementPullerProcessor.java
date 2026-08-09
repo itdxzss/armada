@@ -4,13 +4,15 @@ import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
-import com.armada.platform.protocol.port.GroupMemberListPort;
+import com.armada.platform.protocol.util.WhatsappJids;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskSupplementPullerWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -33,15 +35,15 @@ public class PullTaskSupplementPullerProcessor {
 
     private final PullTaskSupplementPullerTransactionService transactions;
     private final GroupJoinPort joinPort;
-    private final GroupMemberListPort memberListPort;
+    private final PullTaskMemberQueryAwaitService memberQueryAwaitService;
 
     public PullTaskSupplementPullerProcessor(
             PullTaskSupplementPullerTransactionService transactions,
             GroupJoinPort joinPort,
-            GroupMemberListPort memberListPort) {
+            PullTaskMemberQueryAwaitService memberQueryAwaitService) {
         this.transactions = transactions;
         this.joinPort = joinPort;
-        this.memberListPort = memberListPort;
+        this.memberQueryAwaitService = memberQueryAwaitService;
     }
 
     /** 若当前联系人检查点包含补充拉手踩链接指令则先处理它。 */
@@ -56,17 +58,33 @@ public class PullTaskSupplementPullerProcessor {
             return Optional.of(preparation.result());
         }
         PullTaskSupplementPullerWork work = preparation.work();
-        PullTaskSupplementPullerOutcome outcome = execute(work);
+        PullTaskSupplementPullerOutcome outcome = execute(work, candidate.getTaskId(), now);
+        if (outcome == null) {
+            return Optional.of(PullTaskExecutionDispatchResult.DEFERRED);
+        }
         return Optional.of(transactions.complete(work, outcome, now));
     }
 
-    private PullTaskSupplementPullerOutcome execute(PullTaskSupplementPullerWork work) {
+    private PullTaskSupplementPullerOutcome execute(
+            PullTaskSupplementPullerWork work, long taskId, long now) {
         try {
             CommandFact fact = work.verificationOnly()
                     ? CommandFact.unknown(MEMBERSHIP_UNKNOWN) : join(work);
-            GroupParticipantResult member = findMember(
-                    memberListPort.list(work.memberQuery()), work.target().wsPhone());
-            if (member != null) {
+            String targetJid = WhatsappJids.userJid(work.target().wsPhone());
+            PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDefer(
+                    work.tenantId(), new PullTaskMemberQueryRequest(
+                            taskId, work.executionId(),
+                            "supplement-puller-membership:" + work.actionId(),
+                            PullTaskMemberQueryPurpose.SUPPLEMENT_PULLER_MEMBERSHIP,
+                            work.target(), work.groupJid(), java.util.List.of(targetJid)),
+                    work.expectedVersion(), work.lockOwner(),
+                    PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(), now);
+            if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
+                return null;
+            }
+            if (query.state() == PullTaskMemberQueryResult.State.AVAILABLE
+                    && query.members().stream().anyMatch(member -> member.inGroup()
+                    && targetJid.equals(member.targetJid()))) {
                 return PullTaskSupplementPullerOutcome.confirmed();
             }
             if (fact.failed()) {
@@ -104,30 +122,6 @@ public class PullTaskSupplementPullerProcessor {
                 && !UNCERTAIN_ERRORS.contains(protocol.errorCode());
         return stable ? PullTaskSupplementPullerOutcome.failed(reason)
                 : PullTaskSupplementPullerOutcome.unknown(reason);
-    }
-
-    private static GroupParticipantResult findMember(
-            List<GroupParticipantResult> members, String identity) {
-        if (members == null || members.isEmpty()) {
-            return null;
-        }
-        String expected = phone(identity);
-        return members.stream().filter(java.util.Objects::nonNull)
-                .filter(member -> expected.equals(phone(
-                        member.phone() == null ? member.jid() : member.phone())))
-                .findFirst().orElse(null);
-    }
-
-    private static String phone(String value) {
-        if (value == null) {
-            return "";
-        }
-        String normalized = value.trim();
-        int at = normalized.indexOf('@');
-        normalized = at < 0 ? normalized : normalized.substring(0, at);
-        int device = normalized.indexOf(':');
-        normalized = device < 0 ? normalized : normalized.substring(0, device);
-        return normalized.replaceAll("[^0-9]", "");
     }
 
     private record CommandFact(boolean failed, String reasonCode) {

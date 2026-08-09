@@ -4,15 +4,18 @@ import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
-import com.armada.platform.protocol.port.GroupMemberListPort;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.task.model.dto.PullTaskExecutionWork;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerJoinWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
-import java.util.List;
+import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,26 +31,26 @@ public class PullTaskManagerJoinProcessor {
     private final PullTaskManagerJoinTransactionService transactions;
     private final PullTaskSupplementManagerProcessor supplementProcessor;
     private final GroupJoinPort joinPort;
-    private final GroupMemberListPort memberListPort;
+    private final PullTaskMemberQueryAwaitService memberQueryAwaitService;
 
     /**
      * @param executionTransactions 待启动执行行并发槽位事务
      * @param transactions   管理员入群短事务
      * @param supplementProcessor 人工补充管理员处理器
      * @param joinPort       统一进群协议端口
-     * @param memberListPort 实时群成员查询端口
+     * @param memberQueryAwaitService 异步群成员查询等待服务
      */
     public PullTaskManagerJoinProcessor(
             PullTaskExecutionTransactionService executionTransactions,
             PullTaskManagerJoinTransactionService transactions,
             PullTaskSupplementManagerProcessor supplementProcessor,
             GroupJoinPort joinPort,
-            GroupMemberListPort memberListPort) {
+            PullTaskMemberQueryAwaitService memberQueryAwaitService) {
         this.executionTransactions = executionTransactions;
         this.transactions = transactions;
         this.supplementProcessor = supplementProcessor;
         this.joinPort = joinPort;
-        this.memberListPort = memberListPort;
+        this.memberQueryAwaitService = memberQueryAwaitService;
     }
 
     /** 执行一条处于 MANAGER_JOIN 阶段的执行行。 */
@@ -69,7 +72,10 @@ public class PullTaskManagerJoinProcessor {
         PullTaskManagerJoinWork work = preparation.work();
         PullTaskManagerJoinOutcome outcome;
         try {
-            outcome = joinOrVerifyRecovery(work);
+            outcome = joinOrVerifyRecovery(work, candidate.getTaskId(), now);
+            if (outcome == null) {
+                return PullTaskExecutionDispatchResult.DEFERRED;
+            }
         } catch (RuntimeException ex) {
             outcome = exceptionOutcome(ex);
             if (ex instanceof ProtocolException protocol) {
@@ -108,10 +114,11 @@ public class PullTaskManagerJoinProcessor {
         return true;
     }
 
-    private PullTaskManagerJoinOutcome joinOrVerifyRecovery(PullTaskManagerJoinWork work) {
+    private PullTaskManagerJoinOutcome joinOrVerifyRecovery(
+            PullTaskManagerJoinWork work, long taskId, long now) {
         if (work.payload().knownGroupJid() != null
                 && !work.payload().knownGroupJid().isBlank()) {
-            return verifyMembership(work, work.payload().knownGroupJid());
+            return verifyMembership(work, taskId, work.payload().knownGroupJid(), now);
         }
         GroupJoinResult result = joinPort.join(work.joinCommand());
         if (result != null && result.outcome() == GroupJoinOutcome.PENDING_APPROVAL) {
@@ -126,33 +133,25 @@ public class PullTaskManagerJoinProcessor {
     }
 
     private PullTaskManagerJoinOutcome verifyMembership(
-            PullTaskManagerJoinWork work, String groupJid) {
-        List<GroupParticipantResult> members;
-        try {
-            members = memberListPort.list(work.memberListQuery(groupJid));
-        } catch (RuntimeException ex) {
-            if (ex instanceof ProtocolException protocol) {
-                log.warn("管理员实时在群复核异常 tenantId={} executionId={} accountId={} "
-                                + "errorType={} errorCode={} protocolCode={} backend={} operation={} "
-                                + "operationId={} groupJid={} retryable={}",
-                        work.tenantId(), work.executionId(),
-                        work.payload().account().armadaAccountId(), ex.getClass().getSimpleName(),
-                        protocol.errorCode(), protocol.protocolCode().orElse(null),
-                        protocol.backend().map(Enum::name).orElse(null),
-                        protocol.operation().orElse(null), protocol.operationId().orElse(null),
-                        groupJid, protocol.retryable().orElse(null));
-            } else {
-                log.warn("管理员实时在群复核异常 tenantId={} executionId={} accountId={} "
-                                + "errorType={} groupJid={}",
-                        work.tenantId(), work.executionId(),
-                        work.payload().account().armadaAccountId(),
-                        ex.getClass().getSimpleName(), groupJid);
-            }
+            PullTaskManagerJoinWork work, long taskId, String groupJid, long now) {
+        String targetJid = WhatsappJids.userJid(work.payload().account().wsPhone());
+        PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDefer(
+                work.tenantId(), new PullTaskMemberQueryRequest(
+                        taskId, work.executionId(),
+                        "manager-join-membership:" + work.groupAccountId() + ":" + work.actionId(),
+                        PullTaskMemberQueryPurpose.MANAGER_JOIN_MEMBERSHIP,
+                        work.payload().account(), groupJid, java.util.List.of(targetJid)),
+                work.expectedVersion(), work.lockOwner(),
+                PullTaskExecutionStage.MANAGER_JOIN.code(), now);
+        if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return null;
+        }
+        if (query.state() == PullTaskMemberQueryResult.State.FAILED) {
             return PullTaskManagerJoinOutcome.unconfirmed(
                     groupJid,
                     PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());
         }
-        if (containsAccount(members, work.payload().account().wsPhone())) {
+        if (query.members().stream().anyMatch(PullTaskMemberFact::inGroup)) {
             return PullTaskManagerJoinOutcome.confirmed(groupJid);
         }
         return PullTaskManagerJoinOutcome.unconfirmed(
@@ -181,32 +180,4 @@ public class PullTaskManagerJoinProcessor {
                 null, PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());
     }
 
-    private static boolean containsAccount(
-            List<GroupParticipantResult> members, String accountPhone) {
-        if (members == null || members.isEmpty()) {
-            return false;
-        }
-        String expected = phone(accountPhone);
-        return members.stream()
-                .filter(member -> member != null)
-                .map(member -> member.phone() == null ? member.jid() : member.phone())
-                .map(PullTaskManagerJoinProcessor::phone)
-                .anyMatch(expected::equals);
-    }
-
-    private static String phone(String value) {
-        if (value == null) {
-            return "";
-        }
-        String normalized = value.trim();
-        int at = normalized.indexOf('@');
-        if (at >= 0) {
-            normalized = normalized.substring(0, at);
-        }
-        int device = normalized.indexOf(':');
-        if (device >= 0) {
-            normalized = normalized.substring(0, device);
-        }
-        return normalized.replaceAll("[^0-9]", "");
-    }
 }

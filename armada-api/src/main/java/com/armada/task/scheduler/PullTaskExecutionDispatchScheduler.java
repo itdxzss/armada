@@ -20,7 +20,6 @@ public class PullTaskExecutionDispatchScheduler {
             LoggerFactory.getLogger(PullTaskExecutionDispatchScheduler.class);
 
     private final PullTaskExecutionDispatchCoordinator coordinator;
-    private final PullTaskUnknownResultReconciliationCoordinator reconciliationCoordinator;
     private final PullTaskExecutionDispatchProperties properties;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean running = new AtomicBoolean();
@@ -33,10 +32,8 @@ public class PullTaskExecutionDispatchScheduler {
      */
     public PullTaskExecutionDispatchScheduler(
             PullTaskExecutionDispatchCoordinator coordinator,
-            PullTaskUnknownResultReconciliationCoordinator reconciliationCoordinator,
             PullTaskExecutionDispatchProperties properties) {
         this.coordinator = coordinator;
-        this.reconciliationCoordinator = reconciliationCoordinator;
         this.properties = properties;
     }
 
@@ -75,11 +72,6 @@ public class PullTaskExecutionDispatchScheduler {
             coordinator.dispatchOnce();
         } catch (RuntimeException ex) {
             log.error("普通拉群执行调度单轮失败", ex);
-        }
-        try {
-            reconciliationCoordinator.reconcileIfDue();
-        } catch (RuntimeException ex) {
-            log.error("普通拉群未知结果收敛单轮失败", ex);
         } finally {
             running.set(false);
         }

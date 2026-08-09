@@ -1,11 +1,12 @@
 package com.armada.task.scheduler;
 
 import com.armada.account.service.AccountProtocolLookupService;
-import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
-import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -16,6 +17,7 @@ import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskPullCallRosterCheckStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskRosterObservation;
@@ -38,18 +40,18 @@ public class PullTaskPullCallReconciliationService {
 
     private final PullTaskUnknownResultResources resources;
     private final AccountProtocolLookupService accountLookup;
-    private final GroupMemberListPort memberListPort;
+    private final PullTaskMemberQueryService memberQueryService;
     private final PullTaskPullCallParticipantResultService participantResultService;
 
     /** 创建逐号码异常批次核实服务。 */
     public PullTaskPullCallReconciliationService(
             PullTaskUnknownResultResources resources,
             AccountProtocolLookupService accountLookup,
-            GroupMemberListPort memberListPort,
+            PullTaskMemberQueryService memberQueryService,
             PullTaskPullCallParticipantResultService participantResultService) {
         this.resources = resources;
         this.accountLookup = accountLookup;
-        this.memberListPort = memberListPort;
+        this.memberQueryService = memberQueryService;
         this.participantResultService = participantResultService;
     }
 
@@ -82,8 +84,11 @@ public class PullTaskPullCallReconciliationService {
         }
         persistMissingAsUncertain(unresolved, now);
         MemberSnapshot snapshot = decision.query()
-                ? queryMembers(execution, accounts, call, now)
+                ? queryMembers(execution, accounts, call, unresolved, now)
                 : MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.FAILED);
+        if (snapshot == null) {
+            return PullTaskUnknownResultReconciliationStats.empty();
+        }
         int confirmed = 0;
         int released = 0;
         for (PullTaskPullCallMemberAttempt attempt : unresolved) {
@@ -171,11 +176,7 @@ public class PullTaskPullCallReconciliationService {
                     : RosterDecision.stop();
         }
         if (status == PullTaskPullCallRosterCheckStatus.CLAIMED.code()) {
-            boolean staleClaim = call.getRosterCheckStartedAt() != null
-                    && call.getRosterCheckStartedAt() <= cutoff;
-            return staleClaim
-                    ? new RosterDecision(true, false, true)
-                    : RosterDecision.stop();
+            return new RosterDecision(true, true, true);
         }
         return new RosterDecision(true, false, false);
     }
@@ -184,6 +185,7 @@ public class PullTaskPullCallReconciliationService {
             PullTaskGroupExecution execution,
             List<PullTaskGroupAccount> accounts,
             PullTaskPullCall call,
+            List<PullTaskPullCallMemberAttempt> unresolved,
             long now) {
         if (execution.getGroupJid() == null || execution.getGroupJid().isBlank()) {
             return MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.SKIPPED);
@@ -200,17 +202,23 @@ public class PullTaskPullCallReconciliationService {
         if (refs == null || refs.isEmpty()) {
             return MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.SKIPPED);
         }
-        try {
-            List<GroupParticipantResult> members = memberListPort.list(new GroupMemberListQuery(
-                    refs.get(0), execution.getGroupJid(),
-                    "pull-call-roster-" + call.getId() + "-" + now));
-            return MemberSnapshot.succeeded(members);
-        } catch (RuntimeException ex) {
-            log.warn("普通拉群异常批次名单查询失败 tenantId={} executionId={} callId={} errorType={}",
-                    execution.getTenantId(), execution.getId(), call.getId(),
-                    ex.getClass().getSimpleName());
-            return MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.FAILED);
+        List<String> targetJids = unresolved.stream()
+                .map(PullTaskPullCallMemberAttempt::getTargetJid)
+                .filter(Objects::nonNull).filter(value -> !value.isBlank()).distinct().toList();
+        if (targetJids.isEmpty()) {
+            return MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.SKIPPED);
         }
+        PullTaskMemberQueryResult result = memberQueryService.requestOrRead(
+                new PullTaskMemberQueryRequest(
+                        execution.getTaskId(), execution.getId(),
+                        "pull-call-reconciliation:" + call.getId() + ":" + call.getSubmittedAt(),
+                        PullTaskMemberQueryPurpose.PULL_CALL_RECONCILIATION,
+                        refs.get(0), execution.getGroupJid(), targetJids), now);
+        return switch (result.state()) {
+            case PENDING -> null;
+            case FAILED -> MemberSnapshot.failed(PullTaskPullCallRosterCheckStatus.FAILED);
+            case AVAILABLE -> MemberSnapshot.succeededFacts(result.members());
+        };
     }
 
     private static String phone(String value) {
@@ -236,11 +244,19 @@ public class PullTaskPullCallReconciliationService {
             PullTaskPullCallRosterCheckStatus status,
             Map<String, GroupParticipantResult> members) {
 
-        private static MemberSnapshot succeeded(List<GroupParticipantResult> source) {
+        private static MemberSnapshot succeededFacts(List<PullTaskMemberFact> source) {
             Map<String, GroupParticipantResult> members = new LinkedHashMap<>();
             if (source != null) {
-                source.stream().filter(Objects::nonNull).forEach(member -> members.putIfAbsent(
-                        phone(member.phone() == null ? member.jid() : member.phone()), member));
+                source.stream().filter(Objects::nonNull).filter(PullTaskMemberFact::inGroup)
+                        .forEach(fact -> {
+                            String jid = fact.participantJid() == null
+                                    ? fact.targetJid() : fact.participantJid();
+                            String memberPhone = fact.phoneNumber() == null
+                                    ? fact.targetJid() : fact.phoneNumber();
+                            members.putIfAbsent(phone(fact.targetJid()), new GroupParticipantResult(
+                                    jid, memberPhone, fact.admin(), false,
+                                    fact.admin() ? "admin" : null));
+                        });
             }
             return new MemberSnapshot(
                     PullTaskPullCallRosterCheckStatus.SUCCEEDED, Map.copyOf(members));

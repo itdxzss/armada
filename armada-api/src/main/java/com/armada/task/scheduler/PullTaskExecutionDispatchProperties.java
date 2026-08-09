@@ -32,6 +32,9 @@ public class PullTaskExecutionDispatchProperties {
     /** 单轮未知结果扫描上限。 */
     private int resultReconciliationBatchSize = 100;
 
+    /** 异步群成员查询等待结果的截止时长。 */
+    private long memberQueryTimeoutMs = 30_000L;
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -116,5 +119,16 @@ public class PullTaskExecutionDispatchProperties {
             throw new IllegalArgumentException("未知结果扫描批量必须在 1..500");
         }
         this.resultReconciliationBatchSize = resultReconciliationBatchSize;
+    }
+
+    public long getMemberQueryTimeoutMs() {
+        return memberQueryTimeoutMs;
+    }
+
+    public void setMemberQueryTimeoutMs(long memberQueryTimeoutMs) {
+        if (memberQueryTimeoutMs <= 0) {
+            throw new IllegalArgumentException("成员查询超时时长必须大于 0");
+        }
+        this.memberQueryTimeoutMs = memberQueryTimeoutMs;
     }
 }

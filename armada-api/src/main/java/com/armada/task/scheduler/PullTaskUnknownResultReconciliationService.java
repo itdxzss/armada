@@ -1,14 +1,16 @@
 package com.armada.task.scheduler;
 
 import com.armada.account.service.AccountProtocolLookupService;
-import com.armada.platform.protocol.model.command.GroupMemberListQuery;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
-import com.armada.platform.protocol.port.GroupMemberListPort;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -25,15 +27,15 @@ import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -42,8 +44,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class PullTaskUnknownResultReconciliationService {
 
-    private static final Logger log = LoggerFactory.getLogger(
-            PullTaskUnknownResultReconciliationService.class);
     private static final String UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
@@ -64,7 +64,7 @@ public class PullTaskUnknownResultReconciliationService {
 
     private final PullTaskUnknownResultResources resources;
     private final AccountProtocolLookupService accountLookup;
-    private final GroupMemberListPort memberListPort;
+    private final PullTaskMemberQueryService memberQueryService;
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskPullCallReconciliationService pullCallReconciliationService;
     private final PullTaskPullWaveProgressService waveProgress;
@@ -73,11 +73,11 @@ public class PullTaskUnknownResultReconciliationService {
     public PullTaskUnknownResultReconciliationService(
             PullTaskUnknownResultResources resources,
             AccountProtocolLookupService accountLookup,
-            GroupMemberListPort memberListPort,
+            PullTaskMemberQueryService memberQueryService,
             PullTaskUnknownResultCoordination coordination) {
         this.resources = resources;
         this.accountLookup = accountLookup;
-        this.memberListPort = memberListPort;
+        this.memberQueryService = memberQueryService;
         this.executionMapper = coordination.executionMapper();
         this.pullCallReconciliationService = coordination.pullCalls();
         this.waveProgress = coordination.waveProgress();
@@ -105,8 +105,13 @@ public class PullTaskUnknownResultReconciliationService {
                 || calls.stream().anyMatch(call -> CALL_OPEN.contains(call.getCallStatus())
                 && attemptsByCall.getOrDefault(call.getId(), List.of()).isEmpty());
         MemberSnapshot snapshot = legacySnapshotRequired
-                ? queryMembers(execution, accounts, now)
+                ? queryMembers(
+                execution, accounts, materials,
+                reconciliationBusinessKey(actions, accounts, materials, calls), now)
                 : MemberSnapshot.unavailable();
+        if (snapshot.pending()) {
+            return PullTaskUnknownResultReconciliationStats.empty();
+        }
         Counter counter = new Counter();
         ReconciliationContext context = new ReconciliationContext(
                 snapshot, submittedCutoff, now, counter);
@@ -370,6 +375,8 @@ public class PullTaskUnknownResultReconciliationService {
     private MemberSnapshot queryMembers(
             PullTaskGroupExecution execution,
             List<PullTaskGroupAccount> accounts,
+            List<PullTaskMaterialMember> materials,
+            String businessKey,
             long now) {
         if (execution.getGroupJid() == null || execution.getGroupJid().isBlank()) {
             return MemberSnapshot.unavailable();
@@ -387,15 +394,59 @@ public class PullTaskUnknownResultReconciliationService {
         if (refs.isEmpty()) {
             return MemberSnapshot.unavailable();
         }
-        try {
-            List<GroupParticipantResult> members = memberListPort.list(new GroupMemberListQuery(
-                    refs.get(0), execution.getGroupJid(),
-                    "pull-reconcile-" + execution.getId() + "-" + now));
-            return MemberSnapshot.available(members);
-        } catch (RuntimeException ex) {
-            log.warn("普通拉群未知结果查询失败 tenantId={} executionId={} errorType={}",
-                    execution.getTenantId(), execution.getId(), ex.getClass().getSimpleName());
+        LinkedHashSet<String> targets = new LinkedHashSet<>();
+        accounts.stream().map(PullTaskGroupAccount::getAccountPhone)
+                .map(PullTaskUnknownResultReconciliationService::userJid)
+                .filter(Objects::nonNull).forEach(targets::add);
+        materials.stream().map(row -> row.getWaJid() == null
+                        ? row.getNormalizedPhone() : row.getWaJid())
+                .map(PullTaskUnknownResultReconciliationService::userJid)
+                .filter(Objects::nonNull).forEach(targets::add);
+        if (targets.isEmpty()) {
             return MemberSnapshot.unavailable();
+        }
+        PullTaskMemberQueryResult result = memberQueryService.requestOrRead(
+                new PullTaskMemberQueryRequest(
+                        execution.getTaskId(), execution.getId(), businessKey,
+                        PullTaskMemberQueryPurpose.UNKNOWN_RESULT_RECONCILIATION,
+                        refs.get(0), execution.getGroupJid(), List.copyOf(targets)), now);
+        return switch (result.state()) {
+            case PENDING -> MemberSnapshot.waiting();
+            case FAILED -> MemberSnapshot.unavailable();
+            case AVAILABLE -> MemberSnapshot.availableFacts(result.members());
+        };
+    }
+
+    private static String reconciliationBusinessKey(
+            List<PullTaskAccountAction> actions,
+            List<PullTaskGroupAccount> accounts,
+            List<PullTaskMaterialMember> materials,
+            List<PullTaskPullCall> calls) {
+        StringBuilder state = new StringBuilder();
+        actions.stream().sorted(java.util.Comparator.comparing(PullTaskAccountAction::getId))
+                .forEach(row -> state.append("a:").append(row.getId()).append(':')
+                        .append(row.getActionStatus()).append(':').append(row.getUpdatedAt()).append(';'));
+        accounts.stream().sorted(java.util.Comparator.comparing(PullTaskGroupAccount::getId))
+                .forEach(row -> state.append("g:").append(row.getId()).append(':')
+                        .append(row.getMembershipStatus()).append(':').append(row.getAdminStatus())
+                        .append(':').append(row.getUpdatedAt()).append(';'));
+        materials.stream().sorted(java.util.Comparator.comparing(PullTaskMaterialMember::getId))
+                .forEach(row -> state.append("m:").append(row.getId()).append(':')
+                        .append(row.getPullStatus()).append(':').append(row.getAdminStatus())
+                        .append(':').append(row.getUpdatedAt()).append(';'));
+        calls.stream().sorted(java.util.Comparator.comparing(PullTaskPullCall::getId))
+                .forEach(row -> state.append("c:").append(row.getId()).append(':')
+                        .append(row.getCallStatus()).append(':').append(row.getUpdatedAt()).append(';'));
+        return "unknown-reconciliation:"
+                + java.util.UUID.nameUUIDFromBytes(
+                state.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static String userJid(String identity) {
+        try {
+            return identity == null || identity.isBlank() ? null : WhatsappJids.userJid(identity);
+        } catch (RuntimeException exception) {
+            return null;
         }
     }
 
@@ -483,19 +534,34 @@ public class PullTaskUnknownResultReconciliationService {
             Counter counter) {
     }
 
-    private record MemberSnapshot(boolean queried, Map<String, GroupParticipantResult> members) {
+    private record MemberSnapshot(
+            boolean queried,
+            boolean pending,
+            Map<String, GroupParticipantResult> members) {
 
         private static MemberSnapshot unavailable() {
-            return new MemberSnapshot(false, Map.of());
+            return new MemberSnapshot(false, false, Map.of());
         }
 
-        private static MemberSnapshot available(List<GroupParticipantResult> source) {
+        private static MemberSnapshot waiting() {
+            return new MemberSnapshot(false, true, Map.of());
+        }
+
+        private static MemberSnapshot availableFacts(List<PullTaskMemberFact> source) {
             Map<String, GroupParticipantResult> members = new LinkedHashMap<>();
             if (source != null) {
-                source.stream().filter(Objects::nonNull).forEach(member -> members.putIfAbsent(
-                        phone(member.phone() == null ? member.jid() : member.phone()), member));
+                source.stream().filter(Objects::nonNull).filter(PullTaskMemberFact::inGroup)
+                        .forEach(fact -> {
+                            String jid = fact.participantJid() == null
+                                    ? fact.targetJid() : fact.participantJid();
+                            String memberPhone = fact.phoneNumber() == null
+                                    ? fact.targetJid() : fact.phoneNumber();
+                            members.putIfAbsent(phone(fact.targetJid()), new GroupParticipantResult(
+                                    jid, memberPhone, fact.admin(), false,
+                                    fact.admin() ? "admin" : null));
+                        });
             }
-            return new MemberSnapshot(true, Map.copyOf(members));
+            return new MemberSnapshot(true, false, Map.copyOf(members));
         }
 
         private GroupParticipantResult member(String identity) {

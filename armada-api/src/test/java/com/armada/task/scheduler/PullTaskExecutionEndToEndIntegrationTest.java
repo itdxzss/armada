@@ -50,6 +50,9 @@ import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.enums.PullTaskAccountActionType;
@@ -518,6 +521,30 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return port;
         }
 
+        @Bean PullTaskMemberQueryAwaitService memberQueryAwaitService() {
+            PullTaskMemberQueryAwaitService service = mock(PullTaskMemberQueryAwaitService.class);
+            when(service.readOrDefer(
+                    org.mockito.ArgumentMatchers.anyLong(),
+                    org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.anyInt(),
+                    org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyInt(),
+                    org.mockito.ArgumentMatchers.anyLong()))
+                    .thenAnswer(invocation -> {
+                        PullTaskMemberQueryRequest request = invocation.getArgument(1);
+                        List<PullTaskMemberFact> members = request.targetJids().stream()
+                                .map(target -> new PullTaskMemberFact(
+                                        target, target, target.substring(0, target.indexOf('@')),
+                                        true, target.startsWith(PROMOTER.wsPhone())
+                                        || target.startsWith("8613900000001")
+                                        || target.startsWith(MANAGER.wsPhone())
+                                        && MANAGER_PROMOTED.get()))
+                                .toList();
+                        return PullTaskMemberQueryResult.available(701L, members);
+                    });
+            return service;
+        }
+
         @Bean ContactPort contactPort() {
             return mock(ContactPort.class);
         }
@@ -567,7 +594,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupAccountMapper accountMapper, PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupExecutionMapper executionMapper, AccountProtocolLookupService lookup,
                 PullTaskParentCompletionService parentCompletion, GroupJoinPort joinPort,
-                GroupMemberListPort memberListPort,
+                PullTaskMemberQueryAwaitService memberQueryAwaitService,
                 com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchProperties properties,
                 PullTaskExecutionTransactionService executionTransactions) {
@@ -579,7 +606,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return new PullTaskManagerJoinProcessor(
                     executionTransactions, transactions,
                     mock(PullTaskSupplementManagerProcessor.class),
-                    joinPort, memberListPort);
+                    joinPort, memberQueryAwaitService);
         }
 
         @Bean com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService() {
@@ -886,14 +913,14 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 GroupExecutionAccountSelector promoterSelector,
                 com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchProperties properties,
-                GroupMemberListPort memberListPort) {
+                PullTaskMemberQueryAwaitService memberQueryAwaitService) {
             PullTaskManagerAdminResources resources = new PullTaskManagerAdminResources(
                     executionMapper, promoterSelector, outboxService, properties);
             PullTaskManagerAdminTransactionService transactions =
                     new PullTaskManagerAdminTransactionService(
                             taskMapper, accountMapper, actionMapper,
                             new PullTaskManagerAdminCandidateSelector(), resources);
-            return new PullTaskManagerAdminProcessor(transactions, memberListPort);
+            return new PullTaskManagerAdminProcessor(transactions, memberQueryAwaitService);
         }
 
         @Bean PullTaskMaterialAdminProcessor materialAdminProcessor(

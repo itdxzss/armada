@@ -12,11 +12,11 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
-import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.task.model.dto.PullTaskExecutionLease;
+import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskSupplementManagerPayload;
 import com.armada.task.model.dto.PullTaskSupplementManagerWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -32,7 +32,7 @@ class PullTaskSupplementManagerProcessorTest {
     private PullTaskSupplementManagerTransactionService transactions;
     private GroupJoinPort joinPort;
     private GroupParticipantPort participantPort;
-    private GroupMemberListPort memberListPort;
+    private PullTaskMemberQueryAwaitService memberQueryAwaitService;
     private PullTaskSupplementManagerProcessor processor;
 
     @BeforeEach
@@ -40,9 +40,9 @@ class PullTaskSupplementManagerProcessorTest {
         transactions = mock(PullTaskSupplementManagerTransactionService.class);
         joinPort = mock(GroupJoinPort.class);
         participantPort = mock(GroupParticipantPort.class);
-        memberListPort = mock(GroupMemberListPort.class);
+        memberQueryAwaitService = mock(PullTaskMemberQueryAwaitService.class);
         processor = new PullTaskSupplementManagerProcessor(
-                transactions, joinPort, participantPort, memberListPort);
+                transactions, joinPort, participantPort, memberQueryAwaitService);
     }
 
     @Test
@@ -54,8 +54,7 @@ class PullTaskSupplementManagerProcessorTest {
                 .thenReturn(PullTaskSupplementManagerPreparation.ready(work));
         when(joinPort.join(work.joinCommand())).thenReturn(
                 new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
-        when(memberListPort.list(work.targetMemberQuery())).thenReturn(List.of(
-                member(target().wsPhone(), false)));
+        queriesReturn(member(target().wsPhone(), false));
         PullTaskSupplementManagerOutcome outcome =
                 PullTaskSupplementManagerOutcome.entryConfirmed();
         when(transactions.complete(work, outcome, 1_000L))
@@ -79,8 +78,7 @@ class PullTaskSupplementManagerProcessorTest {
         when(participantPort.updateParticipants(
                 actor(), "120363group@g.us", List.of(work.targetJid()),
                 GroupParticipantAction.ADD)).thenReturn(batch(work.targetJid(), "200"));
-        when(memberListPort.list(work.targetMemberQuery())).thenReturn(List.of(
-                member(target().wsPhone(), false)));
+        queriesReturn(member(target().wsPhone(), false));
         PullTaskSupplementManagerOutcome outcome =
                 PullTaskSupplementManagerOutcome.entryConfirmed();
         when(transactions.complete(work, outcome, 1_000L))
@@ -113,7 +111,13 @@ class PullTaskSupplementManagerProcessorTest {
                 .contains(PullTaskExecutionDispatchResult.DEFERRED);
 
         verify(transactions).complete(work, outcome, 1_000L);
-        verify(memberListPort, never()).list(work.targetMemberQuery());
+        verify(memberQueryAwaitService, never()).readOrDefer(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
@@ -124,11 +128,11 @@ class PullTaskSupplementManagerProcessorTest {
                 actor(), target(), false);
         when(transactions.prepare(candidate, "worker", 1_000L))
                 .thenReturn(PullTaskSupplementManagerPreparation.ready(work));
-        when(memberListPort.list(work.targetMemberQuery()))
-                .thenReturn(List.of(member(target().wsPhone(), false)))
-                .thenReturn(List.of(member(target().wsPhone(), true)));
-        when(memberListPort.list(work.actorPermissionQuery())).thenReturn(List.of(
-                member(actor().wsPhone(), true)));
+        queriesReturn(
+                member(target().wsPhone(), false),
+                member(actor().wsPhone(), true),
+                member(target().wsPhone(), true));
+        when(transactions.markAdminSubmitted(work, 1_000L)).thenReturn(true);
         when(participantPort.updateParticipants(
                 actor(), "120363group@g.us", List.of(work.targetJid()),
                 GroupParticipantAction.PROMOTE)).thenReturn(batch(work.targetJid(), "200"));
@@ -154,8 +158,7 @@ class PullTaskSupplementManagerProcessorTest {
                 target(), target(), true);
         when(transactions.prepare(candidate, "worker", 1_000L))
                 .thenReturn(PullTaskSupplementManagerPreparation.ready(work));
-        when(memberListPort.list(work.targetMemberQuery())).thenReturn(List.of(
-                member(target().wsPhone(), false)));
+        queriesReturn(member(target().wsPhone(), false));
         PullTaskSupplementManagerOutcome outcome =
                 PullTaskSupplementManagerOutcome.adminUnknown(
                         "MANAGER_ADMIN_PERMISSION_UNCONFIRMED");
@@ -219,9 +222,25 @@ class PullTaskSupplementManagerProcessorTest {
                 902L, ProtocolBackend.WEB, "acc-902", "8613800000902");
     }
 
-    private static GroupParticipantResult member(String phone, boolean admin) {
-        return new GroupParticipantResult(
-                phone + "@s.whatsapp.net", phone, admin, false, null);
+    private void queriesReturn(PullTaskMemberFact... facts) {
+        org.mockito.stubbing.OngoingStubbing<PullTaskMemberQueryResult> stubbing = when(
+                memberQueryAwaitService.readOrDefer(
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyLong()));
+        for (PullTaskMemberFact fact : facts) {
+            stubbing = stubbing.thenReturn(
+                    PullTaskMemberQueryResult.available(701L, List.of(fact)));
+        }
+    }
+
+    private static PullTaskMemberFact member(String phone, boolean admin) {
+        return new PullTaskMemberFact(
+                phone + "@s.whatsapp.net", phone + "@s.whatsapp.net", phone,
+                true, admin);
     }
 
     private static GroupParticipantBatchResult batch(String jid, String status) {

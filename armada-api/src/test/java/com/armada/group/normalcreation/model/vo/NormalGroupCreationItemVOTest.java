@@ -99,7 +99,31 @@ class NormalGroupCreationItemVOTest {
                 "account offline",
                 "PREPARING_CONTACTS");
 
-        assertThat(item.lastErrorMessage()).isEqualTo("建群账号当前不在线，请重新上线后重试");
+        assertThat(item.lastErrorMessage())
+                .isEqualTo("执行账号当前不在线，请检查建群账号和成员账号后重试");
+    }
+
+    @Test
+    void distinguishesCreatorAndMemberOfflineFailuresForDisplay() {
+        assertThat(item(
+                "ACCOUNT_NOT_ONLINE",
+                "建群账号当前不在线，请重新上线后重试",
+                "PREPARING_CONTACTS").lastErrorMessage())
+                .isEqualTo("建群账号当前不在线，请重新上线后重试");
+        assertThat(item(
+                "ACCOUNT_NOT_ONLINE",
+                "成员账号当前不在线，请将对应成员账号重新上线后重试",
+                "PREPARING_CONTACTS").lastErrorMessage())
+                .isEqualTo("成员账号当前不在线，请将对应成员账号重新上线后重试");
+    }
+
+    @Test
+    void doesNotExposeUnrecognizedChineseMessageForLegacyOfflineCode() {
+        assertThat(item(
+                "ACCOUNT_NOT_ONLINE",
+                "账号状态异常但角色未知",
+                "PREPARING_CONTACTS").lastErrorMessage())
+                .isEqualTo("执行账号当前不在线，请检查建群账号和成员账号后重试");
     }
 
     @Test

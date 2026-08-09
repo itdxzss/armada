@@ -95,6 +95,65 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
+    void contactPrepare_memberOfflinePersistsMemberSpecificFailure() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("FAILED"),
+                eq("ACCOUNT_NOT_ONLINE"),
+                eq("成员账号当前不在线，请将对应成员账号重新上线后重试"), anyLong()))
+                .thenReturn(1);
+        when(mapper.failProtocolAction(
+                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-member"), eq("FAILED"),
+                eq("ACCOUNT_NOT_ONLINE"),
+                eq("成员账号当前不在线，请将对应成员账号重新上线后重试"),
+                isNull(), eq("evt-1"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-member", "FAILED",
+                383L, "member-android", "ANDROID", 31L,
+                "MEMBER_SAVE_CREATOR", null, "ACCOUNT_NOT_ONLINE",
+                "Protocol account has no owner worker"));
+
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-member"), eq("FAILED"),
+                eq("ACCOUNT_NOT_ONLINE"),
+                eq("成员账号当前不在线，请将对应成员账号重新上线后重试"),
+                isNull(), eq("evt-1"), anyLong());
+    }
+
+    @Test
+    void contactPrepare_creatorOfflinePersistsCreatorSpecificFailure() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("FAILED"),
+                eq("ACCOUNT_NOT_ONLINE"),
+                eq("建群账号当前不在线，请重新上线后重试"), anyLong())).thenReturn(1);
+        when(mapper.failProtocolAction(
+                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-creator"), eq("FAILED"),
+                eq("ACCOUNT_NOT_ONLINE"),
+                eq("建群账号当前不在线，请重新上线后重试"),
+                isNull(), eq("evt-1"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-creator", "FAILED",
+                382L, "creator-web", "WEB", 31L,
+                "CREATOR_SAVE_MEMBER", null, "ACCOUNT_NOT_ONLINE",
+                "Protocol account has no owner worker"));
+
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-creator"), eq("FAILED"),
+                eq("ACCOUNT_NOT_ONLINE"),
+                eq("建群账号当前不在线，请重新上线后重试"),
+                isNull(), eq("evt-1"), anyLong());
+    }
+
+    @Test
     void contactPrepare_duplicateResultDoesNotAdvanceOrFailTheItem() {
         ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
         MemberWork member = member();

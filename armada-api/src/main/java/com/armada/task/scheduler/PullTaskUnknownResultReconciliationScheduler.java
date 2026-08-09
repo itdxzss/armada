@@ -11,48 +11,45 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-/** 全局共享的普通群链接执行调度线程；不会为每个任务创建独立线程。 */
+/** 普通拉群未知协议结果的独立收敛线程，避免慢查询阻塞拉人批次派发。 */
 @Component
 @EnableConfigurationProperties(PullTaskExecutionDispatchProperties.class)
-public class PullTaskExecutionDispatchScheduler {
+public class PullTaskUnknownResultReconciliationScheduler {
 
-    private static final Logger log =
-            LoggerFactory.getLogger(PullTaskExecutionDispatchScheduler.class);
+    private static final Logger log = LoggerFactory.getLogger(
+            PullTaskUnknownResultReconciliationScheduler.class);
 
-    private final PullTaskExecutionDispatchCoordinator coordinator;
+    private final PullTaskUnknownResultReconciliationCoordinator coordinator;
     private final PullTaskExecutionDispatchProperties properties;
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean signalled = new AtomicBoolean();
     private ScheduledExecutorService executor;
 
-    /**
-     * @param coordinator 单轮调度协调器
-     * @param properties  调度配置
-     */
-    public PullTaskExecutionDispatchScheduler(
-            PullTaskExecutionDispatchCoordinator coordinator,
+    /** 构造未知结果收敛调度器。 */
+    public PullTaskUnknownResultReconciliationScheduler(
+            PullTaskUnknownResultReconciliationCoordinator coordinator,
             PullTaskExecutionDispatchProperties properties) {
         this.coordinator = coordinator;
         this.properties = properties;
     }
 
-    /** 容器启动后创建一个守护线程，以固定延迟执行恢复扫描。 */
+    /** 容器启动后创建独立守护线程；实际周期仍由 coordinator 的收敛间隔控制。 */
     @PostConstruct
     public void start() {
         if (!properties.isEnabled() || !started.compareAndSet(false, true)) {
             return;
         }
         executor = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "pull-task-execution-dispatcher-1");
+            Thread thread = new Thread(runnable, "pull-task-unknown-reconciliation-1");
             thread.setDaemon(true);
             return thread;
         });
         executor.scheduleWithFixedDelay(
-                this::runOnceSafely, 0L, properties.getFixedDelayMs(), TimeUnit.MILLISECONDS);
+                this::runIfDueSafely, 0L, properties.getFixedDelayMs(), TimeUnit.MILLISECONDS);
     }
 
-    /** 在任务启动事务提交后唤醒共享线程；重复信号会合并。 */
+    /** 在成员查询结果提交后立即触发一轮收敛；重复信号会合并。 */
     public void trigger() {
         ScheduledExecutorService current = executor;
         if (!properties.isEnabled() || current == null || !signalled.compareAndSet(false, true)) {
@@ -60,18 +57,30 @@ public class PullTaskExecutionDispatchScheduler {
         }
         current.execute(() -> {
             signalled.set(false);
-            runOnceSafely();
+            runNowSafely();
         });
     }
 
-    private void runOnceSafely() {
+    private void runIfDueSafely() {
+        runSafely(false);
+    }
+
+    private void runNowSafely() {
+        runSafely(true);
+    }
+
+    private void runSafely(boolean force) {
         if (!running.compareAndSet(false, true)) {
             return;
         }
         try {
-            coordinator.dispatchOnce();
+            if (force) {
+                coordinator.reconcileOnce(System.currentTimeMillis());
+            } else {
+                coordinator.reconcileIfDue();
+            }
         } catch (RuntimeException ex) {
-            log.error("普通拉群执行调度单轮失败", ex);
+            log.error("普通拉群未知结果收敛单轮失败", ex);
         } finally {
             running.set(false);
         }

@@ -761,6 +761,12 @@ test_perf2_profile_uses_current_isolated_android_topic_contract() {
   assert_contains "${profile_content}" "armada-perf-android-zhuan-lifecycle-v1"
   assert_contains "${profile_content}" "armada-perf-android-zhuan-message-v1"
   assert_contains "${profile_content}" "armada-perf-android-zhuan-group-join-v1"
+  assert_contains "${profile_content}" "armada.perf.protocol.web.normal-group.commands.v1=12"
+  assert_contains "${profile_content}" "armada.perf.protocol.android.normal-group.commands.v1=12"
+  assert_contains "${profile_content}" "armada.perf.protocol.normal-group.events.v1=12"
+  assert_contains "${profile_content}" "armada-perf-protocol-web-normal-group-commands"
+  assert_contains "${profile_content}" "armada-perf-android-zhuan-normal-group"
+  assert_contains "${profile_content}" "armada-perf-api-normal-group-results"
   assert_not_contains "${profile_content}" "create_group_command"
   assert_not_contains "${profile_content}" "change_group_announcement_command"
   assert_not_contains "${profile_content}" "send_group_message_command"
@@ -1203,6 +1209,10 @@ test_armada_perf_runtime_contract_checks_android_url_and_topics() {
     . "'"${SCRIPT_DIR}"'/lib/armada.sh"
     EXPECTED_ANDROID_BASE_URL=http://172.31.40.84:8001
     EXPECTED_ANDROID_TOPIC_PREFIX=armada.perf.protocol.android.
+    EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC=armada.perf.protocol.web.normal-group.commands.v1
+    EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1
+    EXPECTED_NORMAL_GROUP_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1
+    EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID=armada-perf-api-normal-group-results
     ssh_run() { printf "%s\n" "$*" >>"${ARMADA_TEST_LOG}"; }
     armada_verify_backend_runtime
   '
@@ -1212,6 +1222,38 @@ test_armada_perf_runtime_contract_checks_android_url_and_topics() {
   assert_contains "$(cat "${command_log}")" "PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC"
   assert_contains "$(cat "${command_log}")" "http://172.31.40.84:8001"
   assert_contains "$(cat "${command_log}")" "armada.perf.protocol.android."
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC=armada.perf.protocol.web.normal-group.commands.v1"
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1"
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1"
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-perf-api-normal-group-results"
+  rm -f "${command_log}"
+}
+
+test_armada_start_applies_normal_group_environment_contract() {
+  local command_log
+  command_log="$(mktemp)"
+  ARMADA_TEST_LOG="${command_log}" bash -c '
+    set -euo pipefail
+    . "'"${SCRIPT_DIR}"'/lib/common.sh"
+    armada_init_colors
+    . "'"${SCRIPT_DIR}"'/lib/armada.sh"
+    REMOTE_DIR=/home/app/armada-deploy
+    APP_TITLE_REMOTE="第二套环境"
+    ENV_ID=perf2
+    COMPOSE_PROJECT=armada-perf
+    COMPOSE_FILE=docker-compose.rds.yml
+    COMPOSE_UP_ARGS="up -d backend"
+    EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC=armada.perf.protocol.web.normal-group.commands.v1
+    EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1
+    EXPECTED_NORMAL_GROUP_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1
+    EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID=armada-perf-api-normal-group-results
+    ssh_run() { printf "%s\n" "$*" >>"${ARMADA_TEST_LOG}"; }
+    armada_start
+  '
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC='armada.perf.protocol.web.normal-group.commands.v1'"
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC='armada.perf.protocol.android.normal-group.commands.v1'"
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_TOPIC='armada.perf.protocol.normal-group.events.v1'"
+  assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_GROUP_ID='armada-perf-api-normal-group-results'"
   rm -f "${command_log}"
 }
 
@@ -1263,6 +1305,32 @@ test_armada_compose_passes_android_base_url_to_backend() {
   example_content="$(cat "${SCRIPT_DIR}/.env.example")"
   assert_contains "${compose_content}" 'PROTOCOL_ANDROID_BASE_URL: ${PROTOCOL_ANDROID_BASE_URL:-http://localhost:8000}'
   assert_contains "${example_content}" 'PROTOCOL_ANDROID_BASE_URL=http://localhost:8000'
+}
+
+test_armada_compose_passes_normal_group_kafka_config_to_backend() {
+  local compose_content example_content
+  compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
+  example_content="$(cat "${SCRIPT_DIR}/.env.example")"
+
+  assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:-protocol.web.normal-group.commands.v1}'
+  assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC: ${NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC:-protocol.android.normal-group.commands.v1}'
+  assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_RESULT_TOPIC: ${NORMAL_GROUP_CREATION_RESULT_TOPIC:-protocol.normal-group.events.v1}'
+  assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_RESULT_GROUP_ID: ${NORMAL_GROUP_CREATION_RESULT_GROUP_ID:-armada-api-normal-group-results}'
+  assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_RESULT_CONCURRENCY: ${NORMAL_GROUP_CREATION_RESULT_CONCURRENCY:-4}'
+  assert_contains "${example_content}" 'NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-api-normal-group-results'
+}
+
+test_windows_entrypoint_requires_normal_group_environment_contract() {
+  local perf_profile win_script
+  perf_profile="$(cat "${SCRIPT_DIR}/envs/perf2.conf")"
+  win_script="$(cat "${SCRIPT_DIR}/deploy-test-win.sh")"
+
+  assert_contains "${win_script}" 'EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC'
+  assert_contains "${win_script}" 'EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC'
+  assert_contains "${win_script}" 'EXPECTED_NORMAL_GROUP_RESULT_TOPIC'
+  assert_contains "${win_script}" 'EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID'
+  assert_contains "${perf_profile}" 'EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC=armada.perf.protocol.web.normal-group.commands.v1'
+  assert_contains "${perf_profile}" 'EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID=armada-perf-api-normal-group-results'
 }
 
 test_armada_compose_passes_promotion_token_encryption_config_to_backend() {
@@ -1362,10 +1430,13 @@ test_main_orchestrator_uses_zhuan_module
 test_armada_backend_readiness_is_bounded
 test_armada_backend_readiness_stops_after_success
 test_armada_perf_runtime_contract_checks_android_url_and_topics
+test_armada_start_applies_normal_group_environment_contract
 test_armada_module_checks_frontend_title_and_api_proxy
 test_armada_module_preserves_unauthenticated_response_body
 test_main_orchestrator_uses_armada_module
 test_armada_compose_passes_android_base_url_to_backend
+test_armada_compose_passes_normal_group_kafka_config_to_backend
+test_windows_entrypoint_requires_normal_group_environment_contract
 test_kafka_checker_redacts_connection_errors
 test_kafka_checker_reports_consumer_group_state_read_only
 printf 'OK deploy-test.sh protocol and zhuan tests passed\n'

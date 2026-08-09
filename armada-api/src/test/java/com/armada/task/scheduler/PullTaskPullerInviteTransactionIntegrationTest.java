@@ -126,9 +126,9 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 first, 901L, "8613800000902@s.whatsapp.net",
                 PullTaskPullerInviteProtocolOutcome.SUCCESS, 620L))).isTrue();
 
-        assertThat(claimedAt("too-early", 4_619L)).isEmpty();
-        PullTaskGroupExecution secondCandidate = claim("worker-2", 4_620L, 5_000L);
-        assertThat(service.prepare(secondCandidate, "worker-2", 4_630L))
+        assertThat(claimedAt("too-early", 7_619L)).isEmpty();
+        PullTaskGroupExecution secondCandidate = claim("worker-2", 7_620L, 8_000L);
+        assertThat(service.prepare(secondCandidate, "worker-2", 7_630L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         PullTaskAccountAction second = inviteActions().get(1);
         assertInvite(second, 903L, 904L, "cmd-invite-2");
@@ -137,11 +137,11 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 .isZero();
         assertThat(resultService.apply(callback(
                 second, 903L, "8613800000904@s.whatsapp.net",
-                PullTaskPullerInviteProtocolOutcome.FAILED, 4_640L))).isTrue();
+                PullTaskPullerInviteProtocolOutcome.FAILED, 7_640L))).isTrue();
 
-        assertThat(claimedAt("too-early-again", 8_639L)).isEmpty();
-        PullTaskGroupExecution finishCandidate = claim("worker-3", 8_640L, 9_000L);
-        assertThat(service.prepare(finishCandidate, "worker-3", 8_650L))
+        assertThat(claimedAt("too-early-again", 14_639L)).isEmpty();
+        PullTaskGroupExecution finishCandidate = claim("worker-3", 14_640L, 15_000L);
+        assertThat(service.prepare(finishCandidate, "worker-3", 14_650L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         TenantContext.set(7L);
@@ -486,13 +486,17 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskOperationDelayPolicy delayPolicy) {
+                PullTaskPullerInviteDelayPolicy delayPolicy) {
             return new PullTaskPullerInviteResultServiceImpl(
                     actionMapper, accountMapper, executionMapper, delayPolicy);
         }
 
         @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {
             return new PullTaskOperationDelayPolicy(() -> 4_000L);
+        }
+
+        @Bean PullTaskPullerInviteDelayPolicy pullerInviteDelayPolicy() {
+            return new PullTaskPullerInviteDelayPolicy(() -> 7_000L);
         }
     }
 }

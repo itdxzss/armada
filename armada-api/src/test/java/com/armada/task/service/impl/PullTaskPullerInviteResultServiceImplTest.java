@@ -25,7 +25,7 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
-import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskPullerInviteDelayPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +35,7 @@ class PullTaskPullerInviteResultServiceImplTest {
     private final PullTaskAccountActionMapper actionMapper = mock(PullTaskAccountActionMapper.class);
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
-    private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
+    private final PullTaskPullerInviteDelayPolicy delayPolicy = delayPolicy();
     private final PullTaskPullerInviteResultServiceImpl service =
             new PullTaskPullerInviteResultServiceImpl(
                     actionMapper, accountMapper, executionMapper, delayPolicy);
@@ -70,7 +70,8 @@ class PullTaskPullerInviteResultServiceImplTest {
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
         assertThat(executionChange.getValue().targetStage())
                 .isEqualTo(PullTaskExecutionStage.PULLER_INVITE.code());
-        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(5_100L);
+        assertThat(executionChange.getValue().nextRunAt()).isEqualTo(8_100L);
+        verify(delayPolicy).nextInviteAt(1_100L);
         assertThat(TenantContext.get()).isNull();
     }
 
@@ -191,10 +192,10 @@ class PullTaskPullerInviteResultServiceImplTest {
         return row;
     }
 
-    private static PullTaskOperationDelayPolicy delayPolicy() {
-        PullTaskOperationDelayPolicy policy = mock(PullTaskOperationDelayPolicy.class);
-        when(policy.nextSideEffectAt(anyLong()))
-                .thenAnswer(invocation -> invocation.getArgument(0, Long.class) + 4_000L);
+    private static PullTaskPullerInviteDelayPolicy delayPolicy() {
+        PullTaskPullerInviteDelayPolicy policy = mock(PullTaskPullerInviteDelayPolicy.class);
+        when(policy.nextInviteAt(anyLong()))
+                .thenAnswer(invocation -> invocation.getArgument(0, Long.class) + 7_000L);
         return policy;
     }
 }

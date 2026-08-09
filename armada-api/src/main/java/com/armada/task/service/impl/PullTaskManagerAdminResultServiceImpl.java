@@ -26,7 +26,7 @@ import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 以 commandId 和 attemptNo 收敛提权结果，并保持实时权限为最终事实。 */
+/** 以 commandId 和 attemptNo 收敛提权结果；仅未知结果交由实时权限查询兜底。 */
 @Service
 public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdminResultService {
 
@@ -100,7 +100,8 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                     new PullTaskManagerJoinResultTransition.Target(
                             PullTaskExecutionStatus.EXECUTING.code(),
                             PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                            null, null, target.executionReason().name(),
+                            null, null, target.executionReason() == null
+                            ? null : target.executionReason().name(),
                             target.executionMessage(), delayPolicy.maxDeadline(
                             target.nextRunAt(), callback.occurredAt()), null),
                     callback.occurredAt());
@@ -116,9 +117,9 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
     private ResultTarget resultTarget(PullTaskManagerAdminCallback callback) {
         if (callback.outcome() == PullTaskManagerAdminProtocolOutcome.SUCCESS) {
             return new ResultTarget(
-                    PullTaskActionStatus.SUCCESS.code(), false, null, null,
-                    PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED,
-                    PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.message(), 0L);
+                    PullTaskActionStatus.SUCCESS.code(), false, null,
+                    PullTaskGroupAccountAdminStatus.SUCCESS.code(),
+                    null, null, 0L);
         }
         String safeMessage = safeReasonMessage(callback.reasonCode());
         if (callback.outcome() == PullTaskManagerAdminProtocolOutcome.UNKNOWN) {
@@ -131,8 +132,7 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
         boolean retryable = callback.retryable();
         return new ResultTarget(
                 PullTaskActionStatus.FAILED.code(), retryable, safeMessage,
-                retryable ? PullTaskGroupAccountAdminStatus.UNKNOWN.code()
-                        : PullTaskGroupAccountAdminStatus.PENDING.code(),
+                PullTaskGroupAccountAdminStatus.PENDING.code(),
                 PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED,
                 safeMessage,
                 retryable ? callback.occurredAt() + properties.getRetryDelayMs() : 0L);

@@ -47,6 +47,10 @@ public class PullTaskUnknownResultReconciliationService {
     private static final String UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
+    private static final List<Integer> MEMBER_OBSERVABLE_ACTIONS = List.of(
+            PullTaskAccountActionType.INVITE_TO_GROUP.code(),
+            PullTaskAccountActionType.JOIN_BY_LINK.code(),
+            PullTaskAccountActionType.PROMOTE_MANAGER.code());
     private static final List<Integer> CALL_OPEN = List.of(
             PullTaskPullCallStatus.SUBMITTED.code(), PullTaskPullCallStatus.UNKNOWN.code());
     private static final List<Integer> PULL_OPEN = List.of(
@@ -94,7 +98,8 @@ public class PullTaskUnknownResultReconciliationService {
         for (PullTaskPullCall call : calls) {
             attemptsByCall.put(call.getId(), resources.attemptMapper().selectByCall(call.getId()));
         }
-        boolean legacySnapshotRequired = !actions.isEmpty()
+        boolean legacySnapshotRequired = actions.stream().anyMatch(action ->
+                MEMBER_OBSERVABLE_ACTIONS.contains(action.getActionType()))
                 || hasOpenAdminFacts(materials, accounts)
                 || calls.stream().anyMatch(call -> CALL_OPEN.contains(call.getCallStatus())
                 && attemptsByCall.getOrDefault(call.getId(), List.of()).isEmpty());

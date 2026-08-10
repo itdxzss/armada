@@ -3,8 +3,11 @@ package com.armada.platform.protocol.http.group;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.platform.protocol.port.GroupProfilePort;
+import com.armada.platform.protocol.routing.GroupProfileBackend;
 import java.util.Map;
 
 /**
@@ -14,7 +17,7 @@ import java.util.Map;
  * 本类只做防腐层 wire 适配:校验必填字段、组装协议层 JSON body、把 HTTP 错误交给
  * {@link ProtocolHttpExecutor} 统一映射。</p>
  */
-public class HttpGroupProfileAdapter implements GroupProfilePort {
+public class HttpGroupProfileAdapter implements GroupProfileBackend {
 
     private static final String SUBJECT_URI_TEMPLATE = "/v1/groups/%s/subject";
     private static final String DESCRIPTION_URI_TEMPLATE = "/v1/groups/%s/description";
@@ -28,6 +31,11 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
         this.httpExecutor = httpExecutor;
     }
 
+    @Override
+    public ProtocolBackend backend() {
+        return ProtocolBackend.WEB;
+    }
+
     /**
      * 调用协议层 {@code POST /v1/groups/:groupJid/subject}。
      *
@@ -35,8 +43,8 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
      * adapter 这里仍保留非空校验,防止端口被其它调用方绕过业务层直接使用。</p>
      */
     @Override
-    public void updateSubject(String protocolAccountId, String groupJid, String subject) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+    public void updateSubject(ProtocolAccountRef account, String groupJid, String subject) {
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         String value = requireText(subject, "subject");
         httpExecutor.postVoid(SUBJECT_URI_TEMPLATE.formatted(jid), new SubjectRequest(accountId, value));
@@ -49,8 +57,8 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
      * 因此本方法只校验 accountId 和 groupJid,不对 description 做 requireText。</p>
      */
     @Override
-    public void updateDescription(String protocolAccountId, String groupJid, String description) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+    public void updateDescription(ProtocolAccountRef account, String groupJid, String description) {
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         httpExecutor.postVoid(DESCRIPTION_URI_TEMPLATE.formatted(jid), new DescriptionRequest(accountId, description));
     }
@@ -62,8 +70,8 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
      * 这里不改名成 description,避免 Armada 防腐层和协议层接口契约错位。</p>
      */
     @Override
-    public void updateAnnouncementText(String protocolAccountId, String groupJid, String text) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+    public void updateAnnouncementText(ProtocolAccountRef account, String groupJid, String text) {
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         String value = requireText(text, "text");
         httpExecutor.postVoid(ANNOUNCEMENT_TEXT_URI_TEMPLATE.formatted(jid),
@@ -77,8 +85,9 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
      * 因此图片 body 不能用固定 record 同时带 url/base64,必须按实际输入构造只含一个键的 map。</p>
      */
     @Override
-    public GroupPictureResult updatePicture(String protocolAccountId, String groupJid, String url, String base64) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+    public GroupPictureResult updatePicture(
+            ProtocolAccountRef account, String groupJid, String url, String base64) {
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         Map<String, String> image = imagePayload(url, base64);
         PictureResponse response = httpExecutor.postTyped(
@@ -96,8 +105,8 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
      * @return 当前群头像 URL;协议返回 null 时保持 null
      */
     @Override
-    public String getPictureUrl(String protocolAccountId, String groupJid) {
-        String accountId = requireText(protocolAccountId, "protocolAccountId");
+    public String getPictureUrl(ProtocolAccountRef account, String groupJid) {
+        String accountId = requireAccountId(account);
         String jid = requireText(groupJid, "groupJid");
         PictureQueryResponse response = httpExecutor.getTyped(
                 PICTURE_QUERY_URI_TEMPLATE.formatted(jid, accountId),
@@ -111,6 +120,13 @@ public class HttpGroupProfileAdapter implements GroupProfilePort {
             throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "协议层 group profile 参数缺失 " + fieldName);
         }
         return value.trim();
+    }
+
+    private static String requireAccountId(ProtocolAccountRef account) {
+        if (account == null) {
+            throw new ProtocolException(ProtocolErrorCode.BAD_REQUEST, "群资料操作账号不能为空");
+        }
+        return requireText(account.protocolAccountId(), "protocolAccountId");
     }
 
     /** 可选协议字段统一把空白折叠为 null,便于后续做二选一判断。 */

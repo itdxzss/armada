@@ -1,0 +1,39 @@
+# 变更记录：Android 群资料协议路由修复
+
+- 日期 / 分支 / worktree: 2026-08-10 / `fix/android-group-profile-routing` / `/Users/wanghh/IdeaProjects/baofu/armada`
+- 需求来源: 第一套环境 Android 群修改群名称、群头像失败
+- 状态: 已完成
+
+## 目标（一句话）
+
+群资料写操作携带完整账号协议引用，Android 账号调用 Zhuan 原生群名称、群头像接口，Web 账号继续调用 Baileys 接口。
+
+## 缺口拆解 / 任务清单
+
+- [x] 定位固定走 Web 群资料端口导致的协议错路由
+- [x] 为群资料端口补齐 Web/Android 后端路由
+- [x] 接入 Android 群名称和群头像原生 HTTP 契约
+- [x] 更新业务调用方，禁止丢失账号协议类型
+- [x] 补充适配器、路由和业务层测试
+- [x] 更新故障诊断文档与验证证据
+
+## 关键设计决策
+
+- 群资料端口统一接收 `ProtocolAccountRef`，不再只传 `protocolAccountId`，避免协议类型和 Android `wsPhone` 在业务层到适配层之间丢失。
+- Android 原生头像接口只接收 base64；URL 形态明确返回能力不支持，不做隐式下载或跨协议回退。
+- Android 当前没有头像 URL 回读契约，写成功返回 `applied=true, avatarUrl=null`，由现有 metadata 刷新流程异步更新镜像。
+- 群备注仍是 Armada 本地字段，不进入协议路由修复范围。
+
+## 验证（evidence-before-done）
+
+- `mvn -DskipTests compile`：`BUILD SUCCESS`，1391 个主源码文件编译通过。
+- `mvn -Dtest=HttpAndroidNativeClientTest,AndroidNativeGroupProfileAdapterTest,RoutingGroupProfilePortTest,HttpGroupProfileAdapterTest,GroupDetailServiceImplTest,GroupLinkServiceImplTest,ProtocolConfigurationTest test`：`Tests run: 75, Failures: 0, Errors: 0, Skipped: 0`，`BUILD SUCCESS`。
+- `git diff --check`：无输出。
+
+## 部署
+
+- commit / 环境 / 部署后验证结果: 未部署
+
+## 遗留 / 跟进
+
+- Android 群描述、公告文本及头像 URL 回读尚无本次需求确认，保持能力不支持。

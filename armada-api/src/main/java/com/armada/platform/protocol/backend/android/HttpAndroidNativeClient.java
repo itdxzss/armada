@@ -20,6 +20,8 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
             "/ws/v1/groups/settings/sendmessage/";
     private static final String GROUP_MEMBER_ADD_MODE_URI_PREFIX =
             "/ws/v1/groups/settings/join-mode/";
+    private static final String GROUP_NAME_URI_PREFIX = "/ws/v1/groups/settings/name/";
+    private static final String GROUP_PICTURE_URI_PREFIX = "/ws/v1/groups/settings/avatar/";
     private static final String GROUP_MEMBERS_ADD_URI_PREFIX = "/ws/v1/groups/members/add/";
     private static final String GROUP_MEMBER_REMOVE_URI_PREFIX =
             "/ws/v1/groups/members/remove/";
@@ -176,6 +178,27 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     }
 
     @Override
+    public AndroidResponseEnvelope setGroupName(String wsPhone, String groupJid, String name) {
+        return httpExecutor.postTyped(
+                GROUP_NAME_URI_PREFIX + requireDigits(wsPhone),
+                new GroupNameRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        requireText(name, "name")),
+                AndroidResponseEnvelope.class);
+    }
+
+    @Override
+    public AndroidResponseEnvelope setGroupPicture(
+            String wsPhone, String groupJid, String imageBase64) {
+        return httpExecutor.postTyped(
+                GROUP_PICTURE_URI_PREFIX + requireDigits(wsPhone),
+                new GroupPictureRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        requireText(imageBase64, "imageBase64")),
+                AndroidResponseEnvelope.class);
+    }
+
+    @Override
     public AndroidResponseEnvelope addGroupMembers(
             String wsPhone,
             String groupJid,
@@ -272,6 +295,16 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private record GroupPermissionRequest(
             @JsonProperty("group_id") String groupId,
             @JsonProperty("state") boolean enabled) {
+    }
+
+    private record GroupNameRequest(
+            @JsonProperty("group_id") String groupId,
+            String name) {
+    }
+
+    private record GroupPictureRequest(
+            @JsonProperty("group_id") String groupId,
+            @JsonProperty("image_base64") String imageBase64) {
     }
 
     private record GroupMembersRequest(

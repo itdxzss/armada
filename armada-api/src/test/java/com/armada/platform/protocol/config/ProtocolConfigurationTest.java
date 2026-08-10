@@ -39,6 +39,7 @@ import com.armada.platform.protocol.routing.ContactBackend;
 import com.armada.platform.protocol.routing.GroupCreateBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
 import com.armada.platform.protocol.routing.GroupMemberListBackend;
+import com.armada.platform.protocol.routing.GroupProfileBackend;
 import com.armada.platform.protocol.routing.FixedAccountGroupMetadataBackend;
 import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.routing.RoutingAccountParticipatingGroupPort;
@@ -133,7 +134,10 @@ class ProtocolConfigurationTest {
             assertThat(context.getBeansOfType(FixedAccountGroupMetadataBackend.class).values())
                     .extracting(FixedAccountGroupMetadataBackend::backend)
                     .containsExactlyInAnyOrder(ProtocolBackend.WEB, ProtocolBackend.ANDROID);
-            assertThat(context).hasSingleBean(GroupProfilePort.class);
+            assertThat(context.getBean(GroupProfilePort.class))
+                    .isSameAs(context.getBean("groupProfilePort"));
+            assertThat(context.getBeansOfType(GroupProfileBackend.class))
+                    .containsKeys("webGroupProfileBackend", "androidGroupProfileBackend");
             assertThat(context.getBean(GroupSettingsPort.class))
                     .isSameAs(context.getBean("groupSettingsPort"));
             assertThat(context.getBean(GroupLeavePort.class))

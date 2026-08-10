@@ -36,6 +36,7 @@ import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
@@ -332,7 +333,7 @@ class GroupLinkServiceImplTest {
 
         service.updateDescription(10L, new GroupDescriptionCommandDTO(7L, " 群描述 "));
 
-        verify(groupProfilePort).updateDescription("acc_7", "120363profile@g.us", "群描述");
+        verify(groupProfilePort).updateDescription(accountRef(), "120363profile@g.us", "群描述");
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
         verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
     }
@@ -347,7 +348,7 @@ class GroupLinkServiceImplTest {
 
         service.updateAnnouncementText(10L, new GroupAnnouncementTextCommandDTO(7L, " 群公告 "));
 
-        verify(groupProfilePort).updateAnnouncementText("acc_7", "120363profile@g.us", "群公告");
+        verify(groupProfilePort).updateAnnouncementText(accountRef(), "120363profile@g.us", "群公告");
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
         verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
     }
@@ -363,7 +364,7 @@ class GroupLinkServiceImplTest {
         service.updatePicture(10L, new GroupPictureCommandDTO(
                 7L, " https://cdn.example.test/group.jpg ", null));
 
-        verify(groupProfilePort).updatePicture("acc_7", "120363profile@g.us",
+        verify(groupProfilePort).updatePicture(accountRef(), "120363profile@g.us",
                 "https://cdn.example.test/group.jpg", null);
         verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group.jpg"), anyLong());
     }
@@ -596,6 +597,11 @@ class GroupLinkServiceImplTest {
         Account account = new Account();
         account.setId(id);
         account.setProtocolAccountId(protocolAccountId);
+        account.setWsPhone("919000000001");
         return account;
+    }
+
+    private static ProtocolAccountRef accountRef() {
+        return new ProtocolAccountRef(7L, null, "acc_7", "919000000001");
     }
 }

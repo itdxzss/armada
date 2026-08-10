@@ -24,6 +24,8 @@ import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.GroupLinkService;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.port.GroupProfilePort;
@@ -194,7 +196,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
 
         // description 可为 null,用于表达清空群描述;其它群资料字段仍按非空校验处理。
-        groupProfilePort.updateDescription(target.protocolAccountId(), target.groupJid(), description);
+        groupProfilePort.updateDescription(target.account(), target.groupJid(), description);
         log.info("WhatsApp 群描述已更新 groupLinkId={} groupJid={} accountId={} cleared={}",
                 id, target.groupJid(), target.accountId(), description == null);
     }
@@ -214,7 +216,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
 
         // 公告文本必须非空;清空/删除公告若后续需要,应按独立产品语义再加接口。
-        groupProfilePort.updateAnnouncementText(target.protocolAccountId(), target.groupJid(), text);
+        groupProfilePort.updateAnnouncementText(target.account(), target.groupJid(), text);
         log.info("WhatsApp 群公告已更新 groupLinkId={} groupJid={} accountId={}",
                 id, target.groupJid(), target.accountId());
     }
@@ -234,7 +236,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         GroupProfileTarget target = resolveGroupProfileTarget(id, dto.accountId());
 
         // 协议成功后再写本地 URL 镜像;协议失败时不要让列表显示一个实际未生效的头像。
-        groupProfilePort.updatePicture(target.protocolAccountId(), target.groupJid(), picture.url(), picture.base64());
+        groupProfilePort.updatePicture(target.account(), target.groupJid(), picture.url(), picture.base64());
         if (picture.url() != null) {
             previewMapper.upsertAvatarUrl(id, picture.url(), System.currentTimeMillis());
         }
@@ -332,17 +334,31 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         return new GroupProfileTarget(
                 preview.getGroupJid().trim(),
                 accountId,
-                resolveOnlineProtocolAccountId(accountId));
+                resolveOnlineProtocolAccount(accountId));
     }
 
-    /** 将本地账号 ID 转成协议账号句柄,并确认账号当前在线。 */
-    private String resolveOnlineProtocolAccountId(Long accountId) {
-        String protocolAccountId = resolveProtocolAccountId(accountId);
+    /** 将本地账号 ID 转成完整协议账号引用,并确认账号当前在线。 */
+    private ProtocolAccountRef resolveOnlineProtocolAccount(Long accountId) {
+        Account account = accountMapper.selectActiveById(accountId);
+        if (account == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "账号不存在或已删除: " + accountId);
+        }
+        String protocolAccountId = account.getProtocolAccountId();
+        if (protocolAccountId == null || protocolAccountId.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号未绑定协议账号: " + accountId);
+        }
+        if (account.getWsPhone() == null || account.getWsPhone().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号未绑定 WhatsApp 手机号: " + accountId);
+        }
         List<Long> onlineIds = accountMapper.selectOnlineAccountIdsByIds(List.of(accountId), AccountLoginStateCode.ONLINE);
         if (onlineIds == null || !onlineIds.contains(accountId)) {
             throw new BusinessException(ErrorCode.VALIDATION, "操作账号未在线: " + accountId);
         }
-        return protocolAccountId;
+        return new ProtocolAccountRef(
+                accountId,
+                ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                protocolAccountId,
+                account.getWsPhone());
     }
 
     /**
@@ -639,7 +655,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private record GroupProfileTarget(
             String groupJid,
             Long accountId,
-            String protocolAccountId) {
+            ProtocolAccountRef account) {
     }
 
     private record PictureInput(String url, String base64) {

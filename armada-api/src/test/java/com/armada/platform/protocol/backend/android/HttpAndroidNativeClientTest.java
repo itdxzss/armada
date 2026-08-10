@@ -71,6 +71,24 @@ class HttpAndroidNativeClientTest {
                         "{\"Code\":0,\"Data\":\"\",\"Msg\":\"\"}",
                         MediaType.APPLICATION_JSON));
         server.expect(requestTo(
+                        "http://android.internal/ws/v1/groups/settings/name/919000000001"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"group_id":"120363001@g.us","name":"新群名"}
+                        """))
+                .andRespond(withSuccess(
+                        "{\"Code\":0,\"Data\":\"\",\"Msg\":\"\"}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(
+                        "http://android.internal/ws/v1/groups/settings/avatar/919000000001"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"group_id":"120363001@g.us","image_base64":"aW1hZ2U="}
+                        """))
+                .andRespond(withSuccess(
+                        "{\"Code\":0,\"Data\":\"\",\"Msg\":\"\"}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(requestTo(
                         "http://android.internal/ws/v1/groups/members/remove/919000000001"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
@@ -101,6 +119,10 @@ class HttpAndroidNativeClientTest {
                 List.of("919000000002@s.whatsapp.net")).code()).isZero();
         assertThat(client.setGroupAnnouncement(
                 "919000000001", "120363001@g.us", false).code()).isZero();
+        assertThat(client.setGroupName(
+                "919000000001", "120363001@g.us", "新群名").code()).isZero();
+        assertThat(client.setGroupPicture(
+                "919000000001", "120363001@g.us", "aW1hZ2U=").code()).isZero();
         assertThat(client.removeGroupMember(
                 "919000000001",
                 "120363001@g.us",

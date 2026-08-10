@@ -257,7 +257,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupExecutionAccount account = selector.require(id);
         try {
             protocolPorts.profile().updateSubject(
-                    account.protocolAccountId(), target.groupJid(), subject);
+                    account.protocolRef(), target.groupJid(), subject);
         } catch (ProtocolException ex) {
             boolean confirmed = ex.errorCode() == ProtocolErrorCode.TIMEOUT
                     && subjectConfirmed(account, target.groupJid(), subject);
@@ -299,7 +299,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupPictureResult result;
         try {
             result = protocolPorts.profile().updatePicture(
-                    account.protocolAccountId(), target.groupJid(), null, base64);
+                    account.protocolRef(), target.groupJid(), null, base64);
         } catch (ProtocolException ex) {
             String confirmedUrl = ex.errorCode() == ProtocolErrorCode.TIMEOUT
                     ? pictureUrlAfterTimeout(account, target.groupJid(), oldAvatarUrl)
@@ -886,7 +886,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             String oldAvatarUrl) {
         try {
             String current = protocolPorts.profile().getPictureUrl(
-                    account.protocolAccountId(), groupJid);
+                    account.protocolRef(), groupJid);
             return current == null || current.isBlank() || current.equals(oldAvatarUrl)
                     ? null
                     : current.trim();

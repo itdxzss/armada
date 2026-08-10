@@ -7,6 +7,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberIn
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
+import com.armada.group.normalcreation.model.vo.NormalGroupCreationContactFailureVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
 import java.util.List;
@@ -59,6 +60,9 @@ public interface NormalGroupCreationMapper {
     /** 查询任务的计划群明细。 */
     List<NormalGroupCreationItemVO> selectItems(@Param("taskId") Long taskId);
 
+    /** 查询任务下存在未成功加好友方向的成员，逐方向返回保留的失败原因。 */
+    List<NormalGroupCreationContactFailureVO> selectContactFailures(@Param("taskId") Long taskId);
+
     /** 查询一个计划群的冻结执行事实。 */
     ItemWork selectItemWork(@Param("itemId") Long itemId);
 
@@ -101,10 +105,10 @@ public interface NormalGroupCreationMapper {
                            @Param("errorMessage") String errorMessage,
                            @Param("now") long now);
 
-    /** 查询尚未明确成功的联系人方向数。 */
-    int countIncompleteContactDirections(@Param("itemId") Long itemId);
+    /** 查询尚未回执的联系人方向数；加好友是尽力而为动作，FAILED/UNKNOWN 也算已落定。 */
+    int countPendingContactDirections(@Param("itemId") Long itemId);
 
-    /** 联系人准备全部成功后绑定 GROUP_CREATE 命令并推进阶段。 */
+    /** 联系人方向全部落定后绑定 GROUP_CREATE 命令并推进阶段，不要求加好友成功。 */
     int startGroupCreate(@Param("itemId") Long itemId,
                          @Param("commandId") String commandId,
                          @Param("now") long now);

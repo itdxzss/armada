@@ -84,15 +84,17 @@ public class NormalGroupCreationProtocolResultService
                 return;
             }
             MemberWork member = validateActorAndCommand(item, event);
-            if ("CONTACT_PREPARE".equals(event.action()) && member == null) {
+            if ("CONTACT_PREPARE".equals(event.action())) {
+                if (member != null) {
+                    contactSettled(item, member, event);
+                }
                 return;
             }
             if (!"SUCCESS".equals(event.outcome())) {
-                applyFailure(item, member, event, expectedStep);
+                applyFailure(item, event, expectedStep);
                 return;
             }
             switch (event.action()) {
-                case "CONTACT_PREPARE" -> contactPrepared(item, member, event);
                 case "GROUP_CREATE" -> groupCreated(item, event);
                 case "GROUP_SETTINGS_APPLY" -> settingsApplied(item, event);
                 case "GROUP_LEAVE" -> complete(event, "LEAVING_GROUP", "SUCCESS");
@@ -157,21 +159,38 @@ public class NormalGroupCreationProtocolResultService
         }
     }
 
-    private void contactPrepared(
+    /**
+     * 落定一个联系人方向的最终结果。
+     *
+     * <p>加好友是尽力而为的前置动作：SUCCESS、FAILED、UNKNOWN 都只写回成员行，不再让整条
+     * 计划群失败。双向结果全部落定后照常下发建群命令，加好友结果不影响后续建群和成员名单。</p>
+     */
+    private void contactSettled(
             ItemWork item,
             MemberWork member,
             ProtocolNormalGroupCreationResultReportedEvent event) {
+        FailureDetails failure =
+                "SUCCESS".equals(event.outcome()) ? null : failureDetails(event);
+        long now = System.currentTimeMillis();
         if (mapper.applyContactResult(
-                member.id(), event.direction(), event.commandId(), "SUCCESS",
-                null, null, System.currentTimeMillis()) == 0) {
+                member.id(), event.direction(), event.commandId(), event.outcome(),
+                failure == null ? null : failure.code(),
+                failure == null ? null : failure.message(), now) == 0) {
             return;
         }
-        if (mapper.countIncompleteContactDirections(item.id()) != 0) {
+        if (failure != null) {
+            log.info("新建普群加好友未成功，按可选项放行建群 tenantId={} itemId={} memberId={} "
+                            + "direction={} outcome={} reasonCode={}",
+                    event.tenantId(), event.itemId(), event.memberId(), event.direction(),
+                    event.outcome(), event.reasonCode());
+            reconcileOfflineActor(event, now);
+        }
+        if (mapper.countPendingContactDirections(item.id()) != 0) {
             return;
         }
         String createCommandId = commandDispatcher.enqueueCreatorAction(item, "GROUP_CREATE");
         if (mapper.startGroupCreate(item.id(), createCommandId, System.currentTimeMillis()) != 1) {
-            throw unavailable("联系人完成后无法推进建群阶段");
+            throw unavailable("联系人方向全部落定后无法推进建群阶段");
         }
     }
 
@@ -245,18 +264,10 @@ public class NormalGroupCreationProtocolResultService
 
     private void applyFailure(
             ItemWork item,
-            MemberWork member,
             ProtocolNormalGroupCreationResultReportedEvent event,
             String expectedStep) {
         long now = System.currentTimeMillis();
         FailureDetails failure = failureDetails(event);
-        if (member != null) {
-            if (mapper.applyContactResult(
-                    member.id(), event.direction(), event.commandId(), event.outcome(),
-                    failure.code(), failure.message(), now) != 1) {
-                return;
-            }
-        }
         boolean groupExists = (item.groupJid() != null && !item.groupJid().isBlank())
                 || ("GROUP_CREATE".equals(event.action())
                 && event.groupJid() != null && !event.groupJid().isBlank());

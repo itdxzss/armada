@@ -53,7 +53,7 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
-    void contactPrepare_waitsUntilEveryDirectionSucceedsBeforeCreatingGroup() {
+    void contactPrepare_waitsUntilEveryDirectionSettlesBeforeCreatingGroup() {
         ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
         MemberWork member = member();
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
@@ -61,7 +61,7 @@ class NormalGroupCreationProtocolResultServiceTest {
         when(mapper.applyContactResult(
                 eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("SUCCESS"),
                 isNull(), isNull(), anyLong())).thenReturn(1);
-        when(mapper.countIncompleteContactDirections(21L)).thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(1);
 
         service.handleNormalGroupCreationResult(event(
                 "CONTACT_PREPARE", "cmd-contact-creator", "SUCCESS",
@@ -81,7 +81,7 @@ class NormalGroupCreationProtocolResultServiceTest {
         when(mapper.applyContactResult(
                 eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("SUCCESS"),
                 isNull(), isNull(), anyLong())).thenReturn(1);
-        when(mapper.countIncompleteContactDirections(21L)).thenReturn(0);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(0);
         when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
         when(mapper.startGroupCreate(
                 org.mockito.ArgumentMatchers.eq(21L),
@@ -99,7 +99,57 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
-    void contactPrepare_memberOfflinePersistsMemberSpecificFailure() {
+    void contactPrepare_lastDirectionFailureStillEnqueuesCreate() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("FAILED"),
+                eq("CONTACT_PREPARE_REJECTED"), eq("好友准备被拒绝"), anyLong())).thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(0);
+        when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
+        when(mapper.startGroupCreate(eq(21L), eq("cmd-create"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-member", "FAILED",
+                383L, "member-android", "ANDROID", 31L,
+                "MEMBER_SAVE_CREATOR", null, "CONTACT_PREPARE_REJECTED", "好友准备被拒绝"));
+
+        verify(mapper).startGroupCreate(eq(21L), eq("cmd-create"), anyLong());
+        verify(mapper, never()).failProtocolAction(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong());
+    }
+
+    @Test
+    void contactPrepare_unknownOutcomeIsSettledAndNeverBlocksCreate() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("UNKNOWN"),
+                eq("TIMEOUT"), eq("协议动作未成功，原因码：TIMEOUT"), anyLong()))
+                .thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(0);
+        when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
+        when(mapper.startGroupCreate(eq(21L), eq("cmd-create"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-creator", "UNKNOWN",
+                382L, "creator-web", "WEB", 31L,
+                "CREATOR_SAVE_MEMBER", null, "TIMEOUT", null));
+
+        verify(mapper).startGroupCreate(eq(21L), eq("cmd-create"), anyLong());
+    }
+
+    @Test
+    void contactPrepare_memberOfflinePersistsMemberFailureWithoutFailingTheItem() {
         ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
         MemberWork member = member();
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
@@ -109,11 +159,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq("ACCOUNT_NOT_ONLINE"),
                 eq("成员账号当前不在线，请将对应成员账号重新上线后重试"), anyLong()))
                 .thenReturn(1);
-        when(mapper.failProtocolAction(
-                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-member"), eq("FAILED"),
-                eq("ACCOUNT_NOT_ONLINE"),
-                eq("成员账号当前不在线，请将对应成员账号重新上线后重试"),
-                isNull(), eq("evt-1"), anyLong())).thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(1);
 
         service.handleNormalGroupCreationResult(event(
                 "CONTACT_PREPARE", "cmd-contact-member", "FAILED",
@@ -121,18 +167,26 @@ class NormalGroupCreationProtocolResultServiceTest {
                 "MEMBER_SAVE_CREATOR", null, "ACCOUNT_NOT_ONLINE",
                 "Protocol account has no owner worker"));
 
-        verify(mapper).failProtocolAction(
-                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-member"), eq("FAILED"),
+        verify(mapper).applyContactResult(
+                eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("FAILED"),
                 eq("ACCOUNT_NOT_ONLINE"),
-                eq("成员账号当前不在线，请将对应成员账号重新上线后重试"),
-                isNull(), eq("evt-1"), anyLong());
+                eq("成员账号当前不在线，请将对应成员账号重新上线后重试"), anyLong());
+        verify(mapper, never()).failProtocolAction(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong());
+        verify(mapper, never()).startGroupCreate(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
         verify(accountStateEventService).applyStateChanged(new AccountStateChangedEvent(
                 1L, 383L, "member-android", null, "OFFLINE", 1000L,
                 "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null));
     }
 
     @Test
-    void contactPrepare_creatorOfflinePersistsCreatorSpecificFailure() {
+    void contactPrepare_creatorOfflinePersistsCreatorFailureWithoutFailingTheItem() {
         ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
         MemberWork member = member();
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
@@ -141,11 +195,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("FAILED"),
                 eq("ACCOUNT_NOT_ONLINE"),
                 eq("建群账号当前不在线，请重新上线后重试"), anyLong())).thenReturn(1);
-        when(mapper.failProtocolAction(
-                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-creator"), eq("FAILED"),
-                eq("ACCOUNT_NOT_ONLINE"),
-                eq("建群账号当前不在线，请重新上线后重试"),
-                isNull(), eq("evt-1"), anyLong())).thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(1);
 
         service.handleNormalGroupCreationResult(event(
                 "CONTACT_PREPARE", "cmd-contact-creator", "FAILED",
@@ -153,11 +203,17 @@ class NormalGroupCreationProtocolResultServiceTest {
                 "CREATOR_SAVE_MEMBER", null, "ACCOUNT_NOT_ONLINE",
                 "Protocol account has no owner worker"));
 
-        verify(mapper).failProtocolAction(
-                eq(21L), eq("PREPARING_CONTACTS"), eq("cmd-contact-creator"), eq("FAILED"),
+        verify(mapper).applyContactResult(
+                eq(31L), eq("CREATOR_SAVE_MEMBER"), eq("cmd-contact-creator"), eq("FAILED"),
                 eq("ACCOUNT_NOT_ONLINE"),
-                eq("建群账号当前不在线，请重新上线后重试"),
-                isNull(), eq("evt-1"), anyLong());
+                eq("建群账号当前不在线，请重新上线后重试"), anyLong());
+        verify(mapper, never()).failProtocolAction(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong());
         verify(accountStateEventService).applyStateChanged(new AccountStateChangedEvent(
                 1L, 382L, "creator-web", null, "OFFLINE", 1000L,
                 "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null));
@@ -178,7 +234,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 382L, "creator-web", "WEB", 31L,
                 "CREATOR_SAVE_MEMBER", null, null, null));
 
-        verify(mapper, never()).countIncompleteContactDirections(anyLong());
+        verify(mapper, never()).countPendingContactDirections(anyLong());
         verify(dispatcher, never()).enqueueCreatorAction(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
         verifyNoMoreInteractions(dispatcher);

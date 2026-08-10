@@ -181,6 +181,7 @@ class NormalGroupCreationItemVOTest {
                 "SKIPPED",
                 errorCode,
                 errorMessage,
-                1_786_081_280_947L);
+                1_786_081_280_947L,
+                false);
     }
 }

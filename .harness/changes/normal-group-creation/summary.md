@@ -50,7 +50,7 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
 ## 状态推进
 
 ```text
-每个成员双向 CONTACT_PREPARE 全部 SUCCESS
+每个成员双向 CONTACT_PREPARE 全部落定（SUCCESS/FAILED/UNKNOWN）
   -> GROUP_CREATE SUCCESS 且带 groupJid
   -> GROUP_SETTINGS_APPLY SUCCESS
   -> creatorLeavePolicy=LEAVE 时 GROUP_LEAVE SUCCESS
@@ -59,7 +59,11 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
 ```
 
 - 定向加人调用由 WhatsApp 返回成功即视为该方向好友准备成功，不查询或遍历完整通讯录。
-- 任一联系人方向未成功时不得下发建群命令。
+- 加好友是尽力而为的可选动作：方向结果为 `FAILED`/`UNKNOWN` 时只写回成员行，不失败整条计划群，
+  也不改变建群成员名单；只有还存在 `PENDING` 方向时才不下发建群命令。
+- 失败明细逐方向保留在 `creator_save_error_*` / `member_save_error_*`；进入建群阶段时在
+  `normal_group_creation_item.contact_prepare_failed` 落行级标记；任务详情接口返回
+  `contactFailures` 列表。详见 `2026-08-10-normal-group-creation-contact-optional.md`。
 - 建群一次携带全部冻结成员；群已创建但成员未全部确认时返回 `FAILED + groupJid`，Armada
   收敛为 `CREATED_PARTIAL`，不得再次建群或使用 ADD 补齐。
 - 权限动作必须整体成功后才进入可选退群。

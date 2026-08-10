@@ -17,6 +17,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationCreateDTO;
+import com.armada.group.normalcreation.model.vo.NormalGroupCreationContactFailureVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
 import com.armada.group.normalcreation.support.NormalGroupCreationAdmissionGuard;
 import com.armada.group.service.GroupFolderService;
@@ -48,6 +49,20 @@ class NormalGroupCreationServiceImplTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+    }
+
+    @Test
+    void detailExposesRetainedContactFailuresAlongsideItems() {
+        NormalGroupCreationContactFailureVO failure = new NormalGroupCreationContactFailureVO(
+                21L, 1, 383L, "ANDROID",
+                "FAILED", "ACCOUNT_NOT_ONLINE", "建群账号当前不在线，请重新上线后重试",
+                "SUCCESS", null, null);
+        when(mapper.selectTask(9L)).thenReturn(new NormalGroupCreationTaskVO(
+                9L, "PARTIAL", 1, 1, 0, 100L, 200L));
+        when(mapper.selectItems(9L)).thenReturn(List.of());
+        when(mapper.selectContactFailures(9L)).thenReturn(List.of(failure));
+
+        assertThat(service().detail(9L).contactFailures()).containsExactly(failure);
     }
 
     @Test

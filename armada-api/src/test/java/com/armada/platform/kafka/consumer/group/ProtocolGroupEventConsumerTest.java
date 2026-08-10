@@ -39,13 +39,44 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolGroupMembersResultReportedSink membersResultSink;
 
+    @Mock
+    private ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
         consumer = new ProtocolGroupEventConsumer(
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
-                batchParticipantResultSink, membersResultSink);
+                batchParticipantResultSink, membersResultSink, inviteLinkChangedSink);
+    }
+
+    @Test
+    void onMessage_inviteLinkChangedDispatchesCurrentCode() {
+        consumer.onMessage("""
+                {
+                  "eventId":"acc-901:group.invite_link_changed:1",
+                  "event":"group.invite_link_changed",
+                  "accountId":"acc-901",
+                  "occurredAt":"2026-08-10T06:00:00Z",
+                  "workerId":"android-worker",
+                  "data":{
+                    "tenantId":7,"accountId":901,"protocolAccountId":"acc-901",
+                    "protocolBackend":"ANDROID","groupJid":"120363group@g.us",
+                    "inviteCode":"NewInviteCode_2026",
+                    "author":"919000000002@s.whatsapp.net",
+                    "source":"wgp2_notification"
+                  }
+                }
+                """);
+
+        verify(inviteLinkChangedSink).handleInviteLinkChanged(
+                new ProtocolGroupInviteLinkChangedEvent(
+                        "acc-901:group.invite_link_changed:1",
+                        7L, 901L, "acc-901", "ANDROID",
+                        "120363group@g.us", "NewInviteCode_2026",
+                        "919000000002@s.whatsapp.net", "wgp2_notification",
+                        1786341600000L, "android-worker"));
     }
 
     @Test

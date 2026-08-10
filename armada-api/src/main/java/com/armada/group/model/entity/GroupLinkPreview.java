@@ -17,6 +17,7 @@ public class GroupLinkPreview {
 
     /** 群邀请链接里的邀请码 code。 */
     private String inviteCode;
+    private Long inviteCodeObservedAt;
 
     /** 协议层返回的 WhatsApp 真实群名称。 */
     private String waSubject;
@@ -131,6 +132,14 @@ public class GroupLinkPreview {
 
     public void setInviteCode(String inviteCode) {
         this.inviteCode = inviteCode;
+    }
+
+    public Long getInviteCodeObservedAt() {
+        return inviteCodeObservedAt;
+    }
+
+    public void setInviteCodeObservedAt(Long inviteCodeObservedAt) {
+        this.inviteCodeObservedAt = inviteCodeObservedAt;
     }
 
     public String getWaSubject() {

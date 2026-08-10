@@ -152,12 +152,29 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
      */
     @Override
     public List<ProtocolAccountRef> findActiveProtocolRefs(List<Long> accountIds) {
-        if (accountIds == null || accountIds.isEmpty()) {
+        List<Long> requestedIds = normalizeIds(accountIds);
+        if (requestedIds.isEmpty()) {
             return List.of();
         }
-        List<Long> requestedIds = new LinkedHashSet<>(accountIds).stream()
-                .filter(id -> id != null)
+        return resolveActiveProtocolRefs(requestedIds);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<ProtocolAccountRef> findOnlineProtocolRefs(List<Long> accountIds) {
+        List<Long> requestedIds = normalizeIds(accountIds);
+        if (requestedIds.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<Long> onlineIds = new LinkedHashSet<>(accountMapper.selectOnlineAccountIdsByIds(
+                requestedIds, AccountLoginStateCode.ONLINE));
+        List<Long> onlineRequestedIds = requestedIds.stream()
+                .filter(onlineIds::contains)
                 .toList();
+        return resolveActiveProtocolRefs(onlineRequestedIds);
+    }
+
+    private List<ProtocolAccountRef> resolveActiveProtocolRefs(List<Long> requestedIds) {
         if (requestedIds.isEmpty()) {
             return List.of();
         }
@@ -168,6 +185,15 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         return requestedIds.stream()
                 .map(refsById::get)
                 .filter(ref -> ref != null)
+                .toList();
+    }
+
+    private static List<Long> normalizeIds(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            return List.of();
+        }
+        return new LinkedHashSet<>(accountIds).stream()
+                .filter(id -> id != null)
                 .toList();
     }
 

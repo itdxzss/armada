@@ -88,4 +88,15 @@ public interface AccountProtocolLookupService {
      * @return 去重后仍保持首次出现顺序的有效协议账号引用；无有效输入时返回空列表
      */
     List<ProtocolAccountRef> findActiveProtocolRefs(List<Long> accountIds);
+
+    /**
+     * 按调用顺序解析当前租户下在线且可寻址的账号引用。
+     *
+     * <p>用于必须立即获得协议响应的查询型命令；离线账号不会作为查询 actor 返回。结果仍按输入
+     * 首次出现顺序排列，便于调用方在 actor 失败时稳定切换到下一候选。</p>
+     *
+     * @param accountIds Armada 账号 ID；允许包含空值和重复值
+     * @return 在线且协议身份完整的账号引用
+     */
+    List<ProtocolAccountRef> findOnlineProtocolRefs(List<Long> accountIds);
 }

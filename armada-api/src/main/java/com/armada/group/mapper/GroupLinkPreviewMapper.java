@@ -33,6 +33,14 @@ public interface GroupLinkPreviewMapper {
     int upsertInvitePageMetadata(GroupLinkPreview row);
 
     /**
+     * 按独立观察时间保存当前邀请码，晚到事件不得覆盖新事实。
+     *
+     * @param row 群入口、群 JID、邀请码与观察时间
+     * @return 影响行数
+     */
+    int upsertInviteLinkChange(GroupLinkPreview row);
+
+    /**
      * 仅更新运营侧头像 URL,不覆盖协议层预览快照字段。
      *
      * @param groupLinkId 群链接 ID

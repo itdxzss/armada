@@ -55,6 +55,18 @@ class GroupExecutionAccountSelectorTest {
     }
 
     @Test
+    void findCandidatesReturnsEveryBoundedOnlineInGroupAccountInMapperOrder() {
+        GroupExecutionAccount first = account(7L, "923310000001", true);
+        GroupExecutionAccount second = account(8L, "923310000002", false);
+        when(mapper.selectGroupExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 4))
+                .thenReturn(List.of(first, second));
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.findCandidates(10L)).containsExactly(first, second);
+    }
+
+    @Test
     void findAdminByPhonesNormalizesPhonesAndRotatesFreshAdmins() {
         GroupExecutionAccount first = account(7L, "923310000001", false);
         GroupExecutionAccount second = account(8L, "923310000002", false);

@@ -71,6 +71,39 @@ public class PullTaskMemberQueryService {
         return resolveExisting(request, latest, now);
     }
 
+    /**
+     * 查询当前 actor 的单次事实；超时或失败后不为同一 actor 创建重试。
+     *
+     * <p>UNKNOWN 对账会按在线候选依次切换查询 actor，因此每个 actor 使用独立业务键并只执行一次。
+     * 这样离线、封禁或协议异常的首个账号不会无限阻塞后续健康账号。</p>
+     */
+    public PullTaskMemberQueryResult requestOrReadOnce(
+            PullTaskMemberQueryRequest request,
+            long now) {
+        validateRequest(request, now);
+        PullTaskMemberQuery latest = mapper.selectLatestByBusinessKey(
+                request.groupExecutionId(), request.businessKey());
+        if (latest == null) {
+            return create(request, now);
+        }
+        validateIdentity(request, latest);
+        if (Objects.equals(latest.getQueryStatus(), PullTaskMemberQueryStatus.PENDING.code())
+                && latest.getDeadlineAt() != null && latest.getDeadlineAt() <= now) {
+            int expired = mapper.expirePending(
+                    latest.getId(), PullTaskMemberQueryStatus.PENDING.code(),
+                    PullTaskMemberQueryStatus.EXPIRED.code(), now,
+                    TIMEOUT_CODE, TIMEOUT_MESSAGE);
+            if (expired == 1) {
+                return PullTaskMemberQueryResult.failed(
+                        latest.getId(), TIMEOUT_CODE, TIMEOUT_MESSAGE);
+            }
+            PullTaskMemberQuery concurrent = mapper.selectLatestByBusinessKey(
+                    request.groupExecutionId(), request.businessKey());
+            return resolveExistingOnce(request, concurrent);
+        }
+        return resolveExistingOnce(request, latest);
+    }
+
     private PullTaskMemberQueryResult resolveExisting(
             PullTaskMemberQueryRequest request,
             PullTaskMemberQuery row,
@@ -95,6 +128,28 @@ public class PullTaskMemberQueryService {
         }
         return PullTaskMemberQueryResult.failed(
                 row.getId(), row.getErrorCode(), row.getErrorMessage());
+    }
+
+    private PullTaskMemberQueryResult resolveExistingOnce(
+            PullTaskMemberQueryRequest request,
+            PullTaskMemberQuery row) {
+        if (row == null) {
+            return PullTaskMemberQueryResult.failed(null, TIMEOUT_CODE, TIMEOUT_MESSAGE);
+        }
+        validateIdentity(request, row);
+        if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.PENDING.code())) {
+            return PullTaskMemberQueryResult.pending(row.getId(), row.getDeadlineAt());
+        }
+        if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.SUCCEEDED.code())) {
+            return PullTaskMemberQueryResult.available(row.getId(), readMembers(row));
+        }
+        String errorCode = row.getErrorCode();
+        String errorMessage = row.getErrorMessage();
+        if (Objects.equals(row.getQueryStatus(), PullTaskMemberQueryStatus.EXPIRED.code())) {
+            errorCode = hasText(errorCode) ? errorCode : TIMEOUT_CODE;
+            errorMessage = hasText(errorMessage) ? errorMessage : TIMEOUT_MESSAGE;
+        }
+        return PullTaskMemberQueryResult.failed(row.getId(), errorCode, errorMessage);
     }
 
     private PullTaskMemberQueryResult create(PullTaskMemberQueryRequest request, long now) {
@@ -194,5 +249,9 @@ public class PullTaskMemberQueryService {
 
     private static BusinessException conflict(String message) {
         return new BusinessException(ErrorCode.CONFLICT, message);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

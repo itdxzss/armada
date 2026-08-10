@@ -64,6 +64,27 @@ class PullTaskMemberQueryServiceTest {
     }
 
     @Test
+    void oneShotReadExpiresTimedOutActorWithoutRetryingSameActor() {
+        PullTaskMemberQueryMapper mapper = mock(PullTaskMemberQueryMapper.class);
+        PullTaskMemberQueryCommandService commandService =
+                mock(PullTaskMemberQueryCommandService.class);
+        PullTaskMemberQuery expired = row(PullTaskMemberQueryStatus.PENDING, 900L);
+        when(mapper.selectLatestByBusinessKey(11L, "manager:601")).thenReturn(expired);
+        when(mapper.expirePending(
+                701L, PullTaskMemberQueryStatus.PENDING.code(),
+                PullTaskMemberQueryStatus.EXPIRED.code(), 1_000L,
+                "QUERY_TIMEOUT", "member query timed out"))
+                .thenReturn(1);
+        PullTaskMemberQueryService service = service(mapper, commandService);
+
+        PullTaskMemberQueryResult result = service.requestOrReadOnce(request(), 1_000L);
+
+        assertThat(result.state()).isEqualTo(PullTaskMemberQueryResult.State.FAILED);
+        assertThat(result.errorCode()).isEqualTo("QUERY_TIMEOUT");
+        verify(commandService, never()).create(any());
+    }
+
+    @Test
     void returnsCompletedFilteredFactsWithoutCallingProtocolAgain() {
         PullTaskMemberQueryMapper mapper = mock(PullTaskMemberQueryMapper.class);
         PullTaskMemberQueryCommandService commandService =

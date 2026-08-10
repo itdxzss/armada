@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinReference;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -33,6 +34,7 @@ public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadH
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
+    private final GroupInviteLinkService inviteLinkService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -41,16 +43,19 @@ public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadH
      * @param actionMapper 账号动作 Mapper
      * @param accountMapper 执行行角色账号 Mapper
      * @param executionMapper 群链接执行行 Mapper
+     * @param inviteLinkService 当前群邀请链接事实服务
      * @param objectMapper JSON 转换器
      */
     public PullTaskGroupJoinPayloadHydrator(
             PullTaskAccountActionMapper actionMapper,
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
+            GroupInviteLinkService inviteLinkService,
             ObjectMapper objectMapper) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
+        this.inviteLinkService = inviteLinkService;
         this.objectMapper = objectMapper;
     }
 
@@ -84,10 +89,12 @@ public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadH
                 throw validation("普通拉群进群命令冻结事实不完整 commandId=" + row.getCommandId());
             }
             ProtocolBackend backend = protocolBackend(row);
+            String inviteCode = inviteLinkService.resolveCurrentInviteCode(
+                    execution.getGroupLinkId(), execution.getInviteCode());
             return objectMapper.valueToTree(new PullTaskGroupJoinWirePayload(
                     reference.tenantId(), reference.pullTaskId(), reference.groupExecutionId(),
                     reference.actionId(), account.getAccountId(), row.getProtocolAccountId(),
-                    account.getAccountPhone(), backend.name(), execution.getInviteCode(),
+                    account.getAccountPhone(), backend.name(), inviteCode,
                     FIRST_ATTEMPT, reference.source()));
         } finally {
             restoreTenant(previousTenant);

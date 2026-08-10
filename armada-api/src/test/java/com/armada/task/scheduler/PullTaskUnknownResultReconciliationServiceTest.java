@@ -6,10 +6,13 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -20,6 +23,7 @@ import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -52,6 +56,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
     private PullTaskGroupAccountMapper accountMapper;
     private PullTaskGroupExecutionMapper executionMapper;
     private PullTaskPullWaveProgressService waveProgress;
+    private GroupExecutionAccountSelector groupAccountSelector;
     private AccountProtocolLookupService accountLookup;
     private PullTaskMemberQueryService memberQueryService;
     private PullTaskUnknownResultReconciliationService service;
@@ -64,6 +69,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         accountMapper = mock(PullTaskGroupAccountMapper.class);
         executionMapper = mock(PullTaskGroupExecutionMapper.class);
         waveProgress = mock(PullTaskPullWaveProgressService.class);
+        groupAccountSelector = mock(GroupExecutionAccountSelector.class);
         accountLookup = mock(AccountProtocolLookupService.class);
         memberQueryService = mock(PullTaskMemberQueryService.class);
         service = new PullTaskUnknownResultReconciliationService(
@@ -75,7 +81,8 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 new PullTaskUnknownResultCoordination(
                         executionMapper,
                         mock(PullTaskPullCallReconciliationService.class),
-                        waveProgress));
+                        waveProgress,
+                        groupAccountSelector));
     }
 
     @Test
@@ -94,7 +101,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         call.setPullerGroupAccountId(puller.getId());
         call.setPullWaveId(71L);
         stubRows(execution.getId(), List.of(manager, puller), List.of(material), List.of(call));
-        when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
         queryReturns(member("8613800000099", false));
         when(materialMapper.transitionPullResult(any())).thenReturn(1);
@@ -137,7 +144,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
                         PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
         stubAccounts(execution.getId(), List.of(manager));
-        when(accountLookup.findActiveProtocolRefs(List.of(101L)))
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L)))
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
         when(actionMapper.transitionResult(any())).thenReturn(1);
 
@@ -149,7 +156,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         verify(actionMapper).transitionResult(change.capture());
         assertThat(change.getValue().targetStatus())
                 .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
-        verify(memberQueryService, never()).requestOrRead(any(), anyLong());
+        verify(memberQueryService, never()).requestOrReadOnce(any(), anyLong());
         assertThat(stats.markedUnknown()).isOne();
     }
 
@@ -164,7 +171,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         material.setWaJid("8613800000099@s.whatsapp.net");
         material.setAdminStatus(PullTaskMaterialAdminStatus.UNKNOWN.code());
         stubRows(execution.getId(), List.of(manager), List.of(material), List.of());
-        when(accountLookup.findActiveProtocolRefs(List.of(101L)))
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L)))
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
         queryReturns(member(material.getNormalizedPhone(), true));
         when(materialMapper.transitionAdminResult(any())).thenReturn(1);
@@ -200,7 +207,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
                 PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
                 .thenReturn(List.of(action));
-        when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(102L, promoter.getAccountPhone())));
         queryReturns(member("8613800000001", false), member("8613800000002", true));
         when(actionMapper.transitionManagerAdminObservation(
@@ -240,7 +247,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
                 PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
                 .thenReturn(List.of(action));
-        when(accountLookup.findActiveProtocolRefs(List.of(101L, 102L)))
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L, 102L)))
                 .thenReturn(List.of(protocol(102L, promoter.getAccountPhone())));
         queryReturns(member("8613800000001", true), member("8613800000002", true));
         when(actionMapper.transitionManagerAdminObservation(
@@ -262,6 +269,128 @@ class PullTaskUnknownResultReconciliationServiceTest {
                         PullTaskGroupAccountAdminStatus.SUBMITTED.code(),
                         PullTaskGroupAccountAdminStatus.UNKNOWN.code()),
                 PullTaskGroupAccountAdminStatus.SUCCESS.code(), NOW);
+    }
+
+    @Test
+    void unknownInviteFailsWhenSuccessfulSnapshotConfirmsPullerIsAbsent() {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",
+                new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        PullTaskGroupAccount puller = account(12L, 102L, "8613800000002",
+                new AccountState(PullTaskGroupAccountRole.PULLER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.UNKNOWN.code()));
+        PullTaskAccountAction action = action(
+                41L, PullTaskAccountActionType.INVITE_TO_GROUP.code(),
+                PullTaskActionStatus.UNKNOWN.code(), 20_000L);
+        action.setTargetGroupAccountId(puller.getId());
+        stubRows(execution.getId(), List.of(manager, puller), List.of(), List.of());
+        when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
+                PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
+                .thenReturn(List.of(action));
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L, 102L)))
+                .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
+        queryReturns();
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+
+        PullTaskUnknownResultReconciliationStats stats =
+                service.reconcile(execution, CUTOFF, NOW);
+
+        ArgumentCaptor<PullTaskFactTransition> actionChange =
+                ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(actionMapper).transitionResult(actionChange.capture());
+        assertThat(actionChange.getValue().expectedStatuses())
+                .containsExactly(PullTaskActionStatus.UNKNOWN.code());
+        assertThat(actionChange.getValue().targetStatus())
+                .isEqualTo(PullTaskActionStatus.FAILED.code());
+        assertThat(actionChange.getValue().result().reasonCode())
+                .isEqualTo("MEMBER_NOT_IN_GROUP_CONFIRMED");
+
+        ArgumentCaptor<PullTaskFactTransition> membershipChange =
+                ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(accountMapper).transitionMembership(membershipChange.capture());
+        assertThat(membershipChange.getValue().expectedStatuses())
+                .containsExactly(PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+        assertThat(membershipChange.getValue().targetStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code());
+        assertThat(membershipChange.getValue().result().reasonCode())
+                .isEqualTo("MEMBER_NOT_IN_GROUP_CONFIRMED");
+        assertThat(stats.confirmed()).isOne();
+    }
+
+    @Test
+    void memberQueryFallsThroughFailedOnlineActorToNextOnlineActor() {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",
+                new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        PullTaskGroupAccount puller = account(12L, 102L, "8613800000002",
+                new AccountState(PullTaskGroupAccountRole.PULLER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.UNKNOWN.code()));
+        PullTaskAccountAction action = action(
+                41L, PullTaskAccountActionType.INVITE_TO_GROUP.code(),
+                PullTaskActionStatus.UNKNOWN.code(), 20_000L);
+        action.setTargetGroupAccountId(puller.getId());
+        stubRows(execution.getId(), List.of(manager, puller), List.of(), List.of());
+        when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
+                PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
+                .thenReturn(List.of(action));
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L, 102L)))
+                .thenReturn(List.of(
+                        protocol(101L, manager.getAccountPhone()),
+                        protocol(102L, puller.getAccountPhone())));
+        when(memberQueryService.requestOrReadOnce(any(), anyLong()))
+                .thenReturn(
+                        PullTaskMemberQueryResult.failed(701L, "ACCOUNT_NOT_ONLINE", "offline"),
+                        PullTaskMemberQueryResult.available(
+                                702L, List.of(member(puller.getAccountPhone(), false))));
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+
+        service.reconcile(execution, CUTOFF, NOW);
+
+        ArgumentCaptor<PullTaskMemberQueryRequest> requests =
+                ArgumentCaptor.forClass(PullTaskMemberQueryRequest.class);
+        verify(memberQueryService, times(2)).requestOrReadOnce(requests.capture(), anyLong());
+        assertThat(requests.getAllValues())
+                .extracting(request -> request.actor().armadaAccountId())
+                .containsExactly(101L, 102L);
+        assertThat(requests.getAllValues())
+                .extracting(PullTaskMemberQueryRequest::businessKey)
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void memberQueryCanUseOnlineInGroupAccountOutsideTaskRoles() {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",
+                new AccountState(PullTaskGroupAccountRole.MANAGER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        PullTaskGroupAccount puller = account(12L, 102L, "8613800000002",
+                new AccountState(PullTaskGroupAccountRole.PULLER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.UNKNOWN.code()));
+        PullTaskAccountAction action = action(
+                41L, PullTaskAccountActionType.INVITE_TO_GROUP.code(),
+                PullTaskActionStatus.UNKNOWN.code(), 20_000L);
+        action.setTargetGroupAccountId(puller.getId());
+        stubRows(execution.getId(), List.of(manager, puller), List.of(), List.of());
+        when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
+                PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code())))
+                .thenReturn(List.of(action));
+        when(groupAccountSelector.findCandidates(10L)).thenReturn(List.of(
+                new GroupExecutionAccount(
+                        908L, "ANDROID", "android-908", "8613800000908", true)));
+        when(accountLookup.findOnlineProtocolRefs(List.of(101L, 102L))).thenReturn(List.of());
+        queryReturns(member(puller.getAccountPhone(), false));
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+
+        service.reconcile(execution, CUTOFF, NOW);
+
+        ArgumentCaptor<PullTaskMemberQueryRequest> request =
+                ArgumentCaptor.forClass(PullTaskMemberQueryRequest.class);
+        verify(memberQueryService).requestOrReadOnce(request.capture(), anyLong());
+        assertThat(request.getValue().actor().armadaAccountId()).isEqualTo(908L);
+        assertThat(request.getValue().actor().backend()).isEqualTo(ProtocolBackend.ANDROID);
     }
 
     private void stubRows(
@@ -292,6 +421,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
         row.setId(1L);
         row.setTenantId(7L);
         row.setTaskId(2L);
+        row.setGroupLinkId(10L);
         row.setGroupJid(groupJid);
         row.setVersion(4);
         row.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
@@ -345,7 +475,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
     }
 
     private void queryReturns(PullTaskMemberFact... members) {
-        when(memberQueryService.requestOrRead(any(), anyLong()))
+        when(memberQueryService.requestOrReadOnce(any(), anyLong()))
                 .thenReturn(PullTaskMemberQueryResult.available(701L, List.of(members)));
     }
 

@@ -30,11 +30,25 @@ public final class GroupExecutionAccountSelector {
      * @return 可用账号
      */
     public Optional<GroupExecutionAccount> find(Long groupLinkId, int completedAttempts) {
-        return candidateAt(mapper.selectGroupExecutionAccounts(
+        return candidateAt(findCandidates(groupLinkId), completedAttempts);
+    }
+
+    /**
+     * 返回有界的在线在群候选，保持群管理员、最近在群时间的数据库排序。
+     *
+     * @param groupLinkId 群入口 ID
+     * @return 可用于实时群查询的候选账号
+     */
+    public List<GroupExecutionAccount> findCandidates(Long groupLinkId) {
+        if (groupLinkId == null) {
+            return List.of();
+        }
+        List<GroupExecutionAccount> candidates = mapper.selectGroupExecutionAccounts(
                 groupLinkId,
                 AccountLoginStateCode.ONLINE,
                 AccountStateCode.NORMAL,
-                MAX_RETRY_CANDIDATES), completedAttempts);
+                MAX_RETRY_CANDIDATES);
+        return candidates == null ? List.of() : List.copyOf(candidates);
     }
 
     /**

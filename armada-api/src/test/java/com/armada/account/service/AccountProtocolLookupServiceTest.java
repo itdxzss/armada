@@ -81,6 +81,22 @@ class AccountProtocolLookupServiceTest {
     }
 
     @Test
+    void findOnlineProtocolRefs_filtersOfflineAccountsAndPreservesRequestOrder() {
+        when(accountMapper.selectOnlineAccountIdsByIds(
+                List.of(3L, 1L, 2L), AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(1L, 3L));
+        when(accountMapper.selectActiveByIds(List.of(3L, 1L)))
+                .thenReturn(List.of(
+                        account(1L, "ANDROID", "android-1", "911"),
+                        account(3L, "WEB", "web-3", "933")));
+
+        assertThat(service.findOnlineProtocolRefs(List.of(3L, 1L, 2L)))
+                .containsExactly(
+                        new ProtocolAccountRef(3L, ProtocolBackend.WEB, "web-3", "933"),
+                        new ProtocolAccountRef(1L, ProtocolBackend.ANDROID, "android-1", "911"));
+    }
+
+    @Test
     void findRandomOnlineNormalWebByGroupIdUsesDedicatedWebSelector() {
         when(accountMapper.selectRandomOnlineNormalWebByGroupId(
                 301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, "WEB"))

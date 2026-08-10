@@ -43,6 +43,9 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 统一群成员查询结果事件类型。 */
     public static final String EVENT_GROUP_MEMBERS_RESULT_REPORTED = "group.members.result_reported";
 
+    /** Web/Android 统一群邀请链接变更事件类型。 */
+    public static final String EVENT_GROUP_INVITE_LINK_CHANGED = "group.invite_link_changed";
+
     /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
     private static final Set<String> SUPPORTED_JOIN_OUTCOMES = Set.of(
             "JOINED", "ALREADY_JOINED", "PENDING_APPROVAL", "FAILED");
@@ -84,6 +87,9 @@ public class ProtocolGroupEventConsumer {
     /** 普通拉群异步成员查询结果下游处理边界。 */
     private final ProtocolGroupMembersResultReportedSink membersResultReportedSink;
 
+    /** 群邀请链接变更下游处理边界。 */
+    private final ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink;
+
     /**
      * 创建协议群组事件 consumer。
      *
@@ -99,13 +105,15 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolGroupActionResultReportedSink actionResultReportedSink,
                                       ProtocolPullTaskBatchParticipantResultReportedSink
                                               batchParticipantResultReportedSink,
-                                      ProtocolGroupMembersResultReportedSink membersResultReportedSink) {
+                                      ProtocolGroupMembersResultReportedSink membersResultReportedSink,
+                                      ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
         this.actionResultReportedSink = actionResultReportedSink;
         this.batchParticipantResultReportedSink = batchParticipantResultReportedSink;
         this.membersResultReportedSink = membersResultReportedSink;
+        this.inviteLinkChangedSink = inviteLinkChangedSink;
     }
 
     /**
@@ -127,9 +135,50 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_JOIN_RESULT_REPORTED -> handleJoinResultReported(envelope, eventId);
             case EVENT_GROUP_ACTION_RESULT_REPORTED -> handleActionResultReported(envelope, eventId);
             case EVENT_GROUP_MEMBERS_RESULT_REPORTED -> handleMembersResultReported(envelope, eventId);
+            case EVENT_GROUP_INVITE_LINK_CHANGED -> handleInviteLinkChanged(envelope, eventId);
             default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
         }
+    }
+
+    /** 校验当前邀请码事件并交给 group 域按租户和群 JID 幂等保存。 */
+    private void handleInviteLinkChanged(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群邀请链接事件缺少 data.protocolAccountId");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) {
+            throw validation("协议群邀请链接事件账号关联不一致");
+        }
+        String protocolBackend = requiredText(
+                data, "protocolBackend", "协议群邀请链接事件缺少 data.protocolBackend")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_PROTOCOL_BACKENDS.contains(protocolBackend)) {
+            throw validation("协议群邀请链接事件 protocolBackend 非法");
+        }
+        String inviteCode = requiredText(
+                data, "inviteCode", "协议群邀请链接事件缺少 data.inviteCode");
+        if (inviteCode.length() > 64 || !inviteCode.matches("[A-Za-z0-9_-]+")) {
+            throw validation("协议群邀请链接事件 inviteCode 非法");
+        }
+        Long occurredAt = checkedAt(envelope, data);
+        if (occurredAt == null || occurredAt <= 0) {
+            throw validation("协议群邀请链接事件 occurredAt 非法");
+        }
+        ProtocolGroupInviteLinkChangedEvent event = new ProtocolGroupInviteLinkChangedEvent(
+                requiredText(envelope, "eventId", "协议群邀请链接事件缺少 eventId"),
+                requiredLong(data, "tenantId"),
+                requiredLong(data, "accountId"),
+                protocolAccountId,
+                protocolBackend,
+                requiredText(data, "groupJid", "协议群邀请链接事件缺少 data.groupJid"),
+                inviteCode,
+                text(data, "author"),
+                requiredText(data, "source", "协议群邀请链接事件缺少 data.source"),
+                occurredAt,
+                text(envelope, "workerId"));
+        log.info("协议群邀请链接变更收到 eventId={} tenantId={} accountId={} protocolBackend={}",
+                event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend());
+        inviteLinkChangedSink.handleInviteLinkChanged(event);
     }
 
     /** 校验异步成员查询的完整关联与事实结构，再交给任务域做当前尝试 CAS。 */

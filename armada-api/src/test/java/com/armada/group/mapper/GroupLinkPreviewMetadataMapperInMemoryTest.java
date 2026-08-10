@@ -53,6 +53,7 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
                     group_link_id BIGINT NOT NULL,
                     group_jid VARCHAR(128),
                     invite_code VARCHAR(64),
+                    invite_code_observed_at BIGINT,
                     wa_subject VARCHAR(255),
                     wa_description VARCHAR(1024),
                     member_size INT,
@@ -132,6 +133,32 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         assertThat(updated.getMetadataObservedAt()).isEqualTo(3_000L);
     }
 
+    @Test
+    void inviteCodeUsesItsOwnObservationClockAcrossEventAndMetadataSources() {
+        mapper.upsertInviteLinkChange(inviteChange("event-new", 2_000L));
+
+        GroupLinkPreview staleMetadata = metadata("旧元数据", null, 1_000L);
+        staleMetadata.setInviteCode("metadata-stale");
+        mapper.upsertMetadataSnapshot(staleMetadata);
+
+        GroupLinkPreview afterStale = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(afterStale.getInviteCode()).isEqualTo("event-new");
+        assertThat(afterStale.getInviteCodeObservedAt()).isEqualTo(2_000L);
+
+        GroupLinkPreview newerMetadata = metadata("新元数据", null, 3_000L);
+        newerMetadata.setInviteCode("metadata-newest");
+        mapper.upsertMetadataSnapshot(newerMetadata);
+
+        GroupLinkPreview updated = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(updated.getInviteCode()).isEqualTo("metadata-newest");
+        assertThat(updated.getInviteCodeObservedAt()).isEqualTo(3_000L);
+
+        mapper.upsertInviteLinkChange(inviteChange("event-stale", 2_500L));
+        GroupLinkPreview afterStaleEvent = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(afterStaleEvent.getInviteCode()).isEqualTo("metadata-newest");
+        assertThat(afterStaleEvent.getInviteCodeObservedAt()).isEqualTo(3_000L);
+    }
+
     private static GroupLinkPreview metadata(String subject, String description, long observedAt) {
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(GROUP_LINK_ID);
@@ -142,6 +169,17 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         row.setMemberSize(20);
         row.setMetadataObservedAt(observedAt);
         row.setLastPreviewAt(observedAt);
+        row.setCreatedAt(observedAt);
+        row.setUpdatedAt(observedAt);
+        return row;
+    }
+
+    private static GroupLinkPreview inviteChange(String inviteCode, long observedAt) {
+        GroupLinkPreview row = new GroupLinkPreview();
+        row.setGroupLinkId(GROUP_LINK_ID);
+        row.setGroupJid("120363-preview@g.us");
+        row.setInviteCode(inviteCode);
+        row.setInviteCodeObservedAt(observedAt);
         row.setCreatedAt(observedAt);
         row.setUpdatedAt(observedAt);
         return row;

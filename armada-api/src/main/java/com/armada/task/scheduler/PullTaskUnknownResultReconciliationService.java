@@ -1,6 +1,8 @@
 package com.armada.task.scheduler;
 
 import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.util.WhatsappJids;
@@ -45,6 +47,8 @@ import org.springframework.stereotype.Service;
 public class PullTaskUnknownResultReconciliationService {
 
     private static final String UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
+    private static final String NOT_IN_GROUP = "MEMBER_NOT_IN_GROUP_CONFIRMED";
+    private static final String NOT_IN_GROUP_MESSAGE = "成员快照确认账号不在群内";
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
     private static final List<Integer> MEMBER_OBSERVABLE_ACTIONS = List.of(
@@ -68,6 +72,7 @@ public class PullTaskUnknownResultReconciliationService {
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskPullCallReconciliationService pullCallReconciliationService;
     private final PullTaskPullWaveProgressService waveProgress;
+    private final GroupExecutionAccountSelector groupAccountSelector;
 
     /** 构造未知结果收敛服务。 */
     public PullTaskUnknownResultReconciliationService(
@@ -81,6 +86,7 @@ public class PullTaskUnknownResultReconciliationService {
         this.executionMapper = coordination.executionMapper();
         this.pullCallReconciliationService = coordination.pullCalls();
         this.waveProgress = coordination.waveProgress();
+        this.groupAccountSelector = coordination.groupAccounts();
     }
 
     /**
@@ -151,6 +157,24 @@ public class PullTaskUnknownResultReconciliationService {
                 if (membershipAction) {
                     confirmMembership(target, member.jid(), context.now());
                 }
+            } else if (membershipAction
+                    && target != null
+                    && userJid(target.getAccountPhone()) != null
+                    && context.snapshot().queried()
+                    && Objects.equals(
+                    action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code())) {
+                int changed = resources.actionMapper().transitionResult(transition(
+                        action.getId(), List.of(PullTaskActionStatus.UNKNOWN.code()),
+                        PullTaskActionStatus.FAILED.code(),
+                        PullTaskFactResult.reason(NOT_IN_GROUP, NOT_IN_GROUP_MESSAGE),
+                        context.now()));
+                context.counter().confirm(changed);
+                resources.accountMapper().transitionMembership(transition(
+                        target.getId(), List.of(
+                                PullTaskGroupAccountMembershipStatus.UNKNOWN.code()),
+                        PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(),
+                        PullTaskFactResult.reason(NOT_IN_GROUP, NOT_IN_GROUP_MESSAGE),
+                        context.now()));
             } else if (staleSubmitted(
                     action.getActionStatus(), action.getSubmittedAt(), context.cutoff(),
                     PullTaskActionStatus.SUBMITTED.code())) {
@@ -390,7 +414,16 @@ public class PullTaskUnknownResultReconciliationService {
                 .filter(Objects::nonNull)
                 .filter(accountId -> !accountIds.contains(accountId))
                 .forEach(accountIds::add);
-        List<ProtocolAccountRef> refs = accountLookup.findActiveProtocolRefs(accountIds);
+        Map<Long, ProtocolAccountRef> refsByAccountId = new LinkedHashMap<>();
+        for (GroupExecutionAccount candidate
+                : groupAccountSelector.findCandidates(execution.getGroupLinkId())) {
+            ProtocolAccountRef ref = candidate.protocolRef();
+            refsByAccountId.putIfAbsent(ref.armadaAccountId(), ref);
+        }
+        for (ProtocolAccountRef ref : accountLookup.findOnlineProtocolRefs(accountIds)) {
+            refsByAccountId.putIfAbsent(ref.armadaAccountId(), ref);
+        }
+        List<ProtocolAccountRef> refs = List.copyOf(refsByAccountId.values());
         if (refs.isEmpty()) {
             return MemberSnapshot.unavailable();
         }
@@ -405,16 +438,29 @@ public class PullTaskUnknownResultReconciliationService {
         if (targets.isEmpty()) {
             return MemberSnapshot.unavailable();
         }
-        PullTaskMemberQueryResult result = memberQueryService.requestOrRead(
-                new PullTaskMemberQueryRequest(
-                        execution.getTaskId(), execution.getId(), businessKey,
-                        PullTaskMemberQueryPurpose.UNKNOWN_RESULT_RECONCILIATION,
-                        refs.get(0), execution.getGroupJid(), List.copyOf(targets)), now);
-        return switch (result.state()) {
-            case PENDING -> MemberSnapshot.waiting();
-            case FAILED -> MemberSnapshot.unavailable();
-            case AVAILABLE -> MemberSnapshot.availableFacts(result.members());
-        };
+        for (ProtocolAccountRef ref : refs) {
+            PullTaskMemberQueryResult result = memberQueryService.requestOrReadOnce(
+                    new PullTaskMemberQueryRequest(
+                            execution.getTaskId(), execution.getId(),
+                            actorBusinessKey(businessKey, ref),
+                            PullTaskMemberQueryPurpose.UNKNOWN_RESULT_RECONCILIATION,
+                            ref, execution.getGroupJid(), List.copyOf(targets)), now);
+            if (result.state() == PullTaskMemberQueryResult.State.PENDING) {
+                return MemberSnapshot.waiting();
+            }
+            if (result.state() == PullTaskMemberQueryResult.State.AVAILABLE) {
+                return MemberSnapshot.availableFacts(result.members());
+            }
+        }
+        return MemberSnapshot.unavailable();
+    }
+
+    private static String actorBusinessKey(String businessKey, ProtocolAccountRef actor) {
+        String identity = actor.armadaAccountId() + ":" + actor.backend().name()
+                + ":" + actor.protocolAccountId();
+        return businessKey + ":actor:"
+                + java.util.UUID.nameUUIDFromBytes(
+                identity.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static String reconciliationBusinessKey(

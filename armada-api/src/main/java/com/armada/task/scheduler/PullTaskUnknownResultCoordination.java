@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import org.springframework.stereotype.Component;
 
@@ -8,5 +9,6 @@ import org.springframework.stereotype.Component;
 public record PullTaskUnknownResultCoordination(
         PullTaskGroupExecutionMapper executionMapper,
         PullTaskPullCallReconciliationService pullCalls,
-        PullTaskPullWaveProgressService waveProgress) {
+        PullTaskPullWaveProgressService waveProgress,
+        GroupExecutionAccountSelector groupAccounts) {
 }

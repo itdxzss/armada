@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -24,9 +25,10 @@ class PullTaskGroupJoinPayloadHydratorTest {
     private final PullTaskAccountActionMapper actionMapper = mock(PullTaskAccountActionMapper.class);
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
+    private final GroupInviteLinkService inviteLinkService = mock(GroupInviteLinkService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final PullTaskGroupJoinPayloadHydrator hydrator = new PullTaskGroupJoinPayloadHydrator(
-            actionMapper, accountMapper, executionMapper, objectMapper);
+            actionMapper, accountMapper, executionMapper, inviteLinkService, objectMapper);
 
     @AfterEach
     void clearTenant() {
@@ -34,7 +36,7 @@ class PullTaskGroupJoinPayloadHydratorTest {
     }
 
     @Test
-    void hydratesFrozenActionExecutionAndAccountWithoutLeakingTenantContext() throws Exception {
+    void hydratesActionAndAccountWithLatestInviteCodeWithoutLeakingTenantContext() throws Exception {
         ProtocolCommandOutbox row = outbox();
         PullTaskAccountAction action = action();
         PullTaskGroupAccount manager = manager();
@@ -42,6 +44,9 @@ class PullTaskGroupJoinPayloadHydratorTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action);
         when(accountMapper.selectById(501L)).thenReturn(manager);
         when(executionMapper.selectById(11L)).thenReturn(execution);
+        when(inviteLinkService.resolveCurrentInviteCode(
+                51L, "AbCdEfGhIjKlMnOpQrStUv"))
+                .thenReturn("LatestInviteCode123456");
 
         JsonNode payload = hydrator.hydrate(row, objectMapper.readTree(row.getPayloadJson()));
 
@@ -53,7 +58,7 @@ class PullTaskGroupJoinPayloadHydratorTest {
         assertThat(payload.get("protocolAccountId").asText()).isEqualTo("acc-901");
         assertThat(payload.get("wsPhone").asText()).isEqualTo("8613800000901");
         assertThat(payload.get("protocolBackend").asText()).isEqualTo("WEB");
-        assertThat(payload.get("inviteCode").asText()).isEqualTo("AbCdEfGhIjKlMnOpQrStUv");
+        assertThat(payload.get("inviteCode").asText()).isEqualTo("LatestInviteCode123456");
         assertThat(payload.get("attemptNo").asInt()).isEqualTo(1);
         assertThat(payload.get("source").asText()).isEqualTo("pull_task_manager_join");
         assertThat(TenantContext.get()).isNull();
@@ -111,6 +116,7 @@ class PullTaskGroupJoinPayloadHydratorTest {
         row.setId(11L);
         row.setTenantId(7L);
         row.setTaskId(9L);
+        row.setGroupLinkId(51L);
         row.setInviteCode("AbCdEfGhIjKlMnOpQrStUv");
         return row;
     }

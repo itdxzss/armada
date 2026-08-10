@@ -38,6 +38,8 @@ class AndroidGroupJoinErrorMapperTest {
     @Test
     void mapsKnownNativeGroupJoinFailures() {
         assertThat(mappedCode("邀请码为空", null)).isEqualTo(ProtocolErrorCode.INVALID_GROUP_LINK);
+        assertThat(mappedCode("通过邀请码进群失败, bad-request, Code: 400", "400"))
+                .isEqualTo(ProtocolErrorCode.GROUP_UNAVAILABLE);
         assertThat(mappedCode("rate-overlimit", "429")).isEqualTo(ProtocolErrorCode.ACCOUNT_BUSY);
         assertThat(mappedCode("request time out", null)).isEqualTo(ProtocolErrorCode.TIMEOUT);
         assertThat(mappedCode("not-authorized", "403"))

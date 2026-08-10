@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.model.enums.JoinTaskFailureReason;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 
 /**
@@ -51,7 +52,8 @@ public record PullTaskManagerJoinOutcome(
     /** @return 群链接或目标群已明确不可用，执行行应进入失败终态 */
     public static PullTaskManagerJoinOutcome executionFailed(String reasonCode) {
         return new PullTaskManagerJoinOutcome(
-                Kind.EXECUTION_FAILED, null, reasonCode, "管理员进群失败");
+                Kind.EXECUTION_FAILED, null, reasonCode,
+                JoinTaskFailureReason.labelOf(reasonCode));
     }
 
     /** @return 协议结果或实时在群状态无法确认 */

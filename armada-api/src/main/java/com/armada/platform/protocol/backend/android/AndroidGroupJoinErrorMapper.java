@@ -13,6 +13,7 @@ import java.util.Locale;
 public final class AndroidGroupJoinErrorMapper {
 
     private static final int APPLICATION_ERROR_HTTP_STATUS = 200;
+    private static final String RAW_CODE_BAD_REQUEST = "400";
     private static final String RAW_CODE_UNAUTHORIZED = "401";
     private static final String RAW_CODE_FORBIDDEN = "403";
     private static final String RAW_CODE_RATE_LIMITED = "429";
@@ -20,6 +21,7 @@ public final class AndroidGroupJoinErrorMapper {
     private static final String MESSAGE_ACCOUNT_NOT_ONLINE = "不在线";
     private static final String MESSAGE_ACCOUNT_OFFLINE = "离线";
     private static final String MESSAGE_INVITE_CODE_EMPTY = "邀请码为空";
+    private static final String MESSAGE_BAD_REQUEST = "bad-request";
     private static final String MESSAGE_RATE_OVERLIMIT = "rate-overlimit";
     private static final String MESSAGE_TIME_OUT = "time out";
     private static final String MESSAGE_TIMEOUT = "timeout";
@@ -78,6 +80,10 @@ public final class AndroidGroupJoinErrorMapper {
         }
         if (message.contains(MESSAGE_INVITE_CODE_EMPTY)) {
             return ProtocolErrorCode.INVALID_GROUP_LINK;
+        }
+        if (RAW_CODE_BAD_REQUEST.equals(response.rawProtocolCode())
+                && message.contains(MESSAGE_BAD_REQUEST)) {
+            return ProtocolErrorCode.GROUP_UNAVAILABLE;
         }
         if (RAW_CODE_RATE_LIMITED.equals(response.rawProtocolCode())
                 || message.contains(MESSAGE_RATE_OVERLIMIT)) {

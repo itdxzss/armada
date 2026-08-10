@@ -293,7 +293,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
                 eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
         when(actionMapper.writeBackResult(601L, PullTaskActionStatus.FAILED.code(),
-                "INVITE_REVOKED", "管理员进群失败", NOW)).thenReturn(1);
+                "INVITE_REVOKED", "群邀请链接已失效", NOW)).thenReturn(1);
         when(groupAccountMapper.updateMembership(501L,
                 PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), null, NOW)).thenReturn(1);
 

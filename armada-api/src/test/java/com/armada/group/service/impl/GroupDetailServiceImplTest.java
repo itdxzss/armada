@@ -368,6 +368,10 @@ class GroupDetailServiceImplTest {
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", true, false, false, false, 0));
+        when(previewMapper.updateMemberAddMode(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.ADD_MEMBERS, true));
@@ -375,7 +379,34 @@ class GroupDetailServiceImplTest {
         verify(groupSettingsPort)
                 .setAddMembersAllowed(webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
+        verify(previewMapper).updateMemberAddMode(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong());
         verify(selector).require(10L);
+    }
+
+    @Test
+    void updateSendMessagesPersistsConfirmedSnapshotWithoutUiRebound() {
+        givenLiveTarget();
+        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
+                7L, "ANDROID", "android_7", "919000000001", true));
+        when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
+                .thenReturn(metadata("群名", false, true, false, false, 0));
+        when(previewMapper.updateAnnounceOnly(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+
+        service.updateSetting(10L, new GroupSettingCommandDTO(
+                GroupPermissionKey.SEND_MESSAGES, false));
+
+        verify(groupSettingsPort).setSendMessagesAllowed(
+                androidAccount(), "120363detail@g.us", false);
+        verify(previewMapper).updateAnnounceOnly(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

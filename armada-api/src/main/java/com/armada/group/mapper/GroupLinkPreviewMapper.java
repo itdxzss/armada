@@ -71,4 +71,24 @@ public interface GroupLinkPreviewMapper {
     int updateInviteCodeByGroupJid(@Param("groupJid") String groupJid,
                                    @Param("inviteCode") String inviteCode,
                                    @Param("updatedAt") long updatedAt);
+
+    /** 写入已由实时回读确认的群资料编辑权限。 */
+    int updateAdminOnlyEditInfo(@Param("groupLinkId") Long groupLinkId,
+                                @Param("adminOnly") boolean adminOnly,
+                                @Param("updatedAt") long updatedAt);
+
+    /** 写入已由实时回读确认的群发言模式。 */
+    int updateAnnounceOnly(@Param("groupLinkId") Long groupLinkId,
+                           @Param("announceOnly") boolean announceOnly,
+                           @Param("updatedAt") long updatedAt);
+
+    /** 写入已由实时回读确认的普通成员添加成员权限。 */
+    int updateMemberAddMode(@Param("groupLinkId") Long groupLinkId,
+                            @Param("memberAddMode") boolean memberAddMode,
+                            @Param("updatedAt") long updatedAt);
+
+    /** 写入已由实时回读确认的新成员审批权限。 */
+    int updateJoinApprovalMode(@Param("groupLinkId") Long groupLinkId,
+                               @Param("joinApprovalMode") boolean joinApprovalMode,
+                               @Param("updatedAt") long updatedAt);
 }

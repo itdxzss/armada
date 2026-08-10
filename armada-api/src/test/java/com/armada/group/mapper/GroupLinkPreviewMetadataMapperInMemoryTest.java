@@ -159,6 +159,35 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         assertThat(afterStaleEvent.getInviteCodeObservedAt()).isEqualTo(3_000L);
     }
 
+    @Test
+    void confirmedPermissionUpdateWinsOverOlderMetadataAndIsImmediatelyReadable() {
+        GroupLinkPreview initial = metadata("群名", null, 1_000L);
+        initial.setAnnounceOnly(false);
+        initial.setAnnounceOnlyObserved(true);
+        initial.setMemberAddMode(true);
+        initial.setMemberAddModeObserved(true);
+        mapper.upsertMetadataSnapshot(initial);
+
+        mapper.updateAnnounceOnly(GROUP_LINK_ID, true, 2_000L);
+        mapper.updateMemberAddMode(GROUP_LINK_ID, false, 2_000L);
+
+        GroupLinkPreview immediatelyVisible = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(immediatelyVisible.getAnnounceOnly()).isTrue();
+        assertThat(immediatelyVisible.getMemberAddMode()).isFalse();
+        assertThat(immediatelyVisible.getMetadataObservedAt()).isEqualTo(2_000L);
+
+        GroupLinkPreview stale = metadata("旧任务", null, 1_500L);
+        stale.setAnnounceOnly(false);
+        stale.setAnnounceOnlyObserved(true);
+        stale.setMemberAddMode(true);
+        stale.setMemberAddModeObserved(true);
+        mapper.upsertMetadataSnapshot(stale);
+
+        GroupLinkPreview afterStale = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(afterStale.getAnnounceOnly()).isTrue();
+        assertThat(afterStale.getMemberAddMode()).isFalse();
+    }
+
     private static GroupLinkPreview metadata(String subject, String description, long observedAt) {
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(GROUP_LINK_ID);

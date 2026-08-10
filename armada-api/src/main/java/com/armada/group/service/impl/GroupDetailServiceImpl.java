@@ -391,9 +391,34 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId(), dto.key(), dto.enabled());
         }
         confirmSetting(account, target.groupJid(), dto.key(), dto.enabled());
+        persistConfirmedSetting(id, dto.key(), dto.enabled());
         enqueueMetadataRefresh(id);
         log.info("WhatsApp 群权限已更新 groupLinkId={} accountId={} key={} enabled={}",
                 id, account.accountId(), dto.key(), dto.enabled());
+    }
+
+    /**
+     * 把已经由同一账号实时回读确认的权限立即写入本地快照。
+     *
+     * <p>详情接口只读本地快照；如果仅排队异步 metadata 刷新，前端写成功后立即重载会读到旧值，
+     * 导致开关视觉回弹。这里仅写本次已确认字段，并提升观察时间以阻止更早的异步结果覆盖。</p>
+     */
+    private void persistConfirmedSetting(Long groupLinkId, GroupPermissionKey key, boolean enabled) {
+        long now = System.currentTimeMillis();
+        int updated = switch (key) {
+            case EDIT_GROUP_SETTINGS -> previewMapper.updateAdminOnlyEditInfo(
+                    groupLinkId, !enabled, now);
+            case SEND_MESSAGES -> previewMapper.updateAnnounceOnly(
+                    groupLinkId, !enabled, now);
+            case ADD_MEMBERS -> previewMapper.updateMemberAddMode(
+                    groupLinkId, enabled, now);
+            case ADMIN_APPROVE_NEW_MEMBERS -> previewMapper.updateJoinApprovalMode(
+                    groupLinkId, enabled, now);
+            case INVITE_VIA_LINK -> 0;
+        };
+        if (updated == 0 && key != GroupPermissionKey.INVITE_VIA_LINK) {
+            log.warn("群权限已确认但本地快照未更新 groupLinkId={} key={}", groupLinkId, key);
+        }
     }
 
     /**

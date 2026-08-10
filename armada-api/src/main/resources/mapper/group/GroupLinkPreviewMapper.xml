@@ -243,4 +243,36 @@
     WHERE group_jid = #{groupJid}
   </update>
 
+  <update id="updateAdminOnlyEditInfo">
+    UPDATE group_link_preview
+    SET admin_only_edit_info = #{adminOnly},
+        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE group_link_id = #{groupLinkId}
+  </update>
+
+  <update id="updateAnnounceOnly">
+    UPDATE group_link_preview
+    SET announce_only = #{announceOnly},
+        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE group_link_id = #{groupLinkId}
+  </update>
+
+  <update id="updateMemberAddMode">
+    UPDATE group_link_preview
+    SET member_add_mode = #{memberAddMode},
+        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE group_link_id = #{groupLinkId}
+  </update>
+
+  <update id="updateJoinApprovalMode">
+    UPDATE group_link_preview
+    SET join_approval_mode = #{joinApprovalMode},
+        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE group_link_id = #{groupLinkId}
+  </update>
+
 </mapper>

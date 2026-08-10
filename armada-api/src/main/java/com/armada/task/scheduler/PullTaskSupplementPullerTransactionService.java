@@ -216,7 +216,10 @@ public class PullTaskSupplementPullerTransactionService {
         PullTaskSupplementPullerPayload payload = new PullTaskSupplementPullerPayload(
                 account,
                 new PullTaskSupplementPullerPayload.Group(
-                        candidate.getNormalizedLink(), candidate.getGroupJid(),
+                        PullTaskGroupJoinArgumentResolver.resolve(
+                                account.backend(), candidate.getNormalizedLink(),
+                                candidate.getInviteCode()),
+                        candidate.getGroupJid(),
                         operationId(actionId)),
                 new PullTaskExecutionLease(candidate.getLockOwner(), candidate.getVersion()),
                 verificationOnly);

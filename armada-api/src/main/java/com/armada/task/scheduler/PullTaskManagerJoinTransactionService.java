@@ -37,7 +37,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class PullTaskManagerJoinTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
-    private static final String HTTPS_SCHEME_PREFIX = "https://";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
     private static final int JOIN_BY_LINK_ENTRY = 1;
@@ -207,10 +206,8 @@ public class PullTaskManagerJoinTransactionService {
             return waitForManager(candidate,
                     PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
         }
-        String inviteLinkOrCode = switch (account.backend()) {
-            case WEB -> HTTPS_SCHEME_PREFIX + candidate.getNormalizedLink();
-            case ANDROID -> candidate.getInviteCode();
-        };
+        String inviteLinkOrCode = PullTaskGroupJoinArgumentResolver.resolve(
+                account.backend(), candidate.getNormalizedLink(), candidate.getInviteCode());
         PullTaskManagerJoinPayload payload = new PullTaskManagerJoinPayload(
                 account, inviteLinkOrCode, operationId(action.getId()),
                 candidate.getLockOwner(), candidate.getVersion(), candidate.getGroupJid());

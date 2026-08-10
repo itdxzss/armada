@@ -37,17 +37,29 @@ import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 人工补充管理员的动作预写、结果 CAS 和管理员检查点推进事务。 */
+/**
+ * 人工补充管理员的事务状态机。
+ *
+ * <p>补充管理员需要依次完成“进群”和“提权”两个步骤。调度器先调用 {@link #prepare}，在短事务内选出
+ * 一名待处理账号并预写动作状态；协议调用在事务外完成；随后调用 {@link #complete}，通过 CAS 回写
+ * 协议事实并决定继续处理、恢复主链路或进入资源等待。这样可以避免数据库事务覆盖耗时的网络调用。
+ *
+ * <p>本类只处理来源为 {@link PullTaskGroupAccountSource#SUPPLEMENT} 的管理员。原始管理员仍由正常的
+ * 管理员入群链路处理。
+ */
 @Service
 public class PullTaskSupplementManagerTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
+    /** 协议结果允许覆盖的动作中间态，终态不能被迟到结果反向改写。 */
     private static final List<Integer> ENTRY_MUTABLE_STATUSES = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
+    /** 补充管理员入群结果允许覆盖的成员中间态。 */
     private static final List<Integer> MEMBERSHIP_MUTABLE_STATUSES = List.of(
             PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
             PullTaskGroupAccountMembershipStatus.JOINING.code(),
             PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+    /** 提权确认允许覆盖的管理员中间态。 */
     private static final List<Integer> ADMIN_MUTABLE_STATUSES = List.of(
             PullTaskGroupAccountAdminStatus.PENDING.code(),
             PullTaskGroupAccountAdminStatus.SUBMITTED.code(),
@@ -75,7 +87,12 @@ public class PullTaskSupplementManagerTransactionService {
         this.resources = resources;
     }
 
-    /** 在短事务内查找一条人工补充行并预写入群或提权单步。 */
+    /**
+     * 在短事务内查找一条人工补充行，并准备本轮唯一一个协议动作。
+     *
+     * <p>选择顺序为：先处理尚未入群的补充管理员；已经在群但尚未提权的账号则进入提权步骤。
+     * 如果所有可处理账号都已完成，则把执行行推进到管理员与拉手互加阶段。
+     */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskSupplementManagerPreparation prepare(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
@@ -114,7 +131,12 @@ public class PullTaskSupplementManagerTransactionService {
         }
     }
 
-    /** 原子回写本次入群或提权事实，并决定继续补充、恢复主链路或等待管理员。 */
+    /**
+     * 原子回写本次入群或提权事实，并决定继续补充、恢复主链路或等待管理员。
+     *
+     * <p>动作行、成员事实和执行行都使用期望状态/版本做 CAS；返回 {@code LOST} 表示本轮锁或状态
+     * 已被其他调度实例推进，调用方不应继续使用当前 work 重试写入。
+     */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult complete(
             PullTaskSupplementManagerWork work,
@@ -139,6 +161,7 @@ public class PullTaskSupplementManagerTransactionService {
             PullTaskGroupAccount target,
             List<PullTaskGroupAccount> managers,
             long now) {
+        // 补充管理员沿用补充时冻结的进群方式：自己踩链接，或由当前管理员邀请入群。
         PullTaskAccountEntryMode entryMode =
                 PullTaskAccountEntryMode.fromCode(target.getEntryMode());
         if (entryMode != PullTaskAccountEntryMode.JOIN_BY_LINK
@@ -160,6 +183,7 @@ public class PullTaskSupplementManagerTransactionService {
                     PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE.name(), null, now);
             return waitForManager(candidate, "补充管理员账号当前不可用", now);
         }
+        // 非 PENDING 说明动作曾经提交过。此时只能查询群成员事实，不能重复发送入群命令。
         boolean verificationOnly = !Objects.equals(
                 action.getActionStatus(), PullTaskActionStatus.PENDING.code());
         if (!verificationOnly && !submitEntry(action, target, now)) {
@@ -189,11 +213,13 @@ public class PullTaskSupplementManagerTransactionService {
                     PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE.name(), null, now);
             return waitForManager(candidate, "补充管理员账号当前不可用", now);
         }
+        // 优先沿用邀请该账号入群的管理员执行提权，保证冻结动作的 actor 一致；找不到时再回退。
         PullTaskGroupAccount actorRow = promotionActor(target, managers, candidate.getId());
         ProtocolAccountRef actorRef = actorRow == null ? targetRef : resources.accountLookup()
                 .findActiveProtocolRef(actorRow.getAccountId()).orElse(targetRef);
         boolean pending = Objects.equals(target.getAdminStatus(),
                 PullTaskGroupAccountAdminStatus.PENDING.code());
+        // 目标账号不能给自己提权；这种场景以及已提交过的动作都只做管理员身份核验。
         boolean verificationOnly = !pending || Objects.equals(
                 actorRef.armadaAccountId(), targetRef.armadaAccountId());
         AccountRefs refs = new AccountRefs(actorRef, targetRef);
@@ -204,7 +230,12 @@ public class PullTaskSupplementManagerTransactionService {
                 work(candidate, target, null, spec));
     }
 
-    /** 所有异步前置事实已就绪后，紧邻协议提权调用预写 SUBMITTED。 */
+    /**
+     * 所有异步前置事实已就绪后，紧邻协议提权调用预写 {@code SUBMITTED}。
+     *
+     * <p>该方法与 {@link #prepare} 分开，是为了让调用方在账号、群信息等异步准备完成后再占用本次
+     * 提权提交权；CAS 失败时不得调用协议。
+     */
     @Transactional(rollbackFor = Exception.class)
     public boolean markAdminSubmitted(PullTaskSupplementManagerWork work, long now) {
         Long previousTenant = TenantContext.get();
@@ -230,9 +261,11 @@ public class PullTaskSupplementManagerTransactionService {
         if (targetRef == null) {
             return null;
         }
+        // 踩链接由目标账号自己执行，因此 actor 与 target 相同。
         if (Objects.equals(action.getActorGroupAccountId(), target.getId())) {
             return new AccountRefs(targetRef, targetRef);
         }
+        // 管理员邀请必须使用预先冻结在动作行上的 actor，不能在执行时任意换人。
         PullTaskGroupAccount actor = managers.stream()
                 .filter(row -> Objects.equals(row.getId(), action.getActorGroupAccountId()))
                 .filter(PullTaskSupplementManagerTransactionService::currentManager)
@@ -249,6 +282,7 @@ public class PullTaskSupplementManagerTransactionService {
             PullTaskGroupAccount target,
             List<PullTaskGroupAccount> managers,
             long executionId) {
+        // 若目标通过管理员邀请入群，优先由同一名管理员继续提权。
         PullTaskAccountAction invite = entryAction(
                 executionId, target.getId(), PullTaskAccountEntryMode.MANAGER_INVITE);
         if (invite != null) {
@@ -260,6 +294,7 @@ public class PullTaskSupplementManagerTransactionService {
                 return frozen;
             }
         }
+        // 链接入群没有邀请 actor，回退到任意一名当前仍可用的群管理员。
         return managers.stream()
                 .filter(row -> !Objects.equals(row.getId(), target.getId()))
                 .filter(PullTaskSupplementManagerTransactionService::currentManager)
@@ -283,6 +318,7 @@ public class PullTaskSupplementManagerTransactionService {
             PullTaskAccountAction action,
             PullTaskGroupAccount target,
             long now) {
+        // 两次 CAS 位于同一事务：成员状态竞争失败时，动作 SUBMITTED 也会随事务回滚。
         PullTaskActionSubmission submission = new PullTaskActionSubmission(
                 action.getId(), PullTaskActionStatus.PENDING.code(),
                 PullTaskActionStatus.SUBMITTED.code(), operationId(action), now);
@@ -302,6 +338,7 @@ public class PullTaskSupplementManagerTransactionService {
             PullTaskSupplementManagerWork work,
             PullTaskSupplementManagerOutcome outcome,
             long now) {
+        // 动作事实与成员事实必须同时成功，避免出现“动作成功但账号仍未入群”的分裂状态。
         EntryResult result = entryResult(outcome);
         PullTaskFactResult fact = result.success()
                 ? PullTaskFactResult.success(null, now)
@@ -345,6 +382,7 @@ public class PullTaskSupplementManagerTransactionService {
 
     private PullTaskExecutionDispatchResult continueOnboarding(
             PullTaskSupplementManagerWork work, long now) {
+        // 入群成功后仍停留在 MANAGER_JOIN；下一轮 prepare 会为同一账号准备提权或核验。
         PullTaskGroupExecution update = transition(work, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         update.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
@@ -353,6 +391,7 @@ public class PullTaskSupplementManagerTransactionService {
 
     private PullTaskExecutionDispatchResult advance(
             PullTaskSupplementManagerWork work, long now) {
+        // 只有补充管理员的群成员身份和管理员身份均确认后，才恢复管理员-拉手互加主链路。
         PullTaskGroupExecution update = transition(work, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         update.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
@@ -372,6 +411,7 @@ public class PullTaskSupplementManagerTransactionService {
         PullTaskExecutionDispatchResult result = transition(
                 update, PullTaskExecutionDispatchResult.DEFERRED);
         if (result != PullTaskExecutionDispatchResult.LOST) {
+            // 管理员缺口尚未解决，释放已冻结拉手，避免等待期间长期占用账号资源。
             accountMapper.releaseAllPullersOfExecution(work.executionId(), now);
         }
         return result;
@@ -416,12 +456,16 @@ public class PullTaskSupplementManagerTransactionService {
             PullTaskGroupAccount target,
             Long actionId,
             WorkSpec spec) {
+        // 协议层参数按目标账号后端生成：Android 传邀请码，Web 传带 https:// 的完整群链接。
         PullTaskSupplementManagerPayload payload = new PullTaskSupplementManagerPayload(
                 spec.operation(),
                 new PullTaskSupplementManagerPayload.Accounts(
                         spec.refs().actor(), spec.refs().target()),
                 new PullTaskSupplementManagerPayload.Group(
-                        candidate.getNormalizedLink(), candidate.getGroupJid(),
+                        PullTaskGroupJoinArgumentResolver.resolve(
+                                spec.refs().target().backend(), candidate.getNormalizedLink(),
+                                candidate.getInviteCode()),
+                        candidate.getGroupJid(),
                         spec.operationId()),
                 new PullTaskExecutionLease(candidate.getLockOwner(), candidate.getVersion()),
                 spec.verificationOnly());
@@ -510,6 +554,7 @@ public class PullTaskSupplementManagerTransactionService {
     }
 
     private static boolean needsProcessing(PullTaskGroupAccount row) {
+        // 不可用账号保留事实供排查，但不再进入调度候选集。
         if (!Objects.equals(row.getAvailabilityStatus(),
                 PullTaskGroupAccountAvailability.AVAILABLE.code())) {
             return false;

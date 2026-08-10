@@ -81,6 +81,8 @@ class PullTaskSupplementPullerTransactionIntegrationTest {
         assertThat(prepared.ready()).isTrue();
         PullTaskSupplementPullerWork work = prepared.work();
         assertThat(work.verificationOnly()).isFalse();
+        assertThat(work.joinCommand().inviteLinkOrCode())
+                .isEqualTo("https://chat.whatsapp.com/AAAA");
         assertThat(intColumn("action_status", "pull_task_account_action", 201L))
                 .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
         assertThat(intColumn("membership_status", "pull_task_group_account", 102L))
@@ -98,6 +100,18 @@ class PullTaskSupplementPullerTransactionIntegrationTest {
         assertThat(intColumn("stage", "pull_task_group_execution", 11L))
                 .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
         assertThat(stringColumn("lock_owner", "pull_task_group_execution", 11L)).isNull();
+    }
+
+    @Test
+    void androidLinkJoinUsesTheFrozenPureInviteCode() {
+        when(accountLookup.findActiveProtocolRef(902L))
+                .thenReturn(Optional.of(account(902L, ProtocolBackend.ANDROID)));
+
+        PullTaskSupplementPullerPreparation prepared = transactions.prepare(
+                executionMapper.selectById(11L), "worker", NOW);
+
+        assertThat(prepared.ready()).isTrue();
+        assertThat(prepared.work().joinCommand().inviteLinkOrCode()).isEqualTo("AAAA");
     }
 
     @Test
@@ -162,8 +176,12 @@ class PullTaskSupplementPullerTransactionIntegrationTest {
     }
 
     private static ProtocolAccountRef account(long id) {
+        return account(id, ProtocolBackend.WEB);
+    }
+
+    private static ProtocolAccountRef account(long id, ProtocolBackend backend) {
         return new ProtocolAccountRef(
-                id, ProtocolBackend.WEB, "acc-" + id, "8613800000" + id);
+                id, backend, "acc-" + id, "8613800000" + id);
     }
 
     private static String task() {
@@ -180,7 +198,9 @@ class PullTaskSupplementPullerTransactionIntegrationTest {
                 + "execution_status, stage, manual_paused, next_run_at, lock_owner, "
                 + "lock_expires_at, version, created_at, updated_at) VALUES "
                 + "(11, 7, 1, 1, 'chat.whatsapp.com/AAAA', 'AAAA', 1, 1, 'a.txt', "
-                + "'120363group@g.us', 2, 3, 0, 0, 'worker', 5000, 2, 100, 100)";
+                + "'120363group@g.us', 2, "
+                + PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
+                + ", 0, 0, 'worker', 5000, 2, 100, 100)";
     }
 
     private static String supplementPuller() {

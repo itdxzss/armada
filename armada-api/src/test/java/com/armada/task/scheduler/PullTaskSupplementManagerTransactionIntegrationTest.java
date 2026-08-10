@@ -87,6 +87,8 @@ class PullTaskSupplementManagerTransactionIntegrationTest {
         PullTaskSupplementManagerWork entryWork = entry.work();
         assertThat(entryWork.operation())
                 .isEqualTo(PullTaskSupplementManagerOperation.JOIN_BY_LINK);
+        assertThat(entryWork.joinCommand().inviteLinkOrCode())
+                .isEqualTo("https://chat.whatsapp.com/AAAA");
         assertThat(intColumn("action_status", "pull_task_account_action", 201L))
                 .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
         assertThat(intColumn("membership_status", "pull_task_group_account", 102L))
@@ -128,6 +130,20 @@ class PullTaskSupplementManagerTransactionIntegrationTest {
                 .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
         assertThat(intColumn("stage", "pull_task_group_execution", 11L))
                 .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+    }
+
+    @Test
+    void androidLinkJoinUsesTheFrozenPureInviteCode() {
+        when(accountLookup.findActiveProtocolRef(902L)).thenReturn(
+                java.util.Optional.of(account(902L, ProtocolBackend.ANDROID)));
+
+        PullTaskSupplementManagerPreparation entry = transactions.prepare(
+                executionMapper.selectById(11L), "worker", NOW);
+
+        assertThat(entry.ready()).isTrue();
+        assertThat(entry.work().operation())
+                .isEqualTo(PullTaskSupplementManagerOperation.JOIN_BY_LINK);
+        assertThat(entry.work().joinCommand().inviteLinkOrCode()).isEqualTo("AAAA");
     }
 
     @Test
@@ -185,8 +201,12 @@ class PullTaskSupplementManagerTransactionIntegrationTest {
     }
 
     private static ProtocolAccountRef account(long id) {
+        return account(id, ProtocolBackend.WEB);
+    }
+
+    private static ProtocolAccountRef account(long id, ProtocolBackend backend) {
         return new ProtocolAccountRef(
-                id, ProtocolBackend.WEB, "acc-" + id, "8613800000" + id);
+                id, backend, "acc-" + id, "8613800000" + id);
     }
 
     private static String task() {

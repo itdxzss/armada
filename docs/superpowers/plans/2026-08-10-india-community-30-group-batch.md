@@ -230,6 +230,20 @@ end
 
 `task_failure_count` 只按 `recordType == "ITEM" and status == "FAILED"` 的 JSONL 行计数。Task 2 增加并测试 `task_should_stop`，由它在失败数达到 10 时返回真，主流程据此使用退出码 `10` 停止。
 
+每次协议写成功后还必须立即追加一条 `ITEM_CHECKPOINT`，至少包含 `itemNo`、`completedStep`、`groupJid` 和 `recordedAt`：
+
+```json
+{
+  "recordType": "ITEM_CHECKPOINT",
+  "itemNo": 1,
+  "completedStep": "PROMOTE_ADMIN_1",
+  "groupJid": "120363000000000000@g.us",
+  "recordedAt": 1786330003000
+}
+```
+
+恢复执行时先查本 item 的最后检查点，只从下一步继续，禁止重放已经完成的写步骤。若群名已唯一存在但账本没有本 item 的任何检查点，只执行完整只读验证：验证通过则直接写 `SUCCESS`；验证不完整则写 `FAILED`、`failedStep=PREEXISTING_WITHOUT_CHECKPOINT`，不得猜测或补写。
+
 - [ ] **Step 8: 运行 Bash 语法检查**
 
 Run:
@@ -266,6 +280,7 @@ Expected: exit `0`，无输出。
 ```
 
 fixture 账本需包含同一群多个错误字段，但只能计一次失败；第 9 个失败后允许继续，第 10 个失败后返回停止。
+fixture 还必须包含 `CREATE`、`PROMOTE_ADMIN_1` 和 `SET_SEND_MESSAGES_TRUE` 检查点，断言恢复函数返回 `SET_ADD_MEMBERS_TRUE`，不会返回任何已完成步骤。
 
 - [ ] **Step 2: 先运行测试并确认新的停止判定测试失败**
 
@@ -393,7 +408,7 @@ Run:
   --ledger /private/tmp/armada-india-community-30-20260810-batch01.jsonl
 ```
 
-Expected: 每个 item 输出一行脱敏进度；脚本严格串行，不打印请求体或手机号。
+Expected: 每个 item 输出一行脱敏进度；每个成功写步骤先落 `ITEM_CHECKPOINT` 再进入下一步；脚本严格串行，不打印请求体或手机号。
 
 - [ ] **Step 2: 核对第一轮账本**
 
@@ -451,7 +466,7 @@ Run:
   --ledger /private/tmp/armada-india-community-30-20260810-batch01.jsonl
 ```
 
-Expected: 对已有 item 使用账本检查点，不重复执行；累计失败达到 10 时立即停止。
+Expected: 对已有 item 使用逐步骤账本检查点，从最后完成步骤的下一步恢复且不重复执行；累计失败达到 10 时立即停止。
 
 - [ ] **Step 3: 核对第二轮账本并等待 20 秒**
 

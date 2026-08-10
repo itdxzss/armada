@@ -437,13 +437,28 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
-    void groupPermissionDeniedRemovesPullerOnlyFromThisExecution() {
+    void participantPermissionResultDoesNotRemovePullerAfterBatchStarted() {
         stubAccountFailure("GROUP_PERMISSION_DENIED");
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.FAILED,
                 PullTaskParticipantExecutionState.STARTED,
                 false, "GROUP_PERMISSION_DENIED"))).isTrue();
+
+        verify(accountMapper, never()).markUnavailable(
+                anyLong(), anyInt(), any(), any(), anyLong());
+        verify(stickyPullers, never()).invalidateIfCurrent(
+                any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void accountPermissionDeniedBeforeBatchStartsRemovesPullerOnlyFromExecution() {
+        stubAccountFailure("GROUP_PERMISSION_DENIED");
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.NOT_STARTED,
+                true, "GROUP_PERMISSION_DENIED"))).isTrue();
 
         verify(accountMapper).markUnavailable(
                 61L, PullTaskGroupAccountAvailability.REMOVED.code(),

@@ -501,6 +501,10 @@ public class PullTaskPullCallParticipantResultService {
             return;
         }
         if (GROUP_PERMISSION_DENIED.equals(reasonCode)) {
+            // 已进入批量调用后的逐成员 403 可能是目标隐私限制，不能据此移除整个拉手。
+            if (callback.executionState() != PullTaskParticipantExecutionState.NOT_STARTED) {
+                return;
+            }
             markPullerUnavailable(puller, call, execution,
                     new PullerUnavailability(
                             PullTaskGroupAccountAvailability.REMOVED.code(),

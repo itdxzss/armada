@@ -479,12 +479,12 @@ test_zhuan_dry_run_invokes_no_external_commands() {
   [ ! -s "${ZHUAN_FIXTURE_COMMAND_LOG}" ] || fail "dry-run unexpectedly invoked ssh or rsync"
   assert_contains "${out}" "Zhuan 模式"
   assert_contains "${out}" "fleet / coordinator + 3 nodes"
-  assert_contains "${out}" "coordinator → 3 台 node"
+  assert_contains "${out}" "并发部署 coordinator + 3 台 node"
   assert_not_contains "${out}" "whatsapp-migrate -env prod"
   cleanup_zhuan_command_fixture
 }
 
-test_test1_zhuan_invokes_existing_fleet_orchestrator() {
+test_test1_zhuan_uses_lightweight_fleet_connectivity_check() {
   local command_log
   setup_zhuan_command_fixture
   run_zhuan_with_command_stubs --env test1 --zhuan -y >/dev/null
@@ -494,8 +494,9 @@ test_test1_zhuan_invokes_existing_fleet_orchestrator() {
   assert_contains "${command_log}" "FLEET <REPO=${ZHUAN_FIXTURE_DIR}>"
   assert_contains "${command_log}" "<KEYS_DIR=${ZHUAN_FIXTURE_FLEET_KEYS_DIR}>"
   assert_contains "${command_log}" "<NODES_CONF=${ZHUAN_FIXTURE_FLEET_CONFIG}>"
-  assert_contains "${command_log}" "<--dry-run> <all>"
+  assert_contains "${command_log}" "<--check> <all>"
   assert_contains "${command_log}" "<all>"
+  assert_not_contains "${command_log}" "<--dry-run> <all>"
   assert_not_contains "${command_log}" "RSYNC <--stats> <-rltz>"
 }
 
@@ -504,7 +505,7 @@ test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint() {
   win_content="$(cat "${WIN_SCRIPT}")"
 
   assert_contains "${win_content}" "fleet / coordinator + %s nodes"
-  assert_contains "${win_content}" 'coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node'
+  assert_contains "${win_content}" '并发部署 coordinator + ${ZHUAN_FLEET_EXPECTED_NODES} 台 node'
   assert_contains "${win_content}" "zhuan_check_connectivity"
   assert_contains "${win_content}" "zhuan_deploy_selected"
 }
@@ -976,7 +977,7 @@ test_zhuan_dry_run_is_zhuan_only() {
   assert_contains "${out}" "Zhuan 目录"
   assert_contains "${out}" "Zhuan 模式"
   assert_contains "${out}" "fleet / coordinator + 3 nodes"
-  assert_contains "${out}" "coordinator → 3 台 node"
+  assert_contains "${out}" "并发部署 coordinator + 3 台 node"
   assert_not_contains "${out}" "whatsapp-migrate -env prod"
   assert_not_contains "${out}" "后端 JDK"
   assert_not_contains "${out}" "前端构建"
@@ -1422,7 +1423,7 @@ test_deployment_metrics_summarize_zero_docker_cache_hits
 test_deployment_metrics_handles_zero_docker_steps
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload
 test_zhuan_dry_run_invokes_no_external_commands
-test_test1_zhuan_invokes_existing_fleet_orchestrator
+test_test1_zhuan_uses_lightweight_fleet_connectivity_check
 test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint
 test_windows_help_loads_profile
 test_zhuan_remote_failure_stops_before_health_check

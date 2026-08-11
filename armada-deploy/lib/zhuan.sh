@@ -115,7 +115,7 @@ zhuan_verify_fleet_health() {
 zhuan_check_connectivity() {
   case "${ZHUAN_DEPLOY_MODE}" in
     fleet)
-      zhuan_fleet_run --dry-run all >/dev/null
+      zhuan_fleet_run --check all >/dev/null
       ;;
     single)
       zhuan_ssh_run true
@@ -127,7 +127,7 @@ zhuan_check_connectivity() {
 zhuan_deploy_selected() {
   case "${ZHUAN_DEPLOY_MODE}" in
     fleet)
-      info "按 coordinator → ${ZHUAN_FLEET_EXPECTED_NODES} 台 node 滚动部署 Zhuan fleet..."
+      info "并发部署 Zhuan fleet: coordinator + ${ZHUAN_FLEET_EXPECTED_NODES} 台 node..."
       armada_capture_docker_build_output "Zhuan fleet" zhuan_fleet_run all
       info "检查 coordinator 和 ${ZHUAN_FLEET_EXPECTED_NODES} 台 Zhuan 节点..."
       zhuan_verify_fleet_health

@@ -91,6 +91,12 @@ public interface AndroidNativeClient {
             String groupJid,
             boolean membersCanAdd);
 
+    /** 使用 Android 原生接口修改群名称。 */
+    AndroidResponseEnvelope setGroupName(String wsPhone, String groupJid, String name);
+
+    /** 使用 Android 原生接口修改群头像。 */
+    AndroidResponseEnvelope setGroupPicture(String wsPhone, String groupJid, String imageBase64);
+
     /** 使用 Android 原生接口批量添加群成员。 */
     AndroidResponseEnvelope addGroupMembers(
             String wsPhone,

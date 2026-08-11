@@ -7,6 +7,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ class HttpGroupProfileAdapterTest {
                 .andRespond(withSuccess("{\"success\":true,\"groupJid\":\"120363profile@g.us\"}",
                         MediaType.APPLICATION_JSON));
 
-        port.updateSubject("acc_7", "120363profile@g.us", "新群名");
+        port.updateSubject(account(), "120363profile@g.us", "新群名");
 
         server.verify();
     }
@@ -56,7 +57,7 @@ class HttpGroupProfileAdapterTest {
                 .andRespond(withSuccess("{\"success\":true,\"groupJid\":\"120363profile@g.us\"}",
                         MediaType.APPLICATION_JSON));
 
-        port.updateDescription("acc_7", "120363profile@g.us", "群描述");
+        port.updateDescription(account(), "120363profile@g.us", "群描述");
 
         server.verify();
     }
@@ -78,7 +79,7 @@ class HttpGroupProfileAdapterTest {
                 .andRespond(withSuccess("{\"success\":true,\"groupJid\":\"120363profile@g.us\"}",
                         MediaType.APPLICATION_JSON));
 
-        port.updateAnnouncementText("acc_7", "120363profile@g.us", "群公告");
+        port.updateAnnouncementText(account(), "120363profile@g.us", "群公告");
 
         server.verify();
     }
@@ -108,7 +109,7 @@ class HttpGroupProfileAdapterTest {
                         """, MediaType.APPLICATION_JSON));
 
         GroupPictureResult result = port.updatePicture(
-                "acc_7", "120363profile@g.us", "https://cdn.example.test/group.jpg", null);
+                account(), "120363profile@g.us", "https://cdn.example.test/group.jpg", null);
 
         assertThat(result).isEqualTo(new GroupPictureResult(true, "https://pps.whatsapp.net/new.jpg"));
         server.verify();
@@ -132,7 +133,7 @@ class HttpGroupProfileAdapterTest {
                         """, true))
                 .andRespond(withSuccess("{\"success\":true}", MediaType.APPLICATION_JSON));
 
-        port.updatePicture("acc_7", "120363profile@g.us", null, "aW1hZ2U=");
+        port.updatePicture(account(), "120363profile@g.us", null, "aW1hZ2U=");
 
         server.verify();
     }
@@ -152,7 +153,7 @@ class HttpGroupProfileAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        String avatarUrl = port.getPictureUrl("acc_7", "120363profile@g.us");
+        String avatarUrl = port.getPictureUrl(account(), "120363profile@g.us");
 
         assertThat(avatarUrl).isEqualTo("https://pps.whatsapp.net/current.jpg");
         server.verify();
@@ -173,9 +174,13 @@ class HttpGroupProfileAdapterTest {
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        String avatarUrl = port.getPictureUrl("acc_7", "120363profile@g.us");
+        String avatarUrl = port.getPictureUrl(account(), "120363profile@g.us");
 
         assertThat(avatarUrl).isNull();
         server.verify();
+    }
+
+    private static ProtocolAccountRef account() {
+        return ProtocolAccountRef.legacyWeb("acc_7");
     }
 }

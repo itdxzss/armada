@@ -208,11 +208,28 @@ class GroupDetailServiceImplTest {
         service.updateSubject(10L, new GroupSubjectCommandDTO(" 新群名 "));
 
         InOrder order = inOrder(groupProfilePort, groupLinkMapper);
-        order.verify(groupProfilePort).updateSubject("acc_7", "120363detail@g.us", "新群名");
+        order.verify(groupProfilePort).updateSubject(webAccount(), "120363detail@g.us", "新群名");
         order.verify(groupLinkMapper).updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void updateSubjectPreservesSelectedAndroidProtocolReference() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
+        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
+                7L, "ANDROID", "android_7", "919000000001", true));
+        when(groupLinkMapper.updateGroupName(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq("新群名"),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+
+        service.updateSubject(10L, new GroupSubjectCommandDTO("新群名"));
+
+        verify(groupProfilePort).updateSubject(
+                androidAccount(), "120363detail@g.us", "新群名");
     }
 
     @Test
@@ -221,7 +238,7 @@ class GroupDetailServiceImplTest {
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
-                .when(groupProfilePort).updateSubject("acc_7", "120363detail@g.us", "新群名");
+                .when(groupProfilePort).updateSubject(webAccount(), "120363detail@g.us", "新群名");
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("新群名", false, false, false, false, 0));
         when(groupLinkMapper.updateGroupName(
@@ -245,7 +262,7 @@ class GroupDetailServiceImplTest {
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
-                .when(groupProfilePort).updateSubject("acc_7", "120363detail@g.us", "新群名");
+                .when(groupProfilePort).updateSubject(webAccount(), "120363detail@g.us", "新群名");
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("仍是旧群名", false, false, false, false, 0));
 
@@ -267,7 +284,7 @@ class GroupDetailServiceImplTest {
         doThrow(new ProtocolException(
                 ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
                 .when(groupProfilePort)
-                .updateSubject("acc_7", "120363detail@g.us", "新群名");
+                .updateSubject(webAccount(), "120363detail@g.us", "新群名");
 
         assertThatThrownBy(() -> service.updateSubject(
                 10L, new GroupSubjectCommandDTO("新群名")))
@@ -351,6 +368,10 @@ class GroupDetailServiceImplTest {
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", true, false, false, false, 0));
+        when(previewMapper.updateMemberAddMode(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.ADD_MEMBERS, true));
@@ -358,7 +379,34 @@ class GroupDetailServiceImplTest {
         verify(groupSettingsPort)
                 .setAddMembersAllowed(webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
+        verify(previewMapper).updateMemberAddMode(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong());
         verify(selector).require(10L);
+    }
+
+    @Test
+    void updateSendMessagesPersistsConfirmedSnapshotWithoutUiRebound() {
+        givenLiveTarget();
+        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
+                7L, "ANDROID", "android_7", "919000000001", true));
+        when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
+                .thenReturn(metadata("群名", false, true, false, false, 0));
+        when(previewMapper.updateAnnounceOnly(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+
+        service.updateSetting(10L, new GroupSettingCommandDTO(
+                GroupPermissionKey.SEND_MESSAGES, false));
+
+        verify(groupSettingsPort).setSendMessagesAllowed(
+                androidAccount(), "120363detail@g.us", false);
+        verify(previewMapper).updateAnnounceOnly(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
@@ -585,7 +633,7 @@ class GroupDetailServiceImplTest {
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
-                "acc_7", "120363detail@g.us", null, Base64.getEncoder().encodeToString(bytes)))
+                webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(bytes)))
                 .thenReturn(new GroupPictureResult(true, "https://pps.whatsapp.net/new.jpg"));
         when(previewMapper.upsertAvatarUrl(
                 org.mockito.ArgumentMatchers.eq(10L),
@@ -610,7 +658,7 @@ class GroupDetailServiceImplTest {
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
-                "acc_7", "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
+                webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
                 .thenReturn(new GroupPictureResult(true, null));
 
         GroupAvatarUpdateVO result = service.updateAvatar(10L, file);
@@ -630,9 +678,9 @@ class GroupDetailServiceImplTest {
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
-                "acc_7", "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
+                webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"));
-        when(groupProfilePort.getPictureUrl("acc_7", "120363detail@g.us"))
+        when(groupProfilePort.getPictureUrl(webAccount(), "120363detail@g.us"))
                 .thenReturn("https://pps.whatsapp.net/changed.jpg");
         when(previewMapper.upsertAvatarUrl(
                 org.mockito.ArgumentMatchers.eq(10L),
@@ -645,7 +693,7 @@ class GroupDetailServiceImplTest {
         assertThat(result.mirrorSynced()).isTrue();
         assertThat(result.avatarUrl()).isEqualTo("https://pps.whatsapp.net/changed.jpg");
         verify(selector).require(10L);
-        verify(groupProfilePort).getPictureUrl("acc_7", "120363detail@g.us");
+        verify(groupProfilePort).getPictureUrl(webAccount(), "120363detail@g.us");
     }
 
     @Test
@@ -656,9 +704,9 @@ class GroupDetailServiceImplTest {
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
-                "acc_7", "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
+                webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"));
-        when(groupProfilePort.getPictureUrl("acc_7", "120363detail@g.us"))
+        when(groupProfilePort.getPictureUrl(webAccount(), "120363detail@g.us"))
                 .thenReturn("https://pps.whatsapp.net/current.jpg");
 
         assertThatThrownBy(() -> service.updateAvatar(10L, file))

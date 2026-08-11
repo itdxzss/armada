@@ -278,6 +278,27 @@
     LIMIT #{limit}
   </select>
 
+  <!--
+    批量读取账号群基线状态,供上线命令判定协议层是否需要读取群成员明细。
+    发布链路不保证处于请求作用域,故显式按 tenant_id 过滤并在 Mapper 上关闭租户拦截器。
+    账号缺失或已软删时不返回行,调用方按基线未建立处理,退化为读取明细的保守行为。
+  -->
+  <select id="selectGroupBaselineStatesByTenantAndAccountIds"
+          resultType="com.armada.account.model.vo.AccountGroupBaselineStateRow">
+    <if test="accountIds != null and accountIds.size() &gt; 0">
+    SELECT id AS accountId,
+           group_baseline_state AS groupBaselineState
+    FROM account
+    WHERE tenant_id = #{tenantId}
+      AND deleted_at IS NULL
+      AND id IN
+    <foreach collection="accountIds" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="accountIds == null or accountIds.size() == 0">
+    SELECT NULL AS accountId, NULL AS groupBaselineState FROM account WHERE 1=0
+    </if>
+  </select>
+
   <insert id="markGroupSyncRequested">
     INSERT INTO account_group_baseline (
       account_id, baseline_group_jids, group_count, captured_at,

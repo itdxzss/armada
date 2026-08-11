@@ -1,7 +1,10 @@
 package com.armada.platform.kafka.producer;
 
 import com.armada.account.mapper.AccountCredentialMapper;
+import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.account.model.vo.AccountGroupBaselineStateRow;
 import com.armada.platform.kafka.config.ProtocolCommandPublisherProperties;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.CredentialFormat;
@@ -62,6 +65,7 @@ public class ProtocolCommandPublisher {
     private final ObjectMapper objectMapper;
     private final ProtocolCommandPublisherProperties properties;
     private final AccountCredentialMapper credentialMapper;
+    private final AccountMapper accountMapper;
     private final IpProxyMapper ipProxyMapper;
     private final ProxyResolver proxyResolver;
     private final List<ProtocolCommandPayloadHydrator> payloadHydrators;
@@ -82,6 +86,7 @@ public class ProtocolCommandPublisher {
                                     ObjectMapper objectMapper,
                                     ProtocolCommandPublisherProperties properties,
                                     AccountCredentialMapper credentialMapper,
+                                    AccountMapper accountMapper,
                                     IpProxyMapper ipProxyMapper,
                                     ProxyResolver proxyResolver,
                                     List<ProtocolCommandPayloadHydrator> payloadHydrators) {
@@ -89,6 +94,7 @@ public class ProtocolCommandPublisher {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.credentialMapper = credentialMapper;
+        this.accountMapper = accountMapper;
         this.ipProxyMapper = ipProxyMapper;
         this.proxyResolver = proxyResolver;
         this.payloadHydrators = List.copyOf(payloadHydrators);
@@ -372,12 +378,19 @@ public class ProtocolCommandPublisher {
                 .toList();
         Map<Long, AccountCredential> credentialsByAccountId = new LinkedHashMap<>();
         Map<Long, IpProxy> proxiesById = new LinkedHashMap<>();
+        Map<Long, Boolean> baselineReadyByAccountId = new LinkedHashMap<>();
         try {
             for (AccountCredential credential : credentialMapper.selectByTenantAndAccountIds(tenantId, accountIds)) {
                 credentialsByAccountId.put(credential.getAccountId(), credential);
             }
             for (IpProxy proxy : ipProxyMapper.selectActiveByTenantAndIds(tenantId, proxyIds)) {
                 proxiesById.put(proxy.getId(), proxy);
+            }
+            for (AccountGroupBaselineStateRow row
+                    : accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(tenantId, accountIds)) {
+                if (row.accountId() != null) {
+                    baselineReadyByAccountId.put(row.accountId(), groupBaselineReady(row.groupBaselineState()));
+                }
             }
         } catch (RuntimeException ex) {
             for (OnlineRowRef ref : refs) {
@@ -410,11 +423,26 @@ public class ProtocolCommandPublisher {
                                 ref.source(),
                                 ref.onlineAttemptId(),
                                 ref.previousOnlineAttemptId(),
-                                ref.protocolBackend()))));
+                                ref.protocolBackend(),
+                                baselineReadyByAccountId.getOrDefault(ref.accountId(), false)))));
             } catch (RuntimeException ex) {
                 failures.put(commandKey(ref.row()), ex);
             }
         }
+    }
+
+    /**
+     * 判定账号群基线是否已建立,决定协议层上线快照是否可以跳过群成员明细。
+     *
+     * <p>与 {@code selectGroupSyncCandidates} 保持同一约定:已拍(CAPTURED)与已停用(DISABLED)
+     * 都视为基线已定,只有待拍(PENDING)以及历史空值需要读取明细一次性建立底数。</p>
+     *
+     * @param groupBaselineState 群基线状态码,可空
+     * @return 基线已建立返回 true
+     */
+    private static boolean groupBaselineReady(Integer groupBaselineState) {
+        return groupBaselineState != null
+                && groupBaselineState != AccountGroupBaselineStateCode.PENDING;
     }
 
     private OnlineRowRef onlineRef(ProtocolCommandOutbox row, JsonNode payload) {
@@ -630,7 +658,14 @@ public class ProtocolCommandPublisher {
             String onlineAttemptId,
             @JsonInclude(JsonInclude.Include.ALWAYS)
             String previousOnlineAttemptId,
-            String protocolBackend
+            String protocolBackend,
+            /*
+             * 群基线已建立时,协议层上线快照不再读取群成员明细,改由 <group> 的建群人属性判定角色。
+             * 字段取"已就绪"语义:协议层收不到该字段时零值 false 退化为读取明细的旧行为,
+             * 只多花流量,不会漏建基线。
+             */
+            @JsonInclude(JsonInclude.Include.ALWAYS)
+            boolean groupBaselineReady
     ) {
     }
 }

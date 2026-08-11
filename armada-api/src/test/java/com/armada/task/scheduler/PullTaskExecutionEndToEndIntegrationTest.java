@@ -603,10 +603,13 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerJoinTransactionService transactions =
                     new PullTaskManagerJoinTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
+            PullTaskManagerJoinProtocolExecutor protocolExecutor =
+                    new PullTaskManagerJoinProtocolExecutor(
+                            joinPort, mock(com.armada.group.service.GroupInviteLinkService.class));
             return new PullTaskManagerJoinProcessor(
                     executionTransactions, transactions,
                     mock(PullTaskSupplementManagerProcessor.class),
-                    joinPort, memberQueryAwaitService);
+                    protocolExecutor, memberQueryAwaitService);
         }
 
         @Bean com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService() {
@@ -622,7 +625,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskManagerJoinResultServiceImpl(
                     actionMapper, accountMapper, executionMapper, completionService, properties,
-                    delayPolicy);
+                    delayPolicy, mock(com.armada.group.service.GroupInviteLinkService.class));
         }
 
         @Bean PullTaskManagerAdminResultService managerAdminResultService(

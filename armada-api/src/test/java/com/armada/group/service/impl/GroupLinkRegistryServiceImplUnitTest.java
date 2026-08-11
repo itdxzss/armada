@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
@@ -26,10 +27,14 @@ class GroupLinkRegistryServiceImplUnitTest {
     @Mock
     private AccountGroupMembershipMapper membershipMapper;
 
+    @Mock
+    private GroupLinkPreviewMapper previewMapper;
+
     @Test
     void registerAccountObservedGroupRevivesArchivedGroupLinkMatchedByJid() {
         GroupLinkRegistryServiceImpl service =
-                new GroupLinkRegistryServiceImpl(groupLinkMapper, membershipMapper);
+                new GroupLinkRegistryServiceImpl(
+                        groupLinkMapper, membershipMapper, previewMapper);
         when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363001@g.us"))
                 .thenReturn(88L);
 
@@ -44,7 +49,8 @@ class GroupLinkRegistryServiceImplUnitTest {
     @Test
     void registerAccountObservedGroupAtomicallyCreatesOrReusesDerivedLink() {
         GroupLinkRegistryServiceImpl service =
-                new GroupLinkRegistryServiceImpl(groupLinkMapper, membershipMapper);
+                new GroupLinkRegistryServiceImpl(
+                        groupLinkMapper, membershipMapper, previewMapper);
         when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363002@g.us"))
                 .thenReturn(null);
         org.mockito.Mockito.doReturn(1).when(groupLinkMapper).upsertAccountObservedGroup(

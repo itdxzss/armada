@@ -8,11 +8,14 @@ import static org.mockito.Mockito.when;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.service.GroupInviteLinkService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /** 群 metadata 快照事务持久化单测。 */
@@ -27,6 +30,9 @@ class GroupMetadataSnapshotPersistenceImplTest {
 
     @Mock
     private GroupLinkMapper groupLinkMapper;
+
+    @Mock
+    private GroupInviteLinkService inviteLinkService;
 
     @Test
     void freshMetadataMirrorsWhatsappSubjectToGroupListName() {
@@ -69,8 +75,31 @@ class GroupMetadataSnapshotPersistenceImplTest {
                 org.mockito.ArgumentMatchers.anyLong());
     }
 
+    @Test
+    void metadataInviteUsesThePublicCurrentInviteWriter() {
+        GroupLinkPreview preview = preview("群名");
+        preview.setGroupJid("120363history@g.us");
+        preview.setInviteCode("current-invite");
+        preview.setMetadataObservedAt(2_000L);
+        when(previewMapper.upsertMetadataSnapshot(preview)).thenReturn(1);
+
+        assertThat(service().persist(preview, List.of())).isTrue();
+
+        ArgumentCaptor<GroupInviteLinkObservation> observation =
+                ArgumentCaptor.forClass(GroupInviteLinkObservation.class);
+        verify(inviteLinkService).applyCurrentInvite(observation.capture());
+        assertThat(observation.getValue()).satisfies(value -> {
+            assertThat(value.groupLinkId()).isEqualTo(10L);
+            assertThat(value.groupJid()).isEqualTo("120363history@g.us");
+            assertThat(value.inviteCode()).isEqualTo("current-invite");
+            assertThat(value.source()).isEqualTo("GROUP_METADATA_SYNC");
+            assertThat(value.observedAt()).isEqualTo(2_000L);
+        });
+    }
+
     private GroupMetadataSnapshotPersistenceImpl service() {
-        return new GroupMetadataSnapshotPersistenceImpl(previewMapper, memberMapper, groupLinkMapper);
+        return new GroupMetadataSnapshotPersistenceImpl(
+                previewMapper, memberMapper, groupLinkMapper, inviteLinkService);
     }
 
     private static GroupLinkPreview preview(String subject) {

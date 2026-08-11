@@ -22,6 +22,12 @@ final class PullTaskGroupJoinArgumentResolver {
         };
     }
 
+    /** 把当前邀请码转换为协议后端要求的进群参数，不复用执行行中的冻结旧链接。 */
+    static String resolveCurrentInviteCode(ProtocolBackend backend, String inviteCode) {
+        String code = requireText(inviteCode, "群邀请码");
+        return resolve(backend, "chat.whatsapp.com/" + code, code);
+    }
+
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + "不能为空");

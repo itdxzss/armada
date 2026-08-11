@@ -44,6 +44,40 @@
       updated_at = VALUES(updated_at)
   </insert>
 
+  <update id="updateAvailableFromInviteObservation">
+    UPDATE group_link_health
+    SET health_status = CASE
+          WHEN COALESCE(is_banned, 0) = 0 THEN #{healthStatus}
+          ELSE health_status
+        END,
+        is_banned = is_banned,
+        last_health_error = CASE
+          WHEN COALESCE(is_banned, 0) = 0 THEN #{lastHealthError}
+          ELSE last_health_error
+        END,
+        health_failure_count = CASE
+          WHEN COALESCE(is_banned, 0) = 0 THEN #{healthFailureCount}
+          ELSE health_failure_count
+        END,
+        last_check_at = #{lastCheckAt},
+        updated_at = #{updatedAt}
+    WHERE group_link_id = #{groupLinkId}
+      AND (last_check_at IS NULL OR last_check_at &lt;= #{lastCheckAt})
+  </update>
+
+  <insert id="insertAvailableFromInviteObservationIfAbsent"
+          useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_link_health (
+      group_link_id, health_status, is_banned, current_count, last_check_at,
+      last_health_error, health_failure_count, created_at, updated_at
+    ) VALUES (
+      #{groupLinkId}, #{healthStatus}, #{banned}, #{currentCount}, #{lastCheckAt},
+      #{lastHealthError}, #{healthFailureCount}, #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      group_link_id = group_link_id
+  </insert>
+
   <select id="selectExistingGroupLinkIds" resultType="long">
     SELECT group_link_id
     FROM group_link_health

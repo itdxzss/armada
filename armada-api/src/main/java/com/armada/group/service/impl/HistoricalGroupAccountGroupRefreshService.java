@@ -2,9 +2,10 @@ package com.armada.group.service.impl;
 
 import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.service.AccountProtocolLookupService;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.HistoricalGroupProtocolPorts;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -34,7 +35,7 @@ public class HistoricalGroupAccountGroupRefreshService {
     private final AccountProtocolLookupService accountLookupService;
     private final HistoricalGroupProtocolPorts protocolPorts;
     private final AccountGroupMembershipSnapshotService snapshotService;
-    private final GroupLinkPreviewMapper previewMapper;
+    private final GroupInviteLinkService inviteLinkService;
 
     /**
      * 创建账号组历史群实时同步服务。
@@ -43,19 +44,19 @@ public class HistoricalGroupAccountGroupRefreshService {
      * @param accountLookupService 账号协议身份查询服务
      * @param protocolPorts 历史群协议能力集合
      * @param snapshotService 账号群快照写入服务
-     * @param previewMapper 群预览数据访问
+     * @param inviteLinkService 当前群邀请链接事实服务
      */
     public HistoricalGroupAccountGroupRefreshService(
             AccountGroupMapper accountGroupMapper,
             AccountProtocolLookupService accountLookupService,
             HistoricalGroupProtocolPorts protocolPorts,
             AccountGroupMembershipSnapshotService snapshotService,
-            GroupLinkPreviewMapper previewMapper) {
+            GroupInviteLinkService inviteLinkService) {
         this.accountGroupMapper = accountGroupMapper;
         this.accountLookupService = accountLookupService;
         this.protocolPorts = protocolPorts;
         this.snapshotService = snapshotService;
-        this.previewMapper = previewMapper;
+        this.inviteLinkService = inviteLinkService;
     }
 
     /**
@@ -178,7 +179,12 @@ public class HistoricalGroupAccountGroupRefreshService {
                         entry.getValue(), entry.getKey());
                 String inviteCode = inviteCode(invite);
                 if (inviteCode != null) {
-                    previewMapper.updateInviteCodeByGroupJid(entry.getKey(), inviteCode, now);
+                    ProtocolAccountRef account = entry.getValue();
+                    inviteLinkService.applyCurrentInvite(new GroupInviteLinkObservation(
+                            "historical-refresh:" + account.armadaAccountId()
+                                    + ":" + entry.getKey() + ":" + now,
+                            null, entry.getKey(), inviteCode,
+                            account.backend(), SOURCE, now));
                 }
             } catch (ProtocolException ex) {
                 log.warn("历史群邀请链接刷新失败 accountId={} reasonCode={} httpStatus={}",

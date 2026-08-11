@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -42,9 +43,10 @@ class PullTaskManagerJoinResultServiceImplTest {
     private final PullTaskParentCompletionService completionService = mock(PullTaskParentCompletionService.class);
     private final PullTaskExecutionDispatchProperties properties = properties();
     private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
+    private final GroupInviteLinkService inviteLinkService = mock(GroupInviteLinkService.class);
     private final PullTaskManagerJoinResultServiceImpl service = new PullTaskManagerJoinResultServiceImpl(
             actionMapper, accountMapper, executionMapper, completionService, properties,
-            delayPolicy);
+            delayPolicy, inviteLinkService);
 
     @AfterEach
     void clearTenant() {
@@ -85,6 +87,7 @@ class PullTaskManagerJoinResultServiceImplTest {
                 .isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
         assertThat(executionTransition.getValue().target().nextRunAt()).isEqualTo(9_000L);
         assertThat(executionTransition.getValue().target().groupJid()).isEqualTo("120363group@g.us");
+        verify(inviteLinkService).bindGroupJid(51L, "120363group@g.us", 5_000L);
         assertThat(TenantContext.get()).isNull();
     }
 
@@ -149,7 +152,7 @@ class PullTaskManagerJoinResultServiceImplTest {
     }
 
     @Test
-    void permanentInviteFailureFailsTheExecutionWithAStableChineseReason() {
+    void revokedInviteSchedulesOneCurrentLinkRecoveryBeforeFailingTheExecution() {
         stubOpenFacts();
 
         boolean handled = service.apply(new PullTaskManagerJoinCallback(
@@ -162,11 +165,14 @@ class PullTaskManagerJoinResultServiceImplTest {
                 ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
         verify(executionMapper).transitionManagerJoinResult(transition.capture());
         assertThat(transition.getValue().target().executionStatus())
-                .isEqualTo(PullTaskExecutionStatus.FAILED.code());
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(transition.getValue().target().stage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
         assertThat(transition.getValue().target().reasonCode()).isEqualTo("INVITE_REVOKED");
         assertThat(transition.getValue().target().reasonMessage())
                 .isEqualTo("群邀请链接已失效");
-        verify(completionService).completeIfTerminalByExecutionId(11L, 5_000L);
+        assertThat(transition.getValue().target().nextRunAt()).isEqualTo(35_000L);
+        verify(completionService, never()).completeIfTerminalByExecutionId(anyLong(), anyLong());
     }
 
     @Test
@@ -269,6 +275,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setId(11L);
         row.setTaskId(100L);
+        row.setGroupLinkId(51L);
         row.setVersion(3);
         row.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());

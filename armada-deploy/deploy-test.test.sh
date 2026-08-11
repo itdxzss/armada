@@ -95,6 +95,43 @@ BUILD
   assert_contains "${out}" "Docker zhuan-image: cache=2/4 (50%)"
 }
 
+test_deployment_metrics_summarize_zero_docker_cache_hits() {
+  local build_log metrics_log out
+  build_log="$(mktemp)"
+  metrics_log="$(mktemp)"
+  # shellcheck source=/dev/null
+  . "${COMMON_LIB}"
+  armada_init_colors
+
+  cat >"${build_log}" <<'BUILD'
+#1 [internal] load build definition from Dockerfile
+#1 DONE 0.0s
+#2 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#2 DONE 1.0s
+BUILD
+  armada_metrics_init "${metrics_log}"
+  armada_metrics_record_docker_cache "zhuan-image" "${build_log}"
+  out="$(print_deployment_metrics_summary)"
+  rm -f "${build_log}" "${metrics_log}"
+
+  assert_contains "${out}" "Docker zhuan-image: cache=0/2 (0%)"
+}
+
+test_deployment_metrics_handles_zero_docker_steps() {
+  local metrics_log out
+  metrics_log="$(mktemp)"
+  # shellcheck source=/dev/null
+  . "${COMMON_LIB}"
+  armada_init_colors
+
+  armada_metrics_init "${metrics_log}"
+  printf 'docker\tzhuan-image\t0\t0\n' >>"${metrics_log}"
+  out="$(print_deployment_metrics_summary)"
+  rm -f "${metrics_log}"
+
+  assert_contains "${out}" "Docker zhuan-image: cache=0/0 (n/a)"
+}
+
 test_backend_jar_resolution_requires_one_executable_jar() {
   local fixture resolved
   fixture="$(mktemp -d)"
@@ -1381,6 +1418,8 @@ test_assert_contains_handles_large_haystack
 test_deployment_metrics_summarize_stage_duration
 test_deployment_metrics_summarize_rsync_transfer
 test_deployment_metrics_summarize_docker_cache
+test_deployment_metrics_summarize_zero_docker_cache_hits
+test_deployment_metrics_handles_zero_docker_steps
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload
 test_zhuan_dry_run_invokes_no_external_commands
 test_test1_zhuan_invokes_existing_fleet_orchestrator

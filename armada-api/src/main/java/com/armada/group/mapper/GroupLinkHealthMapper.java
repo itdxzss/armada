@@ -31,6 +31,24 @@ public interface GroupLinkHealthMapper {
     int upsertFromAccountGroupSync(GroupLinkHealth row);
 
     /**
+     * 按观察时间更新当前邀请码对应的可用状态。
+     *
+     * <p>只有观测时间不早于已有健康事实时才恢复链接可用；已有封禁事实不会被邀请码事件解除。</p>
+     *
+     * @param row 可用健康状态行
+     * @return 影响行数
+     */
+    int updateAvailableFromInviteObservation(GroupLinkHealth row);
+
+    /**
+     * 仅在健康状态不存在时插入邀请码观测得出的可用事实。
+     *
+     * @param row 可用健康状态行
+     * @return 影响行数
+     */
+    int insertAvailableFromInviteObservationIfAbsent(GroupLinkHealth row);
+
+    /**
      * 批量查询已存在的群健康状态主键。
      *
      * <p>使用普通一致性读区分存量行与新增行，避免在 RR 下先对不存在的唯一键执行 UPDATE

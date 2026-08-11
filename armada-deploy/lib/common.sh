@@ -172,7 +172,7 @@ armada_metrics_record_docker_cache() {
         total++
         if (cached[step]) hits++
       }
-      if (total > 0) print hits "\t" total
+      if (total > 0) print (hits + 0) "\t" total
     }
   ' "${metrics_log}")"
   [ -n "${cache_steps}" ] || return 0
@@ -288,7 +288,7 @@ armada_capture_docker_build_output() {
 }
 
 print_deployment_metrics_summary() {
-  local bytes cache_hits cache_steps changed_files duration_seconds exit_code label record_type scanned_files status transferred_bytes
+  local bytes cache_hits cache_percent cache_steps changed_files duration_seconds exit_code label record_type scanned_files status transferred_bytes
   armada_metrics_is_active || return 0
   [ -s "${ARMADA_DEPLOY_METRICS_FILE}" ] || return 0
 
@@ -314,8 +314,13 @@ print_deployment_metrics_summary() {
       docker)
         cache_hits="${duration_seconds}"
         cache_steps="${exit_code}"
-        printf '  Docker %s: cache=%s/%s (%s%%)\n' \
-          "${label}" "${cache_hits}" "${cache_steps}" "$((cache_hits * 100 / cache_steps))"
+        if [[ "${cache_hits}" =~ ^[0-9]+$ && "${cache_steps}" =~ ^[1-9][0-9]*$ ]]; then
+          cache_percent="$((cache_hits * 100 / cache_steps))%"
+        else
+          cache_percent="n/a"
+        fi
+        printf '  Docker %s: cache=%s/%s (%s)\n' \
+          "${label}" "${cache_hits}" "${cache_steps}" "${cache_percent}"
         ;;
     esac
   done <"${ARMADA_DEPLOY_METRICS_FILE}"

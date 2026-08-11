@@ -97,6 +97,19 @@ class GroupFolderMapperInMemoryTest {
     }
 
     @Test
+    void usableLinksPreferObservedCurrentInviteForImportedEntry() throws SQLException {
+        GroupFolder folder = folder("轮换链接群", 100L);
+        mapper.insert(folder);
+        insertLink(1L, 7L, folder.getId(),
+                "chat.whatsapp.com/OriginalInviteCode001", null);
+        insertPreview(1L, 7L, 1L, "CurrentInviteCode0002");
+        insertHealth(1L, 7L, 1L, 1, 0);
+
+        assertThat(mapper.selectUsableLinks(folder.getId()))
+                .containsExactly("chat.whatsapp.com/CurrentInviteCode0002");
+    }
+
+    @Test
     void usableLinksExcludeInternalGroupEntryWithoutInviteCode() throws SQLException {
         GroupFolder folder = folder("缺少邀请码", 100L);
         mapper.insert(folder);

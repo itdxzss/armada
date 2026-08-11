@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -44,16 +45,22 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     /** 账号在群关系及群信息快照数据访问。 */
     private final AccountGroupMembershipMapper membershipMapper;
 
+    /** 当前邀请码到原群入口的数据访问。 */
+    private final GroupLinkPreviewMapper previewMapper;
+
     /**
      * 创建群组池登记服务。
      *
      * @param groupLinkMapper 群入口数据访问
      * @param membershipMapper 账号在群关系及群信息快照数据访问
+     * @param previewMapper 当前邀请码事实数据访问
      */
     public GroupLinkRegistryServiceImpl(GroupLinkMapper groupLinkMapper,
-                                        AccountGroupMembershipMapper membershipMapper) {
+                                        AccountGroupMembershipMapper membershipMapper,
+                                        GroupLinkPreviewMapper previewMapper) {
         this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
+        this.previewMapper = previewMapper;
     }
 
     /**
@@ -150,6 +157,11 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
      * @return 复用、复活或新建后的 {@code group_link.id}
      */
     private Long registerOne(String url, long now, GroupLinkOrigin origin) {
+        Long currentInviteGroupLinkId = previewMapper.selectActiveGroupLinkIdByInviteCode(
+                inviteCode(url));
+        if (currentInviteGroupLinkId != null && currentInviteGroupLinkId > 0) {
+            return currentInviteGroupLinkId;
+        }
         GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
         if (existing == null) {
             // 全新链接:作为任务目标进入群组池,但不归入任何导入链接分组。
@@ -168,6 +180,10 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         }
         // 已存在且活跃时故意不改:origin 是首次入池来源,membership_state 只能由后续状态回写升级。
         return existing.getId();
+    }
+
+    private static String inviteCode(String normalizedUrl) {
+        return normalizedUrl.substring(normalizedUrl.lastIndexOf('/') + 1);
     }
 
     /**

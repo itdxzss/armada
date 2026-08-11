@@ -33,19 +33,13 @@
 
   <insert id="upsertMetadataSnapshot" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_link_preview (
-      group_link_id, group_jid, invite_code, invite_code_observed_at,
-      wa_subject, wa_description, member_size,
+      group_link_id, group_jid, wa_subject, wa_description, member_size,
       owner_phone, announce_only, admin_only_edit_info, member_add_mode, join_approval_mode,
       ephemeral_duration_seconds, group_created_at, creator_country_iso2,
       creator_continent_code, avatar_url, last_preview_at, metadata_observed_at,
       created_at, updated_at
     ) VALUES (
-      #{groupLinkId}, #{groupJid}, #{inviteCode},
-      CASE
-        WHEN NULLIF(TRIM(#{inviteCode}), '') IS NOT NULL THEN #{metadataObservedAt}
-        ELSE NULL
-      END,
-      #{waSubject}, #{waDescription}, #{memberSize},
+      #{groupLinkId}, #{groupJid}, #{waSubject}, #{waDescription}, #{memberSize},
       #{ownerPhone}, #{announceOnly}, #{adminOnlyEditInfo}, #{memberAddMode}, #{joinApprovalMode},
       #{ephemeralDurationSeconds}, #{groupCreatedAt}, #{creatorCountryIso2},
       #{creatorContinentCode}, #{avatarUrl}, #{lastPreviewAt}, #{metadataObservedAt},
@@ -56,18 +50,6 @@
         WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
           THEN COALESCE(NULLIF(TRIM(VALUES(group_jid)), ''), group_jid)
         ELSE group_jid
-      END,
-      invite_code = CASE
-        WHEN NULLIF(TRIM(VALUES(invite_code)), '') IS NOT NULL
-          AND #{metadataObservedAt} &gt;= COALESCE(invite_code_observed_at, 0)
-          THEN COALESCE(NULLIF(TRIM(VALUES(invite_code)), ''), invite_code)
-        ELSE invite_code
-      END,
-      invite_code_observed_at = CASE
-        WHEN NULLIF(TRIM(VALUES(invite_code)), '') IS NOT NULL
-          AND #{metadataObservedAt} &gt;= COALESCE(invite_code_observed_at, 0)
-          THEN #{metadataObservedAt}
-        ELSE invite_code_observed_at
       END,
       wa_subject = CASE
         WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
@@ -209,6 +191,14 @@
       )
   </insert>
 
+  <insert id="upsertGroupJidBinding" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_link_preview (group_link_id, group_jid, created_at, updated_at)
+    VALUES (#{groupLinkId}, #{groupJid}, #{createdAt}, #{updatedAt})
+    ON DUPLICATE KEY UPDATE
+      group_jid = COALESCE(NULLIF(TRIM(VALUES(group_jid)), ''), group_jid),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
   <insert id="upsertAvatarUrl">
     INSERT INTO group_link_preview (group_link_id, avatar_url, created_at, updated_at)
     VALUES (#{groupLinkId}, #{avatarUrl}, #{updatedAt}, #{updatedAt})
@@ -224,23 +214,16 @@
     LIMIT 1
   </select>
 
-  <update id="updateInviteCodeByGroupJid">
-    UPDATE group_link_preview
-    SET invite_code = CASE
-          WHEN #{updatedAt} &gt;= COALESCE(invite_code_observed_at, 0)
-            THEN #{inviteCode}
-          ELSE invite_code
-        END,
-        updated_at = CASE
-          WHEN #{updatedAt} &gt;= COALESCE(invite_code_observed_at, 0)
-            THEN GREATEST(updated_at, #{updatedAt})
-          ELSE updated_at
-        END,
-        invite_code_observed_at = GREATEST(
-          COALESCE(invite_code_observed_at, 0),
-          #{updatedAt}
-        )
-    WHERE group_jid = #{groupJid}
-  </update>
+  <select id="selectActiveGroupLinkIdByInviteCode" resultType="long">
+    SELECT p.group_link_id
+    FROM group_link_preview p
+    INNER JOIN group_link g
+      ON g.tenant_id = p.tenant_id
+     AND g.id = p.group_link_id
+     AND g.deleted_at IS NULL
+    WHERE p.invite_code = #{inviteCode}
+    ORDER BY COALESCE(p.invite_code_observed_at, 0) DESC, p.id DESC
+    LIMIT 1
+  </select>
 
 </mapper>

@@ -41,6 +41,14 @@ public interface GroupLinkPreviewMapper {
     int upsertInviteLinkChange(GroupLinkPreview row);
 
     /**
+     * 幂等绑定原群入口与 WhatsApp 群 JID，不修改当前邀请码和健康状态。
+     *
+     * @param row 群入口、群 JID 与观察时间
+     * @return 影响行数
+     */
+    int upsertGroupJidBinding(GroupLinkPreview row);
+
+    /**
      * 仅更新运营侧头像 URL,不覆盖协议层预览快照字段。
      *
      * @param groupLinkId 群链接 ID
@@ -61,14 +69,11 @@ public interface GroupLinkPreviewMapper {
     GroupLinkPreview selectByGroupLinkId(@Param("groupLinkId") Long groupLinkId);
 
     /**
-     * 按群 JID 保存最新邀请码,不覆盖其它群预览字段。
+     * 按当前邀请码查询仍活跃的原群入口，避免链接轮换后登记出重复群。
      *
-     * @param groupJid WhatsApp 群 JID
      * @param inviteCode 当前邀请码
-     * @param updatedAt 更新时间(epoch 毫秒)
-     * @return 影响行数
+     * @return 原群入口 ID；未匹配时返回 null
      */
-    int updateInviteCodeByGroupJid(@Param("groupJid") String groupJid,
-                                   @Param("inviteCode") String inviteCode,
-                                   @Param("updatedAt") long updatedAt);
+    Long selectActiveGroupLinkIdByInviteCode(@Param("inviteCode") String inviteCode);
+
 }

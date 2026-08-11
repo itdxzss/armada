@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.model.dto.HistoricalGroupParticipantActionDTO;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.enums.HistoricalGroupMembershipState;
 import com.armada.group.model.enums.HistoricalGroupSelfRole;
 import com.armada.group.model.enums.RoleCategory;
@@ -8,6 +9,7 @@ import com.armada.group.model.enums.SpeechState;
 import com.armada.group.model.vo.HistoricalGroupDetailVO;
 import com.armada.group.model.vo.HistoricalGroupParticipantActionVO;
 import com.armada.group.service.HistoricalGroupExecutionAccountSelector;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.HistoricalGroupProtocolPorts;
 import com.armada.group.service.HistoricalGroupService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
@@ -47,22 +49,29 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     private static final String PARTICIPANT_SELF_PROTECTED = "SELF_PROTECTED";
     private static final String PARTICIPANT_OWNER_PROTECTED = "OWNER_PROTECTED";
     private static final String PARTICIPANT_ROLE_MISMATCH = "ROLE_MISMATCH";
+    private static final String DETAIL_INVITE_SOURCE = "HISTORICAL_GROUP_DETAIL";
+    private static final String PARTICIPANT_ACTION_INVITE_SOURCE =
+            "HISTORICAL_GROUP_PARTICIPANT_ACTION";
     private static final int PARTICIPANT_BATCH_MAX_SIZE = 50;
 
     private final HistoricalGroupProtocolPorts protocolPorts;
     private final HistoricalGroupExecutionAccountSelector executionAccountSelector;
+    private final GroupInviteLinkService inviteLinkService;
 
     /**
      * 创建账号组维度历史群服务。
      *
      * @param protocolPorts 历史群协议端口组合
      * @param executionAccountSelector 账号组历史群管理员选择器
+     * @param inviteLinkService 当前群邀请链接事实服务
      */
     public HistoricalGroupServiceImpl(
             HistoricalGroupProtocolPorts protocolPorts,
-            HistoricalGroupExecutionAccountSelector executionAccountSelector) {
+            HistoricalGroupExecutionAccountSelector executionAccountSelector,
+            GroupInviteLinkService inviteLinkService) {
         this.protocolPorts = protocolPorts;
         this.executionAccountSelector = executionAccountSelector;
+        this.inviteLinkService = inviteLinkService;
     }
 
     /**
@@ -143,6 +152,7 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
     private InviteLookup readDetailInvite(ProtocolAccountRef account, String groupJid) {
         try {
             GroupInviteResult invite = protocolPorts.invite().getInvite(account, groupJid);
+            observeCurrentInvite(account, groupJid, invite, DETAIL_INVITE_SOURCE);
             String inviteUrl = invite == null ? null : blankToNull(invite.inviteUrl());
             return inviteUrl == null
                     ? new InviteLookup(null, ProtocolErrorCode.INVALID_GROUP_LINK.name(), INVITE_UNAVAILABLE_REASON)
@@ -360,6 +370,40 @@ public class HistoricalGroupServiceImpl implements HistoricalGroupService {
         if (invite == null || blankToNull(invite.inviteUrl()) == null) {
             throw new BusinessException(ErrorCode.VALIDATION, INVITE_UNAVAILABLE_REASON);
         }
+        observeCurrentInvite(account, groupJid, invite, PARTICIPANT_ACTION_INVITE_SOURCE);
+    }
+
+    private void observeCurrentInvite(
+            ProtocolAccountRef account,
+            String groupJid,
+            GroupInviteResult invite,
+            String source) {
+        String inviteCode = inviteCode(invite);
+        if (inviteCode == null) {
+            return;
+        }
+        long observedAt = System.currentTimeMillis();
+        inviteLinkService.applyCurrentInvite(new GroupInviteLinkObservation(
+                "historical-group:" + account.armadaAccountId() + ":" + observedAt,
+                null, groupJid, inviteCode, account.backend(), source, observedAt));
+    }
+
+    private static String inviteCode(GroupInviteResult invite) {
+        if (invite == null) {
+            return null;
+        }
+        String code = blankToNull(invite.inviteCode());
+        if (code != null) {
+            return code;
+        }
+        String url = blankToNull(invite.inviteUrl());
+        if (url == null) {
+            return null;
+        }
+        int slash = url.lastIndexOf('/');
+        return slash < 0 || slash == url.length() - 1
+                ? null
+                : blankToNull(url.substring(slash + 1));
     }
 
     private static List<String> requireParticipantJids(HistoricalGroupParticipantActionDTO dto) {

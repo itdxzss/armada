@@ -133,7 +133,7 @@
 
   <select id="selectUsableLinks" resultType="string">
     SELECT CASE
-             WHEN g.link_url LIKE 'wa://group/%'
+             WHEN NULLIF(TRIM(p.invite_code), '') IS NOT NULL
                THEN CONCAT('chat.whatsapp.com/', TRIM(p.invite_code))
              ELSE g.link_url
            END

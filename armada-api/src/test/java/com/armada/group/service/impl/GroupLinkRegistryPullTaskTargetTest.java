@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
@@ -32,6 +33,9 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     @Mock
     private AccountGroupMembershipMapper membershipMapper;
+
+    @Mock
+    private GroupLinkPreviewMapper previewMapper;
 
     @Test
     void insertsNewLinkAsPullTaskTargetAndReturnsGeneratedId() {
@@ -60,6 +64,18 @@ class GroupLinkRegistryPullTaskTargetTest {
 
         verify(groupLinkMapper, never()).insert(any(GroupLink.class));
         verify(groupLinkMapper, never()).reviveAsStandaloneTarget(anyLong(), anyLong());
+    }
+
+    @Test
+    void currentObservedInviteReusesTheOriginalGroupEntry() {
+        when(previewMapper.selectActiveGroupLinkIdByInviteCode(
+                "BBBBBBBBBBBBBBBBBBBBBB")).thenReturn(55L);
+
+        assertThat(service().registerPullTaskTargets(List.of(LINK_B), 1000L))
+                .containsEntry(LINK_B, 55L);
+
+        verify(groupLinkMapper, never()).selectAnyByUrl(LINK_B);
+        verify(groupLinkMapper, never()).insert(any(GroupLink.class));
     }
 
     @Test
@@ -109,7 +125,8 @@ class GroupLinkRegistryPullTaskTargetTest {
     }
 
     private GroupLinkRegistryServiceImpl service() {
-        return new GroupLinkRegistryServiceImpl(groupLinkMapper, membershipMapper);
+        return new GroupLinkRegistryServiceImpl(
+                groupLinkMapper, membershipMapper, previewMapper);
     }
 
     private static GroupLink activeLink(long id) {

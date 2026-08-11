@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -44,6 +45,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
     private static final Set<String> EXECUTION_FAILURE_CODES = Set.of(
             "INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE");
+    private static final Set<String> RECOVERABLE_INVITE_FAILURE_CODES = Set.of(
+            "INVITE_INVALID", "INVITE_REVOKED");
     private static final Set<String> MANAGER_FAILURE_CODES = Set.of(
             "ACCOUNT_NOT_FOUND", "ACCOUNT_NOT_ONLINE", "NEED_REAUTH",
             "ACCOUNT_REACHOUT_RESTRICTED", "GROUP_JOIN_REJECTED");
@@ -54,6 +57,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
     private final PullTaskParentCompletionService completionService;
     private final PullTaskExecutionDispatchProperties properties;
     private final PullTaskOperationDelayPolicy delayPolicy;
+    private final GroupInviteLinkService inviteLinkService;
 
     /**
      * 创建管理员踩链接结果状态机。
@@ -63,6 +67,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
      * @param executionMapper 执行行 Mapper
      * @param completionService 父任务终态聚合服务
      * @param properties 调度重试配置
+     * @param delayPolicy 协议动作间隔策略
+     * @param inviteLinkService 当前群邀请链接事实服务
      */
     public PullTaskManagerJoinResultServiceImpl(
             PullTaskAccountActionMapper actionMapper,
@@ -70,13 +76,15 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskParentCompletionService completionService,
             PullTaskExecutionDispatchProperties properties,
-            PullTaskOperationDelayPolicy delayPolicy) {
+            PullTaskOperationDelayPolicy delayPolicy,
+            GroupInviteLinkService inviteLinkService) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.completionService = completionService;
         this.properties = properties;
         this.delayPolicy = delayPolicy;
+        this.inviteLinkService = inviteLinkService;
     }
 
     /**
@@ -122,6 +130,11 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             int advanced = executionMapper.transitionManagerJoinResult(
                     executionTransition(execution, callback, kind, reasonMessage,
                             nextRunAt));
+            if (advanced == 1 && kind == ResultKind.SUCCESS
+                    && execution.getGroupLinkId() != null) {
+                inviteLinkService.bindGroupJid(
+                        execution.getGroupLinkId(), callback.groupJid(), callback.occurredAt());
+            }
             if (advanced == 1 && kind == ResultKind.EXECUTION_FAILED) {
                 completionService.completeIfTerminalByExecutionId(execution.getId(), callback.occurredAt());
             }
@@ -237,6 +250,11 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                 || callback.outcome() == PullTaskManagerJoinProtocolOutcome.ALREADY_JOINED)
                 && callback.groupJid() != null && !callback.groupJid().isBlank()) {
             return ResultKind.SUCCESS;
+        }
+        if (callback.outcome() == PullTaskManagerJoinProtocolOutcome.FAILED
+                && callback.reasonCode() != null
+                && RECOVERABLE_INVITE_FAILURE_CODES.contains(callback.reasonCode())) {
+            return ResultKind.UNKNOWN;
         }
         if (callback.outcome() == PullTaskManagerJoinProtocolOutcome.FAILED
                 && callback.reasonCode() != null

@@ -3,13 +3,20 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.model.dto.GroupInviteLinkChangedEvent;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.GroupInviteResult;
+import com.armada.platform.protocol.port.GroupInvitePort;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -17,8 +24,13 @@ class GroupInviteLinkServiceImplTest {
 
     private final GroupLinkRegistryService registry = mock(GroupLinkRegistryService.class);
     private final GroupLinkPreviewMapper previewMapper = mock(GroupLinkPreviewMapper.class);
+    private final GroupLinkHealthMapper healthMapper = mock(GroupLinkHealthMapper.class);
+    private final GroupExecutionAccountSelector accountSelector =
+            mock(GroupExecutionAccountSelector.class);
+    private final GroupInvitePort invitePort = mock(GroupInvitePort.class);
     private final GroupInviteLinkServiceImpl service =
-            new GroupInviteLinkServiceImpl(registry, previewMapper);
+            new GroupInviteLinkServiceImpl(
+                    registry, previewMapper, healthMapper, accountSelector, invitePort);
 
     @Test
     void applyRegistersObservedGroupAndStoresCurrentInviteCode() {
@@ -26,9 +38,9 @@ class GroupInviteLinkServiceImplTest {
                 "120363group@g.us", null, ProtocolBackend.ANDROID, 1786341600000L))
                 .thenReturn(51L);
 
-        service.apply(new GroupInviteLinkChangedEvent(
-                "evt-1", "120363group@g.us", "NewInviteCode_2026",
-                ProtocolBackend.ANDROID, 1786341600000L));
+        service.applyCurrentInvite(new GroupInviteLinkObservation(
+                "evt-1", null, "120363group@g.us", "NewInviteCode_2026",
+                ProtocolBackend.ANDROID, "wgp2_notification", 1786341600000L));
 
         ArgumentCaptor<GroupLinkPreview> captor =
                 ArgumentCaptor.forClass(GroupLinkPreview.class);
@@ -49,5 +61,60 @@ class GroupInviteLinkServiceImplTest {
                 .isEqualTo("NewInviteCode_2026");
         assertThat(service.resolveCurrentInviteCode(null, "FrozenCode"))
                 .isEqualTo("FrozenCode");
+    }
+
+    @Test
+    void refreshUsesAnAlreadyObservedReplacementWithoutQueryingWhatsapp() {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setInviteCode("PassiveReplacement_2026");
+        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+
+        assertThat(service.refreshCurrentInviteCode(
+                51L, "120363group@g.us", "FrozenCode"))
+                .contains("PassiveReplacement_2026");
+        verifyNoInteractions(accountSelector, invitePort);
+    }
+
+    @Test
+    void refreshQueriesAnOnlineGroupAdminAndStoresTheReplacementOnTheOriginalGroup() {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupJid("120363group@g.us");
+        preview.setInviteCode("FrozenCode");
+        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+        GroupExecutionAccount admin = new GroupExecutionAccount(
+                901L, "web", "acc-901", "8613800000901", true);
+        when(accountSelector.findCandidates(51L)).thenReturn(List.of(admin));
+        when(invitePort.getInvite(admin.protocolRef(), "120363group@g.us"))
+                .thenReturn(new GroupInviteResult(
+                        "120363group@g.us", "ActiveReplacement_2026",
+                        "https://chat.whatsapp.com/ActiveReplacement_2026"));
+
+        assertThat(service.refreshCurrentInviteCode(
+                51L, "120363group@g.us", "FrozenCode"))
+                .contains("ActiveReplacement_2026");
+
+        ArgumentCaptor<GroupLinkPreview> captor =
+                ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(previewMapper).upsertInviteLinkChange(captor.capture());
+        assertThat(captor.getValue().getGroupLinkId()).isEqualTo(51L);
+        assertThat(captor.getValue().getGroupJid()).isEqualTo("120363group@g.us");
+        assertThat(captor.getValue().getInviteCode()).isEqualTo("ActiveReplacement_2026");
+        verifyNoInteractions(registry);
+    }
+
+    @Test
+    void publicObservationWriterUsesTheSuppliedGroupIdentity() {
+        service.applyCurrentInvite(new GroupInviteLinkObservation(
+                "manual-observation-1", 51L, "120363group@g.us",
+                "ObservedReplacement_2026", ProtocolBackend.WEB,
+                "MANUAL_REFRESH", 3_000L));
+
+        ArgumentCaptor<GroupLinkPreview> captor =
+                ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(previewMapper).upsertInviteLinkChange(captor.capture());
+        assertThat(captor.getValue().getGroupLinkId()).isEqualTo(51L);
+        assertThat(captor.getValue().getInviteCode()).isEqualTo("ObservedReplacement_2026");
+        assertThat(captor.getValue().getInviteCodeObservedAt()).isEqualTo(3_000L);
+        verifyNoInteractions(registry);
     }
 }

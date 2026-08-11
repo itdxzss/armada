@@ -2,9 +2,6 @@ package com.armada.task.scheduler;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
-import com.armada.platform.protocol.model.result.GroupJoinOutcome;
-import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.task.model.dto.PullTaskExecutionWork;
 import com.armada.task.model.dto.PullTaskMemberFact;
@@ -30,26 +27,26 @@ public class PullTaskManagerJoinProcessor {
     private final PullTaskExecutionTransactionService executionTransactions;
     private final PullTaskManagerJoinTransactionService transactions;
     private final PullTaskSupplementManagerProcessor supplementProcessor;
-    private final GroupJoinPort joinPort;
+    private final PullTaskManagerJoinProtocolExecutor protocolExecutor;
     private final PullTaskMemberQueryAwaitService memberQueryAwaitService;
 
     /**
      * @param executionTransactions 待启动执行行并发槽位事务
      * @param transactions   管理员入群短事务
      * @param supplementProcessor 人工补充管理员处理器
-     * @param joinPort       统一进群协议端口
+     * @param protocolExecutor 管理员进群与链接恢复执行器
      * @param memberQueryAwaitService 异步群成员查询等待服务
      */
     public PullTaskManagerJoinProcessor(
             PullTaskExecutionTransactionService executionTransactions,
             PullTaskManagerJoinTransactionService transactions,
             PullTaskSupplementManagerProcessor supplementProcessor,
-            GroupJoinPort joinPort,
+            PullTaskManagerJoinProtocolExecutor protocolExecutor,
             PullTaskMemberQueryAwaitService memberQueryAwaitService) {
         this.executionTransactions = executionTransactions;
         this.transactions = transactions;
         this.supplementProcessor = supplementProcessor;
-        this.joinPort = joinPort;
+        this.protocolExecutor = protocolExecutor;
         this.memberQueryAwaitService = memberQueryAwaitService;
     }
 
@@ -72,7 +69,7 @@ public class PullTaskManagerJoinProcessor {
         PullTaskManagerJoinWork work = preparation.work();
         PullTaskManagerJoinOutcome outcome;
         try {
-            outcome = joinOrVerifyRecovery(work, candidate.getTaskId(), now);
+            outcome = joinOrVerifyRecovery(work, candidate, now);
             if (outcome == null) {
                 return PullTaskExecutionDispatchResult.DEFERRED;
             }
@@ -115,21 +112,13 @@ public class PullTaskManagerJoinProcessor {
     }
 
     private PullTaskManagerJoinOutcome joinOrVerifyRecovery(
-            PullTaskManagerJoinWork work, long taskId, long now) {
+            PullTaskManagerJoinWork work, PullTaskGroupExecution candidate, long now) {
         if (work.payload().knownGroupJid() != null
                 && !work.payload().knownGroupJid().isBlank()) {
-            return verifyMembership(work, taskId, work.payload().knownGroupJid(), now);
+            return verifyMembership(
+                    work, candidate.getTaskId(), work.payload().knownGroupJid(), now);
         }
-        GroupJoinResult result = joinPort.join(work.joinCommand());
-        if (result != null && result.outcome() == GroupJoinOutcome.PENDING_APPROVAL) {
-            return PullTaskManagerJoinOutcome.pendingApproval(result.groupJid());
-        }
-        if (result == null || !result.joined() || result.groupJid().isBlank()) {
-            return PullTaskManagerJoinOutcome.unconfirmed(
-                    result == null ? null : result.groupJid(),
-                    PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());
-        }
-        return PullTaskManagerJoinOutcome.confirmed(result.groupJid());
+        return protocolExecutor.join(candidate, work);
     }
 
     private PullTaskManagerJoinOutcome verifyMembership(

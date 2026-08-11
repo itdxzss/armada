@@ -134,29 +134,21 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
     }
 
     @Test
-    void inviteCodeUsesItsOwnObservationClockAcrossEventAndMetadataSources() {
+    void metadataSnapshotCannotBypassTheDedicatedCurrentInviteWriter() {
         mapper.upsertInviteLinkChange(inviteChange("event-new", 2_000L));
 
-        GroupLinkPreview staleMetadata = metadata("旧元数据", null, 1_000L);
-        staleMetadata.setInviteCode("metadata-stale");
-        mapper.upsertMetadataSnapshot(staleMetadata);
-
-        GroupLinkPreview afterStale = mapper.selectByGroupLinkId(GROUP_LINK_ID);
-        assertThat(afterStale.getInviteCode()).isEqualTo("event-new");
-        assertThat(afterStale.getInviteCodeObservedAt()).isEqualTo(2_000L);
-
         GroupLinkPreview newerMetadata = metadata("新元数据", null, 3_000L);
-        newerMetadata.setInviteCode("metadata-newest");
+        newerMetadata.setInviteCode("metadata-must-not-write");
         mapper.upsertMetadataSnapshot(newerMetadata);
 
-        GroupLinkPreview updated = mapper.selectByGroupLinkId(GROUP_LINK_ID);
-        assertThat(updated.getInviteCode()).isEqualTo("metadata-newest");
-        assertThat(updated.getInviteCodeObservedAt()).isEqualTo(3_000L);
+        GroupLinkPreview afterMetadata = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(afterMetadata.getInviteCode()).isEqualTo("event-new");
+        assertThat(afterMetadata.getInviteCodeObservedAt()).isEqualTo(2_000L);
 
-        mapper.upsertInviteLinkChange(inviteChange("event-stale", 2_500L));
-        GroupLinkPreview afterStaleEvent = mapper.selectByGroupLinkId(GROUP_LINK_ID);
-        assertThat(afterStaleEvent.getInviteCode()).isEqualTo("metadata-newest");
-        assertThat(afterStaleEvent.getInviteCodeObservedAt()).isEqualTo(3_000L);
+        mapper.upsertInviteLinkChange(inviteChange("event-newest", 3_000L));
+        GroupLinkPreview updated = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(updated.getInviteCode()).isEqualTo("event-newest");
+        assertThat(updated.getInviteCodeObservedAt()).isEqualTo(3_000L);
     }
 
     private static GroupLinkPreview metadata(String subject, String description, long observedAt) {

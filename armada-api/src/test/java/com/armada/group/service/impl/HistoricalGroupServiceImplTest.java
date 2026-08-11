@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.model.dto.HistoricalGroupParticipantActionDTO;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.enums.HistoricalGroupMembershipState;
 import com.armada.group.model.enums.HistoricalGroupSelfRole;
 import com.armada.group.model.enums.SpeechState;
@@ -20,6 +21,7 @@ import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.model.vo.HistoricalGroupDetailVO;
 import com.armada.group.service.HistoricalGroupExecutionAccountSelector;
 import com.armada.group.service.HistoricalGroupProtocolPorts;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -38,6 +40,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class HistoricalGroupServiceImplTest {
@@ -51,6 +54,8 @@ class HistoricalGroupServiceImplTest {
     private final GroupMetadataPort writeMetadataPort = Mockito.mock(GroupMetadataPort.class);
     private final GroupInvitePort invitePort = Mockito.mock(GroupInvitePort.class);
     private final GroupParticipantPort participantPort = Mockito.mock(GroupParticipantPort.class);
+    private final GroupInviteLinkService inviteLinkService =
+            Mockito.mock(GroupInviteLinkService.class);
     private final HistoricalGroupServiceImpl service = new HistoricalGroupServiceImpl(
             new HistoricalGroupProtocolPorts(
                     participatingGroupPort,
@@ -58,7 +63,8 @@ class HistoricalGroupServiceImplTest {
                     writeMetadataPort,
                     invitePort,
                     participantPort),
-            executionAccountSelector);
+            executionAccountSelector,
+            inviteLinkService);
 
     @Test
     void accountGroupDetailUsesAutomaticallySelectedAdministrator() {
@@ -124,6 +130,15 @@ class HistoricalGroupServiceImplTest {
                         "8613800000099@s.whatsapp.net");
         assertThat(result.members().get(0).self()).isTrue();
         assertThat(result.members().get(1).phone()).isEqualTo("8613800000099");
+        ArgumentCaptor<GroupInviteLinkObservation> observation =
+                ArgumentCaptor.forClass(GroupInviteLinkObservation.class);
+        verify(inviteLinkService).applyCurrentInvite(observation.capture());
+        assertThat(observation.getValue()).satisfies(value -> {
+            assertThat(value.groupJid()).isEqualTo("baseline@g.us");
+            assertThat(value.inviteCode()).isEqualTo("invite-code");
+            assertThat(value.protocolBackend()).isEqualTo(ProtocolBackend.WEB);
+            assertThat(value.source()).isEqualTo("HISTORICAL_GROUP_DETAIL");
+        });
     }
 
     @Test

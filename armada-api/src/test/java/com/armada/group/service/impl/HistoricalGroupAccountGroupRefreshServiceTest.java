@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -9,9 +10,10 @@ import static org.mockito.Mockito.when;
 import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountProtocolLookupService;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.HistoricalGroupProtocolPorts;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
@@ -45,7 +47,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
     @Mock private GroupInvitePort invitePort;
     @Mock private GroupParticipantPort participantPort;
     @Mock private AccountGroupMembershipSnapshotService snapshotService;
-    @Mock private GroupLinkPreviewMapper previewMapper;
+    @Mock private GroupInviteLinkService inviteLinkService;
 
     private HistoricalGroupAccountGroupRefreshService service;
 
@@ -61,7 +63,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                         invitePort,
                         participantPort),
                 snapshotService,
-                previewMapper);
+                inviteLinkService);
     }
 
     @Test
@@ -121,10 +123,19 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                             org.assertj.core.api.Assertions.assertThat(group.ownerPhone()).isNull();
                         });
         verify(invitePort, times(1)).getInvite(first, "120363admin@g.us");
-        verify(previewMapper).updateInviteCodeByGroupJid(
-                eq("120363admin@g.us"),
-                eq("InviteCode"),
-                org.mockito.ArgumentMatchers.anyLong());
+        ArgumentCaptor<GroupInviteLinkObservation> observation =
+                ArgumentCaptor.forClass(GroupInviteLinkObservation.class);
+        verify(inviteLinkService).applyCurrentInvite(observation.capture());
+        org.assertj.core.api.Assertions.assertThat(observation.getValue()).satisfies(value -> {
+            org.assertj.core.api.Assertions.assertThat(value.groupJid())
+                    .isEqualTo("120363admin@g.us");
+            org.assertj.core.api.Assertions.assertThat(value.inviteCode())
+                    .isEqualTo("InviteCode");
+            org.assertj.core.api.Assertions.assertThat(value.protocolBackend())
+                    .isEqualTo(ProtocolBackend.WEB);
+            org.assertj.core.api.Assertions.assertThat(value.source())
+                    .isEqualTo("HISTORICAL_GROUP_MANUAL_REFRESH");
+        });
     }
 
     @Test
@@ -170,10 +181,8 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 eq("HISTORICAL_GROUP_MANUAL_REFRESH"),
                 eq(ProtocolBackend.WEB));
-        verify(previewMapper, times(0)).updateInviteCodeByGroupJid(
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyString(),
-                anyLong());
+        verify(inviteLinkService, times(0)).applyCurrentInvite(
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -244,17 +253,16 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
         when(invitePort.getInvite(account, "120363second@g.us"))
                 .thenReturn(new GroupInviteResult(
                         "120363second@g.us", "SecondCode", null));
-        when(previewMapper.updateInviteCodeByGroupJid(
-                eq("120363first@g.us"),
-                eq("FirstCode"),
-                anyLong()))
-                .thenThrow(new IllegalStateException("database unavailable"));
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(inviteLinkService)
+                .applyCurrentInvite(org.mockito.ArgumentMatchers.argThat(observation ->
+                        "120363first@g.us".equals(observation.groupJid())));
 
         service.refresh(12L);
 
-        verify(previewMapper).updateInviteCodeByGroupJid(
-                eq("120363second@g.us"),
-                eq("SecondCode"),
-                anyLong());
+        verify(inviteLinkService).applyCurrentInvite(
+                org.mockito.ArgumentMatchers.argThat(observation ->
+                        "120363second@g.us".equals(observation.groupJid())
+                                && "SecondCode".equals(observation.inviteCode())));
     }
 }

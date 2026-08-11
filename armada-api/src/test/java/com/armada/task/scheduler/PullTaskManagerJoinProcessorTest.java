@@ -7,13 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.armada.platform.protocol.exception.ProtocolErrorCode;
-import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
-import com.armada.platform.protocol.model.result.GroupJoinOutcome;
-import com.armada.platform.protocol.model.result.GroupJoinResult;
-import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.task.model.dto.PullTaskMemberFact;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerJoinWork;
@@ -31,7 +26,8 @@ class PullTaskManagerJoinProcessorTest {
             mock(PullTaskExecutionTransactionService.class);
     private final PullTaskManagerJoinTransactionService transactions =
             mock(PullTaskManagerJoinTransactionService.class);
-    private final GroupJoinPort joinPort = mock(GroupJoinPort.class);
+    private final PullTaskManagerJoinProtocolExecutor protocolExecutor =
+            mock(PullTaskManagerJoinProtocolExecutor.class);
     private final PullTaskMemberQueryAwaitService memberQueryAwaitService =
             mock(PullTaskMemberQueryAwaitService.class);
     private final PullTaskSupplementManagerProcessor supplementProcessor =
@@ -39,7 +35,7 @@ class PullTaskManagerJoinProcessorTest {
     private final PullTaskManagerJoinProcessor processor =
             new PullTaskManagerJoinProcessor(
                     executionTransactions, transactions,
-                    supplementProcessor, joinPort, memberQueryAwaitService);
+                    supplementProcessor, protocolExecutor, memberQueryAwaitService);
 
     @Test
     void startsNewManagerJoinRowBeforeSubmittingTheProtocolCommand() {
@@ -69,8 +65,8 @@ class PullTaskManagerJoinProcessorTest {
         PullTaskManagerJoinWork work = work();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerJoinPreparation.ready(work));
-        when(joinPort.join(work.joinCommand()))
-                .thenReturn(new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED));
+        when(protocolExecutor.join(candidate, work)).thenReturn(
+                PullTaskManagerJoinOutcome.confirmed("120363group@g.us"));
         when(transactions.complete(work,
                 PullTaskManagerJoinOutcome.confirmed("120363group@g.us"), 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
@@ -86,11 +82,9 @@ class PullTaskManagerJoinProcessorTest {
         PullTaskManagerJoinWork work = work();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerJoinPreparation.ready(work));
-        when(joinPort.join(work.joinCommand()))
-                .thenReturn(new GroupJoinResult(
-                        "120363group@g.us", GroupJoinOutcome.PENDING_APPROVAL));
         PullTaskManagerJoinOutcome pending = PullTaskManagerJoinOutcome.pendingApproval(
                 "120363group@g.us");
+        when(protocolExecutor.join(candidate, work)).thenReturn(pending);
         when(transactions.complete(work, pending, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -106,10 +100,9 @@ class PullTaskManagerJoinProcessorTest {
         PullTaskManagerJoinWork work = work();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerJoinPreparation.ready(work));
-        when(joinPort.join(work.joinCommand())).thenThrow(
-                new ProtocolException(ProtocolErrorCode.INVITE_REVOKED, "revoked"));
         PullTaskManagerJoinOutcome failed =
                 PullTaskManagerJoinOutcome.executionFailed("INVITE_REVOKED");
+        when(protocolExecutor.join(candidate, work)).thenReturn(failed);
         when(transactions.complete(work, failed, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.FAILED);
 
@@ -143,7 +136,7 @@ class PullTaskManagerJoinProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
-        verify(joinPort, never()).join(work.joinCommand());
+        verify(protocolExecutor, never()).join(candidate, work);
         verify(transactions).complete(work, confirmed, 1_000L);
     }
 

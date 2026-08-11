@@ -1,6 +1,6 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.model.dto.GroupInviteLinkChangedEvent;
+import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupInviteLinkChangedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupInviteLinkChangedSink;
@@ -25,11 +25,13 @@ public class GroupInviteLinkChangedSinkAdapter implements ProtocolGroupInviteLin
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            service.apply(new GroupInviteLinkChangedEvent(
+            service.applyCurrentInvite(new GroupInviteLinkObservation(
                     event.eventId(),
+                    null,
                     event.groupJid(),
                     event.inviteCode(),
                     ProtocolBackend.valueOf(event.protocolBackend()),
+                    event.source(),
                     event.occurredAt()));
         } finally {
             if (previousTenant == null) {

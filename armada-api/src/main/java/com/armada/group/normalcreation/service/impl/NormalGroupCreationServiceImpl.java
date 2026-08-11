@@ -221,7 +221,8 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群任务不存在");
         }
         List<NormalGroupCreationItemVO> items = mapper.selectItems(taskId);
-        return new NormalGroupCreationTaskDetailVO(task, items);
+        return new NormalGroupCreationTaskDetailVO(
+                task, items, mapper.selectContactFailures(taskId));
     }
 
     @Override

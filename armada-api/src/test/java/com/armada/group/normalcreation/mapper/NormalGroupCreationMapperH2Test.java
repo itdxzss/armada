@@ -88,6 +88,7 @@ class NormalGroupCreationMapperH2Test {
                   create_command_id VARCHAR(64),
                   settings_command_id VARCHAR(64),
                   leave_command_id VARCHAR(64),
+                  contact_prepare_failed TINYINT NOT NULL DEFAULT 0,
                   settings_status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
                   creator_leave_status VARCHAR(16) NOT NULL DEFAULT 'SKIPPED',
                   last_event_id VARCHAR(64),
@@ -113,6 +114,10 @@ class NormalGroupCreationMapperH2Test {
                   member_saved_creator_status VARCHAR(16) NOT NULL,
                   creator_save_command_id VARCHAR(64),
                   member_save_command_id VARCHAR(64),
+                  creator_save_error_code VARCHAR(64),
+                  creator_save_error_message VARCHAR(512),
+                  member_save_error_code VARCHAR(64),
+                  member_save_error_message VARCHAR(512),
                   participant_status VARCHAR(32) NOT NULL,
                   participant_raw_status VARCHAR(64),
                   last_error_code VARCHAR(64),
@@ -142,7 +147,7 @@ class NormalGroupCreationMapperH2Test {
     }
 
     @Test
-    void protocolFlowAdvancesOnlyAfterBothContactDirectionsAndMatchingCommandIds() throws SQLException {
+    void protocolFlowAdvancesAfterBothContactDirectionsSettleAndMatchingCommandIds() throws SQLException {
         insertItem(5L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
         execute("UPDATE normal_group_creation_item SET group_jid = NULL WHERE id = 5");
         execute("""
@@ -159,6 +164,7 @@ class NormalGroupCreationMapperH2Test {
                 )
                 """);
 
+        assertThat(mapper.countPendingContactDirections(5L)).isEqualTo(1);
         assertThat(mapper.startGroupCreate(5L, "cmd-create", 200L)).isZero();
         assertThat(mapper.applyContactResult(
                 51L, "MEMBER_SAVE_CREATOR", "wrong-command", "SUCCESS",
@@ -166,6 +172,7 @@ class NormalGroupCreationMapperH2Test {
         assertThat(mapper.applyContactResult(
                 51L, "MEMBER_SAVE_CREATOR", "cmd-contact-member", "SUCCESS",
                 null, null, 220L)).isEqualTo(1);
+        assertThat(mapper.countPendingContactDirections(5L)).isZero();
         assertThat(mapper.startGroupCreate(5L, "cmd-create", 230L)).isEqualTo(1);
 
         assertThat(mapper.startGroupSettings(
@@ -187,6 +194,104 @@ class NormalGroupCreationMapperH2Test {
         assertThat(value(5L, "current_step")).isEqualTo("DONE");
         assertThat(value(5L, "group_jid")).isEqualTo("1203-new@g.us");
         assertThat(value(5L, "group_subject")).isEqualTo("ABCDEFGHI3-new");
+    }
+
+    @Test
+    void failedOrUnknownContactDirectionsNoLongerBlockGroupCreate() throws SQLException {
+        insertItem(10L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
+        execute("""
+                INSERT INTO normal_group_creation_item_member (
+                  id, tenant_id, task_id, item_id, member_order, member_account_id,
+                  member_protocol_account_id, member_protocol_backend, member_ws_phone,
+                  creator_saved_member_status, member_saved_creator_status,
+                  creator_save_command_id, member_save_command_id,
+                  participant_status, created_at, updated_at
+                ) VALUES (
+                  101, 7, 99, 10, 1, 21, 'acc_21', 'ANDROID', '10021',
+                  'FAILED', 'PENDING', 'cmd-creator-1', 'cmd-member-1',
+                  'PENDING', 100, 100
+                ), (
+                  102, 7, 99, 10, 2, 22, 'acc_22', 'WEB', '10022',
+                  'UNKNOWN', 'SUCCESS', 'cmd-creator-2', 'cmd-member-2',
+                  'PENDING', 100, 100
+                )
+                """);
+
+        assertThat(mapper.countPendingContactDirections(10L)).isEqualTo(1);
+        assertThat(mapper.startGroupCreate(10L, "cmd-create", 200L)).isZero();
+        assertThat(mapper.applyContactResult(
+                101L, "MEMBER_SAVE_CREATOR", "cmd-member-1", "FAILED",
+                "ACCOUNT_NOT_ONLINE", "成员账号当前不在线", 210L)).isEqualTo(1);
+
+        assertThat(mapper.countPendingContactDirections(10L)).isZero();
+        assertThat(mapper.startGroupCreate(10L, "cmd-create", 220L)).isEqualTo(1);
+        assertThat(value(10L, "current_step")).isEqualTo("CREATING_GROUP");
+        assertThat(value(10L, "create_command_id")).isEqualTo("cmd-create");
+        assertThat(value(10L, "contact_prepare_failed")).isEqualTo("1");
+    }
+
+    @Test
+    void everyDirectionSucceedingLeavesTheContactFailureFlagClear() throws SQLException {
+        insertItem(11L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
+        execute("""
+                INSERT INTO normal_group_creation_item_member (
+                  id, tenant_id, task_id, item_id, member_order, member_account_id,
+                  member_protocol_account_id, member_protocol_backend, member_ws_phone,
+                  creator_saved_member_status, member_saved_creator_status,
+                  creator_save_command_id, member_save_command_id,
+                  participant_status, created_at, updated_at
+                ) VALUES (
+                  111, 7, 99, 11, 1, 21, 'acc_21', 'ANDROID', '10021',
+                  'SUCCESS', 'SUCCESS', 'cmd-creator-1', 'cmd-member-1',
+                  'PENDING', 100, 100
+                )
+                """);
+
+        assertThat(mapper.startGroupCreate(11L, "cmd-create", 200L)).isEqualTo(1);
+
+        assertThat(value(11L, "contact_prepare_failed")).isEqualTo("0");
+        assertThat(mapper.selectContactFailures(99L)).isEmpty();
+    }
+
+    @Test
+    void contactFailureReasonsAreKeptPerDirectionAndNotClearedByTheOtherDirection()
+            throws SQLException {
+        insertItem(12L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
+        execute("""
+                INSERT INTO normal_group_creation_item_member (
+                  id, tenant_id, task_id, item_id, member_order, member_account_id,
+                  member_protocol_account_id, member_protocol_backend, member_ws_phone,
+                  creator_saved_member_status, member_saved_creator_status,
+                  creator_save_command_id, member_save_command_id,
+                  participant_status, created_at, updated_at
+                ) VALUES (
+                  121, 7, 99, 12, 1, 21, 'acc_21', 'ANDROID', '10021',
+                  'PENDING', 'PENDING', 'cmd-creator-1', 'cmd-member-1',
+                  'PENDING', 100, 100
+                )
+                """);
+
+        assertThat(mapper.applyContactResult(
+                121L, "CREATOR_SAVE_MEMBER", "cmd-creator-1", "FAILED",
+                "ACCOUNT_NOT_ONLINE", "建群账号当前不在线，请重新上线后重试", 200L)).isEqualTo(1);
+        assertThat(mapper.applyContactResult(
+                121L, "MEMBER_SAVE_CREATOR", "cmd-member-1", "SUCCESS",
+                null, null, 210L)).isEqualTo(1);
+
+        assertThat(memberValue(121L, "creator_save_error_code")).isEqualTo("ACCOUNT_NOT_ONLINE");
+        assertThat(memberValue(121L, "creator_save_error_message"))
+                .isEqualTo("建群账号当前不在线，请重新上线后重试");
+        assertThat(memberValue(121L, "member_save_error_code")).isNull();
+        assertThat(mapper.selectContactFailures(99L)).singleElement().satisfies(failure -> {
+            assertThat(failure.itemId()).isEqualTo(12L);
+            assertThat(failure.memberAccountId()).isEqualTo(21L);
+            assertThat(failure.creatorSavedMemberStatus()).isEqualTo("FAILED");
+            assertThat(failure.creatorSaveErrorCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
+            assertThat(failure.creatorSaveErrorMessage())
+                    .isEqualTo("建群账号当前不在线，请重新上线后重试");
+            assertThat(failure.memberSavedCreatorStatus()).isEqualTo("SUCCESS");
+            assertThat(failure.memberSaveErrorMessage()).isNull();
+        });
     }
 
     @Test
@@ -248,12 +353,13 @@ class NormalGroupCreationMapperH2Test {
                   member_protocol_account_id, member_protocol_backend, member_ws_phone,
                   creator_saved_member_status, member_saved_creator_status,
                   creator_save_command_id, member_save_command_id,
-                  participant_status, participant_raw_status,
-                  last_error_code, last_error_message, created_at, updated_at
+                  member_save_error_code, member_save_error_message,
+                  participant_status, participant_raw_status, created_at, updated_at
                 ) VALUES (
                   91, 7, 99, 9, 1, 21, 'acc_21', 'ANDROID', '10021',
                   'SUCCESS', 'FAILED', 'cmd-creator-old', 'cmd-member-old',
-                  'PENDING', 'OFFLINE', 'ACCOUNT_NOT_ONLINE', '旧账号不在线', 100, 100
+                  'ACCOUNT_NOT_ONLINE', '旧账号不在线',
+                  'PENDING', 'OFFLINE', 100, 100
                 )
                 """);
 
@@ -276,8 +382,10 @@ class NormalGroupCreationMapperH2Test {
             assertThat(member.memberSaveCommandId()).isNull();
         });
         assertThat(memberValue(91L, "participant_raw_status")).isNull();
-        assertThat(memberValue(91L, "last_error_code")).isNull();
-        assertThat(memberValue(91L, "last_error_message")).isNull();
+        assertThat(memberValue(91L, "creator_save_error_code")).isNull();
+        assertThat(memberValue(91L, "creator_save_error_message")).isNull();
+        assertThat(memberValue(91L, "member_save_error_code")).isNull();
+        assertThat(memberValue(91L, "member_save_error_message")).isNull();
         assertThat(mapper.applyContactResult(
                 91L, "CREATOR_SAVE_MEMBER", "cmd-creator-old", "SUCCESS",
                 null, null, 210L)).isZero();

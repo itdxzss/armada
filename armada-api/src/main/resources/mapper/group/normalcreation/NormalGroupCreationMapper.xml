@@ -109,11 +109,31 @@
           resultType="com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO">
     SELECT id, item_no, group_subject, creator_account_id, creator_protocol_backend,
            group_jid, group_link_id, status, current_step, settings_status,
-           creator_leave_status, last_error_code, last_error_message, updated_at
+           creator_leave_status, last_error_code, last_error_message, updated_at,
+           contact_prepare_failed
     FROM normal_group_creation_item
     WHERE task_id = #{taskId}
       AND deleted_at IS NULL
     ORDER BY item_no ASC, id ASC
+  </select>
+
+  <select id="selectContactFailures"
+          resultType="com.armada.group.normalcreation.model.vo.NormalGroupCreationContactFailureVO">
+    SELECT member.item_id, item.item_no, member.member_account_id,
+           member.member_protocol_backend,
+           member.creator_saved_member_status, member.creator_save_error_code,
+           member.creator_save_error_message,
+           member.member_saved_creator_status, member.member_save_error_code,
+           member.member_save_error_message
+    FROM normal_group_creation_item_member member
+    INNER JOIN normal_group_creation_item item
+      ON item.tenant_id = member.tenant_id
+     AND item.id = member.item_id
+     AND item.deleted_at IS NULL
+    WHERE member.task_id = #{taskId}
+      AND (member.creator_saved_member_status IN ('FAILED', 'UNKNOWN')
+        OR member.member_saved_creator_status IN ('FAILED', 'UNKNOWN'))
+    ORDER BY item.item_no ASC, member.member_order ASC, member.id ASC
   </select>
 
   <select id="selectItemWork"
@@ -169,8 +189,10 @@
         member.member_save_command_id = NULL,
         member.participant_status = 'PENDING',
         member.participant_raw_status = NULL,
-        member.last_error_code = NULL,
-        member.last_error_message = NULL,
+        member.creator_save_error_code = NULL,
+        member.creator_save_error_message = NULL,
+        member.member_save_error_code = NULL,
+        member.member_save_error_message = NULL,
         member.updated_at = #{row.now}
     WHERE member.id = #{row.memberId}
       AND member.item_id = #{row.itemId}
@@ -264,12 +286,16 @@
     <choose>
       <when test="direction == 'CREATOR_SAVE_MEMBER'">
         SET creator_saved_member_status = #{status},
+            creator_save_error_code = #{errorCode},
+            creator_save_error_message = #{errorMessage},
       </when>
       <otherwise>
         SET member_saved_creator_status = #{status},
+            member_save_error_code = #{errorCode},
+            member_save_error_message = #{errorMessage},
       </otherwise>
     </choose>
-        last_error_code = #{errorCode}, last_error_message = #{errorMessage}, updated_at = #{now}
+        updated_at = #{now}
     WHERE id = #{memberId}
     <choose>
       <when test="direction == 'CREATOR_SAVE_MEMBER'">
@@ -283,10 +309,10 @@
     </choose>
   </update>
 
-  <select id="countIncompleteContactDirections" resultType="int">
+  <select id="countPendingContactDirections" resultType="int">
     SELECT COALESCE(SUM(
-      (CASE WHEN creator_saved_member_status = 'SUCCESS' THEN 0 ELSE 1 END) +
-      (CASE WHEN member_saved_creator_status = 'SUCCESS' THEN 0 ELSE 1 END)
+      (CASE WHEN creator_saved_member_status = 'PENDING' THEN 1 ELSE 0 END) +
+      (CASE WHEN member_saved_creator_status = 'PENDING' THEN 1 ELSE 0 END)
     ), 0)
     FROM normal_group_creation_item_member
     WHERE item_id = #{itemId}
@@ -296,7 +322,15 @@
     UPDATE normal_group_creation_item
     SET current_step = 'CREATING_GROUP', dispatch_stage = 'GROUP_CREATE',
         dispatch_status = 'SENT', create_command_id = #{commandId},
-        create_attempt_count = create_attempt_count + 1, updated_at = #{now}
+        create_attempt_count = create_attempt_count + 1,
+        contact_prepare_failed = CASE WHEN EXISTS (
+          SELECT 1 FROM normal_group_creation_item_member flagged
+          WHERE flagged.tenant_id = normal_group_creation_item.tenant_id
+            AND flagged.item_id = normal_group_creation_item.id
+            AND (flagged.creator_saved_member_status &lt;&gt; 'SUCCESS'
+              OR flagged.member_saved_creator_status &lt;&gt; 'SUCCESS')
+        ) THEN 1 ELSE 0 END,
+        updated_at = #{now}
     WHERE id = #{itemId}
       AND current_step = 'PREPARING_CONTACTS'
       AND status = 'RUNNING'
@@ -304,8 +338,8 @@
         SELECT 1 FROM normal_group_creation_item_member member
         WHERE member.tenant_id = normal_group_creation_item.tenant_id
           AND member.item_id = normal_group_creation_item.id
-          AND (member.creator_saved_member_status &lt;&gt; 'SUCCESS'
-            OR member.member_saved_creator_status &lt;&gt; 'SUCCESS')
+          AND (member.creator_saved_member_status = 'PENDING'
+            OR member.member_saved_creator_status = 'PENDING')
       )
   </update>
 
@@ -379,7 +413,6 @@
         (#{expectedStep} = 'CREATING_GROUP' AND create_command_id = #{commandId})
         OR (#{expectedStep} = 'APPLYING_SETTINGS' AND settings_command_id = #{commandId})
         OR (#{expectedStep} = 'LEAVING_GROUP' AND leave_command_id = #{commandId})
-        OR (#{expectedStep} = 'PREPARING_CONTACTS')
       )
   </update>
 

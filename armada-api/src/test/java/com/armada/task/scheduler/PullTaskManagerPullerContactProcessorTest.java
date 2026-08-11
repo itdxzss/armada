@@ -35,6 +35,23 @@ class PullTaskManagerPullerContactProcessorTest {
                     transactions, supplementProcessor, metadataPort, settingsPort);
 
     @Test
+    void supplementLinkJoinRunsBeforeInitialContactPreparation() {
+        PullTaskGroupExecution candidate = candidate();
+        when(supplementProcessor.processIfPresent(candidate, "worker-1", 1_000L))
+                .thenReturn(Optional.of(PullTaskExecutionDispatchResult.DEFERRED));
+        when(transactions.prepareMemberAddPermission(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskMemberAddPermissionPreparation.completed(
+                        PullTaskExecutionDispatchResult.DEFERRED));
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        verify(transactions, never()).prepareMemberAddPermission(
+                candidate, "worker-1", 1_000L);
+        verify(transactions, never()).prepare(candidate, "worker-1", 1_000L);
+    }
+
+    @Test
     void alreadyAllowedPermissionSkipsMutationAndPreparesContacts() {
         PullTaskGroupExecution candidate = candidate();
         PullTaskMemberAddPermissionWork work = permissionWork();
@@ -93,7 +110,6 @@ class PullTaskManagerPullerContactProcessorTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
         verify(transactions, never()).prepare(candidate, "worker-1", 1_000L);
-        verify(supplementProcessor, never()).processIfPresent(candidate, "worker-1", 1_000L);
     }
 
     @Test

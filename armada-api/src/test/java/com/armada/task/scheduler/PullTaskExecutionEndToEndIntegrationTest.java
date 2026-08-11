@@ -856,9 +856,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskUnknownResultResources resources,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskStandardSettingMapper settingMapper,
-                PullTaskPullCallResultCoordination coordination) {
+                PullTaskPullCallResultCoordination coordination,
+                org.springframework.context.ApplicationEventPublisher eventPublisher) {
             return new PullTaskPullCallParticipantResultService(
-                    resources, executionMapper, settingMapper, coordination);
+                    resources, executionMapper, settingMapper, coordination, eventPublisher);
         }
 
         @Bean PullTaskPullWaveProgressService pullWaveProgressService(

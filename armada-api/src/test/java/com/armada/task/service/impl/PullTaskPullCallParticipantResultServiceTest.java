@@ -25,6 +25,7 @@ import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.dto.PullTaskPlannedCallPrune;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
+import com.armada.task.model.dto.PullTaskPullerUnavailableEvent;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
@@ -58,6 +59,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 class PullTaskPullCallParticipantResultServiceTest {
 
@@ -74,6 +76,7 @@ class PullTaskPullCallParticipantResultServiceTest {
     private PullTaskStickyPullerTransactionService stickyPullers;
     private PullTaskGroupExecutionFailureService groupFailure;
     private PullTaskPullWaveProgressService waveProgress;
+    private ApplicationEventPublisher eventPublisher;
     private PullTaskPullCallParticipantResultService service;
 
     @BeforeEach
@@ -87,13 +90,14 @@ class PullTaskPullCallParticipantResultServiceTest {
         stickyPullers = mock(PullTaskStickyPullerTransactionService.class);
         groupFailure = mock(PullTaskGroupExecutionFailureService.class);
         waveProgress = mock(PullTaskPullWaveProgressService.class);
+        eventPublisher = mock(ApplicationEventPublisher.class);
         service = new PullTaskPullCallParticipantResultService(
                 new PullTaskUnknownResultResources(
                         mock(PullTaskAccountActionMapper.class), callMapper, attemptMapper,
                         materialMapper, accountMapper),
                 executionMapper, settingMapper,
                 new PullTaskPullCallResultCoordination(
-                        stickyPullers, groupFailure, waveProgress));
+                        stickyPullers, groupFailure, waveProgress), eventPublisher);
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call());
         when(executionMapper.selectById(21L)).thenReturn(execution());
         when(accountMapper.selectByExecutionAndRole(
@@ -413,6 +417,8 @@ class PullTaskPullCallParticipantResultServiceTest {
                 argThat(row -> row.getId() == 21L),
                 argThat(row -> row.getId() == 31L),
                 eq("NEED_REAUTH"), eq(5_000L));
+        verify(eventPublisher).publishEvent(new PullTaskPullerUnavailableEvent(
+                7L, 21L, 61L, 5_000L));
     }
 
     @Test

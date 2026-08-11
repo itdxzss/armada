@@ -38,8 +38,12 @@ public record PullTaskUnknownReconciliationCriteria(
     public record Action(int submitted, int unknown) {
     }
 
-    /** 批量拉人调用状态条件。 */
-    public record Call(int submitted, int unknown) {
+    /** 批量拉人调用、attempt 与拉手可用性状态条件。 */
+    public record Call(
+            int submitted,
+            int unknown,
+            int participantAttemptSubmitted,
+            int pullerAvailable) {
     }
 
     /** 料子入群和提权状态条件。 */

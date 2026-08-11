@@ -24,6 +24,7 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
@@ -155,6 +156,37 @@ class PullTaskPullCallReconciliationServiceTest {
         verify(callMapper, never()).claimRosterCheck(
                 anyLong(), anyInt(), anyInt(), anyLong());
         verify(memberQueryService, never()).requestOrRead(any(), anyLong());
+    }
+
+    @Test
+    void unavailablePullerBypassesSixtySecondProtection() {
+        PullTaskGroupExecution execution = execution();
+        PullTaskPullCall call = call(PullTaskPullCallRosterCheckStatus.NOT_STARTED, null);
+        call.setPullerGroupAccountId(81L);
+        call.setSubmittedAt(CUTOFF + 1);
+        PullTaskPullCallMemberAttempt attempt = attempt(
+                41L, "8613800000001@s.whatsapp.net", "UNKNOWN",
+                PullTaskParticipantExecutionState.UNCERTAIN,
+                PullTaskParticipantAttemptStatus.SUBMITTED);
+        attempt.setPullerGroupAccountId(81L);
+        PullTaskGroupAccount unavailablePuller = new PullTaskGroupAccount();
+        unavailablePuller.setId(81L);
+        unavailablePuller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        unavailablePuller.setAvailabilityStatus(PullTaskGroupAccountAvailability.OFFLINE.code());
+        when(callMapper.claimRosterCheck(
+                31L, PullTaskPullCallRosterCheckStatus.NOT_STARTED.code(),
+                PullTaskPullCallRosterCheckStatus.CLAIMED.code(), NOW)).thenReturn(1);
+        when(accountLookup.findActiveProtocolRefs(List.of(71L)))
+                .thenReturn(List.of(protocol()));
+        when(memberQueryService.requestOrRead(any(), anyLong()))
+                .thenReturn(PullTaskMemberQueryResult.pending(701L, 80_000L));
+
+        assertThat(service.reconcile(
+                execution, call, List.of(attempt),
+                List.of(manager(), unavailablePuller), CUTOFF, NOW))
+                .isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
+
+        verify(memberQueryService).requestOrRead(any(), anyLong());
     }
 
     @Test

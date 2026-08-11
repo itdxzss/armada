@@ -8,7 +8,7 @@ import java.util.List;
  * @param accountGroupId 候选拉手账号分组
  * @param supplementCount 本次补充数量
  * @param selectionMode 自动或手动选择
- * @param entryMode 踩链接或当前管理员邀请
+ * @param entryMode 固定为踩链接
  * @param accountIds 手动选择账号；自动选择时必须为空
  */
 public record PullTaskPullerSupplementDTO(

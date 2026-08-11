@@ -449,7 +449,7 @@ Kafka 契约用 **大写**：`"ADD"` / `"PROMOTE"`。
 - 用 `pullCallId`，**没有** `actionId`（`:176`）。
 - `targetJid` **必填**（`:184`）。
 - `executionState` **必填且大小写敏感**：明确 `SUCCESS/FAILED` 只能配 `STARTED`；未知结果只能配 `NOT_STARTED/UNCERTAIN`。
-- ⚠️ **一个成员一条事件**。缺失事件不会再被当作整批成功或失败：60 秒结果窗口结束后，armada 对该批次最多查询一次群成员名单，逐号码确认成功或释放回待拉池。
+- ⚠️ **一个成员一条事件**。缺失事件不会再被当作整批成功或失败：通常在 60 秒结果窗口结束后，armada 对该批次最多查询一次群成员名单，逐号码确认成功或释放回待拉池；若同一拉手已收到账号级不可用结果，则立即提前核实其仍在途的批次。
 - 不需要额外的「调用级完成」事件，收口由 armada 自己算。
 
 ### 5.4 `reasonCode` 语义（影响 armada 状态机分支）
@@ -458,8 +458,8 @@ Kafka 契约用 **大写**：`"ADD"` / `"PROMOTE"`。
 
 | reasonCode | armada 行为 |
 |---|---|
-| `ACCOUNT_NOT_FOUND`、`ACCOUNT_NOT_ONLINE`、`NEED_REAUTH` | 批量拉人：标记当前拉手离线；已回执号码逐个收口，未开始直接释放，结果不明或缺失回调进入一次名单核实 |
-| `RATE_LIMITED`、`ACCOUNT_REACHOUT_RESTRICTED` | 把该拉手置为 `RISK_COOLDOWN` 冷却；号码仍按各自的 `outcome + executionState` 收口 |
+| `ACCOUNT_NOT_FOUND`、`ACCOUNT_NOT_ONLINE`、`NEED_REAUTH` | 批量拉人：标记当前拉手离线并立即触发其在途调用名单核实；已回执号码逐个收口，未开始直接释放，结果不明或缺失回调经核实后交给下一拉手 |
+| `RATE_LIMITED`、`ACCOUNT_REACHOUT_RESTRICTED` | 把该拉手置为 `RISK_COOLDOWN` 冷却并立即触发其在途调用名单核实；号码仍按各自的 `outcome + executionState` 收口 |
 | `INVITE_INVALID`、`INVITE_REVOKED`、`INVALID_GROUP_LINK`、`GROUP_UNAVAILABLE` | 踩链接：判定**该群链接永久失效**，整条执行行终止（`PullTaskManagerJoinResultServiceImpl.java:39-40`） |
 | `ACCOUNT_NOT_FOUND`、`ACCOUNT_NOT_ONLINE`、`NEED_REAUTH`、`ACCOUNT_REACHOUT_RESTRICTED`、`GROUP_JOIN_REJECTED` | 踩链接：判定**该管理员账号不可用**，换号补位（`:41-43`） |
 | 其它 / null | 批量拉人的明确失败累计次数；未知结果不累计失败次数 |

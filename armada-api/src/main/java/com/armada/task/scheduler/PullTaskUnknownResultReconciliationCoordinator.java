@@ -8,9 +8,11 @@ import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskType;
 import java.util.Arrays;
@@ -103,7 +105,9 @@ public class PullTaskUnknownResultReconciliationCoordinator {
                                 PullTaskActionStatus.UNKNOWN.code()),
                         new PullTaskUnknownReconciliationCriteria.Call(
                                 PullTaskPullCallStatus.SUBMITTED.code(),
-                                PullTaskPullCallStatus.UNKNOWN.code()),
+                                PullTaskPullCallStatus.UNKNOWN.code(),
+                                PullTaskParticipantAttemptStatus.SUBMITTED.code(),
+                                PullTaskGroupAccountAvailability.AVAILABLE.code()),
                         new PullTaskUnknownReconciliationCriteria.Material(
                                 PullTaskMaterialPullStatus.SUBMITTED.code(),
                                 PullTaskMaterialPullStatus.UNKNOWN.code(),

@@ -53,7 +53,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
-/** OP-02 补充拉手四种组合、候选过滤和检查点回退的真实 Mapper 测试。 */
+/** OP-02 补充拉手固定踩链接、候选过滤和检查点回退的真实 Mapper 测试。 */
 @SpringJUnitConfig(PullTaskPullerSupplementServiceTest.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -75,7 +75,7 @@ class PullTaskPullerSupplementServiceTest {
         reset(accountLookup, accountGroupService, dispatchTrigger);
         when(accountGroupService.requireExisting(89L)).thenReturn(accountGroup());
         when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(
-                account(901L), account(902L), account(903L), account(904L)));
+                account(901L), account(902L), account(903L), account(904L), account(905L)));
         when(accountLookup.findActiveProtocolRefs(List.of(800L)))
                 .thenReturn(List.of(account(800L)));
     }
@@ -90,12 +90,11 @@ class PullTaskPullerSupplementServiceTest {
         PullTaskPullerSupplementOptionsVO options = service.options(1L, 11L, null);
 
         assertThat(options.currentPullerCount()).isZero();
-        assertThat(options.requiredPullerCount()).isEqualTo(2);
-        assertThat(options.missingPullerCount()).isEqualTo(2);
+        assertThat(options.requiredPullerCount()).isEqualTo(4);
+        assertThat(options.missingPullerCount()).isEqualTo(4);
         assertThat(options.pullerGroupId()).isEqualTo(89L);
-        assertThat(options.managerInviteAvailable()).isTrue();
         assertThat(options.candidates()).extracting(candidate -> candidate.accountId())
-                .containsExactly(902L, 904L);
+                .containsExactly(902L, 904L, 905L);
     }
 
     @Test
@@ -135,55 +134,52 @@ class PullTaskPullerSupplementServiceTest {
     }
 
     @Test
-    void automaticManagerInviteFreezesTheRequestedCountWithoutLinkActions() {
+    void automaticManagerInviteIsRejectedBecauseSupplementAlwaysJoinsByLink() {
         jdbc.update("DELETE FROM pull_task_group_account WHERE group_execution_id = 12");
 
-        service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(
-                89L, 2, PullTaskSelectionMode.AUTOMATIC.code(),
-                PullTaskAccountEntryMode.MANAGER_INVITE.code(), List.of()));
+        assertThatThrownBy(() -> service.supplement(
+                1L, 11L, new PullTaskPullerSupplementDTO(
+                        89L, 2, PullTaskSelectionMode.AUTOMATIC.code(),
+                        PullTaskAccountEntryMode.MANAGER_INVITE.code(), List.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("踩链接");
 
         assertThat(jdbc.queryForList(
                 "SELECT account_id FROM pull_task_group_account "
                         + "WHERE group_execution_id = 11 AND source_type = 2 ORDER BY role_seq",
-                Long.class)).containsExactly(902L, 903L);
+                Long.class)).isEmpty();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pull_task_account_action WHERE action_type = 3",
                 Integer.class)).isZero();
     }
 
     @Test
-    void automaticLinkSupplementFreezesAutoSelectionAndLinkAction() {
+    void automaticLinkSupplementFreezesExactlyRequestedThreeInsteadOfOriginalFour() {
         service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(
-                89L, 1, PullTaskSelectionMode.AUTOMATIC.code(),
+                89L, 3, PullTaskSelectionMode.AUTOMATIC.code(),
                 PullTaskAccountEntryMode.JOIN_BY_LINK.code(), List.of()));
 
-        assertThat(jdbc.queryForMap(
-                "SELECT * FROM pull_task_group_account WHERE account_id = 902"))
-                .satisfies(row -> {
-                    assertThat(row.get("SELECTION_MODE"))
-                            .isEqualTo(PullTaskSelectionMode.AUTOMATIC.code());
-                    assertThat(row.get("ENTRY_MODE"))
-                            .isEqualTo(PullTaskAccountEntryMode.JOIN_BY_LINK.code());
-                });
+        assertThat(jdbc.queryForList(
+                "SELECT account_id FROM pull_task_group_account "
+                        + "WHERE group_execution_id = 11 AND source_type = 2 ORDER BY role_seq",
+                Long.class)).containsExactly(902L, 904L, 905L);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pull_task_account_action WHERE action_type = 3",
-                Integer.class)).isEqualTo(1);
+                Integer.class)).isEqualTo(3);
     }
 
     @Test
-    void manualManagerInviteFreezesExplicitSelectionWithoutLinkAction() {
-        service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(
-                89L, 1, PullTaskSelectionMode.MANUAL.code(),
-                PullTaskAccountEntryMode.MANAGER_INVITE.code(), List.of(902L)));
+    void manualManagerInviteIsRejectedBecauseSupplementAlwaysJoinsByLink() {
+        assertThatThrownBy(() -> service.supplement(
+                1L, 11L, new PullTaskPullerSupplementDTO(
+                        89L, 1, PullTaskSelectionMode.MANUAL.code(),
+                        PullTaskAccountEntryMode.MANAGER_INVITE.code(), List.of(902L))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("踩链接");
 
-        assertThat(jdbc.queryForMap(
-                "SELECT * FROM pull_task_group_account WHERE account_id = 902"))
-                .satisfies(row -> {
-                    assertThat(row.get("SELECTION_MODE"))
-                            .isEqualTo(PullTaskSelectionMode.MANUAL.code());
-                    assertThat(row.get("ENTRY_MODE"))
-                            .isEqualTo(PullTaskAccountEntryMode.MANAGER_INVITE.code());
-                });
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_account WHERE account_id = 902",
+                Integer.class)).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pull_task_account_action WHERE action_type = 3",
                 Integer.class)).isZero();
@@ -193,7 +189,7 @@ class PullTaskPullerSupplementServiceTest {
     void rejectsOverfillAndManualSelectionsOutsideTheCurrentCandidates() {
         assertThatThrownBy(() -> service.supplement(1L, 11L,
                 new PullTaskPullerSupplementDTO(
-                        89L, 3, PullTaskSelectionMode.AUTOMATIC.code(),
+                        89L, 5, PullTaskSelectionMode.AUTOMATIC.code(),
                         PullTaskAccountEntryMode.JOIN_BY_LINK.code(), List.of())))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("缺口");
@@ -233,7 +229,7 @@ class PullTaskPullerSupplementServiceTest {
                 + "station_count_per_call, puller_risk_minutes, manager_group_id, puller_group_id, "
                 + "station_group_id, required_manager_count, manager_group_name, puller_group_name, "
                 + "station_group_name, created_at, updated_at) VALUES "
-                + "(1, 7, 0, 1, 30, 1, 2, 1, 2, 0, 0, 88, 89, 90, 1, "
+                + "(1, 7, 0, 1, 30, 1, 4, 1, 2, 0, 0, 88, 89, 90, 1, "
                 + "'manager', 'puller', 'station', 100, 100),"
                 + "(2, 7, 0, 1, 30, 1, 1, 1, 2, 0, 0, 88, 89, 90, 1, "
                 + "'manager', 'puller', 'station', 100, 100)";

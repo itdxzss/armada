@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import com.armada.account.service.AccountService;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
+import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.entity.AccountState;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
@@ -42,10 +44,13 @@ class NormalGroupCreationProtocolResultServiceTest {
             org.mockito.Mockito.mock(AccountService.class);
     private final AccountStateEventService accountStateEventService =
             org.mockito.Mockito.mock(AccountStateEventService.class);
+    private final AccountStateMapper accountStateMapper =
+            org.mockito.Mockito.mock(AccountStateMapper.class);
     private final NormalGroupCreationProtocolResultService service =
             new NormalGroupCreationProtocolResultService(
                     mapper, dispatcher, registry, groupLinkService,
-                    metadataSyncTaskService, accountService, accountStateEventService);
+                    metadataSyncTaskService, accountService, accountStateEventService,
+                    accountStateMapper);
 
     @AfterEach
     void clearTenant() {
@@ -391,6 +396,58 @@ class NormalGroupCreationProtocolResultServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void groupCreate_unknownWithAbnormalAccountStateBecomesFailed() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
+        AccountState state = new AccountState();
+        state.setAccountState(3);
+        state.setLoginState(2);
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(accountStateMapper.selectByAccountId(382L)).thenReturn(state);
+        when(mapper.failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("FAILED"),
+                eq("ACCOUNT_ABNORMAL_DURING_CREATE"),
+                eq("建群号状态异常，建群结果未确认"), isNull(), eq("evt-1"), anyLong()))
+                .thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "UNKNOWN",
+                382L, "creator-web", "WEB", null, null,
+                null, "PROTOCOL_RESULT_UNCONFIRMED", "Android 建群结果未确认"));
+
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("FAILED"),
+                eq("ACCOUNT_ABNORMAL_DURING_CREATE"),
+                eq("建群号状态异常，建群结果未确认"), isNull(), eq("evt-1"), anyLong());
+    }
+
+    @Test
+    void groupCreate_unknownWithOfflineAccountBecomesFailed() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
+        AccountState state = new AccountState();
+        state.setAccountState(2);
+        state.setLoginState(2);
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(accountStateMapper.selectByAccountId(382L)).thenReturn(state);
+        when(mapper.failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("FAILED"),
+                eq("ACCOUNT_OFFLINE_DURING_CREATE"),
+                eq("建群号离线，建群结果未确认"), isNull(), eq("evt-1"), anyLong()))
+                .thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "UNKNOWN",
+                382L, "creator-web", "WEB", null, null,
+                null, "PROTOCOL_RESULT_UNCONFIRMED", "Android 建群结果未确认"));
+
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("FAILED"),
+                eq("ACCOUNT_OFFLINE_DURING_CREATE"),
+                eq("建群号离线，建群结果未确认"), isNull(), eq("evt-1"), anyLong());
     }
 
     @Test

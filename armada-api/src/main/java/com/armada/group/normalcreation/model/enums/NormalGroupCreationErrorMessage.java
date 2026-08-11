@@ -32,6 +32,16 @@ public enum NormalGroupCreationErrorMessage {
             "ACCOUNT_NOT_ONLINE",
             "执行账号当前不在线，请检查建群账号和成员账号后重试"),
 
+    /** 建群结果未知时，控端确认建群账号生命周期状态异常。 */
+    ACCOUNT_ABNORMAL_DURING_CREATE(
+            "ACCOUNT_ABNORMAL_DURING_CREATE",
+            "建群号状态异常，建群结果未确认，请更换健康账号并先核查群列表"),
+
+    /** 建群结果未知时，控端确认建群账号当前离线。 */
+    ACCOUNT_OFFLINE_DURING_CREATE(
+            "ACCOUNT_OFFLINE_DURING_CREATE",
+            "建群号离线，建群结果未确认，请重新上线后先核查群列表"),
+
     /** 目标号码没有注册 WhatsApp。 */
     CONTACT_NOT_REGISTERED(
             "CONTACT_NOT_REGISTERED",

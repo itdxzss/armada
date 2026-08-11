@@ -15,14 +15,17 @@ import com.armada.task.model.dto.PullTaskMemberQueryWake;
 import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
-import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
@@ -592,6 +595,44 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                 .containsExactly(row.getId());
     }
 
+    @Test
+    void unknownResultScanIncludesFreshCallBoundToUnavailablePuller()
+            throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        mapper.freezeDraftRows(100L, 500L);
+        executeRaw("INSERT INTO pull_task_group_account "
+                + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                + "role_type, role_seq, source_type, selection_mode, membership_status, "
+                + "admin_status, availability_status, created_at, updated_at) VALUES "
+                + "(81, 7, 100, " + row.getId() + ", 71, '8613800000071', "
+                + PullTaskGroupAccountRole.PULLER.code() + ", 1, 1, 1, 3, 0, "
+                + PullTaskGroupAccountAvailability.OFFLINE.code() + ", 100, 900)");
+        executeRaw("INSERT INTO pull_task_pull_call "
+                + "(id, tenant_id, task_id, group_execution_id, call_seq, "
+                + "puller_group_account_id, puller_account_id, puller_assignment_seq, "
+                + "planned_material_count, planned_station_count, call_status, "
+                + "idempotency_key, submitted_at, created_at, updated_at) VALUES "
+                + "(31, 7, 100, " + row.getId() + ", 1, 81, 71, 1, 1, 0, "
+                + PullTaskPullCallStatus.SUBMITTED.code()
+                + ", 'call-31', 900, 100, 900)");
+        executeRaw("INSERT INTO pull_task_pull_call_member_attempt "
+                + "(tenant_id, task_id, group_execution_id, pull_call_id, participant_type, "
+                + "participant_ref_id, target_phone, target_jid, puller_group_account_id, "
+                + "puller_assignment_seq, attempt_no, lifecycle_status, execution_state, "
+                + "submitted_at, created_at, updated_at) VALUES "
+                + "(7, 100, " + row.getId()
+                + ", 31, 1, 91, '8613800000091', '8613800000091@s.whatsapp.net', "
+                + "81, 1, 1, 2, 'STARTED', 900, 100, 900)");
+        TenantContext.clear();
+
+        assertThat(mapper.selectUnknownResultCandidates(
+                unknownCriteria("STANDARD", "NORMAL_LINK")))
+                .extracting(PullTaskGroupExecution::getId)
+                .containsExactly(row.getId());
+    }
+
     private PullTaskGroupExecution draft(long taskId, int seq, String link, int fileIndex) {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setTaskId(taskId);
@@ -649,7 +690,9 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                                 PullTaskActionStatus.UNKNOWN.code()),
                         new PullTaskUnknownReconciliationCriteria.Call(
                                 PullTaskPullCallStatus.SUBMITTED.code(),
-                                PullTaskPullCallStatus.UNKNOWN.code()),
+                                PullTaskPullCallStatus.UNKNOWN.code(),
+                                PullTaskParticipantAttemptStatus.SUBMITTED.code(),
+                                PullTaskGroupAccountAvailability.AVAILABLE.code()),
                         new PullTaskUnknownReconciliationCriteria.Material(
                                 PullTaskMaterialPullStatus.SUBMITTED.code(),
                                 PullTaskMaterialPullStatus.UNKNOWN.code(),

@@ -74,7 +74,7 @@ class PullTaskSupplementPullerTransactionIntegrationTest {
     }
 
     @Test
-    void confirmedLinkJoinPersistsFactsAndReturnsToContactCheckpoint() {
+    void confirmedFinalLinkJoinResumesPullExecutionWithoutContactOrInviteActions() {
         PullTaskSupplementPullerPreparation prepared = transactions.prepare(
                 executionMapper.selectById(11L), "worker", NOW);
 
@@ -98,8 +98,51 @@ class PullTaskSupplementPullerTransactionIntegrationTest {
         assertThat(intColumn("execution_status", "pull_task_group_execution", 11L))
                 .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
         assertThat(intColumn("stage", "pull_task_group_execution", 11L))
-                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+                .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_account_action WHERE action_type IN (1, 2)",
+                Integer.class)).isZero();
         assertThat(stringColumn("lock_owner", "pull_task_group_execution", 11L)).isNull();
+    }
+
+    @Test
+    void confirmedLinkJoinFinishesTheSupplementBatchBeforeResumingPullExecution() {
+        jdbc.update("INSERT INTO pull_task_group_account "
+                + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                + "role_type, role_seq, source_type, selection_mode, entry_mode, "
+                + "membership_status, admin_status, availability_status, occupied_at, "
+                + "created_at, updated_at) VALUES "
+                + "(103, 7, 1, 11, 903, '8613800000903', 2, 2, 2, 2, 1, "
+                + "0, 0, 1, 100, 100, 100)");
+        jdbc.update("INSERT INTO pull_task_account_action "
+                + "(id, tenant_id, task_id, group_execution_id, action_type, "
+                + "actor_group_account_id, target_group_account_id, action_status, "
+                + "created_at, updated_at) VALUES "
+                + "(202, 7, 1, 11, 3, 103, 103, 1, 100, 100)");
+        when(accountLookup.findActiveProtocolRef(903L))
+                .thenReturn(Optional.of(account(903L)));
+
+        PullTaskSupplementPullerWork first = transactions.prepare(
+                executionMapper.selectById(11L), "worker", NOW).work();
+        transactions.complete(first, PullTaskSupplementPullerOutcome.confirmed(), NOW + 1);
+
+        assertThat(intColumn("stage", "pull_task_group_execution", 11L))
+                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+        jdbc.update("UPDATE pull_task_group_execution SET lock_owner='worker-2', "
+                + "lock_expires_at=5000 WHERE id=11");
+        PullTaskSupplementPullerWork second = transactions.prepare(
+                executionMapper.selectById(11L), "worker-2", NOW + 2).work();
+        assertThat(second.targetGroupAccountId()).isEqualTo(103L);
+        transactions.complete(second, PullTaskSupplementPullerOutcome.confirmed(), NOW + 3);
+
+        assertThat(intColumn("stage", "pull_task_group_execution", 11L))
+                .isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_account WHERE role_type=2",
+                Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_account_action WHERE action_type IN (1, 2)",
+                Integer.class)).isZero();
     }
 
     @Test

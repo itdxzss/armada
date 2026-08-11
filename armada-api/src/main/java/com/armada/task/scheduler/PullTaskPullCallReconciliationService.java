@@ -14,10 +14,11 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
-import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskPullCallRosterCheckStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskRosterObservation;
@@ -66,7 +67,7 @@ public class PullTaskPullCallReconciliationService {
             long cutoff,
             long now) {
         if (!Objects.equals(call.getCallStatus(), PullTaskPullCallStatus.SUBMITTED.code())
-                || call.getSubmittedAt() == null || call.getSubmittedAt() > cutoff) {
+                || call.getSubmittedAt() == null) {
             return PullTaskUnknownResultReconciliationStats.empty();
         }
         List<PullTaskPullCallMemberAttempt> unresolved = attempts.stream()
@@ -76,6 +77,10 @@ public class PullTaskPullCallReconciliationService {
                         != PullTaskParticipantExecutionState.NOT_STARTED)
                 .toList();
         if (unresolved.isEmpty()) {
+            return PullTaskUnknownResultReconciliationStats.empty();
+        }
+        if (call.getSubmittedAt() > cutoff
+                && !unavailablePullerStillOwnsOpenAttempt(call, unresolved, accounts)) {
             return PullTaskUnknownResultReconciliationStats.empty();
         }
         RosterDecision decision = rosterDecision(call, cutoff, now);
@@ -120,6 +125,22 @@ public class PullTaskPullCallReconciliationService {
                     unresolved.size(), confirmed, released);
         }
         return new PullTaskUnknownResultReconciliationStats(confirmed, released);
+    }
+
+    private static boolean unavailablePullerStillOwnsOpenAttempt(
+            PullTaskPullCall call,
+            List<PullTaskPullCallMemberAttempt> unresolved,
+            List<PullTaskGroupAccount> accounts) {
+        Long pullerId = call.getPullerGroupAccountId();
+        if (pullerId == null || accounts.stream().noneMatch(account ->
+                Objects.equals(account.getId(), pullerId)
+                        && account.getAvailabilityStatus() != null
+                        && !Objects.equals(account.getAvailabilityStatus(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code()))) {
+            return false;
+        }
+        return unresolved.stream().anyMatch(attempt ->
+                Objects.equals(attempt.getPullerGroupAccountId(), pullerId));
     }
 
     private static PullTaskRosterObservation observation(

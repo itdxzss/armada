@@ -3,6 +3,10 @@ package com.armada.group.normalcreation.service.impl;
 import com.armada.account.service.AccountService;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
+import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountState;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
@@ -43,6 +47,7 @@ public class NormalGroupCreationProtocolResultService
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
     private final AccountService accountService;
     private final AccountStateEventService accountStateEventService;
+    private final AccountStateMapper accountStateMapper;
 
     public NormalGroupCreationProtocolResultService(
             NormalGroupCreationMapper mapper,
@@ -51,7 +56,8 @@ public class NormalGroupCreationProtocolResultService
             GroupLinkService groupLinkService,
             GroupMetadataSyncTaskService metadataSyncTaskService,
             AccountService accountService,
-            AccountStateEventService accountStateEventService) {
+            AccountStateEventService accountStateEventService,
+            AccountStateMapper accountStateMapper) {
         this.mapper = mapper;
         this.commandDispatcher = commandDispatcher;
         this.groupLinkRegistryService = groupLinkRegistryService;
@@ -59,6 +65,7 @@ public class NormalGroupCreationProtocolResultService
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.accountService = accountService;
         this.accountStateEventService = accountStateEventService;
+        this.accountStateMapper = accountStateMapper;
     }
 
     /**
@@ -273,7 +280,12 @@ public class NormalGroupCreationProtocolResultService
                 && event.groupJid() != null && !event.groupJid().isBlank());
         String createdGroupJid = "GROUP_CREATE".equals(event.action())
                 ? event.groupJid() : null;
+        AccountFailureClassification accountFailure = classifyUnknownGroupCreate(event, groupExists);
+        if (accountFailure != null) {
+            failure = new FailureDetails(accountFailure.code(), accountFailure.message());
+        }
         String status = "UNKNOWN".equals(event.outcome()) && "GROUP_CREATE".equals(event.action())
+                && accountFailure == null
                 ? "RESULT_UNKNOWN" : groupExists ? "CREATED_PARTIAL" : "FAILED";
         if (mapper.failProtocolAction(
                 item.id(), expectedStep, event.commandId(), status,
@@ -286,6 +298,49 @@ public class NormalGroupCreationProtocolResultService
         migrateCreator(item.creatorAccountId(), groupExists
                 ? item.successMigrationGroupId() : item.failedMigrationGroupId());
         mapper.refreshTaskSummary(item.taskId(), now);
+    }
+
+    /**
+     * 建群回执未知时，用控端最近一次账号状态补充失败归因。
+     *
+     * <p>仅在没有群 JID 时执行归因；即使账号随后离线，也不覆盖已经确认存在的群，避免把真实
+     * 的建群成功错误显示成失败。查询异常时保留 RESULT_UNKNOWN 的保守语义。</p>
+     */
+    private AccountFailureClassification classifyUnknownGroupCreate(
+            ProtocolNormalGroupCreationResultReportedEvent event,
+            boolean groupExists) {
+        if (!"UNKNOWN".equals(event.outcome())
+                || !"GROUP_CREATE".equals(event.action())
+                || groupExists
+                || event.accountId() == null) {
+            return null;
+        }
+        final AccountState state;
+        try {
+            state = accountStateMapper.selectByAccountId(event.accountId());
+        } catch (RuntimeException ex) {
+            log.warn("查询建群账号状态失败，保留结果未知 tenantId={} itemId={} accountId={}",
+                    event.tenantId(), event.itemId(), event.accountId(), ex);
+            return null;
+        }
+        if (state == null) {
+            return null;
+        }
+        if (abnormalAccountState(state.getAccountState())) {
+            return new AccountFailureClassification(
+                    "ACCOUNT_ABNORMAL_DURING_CREATE", "建群号状态异常，建群结果未确认");
+        }
+        if (Integer.valueOf(AccountLoginStateCode.OFFLINE).equals(state.getLoginState())) {
+            return new AccountFailureClassification(
+                    "ACCOUNT_OFFLINE_DURING_CREATE", "建群号离线，建群结果未确认");
+        }
+        return null;
+    }
+
+    private static boolean abnormalAccountState(Integer accountState) {
+        return accountState != null
+                && accountState != AccountStateCode.NORMAL
+                && accountState != AccountStateCode.NEW;
     }
 
     private void reconcileOfflineActor(
@@ -369,5 +424,8 @@ public class NormalGroupCreationProtocolResultService
     }
 
     private record FailureDetails(String code, String message) {
+    }
+
+    private record AccountFailureClassification(String code, String message) {
     }
 }

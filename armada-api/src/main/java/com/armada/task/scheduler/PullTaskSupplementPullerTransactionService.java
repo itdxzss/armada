@@ -88,7 +88,7 @@ public class PullTaskSupplementPullerTransactionService {
         }
     }
 
-    /** 回写踩链接与实时在群事实，再继续联系人链或进入等待复核。 */
+    /** 回写踩链接与实时在群事实，继续处理本批补充拉手或恢复拉人执行。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult complete(
             PullTaskSupplementPullerWork work,
@@ -147,7 +147,7 @@ public class PullTaskSupplementPullerTransactionService {
                     .findActiveProtocolRef(target.getAccountId()).orElse(null);
             if (account == null) {
                 markUnavailable(target.getId(), ACCOUNT_UNAVAILABLE, now);
-                return continueContactStage(candidate, now);
+                return continueSupplementFlow(candidate, now);
             }
             PullTaskActionSubmission submission = new PullTaskActionSubmission(
                     action.getId(), PullTaskActionStatus.PENDING.code(),
@@ -265,6 +265,7 @@ public class PullTaskSupplementPullerTransactionService {
         } else {
             update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         }
+        update.setStage(nextStage(work.executionId()).code());
         PullTaskExecutionDispatchResult result = resources.executionMapper().transitionClaimed(
                 update, PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()) == 1
                 ? PullTaskExecutionDispatchResult.DEFERRED
@@ -276,15 +277,25 @@ public class PullTaskSupplementPullerTransactionService {
         return result;
     }
 
-    private PullTaskSupplementPullerPreparation continueContactStage(
+    private PullTaskSupplementPullerPreparation continueSupplementFlow(
             PullTaskGroupExecution candidate, long now) {
         PullTaskGroupExecution update = transitionRow(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+        update.setStage(nextStage(candidate.getId()).code());
         PullTaskExecutionDispatchResult result = resources.executionMapper().transitionClaimed(
                 update, PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()) == 1
                 ? PullTaskExecutionDispatchResult.DEFERRED
                 : PullTaskExecutionDispatchResult.LOST;
         return PullTaskSupplementPullerPreparation.completed(result);
+    }
+
+    private PullTaskExecutionStage nextStage(long executionId) {
+        boolean hasPendingSupplement = accountMapper.selectByExecutionAndRole(
+                        executionId, PullTaskGroupAccountRole.PULLER.code())
+                .stream().anyMatch(PullTaskSupplementPullerTransactionService::processable);
+        return hasPendingSupplement
+                ? PullTaskExecutionStage.MANAGER_PULLER_CONTACT
+                : PullTaskExecutionStage.PULL_EXECUTION;
     }
 
     private PullTaskSupplementPullerPreparation lost(

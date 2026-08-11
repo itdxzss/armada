@@ -11,7 +11,7 @@ import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
 
-/** 确认群成员添加权限后，提交管理—拉手单方向联系人 Outbox 命令。 */
+/** 优先处理补充拉手踩链接；首次启动时再确认权限并提交管理—拉手联系人命令。 */
 @Component
 public class PullTaskManagerPullerContactProcessor {
 
@@ -33,12 +33,16 @@ public class PullTaskManagerPullerContactProcessor {
     }
 
     /**
-     * 先确认普通成员可以添加群成员，再在事务中提交联系人 Outbox。
+     * 补充拉手直接踩链接；没有补充指令时才执行首次启动的权限确认和联系人 Outbox。
      *
      * <p>设置和回读均在事务外执行；未确认时保留当前阶段并延迟重试，禁止提前占用拉手。</p>
      */
     public PullTaskExecutionDispatchResult process(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
+        var supplementResult = supplementProcessor.processIfPresent(candidate, lockOwner, now);
+        if (supplementResult.isPresent()) {
+            return supplementResult.get();
+        }
         PullTaskMemberAddPermissionPreparation permission =
                 transactions.prepareMemberAddPermission(candidate, lockOwner, now);
         if (!permission.ready()) {
@@ -48,10 +52,6 @@ public class PullTaskManagerPullerContactProcessor {
                 ensureMemberAddPermission(permission.work(), now);
         if (permissionResult.isPresent()) {
             return permissionResult.get();
-        }
-        var supplementResult = supplementProcessor.processIfPresent(candidate, lockOwner, now);
-        if (supplementResult.isPresent()) {
-            return supplementResult.get();
         }
         return transactions.prepare(candidate, lockOwner, now);
     }

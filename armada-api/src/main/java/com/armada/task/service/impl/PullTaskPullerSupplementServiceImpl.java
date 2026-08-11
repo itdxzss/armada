@@ -39,7 +39,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 补充拉手的候选过滤、四种组合冻结与检查点回退实现。 */
+/** 补充拉手的候选过滤、固定踩链接冻结与检查点回退实现。 */
 @Service
 public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupplementService {
 
@@ -80,8 +80,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 PullTaskPullerSupplementServiceImpl::currentPuller).count();
         int required = requiredCount(context.setting());
         return new PullTaskPullerSupplementOptionsVO(
-                current, required, Math.max(required - current, 0), groupId,
-                managerInviteAvailable(executionId), pullers.stream()
+                current, required, Math.max(required - current, 0), groupId, pullers.stream()
                 .map(PullTaskPullerSupplementServiceImpl::role).toList(),
                 candidates(groupId, pullers));
     }
@@ -98,10 +97,6 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
         int availableSlots = availableSlots(context.setting(), existing);
         if (request.supplementCount() > availableSlots) {
             throw new BusinessException(ErrorCode.CONFLICT, "补充数量超过当前拉手缺口");
-        }
-        if (requestState.entryMode() == PullTaskAccountEntryMode.MANAGER_INVITE
-                && !managerInviteAvailable(executionId)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "当前没有可执行邀请的管理员");
         }
         List<PullTaskPullerCandidateVO> candidates =
                 candidates(request.accountGroupId(), existing);
@@ -144,9 +139,11 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 PullTaskSelectionMode.fromCode(request.selectionMode());
         PullTaskAccountEntryMode entryMode =
                 PullTaskAccountEntryMode.fromCode(request.entryMode());
-        if (selectionMode == null || (entryMode != PullTaskAccountEntryMode.JOIN_BY_LINK
-                && entryMode != PullTaskAccountEntryMode.MANAGER_INVITE)) {
-            throw new BusinessException(ErrorCode.VALIDATION, "拉手选择或进群方式无效");
+        if (selectionMode == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "拉手选择方式无效");
+        }
+        if (entryMode != PullTaskAccountEntryMode.JOIN_BY_LINK) {
+            throw new BusinessException(ErrorCode.VALIDATION, "补充拉手仅支持踩链接进群");
         }
         Set<Long> distinct = new HashSet<>(request.accountIds());
         if (selectionMode == PullTaskSelectionMode.AUTOMATIC && !distinct.isEmpty()) {
@@ -196,9 +193,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
             try {
                 PullTaskGroupAccount row = insertPuller(
                         execution, candidate, nextSeq++, request, now);
-                if (request.entryMode() == PullTaskAccountEntryMode.JOIN_BY_LINK) {
-                    insertLinkAction(execution, row, now);
-                }
+                insertLinkAction(execution, row, now);
                 inserted++;
             } catch (DuplicateKeyException exception) {
                 if (request.selectionMode() == PullTaskSelectionMode.MANUAL) {
@@ -296,21 +291,6 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 java.util.Comparator.comparingLong(PullTaskPullerCandidateVO::accountId)).toList();
     }
 
-    private boolean managerInviteAvailable(long executionId) {
-        List<PullTaskGroupAccount> managers = resources.accountMapper()
-                .selectByExecutionAndRole(executionId, PullTaskGroupAccountRole.MANAGER.code())
-                .stream().filter(PullTaskPullerSupplementServiceImpl::currentManager).toList();
-        if (managers.isEmpty()) {
-            return false;
-        }
-        Set<Long> activeIds = safe(resources.accountLookup().findActiveProtocolRefs(
-                managers.stream().map(PullTaskGroupAccount::getAccountId).toList()))
-                .stream().filter(Objects::nonNull)
-                .map(ProtocolAccountRef::armadaAccountId)
-                .collect(java.util.stream.Collectors.toSet());
-        return managers.stream().anyMatch(row -> activeIds.contains(row.getAccountId()));
-    }
-
     private void requireGroup(Long groupId) {
         if (groupId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "拉手账号分组不能为空");
@@ -356,13 +336,6 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 && row.getReleasedAt() == null
                 && !Objects.equals(row.getMembershipStatus(),
                 PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code());
-    }
-
-    private static boolean currentManager(PullTaskGroupAccount row) {
-        return Objects.equals(row.getAvailabilityStatus(),
-                PullTaskGroupAccountAvailability.AVAILABLE.code())
-                && Objects.equals(row.getMembershipStatus(),
-                PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
     }
 
     private static int nextRoleSeq(List<PullTaskGroupAccount> rows) {

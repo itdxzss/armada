@@ -12,6 +12,7 @@ import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.dto.PullTaskPlannedCallPrune;
+import com.armada.task.model.dto.PullTaskPullerUnavailableEvent;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,17 +69,20 @@ public class PullTaskPullCallParticipantResultService {
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskStandardSettingMapper settingMapper;
     private final PullTaskPullCallResultCoordination coordination;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 创建逐号码结果服务。 */
     public PullTaskPullCallParticipantResultService(
             PullTaskUnknownResultResources resources,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskStandardSettingMapper settingMapper,
-            PullTaskPullCallResultCoordination coordination) {
+            PullTaskPullCallResultCoordination coordination,
+            ApplicationEventPublisher eventPublisher) {
         this.resources = resources;
         this.executionMapper = executionMapper;
         this.settingMapper = settingMapper;
         this.coordination = coordination;
+        this.eventPublisher = eventPublisher;
     }
 
     /** 按冻结调用和目标 JID 幂等收敛一个参与者结果。 */
@@ -541,6 +546,8 @@ public class PullTaskPullCallParticipantResultService {
         }
         coordination.stickyPullers().invalidateIfCurrent(
                 execution, call, target.reasonCode(), target.now());
+        eventPublisher.publishEvent(new PullTaskPullerUnavailableEvent(
+                execution.getTenantId(), execution.getId(), puller.getId(), target.now()));
     }
 
     private static String normalizedReason(String reasonCode) {

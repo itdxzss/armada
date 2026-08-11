@@ -8,7 +8,6 @@ public record PullTaskPullerSupplementOptionsVO(
         int requiredPullerCount,
         int missingPullerCount,
         Long pullerGroupId,
-        boolean managerInviteAvailable,
         List<PullTaskPullerOptionRoleVO> currentPullers,
         List<PullTaskPullerCandidateVO> candidates) {
 }

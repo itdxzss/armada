@@ -260,10 +260,10 @@ class PullTaskStandardControllerTest {
     }
 
     @Test
-    void pullerSupplementEndpointsDelegateAllFourSelectionAndEntryFields() {
+    void pullerSupplementEndpointsDelegateFixedLinkRequestFields() {
         PullTaskPullerSupplementOptionsVO options =
                 new PullTaskPullerSupplementOptionsVO(
-                        0, 2, 2, 89L, true, List.of(), List.of());
+                        0, 2, 2, 89L, List.of(), List.of());
         PullTaskPullerSupplementDTO request = new PullTaskPullerSupplementDTO(
                 89L, 1, PullTaskSelectionMode.MANUAL.code(),
                 PullTaskAccountEntryMode.JOIN_BY_LINK.code(), List.of(902L));

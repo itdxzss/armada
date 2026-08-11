@@ -29,6 +29,10 @@ spring:
       properties:
         spring.json.add.type.headers: false
 
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] traceId=%X{traceId:-} %logger{36} - %msg%n%wEx"
+
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   configuration:

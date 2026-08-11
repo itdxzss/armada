@@ -1,20 +1,29 @@
 package com.armada.platform.kafka.consumer.group;
 
+import com.armada.platform.kafka.trace.KafkaTraceSupport;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Locale;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /** 新建普群统一结果专用 Kafka consumer。 */
 @Component
 @Profile("kafka")
 public class ProtocolNormalGroupCreationEventConsumer {
+
+    private static final Logger log = LoggerFactory.getLogger(
+            ProtocolNormalGroupCreationEventConsumer.class);
 
     /** 新建普群结果复用通用群动作结果事件定义。 */
     public static final String EVENT_GROUP_ACTION_RESULT_REPORTED =
@@ -35,13 +44,27 @@ public class ProtocolNormalGroupCreationEventConsumer {
         this.resultReportedSink = resultReportedSink;
     }
 
-    /** 消费 Web/Android 回传到专用结果 topic 的新建普群 action 最终结果。 */
+    /**
+     * 消费 Web/Android 回传到专用结果 topic 的新建普群 action 最终结果。
+     *
+     * @param rawMessage Kafka message value
+     * @param headerTraceId Kafka trace header
+     */
     @KafkaListener(
             topics = "${armada.normal-group-creation.kafka.result-topic:protocol.normal-group.events.v1}",
             groupId = "${armada.normal-group-creation.kafka.result-group-id:armada-api-normal-group-results}",
             concurrency = "${armada.normal-group-creation.kafka.result-concurrency:4}")
-    public void onMessage(String rawMessage) {
+    public void onMessage(
+            String rawMessage,
+            @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {
         JsonNode envelope = readEnvelope(rawMessage);
+        try (TraceContext.Scope ignored = KafkaTraceSupport.open(
+                envelope, headerTraceId, log, text(envelope, "eventId"))) {
+            handleEnvelope(envelope);
+        }
+    }
+
+    private void handleEnvelope(JsonNode envelope) {
         String eventType = requiredText(envelope, "event", "新建普群结果信封缺少 event");
         if (!EVENT_GROUP_ACTION_RESULT_REPORTED.equals(eventType)) {
             throw new BusinessException(ErrorCode.VALIDATION, "新建普群结果事件类型非法");

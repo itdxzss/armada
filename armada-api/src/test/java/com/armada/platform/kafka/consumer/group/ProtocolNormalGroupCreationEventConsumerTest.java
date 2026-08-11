@@ -2,10 +2,13 @@ package com.armada.platform.kafka.consumer.group;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.trace.TraceContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ProtocolNormalGroupCreationEventConsumerTest {
 
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
+
     @Mock
     private ProtocolNormalGroupCreationResultReportedSink resultSink;
 
@@ -27,10 +32,23 @@ class ProtocolNormalGroupCreationEventConsumerTest {
         consumer = new ProtocolNormalGroupCreationEventConsumer(new ObjectMapper(), resultSink);
     }
 
+    private void onMessage(String rawMessage) {
+        onMessage(rawMessage, null);
+    }
+
+    private void onMessage(String rawMessage, String headerTraceId) {
+        consumer.onMessage(rawMessage, headerTraceId);
+    }
+
     @Test
     void onMessage_validAndroidResultDispatchesProtocolSpecificActor() {
+        doAnswer(invocation -> {
+            assertThat(TraceContext.current()).contains(FIXED_TRACE_ID);
+            return null;
+        }).when(resultSink).handleNormalGroupCreationResult(any());
         String raw = """
                 {
+                  "traceId":"0123456789abcdef0123456789abcdef",
                   "eventId":"acc-android-1:group.action_result_reported:cmd-normal-1",
                   "event":"group.action_result_reported",
                   "accountId":"acc-android-1",
@@ -46,7 +64,7 @@ class ProtocolNormalGroupCreationEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolNormalGroupCreationResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolNormalGroupCreationResultReportedEvent.class);
@@ -58,6 +76,7 @@ class ProtocolNormalGroupCreationEventConsumerTest {
                         901L, "acc-android-1", "ANDROID", "cmd-normal-1", 1,
                         "SUCCESS", "120363normal@g.us", "", "", false,
                         5_000L, "android-worker-1"));
+        assertThat(TraceContext.current()).isEmpty();
     }
 
     @Test
@@ -89,13 +108,13 @@ class ProtocolNormalGroupCreationEventConsumerTest {
                 }}
                 """;
 
-        assertThatThrownBy(() -> consumer.onMessage(wrongEvent))
+        assertThatThrownBy(() -> onMessage(wrongEvent))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(wrongSource))
+        assertThatThrownBy(() -> onMessage(wrongSource))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(wrongEnvelope))
+        assertThatThrownBy(() -> onMessage(wrongEnvelope))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(wrongBackend))
+        assertThatThrownBy(() -> onMessage(wrongBackend))
                 .isInstanceOf(BusinessException.class);
         verifyNoInteractions(resultSink);
     }
@@ -112,7 +131,7 @@ class ProtocolNormalGroupCreationEventConsumerTest {
                 }}
                 """;
 
-        assertThatThrownBy(() -> consumer.onMessage(raw))
+        assertThatThrownBy(() -> onMessage(raw))
                 .isInstanceOf(BusinessException.class);
         verifyNoInteractions(resultSink);
     }

@@ -40,6 +40,8 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -57,6 +59,8 @@ import org.springframework.dao.DuplicateKeyException;
  * <p>Slice 3 只验证上线命令如何转成 outbox row。不发送 Kafka,不接账号上线入口。</p>
  */
 class ProtocolCommandOutboxServiceImplTest {
+
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
     private final ProtocolCommandOutboxMapper mapper = org.mockito.Mockito.mock(ProtocolCommandOutboxMapper.class);
     private final ProtocolCommandDispatchTrigger dispatchTrigger =
@@ -534,6 +538,41 @@ class ProtocolCommandOutboxServiceImplTest {
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
         verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueOnlineCommands_reusesCurrentTraceForEveryRowInTheRequestScope() {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-trace-1", "cmd-trace-2"), List.of("batch-trace"));
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+
+        try (TraceContext.Scope ignored = TraceContext.open(FIXED_TRACE_ID)) {
+            service.enqueueOnlineCommands(List.of(
+                    onlineCommand(101L, "acc-101", CredentialFormat.BAILEYS_JSON, 11L),
+                    onlineCommand(102L, "acc-102", CredentialFormat.BAILEYS_JSON, 12L)));
+        }
+
+        assertThat(capturedRows()).extracting(ProtocolCommandOutbox::getTraceId)
+                .containsOnly(FIXED_TRACE_ID);
+    }
+
+    @Test
+    void enqueueOnlineCommands_withoutContextSharesTraceOnlyWithinTheSameAggregate() {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-trace-1", "cmd-trace-2", "cmd-trace-3"),
+                List.of("batch-trace"));
+        when(mapper.batchInsertPending(anyList())).thenReturn(3);
+
+        service.enqueueOnlineCommands(List.of(
+                onlineCommand(101L, "acc-101", CredentialFormat.BAILEYS_JSON, 11L),
+                onlineCommand(101L, "acc-101", CredentialFormat.BAILEYS_JSON, 11L),
+                onlineCommand(102L, "acc-102", CredentialFormat.BAILEYS_JSON, 12L)));
+
+        List<ProtocolCommandOutbox> rows = capturedRows();
+        assertThat(rows).extracting(ProtocolCommandOutbox::getTraceId)
+                .allMatch(TraceIds::isValid);
+        assertThat(rows.get(0).getTraceId()).isEqualTo(rows.get(1).getTraceId());
+        assertThat(rows.get(2).getTraceId()).isNotEqualTo(rows.get(0).getTraceId());
     }
 
     @Test

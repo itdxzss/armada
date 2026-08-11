@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.platform.kafka.consumer.account.ProtocolAccountEventConsumer;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupEventConsumer;
+import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationEventConsumer;
+import com.armada.platform.kafka.consumer.message.ProtocolMessageEventConsumer;
+import com.armada.platform.kafka.consumer.pairing.ProtocolPairingEventConsumer;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -33,6 +36,24 @@ class ProtocolKafkaListenerConfigurationTest {
                 "${armada.protocol.kafka.group-events.topic:protocol.group.events.v1}",
                 "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}",
                 "");
+        assertListenerUsesProperties(
+                ProtocolNormalGroupCreationEventConsumer.class,
+                "onMessage",
+                "${armada.normal-group-creation.kafka.result-topic:protocol.normal-group.events.v1}",
+                "${armada.normal-group-creation.kafka.result-group-id:armada-api-normal-group-results}",
+                "${armada.normal-group-creation.kafka.result-concurrency:4}");
+        assertListenerUsesProperties(
+                ProtocolMessageEventConsumer.class,
+                "onMessage",
+                "${armada.protocol.kafka.message-events.topic:protocol.message.events.v1}",
+                "${armada.protocol.kafka.message-events.group-id:armada-api-message-events}",
+                "");
+        assertListenerUsesProperties(
+                ProtocolPairingEventConsumer.class,
+                "onMessage",
+                "${armada.protocol.kafka.pairing-events.topic:protocol.pairing.events.v1}",
+                "${armada.protocol.kafka.pairing-events.group-id:armada-api-pairing-events}",
+                "");
     }
 
     private static void assertListenerUsesProperties(Class<?> listenerType,
@@ -40,7 +61,7 @@ class ProtocolKafkaListenerConfigurationTest {
                                                      String expectedTopic,
                                                      String expectedGroupId,
                                                      String expectedConcurrency) throws NoSuchMethodException {
-        Method onMessage = listenerType.getDeclaredMethod(methodName, String.class);
+        Method onMessage = listenerType.getDeclaredMethod(methodName, String.class, String.class);
         KafkaListener listener = onMessage.getAnnotation(KafkaListener.class);
 
         assertThat(listener).isNotNull();

@@ -1,7 +1,10 @@
 package com.armada.platform.kafka.consumer.account;
 
+import com.armada.platform.kafka.trace.KafkaTraceSupport;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -101,13 +105,23 @@ public class ProtocolAccountEventConsumer {
      * <p>Kafka value 是协议层 {@code EventEnvelope} JSON。方法保持 public 便于单测直接覆盖解析逻辑。</p>
      *
      * @param rawMessage Kafka message value
+     * @param headerTraceId Kafka trace header
      */
     @KafkaListener(
             topics = "${armada.protocol.kafka.account-state-events.topic:protocol.account.state.events.v1}",
             groupId = "${armada.protocol.kafka.account-state-events.group-id:armada-api-account-state-events}",
             concurrency = "${armada.protocol.kafka.account-state-events.concurrency:4}")
-    public void onStateMessage(String rawMessage) {
+    public void onStateMessage(
+            String rawMessage,
+            @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {
         JsonNode envelope = readEnvelope(rawMessage);
+        try (TraceContext.Scope ignored = KafkaTraceSupport.open(
+                envelope, headerTraceId, log, text(envelope, "eventId"))) {
+            handleStateEnvelope(envelope);
+        }
+    }
+
+    private void handleStateEnvelope(JsonNode envelope) {
         String eventType = text(envelope, "event");
         if (EVENT_ACCOUNT_STATE_CHANGED.equals(eventType)) {
             ProtocolAccountStateChangedEvent event = toStateChangedEvent(envelope);
@@ -136,13 +150,23 @@ public class ProtocolAccountEventConsumer {
      * 消费账号群快照与本人群关系变化事件。
      *
      * @param rawMessage Kafka message value
+     * @param headerTraceId Kafka trace header
      */
     @KafkaListener(
             topics = "${armada.protocol.kafka.account-group-sync-events.topic:protocol.account.group-sync.events.v1}",
             groupId = "${armada.protocol.kafka.account-group-sync-events.group-id:armada-api-account-group-sync-events}",
             concurrency = "${armada.protocol.kafka.account-group-sync-events.concurrency:4}")
-    public void onGroupSyncMessage(String rawMessage) {
+    public void onGroupSyncMessage(
+            String rawMessage,
+            @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {
         JsonNode envelope = readEnvelope(rawMessage);
+        try (TraceContext.Scope ignored = KafkaTraceSupport.open(
+                envelope, headerTraceId, log, text(envelope, "eventId"))) {
+            handleGroupSyncEnvelope(envelope);
+        }
+    }
+
+    private void handleGroupSyncEnvelope(JsonNode envelope) {
         String eventType = text(envelope, "event");
         if (EVENT_ACCOUNT_GROUPS_REPORTED.equals(eventType)) {
             ProtocolAccountGroupsReportedEvent event = toGroupsReportedEvent(envelope);

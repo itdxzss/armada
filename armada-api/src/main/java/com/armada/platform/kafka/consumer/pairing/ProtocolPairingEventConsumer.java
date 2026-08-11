@@ -1,7 +1,10 @@
 package com.armada.platform.kafka.consumer.pairing;
 
+import com.armada.platform.kafka.trace.KafkaTraceSupport;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -32,12 +36,26 @@ public class ProtocolPairingEventConsumer {
         this.sink = sink;
     }
 
-    /** 消费 protocol.pairing.events.v1 的标准 EventEnvelope。 */
+    /**
+     * 消费 protocol.pairing.events.v1 的标准 EventEnvelope。
+     *
+     * @param rawMessage Kafka message value
+     * @param headerTraceId Kafka trace header
+     */
     @KafkaListener(
             topics = "${armada.protocol.kafka.pairing-events.topic:protocol.pairing.events.v1}",
             groupId = "${armada.protocol.kafka.pairing-events.group-id:armada-api-pairing-events}")
-    public void onMessage(String rawMessage) {
+    public void onMessage(
+            String rawMessage,
+            @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {
         JsonNode envelope = readEnvelope(rawMessage);
+        try (TraceContext.Scope ignored = KafkaTraceSupport.open(
+                envelope, headerTraceId, log, text(envelope, "eventId"))) {
+            handleEnvelope(envelope);
+        }
+    }
+
+    private void handleEnvelope(JsonNode envelope) {
         String eventType = requiredText(envelope, "event", "协议配对事件缺少 event");
         if (!ProtocolPairingEvent.EVENT_CODE_GENERATED.equals(eventType)
                 && !ProtocolPairingEvent.EVENT_COMPLETED.equals(eventType)

@@ -31,6 +31,7 @@ class ProtocolCommandOutboxSchemaDbTest extends DbTestBase {
         assertColumn("kafka_key", "varchar", "NO");
         assertColumn("protocol_account_id", "varchar", "NO");
         assertColumn("payload_json", "json", "NO");
+        assertColumn("trace_id", "varchar", "YES");
         assertColumn("status", "tinyint", "NO");
         assertColumn("retry_count", "int", "NO");
         assertColumn("next_retry_at", "bigint", "NO");

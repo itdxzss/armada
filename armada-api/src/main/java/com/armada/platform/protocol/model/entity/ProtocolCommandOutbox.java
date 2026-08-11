@@ -44,6 +44,9 @@ public class ProtocolCommandOutbox {
     /** 轻量命令 payload(JSON),不包含凭据和代理密码。 */
     private String payloadJson;
 
+    /** 全链路追踪标识。 */
+    private String traceId;
+
     /** 状态码,见 ProtocolCommandOutboxStatus。 */
     private Integer status;
 
@@ -168,6 +171,24 @@ public class ProtocolCommandOutbox {
 
     public void setPayloadJson(String payloadJson) {
         this.payloadJson = payloadJson;
+    }
+
+    /**
+     * 获取全链路追踪标识。
+     *
+     * @return 追踪标识，历史行可为空
+     */
+    public String getTraceId() {
+        return traceId;
+    }
+
+    /**
+     * 设置全链路追踪标识。
+     *
+     * @param traceId 追踪标识
+     */
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
     }
 
     public Integer getStatus() {

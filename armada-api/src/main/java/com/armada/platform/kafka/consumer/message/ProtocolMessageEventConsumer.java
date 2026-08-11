@@ -1,7 +1,10 @@
 package com.armada.platform.kafka.consumer.message;
 
+import com.armada.platform.kafka.trace.KafkaTraceSupport;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -38,12 +42,26 @@ public class ProtocolMessageEventConsumer {
         this.sinks = List.copyOf(sinks);
     }
 
-    /** 解析协议事件 envelope,识别发送结果事件后交给业务 sink 处理。 */
+    /**
+     * 解析协议事件 envelope,识别发送结果事件后交给业务 sink 处理。
+     *
+     * @param rawMessage Kafka message value
+     * @param headerTraceId Kafka trace header
+     */
     @KafkaListener(
             topics = "${armada.protocol.kafka.message-events.topic:protocol.message.events.v1}",
             groupId = "${armada.protocol.kafka.message-events.group-id:armada-api-message-events}")
-    public void onMessage(String rawMessage) {
+    public void onMessage(
+            String rawMessage,
+            @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {
         JsonNode envelope = readEnvelope(rawMessage);
+        try (TraceContext.Scope ignored = KafkaTraceSupport.open(
+                envelope, headerTraceId, log, text(envelope, "eventId"))) {
+            handleEnvelope(envelope);
+        }
+    }
+
+    private void handleEnvelope(JsonNode envelope) {
         String eventType = text(envelope, "event");
         String eventId = text(envelope, "eventId");
         if (!EVENT_MESSAGE_SEND_RESULT_REPORTED.equals(eventType)) {

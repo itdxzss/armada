@@ -15,6 +15,9 @@ import ch.qos.logback.core.read.ListAppender;
 import com.armada.platform.kafka.config.ProtocolCommandPublisherProperties;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.account.mapper.AccountCredentialMapper;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.account.model.vo.AccountGroupBaselineStateRow;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.platform.protocol.model.command.ProtocolCommandEnvelope;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -38,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -62,6 +66,9 @@ class ProtocolCommandPublisherTest {
 
     @Mock
     private AccountCredentialMapper credentialMapper;
+
+    @Mock
+    private AccountMapper accountMapper;
 
     @Mock
     private IpProxyMapper ipProxyMapper;
@@ -542,6 +549,62 @@ class ProtocolCommandPublisherTest {
         return row;
     }
 
+    @Test
+    @DisplayName("上线命令按账号群基线状态下发 groupBaselineReady")
+    void onlineCommandCarriesGroupBaselineReady() {
+        // Arrange：PENDING 与缺失行都必须判为未就绪，CAPTURED/DISABLED 判为已就绪。
+        ProtocolCommandOutbox captured = outboxRow(
+                "cmd_200", 1L, 200L, "acc_200",
+                "{\"accountId\":200,\"protocolAccountId\":\"acc_200\","
+                        + "\"credentialFormat\":\"PARAMS\",\"proxyId\":7,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_200\"}");
+        ProtocolCommandOutbox pending = outboxRow(
+                "cmd_201", 1L, 201L, "acc_201",
+                "{\"accountId\":201,\"protocolAccountId\":\"acc_201\","
+                        + "\"credentialFormat\":\"PARAMS\",\"proxyId\":8,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_201\"}");
+        ProtocolCommandOutbox missing = outboxRow(
+                "cmd_202", 1L, 202L, "acc_202",
+                "{\"accountId\":202,\"protocolAccountId\":\"acc_202\","
+                        + "\"credentialFormat\":\"PARAMS\",\"proxyId\":9,\"source\":\"batch_online\","
+                        + "\"onlineAttemptId\":\"oa_202\"}");
+        when(credentialMapper.selectByTenantAndAccountIds(1L, List.of(200L, 201L, 202L)))
+                .thenReturn(List.of(
+                        credential(200L, 3, "{\"login\":\"raw\"}"),
+                        credential(201L, 3, "{\"login\":\"raw\"}"),
+                        credential(202L, 3, "{\"login\":\"raw\"}")));
+        when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L, 8L, 9L)))
+                .thenReturn(List.of(
+                        proxy(7L, 200L, 1, "proxy-a.internal", 1080, "user-a", "pass_session-Aaa111", "印度"),
+                        proxy(8L, 201L, 1, "proxy-b.internal", 1080, "user-b", "pass_session-Bbb222", "印度"),
+                        proxy(9L, 202L, 1, "proxy-c.internal", 1080, "user-c", "pass_session-Ccc333", "印度")));
+        when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(1L, List.of(200L, 201L, 202L)))
+                .thenReturn(List.of(
+                        new AccountGroupBaselineStateRow(200L, AccountGroupBaselineStateCode.CAPTURED),
+                        new AccountGroupBaselineStateRow(201L, AccountGroupBaselineStateCode.PENDING)));
+        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), any(), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        // Act
+        List<ProtocolCommandPublishOutcome> outcomes =
+                publisherWithMaxInFlight(8).publishBatch(List.of(captured, pending, missing));
+
+        // Assert
+        assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.succeeded()).isTrue());
+        assertThat(baselineReadyOf("acc_200")).isTrue();
+        assertThat(baselineReadyOf("acc_201")).isFalse();
+        // 查不到基线行时必须保守判为未就绪，让协议层退化为读取成员明细。
+        assertThat(baselineReadyOf("acc_202")).isFalse();
+    }
+
+    private boolean baselineReadyOf(String protocolAccountId) {
+        ArgumentCaptor<ProtocolCommandEnvelope> captor =
+                ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
+        verify(kafkaTemplate).send(
+                eq("protocol.account.commands.v1"), eq(protocolAccountId), captor.capture());
+        return captor.getValue().payload().get("groupBaselineReady").asBoolean();
+    }
+
     private ProtocolCommandPublisher publisherWithMaxInFlight(int maxInFlight) {
         return publisherWithMaxInFlight(maxInFlight, List.of());
     }
@@ -557,6 +620,7 @@ class ProtocolCommandPublisherTest {
                 new ObjectMapper().setSerializationInclusion(JsonInclude.Include.NON_NULL),
                 properties,
                 credentialMapper,
+                accountMapper,
                 ipProxyMapper,
                 new ProxyResolver(),
                 hydrators);

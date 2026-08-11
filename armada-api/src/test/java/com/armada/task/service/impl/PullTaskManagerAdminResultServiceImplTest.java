@@ -50,7 +50,7 @@ class PullTaskManagerAdminResultServiceImplTest {
     }
 
     @Test
-    void successConfirmsManagerWithoutRealtimeVerification() {
+    void successConfirmsManagerAndAdvancesWithoutRealtimeVerification() {
         stubContext(action());
         when(actionMapper.transitionManagerAdminResult(
                 eq(711L), eq("cmd-promote-2"), eq(2), anyList(),
@@ -67,7 +67,8 @@ class PullTaskManagerAdminResultServiceImplTest {
         verify(accountMapper).transitionAdminStatus(
                 eq(501L), anyList(), eq(PullTaskGroupAccountAdminStatus.SUCCESS.code()), eq(5_000L));
         PullTaskManagerJoinResultTransition.Target target = capturedExecutionTarget();
-        assertThat(target.stage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        assertThat(target.stage()).isEqualTo(
+                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
         assertThat(target.reasonCode()).isNull();
         assertThat(target.nextRunAt()).isEqualTo(9_000L);
     }

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
@@ -129,6 +130,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
     @Autowired private PullTaskContactSaveResultService contactSaveResultService;
     @Autowired private PullTaskPullerInviteResultService pullerInviteResultService;
     @Autowired private PullTaskProtocolResultCallbackService protocolResultCallbackService;
+    @Autowired private PullTaskMemberQueryAwaitService memberQueryAwaitService;
     @Autowired private com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService;
 
     @BeforeEach
@@ -224,6 +226,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 .extracting(call -> call.getCallStatus())
                 .isEqualTo(PullTaskPullCallStatus.WRITTEN_BACK.code());
         assertThat(taskStatus()).isEqualTo("COMPLETED");
+        verifyNoInteractions(memberQueryAwaitService);
     }
 
     private void applyManagerJoinCallbackIfSubmitted(long occurredAt) {

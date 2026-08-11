@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.task.model.dto.PullTaskMemberFact;
-import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerAdminWork;
 import com.armada.task.model.entity.PullTaskAccountAction;
@@ -23,7 +22,6 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 class PullTaskManagerAdminProcessorTest {
 
@@ -35,9 +33,9 @@ class PullTaskManagerAdminProcessorTest {
             new PullTaskManagerAdminProcessor(transactions, memberQueryAwaitService);
 
     @Test
-    void managerAlreadyAdminAdvancesWithoutSendingPromote() {
+    void unknownResultUsesMemberQueryToConfirmManagerAdmin() {
         PullTaskGroupExecution candidate = executionAtManagerAdmin();
-        PullTaskManagerAdminWork work = work(PullTaskActionStatus.PENDING, false);
+        PullTaskManagerAdminWork work = work(PullTaskActionStatus.UNKNOWN, true);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
         queryReturns(member("906", true), member("15", true));
@@ -51,9 +49,9 @@ class PullTaskManagerAdminProcessorTest {
     }
 
     @Test
-    void nonAdminCandidateIsRejectedSoNextPreparationCanRotate() {
+    void submittedWithoutCallbackUsesMemberQueryToRejectInvalidPromoter() {
         PullTaskGroupExecution candidate = executionAtManagerAdmin();
-        PullTaskManagerAdminWork work = work(PullTaskActionStatus.PENDING, false);
+        PullTaskManagerAdminWork work = work(PullTaskActionStatus.SUBMITTED, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
         queryReturns(member("906", false), member("15", false));
@@ -67,43 +65,34 @@ class PullTaskManagerAdminProcessorTest {
     }
 
     @Test
-    void adminCandidatePromotesOrdinaryManager() {
+    void pendingActionSubmitsWithoutMemberQuery() {
         PullTaskGroupExecution candidate = executionAtManagerAdmin();
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.PENDING, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        queryReturns(member("906", true), member("15", false));
         when(transactions.submitOrDefer(work, 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(transactions).submitOrDefer(work, 1_000L);
+        verifyNoInteractions(memberQueryAwaitService);
     }
 
     @Test
-    void protocolSuccessWithoutRealtimePermissionBecomesRetryableUnknown() {
+    void protocolSuccessAdvancesWithoutMemberQuery() {
         PullTaskGroupExecution candidate = executionAtManagerAdmin();
         PullTaskManagerAdminWork work = work(PullTaskActionStatus.SUCCESS, false);
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerAdminPreparation.ready(work));
-        queryReturns(member("906", true), member("15", false));
-        when(transactions.deferUnconfirmed(work, 1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+        when(transactions.confirmManagerAdmin(work, 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verify(transactions).deferUnconfirmed(work, 1_000L);
-        verify(transactions, never()).confirmManagerAdmin(work, 1_000L);
-        ArgumentCaptor<PullTaskMemberQueryRequest> request =
-                ArgumentCaptor.forClass(PullTaskMemberQueryRequest.class);
-        verify(memberQueryAwaitService).readOrDefer(
-                org.mockito.ArgumentMatchers.eq(7L), request.capture(),
-                org.mockito.ArgumentMatchers.eq(2),
-                org.mockito.ArgumentMatchers.eq("worker-1"),
-                org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.MANAGER_ADMIN.code()),
-                org.mockito.ArgumentMatchers.eq(1_000L));
-        assertThat(request.getValue().businessKey()).contains(":post:1");
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        verify(transactions).confirmManagerAdmin(work, 1_000L);
+        verify(transactions, never()).submitOrDefer(work, 1_000L);
+        verifyNoInteractions(memberQueryAwaitService);
     }
 
     @Test
@@ -137,6 +126,7 @@ class PullTaskManagerAdminProcessorTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(transactions).submitOrDefer(work, 1_000L);
         verify(transactions, never()).confirmManagerAdmin(eq(work), anyLong());
+        verifyNoInteractions(memberQueryAwaitService);
     }
 
     private static PullTaskManagerAdminWork work(

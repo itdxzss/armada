@@ -12,7 +12,7 @@ import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
-/** 在事务外核验群权限事实，并驱动管理员设置短事务。 */
+/** 优先按协议回执推进管理员设置，仅在无明确回执时查询群权限事实兜底。 */
 @Component
 public class PullTaskManagerAdminProcessor {
 
@@ -36,20 +36,24 @@ public class PullTaskManagerAdminProcessor {
             return preparation.result();
         }
         PullTaskManagerAdminWork work = preparation.work();
+        Integer actionStatus = work.action().getActionStatus();
+        if (Objects.equals(actionStatus, PullTaskActionStatus.SUCCESS.code())) {
+            return transactions.confirmManagerAdmin(work, now);
+        }
+        boolean needsFallbackObservation = Objects.equals(
+                actionStatus, PullTaskActionStatus.SUBMITTED.code())
+                || Objects.equals(actionStatus, PullTaskActionStatus.UNKNOWN.code());
+        if (!needsFallbackObservation) {
+            return transactions.submitOrDefer(work, now);
+        }
         String promoterJid = WhatsappJids.userJid(work.promoter().wsPhone());
         String managerJid = WhatsappJids.userJid(work.manager().getAccountPhone());
-        Integer actionStatus = work.action().getActionStatus();
-        boolean postSubmission = Objects.equals(
-                actionStatus, PullTaskActionStatus.SUBMITTED.code())
-                || Objects.equals(actionStatus, PullTaskActionStatus.SUCCESS.code())
-                || Objects.equals(actionStatus, PullTaskActionStatus.UNKNOWN.code());
-        String queryPhase = postSubmission ? "post" : "pre";
         PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDefer(
                 work.tenantId(), new PullTaskMemberQueryRequest(
                         work.taskId(), work.executionId(),
                         "manager-admin-membership:" + work.action().getId()
                                 + ":" + work.promoter().accountId()
-                                + ":" + queryPhase + ":" + work.action().getAttemptNo(),
+                                + ":post:" + work.action().getAttemptNo(),
                         PullTaskMemberQueryPurpose.MANAGER_ADMIN_MEMBERSHIP,
                         work.promoter().protocolRef(), work.groupJid(),
                         java.util.List.of(promoterJid, managerJid)),
@@ -68,10 +72,6 @@ public class PullTaskManagerAdminProcessor {
         }
         if (!observation.promoterStillAdmin()) {
             return transactions.rejectPromoter(work, now);
-        }
-        if (Objects.equals(
-                work.action().getActionStatus(), PullTaskActionStatus.SUCCESS.code())) {
-            return transactions.deferUnconfirmed(work, now);
         }
         return transactions.submitOrDefer(work, now);
     }

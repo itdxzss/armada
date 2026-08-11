@@ -63,7 +63,7 @@ public class PullTaskManagerAdminTransactionService {
         this.resources = resources;
     }
 
-    /** 复核租约并选择一个可实时验证的我方既有管理员。 */
+    /** 复核租约并选择一个可执行提权的我方既有管理员。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskManagerAdminPreparation prepare(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
@@ -119,7 +119,7 @@ public class PullTaskManagerAdminTransactionService {
         }
     }
 
-    /** 实时确认任务管理员权限后，推进到管理—拉手联系人阶段。 */
+    /** 根据成功回执或兜底成员事实确认权限，并推进到管理—拉手联系人阶段。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult confirmManagerAdmin(
             PullTaskManagerAdminWork work, long now) {
@@ -148,7 +148,7 @@ public class PullTaskManagerAdminTransactionService {
         });
     }
 
-    /** 标记实时已失去管理员权限的候选为不可重试，并立即轮换。 */
+    /** 根据兜底成员事实标记已失去管理员权限的候选，并立即轮换。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult rejectPromoter(
             PullTaskManagerAdminWork work, long now) {
@@ -173,34 +173,7 @@ public class PullTaskManagerAdminTransactionService {
         });
     }
 
-    /** 把协议成功但实时权限未出现的动作转为可重试未知。 */
-    @Transactional(rollbackFor = Exception.class)
-    public PullTaskExecutionDispatchResult deferUnconfirmed(
-            PullTaskManagerAdminWork work, long now) {
-        return withTenant(work.tenantId(), () -> {
-            PullTaskExecutionReasonCode reason = PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED;
-            PullTaskExecutionDispatchResult deferred = defer(
-                    work, now + resources.properties().getResultReconciliationDelayMs(),
-                    reason, now);
-            if (deferred == PullTaskExecutionDispatchResult.LOST) {
-                return deferred;
-            }
-            if (actionMapper.transitionManagerAdminObservation(
-                    work.action().getId(), List.of(PullTaskActionStatus.SUCCESS.code()),
-                    PullTaskActionStatus.UNKNOWN.code(), true,
-                    reason.name(), reason.message(), now) != 1) {
-                throw new IllegalStateException("管理员设置未确认事实写入不完整");
-            }
-            if (accountMapper.transitionAdminStatus(
-                    work.manager().getId(), OBSERVABLE_ADMIN_STATUSES,
-                    PullTaskGroupAccountAdminStatus.UNKNOWN.code(), now) != 1) {
-                throw new IllegalStateException("任务管理员权限状态写入不完整");
-            }
-            return deferred;
-        });
-    }
-
-    /** 实时成员列表暂不可用时，仅延迟观察，不提交新的提权动作。 */
+    /** 兜底成员列表暂不可用时，仅延迟观察，不提交新的提权动作。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult deferObservation(
             PullTaskManagerAdminWork work, long now) {
@@ -209,7 +182,7 @@ public class PullTaskManagerAdminTransactionService {
                 PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED, now));
     }
 
-    /** 提交首次或后续提权尝试；已提交动作只等待回调和实时复核。 */
+    /** 提交首次或后续提权尝试；已提交动作只等待回调和成员查询兜底。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult submitOrDefer(
             PullTaskManagerAdminWork work, long now) {

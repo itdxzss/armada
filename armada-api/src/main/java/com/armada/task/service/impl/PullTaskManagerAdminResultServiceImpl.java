@@ -99,7 +99,9 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                             PullTaskExecutionStage.MANAGER_ADMIN.code()),
                     new PullTaskManagerJoinResultTransition.Target(
                             PullTaskExecutionStatus.EXECUTING.code(),
-                            PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                            callback.outcome() == PullTaskManagerAdminProtocolOutcome.SUCCESS
+                                    ? PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
+                                    : PullTaskExecutionStage.MANAGER_ADMIN.code(),
                             null, null, target.executionReason() == null
                             ? null : target.executionReason().name(),
                             target.executionMessage(), delayPolicy.maxDeadline(

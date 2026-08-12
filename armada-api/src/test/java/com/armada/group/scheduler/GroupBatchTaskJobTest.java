@@ -20,7 +20,10 @@ import com.armada.group.model.enums.GroupBatchTaskType;
 import com.armada.group.service.impl.GroupBatchInfoRefreshWorker;
 import com.armada.group.service.impl.GroupBatchLinkRefreshWorker;
 import com.armada.shared.tenant.TenantContext;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -66,6 +69,7 @@ class GroupBatchTaskJobTest {
         }).when(linkWorker).execute(any(), anyLong());
 
         job().runOnce();
+        drain();
 
         assertThat(seenTenant.get()).isEqualTo(TENANT_ID);
         verify(infoWorker, never()).execute(any(), anyLong());
@@ -77,6 +81,7 @@ class GroupBatchTaskJobTest {
         when(itemMapper.selectPending(eq(900L), anyInt(), anyInt())).thenReturn(List.of(item()));
 
         job().runOnce();
+        drain();
 
         verify(infoWorker).execute(any(), anyLong());
         verify(linkWorker, never()).execute(any(), anyLong());
@@ -88,6 +93,7 @@ class GroupBatchTaskJobTest {
         when(itemMapper.selectPending(eq(900L), anyInt(), anyInt())).thenReturn(List.of(item()));
 
         job().runOnce();
+        drain();
 
         assertThat(TenantContext.get()).isNull();
     }
@@ -116,12 +122,52 @@ class GroupBatchTaskJobTest {
         return item;
     }
 
+    private final Deque<Runnable> submitted = new ArrayDeque<>();
+
+    /** 手控执行器：投递不执行，drain 时才跑，用来证明调度线程没有同步等协议。 */
+    private final Executor manualExecutor = submitted::add;
+
+    private void drain() {
+        while (!submitted.isEmpty()) {
+            submitted.poll().run();
+        }
+    }
+
     private GroupBatchTaskJob job() {
         return new GroupBatchTaskJob(
                 taskMapper,
                 itemMapper,
-                linkWorker,
-                infoWorker,
+                new GroupBatchTaskWorkers(linkWorker, infoWorker),
+                manualExecutor,
                 new GroupBatchTaskJobProperties(true, 3_000L, 20, 50));
+    }
+
+    @Test
+    void runOnceOnlyDispatchesSoTheSharedSchedulerThreadIsNeverBlockedByProtocolCalls() {
+        stubRunnable(task(GroupBatchTaskType.REFRESH_LINK));
+        when(itemMapper.selectPending(eq(900L), anyInt(), anyInt())).thenReturn(List.of(item()));
+
+        job().runOnce();
+
+        // 应用里 17 个 @Scheduled 共用一条默认单线程调度器；协议调用必须挪到自有线程池，
+        // 否则一轮批量会把群详情同步等任务全部堵住。
+        assertThat(submitted).hasSize(1);
+        verify(linkWorker, never()).execute(any(), anyLong());
+
+        drain();
+        verify(linkWorker).execute(any(), anyLong());
+    }
+
+    @Test
+    void inFlightTaskIsNotDispatchedAgainByTheNextRound() {
+        stubRunnable(task(GroupBatchTaskType.REFRESH_LINK));
+        when(itemMapper.selectPending(eq(900L), anyInt(), anyInt())).thenReturn(List.of(item()));
+        GroupBatchTaskJob job = job();
+
+        job.runOnce();
+        job.runOnce();
+
+        // 上一轮还没跑完就再次投递，会对同一批明细重复发协议调用。
+        assertThat(submitted).hasSize(1);
     }
 }

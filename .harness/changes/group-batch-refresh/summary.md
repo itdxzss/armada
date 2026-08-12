@@ -165,13 +165,26 @@ else                                                                → 保持 P
 - `refreshInfoFailsWhenMetadataSyncReachedTerminalFailure`
 - `settlementSkipsSummaryWhenItemWasAlreadyFinished`（`finishItem` 返回 0 行）
 
+### 调度线程池（全局审查发现，已修）
+
+应用内 17 个 `@Scheduled` 共用 Spring 默认**单线程**调度器（`spring.task.scheduling.pool.size` 未配置）。
+`GroupBatchTaskJob` 若在调度线程里同步发协议调用，一轮最多 50 项 × ~1s 会把群详情同步等
+全部定时任务堵住。注意这不是本次引入的新问题——`GroupMetadataSyncJob` 本来就这么干（batchSize=20），
+本次是在已有坏模式上加码，把阻塞窗口拉大约 2.5 倍。
+
+修法沿用仓库既有的 `HistoricalGroupPullExecutorConfig` 模式：新增 `GroupBatchTaskExecutorConfig`
+（core 1 / max 2 / queue 50），`runOnce()` 只扫描并投递，推进动作全部在自有线程池执行；
+`inFlight` 集合防止上一轮未跑完时重复投递同一任务、对同一批明细重复发协议调用。
+
+遗留：`GroupMetadataSyncJob` 自身仍在调度线程内同步发协议，建议另开任务同样迁到独立线程池。
+
 ## 部署
 
 - commit / 环境 / 部署后验证结果: 待补
 
 ## 遗留 / 跟进
 
-1. **未在真实 MySQL 上验证过新 SQL**。`GroupExecutionAccountSelectorDbTest`、`GroupLinkRegistryServiceImplTest` 等需连真库，按红线未经环境确认不执行；新增的 `selectGroupAdminExecutionAccounts` 目前只有 SQL 结构测试 + Mockito 单测覆盖。
+1. ~~未在真实 MySQL 上验证过新 SQL~~ 业务确认 H2 覆盖即可；新增 SQL 均由 H2 MySQL 模式加载真实 XML 执行。
 2. `V112` 版本号已核对全分支无冲突（`git log --all` 扫描至 V111）。
 3. PRD 需产品同步修正两处：7.4 / AC-28 的写操作措辞（决策 1）、AC-18 与 P-06 的冲突（决策 5）。
 4. ~~`UNAVAILABLE` 状态是否等同封禁~~ 已确认：等同，一并置灰（决策 2）。

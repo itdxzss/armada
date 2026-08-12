@@ -7,10 +7,14 @@ import com.armada.group.model.entity.GroupBatchTaskItem;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.enums.GroupBatchTaskType;
-import com.armada.group.service.impl.GroupBatchInfoRefreshWorker;
-import com.armada.group.service.impl.GroupBatchLinkRefreshWorker;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -18,13 +22,18 @@ import org.springframework.stereotype.Component;
 /**
  * 群组列表批量刷新任务调度器。
  *
- * <p>只做扫描与分派，不持有事务：真正的落库由每个执行器交给逐项独立事务完成，
+ * <p>只做扫描与分派，不持有事务也不发协议：真正的落库由每个执行器交给逐项独立事务完成，
  * 保证前端轮询能在任务运行期间看到进度实时增长。</p>
+ *
+ * <p>推进动作一律投递到自有线程池。应用内 @Scheduled 共用 Spring 默认单线程调度器，
+ * 若在调度线程里同步等协议，一轮批量会把群详情同步等其余定时任务全部堵住。</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "armada.group-batch-task", name = "enabled",
         havingValue = "true", matchIfMissing = true)
 public class GroupBatchTaskJob {
+
+    private static final Logger log = LoggerFactory.getLogger(GroupBatchTaskJob.class);
 
     private static final List<Integer> RUNNABLE_STATUSES = List.of(
             GroupBatchTaskStatus.PENDING.code(),
@@ -32,21 +41,23 @@ public class GroupBatchTaskJob {
 
     private final GroupBatchTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper itemMapper;
-    private final GroupBatchLinkRefreshWorker linkWorker;
-    private final GroupBatchInfoRefreshWorker infoWorker;
+    private final GroupBatchTaskWorkers workers;
+    private final Executor executor;
     private final GroupBatchTaskJobProperties properties;
+    /** 已投递未跑完的任务，避免下一轮对同一批明细重复发协议调用。 */
+    private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
 
     /** 创建批量任务调度器。 */
     public GroupBatchTaskJob(
             GroupBatchTaskMapper taskMapper,
             GroupBatchTaskItemMapper itemMapper,
-            GroupBatchLinkRefreshWorker linkWorker,
-            GroupBatchInfoRefreshWorker infoWorker,
+            GroupBatchTaskWorkers workers,
+            @Qualifier("groupBatchTaskExecutor") Executor executor,
             GroupBatchTaskJobProperties properties) {
         this.taskMapper = taskMapper;
         this.itemMapper = itemMapper;
-        this.linkWorker = linkWorker;
-        this.infoWorker = infoWorker;
+        this.workers = workers;
+        this.executor = executor;
         this.properties = properties;
     }
 
@@ -59,7 +70,28 @@ public class GroupBatchTaskJob {
             return;
         }
         for (GroupBatchTask task : tasks) {
-            withTenant(task.getTenantId(), () -> advance(task));
+            dispatch(task);
+        }
+    }
+
+    /** 投递一个任务；已在飞或线程池拒绝时跳过，下一轮再来。 */
+    private void dispatch(GroupBatchTask task) {
+        Long taskId = task.getId();
+        if (!inFlight.add(taskId)) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    withTenant(task.getTenantId(), () -> advance(task));
+                } finally {
+                    inFlight.remove(taskId);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            inFlight.remove(taskId);
+            log.warn("批量任务投递被拒 taskId={} errorType={}",
+                    taskId, rejected.getClass().getSimpleName());
         }
     }
 
@@ -77,9 +109,9 @@ public class GroupBatchTaskJob {
         long now = System.currentTimeMillis();
         for (GroupBatchTaskItem item : items) {
             if (refreshLink) {
-                linkWorker.execute(item, now);
+                workers.link().execute(item, now);
             } else {
-                infoWorker.execute(item, now);
+                workers.info().execute(item, now);
             }
         }
     }

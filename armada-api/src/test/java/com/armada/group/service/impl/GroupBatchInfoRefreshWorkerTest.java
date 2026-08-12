@@ -140,6 +140,32 @@ class GroupBatchInfoRefreshWorkerTest {
         assertThat(outcome.getAccountId()).isEqualTo(77L);
     }
 
+    @Test
+    void databaseFailureIsReportedSeparatelyAndNeverLeaksSqlToTheDialog() {
+        stubAccount();
+        stubPreview();
+        doThrow(new org.springframework.dao.DeadlockLoserDataAccessException(
+                "### Error updating database.  Cause: com.mysql.cj.jdbc.exceptions."
+                        + "MySQLTransactionRollbackException: Deadlock found when trying to get lock\n"
+                        + "### The error may exist in mapper/group/WhatsappGroupMemberSnapshotMapper.xml",
+                null))
+                .when(snapshotService).refresh(any(), any());
+
+        worker().execute(item(), 9_000L);
+
+        GroupBatchTaskItem outcome = settled();
+        assertThat(outcome.getStatus()).isEqualTo(GroupBatchTaskItemStatus.FAILED.code());
+        // 写库失败不能顶着"读协议失败"的错误码，否则运维会往协议层查。
+        assertThat(outcome.getErrorCode()).isEqualTo("DB_WRITE_FAILED");
+        assertThat(outcome.getDescription())
+                .contains("数据库繁忙")
+                .contains("DeadlockLoserDataAccessException")
+                .doesNotContain("###")
+                .doesNotContain("Mapper.xml")
+                .doesNotContain("com.mysql");
+        assertThat(outcome.getGroupJid()).isEqualTo(GROUP_JID);
+    }
+
     private void stubAccount() {
         when(selector.find(eq(GROUP_LINK_ID), org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(Optional.of(new GroupExecutionAccount(

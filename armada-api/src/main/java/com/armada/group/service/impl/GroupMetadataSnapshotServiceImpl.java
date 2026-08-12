@@ -20,8 +20,10 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Service;
 
 /** 读取、校验并持久化单群完整 metadata 和成员快照。 */
@@ -29,6 +31,24 @@ import org.springframework.stereotype.Service;
 public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupMetadataSnapshotServiceImpl.class);
+
+    /** 快照落库的总尝试次数（1 次正常 + 2 次重试）。 */
+    private static final int MAX_PERSIST_ATTEMPTS = 3;
+
+    /**
+     * 快照写入串行闸门。
+     *
+     * <p>落库是「按 group_link_id 范围删除 + 批量插入」。group_link_id 只是唯一键
+     * (tenant_id, group_link_id, participant_jid) 的前缀，因此那条 DELETE 是范围扫描，
+     * REPEATABLE READ 下会锁到最后一条匹配记录之后的 gap —— 而这个 gap 一直延伸到邻居群的
+     * 第一行；随后的 INSERT 又要在 gap 上取插入意图锁，两个相邻 group_link_id 的事务就互相
+     * 咬死（实测 7880/7881、7899/7905 成对死锁）。</p>
+     *
+     * <p>群详情同步队列本来串行推进，问题摸不到；群组列表批量刷新按明细并发后才暴露。这里让
+     * 写入串行，把并发只留在协议读取上（耗时都在那儿）。范围删除本身的根治（改唯一键等值
+     * upsert + 等值删）另开任务，届时可摘掉这把锁。</p>
+     */
+    private final ReentrantLock persistLock = new ReentrantLock(true);
 
     private final GroupMetadataSyncProtocolPorts ports;
     private final GroupMetadataSnapshotPersistence persistence;
@@ -90,11 +110,42 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         CountryReferenceVO country = resolveCountry(ownerPhone);
         GroupLinkPreview preview = preview(
                 request, metadata, inviteCode, ownerPhone, country, observedAt, completedAt);
-        if (persistence.persist(preview, members)) {
+        if (persistSerially(preview, members)) {
             metrics.recordSnapshotMembers(members.size());
         }
         if (request.inviteRequired() && inviteCode == null) {
             throw new IllegalStateException("自建群邀请码暂未取得");
+        }
+    }
+
+    /**
+     * 串行落库，并对可重试的数据库异常重试。
+     *
+     * <p>闸门只覆盖本进程。多实例部署时仍可能与其它实例争锁，因此保留重试；MySQL 自己给出的
+     * 建议也是 "try restarting transaction"。重试必须在失败事务之外发起，故放在这一层。</p>
+     */
+    private boolean persistSerially(
+            GroupLinkPreview preview, List<WhatsappGroupMemberSnapshot> members) {
+        persistLock.lock();
+        try {
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    return persistence.persist(preview, members);
+                } catch (TransientDataAccessException retryable) {
+                    if (attempt >= MAX_PERSIST_ATTEMPTS) {
+                        // 数据库异常必须单独报出来，不能混进协议失败里静默掉。
+                        log.error("群快照落库失败(数据库异常) groupLinkId={} groupJid={} attempts={} errorType={}",
+                                preview.getGroupLinkId(), preview.getGroupJid(), attempt,
+                                retryable.getClass().getSimpleName());
+                        throw retryable;
+                    }
+                    log.warn("群快照落库冲突，准备重试 groupLinkId={} groupJid={} attempt={} errorType={}",
+                            preview.getGroupLinkId(), preview.getGroupJid(), attempt,
+                            retryable.getClass().getSimpleName());
+                }
+            }
+        } finally {
+            persistLock.unlock();
         }
     }
 

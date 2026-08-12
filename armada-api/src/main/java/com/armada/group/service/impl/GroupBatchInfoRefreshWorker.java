@@ -32,6 +32,8 @@ public class GroupBatchInfoRefreshWorker {
     private static final String NO_JID_MESSAGE = "群组标识未知，无法读取群信息";
     private static final String PROTOCOL_FAILURE_CODE = "METADATA_FETCH_FAILED";
     private static final String PROTOCOL_FAILURE_PREFIX = "读取群信息失败：";
+    private static final String DB_FAILURE_CODE = "DB_WRITE_FAILED";
+    private static final String DB_FAILURE_MESSAGE = "群信息写入失败（数据库繁忙），请稍后重试";
 
     private final GroupBatchRefreshSupport support;
     private final GroupMetadataSnapshotService snapshotService;
@@ -71,17 +73,32 @@ public class GroupBatchInfoRefreshWorker {
                     () -> snapshotService.refresh(request(item, groupJid), account));
             settle(succeeded(item, account.accountId(), groupJid, now));
         } catch (RuntimeException exception) {
-            // 只记异常类型,群成员手机号等明细不进日志。
-            log.warn("批量获取最新群信息失败 groupLinkId={} errorType={}",
-                    item.getGroupLinkId(), exception.getClass().getSimpleName());
-            settle(failed(
-                    item,
-                    account.accountId(),
-                    groupJid,
-                    PROTOCOL_FAILURE_CODE,
-                    GroupBatchTaskOutcomes.reason(exception, PROTOCOL_FAILURE_PREFIX),
-                    now));
+            settle(failure(item, account, groupJid, exception, now));
         }
+    }
+
+    /**
+     * 按失败来源分类结算。
+     *
+     * <p>数据库异常与协议失败必须分开:错误码不同、文案不同,日志级别也不同(数据库异常按
+     * error 报出来,便于告警);两者都只记异常类型与群标识,群成员手机号等明细不进日志。</p>
+     */
+    private static GroupBatchTaskItem failure(
+            GroupBatchTaskItem item,
+            GroupExecutionAccount account,
+            String groupJid,
+            RuntimeException exception,
+            long now) {
+        if (GroupBatchTaskOutcomes.databaseFailure(exception)) {
+            log.error("批量获取最新群信息写库失败 groupLinkId={} groupJid={} errorType={}",
+                    item.getGroupLinkId(), groupJid, exception.getClass().getSimpleName());
+            return failed(item, account.accountId(), groupJid, DB_FAILURE_CODE,
+                    DB_FAILURE_MESSAGE + "（" + exception.getClass().getSimpleName() + "）", now);
+        }
+        log.warn("批量获取最新群信息失败 groupLinkId={} groupJid={} errorType={}",
+                item.getGroupLinkId(), groupJid, exception.getClass().getSimpleName());
+        return failed(item, account.accountId(), groupJid, PROTOCOL_FAILURE_CODE,
+                GroupBatchTaskOutcomes.reason(exception, PROTOCOL_FAILURE_PREFIX), now);
     }
 
     /**

@@ -32,6 +32,8 @@ public class GroupBatchLinkRefreshWorker {
     private static final String NO_JID_MESSAGE = "群组标识未知，无法读取邀请链接";
     private static final String PROTOCOL_FAILURE_CODE = "INVITE_FETCH_FAILED";
     private static final String PROTOCOL_FAILURE_PREFIX = "读取邀请链接失败：";
+    private static final String DB_FAILURE_CODE = "DB_WRITE_FAILED";
+    private static final String DB_FAILURE_MESSAGE = "邀请链接写入失败（数据库繁忙），请稍后重试";
     private static final String SUCCESS_MESSAGE = "邀请链接已更新";
 
     private final GroupBatchRefreshSupport support;
@@ -74,17 +76,31 @@ public class GroupBatchLinkRefreshWorker {
             inviteLinkService.applyCurrentInvite(observation(item, account, groupJid, invite, now));
             settle(succeeded(item, account.accountId(), groupJid, now));
         } catch (RuntimeException exception) {
-            // 只记异常类型与脱敏摘要，不回显邀请码等敏感数据。
-            log.warn("批量刷新群链接失败 groupLinkId={} errorType={}",
-                    item.getGroupLinkId(), exception.getClass().getSimpleName());
-            settle(failed(
-                    item,
-                    account.accountId(),
-                    groupJid,
-                    PROTOCOL_FAILURE_CODE,
-                    GroupBatchTaskOutcomes.reason(exception, PROTOCOL_FAILURE_PREFIX),
-                    now));
+            settle(failure(item, account, groupJid, exception, now));
         }
+    }
+
+    /**
+     * 按失败来源分类结算。
+     *
+     * <p>只记异常类型与群标识，不回显邀请码等敏感数据;数据库异常单独给码并按 error 报出。</p>
+     */
+    private static GroupBatchTaskItem failure(
+            GroupBatchTaskItem item,
+            GroupExecutionAccount account,
+            String groupJid,
+            RuntimeException exception,
+            long now) {
+        if (GroupBatchTaskOutcomes.databaseFailure(exception)) {
+            log.error("批量刷新群链接写库失败 groupLinkId={} groupJid={} errorType={}",
+                    item.getGroupLinkId(), groupJid, exception.getClass().getSimpleName());
+            return failed(item, account.accountId(), groupJid, DB_FAILURE_CODE,
+                    DB_FAILURE_MESSAGE + "（" + exception.getClass().getSimpleName() + "）", now);
+        }
+        log.warn("批量刷新群链接失败 groupLinkId={} groupJid={} errorType={}",
+                item.getGroupLinkId(), groupJid, exception.getClass().getSimpleName());
+        return failed(item, account.accountId(), groupJid, PROTOCOL_FAILURE_CODE,
+                GroupBatchTaskOutcomes.reason(exception, PROTOCOL_FAILURE_PREFIX), now);
     }
 
     private void settle(GroupBatchTaskItem outcome) {

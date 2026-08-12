@@ -10,11 +10,10 @@ import com.armada.group.model.enums.GroupBatchTaskType;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -42,7 +41,7 @@ public class GroupBatchTaskJob {
     private final GroupBatchTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper itemMapper;
     private final GroupBatchTaskWorkers workers;
-    private final Executor executor;
+    private final GroupBatchTaskExecutors executors;
     private final GroupBatchTaskJobProperties properties;
     /** 已投递未跑完的任务，避免下一轮对同一批明细重复发协议调用。 */
     private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
@@ -52,12 +51,12 @@ public class GroupBatchTaskJob {
             GroupBatchTaskMapper taskMapper,
             GroupBatchTaskItemMapper itemMapper,
             GroupBatchTaskWorkers workers,
-            @Qualifier("groupBatchTaskExecutor") Executor executor,
+            GroupBatchTaskExecutors executors,
             GroupBatchTaskJobProperties properties) {
         this.taskMapper = taskMapper;
         this.itemMapper = itemMapper;
         this.workers = workers;
-        this.executor = executor;
+        this.executors = executors;
         this.properties = properties;
     }
 
@@ -81,7 +80,7 @@ public class GroupBatchTaskJob {
             return;
         }
         try {
-            executor.execute(() -> {
+            executors.task().execute(() -> {
                 try {
                     withTenant(task.getTenantId(), () -> advance(task));
                 } finally {
@@ -95,7 +94,15 @@ public class GroupBatchTaskJob {
         }
     }
 
-    /** 在任务所属租户上下文内推进一批明细。 */
+    /**
+     * 在任务所属租户上下文内推进一批明细。
+     *
+     * <p>明细并发推进:两个按钮都要实时直调协议，单条约 1~2 秒，串行跑上千个群要几十分钟。
+     * 并发上限由明细线程池封顶，单账号再由账号闸门串行。</p>
+     *
+     * <p>本轮明细全部结束才返回。提前返回会释放 inFlight，下一轮就会对还在飞的明细重复
+     * 发协议调用。</p>
+     */
     private void advance(GroupBatchTask task) {
         List<GroupBatchTaskItem> items = itemMapper.selectPending(
                 task.getId(),
@@ -107,13 +114,38 @@ public class GroupBatchTaskJob {
         boolean refreshLink =
                 GroupBatchTaskType.REFRESH_LINK == GroupBatchTaskType.fromCode(task.getTaskType());
         long now = System.currentTimeMillis();
-        for (GroupBatchTaskItem item : items) {
+        CompletableFuture<?>[] pending = items.stream()
+                .map(item -> CompletableFuture.runAsync(
+                        () -> withTenant(task.getTenantId(), () -> advanceItem(refreshLink, item, now)),
+                        executors.item()))
+                .toArray(CompletableFuture[]::new);
+        CompletableFuture.allOf(pending).join();
+    }
+
+    /** 推进单条明细;逃逸异常只影响本项，其余明细照跑。 */
+    private void advanceItem(boolean refreshLink, GroupBatchTaskItem item, long now) {
+        if (isCanceled(item.getTaskId())) {
+            // 用户关弹窗即取消。本轮已投递的明细也要在发协议之前停下来，否则上千个群会白跑完。
+            return;
+        }
+        try {
             if (refreshLink) {
                 workers.link().execute(item, now);
             } else {
                 workers.info().execute(item, now);
             }
+        } catch (RuntimeException failure) {
+            // 协议失败已由执行器自行结算成失败明细，能逃到这里的是落库等基础设施异常:
+            // 本项保持待执行，由下一轮重来，不能带崩整轮让其余明细一起卡住。
+            log.warn("批量任务明细推进失败 taskId={} itemId={} errorType={}",
+                    item.getTaskId(), item.getId(), failure.getClass().getSimpleName());
         }
+    }
+
+    /** 判断任务是否已被取消;取消可能来自另一个实例，只能读库。 */
+    private boolean isCanceled(Long taskId) {
+        Integer status = taskMapper.selectStatusById(taskId);
+        return status != null && GroupBatchTaskStatus.CANCELED.code() == status;
     }
 
     private static void withTenant(Long tenantId, Runnable action) {

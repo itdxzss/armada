@@ -8,9 +8,7 @@ public enum GroupMetadataSyncTrigger {
     METADATA_CHANGED(4),
     ACCOUNT_ONLINE(5),
     MANUAL_REFRESH(6),
-    BACKFILL(7),
-    /** 群组列表批量获取最新群信息；独立配额调度，不占用实时刷新名额。 */
-    BATCH_REFRESH(8);
+    BACKFILL(7);
 
     private final int code;
 

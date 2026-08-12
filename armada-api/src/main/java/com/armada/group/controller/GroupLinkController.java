@@ -336,6 +336,17 @@ public class GroupLinkController {
     }
 
     /**
+     * 取消批量任务中尚未开始执行的明细,前端关闭任务弹窗时调用。
+     *
+     * @param taskId 批量任务 ID
+     * @return 实际取消的明细数
+     */
+    @PostMapping("/batch-tasks/{taskId}/cancel")
+    public ApiResponse<Integer> cancelBatchTask(@PathVariable Long taskId) {
+        return ApiResponse.ok(batchTaskService.cancel(taskId));
+    }
+
+    /**
      * B4 批量软删除群链接。
      *
      * @param request ID 列表

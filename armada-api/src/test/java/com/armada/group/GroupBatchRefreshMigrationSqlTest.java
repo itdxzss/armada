@@ -41,16 +41,22 @@ class GroupBatchRefreshMigrationSqlTest {
     }
 
     @Test
-    void batchTaskItemKeepsBaselineForObservingMetadataSyncCompletion() throws IOException {
-        // 批量获取最新群信息复用耐久队列，靠提交时冻结的 last_success_at 基线判定该项是否已刷新。
-        assertThat(sql()).contains("baseline_synced_at BIGINT DEFAULT NULL");
+    void batchTaskItemCarriesTheFailureReasonColumnsSoBlockedGroupsCanExplainThemselves()
+            throws IOException {
+        // 提交阶段被拦截的群直接以终态失败入库，原因必须能落库（PRD 6.3）。
+        assertThat(sql())
+                .contains("error_code VARCHAR(64)")
+                .contains("description VARCHAR(512)")
+                .contains("operated_at BIGINT")
+                // 两类批量都实时直调协议，不再有观察耐久队列用的基线列。
+                .doesNotContain("baseline_synced_at");
     }
 
     @Test
     void statusColumnsDocumentEveryBusinessCodeInline() throws IOException {
         assertThat(sql())
-                .contains("1=待执行 2=运行中 3=已完成 4=任务失败")
+                .contains("1=待执行 2=运行中 3=已完成 4=任务失败 5=已取消")
                 .contains("1=刷新群链接 2=获取最新群信息")
-                .contains("1=待执行 2=成功 3=失败");
+                .contains("1=待执行 2=成功 3=失败 4=已取消");
     }
 }

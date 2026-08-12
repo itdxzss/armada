@@ -11,13 +11,11 @@ import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.enums.GroupBatchTaskType;
-import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupBatchTaskAcceptedVO;
 import com.armada.group.model.vo.GroupBatchTaskDetailVO;
 import com.armada.group.model.vo.GroupBatchTaskItemRow;
 import com.armada.group.model.vo.GroupBatchTaskItemVO;
 import com.armada.group.service.GroupBatchTaskService;
-import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -34,25 +32,25 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
 
     private static final String BLOCKED_ITEM_DESCRIPTION = "当前群组状态异常，暂不支持刷新邀请链接";
     private static final String BLOCKED_ITEM_ERROR_CODE = "GROUP_STATE_BLOCKED";
+    private static final List<Integer> CANCELABLE_TASK_STATUSES = List.of(
+            GroupBatchTaskStatus.PENDING.code(),
+            GroupBatchTaskStatus.RUNNING.code());
 
     private final GroupBatchTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper itemMapper;
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkHealthMapper healthMapper;
-    private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
     /** 创建批量任务服务。 */
     public GroupBatchTaskServiceImpl(
             GroupBatchTaskMapper taskMapper,
             GroupBatchTaskItemMapper itemMapper,
             GroupLinkMapper groupLinkMapper,
-            GroupLinkHealthMapper healthMapper,
-            GroupMetadataSyncTaskService metadataSyncTaskService) {
+            GroupLinkHealthMapper healthMapper) {
         this.taskMapper = taskMapper;
         this.itemMapper = itemMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.healthMapper = healthMapper;
-        this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     @Override
@@ -87,6 +85,28 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
                 items(taskId));
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int cancel(Long taskId) {
+        GroupBatchTask task = taskId == null ? null : taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "批量任务不存在");
+        }
+        if (GroupBatchTaskStatus.fromCode(task.getStatus()).terminal()) {
+            // 已完成/已失败/已取消都无事可做，重复调用保持幂等。
+            return 0;
+        }
+        long now = System.currentTimeMillis();
+        int canceled = itemMapper.cancelPending(
+                taskId,
+                GroupBatchTaskItemStatus.CANCELED.code(),
+                GroupBatchTaskItemStatus.PENDING.code(),
+                now);
+        taskMapper.cancelIfRunnable(
+                taskId, GroupBatchTaskStatus.CANCELED.code(), CANCELABLE_TASK_STATUSES, now);
+        return canceled;
+    }
+
     /**
      * 校验、落库并按类型排队批量任务。
      *
@@ -108,11 +128,7 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
         GroupBatchTask task = task(type, requestId, operatorId, targets.size(), blocked.size(), now);
         taskMapper.insert(task);
         itemMapper.batchInsert(items(task, targets, blocked, now));
-        if (type == GroupBatchTaskType.REFRESH_INFO) {
-            // 走批量档 trigger，由 findDue 的独立配额限速，绝不占用实时刷新名额。
-            targets.forEach(id -> metadataSyncTaskService.enqueue(
-                    id, GroupMetadataSyncTrigger.BATCH_REFRESH, now));
-        }
+        // 两类批量都由执行器实时直调协议，提交阶段不再排任何耐久队列。
         return accepted(task);
     }
 
@@ -134,8 +150,6 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
                 row.setOperatedAt(now);
             } else {
                 row.setStatus(GroupBatchTaskItemStatus.PENDING.code());
-                // 判定基线取提交时刻：此后发生的任一次同步成功都说明该群快照已刷新。
-                row.setBaselineSyncedAt(now);
             }
             rows.add(row);
         }

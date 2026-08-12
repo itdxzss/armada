@@ -96,6 +96,39 @@ class GroupBatchTaskMapperDbTest {
 
     private static final int RUNNING = 2;
     private static final int COMPLETED = 3;
+    private static final int CANCELED = 5;
+
+    @Test
+    void cancelIfRunnableOnlyTouchesTasksThatCanStillBeStopped() {
+        GroupBatchTask task = task("req-cancel", 3);
+        mapper.insert(task);
+
+        assertThat(mapper.cancelIfRunnable(
+                task.getId(), CANCELED, java.util.List.of(1, RUNNING), 9_000L)).isEqualTo(1);
+        GroupBatchTask canceled = mapper.selectById(task.getId());
+        assertThat(canceled.getStatus()).isEqualTo(CANCELED);
+        assertThat(canceled.getCompletedAt()).isEqualTo(9_000L);
+
+        // 重复取消返回 0 行；已终结的任务也不会被改写成取消态。
+        assertThat(mapper.cancelIfRunnable(
+                task.getId(), CANCELED, java.util.List.of(1, RUNNING), 9_500L)).isZero();
+        assertThat(mapper.selectById(task.getId()).getCompletedAt()).isEqualTo(9_000L);
+    }
+
+    @Test
+    void selectStatusByIdReadsAcrossTenantsSoSchedulerThreadsCanSeeCancellation() {
+        GroupBatchTask task = task("req-status", 1);
+        mapper.insert(task);
+        mapper.cancelIfRunnable(task.getId(), CANCELED, java.util.List.of(1, RUNNING), 9_000L);
+
+        try {
+            // 调度线程可能在别的租户上下文里，甚至取消来自另一个实例。
+            TenantContext.set(OTHER_TENANT_ID);
+            assertThat(mapper.selectStatusById(task.getId())).isEqualTo(CANCELED);
+        } finally {
+            TenantContext.set(TENANT_ID);
+        }
+    }
 
     private static GroupBatchTask task(String requestId, int totalCount) {
         GroupBatchTask row = new GroupBatchTask();

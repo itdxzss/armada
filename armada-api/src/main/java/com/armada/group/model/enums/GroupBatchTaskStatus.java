@@ -13,7 +13,10 @@ public enum GroupBatchTaskStatus {
     COMPLETED(3),
 
     /** 任务失败：任务级异常导致整体无法执行，终态。 */
-    FAILED(4);
+    FAILED(4),
+
+    /** 已取消：用户关闭任务弹窗，剩余待执行项不再发协议，终态。 */
+    CANCELED(5);
 
     private final int code;
 
@@ -28,7 +31,7 @@ public enum GroupBatchTaskStatus {
 
     /** 判定终态；前端据此停止轮询。 */
     public boolean terminal() {
-        return this == COMPLETED || this == FAILED;
+        return this == COMPLETED || this == FAILED || this == CANCELED;
     }
 
     /**

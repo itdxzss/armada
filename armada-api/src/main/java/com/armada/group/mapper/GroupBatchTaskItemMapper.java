@@ -56,4 +56,20 @@ public interface GroupBatchTaskItemMapper {
      * @return 影响行数;已终结时为 0
      */
     int finishItem(@Param("row") GroupBatchTaskItem row, @Param("pendingStatus") int pendingStatus);
+
+    /**
+     * 取消任务中尚未开始执行的明细。
+     *
+     * <p>只动待执行项:已成功/已失败的明细是既有结果，取消不能覆盖。</p>
+     *
+     * @param taskId 任务 ID
+     * @param canceledStatus 已取消稳定码
+     * @param pendingStatus 待执行稳定码
+     * @param now 取消时间(epoch 毫秒)
+     * @return 实际取消的明细数
+     */
+    int cancelPending(@Param("taskId") Long taskId,
+                      @Param("canceledStatus") int canceledStatus,
+                      @Param("pendingStatus") int pendingStatus,
+                      @Param("now") long now);
 }

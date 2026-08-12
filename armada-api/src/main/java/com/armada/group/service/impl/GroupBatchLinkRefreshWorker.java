@@ -1,12 +1,9 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupBatchTaskItem;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.vo.GroupExecutionAccount;
-import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
@@ -20,7 +17,8 @@ import org.springframework.stereotype.Component;
  * 批量刷新群链接的单项执行器。
  *
  * <p>刷新即用群管理员账号重新拉取当前邀请链接并回填，不吊销旧链接。
- * 协议调用不在事务内，落库统一交给 {@link GroupBatchTaskSettlement} 的独立事务。</p>
+ * 协议调用不在事务内，落库统一交给 {@link GroupBatchTaskSettlement} 的独立事务;
+ * 并发下同一账号由账号闸门串行。</p>
  */
 @Component
 public class GroupBatchLinkRefreshWorker {
@@ -33,27 +31,21 @@ public class GroupBatchLinkRefreshWorker {
     private static final String NO_JID_CODE = "GROUP_JID_UNKNOWN";
     private static final String NO_JID_MESSAGE = "群组标识未知，无法读取邀请链接";
     private static final String PROTOCOL_FAILURE_CODE = "INVITE_FETCH_FAILED";
+    private static final String PROTOCOL_FAILURE_PREFIX = "读取邀请链接失败：";
     private static final String SUCCESS_MESSAGE = "邀请链接已更新";
-    private static final int DESCRIPTION_MAX_LENGTH = 512;
 
-    private final GroupExecutionAccountSelector selector;
+    private final GroupBatchRefreshSupport support;
     private final GroupInvitePort invitePort;
     private final GroupInviteLinkService inviteLinkService;
-    private final GroupLinkPreviewMapper previewMapper;
-    private final GroupBatchTaskSettlement settlement;
 
     /** 创建批量刷新群链接执行器。 */
     public GroupBatchLinkRefreshWorker(
-            GroupExecutionAccountSelector selector,
+            GroupBatchRefreshSupport support,
             GroupInvitePort invitePort,
-            GroupInviteLinkService inviteLinkService,
-            GroupLinkPreviewMapper previewMapper,
-            GroupBatchTaskSettlement settlement) {
-        this.selector = selector;
+            GroupInviteLinkService inviteLinkService) {
+        this.support = support;
         this.invitePort = invitePort;
         this.inviteLinkService = inviteLinkService;
-        this.previewMapper = previewMapper;
-        this.settlement = settlement;
     }
 
     /**
@@ -65,40 +57,38 @@ public class GroupBatchLinkRefreshWorker {
      * @param now 结算时间(epoch 毫秒)
      */
     public void execute(GroupBatchTaskItem item, long now) {
-        Optional<GroupExecutionAccount> admin = selector.findAdmin(item.getGroupLinkId());
+        Optional<GroupExecutionAccount> admin = support.selector().findAdmin(item.getGroupLinkId());
         if (admin.isEmpty()) {
-            settlement.settle(failed(item, NO_ADMIN_CODE, NO_ADMIN_MESSAGE, null, null, now));
+            settle(failed(item, null, null, NO_ADMIN_CODE, NO_ADMIN_MESSAGE, now));
             return;
         }
         GroupExecutionAccount account = admin.get();
-        String groupJid = groupJid(item.getGroupLinkId());
+        String groupJid = support.groupJid(item.getGroupLinkId());
         if (groupJid == null) {
-            settlement.settle(failed(
-                    item, NO_JID_CODE, NO_JID_MESSAGE, account.accountId(), null, now));
+            settle(failed(item, account.accountId(), null, NO_JID_CODE, NO_JID_MESSAGE, now));
             return;
         }
         try {
-            GroupInviteResult invite = invitePort.getInvite(account.protocolRef(), groupJid);
+            GroupInviteResult invite = support.throttle().call(
+                    account.accountId(), () -> invitePort.getInvite(account.protocolRef(), groupJid));
             inviteLinkService.applyCurrentInvite(observation(item, account, groupJid, invite, now));
-            settlement.settle(succeeded(item, account.accountId(), groupJid, now));
+            settle(succeeded(item, account.accountId(), groupJid, now));
         } catch (RuntimeException exception) {
             // 只记异常类型与脱敏摘要，不回显邀请码等敏感数据。
             log.warn("批量刷新群链接失败 groupLinkId={} errorType={}",
                     item.getGroupLinkId(), exception.getClass().getSimpleName());
-            settlement.settle(failed(
+            settle(failed(
                     item,
-                    PROTOCOL_FAILURE_CODE,
-                    reason(exception),
                     account.accountId(),
                     groupJid,
+                    PROTOCOL_FAILURE_CODE,
+                    GroupBatchTaskOutcomes.reason(exception, PROTOCOL_FAILURE_PREFIX),
                     now));
         }
     }
 
-    private String groupJid(Long groupLinkId) {
-        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(groupLinkId);
-        String groupJid = preview == null ? null : preview.getGroupJid();
-        return groupJid == null || groupJid.isBlank() ? null : groupJid.trim();
+    private void settle(GroupBatchTaskItem outcome) {
+        support.settlement().settle(outcome);
     }
 
     private static GroupInviteLinkObservation observation(
@@ -119,7 +109,8 @@ public class GroupBatchLinkRefreshWorker {
 
     private static GroupBatchTaskItem succeeded(
             GroupBatchTaskItem item, Long accountId, String groupJid, long now) {
-        GroupBatchTaskItem outcome = outcome(item, accountId, groupJid, now);
+        GroupBatchTaskItem outcome =
+                GroupBatchTaskOutcomes.outcome(item, accountId, groupJid, now);
         outcome.setStatus(GroupBatchTaskItemStatus.SUCCESS.code());
         outcome.setDescription(SUCCESS_MESSAGE);
         return outcome;
@@ -127,39 +118,16 @@ public class GroupBatchLinkRefreshWorker {
 
     private static GroupBatchTaskItem failed(
             GroupBatchTaskItem item,
-            String errorCode,
-            String description,
             Long accountId,
             String groupJid,
+            String errorCode,
+            String description,
             long now) {
-        GroupBatchTaskItem outcome = outcome(item, accountId, groupJid, now);
+        GroupBatchTaskItem outcome =
+                GroupBatchTaskOutcomes.outcome(item, accountId, groupJid, now);
         outcome.setStatus(GroupBatchTaskItemStatus.FAILED.code());
         outcome.setErrorCode(errorCode);
         outcome.setDescription(description);
         return outcome;
-    }
-
-    private static GroupBatchTaskItem outcome(
-            GroupBatchTaskItem item, Long accountId, String groupJid, long now) {
-        GroupBatchTaskItem outcome = new GroupBatchTaskItem();
-        outcome.setId(item.getId());
-        outcome.setTaskId(item.getTaskId());
-        outcome.setGroupLinkId(item.getGroupLinkId());
-        outcome.setAccountId(accountId);
-        outcome.setGroupJid(groupJid);
-        outcome.setOperatedAt(now);
-        outcome.setUpdatedAt(now);
-        return outcome;
-    }
-
-    private static String reason(RuntimeException exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return "读取邀请链接失败：" + exception.getClass().getSimpleName();
-        }
-        String trimmed = message.trim();
-        return trimmed.length() > DESCRIPTION_MAX_LENGTH
-                ? trimmed.substring(0, DESCRIPTION_MAX_LENGTH)
-                : trimmed;
     }
 }

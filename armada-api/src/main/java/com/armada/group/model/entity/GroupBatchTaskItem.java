@@ -30,9 +30,6 @@ public class GroupBatchTaskItem {
     /** 成功说明或脱敏失败原因。 */
     private String description;
 
-    /** 获取最新群信息提交时冻结的群详情同步成功时间;超过该值即判定本项已刷新。 */
-    private Long baselineSyncedAt;
-
     /** 该项结束时间(epoch 毫秒)。 */
     private Long operatedAt;
 
@@ -112,14 +109,6 @@ public class GroupBatchTaskItem {
 
     public void setDescription(String description) {
         this.description = description;
-    }
-
-    public Long getBaselineSyncedAt() {
-        return baselineSyncedAt;
-    }
-
-    public void setBaselineSyncedAt(Long baselineSyncedAt) {
-        this.baselineSyncedAt = baselineSyncedAt;
     }
 
     public Long getOperatedAt() {

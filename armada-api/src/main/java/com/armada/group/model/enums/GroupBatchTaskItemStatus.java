@@ -10,7 +10,10 @@ public enum GroupBatchTaskItemStatus {
     SUCCESS(2),
 
     /** 失败：该群操作失败，保留旧数据并记录原因，终态。 */
-    FAILED(3);
+    FAILED(3),
+
+    /** 已取消：任务被取消前该项还没开始执行，终态；不计入成功数也不计入失败数。 */
+    CANCELED(4);
 
     private final int code;
 

@@ -40,4 +40,17 @@ public interface GroupBatchTaskService {
      * @throws com.armada.shared.exception.BusinessException 任务不存在或不属于当前租户时抛出
      */
     GroupBatchTaskDetailVO detail(Long taskId);
+
+    /**
+     * 取消批量任务中尚未开始执行的明细。
+     *
+     * <p>前端关闭任务弹窗即调用:关闭后 taskId 被丢弃、明细再也不会展示(PRD P-06),
+     * 继续把剩余上千个群跑完只是白花协议流量。已终结的明细与已终结的任务都不受影响,
+     * 重复调用是幂等的空操作。</p>
+     *
+     * @param taskId 批量任务 ID
+     * @return 实际取消的明细数
+     * @throws com.armada.shared.exception.BusinessException 任务不存在或不属于当前租户时抛出
+     */
+    int cancel(Long taskId);
 }

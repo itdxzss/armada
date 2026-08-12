@@ -1,5 +1,6 @@
 package com.armada.group.service.impl;
 
+import com.armada.group.model.dto.GroupMetadataSnapshotRequest;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
@@ -51,7 +52,21 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
 
     @Override
     public void execute(GroupMetadataSyncTask task, GroupExecutionAccount account) {
-        String groupJid = requireGroupJid(task.getGroupJid());
+        // attemptCount 在领取时已自增，减 1 才是"已完成尝试数"，用于稳定轮换邀请码读取账号。
+        int completedAttempts = Math.max(
+                0, (task.getAttemptCount() == null ? 0 : task.getAttemptCount()) - 1);
+        refresh(
+                new GroupMetadataSnapshotRequest(
+                        task.getGroupLinkId(),
+                        task.getGroupJid(),
+                        completedAttempts,
+                        Boolean.TRUE.equals(task.getInviteRequired())),
+                account);
+    }
+
+    @Override
+    public void refresh(GroupMetadataSnapshotRequest request, GroupExecutionAccount account) {
+        String groupJid = requireGroupJid(request.groupJid());
         long observedAt = System.currentTimeMillis();
         GroupMetadataResult metadata = ports.metadata().getMetadata(account.protocolRef(), groupJid);
         if (!metadata.participantsComplete()) {
@@ -59,7 +74,7 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         }
         long completedAt = System.currentTimeMillis();
         List<WhatsappGroupMemberSnapshot> members = normalizeMembers(
-                task.getGroupLinkId(), groupJid, metadata, completedAt);
+                request.groupLinkId(), groupJid, metadata, completedAt);
         List<String> freshAdminPhones = members.stream()
                 .filter(row -> Boolean.TRUE.equals(row.getIsAdmin()))
                 .map(WhatsappGroupMemberSnapshot::getPhone)
@@ -67,20 +82,18 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
                 .distinct()
                 .sorted()
                 .toList();
-        int completedAttempts = Math.max(
-                0, (task.getAttemptCount() == null ? 0 : task.getAttemptCount()) - 1);
         GroupExecutionAccount inviteAccount = executionAccountSelector.findAdminByPhones(
-                        task.getGroupLinkId(), freshAdminPhones, completedAttempts)
+                        request.groupLinkId(), freshAdminPhones, request.completedAttempts())
                 .orElseGet(() -> freshAdminPhones.isEmpty() && account.groupAdmin() ? account : null);
         String inviteCode = inviteAccount == null ? null : safeInviteCode(inviteAccount, groupJid);
         String ownerPhone = confirmedOwnerPhone(metadata, members);
         CountryReferenceVO country = resolveCountry(ownerPhone);
         GroupLinkPreview preview = preview(
-                task, metadata, inviteCode, ownerPhone, country, observedAt, completedAt);
+                request, metadata, inviteCode, ownerPhone, country, observedAt, completedAt);
         if (persistence.persist(preview, members)) {
             metrics.recordSnapshotMembers(members.size());
         }
-        if (Boolean.TRUE.equals(task.getInviteRequired()) && inviteCode == null) {
+        if (request.inviteRequired() && inviteCode == null) {
             throw new IllegalStateException("自建群邀请码暂未取得");
         }
     }
@@ -105,7 +118,7 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
     }
 
     private static GroupLinkPreview preview(
-            GroupMetadataSyncTask task,
+            GroupMetadataSnapshotRequest request,
             GroupMetadataResult metadata,
             String inviteCode,
             String ownerPhone,
@@ -113,8 +126,8 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
             long observedAt,
             long completedAt) {
         GroupLinkPreview row = new GroupLinkPreview();
-        row.setGroupLinkId(task.getGroupLinkId());
-        row.setGroupJid(task.getGroupJid());
+        row.setGroupLinkId(request.groupLinkId());
+        row.setGroupJid(request.groupJid());
         row.setInviteCode(inviteCode);
         row.setWaSubject(blankToNull(metadata.subject()));
         row.setWaDescription(blankToNull(metadata.description()));

@@ -12,11 +12,14 @@ import com.armada.group.model.entity.GroupBatchTaskItem;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupBatchAccountThrottle;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import java.util.Optional;
+import java.util.function.Supplier;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -46,7 +49,16 @@ class GroupBatchLinkRefreshWorkerTest {
     private GroupLinkPreviewMapper previewMapper;
 
     @Mock
+    private GroupBatchAccountThrottle throttle;
+
+    @Mock
     private GroupBatchTaskSettlement settlement;
+
+    @BeforeEach
+    void passThroughThrottle() {
+        when(throttle.call(any(), any())).thenAnswer(invocation ->
+                invocation.getArgument(1, Supplier.class).get());
+    }
 
     @Test
     void missingAdminFailsTheItemWithoutEverCallingTheProtocol() {
@@ -137,6 +149,21 @@ class GroupBatchLinkRefreshWorkerTest {
 
     private GroupBatchLinkRefreshWorker worker() {
         return new GroupBatchLinkRefreshWorker(
-                selector, invitePort, inviteLinkService, previewMapper, settlement);
+                new GroupBatchRefreshSupport(selector, previewMapper, throttle, settlement),
+                invitePort,
+                inviteLinkService);
+    }
+
+    @Test
+    void protocolCallRunsInsideTheThrottleOfTheExecutingAccount() {
+        GroupExecutionAccount admin = new GroupExecutionAccount(
+                77L, "WEB", "acc_77", "923310000001", true);
+        when(selector.findAdmin(GROUP_LINK_ID)).thenReturn(Optional.of(admin));
+        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview());
+
+        worker().execute(item(), 6_000L);
+
+        // 并发放开后同一管理员会被多条明细同时选中，协议调用必须在该账号的闸门内。
+        verify(throttle).call(org.mockito.ArgumentMatchers.eq(77L), any());
     }
 }

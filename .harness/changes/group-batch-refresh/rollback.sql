@@ -7,9 +7,7 @@ DROP TABLE IF EXISTS group_batch_task_item;
 DROP TABLE IF EXISTS group_batch_task;
 
 -- 2) 以下改动不在 Flyway 内（属代码变更），回滚代码即可，此处仅记录以免遗漏：
---    - GroupMetadataSyncTrigger.BATCH_REFRESH(8)
---    - GroupMetadataSyncTaskMapper.xml 的 ORDER BY 批量档
 --    - AccountGroupMembershipMapper.xml 的 selectGroupAdminExecutionAccounts
---    回滚代码后，历史遗留的 trigger_source = 8 任务会落进 ORDER BY 的 ELSE 档正常消化，
---    不会卡死，但需确认 group_metadata_sync_task 中已无 trigger_source = 8 的待执行行：
---    SELECT COUNT(*) FROM group_metadata_sync_task WHERE trigger_source = 8 AND status IN (1, 2, 3, 5);
+--    - GroupMetadataSnapshotService.refresh(GroupMetadataSnapshotRequest, ...) 的读取入口
+--    两个批量按钮都由执行器实时直调协议，不写 group_metadata_sync_task，
+--    因此回滚不需要清理任何耐久队列残留行。

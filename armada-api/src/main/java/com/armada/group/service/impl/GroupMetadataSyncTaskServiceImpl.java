@@ -39,7 +39,6 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     private final GroupMetadataSyncTaskMapper mapper;
     private final long changeDebounceMs;
     private final long periodicRefreshMs;
-    private final int batchQuotaPerRun;
 
     /**
      * 创建同步任务状态机。
@@ -47,17 +46,14 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
      * @param mapper 同步任务数据访问
      * @param changeDebounceMs 群变更事件合并窗口
      * @param periodicRefreshMs 成功快照的周期对账间隔
-     * @param batchQuotaPerRun 单轮可领取的批量刷新任务上限
      */
     public GroupMetadataSyncTaskServiceImpl(
             GroupMetadataSyncTaskMapper mapper,
             @Value("${armada.group-metadata-sync.change-debounce-ms:2000}") long changeDebounceMs,
-            @Value("${armada.group-metadata-sync.periodic-refresh-ms:60000}") long periodicRefreshMs,
-            @Value("${armada.group-metadata-sync.batch-quota-per-run:10}") int batchQuotaPerRun) {
+            @Value("${armada.group-metadata-sync.periodic-refresh-ms:60000}") long periodicRefreshMs) {
         this.mapper = mapper;
         this.changeDebounceMs = Math.max(0L, changeDebounceMs);
         this.periodicRefreshMs = Math.max(1_000L, periodicRefreshMs);
-        this.batchQuotaPerRun = Math.max(1, batchQuotaPerRun);
     }
 
     @Override
@@ -114,14 +110,9 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
                 now,
                 pageSize);
         List<GroupMetadataSyncTask> due = new ArrayList<>();
-        List<GroupMetadataSyncTask> batch = new ArrayList<>();
         GroupMetadataSyncTask refreshCandidate = null;
         for (GroupMetadataSyncTask candidate : candidates) {
-            if (isBatchTask(candidate)) {
-                if (batch.size() < batchQuotaPerRun) {
-                    batch.add(candidate);
-                }
-            } else if (isForegroundTask(candidate)) {
+            if (isForegroundTask(candidate)) {
                 due.add(candidate);
                 if (due.size() >= pageSize) {
                     return List.copyOf(due);
@@ -129,12 +120,6 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
             } else if (refreshCandidate == null) {
                 refreshCandidate = candidate;
             }
-        }
-        // 群组列表批量刷新独占配额：既不与新群首次同步和实时事件抢前台名额，也不落进
-        // 下面"每轮 1 个"的刷新档，否则上千条批量项要跑几十分钟。
-        due.addAll(batch.subList(0, Math.min(batch.size(), pageSize - due.size())));
-        if (due.size() >= pageSize) {
-            return List.copyOf(due);
         }
         // 已有成功快照的事件、重试和账号上线恢复都属于刷新工作。协议读取在同一轮次
         // 串行执行，因此所有刷新来源合计只允许一个，避免存量积压阻塞新群首次同步。
@@ -240,16 +225,6 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     private static boolean isChangeTrigger(GroupMetadataSyncTrigger trigger) {
         return trigger == GroupMetadataSyncTrigger.PARTICIPANT_CHANGED
                 || trigger == GroupMetadataSyncTrigger.METADATA_CHANGED;
-    }
-
-    /**
-     * 判定批量刷新任务。
-     *
-     * <p>批量项即使从未成功同步过也不算前台任务，否则一次勾选上千个新群会占满前台名额。</p>
-     */
-    private static boolean isBatchTask(GroupMetadataSyncTask task) {
-        return task.getTriggerSource() != null
-                && GroupMetadataSyncTrigger.BATCH_REFRESH.code() == task.getTriggerSource();
     }
 
     private static boolean isForegroundTask(GroupMetadataSyncTask task) {

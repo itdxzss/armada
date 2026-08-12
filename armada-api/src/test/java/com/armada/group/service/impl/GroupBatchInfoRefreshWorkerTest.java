@@ -2,15 +2,25 @@ package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.model.dto.GroupMetadataSnapshotRequest;
 import com.armada.group.model.entity.GroupBatchTaskItem;
-import com.armada.group.model.entity.GroupMetadataSyncTask;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
-import com.armada.group.model.enums.GroupMetadataSyncStatus;
+import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.service.GroupBatchAccountThrottle;
+import com.armada.group.service.GroupExecutionAccountSelector;
+import com.armada.group.service.GroupMetadataSnapshotService;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -19,66 +29,128 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
-/** 批量获取最新群信息执行器单测：只观察耐久队列，不自己拉协议。 */
+/** 批量获取最新群信息执行器单测:实时直调协议读快照，不再排进耐久队列等结果。 */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class GroupBatchInfoRefreshWorkerTest {
 
     private static final long GROUP_LINK_ID = 101L;
-    private static final long BASELINE = 5_000L;
+    private static final String GROUP_JID = "120363batch@g.us";
 
     @Mock
-    private GroupMetadataSyncTaskMapper syncTaskMapper;
+    private GroupExecutionAccountSelector selector;
+
+    @Mock
+    private GroupLinkPreviewMapper previewMapper;
+
+    @Mock
+    private GroupBatchAccountThrottle throttle;
 
     @Mock
     private GroupBatchTaskSettlement settlement;
 
-    @Test
-    void itemSucceedsOnceSyncSucceededAfterTheSubmittedBaseline() {
-        when(syncTaskMapper.selectByGroupLinkId(GROUP_LINK_ID))
-                .thenReturn(sync(GroupMetadataSyncStatus.SUCCEEDED, 6_000L));
+    @Mock
+    private GroupMetadataSnapshotService snapshotService;
 
-        worker().execute(item(), 9_000L);
+    private final AtomicReference<Long> throttledAccountId = new AtomicReference<>();
+
+    @BeforeEach
+    void passThroughThrottle() {
+        doAnswer(invocation -> {
+            throttledAccountId.set(invocation.getArgument(0));
+            invocation.getArgument(1, Runnable.class).run();
+            return null;
+        }).when(throttle).run(any(), any());
+    }
+
+    @Test
+    void missingExecutionAccountFailsTheItemWithoutCallingTheProtocol() {
+        when(selector.find(eq(GROUP_LINK_ID), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(Optional.empty());
+
+        worker().execute(item(), 5_000L);
+
+        GroupBatchTaskItem outcome = settled();
+        assertThat(outcome.getStatus()).isEqualTo(GroupBatchTaskItemStatus.FAILED.code());
+        assertThat(outcome.getErrorCode()).isEqualTo("NO_AVAILABLE_ACCOUNT");
+        assertThat(outcome.getDescription()).isNotBlank();
+        verify(snapshotService, never()).refresh(any(), any());
+    }
+
+    @Test
+    void missingGroupJidFailsTheItemBeforeTheProtocolCall() {
+        stubAccount();
+        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(null);
+
+        worker().execute(item(), 6_000L);
+
+        GroupBatchTaskItem outcome = settled();
+        assertThat(outcome.getStatus()).isEqualTo(GroupBatchTaskItemStatus.FAILED.code());
+        assertThat(outcome.getErrorCode()).isEqualTo("GROUP_JID_UNKNOWN");
+        verify(snapshotService, never()).refresh(any(), any());
+    }
+
+    @Test
+    void successfulRefreshReadsTheSnapshotInRealTimeAndSettlesWithExecutingAccount() {
+        stubAccount();
+        stubPreview();
+
+        worker().execute(item(), 7_000L);
+
+        ArgumentCaptor<GroupMetadataSnapshotRequest> request =
+                ArgumentCaptor.forClass(GroupMetadataSnapshotRequest.class);
+        verify(snapshotService).refresh(request.capture(), any());
+        assertThat(request.getValue().groupLinkId()).isEqualTo(GROUP_LINK_ID);
+        assertThat(request.getValue().groupJid()).isEqualTo(GROUP_JID);
+        // 本按钮只读最新群信息；缺邀请码不能把整项判失败，那是"刷新群链接"按钮的职责。
+        assertThat(request.getValue().inviteRequired()).isFalse();
 
         GroupBatchTaskItem outcome = settled();
         assertThat(outcome.getStatus()).isEqualTo(GroupBatchTaskItemStatus.SUCCESS.code());
-        assertThat(outcome.getOperatedAt()).isEqualTo(9_000L);
+        assertThat(outcome.getAccountId()).isEqualTo(77L);
+        assertThat(outcome.getGroupJid()).isEqualTo(GROUP_JID);
+        assertThat(outcome.getOperatedAt()).isEqualTo(7_000L);
     }
 
     @Test
-    void staleSuccessBeforeTheBaselineKeepsTheItemPending() {
-        // 提交之前的旧快照不算数，否则整批会瞬间"成功"而根本没刷新过。
-        when(syncTaskMapper.selectByGroupLinkId(GROUP_LINK_ID))
-                .thenReturn(sync(GroupMetadataSyncStatus.SUCCEEDED, 4_000L));
+    void protocolCallRunsInsideTheThrottleOfTheExecutingAccount() {
+        stubAccount();
+        stubPreview();
 
-        worker().execute(item(), 9_000L);
+        worker().execute(item(), 8_000L);
 
-        verify(settlement, never()).settle(any());
+        // 并发放开后同一账号会被多条明细同时选中，协议调用必须在该账号的闸门内。
+        assertThat(throttledAccountId.get()).isEqualTo(77L);
     }
 
     @Test
-    void itemFailsOnlyWhenTheDurableQueueReachedItsTerminalFailure() {
-        GroupMetadataSyncTask failed = sync(GroupMetadataSyncStatus.FAILED, null);
-        failed.setLastErrorCode("PROTOCOL_TIMEOUT");
-        failed.setLastErrorMessage("群详情同步执行失败");
-        when(syncTaskMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(failed);
+    void protocolFailureRecordsAConcreteReasonAndKeepsTheOldSnapshot() {
+        stubAccount();
+        stubPreview();
+        doThrow(new IllegalStateException("群 metadata 成员快照不完整"))
+                .when(snapshotService).refresh(any(), any());
 
         worker().execute(item(), 9_000L);
 
         GroupBatchTaskItem outcome = settled();
         assertThat(outcome.getStatus()).isEqualTo(GroupBatchTaskItemStatus.FAILED.code());
-        assertThat(outcome.getErrorCode()).isEqualTo("PROTOCOL_TIMEOUT");
-        assertThat(outcome.getDescription()).isNotBlank();
+        assertThat(outcome.getErrorCode()).isEqualTo("METADATA_FETCH_FAILED");
+        // 失败必须给出具体原因，PRD 6.3 禁止只返回通用失败。
+        assertThat(outcome.getDescription()).contains("成员快照不完整");
+        assertThat(outcome.getAccountId()).isEqualTo(77L);
     }
 
-    @Test
-    void retryWaitIsNotTerminalSoTheItemKeepsWaiting() {
-        when(syncTaskMapper.selectByGroupLinkId(GROUP_LINK_ID))
-                .thenReturn(sync(GroupMetadataSyncStatus.RETRY_WAIT, null));
+    private void stubAccount() {
+        when(selector.find(eq(GROUP_LINK_ID), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(Optional.of(new GroupExecutionAccount(
+                        77L, "WEB", "acc_77", "923310000001", false)));
+    }
 
-        worker().execute(item(), 9_000L);
-
-        verify(settlement, never()).settle(any());
+    private void stubPreview() {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupLinkId(GROUP_LINK_ID);
+        preview.setGroupJid(GROUP_JID);
+        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview);
     }
 
     private GroupBatchTaskItem settled() {
@@ -88,25 +160,18 @@ class GroupBatchInfoRefreshWorkerTest {
         return captor.getValue();
     }
 
-    private static GroupMetadataSyncTask sync(GroupMetadataSyncStatus status, Long lastSuccessAt) {
-        GroupMetadataSyncTask task = new GroupMetadataSyncTask();
-        task.setGroupLinkId(GROUP_LINK_ID);
-        task.setStatus(status.code());
-        task.setLastSuccessAt(lastSuccessAt);
-        return task;
-    }
-
     private static GroupBatchTaskItem item() {
         GroupBatchTaskItem item = new GroupBatchTaskItem();
         item.setId(9L);
         item.setTaskId(900L);
         item.setGroupLinkId(GROUP_LINK_ID);
         item.setStatus(GroupBatchTaskItemStatus.PENDING.code());
-        item.setBaselineSyncedAt(BASELINE);
         return item;
     }
 
     private GroupBatchInfoRefreshWorker worker() {
-        return new GroupBatchInfoRefreshWorker(syncTaskMapper, settlement);
+        return new GroupBatchInfoRefreshWorker(
+                new GroupBatchRefreshSupport(selector, previewMapper, throttle, settlement),
+                snapshotService);
     }
 }

@@ -3,7 +3,9 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,9 +19,8 @@ import com.armada.group.model.entity.GroupBatchTask;
 import com.armada.group.model.entity.GroupBatchTaskItem;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
-import com.armada.group.model.enums.GroupMetadataSyncTrigger;
+import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.vo.GroupBatchTaskAcceptedVO;
-import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
@@ -52,9 +53,6 @@ class GroupBatchTaskServiceImplTest {
 
     @Mock
     private GroupLinkHealthMapper healthMapper;
-
-    @Mock
-    private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     @BeforeEach
     void setUp() {
@@ -112,7 +110,7 @@ class GroupBatchTaskServiceImplTest {
     }
 
     @Test
-    void refreshInfoAcceptsStateBlockedGroupsAndEnqueuesThemOnTheBatchLane() {
+    void refreshInfoAcceptsStateBlockedGroupsBecauseReadingInfoIsNotAWriteOperation() {
         when(groupLinkMapper.selectActiveByIds(List.of(101L, 102L)))
                 .thenReturn(List.of(groupLink(101L), groupLink(102L)));
         when(healthMapper.selectLinkRefreshBlockedIds(List.of(101L, 102L)))
@@ -121,17 +119,9 @@ class GroupBatchTaskServiceImplTest {
         service().submitRefreshInfo(
                 new GroupBatchSubmitDTO(List.of(101L, 102L), "req-info"), OPERATOR_ID);
 
+        // 获取最新群信息是只读操作，封禁群也要放行；两项都留给执行器实时直调协议。
         assertThat(capturedItems()).allSatisfy(item ->
                 assertThat(item.getStatus()).isEqualTo(GroupBatchTaskItemStatus.PENDING.code()));
-        // 只读同步走批量档 trigger，绝不能用 MANUAL_REFRESH 挤占实时链路。
-        verify(metadataSyncTaskService).enqueue(
-                org.mockito.ArgumentMatchers.eq(101L),
-                org.mockito.ArgumentMatchers.eq(GroupMetadataSyncTrigger.BATCH_REFRESH),
-                org.mockito.ArgumentMatchers.anyLong());
-        verify(metadataSyncTaskService).enqueue(
-                org.mockito.ArgumentMatchers.eq(102L),
-                org.mockito.ArgumentMatchers.eq(GroupMetadataSyncTrigger.BATCH_REFRESH),
-                org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
@@ -164,8 +154,65 @@ class GroupBatchTaskServiceImplTest {
         return link;
     }
 
+    @Test
+    void closingTheDialogCancelsRemainingItemsSoTheyStopSendingProtocolCalls() {
+        when(taskMapper.selectById(900L)).thenReturn(taskWithStatus(GroupBatchTaskStatus.RUNNING));
+        when(itemMapper.cancelPending(
+                org.mockito.ArgumentMatchers.eq(900L),
+                anyInt(),
+                anyInt(),
+                anyLong())).thenReturn(3);
+
+        assertThat(service().cancel(900L)).isEqualTo(3);
+
+        verify(itemMapper).cancelPending(
+                org.mockito.ArgumentMatchers.eq(900L),
+                org.mockito.ArgumentMatchers.eq(GroupBatchTaskItemStatus.CANCELED.code()),
+                org.mockito.ArgumentMatchers.eq(GroupBatchTaskItemStatus.PENDING.code()),
+                anyLong());
+        verify(taskMapper).cancelIfRunnable(
+                org.mockito.ArgumentMatchers.eq(900L),
+                org.mockito.ArgumentMatchers.eq(GroupBatchTaskStatus.CANCELED.code()),
+                org.mockito.ArgumentMatchers.eq(List.of(
+                        GroupBatchTaskStatus.PENDING.code(),
+                        GroupBatchTaskStatus.RUNNING.code())),
+                anyLong());
+    }
+
+    @Test
+    void cancelingAnAlreadyFinishedTaskChangesNothing() {
+        when(taskMapper.selectById(900L))
+                .thenReturn(taskWithStatus(GroupBatchTaskStatus.COMPLETED));
+
+        assertThat(service().cancel(900L)).isZero();
+
+        // 已完成的任务没有待执行项；改写状态会把成功的批次显示成已取消。
+        verify(itemMapper, never()).cancelPending(any(), anyInt(), anyInt(), anyLong());
+        verify(taskMapper, never()).cancelIfRunnable(any(), anyInt(), anyList(), anyLong());
+    }
+
+    @Test
+    void cancelRejectsATaskOutsideTheCurrentTenant() {
+        when(taskMapper.selectById(900L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service().cancel(900L))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    private static GroupBatchTask taskWithStatus(GroupBatchTaskStatus status) {
+        GroupBatchTask task = new GroupBatchTask();
+        task.setId(900L);
+        task.setTenantId(TENANT_ID);
+        task.setTaskType(1);
+        task.setStatus(status.code());
+        task.setTotalCount(3);
+        task.setSuccessCount(0);
+        task.setFailedCount(0);
+        return task;
+    }
+
     private GroupBatchTaskServiceImpl service() {
         return new GroupBatchTaskServiceImpl(
-                taskMapper, itemMapper, groupLinkMapper, healthMapper, metadataSyncTaskService);
+                taskMapper, itemMapper, groupLinkMapper, healthMapper);
     }
 }

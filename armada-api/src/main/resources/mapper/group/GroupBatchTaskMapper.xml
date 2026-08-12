@@ -59,4 +59,22 @@
         <choose><when test="success">0</when><otherwise>1</otherwise></choose>
     WHERE id = #{taskId}
   </update>
+
+  <update id="cancelIfRunnable">
+    UPDATE group_batch_task
+    SET status = #{canceledStatus},
+        completed_at = #{now}
+    WHERE id = #{taskId}
+      <!-- 白名单挡住重复取消与覆盖已完成任务。 -->
+      AND status IN
+      <foreach collection="runnableStatuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+  </update>
+
+  <select id="selectStatusById" resultType="java.lang.Integer">
+    SELECT status
+    FROM group_batch_task
+    WHERE id = #{taskId}
+  </select>
 </mapper>

@@ -25,7 +25,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class GroupMetadataSyncTaskServiceImplTest {
 
     private static final long PERIODIC_REFRESH_MS = 60_000L;
-    private static final int BATCH_QUOTA_PER_RUN = 2;
 
     @Mock
     private GroupMetadataSyncTaskMapper mapper;
@@ -186,20 +185,6 @@ class GroupMetadataSyncTaskServiceImplTest {
     }
 
     @Test
-    void findDueCapsBatchRefreshEvenWhenTheGroupsHaveNeverSynchronized() {
-        GroupMetadataSyncTask first = batchTask(1L);
-        GroupMetadataSyncTask second = batchTask(2L);
-        GroupMetadataSyncTask third = batchTask(3L);
-        when(mapper.selectDueCandidates(List.of(
-                GroupMetadataSyncStatus.PENDING.code(),
-                GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
-                .thenReturn(List.of(first, second, third));
-
-        assertThat(service().findDue(10_000L, 20)).containsExactly(first, second);
-    }
-
-    @Test
     void claimAcceptsSucceededTaskSelectedForPeriodicRefresh() {
         GroupMetadataSyncTaskServiceImpl service = service();
         GroupMetadataSyncTask periodic = runningTask(0);
@@ -227,15 +212,7 @@ class GroupMetadataSyncTaskServiceImplTest {
 
     private GroupMetadataSyncTaskServiceImpl service() {
         return new GroupMetadataSyncTaskServiceImpl(
-                mapper, 2_000L, PERIODIC_REFRESH_MS, BATCH_QUOTA_PER_RUN);
-    }
-
-    private static GroupMetadataSyncTask batchTask(long id) {
-        GroupMetadataSyncTask task = runningTask(0);
-        task.setId(id);
-        task.setStatus(GroupMetadataSyncStatus.PENDING.code());
-        task.setTriggerSource(GroupMetadataSyncTrigger.BATCH_REFRESH.code());
-        return task;
+                mapper, 2_000L, PERIODIC_REFRESH_MS);
     }
 
     private static GroupMetadataSyncTask runningTask(int attempts) {

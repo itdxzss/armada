@@ -98,6 +98,52 @@ class GroupBatchTaskItemMapperDbTest {
                 .containsExactly(101L, 102L, 103L);
     }
 
+    @Test
+    void batchInsertKeepsTheSubmitStageFailureReasonSoBlockedGroupsExplainThemselves() {
+        GroupBatchTaskItem blocked = item(102L);
+        blocked.setStatus(GroupBatchTaskItemStatus.FAILED.code());
+        blocked.setErrorCode("GROUP_STATE_BLOCKED");
+        blocked.setDescription("当前群组状态异常，暂不支持刷新邀请链接");
+        blocked.setOperatedAt(1_000L);
+
+        mapper.batchInsert(List.of(item(101L), blocked));
+
+        // 插入语句漏列时这些字段会静默变成 NULL，前端弹窗对被拦截的项只能显示空原因。
+        GroupBatchTaskItem persisted = mapper.selectByTaskId(TASK_ID).get(1);
+        assertThat(persisted.getStatus()).isEqualTo(GroupBatchTaskItemStatus.FAILED.code());
+        assertThat(persisted.getErrorCode()).isEqualTo("GROUP_STATE_BLOCKED");
+        assertThat(persisted.getDescription()).contains("状态异常");
+        assertThat(persisted.getOperatedAt()).isEqualTo(1_000L);
+    }
+
+    @Test
+    void cancelPendingLeavesAlreadySettledItemsUntouched() {
+        mapper.batchInsert(List.of(item(101L), item(102L)));
+        GroupBatchTaskItem first = mapper.selectPending(TASK_ID, PENDING, 10).get(0);
+        GroupBatchTaskItem success = new GroupBatchTaskItem();
+        success.setId(first.getId());
+        success.setStatus(GroupBatchTaskItemStatus.SUCCESS.code());
+        success.setDescription("群信息已刷新");
+        success.setOperatedAt(2_000L);
+        success.setUpdatedAt(2_000L);
+        mapper.finishItem(success, PENDING);
+
+        int canceled = mapper.cancelPending(
+                TASK_ID,
+                GroupBatchTaskItemStatus.CANCELED.code(),
+                PENDING,
+                9_000L);
+
+        assertThat(canceled).isEqualTo(1);
+        assertThat(mapper.selectPending(TASK_ID, PENDING, 10)).isEmpty();
+        assertThat(mapper.selectByTaskId(TASK_ID))
+                .extracting(GroupBatchTaskItem::getStatus)
+                // 已成功的项是既有结果，取消不能把它改写掉。
+                .containsExactly(
+                        GroupBatchTaskItemStatus.SUCCESS.code(),
+                        GroupBatchTaskItemStatus.CANCELED.code());
+    }
+
     private static GroupBatchTaskItem item(long groupLinkId) {
         GroupBatchTaskItem row = new GroupBatchTaskItem();
         row.setTenantId(TENANT_ID);
@@ -122,7 +168,6 @@ class GroupBatchTaskItemMapperDbTest {
                     status TINYINT NOT NULL,
                     error_code VARCHAR(64),
                     description VARCHAR(512),
-                    baseline_synced_at BIGINT,
                     operated_at BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,

@@ -66,4 +66,32 @@ public interface GroupBatchTaskMapper {
                          @Param("completedStatus") int completedStatus,
                          @Param("runningStatus") int runningStatus,
                          @Param("now") long now);
+
+    /**
+     * 把仍可推进的任务落成取消态。
+     *
+     * <p>带 status 白名单:已完成/已失败的任务不能被改写，重复取消返回 0 行。</p>
+     *
+     * @param taskId 任务 ID
+     * @param canceledStatus 已取消稳定码
+     * @param runnableStatuses 允许取消的当前状态稳定码
+     * @param now 取消时间(epoch 毫秒)
+     * @return 影响行数;已是终态时为 0
+     */
+    int cancelIfRunnable(@Param("taskId") Long taskId,
+                         @Param("canceledStatus") int canceledStatus,
+                         @Param("runnableStatuses") List<Integer> runnableStatuses,
+                         @Param("now") long now);
+
+    /**
+     * 跨租户读取任务主状态,供调度线程判断是否已被取消。
+     *
+     * <p>与 selectRunnableTasks 同理绕过租户拦截器:调度线程虽已切租户上下文，但取消可能来自
+     * 另一个实例，这里只读一个状态码，不需要租户过滤。</p>
+     *
+     * @param taskId 任务 ID
+     * @return 状态稳定码;任务不存在时为 null
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    Integer selectStatusById(@Param("taskId") Long taskId);
 }

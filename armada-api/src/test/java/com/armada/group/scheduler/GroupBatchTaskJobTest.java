@@ -23,7 +23,12 @@ import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -114,10 +119,14 @@ class GroupBatchTaskJobTest {
     }
 
     private static GroupBatchTaskItem item() {
+        return item(9L);
+    }
+
+    private static GroupBatchTaskItem item(long id) {
         GroupBatchTaskItem item = new GroupBatchTaskItem();
-        item.setId(9L);
+        item.setId(id);
         item.setTaskId(900L);
-        item.setGroupLinkId(101L);
+        item.setGroupLinkId(100L + id);
         item.setStatus(GroupBatchTaskItemStatus.PENDING.code());
         return item;
     }
@@ -133,13 +142,80 @@ class GroupBatchTaskJobTest {
         }
     }
 
+    /** 明细同步跑完，用于验证分派与租户上下文这类与并发无关的行为。 */
     private GroupBatchTaskJob job() {
+        return job(Runnable::run);
+    }
+
+    private GroupBatchTaskJob job(Executor itemExecutor) {
         return new GroupBatchTaskJob(
                 taskMapper,
                 itemMapper,
                 new GroupBatchTaskWorkers(linkWorker, infoWorker),
-                manualExecutor,
+                new GroupBatchTaskExecutors(manualExecutor, itemExecutor),
                 new GroupBatchTaskJobProperties(true, 3_000L, 20, 50));
+    }
+
+    @Test
+    void itemsAdvanceConcurrentlyAndTheRoundWaitsForAllOfThem() throws InterruptedException {
+        // 两个按钮都实时直调协议，单条约 1~2 秒。串行推进上千个群要几十分钟，
+        // 因此明细必须并发；同时本轮必须等全部明细结束才释放 inFlight。
+        stubRunnable(task(GroupBatchTaskType.REFRESH_INFO));
+        when(itemMapper.selectPending(eq(900L), anyInt(), anyInt()))
+                .thenReturn(List.of(item(1L), item(2L), item(3L), item(4L)));
+        CyclicBarrier allInside = new CyclicBarrier(4);
+        AtomicInteger completed = new AtomicInteger();
+        doAnswer(invocation -> {
+            // 串行执行时这里必然超时：后一条要等前一条返回，barrier 永远凑不满 4 个。
+            allInside.await(3L, TimeUnit.SECONDS);
+            completed.incrementAndGet();
+            return null;
+        }).when(infoWorker).execute(any(), anyLong());
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        try {
+            job(pool).runOnce();
+            drain();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(completed.get()).isEqualTo(4);
+    }
+
+    @Test
+    void canceledTaskStopsMidRoundWithoutSendingAnyMoreProtocolCalls() {
+        stubRunnable(task(GroupBatchTaskType.REFRESH_INFO));
+        when(itemMapper.selectPending(eq(900L), anyInt(), anyInt()))
+                .thenReturn(List.of(item(1L), item(2L)));
+        // 用户关弹窗后，本轮已投递的明细也必须停下来，否则剩下上千个群会白跑完。
+        when(taskMapper.selectStatusById(900L))
+                .thenReturn(GroupBatchTaskStatus.CANCELED.code());
+
+        job().runOnce();
+        drain();
+
+        verify(infoWorker, never()).execute(any(), anyLong());
+        verify(linkWorker, never()).execute(any(), anyLong());
+    }
+
+    @Test
+    void oneFailingItemDoesNotAbortTheRestOfTheRound() {
+        stubRunnable(task(GroupBatchTaskType.REFRESH_INFO));
+        when(itemMapper.selectPending(eq(900L), anyInt(), anyInt()))
+                .thenReturn(List.of(item(1L), item(2L)));
+        AtomicInteger advanced = new AtomicInteger();
+        doAnswer(invocation -> {
+            // 协议失败由执行器自行结算；能逃到调度器的是落库等基础设施异常。
+            if (advanced.incrementAndGet() == 1) {
+                throw new IllegalStateException("settlement boom");
+            }
+            return null;
+        }).when(infoWorker).execute(any(), anyLong());
+
+        job().runOnce();
+        drain();
+
+        assertThat(advanced.get()).isEqualTo(2);
     }
 
     @Test

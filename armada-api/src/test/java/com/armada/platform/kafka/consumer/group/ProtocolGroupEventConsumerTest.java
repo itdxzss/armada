@@ -3,11 +3,13 @@ package com.armada.platform.kafka.consumer.group;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.trace.TraceContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +25,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
  */
 @ExtendWith(MockitoExtension.class)
 class ProtocolGroupEventConsumerTest {
+
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
     @Mock
     private ProtocolGroupHealthReportedSink sink;
@@ -51,9 +55,54 @@ class ProtocolGroupEventConsumerTest {
                 batchParticipantResultSink, membersResultSink, inviteLinkChangedSink);
     }
 
+    private void onMessage(String rawMessage) {
+        onMessage(rawMessage, null);
+    }
+
+    private void onMessage(String rawMessage, String headerTraceId) {
+        consumer.onMessage(rawMessage, headerTraceId);
+    }
+
+    @Test
+    void onMessage_runsSinkInsideEnvelopeTraceAndCleansScope() {
+        doAnswer(invocation -> {
+            assertThat(TraceContext.current()).contains(FIXED_TRACE_ID);
+            return null;
+        }).when(sink).handleHealthReported(any());
+
+        onMessage("""
+                {"traceId":"0123456789abcdef0123456789abcdef","eventId":"evt-group-trace-1",
+                 "event":"group.health_reported","accountId":"acc_trace",
+                 "occurredAt":"2026-08-11T00:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":1,"groupLinkId":200,"groupJid":"1203630trace@g.us",
+                         "health":"HEALTHY"}}
+                """, "11111111111111111111111111111111");
+
+        assertThat(TraceContext.current()).isEmpty();
+    }
+
+    @Test
+    void onMessage_cleansScopeWhenSinkFails() {
+        doAnswer(invocation -> {
+            assertThat(TraceContext.current()).contains(FIXED_TRACE_ID);
+            throw new IllegalStateException("database unavailable");
+        }).when(sink).handleHealthReported(any());
+
+        assertThatThrownBy(() -> onMessage("""
+                {"traceId":"0123456789abcdef0123456789abcdef","eventId":"evt-group-trace-2",
+                 "event":"group.health_reported","accountId":"acc_trace",
+                 "occurredAt":"2026-08-11T00:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":1,"groupLinkId":200,"groupJid":"1203630trace@g.us",
+                         "health":"HEALTHY"}}
+                """, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("database unavailable");
+        assertThat(TraceContext.current()).isEmpty();
+    }
+
     @Test
     void onMessage_inviteLinkChangedDispatchesCurrentCode() {
-        consumer.onMessage("""
+        onMessage("""
                 {
                   "eventId":"acc-901:group.invite_link_changed:1",
                   "event":"group.invite_link_changed",
@@ -105,7 +154,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupMembersResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupMembersResultReportedEvent.class);
@@ -133,11 +182,11 @@ class ProtocolGroupEventConsumerTest {
                 "manager-901", "FAILED",
                 "[{\"targetJid\":\"1@s.whatsapp.net\",\"inGroup\":false,\"admin\":false}]");
 
-        assertThatThrownBy(() -> consumer.onMessage(accountMismatch))
+        assertThatThrownBy(() -> onMessage(accountMismatch))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(adminOutsideGroup))
+        assertThatThrownBy(() -> onMessage(adminOutsideGroup))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(failedWithMembers))
+        assertThatThrownBy(() -> onMessage(failedWithMembers))
                 .isInstanceOf(BusinessException.class);
         verifyNoInteractions(membersResultSink);
     }
@@ -182,7 +231,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupJoinResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupJoinResultReportedEvent.class);
@@ -222,7 +271,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupJoinResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupJoinResultReportedEvent.class);
@@ -261,7 +310,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
@@ -292,7 +341,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
@@ -321,7 +370,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
@@ -354,7 +403,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
@@ -386,7 +435,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
@@ -420,7 +469,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolPullTaskBatchParticipantResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolPullTaskBatchParticipantResultReportedEvent.class);
@@ -441,10 +490,10 @@ class ProtocolGroupEventConsumerTest {
         String wrongCase = batchParticipantResultJson("FAILED", "started");
         String illegalPair = batchParticipantResultJson("FAILED", "NOT_STARTED");
 
-        assertThatThrownBy(() -> consumer.onMessage(missing)).isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(unknown)).isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(wrongCase)).isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(illegalPair)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(missing)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(unknown)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(wrongCase)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(illegalPair)).isInstanceOf(BusinessException.class);
         verifyNoInteractions(batchParticipantResultSink);
     }
 
@@ -482,9 +531,9 @@ class ProtocolGroupEventConsumerTest {
                 }}
                 """;
 
-        assertThatThrownBy(() -> consumer.onMessage(wrongOperation))
+        assertThatThrownBy(() -> onMessage(wrongOperation))
                 .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(wrongAccount))
+        assertThatThrownBy(() -> onMessage(wrongAccount))
                 .isInstanceOf(BusinessException.class);
         verifyNoInteractions(actionResultSink);
     }
@@ -505,8 +554,8 @@ class ProtocolGroupEventConsumerTest {
                 }}
                 """;
 
-        assertThatThrownBy(() -> consumer.onMessage(missingCommand)).isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(invalidOutcome)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(missingCommand)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(invalidOutcome)).isInstanceOf(BusinessException.class);
         verifyNoInteractions(joinResultSink);
     }
 
@@ -532,7 +581,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupHealthReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupHealthReportedEvent.class);
@@ -571,7 +620,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolGroupHealthReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupHealthReportedEvent.class);
@@ -594,7 +643,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         verifyNoInteractions(sink, joinResultSink, actionResultSink);
     }
@@ -614,14 +663,14 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         verifyNoInteractions(sink);
     }
 
     @Test
     void onMessage_malformedJson_throwsBusinessExceptionWithoutSink() {
-        assertThatThrownBy(() -> consumer.onMessage("{bad-json"))
+        assertThatThrownBy(() -> onMessage("{bad-json"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议群组事件 JSON 解析失败");
 
@@ -645,7 +694,7 @@ class ProtocolGroupEventConsumerTest {
                 }
                 """;
 
-        assertThatThrownBy(() -> consumer.onMessage(raw))
+        assertThatThrownBy(() -> onMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议群组健康事件缺少 data.health");
 
@@ -671,7 +720,7 @@ class ProtocolGroupEventConsumerTest {
                 """;
         doThrow(new IllegalStateException("database unavailable")).when(sink).handleHealthReported(any());
 
-        assertThatThrownBy(() -> consumer.onMessage(raw))
+        assertThatThrownBy(() -> onMessage(raw))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("database unavailable");
     }

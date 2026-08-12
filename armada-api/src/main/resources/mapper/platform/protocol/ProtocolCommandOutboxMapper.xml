@@ -5,7 +5,7 @@
   <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段。 -->
   <sql id="Columns">
     id, tenant_id, command_id, batch_id, command_type, aggregate_type, aggregate_id,
-    kafka_topic, kafka_key, protocol_account_id, protocol_backend, payload_json, status, retry_count,
+    kafka_topic, kafka_key, protocol_account_id, protocol_backend, payload_json, trace_id, status, retry_count,
     next_retry_at, locked_by, locked_at, sent_at, last_error,
     created_at, updated_at, deleted_at
   </sql>
@@ -14,14 +14,14 @@
   <insert id="batchInsertPending">
     INSERT INTO protocol_command_outbox (
       command_id, batch_id, command_type, aggregate_type, aggregate_id,
-      kafka_topic, kafka_key, protocol_account_id, protocol_backend, payload_json,
+      kafka_topic, kafka_key, protocol_account_id, protocol_backend, payload_json, trace_id,
       status, retry_count, next_retry_at,
       created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="r" separator=",">
       (
         #{r.commandId}, #{r.batchId}, #{r.commandType}, #{r.aggregateType}, #{r.aggregateId},
-        #{r.kafkaTopic}, #{r.kafkaKey}, #{r.protocolAccountId}, #{r.protocolBackend}, #{r.payloadJson},
+        #{r.kafkaTopic}, #{r.kafkaKey}, #{r.protocolAccountId}, #{r.protocolBackend}, #{r.payloadJson}, #{r.traceId},
         #{r.status}, #{r.retryCount}, #{r.nextRetryAt},
         #{r.createdAt}, #{r.updatedAt}
       )

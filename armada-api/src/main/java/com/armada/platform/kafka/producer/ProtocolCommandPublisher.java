@@ -22,12 +22,15 @@ import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +42,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -242,20 +247,27 @@ public class ProtocolCommandPublisher {
             ProtocolCommandOutbox row,
             ProtocolCommandEnvelope envelope) {
         try {
-            return kafkaTemplate.send(row.getKafkaTopic(), row.getKafkaKey(), envelope)
+            ProducerRecord<String, ProtocolCommandEnvelope> record = new ProducerRecord<>(
+                    row.getKafkaTopic(), row.getKafkaKey(), envelope);
+            record.headers().add(new RecordHeader(
+                    TraceIds.KAFKA_HEADER,
+                    envelope.traceId().getBytes(StandardCharsets.UTF_8)));
+            return kafkaTemplate.send(record)
                     .orTimeout(properties.getSendTimeoutMs(), TimeUnit.MILLISECONDS)
                     .handle((ignored, error) -> {
-                        if (error != null) {
-                            return ProtocolCommandPublishOutcome.failure(
-                                    row, kafkaFailure(row, unwrapCompletion(error)));
+                        try (TraceContext.Scope scope = TraceContext.open(envelope.traceId())) {
+                            if (error != null) {
+                                return ProtocolCommandPublishOutcome.failure(
+                                        row, kafkaFailure(row, unwrapCompletion(error)));
+                            }
+                            log.debug("协议命令 Kafka 发送成功 commandId={} batchId={} accountId={} "
+                                            + "protocolAccountId={} topic={} traceId={}",
+                                    row.getCommandId(), row.getBatchId(), row.getAggregateId(),
+                                    row.getProtocolAccountId(), row.getKafkaTopic(), envelope.traceId());
+                            return ProtocolCommandPublishOutcome.success(row,
+                                    new ProtocolCommandPublishResult(
+                                            row.getCommandId(), row.getKafkaTopic(), row.getKafkaKey()));
                         }
-                        log.debug("协议命令 Kafka 发送成功 commandId={} batchId={} accountId={} "
-                                        + "protocolAccountId={} topic={}",
-                                row.getCommandId(), row.getBatchId(), row.getAggregateId(),
-                                row.getProtocolAccountId(), row.getKafkaTopic());
-                        return ProtocolCommandPublishOutcome.success(row,
-                                new ProtocolCommandPublishResult(
-                                        row.getCommandId(), row.getKafkaTopic(), row.getKafkaKey()));
                     });
         } catch (RuntimeException ex) {
             // serializer、metadata 或 producer 缓冲区可能在返回 Future 前同步抛错，也必须保持逐行失败语义。
@@ -481,8 +493,11 @@ public class ProtocolCommandPublisher {
     }
 
     private ProtocolCommandEnvelope toEnvelope(ProtocolCommandOutbox row, JsonNode payload) {
+        String traceId = TraceIds.normalize(row.getTraceId())
+                .orElseGet(() -> TraceIds.stableFrom(row.getCommandId()));
         return new ProtocolCommandEnvelope(
                 row.getCommandId(),
+                traceId,
                 row.getBatchId(),
                 row.getCommandType(),
                 row.getAggregateType(),

@@ -1,7 +1,10 @@
 package com.armada.platform.kafka.consumer.group;
 
+import com.armada.platform.kafka.trace.KafkaTraceSupport;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -122,12 +126,22 @@ public class ProtocolGroupEventConsumer {
      * <p>Kafka value 是协议层 {@code EventEnvelope} JSON。方法保持 public 便于单测直接覆盖解析逻辑。</p>
      *
      * @param rawMessage Kafka message value
+     * @param headerTraceId Kafka trace header
      */
     @KafkaListener(
             topics = "${armada.protocol.kafka.group-events.topic:protocol.group.events.v1}",
             groupId = "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}")
-    public void onMessage(String rawMessage) {
+    public void onMessage(
+            String rawMessage,
+            @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {
         JsonNode envelope = readEnvelope(rawMessage);
+        try (TraceContext.Scope ignored = KafkaTraceSupport.open(
+                envelope, headerTraceId, log, text(envelope, "eventId"))) {
+            handleEnvelope(envelope);
+        }
+    }
+
+    private void handleEnvelope(JsonNode envelope) {
         String eventType = text(envelope, "event");
         String eventId = text(envelope, "eventId");
         switch (eventType == null ? "" : eventType) {

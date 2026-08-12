@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
  * commandId 做幂等、按 commandType 分发、按 batchId/accountId 排查。</p>
  *
  * @param commandId         全局唯一命令 ID
+ * @param traceId           全链路追踪 ID
  * @param batchId           批量命令归组 ID;单条命令可为空
  * @param commandType       命令类型,如 account.online.requested / account.offline.requested
  * @param aggregateType     聚合类型,如 ACCOUNT
@@ -18,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 public record ProtocolCommandEnvelope(
         String commandId,
+        String traceId,
         String batchId,
         String commandType,
         String aggregateType,

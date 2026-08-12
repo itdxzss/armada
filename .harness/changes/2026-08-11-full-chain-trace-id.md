@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-08-11 / `1.0.3-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户要求先增加全链路 Trace ID，并确认数据库只给 `protocol_command_outbox` 增加 `trace_id` 列；详细设计见 `docs/superpowers/specs/2026-08-11-full-chain-trace-id-design.md`
-- 状态: 进行中
+- 状态: 本地实现与验证完成，待确认测试环境后执行迁移和端到端验证
 
 ## 目标（一句话）
 
@@ -13,13 +13,14 @@
 - [x] 盘点现有业务 ID、HTTP、Outbox、Kafka、Redis Stream 和日志上下文。
 - [x] 明确 Trace 格式、生命周期、兼容规则、发布顺序和验收标准。
 - [x] 确认数据库范围：只修改 `protocol_command_outbox`，不改业务表。
-- [ ] 增加 Flyway `V111__add_trace_id_to_protocol_command_outbox.sql`，并同步生成的数据模型文档。
-- [ ] 在 Armada 增加 HTTP/MDC Trace Context、日志格式和协议 HTTP Header 传播。
-- [ ] 在 Armada Outbox 持久化 Trace，并通过 Command Envelope/Kafka Header 发布。
-- [ ] 在 Armada Event Consumer 恢复并清理 Trace Context。
-- [ ] 在 Armada Protocol 增加 `AsyncLocalStorage`、Fastify/Pino Trace 支持。
-- [ ] 在 Kafka Command、Redis Stream、Worker、Event Envelope/Kafka Header 之间传播 Trace。
-- [ ] 补齐 Java、TypeScript、并发隔离、兼容和跨仓库契约测试。
+- [x] 增加 Flyway `V111__add_trace_id_to_protocol_command_outbox.sql` 和本地 SQL/H2 验证。
+- [ ] 在确认的测试库执行迁移，并重新生成数据模型文档。
+- [x] 在 Armada 增加 HTTP/MDC Trace Context、日志格式和协议 HTTP Header 传播。
+- [x] 在 Armada Outbox 持久化 Trace，并通过 Command Envelope/Kafka Header 发布。
+- [x] 在 Armada 全部协议 Event Consumer 恢复并清理 Trace Context。
+- [x] 在 Armada Protocol 增加 `AsyncLocalStorage`、Fastify/Pino Trace 支持。
+- [x] 在 Kafka Command、Redis Stream、Worker、Event Envelope/Kafka Header 之间传播 Trace。
+- [x] 补齐 Java、TypeScript、并发隔离、兼容和跨仓库契约测试。
 - [ ] 在测试环境验证一次真实业务操作的完整日志链路。
 
 ## 关键设计决策
@@ -55,16 +56,32 @@ $ find armada-api/src/main/resources/db/migration -maxdepth 1 -type f -name 'V*.
 最新文件：V110__normal_group_creation_contact_failure_detail.sql
 ```
 
-实施完成后必须补充真实命令和输出，至少包含：
+本地实施验证已执行：
 
-- Armada Trace Filter、Outbox Mapper/Publisher、Kafka Consumer 测试。
-- Protocol Fastify、Kafka/Redis/Worker/Event 和并发隔离测试。
-- Flyway 迁移与数据模型生成验证。
-- 测试环境端到端 Trace 日志证据。
+```text
+$ mvn -q -Dtest=<17 个 Trace/Outbox/Publisher/Consumer 测试类> test
+suites=17 tests=142 failures=0 errors=0 skipped=0
+
+$ npm test -- --runInBand
+Test Suites: 66 passed, 66 total
+Tests:       609 passed, 609 total
+
+$ npm run lint
+tsc --noEmit（exit 0）
+
+$ xmllint --noout armada-api/src/main/resources/mapper/platform/protocol/ProtocolCommandOutboxMapper.xml
+$ git diff --check  # armada、armada-protocol
+全部 exit 0
+
+$ find armada-api/src/main/resources/db/migration -maxdepth 1 -type f -name 'V111__*.sql' -print
+V111__add_trace_id_to_protocol_command_outbox.sql（唯一）
+```
+
+未执行：真实 MySQL Flyway、数据模型重新生成、测试环境端到端日志检索。原因是尚未确认目标测试库和部署环境。
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 尚未实施；计划按“数据库迁移 → `armada-protocol` → `armada`”发布，并从接口响应取得 Trace 搜索完整链路。
+- commit / 环境 / 部署后验证结果: 按用户要求未提交、未部署；后续按“数据库迁移 → `armada-protocol` → `armada`”发布，并从接口响应取得 Trace 搜索完整链路。
 
 ## 遗留 / 跟进
 

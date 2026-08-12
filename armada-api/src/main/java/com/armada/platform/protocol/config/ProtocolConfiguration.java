@@ -89,6 +89,7 @@ import com.armada.platform.protocol.routing.RoutingGroupLeavePort;
 import com.armada.platform.protocol.routing.RoutingGroupMemberListPort;
 import com.armada.platform.protocol.routing.RoutingMessageSendPort;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.shared.trace.TraceIdClientHttpRequestInterceptor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -142,6 +143,8 @@ public class ProtocolConfiguration {
                 .baseUrl(properties.getBaseUrl())
                 // 挂载带超时配置的请求工厂。
                 .requestFactory(factory)
+                // 透传当前请求或任务的追踪标识，便于跨服务关联日志。
+                .requestInterceptor(new TraceIdClientHttpRequestInterceptor())
                 // 声明客户端期望协议层返回 JSON。
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 // 声明默认请求体按 JSON 发送。

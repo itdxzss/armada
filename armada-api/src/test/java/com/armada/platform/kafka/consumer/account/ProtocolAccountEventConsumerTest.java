@@ -3,11 +3,13 @@ package com.armada.platform.kafka.consumer.account;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.trace.TraceContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +25,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
  */
 @ExtendWith(MockitoExtension.class)
 class ProtocolAccountEventConsumerTest {
+
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
     @Mock
     private ProtocolAccountStateChangedSink sink;
@@ -59,6 +63,53 @@ class ProtocolAccountEventConsumerTest {
                 metadataSyncRequestedSink);
     }
 
+    private void onStateMessage(String rawMessage) {
+        onStateMessage(rawMessage, null);
+    }
+
+    private void onStateMessage(String rawMessage, String headerTraceId) {
+        consumer.onStateMessage(rawMessage, headerTraceId);
+    }
+
+    private void onGroupSyncMessage(String rawMessage) {
+        consumer.onGroupSyncMessage(rawMessage, null);
+    }
+
+    @Test
+    void onStateMessage_runsSinkInsideEnvelopeTraceAndCleansScope() {
+        doAnswer(invocation -> {
+            assertThat(TraceContext.current()).contains(FIXED_TRACE_ID);
+            return null;
+        }).when(sink).handleStateChanged(any());
+
+        onStateMessage("""
+                {"traceId":"0123456789abcdef0123456789abcdef","eventId":"evt-trace-1",
+                 "event":"account.state_changed","accountId":"acc_trace",
+                 "occurredAt":"2026-08-11T00:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":1,"accountId":100,"from":"VERIFYING","to":"ONLINE"}}
+                """, "11111111111111111111111111111111");
+
+        assertThat(TraceContext.current()).isEmpty();
+    }
+
+    @Test
+    void onStateMessage_cleansScopeWhenSinkFails() {
+        doAnswer(invocation -> {
+            assertThat(TraceContext.current()).contains(FIXED_TRACE_ID);
+            throw new IllegalStateException("database unavailable");
+        }).when(sink).handleStateChanged(any());
+
+        assertThatThrownBy(() -> onStateMessage("""
+                {"traceId":"0123456789abcdef0123456789abcdef","eventId":"evt-trace-2",
+                 "event":"account.state_changed","accountId":"acc_trace",
+                 "occurredAt":"2026-08-11T00:00:00Z","workerId":"worker-1",
+                 "data":{"tenantId":1,"accountId":100,"from":"VERIFYING","to":"ONLINE"}}
+                """, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("database unavailable");
+        assertThat(TraceContext.current()).isEmpty();
+    }
+
     @Test
     void onMessage_stateChangedEnvelope_dispatchesParsedStateChangedEvent() {
         String raw = """
@@ -85,7 +136,7 @@ class ProtocolAccountEventConsumerTest {
                 }
                 """;
 
-        consumer.onStateMessage(raw);
+        onStateMessage(raw);
 
         ArgumentCaptor<ProtocolAccountStateChangedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolAccountStateChangedEvent.class);
@@ -137,7 +188,7 @@ class ProtocolAccountEventConsumerTest {
                 }
                 """;
 
-        consumer.onGroupSyncMessage(raw);
+        onGroupSyncMessage(raw);
 
         ArgumentCaptor<ProtocolAccountGroupsReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolAccountGroupsReportedEvent.class);
@@ -166,7 +217,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onMessage_membershipChangedDispatchesSafeEvent() {
-        consumer.onGroupSyncMessage("""
+        onGroupSyncMessage("""
                 {"eventId":"evt-membership-1","event":"account.group_membership_changed","version":"v1",
                  "accountId":"acc_android_1","occurredAt":"2026-07-22T02:00:00Z","workerId":"android-1",
                  "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
@@ -192,7 +243,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onGroupSyncMessageDispatchesPastParticipants() {
-        consumer.onGroupSyncMessage("""
+        onGroupSyncMessage("""
                 {"eventId":"history-1","event":"account.group_past_participants.reported","version":"v1",
                  "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
@@ -219,7 +270,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onGroupSyncMessageNormalizesAmbiguousWgp2RemovedAndAcceptsUnknown() {
-        consumer.onGroupSyncMessage("""
+        onGroupSyncMessage("""
                 {"eventId":"departure-1","event":"account.group_participant_departed","version":"v1",
                  "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
@@ -241,7 +292,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onGroupSyncMessageAcceptsWgp2RemovedWithActorDifferentEvidence() {
-        consumer.onGroupSyncMessage("""
+        onGroupSyncMessage("""
                 {"eventId":"departure-verified","event":"account.group_participant_departed","version":"v1",
                  "accountId":"android-1","occurredAt":"2026-08-06T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
@@ -261,7 +312,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onGroupSyncMessageDispatchesJoinedParticipants() {
-        consumer.onGroupSyncMessage("""
+        onGroupSyncMessage("""
                 {"eventId":"join-1","event":"account.group_participant_joined","version":"v1",
                  "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
@@ -285,7 +336,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onGroupSyncMessageRejectsInvalidDepartureParticipantJid() {
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+        assertThatThrownBy(() -> onGroupSyncMessage("""
                 {"eventId":"history-invalid","event":"account.group_past_participants.reported","version":"v1",
                  "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
@@ -301,7 +352,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onGroupSyncMessageRejectsInvalidDepartureGroupJid() {
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+        assertThatThrownBy(() -> onGroupSyncMessage("""
                 {"eventId":"history-invalid","event":"account.group_past_participants.reported","version":"v1",
                  "accountId":"android-1","occurredAt":"2026-08-03T02:00:00Z","workerId":"worker-1",
                  "data":{"tenantId":7,"accountId":10,"protocolAccountId":"android-1",
@@ -326,7 +377,7 @@ class ProtocolAccountEventConsumerTest {
                             "exitedAt":1785722400000,"sourceEventId":"source-1"}]}}
                 """;
 
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage(raw))
+        assertThatThrownBy(() -> onGroupSyncMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议群退群事件类型与来源不一致");
 
@@ -335,7 +386,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onMessage_groupMetadataSyncRequestedDispatchesValidatedEvent() {
-        consumer.onGroupSyncMessage("""
+        onGroupSyncMessage("""
                 {"eventId":"evt-metadata-1","event":"account.group_metadata_sync_requested","version":"v1",
                  "accountId":"acc_web_22","occurredAt":"2026-08-05T02:00:00Z","workerId":"web-1",
                  "data":{"tenantId":7,"accountId":22,"protocolAccountId":"acc_web_22",
@@ -360,7 +411,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onMessage_groupMetadataSyncRequestedRejectsInvalidRoutingAndFacts() {
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+        assertThatThrownBy(() -> onGroupSyncMessage("""
                 {"eventId":"evt-metadata-2","event":"account.group_metadata_sync_requested",
                  "accountId":"acc_stale","occurredAt":"2026-08-05T02:00:00Z",
                  "data":{"tenantId":7,"accountId":22,"protocolAccountId":"acc_web_22",
@@ -368,7 +419,7 @@ class ProtocolAccountEventConsumerTest {
                 """))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议群详情同步事件路由账号不一致");
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage("""
+        assertThatThrownBy(() -> onGroupSyncMessage("""
                 {"eventId":"evt-metadata-3","event":"account.group_metadata_sync_requested",
                  "accountId":"acc_web_22","occurredAt":"2026-08-05T02:00:00Z",
                  "data":{"tenantId":0,"accountId":22,"protocolAccountId":"acc_web_22",
@@ -389,7 +440,7 @@ class ProtocolAccountEventConsumerTest {
                          "selfParticipation":"SELF","source":"android_wgp2"}}
                 """;
 
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage(raw))
+        assertThatThrownBy(() -> onGroupSyncMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议账号群关系事件缺少 accountId");
 
@@ -406,7 +457,7 @@ class ProtocolAccountEventConsumerTest {
                          "selfParticipation":"SELF","source":"android_wgp2"}}
                 """;
 
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage(raw))
+        assertThatThrownBy(() -> onGroupSyncMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议账号群关系事件路由账号不一致");
 
@@ -449,7 +500,7 @@ class ProtocolAccountEventConsumerTest {
                 }
                 """;
 
-        consumer.onStateMessage(raw);
+        onStateMessage(raw);
 
         ArgumentCaptor<ProtocolAccountOfflineDiagnosedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolAccountOfflineDiagnosedEvent.class);
@@ -496,7 +547,7 @@ class ProtocolAccountEventConsumerTest {
                 }
                 """;
 
-        consumer.onStateMessage(raw);
+        onStateMessage(raw);
 
         ArgumentCaptor<ProtocolAccountOfflineDiagnosedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolAccountOfflineDiagnosedEvent.class);
@@ -519,7 +570,7 @@ class ProtocolAccountEventConsumerTest {
                 }
                 """;
 
-        assertThatThrownBy(() -> consumer.onStateMessage(raw))
+        assertThatThrownBy(() -> onStateMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议账号状态 Topic 收到非法事件类型: account.heartbeat");
 
@@ -531,7 +582,7 @@ class ProtocolAccountEventConsumerTest {
 
     @Test
     void onMessage_malformedJson_throwsBusinessExceptionWithoutSink() {
-        assertThatThrownBy(() -> consumer.onStateMessage("{bad-json"))
+        assertThatThrownBy(() -> onStateMessage("{bad-json"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议账号事件 JSON 解析失败");
 
@@ -557,7 +608,7 @@ class ProtocolAccountEventConsumerTest {
                 }
                 """;
 
-        assertThatThrownBy(() -> consumer.onStateMessage(raw))
+        assertThatThrownBy(() -> onStateMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议账号状态事件缺少 data.to");
 
@@ -585,7 +636,7 @@ class ProtocolAccountEventConsumerTest {
                 """;
         doThrow(new IllegalStateException("database unavailable")).when(sink).handleStateChanged(any());
 
-        assertThatThrownBy(() -> consumer.onStateMessage(raw))
+        assertThatThrownBy(() -> onStateMessage(raw))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("database unavailable");
     }
@@ -598,7 +649,7 @@ class ProtocolAccountEventConsumerTest {
                  "data":{"tenantId":1,"accountId":1,"to":"ONLINE"}}
                 """;
 
-        assertThatThrownBy(() -> consumer.onGroupSyncMessage(raw))
+        assertThatThrownBy(() -> onGroupSyncMessage(raw))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("协议账号群同步 Topic 收到非法事件类型: account.state_changed");
 

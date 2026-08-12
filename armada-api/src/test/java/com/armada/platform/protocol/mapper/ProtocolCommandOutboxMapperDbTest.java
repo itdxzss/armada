@@ -26,6 +26,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
 
     private static final int TEST_SCAN_LIMIT = 10_000;
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
     @Autowired
     private ProtocolCommandOutboxMapper mapper;
@@ -43,6 +44,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
     void batchInsertPendingAndSelectDispatchable_returnsOnlyDuePendingRows() throws Exception {
         long now = System.currentTimeMillis();
         ProtocolCommandOutbox due = pendingCommand("due-" + now, "batch-" + now, 1001L, now);
+        due.setTraceId(FIXED_TRACE_ID);
         due.setNextRetryAt(now - 1);
         ProtocolCommandOutbox future = pendingCommand("future-" + now, "batch-" + now, 1002L, now);
         future.setNextRetryAt(now + 60_000);
@@ -65,6 +67,7 @@ class ProtocolCommandOutboxMapperDbTest extends DbTestBase {
         assertThat(found.getKafkaKey()).isEqualTo("acc_1001");
         assertThat(found.getProtocolAccountId()).isEqualTo("acc_1001");
         assertThat(found.getProtocolBackend()).isEqualTo(ProtocolBackend.WEB.name());
+        assertThat(found.getTraceId()).isEqualTo(FIXED_TRACE_ID);
         Map<String, Long> payload = objectMapper.readValue(found.getPayloadJson(), new TypeReference<>() {
         });
         assertThat(payload).containsEntry("accountId", 1001L)

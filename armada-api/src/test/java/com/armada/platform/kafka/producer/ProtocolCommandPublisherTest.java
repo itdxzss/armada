@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,8 +30,11 @@ import com.armada.resource.mapper.IpProxyMapper;
 import com.armada.resource.model.IpProxyStatus;
 import com.armada.resource.model.entity.IpProxy;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +44,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,6 +65,9 @@ import org.springframework.kafka.support.SendResult;
  */
 @ExtendWith(MockitoExtension.class)
 class ProtocolCommandPublisherTest {
+
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
+    private static final String PARENT_TRACE_ID = "11111111111111111111111111111111";
 
     @Mock
     private KafkaTemplate<String, ProtocolCommandEnvelope> kafkaTemplate;
@@ -84,7 +92,7 @@ class ProtocolCommandPublisherTest {
     void publish_validOutboxRow_sendsCommandEnvelopeToConfiguredTopicAndKey() {
         ProtocolCommandOutbox row = passthroughOutboxRow("{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
                 + "\"source\":\"scheduled_account_group_sync\"}");
-        when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         ProtocolCommandPublishResult result = publisher.publish(row);
@@ -93,9 +101,12 @@ class ProtocolCommandPublisherTest {
         assertThat(result.topic()).isEqualTo("protocol.master.commands.v1");
         assertThat(result.kafkaKey()).isEqualTo("acc_100");
 
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.master.commands.v1"), eq("acc_100"), captor.capture());
-        ProtocolCommandEnvelope envelope = captor.getValue();
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        ProducerRecord<String, ProtocolCommandEnvelope> record = captor.getValue();
+        assertThat(record.topic()).isEqualTo("protocol.master.commands.v1");
+        assertThat(record.key()).isEqualTo("acc_100");
+        ProtocolCommandEnvelope envelope = record.value();
         assertThat(envelope.commandId()).isEqualTo("cmd_100");
         assertThat(envelope.batchId()).isEqualTo("batch_1");
         assertThat(envelope.commandType()).isEqualTo("account.groups_sync.requested");
@@ -105,6 +116,80 @@ class ProtocolCommandPublisherTest {
         assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
         assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_100");
         assertThat(envelope.payload().get("source").asText()).isEqualTo("scheduled_account_group_sync");
+    }
+
+    @Test
+    void publish_validTrace_sendsSameTraceInEnvelopeAndKafkaHeader() {
+        ProtocolCommandOutbox row = passthroughOutboxRow(
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_100\"}");
+        row.setTraceId(FIXED_TRACE_ID);
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        publisher.publish(row);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate).send(captor.capture());
+        ProducerRecord<String, ProtocolCommandEnvelope> record = captor.getValue();
+        assertThat(record.value().traceId()).isEqualTo(FIXED_TRACE_ID);
+        assertThat(new String(record.headers().lastHeader(TraceIds.KAFKA_HEADER).value(),
+                StandardCharsets.UTF_8)).isEqualTo(FIXED_TRACE_ID);
+    }
+
+    @Test
+    void publish_legacyNullTrace_derivesStableTraceAcrossRetries() {
+        ProtocolCommandOutbox row = passthroughOutboxRow(
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_100\"}");
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        publisher.publish(row);
+        publisher.publish(row);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor =
+                ArgumentCaptor.forClass(ProducerRecord.class);
+        verify(kafkaTemplate, org.mockito.Mockito.times(2)).send(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(record -> record.value().traceId())
+                .containsExactly(
+                        TraceIds.stableFrom(row.getCommandId()),
+                        TraceIds.stableFrom(row.getCommandId()));
+    }
+
+    @Test
+    void publish_ackCallbackLogsWithCommandTraceAndRestoresParentScope() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ProtocolCommandPublisher.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try (TraceContext.Scope ignored = TraceContext.open(PARENT_TRACE_ID)) {
+            logger.setLevel(Level.DEBUG);
+            ProtocolCommandOutbox row = passthroughOutboxRow(
+                    "{\"accountId\":100,\"protocolAccountId\":\"acc_100\"}");
+            row.setTraceId(FIXED_TRACE_ID);
+            when(kafkaTemplate.send(any(ProducerRecord.class)))
+                    .thenReturn(CompletableFuture.completedFuture(null));
+
+            publisher.publish(row);
+
+            assertThat(appender.list)
+                    .anySatisfy(event -> {
+                        assertThat(event.getFormattedMessage())
+                                .contains("协议命令 Kafka 发送成功")
+                                .contains("traceId=" + FIXED_TRACE_ID);
+                        assertThat(event.getMDCPropertyMap().get(TraceContext.MDC_KEY))
+                                .isEqualTo(FIXED_TRACE_ID);
+                    });
+            assertThat(TraceContext.current()).contains(PARENT_TRACE_ID);
+        } finally {
+            logger.setLevel(originalLevel);
+            logger.detachAppender(appender);
+        }
+        assertThat(TraceContext.current()).isEmpty();
     }
 
     @Test
@@ -134,16 +219,16 @@ class ProtocolCommandPublisherTest {
                 java.util.Map.entry("inviteCode", "AbCdEfGhIjKlMnOpQrStUv"),
                 java.util.Map.entry("attemptNo", 1),
                 java.util.Map.entry("source", "pull_task_manager_join"))));
-        when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         hydratedPublisher.publish(row);
 
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.master.commands.v1"), eq("acc_100"), captor.capture());
-        assertThat(captor.getValue().payload().get("inviteCode").asText())
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        assertThat(captor.getValue().value().payload().get("inviteCode").asText())
                 .isEqualTo("AbCdEfGhIjKlMnOpQrStUv");
-        assertThat(captor.getValue().payload().get("actionId").asLong()).isEqualTo(601L);
+        assertThat(captor.getValue().value().payload().get("actionId").asLong()).isEqualTo(601L);
         verify(hydrator).hydrate(eq(row), any());
     }
 
@@ -153,15 +238,15 @@ class ProtocolCommandPublisherTest {
                 + "\"source\":\"batch_offline\"}");
         row.setCommandType("account.offline.requested");
         row.setKafkaTopic("protocol.master.commands.v1");
-        when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         ProtocolCommandPublishResult result = publisher.publish(row);
 
         assertThat(result.commandId()).isEqualTo("cmd_100");
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.master.commands.v1"), eq("acc_100"), captor.capture());
-        ProtocolCommandEnvelope envelope = captor.getValue();
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        ProtocolCommandEnvelope envelope = captor.getValue().value();
         assertThat(envelope.commandType()).isEqualTo("account.offline.requested");
         assertThat(envelope.aggregateType()).isEqualTo("ACCOUNT");
         assertThat(envelope.aggregateId()).isEqualTo(100L);
@@ -201,9 +286,7 @@ class ProtocolCommandPublisherTest {
                 .thenReturn(List.of(
                         proxy(7L, 100L, 2, "proxy-a.internal", 1080, "user-a", "pass_session-Aaa111", "印度"),
                         proxy(8L, 101L, 1, "proxy-b.internal", 8080, "user-b", "pass_session-Bbb222", "新加坡")));
-        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_100"), any()))
-                .thenReturn(CompletableFuture.completedFuture(null));
-        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_101"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         List<ProtocolCommandPublishOutcome> outcomes = boundedPublisher.publishBatch(List.of(first, second));
@@ -211,9 +294,9 @@ class ProtocolCommandPublisherTest {
         assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.succeeded()).isTrue());
         verify(credentialMapper).selectByTenantAndAccountIds(1L, List.of(100L, 101L));
         verify(ipProxyMapper).selectActiveByTenantAndIds(1L, List.of(7L, 8L));
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
-        ProtocolCommandEnvelope firstEnvelope = captor.getValue();
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate, times(2)).send(captor.capture());
+        ProtocolCommandEnvelope firstEnvelope = captor.getAllValues().get(0).value();
         assertThat(firstEnvelope.payload().get("tenantId").asLong()).isEqualTo(1L);
         assertThat(firstEnvelope.payload().get("format").asText()).isEqualTo("baileys_json");
         assertThat(firstEnvelope.payload().get("onlineAttemptId").asText()).isEqualTo("oa_100");
@@ -245,7 +328,7 @@ class ProtocolCommandPublisherTest {
         CountDownLatch firstWindowSubmitted = new CountDownLatch(2);
         CountDownLatch thirdSubmitted = new CountDownLatch(1);
         AtomicInteger sendCount = new AtomicInteger();
-        when(kafkaTemplate.send(any(), any(), any())).thenAnswer(invocation -> {
+        when(kafkaTemplate.send(any(ProducerRecord.class))).thenAnswer(invocation -> {
             int index = sendCount.getAndIncrement();
             if (index < 2) {
                 firstWindowSubmitted.countDown();
@@ -288,8 +371,9 @@ class ProtocolCommandPublisherTest {
                 passthroughOutboxRow("cmd_101", 101L, "acc_101"),
                 passthroughOutboxRow("cmd_102", 102L, "acc_102"));
         List<String> events = new ArrayList<>();
-        when(kafkaTemplate.send(any(), any(), any())).thenAnswer(invocation -> {
-            events.add("send:" + invocation.getArgument(1, String.class));
+        when(kafkaTemplate.send(any(ProducerRecord.class))).thenAnswer(invocation -> {
+            ProducerRecord<String, ProtocolCommandEnvelope> record = invocation.getArgument(0);
+            events.add("send:" + record.key());
             return CompletableFuture.completedFuture(null);
         });
 
@@ -314,8 +398,9 @@ class ProtocolCommandPublisherTest {
                 passthroughOutboxRow("cmd_101", 101L, "acc_101"),
                 passthroughOutboxRow("cmd_102", 102L, "acc_102"));
         List<String> events = new ArrayList<>();
-        when(kafkaTemplate.send(any(), any(), any())).thenAnswer(invocation -> {
-            events.add("send:" + invocation.getArgument(1, String.class));
+        when(kafkaTemplate.send(any(ProducerRecord.class))).thenAnswer(invocation -> {
+            ProducerRecord<String, ProtocolCommandEnvelope> record = invocation.getArgument(0);
+            events.add("send:" + record.key());
             return CompletableFuture.completedFuture(null);
         });
 
@@ -335,7 +420,9 @@ class ProtocolCommandPublisherTest {
                 "send:acc_101",
                 "complete:2",
                 "commit:acc_102");
-        verify(kafkaTemplate, never()).send(eq("protocol.master.commands.v1"), eq("acc_102"), any());
+        verify(kafkaTemplate, never()).send(
+                org.mockito.ArgumentMatchers.<ProducerRecord<String, ProtocolCommandEnvelope>>argThat(
+                        record -> "acc_102".equals(record.key())));
     }
 
     @Test
@@ -353,16 +440,16 @@ class ProtocolCommandPublisherTest {
         when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
                 .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
                         "user-a", "pass_session-Aaa111", "印度")));
-        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), eq("acc_100"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
 
         assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.account.commands.v1"), eq("acc_100"), captor.capture());
-        assertThat(captor.getValue().payload().has("previousOnlineAttemptId")).isTrue();
-        assertThat(captor.getValue().payload().get("previousOnlineAttemptId").isNull()).isTrue();
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        assertThat(captor.getValue().value().payload().has("previousOnlineAttemptId")).isTrue();
+        assertThat(captor.getValue().value().payload().get("previousOnlineAttemptId").isNull()).isTrue();
     }
 
     @Test
@@ -382,15 +469,15 @@ class ProtocolCommandPublisherTest {
         when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
                 .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
                         "user-a", "pass_session-Aaa111", "印度")));
-        when(kafkaTemplate.send(eq("protocol.android.commands.v1"), eq("acc_100"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
 
         assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(eq("protocol.android.commands.v1"), eq("acc_100"), captor.capture());
-        assertThat(captor.getValue().payload().get("protocolBackend").asText()).isEqualTo("ANDROID");
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        assertThat(captor.getValue().value().payload().get("protocolBackend").asText()).isEqualTo("ANDROID");
     }
 
     @Test
@@ -414,16 +501,15 @@ class ProtocolCommandPublisherTest {
         when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
                 .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
                         "user-a", "pass_session-Aaa111", "印度")));
-        when(kafkaTemplate.send(eq("protocol.android.commands.v1"), eq("acc_919000000001"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
 
         assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
-        ArgumentCaptor<ProtocolCommandEnvelope> captor = ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(
-                eq("protocol.android.commands.v1"), eq("acc_919000000001"), captor.capture());
-        ProtocolCommandEnvelope envelope = captor.getValue();
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        ProtocolCommandEnvelope envelope = captor.getValue().value();
         assertThat(envelope.payload().get("tenantId").asLong()).isEqualTo(1L);
         assertThat(envelope.payload().get("accountId").asLong()).isEqualTo(100L);
         assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_919000000001");
@@ -459,7 +545,7 @@ class ProtocolCommandPublisherTest {
                     .isInstanceOf(BusinessException.class)
                     .hasMessageContaining("payload 缺少字段 onlineAttemptId");
         });
-        verify(kafkaTemplate, never()).send(any(), any(), any());
+        verify(kafkaTemplate, never()).send(any(ProducerRecord.class));
     }
 
     @Test
@@ -471,7 +557,7 @@ class ProtocolCommandPublisherTest {
         try {
             ProtocolCommandOutbox row = passthroughOutboxRow("{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
                     + "\"source\":\"scheduled_account_group_sync\"}");
-            when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
+            when(kafkaTemplate.send(any(ProducerRecord.class)))
                     .thenReturn(CompletableFuture.completedFuture(null));
 
             publisher.publish(row);
@@ -499,7 +585,7 @@ class ProtocolCommandPublisherTest {
                 + "\"source\":\"scheduled_account_group_sync\"}");
         CompletableFuture<SendResult<String, ProtocolCommandEnvelope>> failed = new CompletableFuture<>();
         failed.completeExceptionally(new IllegalStateException("broker unavailable"));
-        when(kafkaTemplate.send(eq("protocol.master.commands.v1"), eq("acc_100"), any()))
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(failed);
 
         assertThatThrownBy(() -> publisher.publish(row))
@@ -521,6 +607,11 @@ class ProtocolCommandPublisherTest {
         ProtocolCommandPublisher boundedPublisher = publisherWithMaxInFlight(3);
 
         assertThat(boundedPublisher.maximumWindowSendDurationMs()).isEqualTo(41_000L);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> producerRecordCaptor() {
+        return ArgumentCaptor.forClass(ProducerRecord.class);
     }
 
     private static ProtocolCommandOutbox outboxRow(String payloadJson) {

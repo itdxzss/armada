@@ -1,5 +1,6 @@
 package com.armada.platform.kafka.consumer.message;
 
+import com.armada.shared.trace.TraceContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -19,6 +21,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ProtocolMessageEventConsumerTest {
+
+    private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
     @Mock
     private ProtocolMessageSendResultReportedSink sink;
@@ -32,10 +36,23 @@ class ProtocolMessageEventConsumerTest {
         consumer = new ProtocolMessageEventConsumer(new ObjectMapper(), java.util.List.of(sink));
     }
 
+    private void onMessage(String rawMessage) {
+        onMessage(rawMessage, null);
+    }
+
+    private void onMessage(String rawMessage, String headerTraceId) {
+        consumer.onMessage(rawMessage, headerTraceId);
+    }
+
     @Test
     void onMessage_sendResultEnvelope_dispatchesParsedEvent() {
+        doAnswer(invocation -> {
+            assertThat(TraceContext.current()).contains(FIXED_TRACE_ID);
+            return null;
+        }).when(sink).handleSendResultReported(any());
         String raw = """
                 {
+                  "traceId":"0123456789abcdef0123456789abcdef",
                   "eventId":"evt_1",
                   "event":"message.send_result_reported",
                   "version":"v1",
@@ -61,7 +78,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
@@ -83,6 +100,7 @@ class ProtocolMessageEventConsumerTest {
         assertThat(event.groupStatusCheckedAt()).isEqualTo(1783159199000L);
         assertThat(event.timestamp()).isEqualTo(1783159200000L);
         assertThat(event.workerId()).isEqualTo("worker-a");
+        assertThat(TraceContext.current()).isEmpty();
     }
 
     @Test
@@ -110,7 +128,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
@@ -160,7 +178,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
@@ -203,7 +221,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
@@ -249,7 +267,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        historicalConsumer.onMessage(raw);
+        historicalConsumer.onMessage(raw, null);
 
         ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
@@ -289,7 +307,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        assertThatThrownBy(() -> ambiguousConsumer.onMessage(raw))
+        assertThatThrownBy(() -> ambiguousConsumer.onMessage(raw, null))
                 .isInstanceOf(com.armada.shared.exception.BusinessException.class)
                 .hasMessageContaining("唯一处理器");
         verify(first, org.mockito.Mockito.never()).handleSendResultReported(any());
@@ -307,7 +325,7 @@ class ProtocolMessageEventConsumerTest {
                 }
                 """;
 
-        consumer.onMessage(raw);
+        onMessage(raw);
 
         verifyNoInteractions(sink);
     }

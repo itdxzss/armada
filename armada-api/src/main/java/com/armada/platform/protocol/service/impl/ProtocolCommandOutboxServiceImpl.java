@@ -30,12 +30,17 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.trace.TraceContext;
+import com.armada.shared.trace.TraceIds;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -601,6 +606,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     private ProtocolCommandOutboxEnqueueResult insertPendingRows(String batchId,
                                                                  List<String> commandIds,
                                                                  List<ProtocolCommandOutbox> rows) {
+        assignTraceIds(rows);
         int inserted;
         try {
             inserted = mapper.batchInsertPending(rows);
@@ -616,6 +622,23 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         log.info("协议命令 outbox 已写入 batchId={} commandCount={} inserted={}",
                 batchId, commandIds.size(), inserted);
         return new ProtocolCommandOutboxEnqueueResult(batchId, commandIds, inserted);
+    }
+
+    private void assignTraceIds(List<ProtocolCommandOutbox> rows) {
+        Optional<String> currentTraceId = TraceContext.current();
+        Map<String, String> traceByAggregate = new HashMap<>();
+        for (ProtocolCommandOutbox row : rows) {
+            String traceId = currentTraceId.orElseGet(() -> traceByAggregate.computeIfAbsent(
+                    traceGroupKey(row), ignored -> TraceIds.newTraceId()));
+            row.setTraceId(traceId);
+        }
+    }
+
+    private String traceGroupKey(ProtocolCommandOutbox row) {
+        if (row.getAggregateId() == null) {
+            return "command:" + row.getCommandId();
+        }
+        return row.getAggregateType() + ":" + row.getAggregateId();
     }
 
     /**

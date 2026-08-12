@@ -1,7 +1,7 @@
 # Armada 全链路 Trace ID 设计
 
 日期：2026-08-11  
-状态：待评审  
+状态：本地实现完成，待测试环境验证
 涉及仓库：`armada`、`armada-protocol`
 
 ## 1. 背景与目标
@@ -104,7 +104,7 @@ Outbox 必须持久化 Trace，因为事务提交后的异步发送、失败重�
 - 同一 Outbox 行重试时复用持久化的 Trace。
 - 对迁移前 `trace_id IS NULL` 的旧行，发布器使用 `commandId` 计算稳定的 32 位十六进制兼容 Trace；这样多次重试和重启不会改变。兼容逻辑只用于追踪，不改变 `commandId` 语义。
 
-命令 Envelope 新增可选字段：
+命令 Envelope 新增字段；协议层解析保持可选输入，以兼容滚动发布期间的旧消息：
 
 ```json
 {
@@ -151,7 +151,7 @@ Master 到 Worker 的 HTTP 转发同样携带 `X-Trace-Id`。
 
 ### 6.3 Event 链路
 
-`EventEnvelope` 增加可选 `traceId`，Kafka Header 同步写入镜像值：
+`EventEnvelope` 新发布消息必须包含 `traceId`，Kafka Header 同步写入镜像值；消费端仍兼容字段缺失的旧消息：
 
 - 命令直接产生的结果事件继承命令 Trace。
 - Worker 在命令 Scope 中产生的关联事件继承当前 Trace。
@@ -169,7 +169,7 @@ Master 到 Worker 的 HTTP 转发同样携带 `X-Trace-Id`。
 - Envelope 缺失或非法、Header 合法：使用 Header。
 - 两者都缺失或非法：生成新 Trace，不中断业务。
 
-所有新增消息字段均为可选，数据库列可空，不要求停机发布。
+消费端对新增消息字段保持兼容，数据库列可空，不要求停机发布；新版本生产者发出的 Envelope 始终包含合法 `traceId`。
 
 推荐发布顺序：
 

@@ -69,6 +69,7 @@ class PullTaskStandardReadServiceTest {
     void readsTaskExecutionCallsRolesAndMemberFactsWithoutStaticSamples() {
         PullTask task = task();
         PullTaskGroupExecution execution = execution(11L);
+        execution.setSourceFileName("印度料子包.txt");
         when(taskMapper.selectLifecycle(100L)).thenReturn(task);
         when(executionMapper.selectById(11L)).thenReturn(execution);
         PullTaskGroupAccount manager = account(501L, PullTaskGroupAccountRole.MANAGER);
@@ -118,6 +119,7 @@ class PullTaskStandardReadServiceTest {
         verify(executionMapper, never()).selectByTaskId(100L);
         var detail = service.execution(100L, 11L);
         assertThat(detail.execution().groupJid()).isEqualTo("120363000000000000@g.us");
+        assertThat(detail.execution().sourceFileName()).isEqualTo("印度料子包.txt");
         assertThat(detail.roles()).hasSize(4)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
                 .singleElement()
@@ -194,6 +196,7 @@ class PullTaskStandardReadServiceTest {
         assertThat(result.list()).singleElement()
                 .satisfies(row -> {
                     assertThat(row.executionId()).isEqualTo(11L);
+                    assertThat(row.sourceFileName()).isNull();
                     assertThat(row.manualPaused()).isTrue();
                     assertThat(row.waitResourceType()).isEqualTo(1);
                     assertThat(row.materialSummary().successfulCount()).isEqualTo(1);

@@ -188,7 +188,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
             PullTaskStandardExecutionAggregate aggregate) {
         return new PullTaskStandardExecutionSummaryVO(
                 row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
-                value(row.getExecutionStatus()), value(row.getStage()),
+                row.getSourceFileName(), value(row.getExecutionStatus()), value(row.getStage()),
                 Integer.valueOf(1).equals(row.getManualPaused()),
                 row.getWaitResourceType(),
                 value(row.getValidMemberCount()), row.getReasonCode(), row.getReasonMessage(),

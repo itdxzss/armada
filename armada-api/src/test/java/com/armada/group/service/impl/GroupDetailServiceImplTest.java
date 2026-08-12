@@ -559,8 +559,9 @@ class GroupDetailServiceImplTest {
                 7L, "ANDROID", "android_7", "919000000001", true));
         when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
                 .thenReturn(
-                        metadataWithParticipants(List.of(participant(
-                                "member@s.whatsapp.net", false, false))),
+                        metadataWithParticipants(List.of(
+                                participant("919000000001@s.whatsapp.net", true, false),
+                                participant("member@s.whatsapp.net", false, false))),
                         metadataWithParticipants(List.of()));
         when(groupParticipantPort.updateParticipants(
                 androidAccount(),
@@ -635,6 +636,42 @@ class GroupDetailServiceImplTest {
                                 .isEqualTo(ErrorCode.GROUP_PERMISSION_DENIED.code()));
 
         verify(selector).require(10L);
+    }
+
+    @Test
+    void demoteMemberUsesAnotherFreshAdministratorWhenTargetIsReadAccount() {
+        givenLiveTarget();
+        GroupExecutionAccount staleExecutor = new GroupExecutionAccount(
+                7L, "ANDROID", "android_7", "919000000001", true);
+        GroupExecutionAccount freshExecutor = new GroupExecutionAccount(
+                8L, "ANDROID", "android_8", "919000000002", true);
+        when(selector.require(10L)).thenReturn(staleExecutor);
+        when(groupMetadataPort.getMetadata(staleExecutor.protocolRef(), "120363detail@g.us"))
+                .thenReturn(metadataWithParticipants(List.of(
+                        participant("111111111111@lid", "919000000001", true, false),
+                        participant("222222222222@lid", "919000000002", true, false))));
+        when(selector.findAdminByPhones(10L, List.of("919000000002"), 0))
+                .thenReturn(Optional.of(freshExecutor));
+        when(groupParticipantPort.updateParticipants(
+                freshExecutor.protocolRef(),
+                "120363detail@g.us",
+                List.of("111111111111@lid"),
+                GroupParticipantAction.DEMOTE))
+                .thenReturn(new GroupParticipantBatchResult(
+                        false,
+                        List.of(new GroupParticipantBatchResult.Item(
+                                "111111111111@lid", "OK", "200"))));
+
+        GroupMemberBatchResultVO result = service.demoteMembers(
+                10L,
+                new GroupMemberBatchCommandDTO(List.of("111111111111@lid")));
+
+        assertThat(result.ok()).isTrue();
+        verify(groupParticipantPort).updateParticipants(
+                freshExecutor.protocolRef(),
+                "120363detail@g.us",
+                List.of("111111111111@lid"),
+                GroupParticipantAction.DEMOTE);
     }
 
     @Test
@@ -831,9 +868,17 @@ class GroupDetailServiceImplTest {
             String jid,
             boolean admin,
             boolean owner) {
+        return participant(jid, jid.substring(0, jid.indexOf('@')), admin, owner);
+    }
+
+    private static GroupParticipantResult participant(
+            String jid,
+            String phone,
+            boolean admin,
+            boolean owner) {
         return new GroupParticipantResult(
                 jid,
-                jid.substring(0, jid.indexOf('@')),
+                phone,
                 admin,
                 owner,
                 owner ? "superadmin" : admin ? "admin" : null);

@@ -166,7 +166,7 @@ class PullTaskPullWavePlanningIntegrationTest {
         mutate(attempts.get(0), new AttemptFact(3, "FAILED", "STARTED", "PRIVACY", 1));
         mutate(attempts.get(1), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
         mutate(attempts.get(2), new AttemptFact(
-                4, "UNKNOWN", "UNCERTAIN", "ROSTER_NOT_PRESENT", 0));
+                4, "UNKNOWN", "UNCERTAIN", "TIMEOUT", 0));
         mutate(attempts.get(3), new AttemptFact(3, "SUCCESS", "STARTED", null, 0));
         mutate(attempts.get(4), new AttemptFact(
                 3, "UNKNOWN", "UNCERTAIN", "ROSTER_QUERY_FAILED", 0));
@@ -187,6 +187,7 @@ class PullTaskPullWavePlanningIntegrationTest {
                 executionMapper.selectById(executionId), wave, retryCandidates, 2_000L);
 
         assertThat(retry.getWaveNo()).isEqualTo(2);
+        assertThat(retry.getNextDispatchAt()).isEqualTo(2_000L);
         assertThat(callMapper.selectByExecution(executionId))
                 .filteredOn(call -> retry.getId().equals(call.getPullWaveId()))
                 .singleElement()

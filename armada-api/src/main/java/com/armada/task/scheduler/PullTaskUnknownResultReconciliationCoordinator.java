@@ -59,11 +59,13 @@ public class PullTaskUnknownResultReconciliationCoordinator {
     /** 使用统一时间执行一轮有界扫描，供确定性测试调用。 */
     public PullTaskUnknownResultReconciliationStats reconcileOnce(long now) {
         long cutoff = Math.subtractExact(now, properties.getResultReconciliationDelayMs());
+        long participantCutoff = Math.subtractExact(
+                now, properties.getParticipantResultTimeoutMs());
         List<PullTaskGroupExecution> candidates = executionMapper
-                .selectUnknownResultCandidates(criteria(cutoff));
+                .selectUnknownResultCandidates(criteria(cutoff, participantCutoff));
         Counter total = new Counter();
         for (PullTaskGroupExecution execution : candidates) {
-            reconcile(execution, cutoff, now, total);
+            reconcile(execution, cutoff, participantCutoff, now, total);
         }
         PullTaskUnknownResultReconciliationStats stats = total.snapshot();
         log.info("普通拉群未知结果收敛完成 scanned={} confirmed={} markedUnknown={}",
@@ -74,12 +76,13 @@ public class PullTaskUnknownResultReconciliationCoordinator {
     private void reconcile(
             PullTaskGroupExecution execution,
             long cutoff,
+            long participantCutoff,
             long now,
             Counter total) {
         Long previous = TenantContext.get();
         try {
             TenantContext.set(execution.getTenantId());
-            total.add(service.reconcile(execution, cutoff, now));
+            total.add(service.reconcile(execution, cutoff, participantCutoff, now));
         } catch (RuntimeException ex) {
             log.warn("普通拉群未知结果单行收敛失败 tenantId={} executionId={} errorType={}",
                     execution.getTenantId(), execution.getId(), ex.getClass().getSimpleName());
@@ -88,13 +91,16 @@ public class PullTaskUnknownResultReconciliationCoordinator {
         }
     }
 
-    private PullTaskUnknownReconciliationCriteria criteria(long cutoff) {
+    private PullTaskUnknownReconciliationCriteria criteria(
+            long cutoff,
+            long participantCutoff) {
         List<Integer> executionStatuses = Arrays.stream(PullTaskExecutionStatus.values())
                 .filter(status -> status != PullTaskExecutionStatus.DRAFT)
                 .map(PullTaskExecutionStatus::code).toList();
         return new PullTaskUnknownReconciliationCriteria(
                 new PullTaskUnknownReconciliationCriteria.Scope(
-                        properties.getResultReconciliationBatchSize(), cutoff),
+                        properties.getResultReconciliationBatchSize(), cutoff,
+                        participantCutoff),
                 executionStatuses,
                 List.of(PullTaskExecutionReasonCode.GROUP_BANNED.name()),
                 new PullTaskUnknownReconciliationCriteria.Parent(

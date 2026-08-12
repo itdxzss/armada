@@ -92,7 +92,7 @@ class PullTaskPullWaveSettlementIntegrationTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
         PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
-        assertThat(saved.getNextRunAt()).isEqualTo(32_000L);
+        assertThat(saved.getNextRunAt()).isEqualTo(3_000L);
         assertThat(saved.getLockOwner()).isNull();
         assertThat(waveMapper.selectById(fixture.wave().getId()).getWaveStatus())
                 .isEqualTo(PullTaskPullWaveStatus.COLLECTING.code());
@@ -126,6 +126,8 @@ class PullTaskPullWaveSettlementIntegrationTest {
     @Test
     void explicitFailureCreatesOneRetryWaveAndPreservesStickyAssignment() throws SQLException {
         WaveFixture fixture = insertCollectingWave();
+        attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);
+        callMapper.markSubmitted(fixture.call().getId(), "cmd-failed", 1_000L);
         closeAttempt(fixture.attempt(), "FAILED");
         execute("UPDATE pull_task_material_member SET pull_status=0, pull_failure_count=1, "
                 + "pull_call_id=NULL, active_pull_attempt_id=NULL WHERE id=" + MATERIAL_ID);
@@ -143,6 +145,8 @@ class PullTaskPullWaveSettlementIntegrationTest {
         assertThat(retry.getWaveNo()).isEqualTo(2);
         assertThat(retry.getWaveType()).isEqualTo(PullTaskPullWaveType.RETRY.code());
         assertThat(retry.getWaveStatus()).isEqualTo(PullTaskPullWaveStatus.DISPATCHING.code());
+        assertThat(retry.getNextDispatchAt()).isEqualTo(11_000L);
+        assertThat(saved.getNextRunAt()).isEqualTo(11_000L);
         assertThat(callMapper.selectByExecution(EXECUTION_ID))
                 .filteredOn(call -> retry.getId().equals(call.getPullWaveId()))
                 .singleElement()

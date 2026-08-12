@@ -9,14 +9,13 @@ import org.junit.jupiter.api.Test;
 class PullTaskExecutionDispatchPropertiesTest {
 
     @Test
-    void rosterReconciliationDefaultsToSixtySecondProtectionAndThirtySecondCadence() {
+    void missingParticipantCallbackDefaultsToFifteenSecondProtectionAndOneSecondCadence() {
         PullTaskExecutionDispatchProperties properties =
                 new PullTaskExecutionDispatchProperties();
 
         assertThat(properties.getResultReconciliationDelayMs()).isEqualTo(60_000L);
-        assertThat(properties.getResultReconciliationIntervalMs()).isEqualTo(30_000L);
-        assertThat(properties.getResultReconciliationDelayMs()
-                + properties.getResultReconciliationIntervalMs()).isEqualTo(90_000L);
+        assertThat(properties.getParticipantResultTimeoutMs()).isEqualTo(15_000L);
+        assertThat(properties.getResultReconciliationIntervalMs()).isEqualTo(1_000L);
     }
 
     @Test
@@ -25,6 +24,8 @@ class PullTaskExecutionDispatchPropertiesTest {
                 new PullTaskExecutionDispatchProperties();
 
         assertThatThrownBy(() -> properties.setResultReconciliationDelayMs(0L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> properties.setParticipantResultTimeoutMs(0L))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> properties.setResultReconciliationIntervalMs(0L))
                 .isInstanceOf(IllegalArgumentException.class);

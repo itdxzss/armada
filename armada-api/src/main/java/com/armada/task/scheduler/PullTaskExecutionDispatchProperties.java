@@ -26,8 +26,11 @@ public class PullTaskExecutionDispatchProperties {
     /** 已提交协议结果转未知前的保护时间。 */
     private long resultReconciliationDelayMs = 60_000L;
 
+    /** 批量拉人逐成员结果缺失时的保护时间。 */
+    private long participantResultTimeoutMs = 15_000L;
+
     /** 未知结果状态查询的执行间隔。 */
-    private long resultReconciliationIntervalMs = 30_000L;
+    private long resultReconciliationIntervalMs = 1_000L;
 
     /** 单轮未知结果扫描上限。 */
     private int resultReconciliationBatchSize = 100;
@@ -100,6 +103,17 @@ public class PullTaskExecutionDispatchProperties {
 
     public long getResultReconciliationIntervalMs() {
         return resultReconciliationIntervalMs;
+    }
+
+    public long getParticipantResultTimeoutMs() {
+        return participantResultTimeoutMs;
+    }
+
+    public void setParticipantResultTimeoutMs(long participantResultTimeoutMs) {
+        if (participantResultTimeoutMs <= 0) {
+            throw new IllegalArgumentException("逐成员结果超时时长必须大于 0");
+        }
+        this.participantResultTimeoutMs = participantResultTimeoutMs;
     }
 
     public void setResultReconciliationIntervalMs(long resultReconciliationIntervalMs) {

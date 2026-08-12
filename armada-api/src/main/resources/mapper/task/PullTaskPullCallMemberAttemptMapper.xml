@@ -126,8 +126,7 @@
             AND attempt_row.execution_state = 'NOT_STARTED')
         OR (attempt_row.lifecycle_status = 4
             AND attempt_row.protocol_outcome = 'UNKNOWN'
-            AND attempt_row.execution_state = 'UNCERTAIN'
-            AND attempt_row.reason_code = 'ROSTER_NOT_PRESENT'))
+            AND attempt_row.execution_state = 'UNCERTAIN'))
     ORDER BY attempt_row.participant_type ASC,
              attempt_row.participant_ref_id ASC,
              attempt_row.id ASC

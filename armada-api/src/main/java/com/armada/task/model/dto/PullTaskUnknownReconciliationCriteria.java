@@ -22,8 +22,8 @@ public record PullTaskUnknownReconciliationCriteria(
         }
     }
 
-    /** @param limit 扫描上限 @param submittedCutoff 已提交结果超时边界 */
-    public record Scope(int limit, long submittedCutoff) {
+    /** @param limit 扫描上限 @param submittedCutoff 通用动作超时边界 @param participantCutoff 逐成员结果超时边界 */
+    public record Scope(int limit, long submittedCutoff, long participantCutoff) {
     }
 
     /** @param taskType 父任务类型 @param taskMode 父任务模式 */

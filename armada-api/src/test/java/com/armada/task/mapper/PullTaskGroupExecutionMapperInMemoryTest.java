@@ -633,6 +633,37 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                 .containsExactly(row.getId());
     }
 
+    @Test
+    void unknownResultScanUsesIndependentParticipantCutoffForAttemptBackedCalls()
+            throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        mapper.freezeDraftRows(100L, 500L);
+        executeRaw("INSERT INTO pull_task_pull_call "
+                + "(id, tenant_id, task_id, group_execution_id, call_seq, "
+                + "planned_material_count, planned_station_count, call_status, "
+                + "idempotency_key, submitted_at, created_at, updated_at) VALUES "
+                + "(31, 7, 100, " + row.getId() + ", 1, 1, 0, "
+                + PullTaskPullCallStatus.SUBMITTED.code()
+                + ", 'call-31', 700, 100, 700)");
+        executeRaw("INSERT INTO pull_task_pull_call_member_attempt "
+                + "(tenant_id, task_id, group_execution_id, pull_call_id, participant_type, "
+                + "participant_ref_id, target_phone, target_jid, attempt_no, lifecycle_status, "
+                + "submitted_at, created_at, updated_at) VALUES "
+                + "(7, 100, " + row.getId()
+                + ", 31, 1, 91, '8613800000091', '8613800000091@s.whatsapp.net', "
+                + "1, " + PullTaskParticipantAttemptStatus.SUBMITTED.code()
+                + ", 700, 100, 700)");
+        TenantContext.clear();
+
+        PullTaskUnknownReconciliationCriteria criteria = unknownCriteria(
+                "STANDARD", "NORMAL_LINK", 500L, 800L);
+        assertThat(mapper.selectUnknownResultCandidates(criteria))
+                .extracting(PullTaskGroupExecution::getId)
+                .containsExactly(row.getId());
+    }
+
     private PullTaskGroupExecution draft(long taskId, int seq, String link, int fileIndex) {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setTaskId(taskId);
@@ -674,8 +705,17 @@ class PullTaskGroupExecutionMapperInMemoryTest {
 
     private static PullTaskUnknownReconciliationCriteria unknownCriteria(
             String taskType, String mode) {
+        return unknownCriteria(taskType, mode, 500L, 500L);
+    }
+
+    private static PullTaskUnknownReconciliationCriteria unknownCriteria(
+            String taskType,
+            String mode,
+            long submittedCutoff,
+            long participantCutoff) {
         return new PullTaskUnknownReconciliationCriteria(
-                new PullTaskUnknownReconciliationCriteria.Scope(10, 500L),
+                new PullTaskUnknownReconciliationCriteria.Scope(
+                        10, submittedCutoff, participantCutoff),
                 List.of(PullTaskExecutionStatus.WAIT_START.code(),
                         PullTaskExecutionStatus.EXECUTING.code(),
                         PullTaskExecutionStatus.WAIT_RESOURCE.code(),

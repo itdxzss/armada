@@ -31,13 +31,14 @@ class PullTaskUnknownResultReconciliationCoordinatorTest {
         PullTaskExecutionDispatchProperties properties =
                 new PullTaskExecutionDispatchProperties();
         properties.setResultReconciliationDelayMs(10_000L);
+        properties.setParticipantResultTimeoutMs(5_000L);
         properties.setResultReconciliationBatchSize(25);
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
         execution.setId(9L);
         execution.setTenantId(7L);
         when(executionMapper.selectUnknownResultCandidates(any()))
                 .thenReturn(List.of(execution));
-        when(service.reconcile(execution, 40_000L, 50_000L))
+        when(service.reconcile(execution, 40_000L, 45_000L, 50_000L))
                 .thenReturn(new PullTaskUnknownResultReconciliationStats(2, 1));
         PullTaskUnknownResultReconciliationCoordinator coordinator =
                 new PullTaskUnknownResultReconciliationCoordinator(
@@ -51,6 +52,7 @@ class PullTaskUnknownResultReconciliationCoordinatorTest {
                 ArgumentCaptor.forClass(PullTaskUnknownReconciliationCriteria.class);
         verify(executionMapper).selectUnknownResultCandidates(criteria.capture());
         assertThat(criteria.getValue().scope().submittedCutoff()).isEqualTo(40_000L);
+        assertThat(criteria.getValue().scope().participantCutoff()).isEqualTo(45_000L);
         assertThat(criteria.getValue().scope().limit()).isEqualTo(25);
         assertThat(criteria.getValue().parent().taskType()).isEqualTo("STANDARD");
         assertThat(criteria.getValue().parent().taskMode()).isEqualTo("NORMAL_LINK");

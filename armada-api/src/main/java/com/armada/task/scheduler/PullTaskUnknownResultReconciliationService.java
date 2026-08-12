@@ -94,6 +94,15 @@ public class PullTaskUnknownResultReconciliationService {
      */
     public PullTaskUnknownResultReconciliationStats reconcile(
             PullTaskGroupExecution execution, long submittedCutoff, long now) {
+        return reconcile(execution, submittedCutoff, submittedCutoff, now);
+    }
+
+    /** 使用独立的通用动作与批量逐成员超时边界收敛执行行。 */
+    public PullTaskUnknownResultReconciliationStats reconcile(
+            PullTaskGroupExecution execution,
+            long submittedCutoff,
+            long participantCutoff,
+            long now) {
         List<PullTaskGroupAccount> accounts = accounts(execution.getId());
         List<PullTaskMaterialMember> materials = resources.materialMapper()
                 .selectByExecution(execution.getId());
@@ -123,7 +132,8 @@ public class PullTaskUnknownResultReconciliationService {
                 snapshot, submittedCutoff, now, counter);
         reconcileActions(actions, accounts, context);
         reconcileCalls(
-                execution, calls, materials, accounts, attemptsByCall, context);
+                execution, calls, materials, accounts, attemptsByCall,
+                participantCutoff, context);
         reconcileAdmins(materials, accounts, context);
         return counter.snapshot();
     }
@@ -201,6 +211,7 @@ public class PullTaskUnknownResultReconciliationService {
             List<PullTaskMaterialMember> materials,
             List<PullTaskGroupAccount> accounts,
             Map<Long, List<PullTaskPullCallMemberAttempt>> attemptsByCall,
+            long participantCutoff,
             ReconciliationContext context) {
         for (PullTaskPullCall call : calls) {
             if (call.getCallStatus() == null || !CALL_OPEN.contains(call.getCallStatus())) {
@@ -211,7 +222,7 @@ public class PullTaskUnknownResultReconciliationService {
             if (!attempts.isEmpty()) {
                 context.counter().add(pullCallReconciliationService.reconcile(
                         execution, call, attempts, accounts,
-                        context.cutoff(), context.now()));
+                        participantCutoff, context.now()));
                 continue;
             }
             boolean stale = staleSubmitted(

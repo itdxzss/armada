@@ -211,7 +211,15 @@
             AND call_row.group_execution_id = execution_row.id
             AND (call_row.call_status = #{criteria.facts.call.unknown}
               OR (call_row.call_status = #{criteria.facts.call.submitted}
-                AND (call_row.submitted_at &lt;= #{criteria.scope.submittedCutoff}
+                AND (call_row.submitted_at &lt;= CASE
+                  WHEN EXISTS (
+                    SELECT 1
+                    FROM pull_task_pull_call_member_attempt participant_attempt
+                    WHERE participant_attempt.tenant_id = call_row.tenant_id
+                      AND participant_attempt.pull_call_id = call_row.id
+                  ) THEN #{criteria.scope.participantCutoff}
+                  ELSE #{criteria.scope.submittedCutoff}
+                END
                   OR (EXISTS (
                     SELECT 1
                     FROM pull_task_group_account unavailable_puller

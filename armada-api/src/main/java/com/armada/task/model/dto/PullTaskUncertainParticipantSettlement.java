@@ -5,7 +5,7 @@ import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskRosterObservation;
 
-/** 一个未知逐号码 attempt 的名单核实收口参数。 */
+/** 一个未知逐号码 attempt 的观察或超时收口参数。 */
 public record PullTaskUncertainParticipantSettlement(
         Context context,
         PullTaskPullCallMemberAttempt attempt,
@@ -19,11 +19,11 @@ public record PullTaskUncertainParticipantSettlement(
             PullTaskGroupExecution execution) {
     }
 
-    /** 拒绝不完整的名单收口参数。 */
+    /** 拒绝不完整的收口参数。 */
     public PullTaskUncertainParticipantSettlement {
         if (context == null || context.call() == null || context.execution() == null
                 || attempt == null || observation == null) {
-            throw new IllegalArgumentException("名单核实收口参数不能为空");
+            throw new IllegalArgumentException("逐成员收口参数不能为空");
         }
     }
 }

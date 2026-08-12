@@ -126,7 +126,7 @@ public class PullTaskPullWavePlanningTransactionService {
             CreatedWave created = legacyOpenCalls.isEmpty()
                     ? createWave(
                             execution, 1, PullTaskPullWaveType.INITIAL.code(),
-                            decision.batches(), now)
+                            decision.batches(), now, now)
                     : createLegacyWave(
                             execution, setting, existingCalls,
                             legacyOpenCalls, decision.batches(), now);
@@ -159,12 +159,31 @@ public class PullTaskPullWavePlanningTransactionService {
         }
         PullTaskStandardSetting setting = requiredSetting(execution.getTaskId());
         List<PlannedBatch> batches = retryBatches(setting, candidates);
+        long nextDispatchAt = retryNextDispatchAt(execution, setting, now);
         return createWave(
                 execution,
                 settledWave.getWaveNo() + 1,
                 PullTaskPullWaveType.RETRY.code(),
                 batches,
+                nextDispatchAt,
                 now).wave();
+    }
+
+    private long retryNextDispatchAt(
+            PullTaskGroupExecution execution,
+            PullTaskStandardSetting setting,
+            long now) {
+        Long lastSubmittedAt = resources.pullCallMapper()
+                .selectByExecution(execution.getId()).stream()
+                .map(PullTaskPullCall::getSubmittedAt)
+                .filter(Objects::nonNull)
+                .max(Long::compareTo).orElse(null);
+        if (lastSubmittedAt == null) {
+            return now;
+        }
+        long interval = Math.multiplyExact(
+                setting.getPullIntervalSeconds().longValue(), 1_000L);
+        return Math.max(now, Math.addExact(lastSubmittedAt, interval));
     }
 
     private PullTaskPullWavePreparation resume(PullTaskPullWave wave) {
@@ -254,8 +273,10 @@ public class PullTaskPullWavePlanningTransactionService {
             int waveNo,
             int waveType,
             List<PlannedBatch> batches,
+            long nextDispatchAt,
             long now) {
-        PullTaskPullWave wave = insertWave(execution, waveNo, waveType, batches.size(), now);
+        PullTaskPullWave wave = insertWave(
+                execution, waveNo, waveType, batches.size(), nextDispatchAt, now);
         int nextCallSeq = resources.pullCallMapper().selectByExecution(execution.getId()).stream()
                 .map(PullTaskPullCall::getCallSeq)
                 .filter(Objects::nonNull)
@@ -283,7 +304,7 @@ public class PullTaskPullWavePlanningTransactionService {
             long now) {
         int plannedCalls = Math.addExact(legacyOpenCalls.size(), newBatches.size());
         PullTaskPullWave wave = insertWave(
-                execution, 1, PullTaskPullWaveType.INITIAL.code(), plannedCalls, now);
+                execution, 1, PullTaskPullWaveType.INITIAL.code(), plannedCalls, now, now);
         PullTaskPullCall firstPlanned = attachLegacyCalls(
                 execution, wave, legacyOpenCalls, now);
         int nextGlobalSeq = existingCalls.stream()
@@ -469,6 +490,7 @@ public class PullTaskPullWavePlanningTransactionService {
             int waveNo,
             int waveType,
             int plannedCalls,
+            long nextDispatchAt,
             long now) {
         PullTaskPullWave row = new PullTaskPullWave();
         row.setTaskId(execution.getTaskId());
@@ -477,7 +499,7 @@ public class PullTaskPullWavePlanningTransactionService {
         row.setWaveType(waveType);
         row.setWaveStatus(PullTaskPullWaveStatus.DISPATCHING.code());
         row.setPlannedCallCount(plannedCalls);
-        row.setNextDispatchAt(now);
+        row.setNextDispatchAt(nextDispatchAt);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         if (resources.waveMapper().insertInitialized(row) != 1 || row.getId() == null) {

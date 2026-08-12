@@ -208,11 +208,12 @@ class PullTaskPullCallParticipantResultServiceTest {
 
     @ParameterizedTest
     @EnumSource(PullTaskParticipantType.class)
-    void unknownUncertainRemainsSubmittedForReconciliation(
+    void unknownUncertainReleasesImmediatelyWithoutRosterReconciliation(
             PullTaskParticipantType type) {
         stubAttempt(type, 1L, PullTaskParticipantAttemptStatus.SUBMITTED,
                 null, null);
         when(attemptMapper.transition(any())).thenReturn(1);
+        stubAggregateChange(type, 1);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
@@ -220,13 +221,16 @@ class PullTaskPullCallParticipantResultServiceTest {
 
         PullTaskParticipantAttemptTransition transition = capturedAttempt();
         assertThat(transition.target().lifecycleStatus())
-                .isEqualTo(PullTaskParticipantAttemptStatus.SUBMITTED.code());
+                .isEqualTo(PullTaskParticipantAttemptStatus.RELEASED.code());
         assertThat(transition.target().protocolOutcome()).isEqualTo("UNKNOWN");
         assertThat(transition.target().executionState())
                 .isEqualTo(PullTaskParticipantExecutionState.UNCERTAIN);
-        assertThat(transition.target().activeSlot()).isEqualTo(1);
-        verify(materialMapper, never()).transitionPullAttempt(any());
-        verify(accountMapper, never()).transitionMembershipAttempt(any());
+        assertThat(transition.target().releasedAt()).isEqualTo(5_000L);
+        PullTaskParticipantAggregateTransition aggregate = capturedAggregate(type);
+        assertThat(aggregate.target().status()).isEqualTo(pendingStatus(type));
+        assertThat(aggregate.target().failureCount()).isEqualTo(1L);
+        assertThat(aggregate.target().pullCallId()).isNull();
+        assertThat(aggregate.target().activeAttemptId()).isNull();
     }
 
     @Test
@@ -287,22 +291,28 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
-    void uncertainAttemptPreventsCallClosure() {
+    void uncertainAttemptReleasesAndClosesCall() {
         PullTaskPullCall call = call();
+        call.setPullWaveId(71L);
         call.setPlannedMaterialCount(1);
         call.setPlannedStationCount(0);
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call);
         PullTaskPullCallMemberAttempt attempt = stubAttempt(
                 PullTaskParticipantType.MATERIAL, 0L,
                 PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        PullTaskPullCallMemberAttempt released = copyAttempt(
+                attempt, PullTaskParticipantAttemptStatus.RELEASED);
         when(attemptMapper.transition(any())).thenReturn(1);
-        when(attemptMapper.selectByCall(31L)).thenReturn(List.of(attempt));
+        when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
+        when(attemptMapper.selectByCall(31L)).thenReturn(List.of(released));
+        when(callMapper.transitionResult(any())).thenReturn(1);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
                 PullTaskParticipantExecutionState.UNCERTAIN, true))).isTrue();
 
-        verify(callMapper, never()).transitionResult(any());
+        verify(callMapper).transitionResult(any());
+        verify(waveProgress).wakeCollecting(7L, 21L, 71L, 5_000L);
         verify(executionMapper, never()).transitionProtocolResult(any());
     }
 

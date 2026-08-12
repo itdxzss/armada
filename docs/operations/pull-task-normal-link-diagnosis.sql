@@ -19,7 +19,8 @@ SET @execution_id := NULL;
 
 -- 判定阈值，全部来自 PullTaskExecutionDispatchProperties 默认值：
 --   fixedDelayMs=1000、leaseMs=30000、
---   resultReconciliationDelayMs=60000、resultReconciliationIntervalMs=30000。
+--   participantResultTimeoutMs=15000、resultReconciliationIntervalMs=1000；
+--   其他协议动作继续使用 resultReconciliationDelayMs=60000。
 -- 环境改过配置时同步调整这里，否则会误报或漏报。
 
 -- 调度停滞宽限：取 2 倍租约。小于这个值的"到期未持锁"属于正常轮询间隙。

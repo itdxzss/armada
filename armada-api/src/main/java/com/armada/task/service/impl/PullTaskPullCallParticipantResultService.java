@@ -49,6 +49,7 @@ public class PullTaskPullCallParticipantResultService {
     static final int MAX_EXPLICIT_FAILURE_COUNT = MAX_FAILURE_RETRY_COUNT + 1;
     private static final long MILLIS_PER_MINUTE = 60_000L;
     private static final String ROSTER_QUERY_UNAVAILABLE = "ROSTER_QUERY_UNAVAILABLE";
+    private static final String PROTOCOL_RESULT_UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
     private static final Set<String> RISK_REASON_CODES = Set.of(
             ProtocolErrorCode.RATE_LIMITED.name(),
             ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED.name());
@@ -142,7 +143,7 @@ public class PullTaskPullCallParticipantResultService {
         }
     }
 
-    /** 使用一次群成员名单的本地比对结果收口未知或缺失的逐号码执行。 */
+    /** 使用成员观察或结果窗口结论收口未知、缺失的逐号码执行。 */
     @Transactional(rollbackFor = Exception.class)
     public boolean settleUncertain(PullTaskUncertainParticipantSettlement settlement) {
         PullTaskUncertainParticipantSettlement.Context context = settlement.context();
@@ -174,7 +175,7 @@ public class PullTaskPullCallParticipantResultService {
                     ? resources.materialMapper().transitionPullAttempt(aggregate)
                     : resources.accountMapper().transitionMembershipAttempt(aggregate);
             if (changed != 1) {
-                throw new IllegalStateException("名单核实结果与参与者聚合状态不一致");
+                throw new IllegalStateException("逐成员收口结果与参与者聚合状态不一致");
             }
             closeCallIfReady(call, execution, tenantId, now);
             return true;
@@ -188,19 +189,20 @@ public class PullTaskPullCallParticipantResultService {
             PullTaskRosterObservation observation,
             long now) {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
-        boolean absent = observation == PullTaskRosterObservation.ABSENT;
+        boolean released = observation == PullTaskRosterObservation.ABSENT
+                || observation == PullTaskRosterObservation.UNCONFIRMED;
         return new PullTaskParticipantAttemptTransition(
                 new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
                 new PullTaskParticipantAttemptTransition.Expected(List.of(
                         PullTaskParticipantAttemptStatus.SUBMITTED.code())),
                 new PullTaskParticipantAttemptTransition.Target(
-                        absent ? PullTaskParticipantAttemptStatus.RELEASED.code()
+                        released ? PullTaskParticipantAttemptStatus.RELEASED.code()
                                 : PullTaskParticipantAttemptStatus.CLOSED.code(),
                         present ? PullTaskBatchParticipantProtocolOutcome.SUCCESS.name()
                                 : PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name(),
                         present ? PullTaskParticipantExecutionState.STARTED
                                 : PullTaskParticipantExecutionState.UNCERTAIN,
-                        absent ? now : null),
+                        released ? now : null),
                 present
                         ? PullTaskFactResult.success(attempt.getTargetJid(), now)
                         : rosterFailure(observation, now));
@@ -209,13 +211,15 @@ public class PullTaskPullCallParticipantResultService {
     private static PullTaskFactResult rosterFailure(
             PullTaskRosterObservation observation,
             long now) {
-        return observation == PullTaskRosterObservation.ABSENT
-                ? new PullTaskFactResult(
-                                "ROSTER_NOT_PRESENT", "群成员名单未确认该号码在群",
-                                null, now)
-                : new PullTaskFactResult(
-                        ROSTER_QUERY_UNAVAILABLE, "群成员名单查询不可用，结果保持未知",
-                        null, now);
+        return switch (observation) {
+            case ABSENT -> new PullTaskFactResult(
+                    "ROSTER_NOT_PRESENT", "群成员名单未确认该号码在群", null, now);
+            case UNCONFIRMED -> new PullTaskFactResult(
+                    PROTOCOL_RESULT_UNCONFIRMED, "结果未知，等待按配置间隔重试", null, now);
+            case UNAVAILABLE -> new PullTaskFactResult(
+                    ROSTER_QUERY_UNAVAILABLE, "群成员名单查询不可用，结果保持未知", null, now);
+            case PRESENT -> throw new IllegalArgumentException("已确认成员不能生成失败事实");
+        };
     }
 
     private static PullTaskParticipantAggregateTransition rosterAggregateTransition(
@@ -226,7 +230,7 @@ public class PullTaskPullCallParticipantResultService {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
         int targetStatus = switch (observation) {
             case PRESENT -> successStatus(attempt);
-            case ABSENT -> pendingStatus(attempt);
+            case ABSENT, UNCONFIRMED -> pendingStatus(attempt);
             case UNAVAILABLE -> unknownStatus(attempt);
         };
         return new PullTaskParticipantAggregateTransition(
@@ -237,6 +241,7 @@ public class PullTaskPullCallParticipantResultService {
                 new PullTaskParticipantAggregateTransition.Target(
                         targetStatus, failureCount,
                         observation == PullTaskRosterObservation.ABSENT
+                                || observation == PullTaskRosterObservation.UNCONFIRMED
                                 ? null : attempt.getPullCallId(),
                         null),
                 present
@@ -260,10 +265,6 @@ public class PullTaskPullCallParticipantResultService {
                         callbackFact(callback));
         if (resources.attemptMapper().transition(transition) != 1) {
             return false;
-        }
-        if (callback.outcome() == PullTaskBatchParticipantProtocolOutcome.UNKNOWN
-                && callback.executionState() == PullTaskParticipantExecutionState.UNCERTAIN) {
-            return true;
         }
         AggregateSnapshot snapshot = aggregateSnapshot(attempt);
         if (snapshot != null && snapshot.status() == successStatus(attempt)) {
@@ -611,7 +612,8 @@ public class PullTaskPullCallParticipantResultService {
         if (callback.outcome() != PullTaskBatchParticipantProtocolOutcome.UNKNOWN) {
             return new AttemptTarget(PullTaskParticipantAttemptStatus.CLOSED.code(), null);
         }
-        if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED) {
+        if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
+                || callback.executionState() == PullTaskParticipantExecutionState.UNCERTAIN) {
             return new AttemptTarget(
                     PullTaskParticipantAttemptStatus.RELEASED.code(), callback.occurredAt());
         }

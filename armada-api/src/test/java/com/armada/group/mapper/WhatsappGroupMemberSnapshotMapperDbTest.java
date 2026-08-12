@@ -162,6 +162,25 @@ class WhatsappGroupMemberSnapshotMapperDbTest {
                 3_000L)).isZero();
     }
 
+    @Test
+    void deleteParticipantsRemovesOnlyCurrentTenantNonOwnerMembers() {
+        mapper.insertBatch(List.of(
+                member("owner@s.whatsapp.net", "100", true, true, 1_000L),
+                member("member@s.whatsapp.net", "200", false, false, 1_000L)));
+
+        assertThat(mapper.deleteParticipants(
+                GROUP_LINK_ID,
+                List.of("owner@s.whatsapp.net", "member@s.whatsapp.net"))).isEqualTo(1);
+        assertThat(mapper.selectByGroupLinkId(GROUP_LINK_ID))
+                .extracting(WhatsappGroupMemberSnapshot::getParticipantJid)
+                .containsExactly("owner@s.whatsapp.net");
+
+        TenantContext.set(OTHER_TENANT_ID);
+        assertThat(mapper.deleteParticipants(
+                GROUP_LINK_ID,
+                List.of("owner@s.whatsapp.net"))).isZero();
+    }
+
     private static WhatsappGroupMemberSnapshot member(
             String participantJid,
             String phone,

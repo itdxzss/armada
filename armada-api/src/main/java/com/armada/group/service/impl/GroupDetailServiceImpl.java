@@ -556,7 +556,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 .toList();
         long successCount = successfulJids.size();
         if (successCount > 0) {
-            persistConfirmedMemberRoles(id, action, successfulJids);
+            persistConfirmedMemberChanges(id, action, successfulJids);
             enqueueMetadataRefresh(id);
         }
         log.info("群成员批量操作完成 groupLinkId={} accountId={} action={} requestedCount={} "
@@ -572,15 +572,19 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     }
 
     /**
-     * 把协议确认成功的管理员角色立即写入本地快照。
+     * 把协议确认成功的成员变更立即写入本地快照。
      *
      * <p>详情接口只读取本地成员快照，等待异步 metadata 刷新会让操作后的页面继续显示旧角色。
-     * 移除成员由独立路径处理；添加成员仍以完整 metadata 同步为准。</p>
+     * 管理员角色和成员移除均可精确更新；添加成员仍以完整 metadata 同步为准。</p>
      */
-    private void persistConfirmedMemberRoles(
+    private void persistConfirmedMemberChanges(
             Long groupLinkId,
             GroupParticipantAction action,
             List<String> successfulJids) {
+        if (action == GroupParticipantAction.REMOVE) {
+            memberSnapshotMapper.deleteParticipants(groupLinkId, successfulJids);
+            return;
+        }
         Boolean admin = switch (action) {
             case PROMOTE -> true;
             case DEMOTE -> false;

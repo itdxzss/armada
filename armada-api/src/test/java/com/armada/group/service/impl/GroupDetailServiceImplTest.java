@@ -545,6 +545,8 @@ class GroupDetailServiceImplTest {
 
         assertThat(result.ok()).isTrue();
         assertThat(result.results().get(0).status()).isEqualTo("OK");
+        verify(memberSnapshotMapper).deleteParticipants(
+                10L, List.of("member@s.whatsapp.net"));
         verify(selector).require(10L);
         verify(groupMetadataPort, org.mockito.Mockito.times(2))
                 .getMetadata(webAccount(), "120363detail@g.us");

@@ -51,6 +51,17 @@ public interface WhatsappGroupMemberSnapshotMapper {
             @Param("updatedAt") long updatedAt);
 
     /**
+     * 删除当前租户指定群内已确认离群的非群主成员。
+     *
+     * @param groupLinkId 群入口 ID
+     * @param participantJids 已由协议实时回读确认离群的成员 JID
+     * @return 删除行数
+     */
+    int deleteParticipants(
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("participantJids") List<String> participantJids);
+
+    /**
      * 按显式租户和群 JID 批量查询可供其他业务复用的完整成员快照。
      *
      * @param tenantId 租户 ID

@@ -43,6 +43,16 @@
     </foreach>
   </update>
 
+  <delete id="deleteParticipants">
+    DELETE FROM whatsapp_group_member_snapshot
+    WHERE group_link_id = #{groupLinkId}
+      AND is_owner = 0
+      AND participant_jid IN
+    <foreach collection="participantJids" item="participantJid" open="(" separator="," close=")">
+      #{participantJid}
+    </foreach>
+  </delete>
+
   <select id="selectByGroupJids"
           resultType="com.armada.group.model.entity.WhatsappGroupMemberSnapshot">
     SELECT id, tenant_id, group_link_id, group_jid, participant_jid, phone, role,

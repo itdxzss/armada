@@ -36,6 +36,21 @@ public interface WhatsappGroupMemberSnapshotMapper {
             @Param("groupLinkId") Long groupLinkId);
 
     /**
+     * 更新当前租户指定群成员的管理员角色，群主不允许被降级。
+     *
+     * @param groupLinkId 群入口 ID
+     * @param participantJids 已由协议确认成功的成员 JID
+     * @param admin 是否设为管理员
+     * @param updatedAt 更新时间
+     * @return 更新行数
+     */
+    int updateAdminRole(
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("participantJids") List<String> participantJids,
+            @Param("admin") boolean admin,
+            @Param("updatedAt") long updatedAt);
+
+    /**
      * 按显式租户和群 JID 批量查询可供其他业务复用的完整成员快照。
      *
      * @param tenantId 租户 ID

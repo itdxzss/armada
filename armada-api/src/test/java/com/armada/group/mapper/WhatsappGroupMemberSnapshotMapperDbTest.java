@@ -134,6 +134,34 @@ class WhatsappGroupMemberSnapshotMapperDbTest {
                 .isEmpty();
     }
 
+    @Test
+    void updateAdminRoleChangesOnlyCurrentTenantNonOwnerMembers() {
+        mapper.insertBatch(List.of(
+                member("owner@s.whatsapp.net", "100", true, true, 1_000L),
+                member("member@s.whatsapp.net", "200", false, false, 1_000L)));
+
+        assertThat(mapper.updateAdminRole(
+                GROUP_LINK_ID,
+                List.of("owner@s.whatsapp.net", "member@s.whatsapp.net"),
+                true,
+                2_000L)).isEqualTo(1);
+        assertThat(mapper.selectByGroupLinkId(GROUP_LINK_ID))
+                .filteredOn(row -> row.getParticipantJid().equals("member@s.whatsapp.net"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getRole()).isEqualTo("ADMIN");
+                    assertThat(row.getIsAdmin()).isTrue();
+                    assertThat(row.getUpdatedAt()).isEqualTo(2_000L);
+                });
+
+        TenantContext.set(OTHER_TENANT_ID);
+        assertThat(mapper.updateAdminRole(
+                GROUP_LINK_ID,
+                List.of("member@s.whatsapp.net"),
+                false,
+                3_000L)).isZero();
+    }
+
     private static WhatsappGroupMemberSnapshot member(
             String participantJid,
             String phone,

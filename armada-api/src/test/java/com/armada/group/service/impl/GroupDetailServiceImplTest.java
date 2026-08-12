@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
@@ -84,6 +85,9 @@ class GroupDetailServiceImplTest {
     private GroupDetailSnapshotReader snapshotReader;
 
     @Mock
+    private WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
+
+    @Mock
     private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     private GroupDetailServiceImpl service;
@@ -100,6 +104,7 @@ class GroupDetailServiceImplTest {
                         groupSettingsPort,
                         groupParticipantPort),
                 snapshotReader,
+                memberSnapshotMapper,
                 metadataSyncTaskService);
     }
 
@@ -510,6 +515,11 @@ class GroupDetailServiceImplTest {
                         "owner@s.whatsapp.net:OWNER_PROTECTED",
                         "admin-a@s.whatsapp.net:OK",
                         "admin-b@s.whatsapp.net:UNKNOWN");
+        verify(memberSnapshotMapper).updateAdminRole(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(List.of("admin-a@s.whatsapp.net")),
+                org.mockito.ArgumentMatchers.eq(false),
+                org.mockito.ArgumentMatchers.anyLong());
         verify(selector).require(10L);
     }
 

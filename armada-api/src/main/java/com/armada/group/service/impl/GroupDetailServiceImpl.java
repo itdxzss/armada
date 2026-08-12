@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
 import com.armada.group.model.dto.GroupSettingCommandDTO;
 import com.armada.group.model.dto.GroupSubjectCommandDTO;
@@ -116,6 +117,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 最后成功 metadata 和完整成员快照读取器。 */
     private final GroupDetailSnapshotReader snapshotReader;
 
+    /** 群成员最后成功快照 Mapper。 */
+    private final WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
+
     /** 群详情异步同步任务状态机。 */
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
@@ -133,12 +137,14 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupExecutionAccountSelector selector,
             GroupDetailProtocolPorts protocolPorts,
             GroupDetailSnapshotReader snapshotReader,
+            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
             GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.selector = selector;
         this.protocolPorts = protocolPorts;
         this.snapshotReader = snapshotReader;
+        this.memberSnapshotMapper = memberSnapshotMapper;
         this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
@@ -544,10 +550,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             fixedResults.putAll(mutationResults);
         }
         GroupMemberBatchResultVO result = summarizeMemberResults(requestedJids, fixedResults);
-        long successCount = result.results().stream()
+        List<String> successfulJids = result.results().stream()
                 .filter(item -> MEMBER_STATUS_OK.equals(item.status()))
-                .count();
+                .map(GroupMemberOperationResultVO::jid)
+                .toList();
+        long successCount = successfulJids.size();
         if (successCount > 0) {
+            persistConfirmedMemberRoles(id, action, successfulJids);
             enqueueMetadataRefresh(id);
         }
         log.info("群成员批量操作完成 groupLinkId={} accountId={} action={} requestedCount={} "
@@ -560,6 +569,33 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 successCount,
                 result.partial());
         return result;
+    }
+
+    /**
+     * 把协议确认成功的管理员角色立即写入本地快照。
+     *
+     * <p>详情接口只读取本地成员快照，等待异步 metadata 刷新会让操作后的页面继续显示旧角色。
+     * 移除成员由独立路径处理；添加成员仍以完整 metadata 同步为准。</p>
+     */
+    private void persistConfirmedMemberRoles(
+            Long groupLinkId,
+            GroupParticipantAction action,
+            List<String> successfulJids) {
+        Boolean admin = switch (action) {
+            case PROMOTE -> true;
+            case DEMOTE -> false;
+            case ADD, REMOVE -> null;
+        };
+        if (admin == null) {
+            return;
+        }
+        int updated = memberSnapshotMapper.updateAdminRole(
+                groupLinkId, successfulJids, admin, System.currentTimeMillis());
+        if (updated < successfulJids.size()) {
+            log.warn("管理员角色已确认但本地快照未全部更新 groupLinkId={} action={} "
+                            + "targetCount={} updatedCount={}",
+                    groupLinkId, action, successfulJids.size(), updated);
+        }
     }
 
     private void enqueueMetadataRefresh(Long groupLinkId) {

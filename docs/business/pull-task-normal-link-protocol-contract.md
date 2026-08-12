@@ -372,7 +372,7 @@ Kafka 契约用 **大写**：`"ADD"` / `"PROMOTE"`。
   "commandId": "cmd_xxx", "attemptNo": 1,
   "outcome": "JOINED",
   "groupJid": "1234567890-1234567890@g.us",
-  "reasonCode": null, "reasonMessage": null,
+  "reasonCode": "OK", "reasonMessage": "入群成功",
   "retryable": false,
   "timestamp": 1754300000000
 }
@@ -451,6 +451,17 @@ Kafka 契约用 **大写**：`"ADD"` / `"PROMOTE"`。
 - `executionState` **必填且大小写敏感**：明确 `SUCCESS/FAILED` 只能配 `STARTED`；未知结果只能配 `NOT_STARTED/UNCERTAIN`。
 - ⚠️ **一个成员一条事件**。缺失事件不会再被当作整批成功或失败：通常在 60 秒结果窗口结束后，armada 对该批次最多查询一次群成员名单，逐号码确认成功或释放回待拉池；若同一拉手已收到账号级不可用结果，则立即提前核实其仍在途的批次。
 - 不需要额外的「调用级完成」事件，收口由 armada 自己算。
+
+逐成员原始状态必须归一化后写入 `reasonCode/reasonMessage`；Armada 会原样落到
+`pull_task_material_member.pull_reason_code/pull_reason_message`，供逐成员结果列表展示：
+
+| WhatsApp status | outcome | reasonCode | 展示原因 |
+|---|---|---|---|
+| `200` / 空状态 | `SUCCESS` | `OK` | 入群成功 |
+| `403` | `FAILED` | `PRIVACY_BLOCKED` | 目标号码隐私设置限制入群 |
+| `408` | `FAILED` | `TIMEOUT` | 成员入群操作超时 |
+| `409` | `SUCCESS` | `ALREADY_IN` | 目标号码已在群内 |
+| `419` | `FAILED` | `GROUP_FULL` | 群已满；Armada 同时终止该群后续拉人调用 |
 
 ### 5.4 `reasonCode` 语义（影响 armada 状态机分支）
 
@@ -803,8 +814,10 @@ Kafka 契约用 **大写**：`"ADD"` / `"PROMOTE"`。
 
 | 情形 | 结论 |
 |---|---|
-| 回执 `Err`/`status` 为空 | `SUCCESS` |
-| 回执带 403 / 409 / 408 / 401 / 412 / 404 / 429 | `FAILED` + 对应 `ProtocolErrorCode` |
+| 回执 `Err`/`status` 为空或为 200 | `SUCCESS / OK` |
+| ADD 回执为 409 | `SUCCESS / ALREADY_IN`，按幂等成功收口 |
+| 回执为 403 / 408 / 419 | 分别为 `FAILED / PRIVACY_BLOCKED`、`FAILED / TIMEOUT`、`FAILED / GROUP_FULL` |
+| 回执带 401 / 412 / 404 / 429 | `FAILED` + 对应稳定原因码 |
 | **该成员没有回执** | `UNKNOWN`——不默认成功，否则控端会把号码记成已入群 |
 | 整体超时 | 每个成员各一条 `UNKNOWN`，保证结果数与成员数一致 |
 | 账号离线 / 限流等整体失败 | 每个成员同一结论 |

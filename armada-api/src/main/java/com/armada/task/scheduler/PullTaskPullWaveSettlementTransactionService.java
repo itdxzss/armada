@@ -22,29 +22,32 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 在全部调用派发后等待整波结果，并一次性创建重试波或推进后续阶段。 */
+/** 在全部调用派发后收集整波结果，并一次性创建重试波或推进后续阶段。 */
 @Service
 public class PullTaskPullWaveSettlementTransactionService {
 
     private static final Logger log = LoggerFactory.getLogger(
             PullTaskPullWaveSettlementTransactionService.class);
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
-    private static final long RESULT_PROTECTION_MS = 60_000L;
     private static final long MAX_EXPLICIT_FAILURE_COUNT = 4L;
     private static final int ADMIN_REQUIRED = 1;
 
     private final PullTaskPullWaveSettlementResources resources;
     private final PullTaskPullWavePlanningTransactionService planning;
+    private final PullTaskExecutionDispatchProperties properties;
 
     /**
      * @param resources 波次结算数据访问依赖
      * @param planning 重试波冻结工厂
+     * @param properties 未知结果协调与收集轮询配置
      */
     public PullTaskPullWaveSettlementTransactionService(
             PullTaskPullWaveSettlementResources resources,
-            PullTaskPullWavePlanningTransactionService planning) {
+            PullTaskPullWavePlanningTransactionService planning,
+            PullTaskExecutionDispatchProperties properties) {
         this.resources = resources;
         this.planning = planning;
+        this.properties = properties;
     }
 
     /**
@@ -102,12 +105,8 @@ public class PullTaskPullWaveSettlementTransactionService {
 
     private PullTaskExecutionDispatchResult deferCollection(
             PullTaskGroupExecution execution, long waveId, long now) {
-        Long earliestSubmittedAt = resources.attemptMapper()
-                .selectEarliestSubmittedAtByWave(
-                        waveId, PullTaskParticipantAttemptStatus.SUBMITTED.code());
-        long nextRunAt = earliestSubmittedAt == null
-                ? Math.addExact(now, RESULT_PROTECTION_MS)
-                : Math.addExact(earliestSubmittedAt, RESULT_PROTECTION_MS);
+        long nextRunAt = Math.addExact(
+                now, properties.getResultReconciliationIntervalMs());
         PullTaskGroupExecution update = executionUpdate(execution, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         update.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());

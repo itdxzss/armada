@@ -75,11 +75,6 @@ public interface PullTaskPullCallMemberAttemptMapper {
             @Param("pullWaveId") long pullWaveId,
             @Param("openStatuses") List<Integer> openStatuses);
 
-    /** 读取波次中最早一个已提交 attempt 的提交时间。 */
-    Long selectEarliestSubmittedAtByWave(
-            @Param("pullWaveId") long pullWaveId,
-            @Param("submittedStatus") int submittedStatus);
-
     /** 把调用下全部计划 attempt 绑定到与调用相同的拉手代际。 */
     int bindPlannedPullerByCall(
             @Param("binding") PullTaskPlannedCallPullerBinding binding);

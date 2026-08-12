@@ -178,6 +178,24 @@ class PullTaskStickyPullerTransactionServiceTest {
     }
 
     @Test
+    void accountStateEventClearsCurrentRoleWithoutRebindingSubmittedCall() {
+        when(accountLookup.findActiveProtocolRefs(List.of(
+                PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
+                .thenReturn(List.of(protocolA(), protocolB()));
+        service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
+        PullTaskPullCall submitted = call(1);
+        callMapper.markSubmitted(submitted.getId(), "cmd-old-puller", 1_100L);
+
+        assertThat(service.invalidateCurrentRole(
+                execution(), pullerA, "ACCOUNT_UNBOUND", 1_200L)).isTrue();
+
+        assertExecution(null, 1L, 2);
+        assertThat(call(1).getPullerGroupAccountId()).isEqualTo(pullerA.getId());
+        assertThat(call(1).getPullerAssignmentSeq()).isEqualTo(1L);
+        assertThat(call(1).getCommandId()).isEqualTo("cmd-old-puller");
+    }
+
+    @Test
     void transportFailureDoesNotInvalidateStickyPuller() {
         when(accountLookup.findActiveProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))

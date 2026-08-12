@@ -241,3 +241,28 @@ mvn -q test -Dtest='!*DbTest,!GroupLinkRegistryServiceImplTest,!GroupCreationMar
 ## 部署
 
 未部署；未连接远程环境或真实数据库。
+
+## 2026-08-12 拉手状态事件快速切换跟进
+
+### 用户确认口径
+
+- 拉手临时离线只更新任务内可用性并切换拉手，不删除历史角色行。
+- 账号封禁、解绑清除当前粘性拉手，并从当前执行行后续派发中移除。
+- 已提交调用保持原 `puller_group_account_id`、`puller_assignment_seq` 和 `command_id`，迟到回执继续按历史绑定收口。
+- 同一成员只有在旧 attempt 明确失败或名单确认不在群后才进入安全重试；其他未提交调用不受旧回执阻塞。
+- 删除波次层固定 60 秒结果保护；未知结果协调延迟仍作为无回执调用进入名单核实的独立安全窗口。
+
+### 实现
+
+- 账号正式 `OFFLINE/PROXY_FAILED/LOGIN_REPLACED` 事件把占用中的任务拉手标记为 `OFFLINE`；重新在线后仍可沿用既有资源恢复逻辑。
+- `NEED_REAUTH + 403` 标记任务拉手 `REMOVED/ACCOUNT_BANNED`；其他 `NEED_REAUTH`、`LOGGED_OUT`、`DEVICE_REMOVED` 标记为 `REMOVED/ACCOUNT_UNBOUND`。
+- 状态事务提交后触发现有拉手不可用事件，立即唤醒未知结果名单核实；不可用拉手持有的开放 attempt 沿用现有快速绕过 60 秒窗口规则。
+- 波次收集不再读取最早提交时间或计算 `earliestSubmittedAt + 60s`，仅按未知结果扫描间隔做兜底轮询；回执完成和名单核实仍会主动唤醒。
+- 无数据库结构、API、前端或协议合同变更。
+
+### 本地验证
+
+- RED：新增账号状态联动与波次无固定保护测试后，测试编译因生产类和新构造参数不存在而失败。
+- GREEN：账号状态映射、任务服务、粘性代际、历史调用绑定、H2 真 Mapper 查询和波次结算聚焦测试通过；合计纳入本次验证的 15 个测试类 / 107 tests / 0 failure / 0 error / 0 skipped。
+- 回执、名单核实、拉手不可用事件、波次派发及普通拉群纵向集成测试通过；`mvn -q -DskipTests package`、Mapper XML 校验和 `git diff --check` 均退出码 0。
+- 未部署、未连接远程或真实数据库。

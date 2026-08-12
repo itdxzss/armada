@@ -48,7 +48,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
-/** 使用真实 Mapper XML 验证收集保护、一次结算和重试波原子替换。 */
+/** 使用真实 Mapper XML 验证收集轮询、一次结算和重试波原子替换。 */
 @SpringJUnitConfig(PullTaskPullWaveSettlementIntegrationTest.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -81,7 +81,7 @@ class PullTaskPullWaveSettlementIntegrationTest {
     }
 
     @Test
-    void openAttemptDefersToEarliestSubmissionPlusProtectionTime() throws SQLException {
+    void openAttemptDefersToNextReconciliationScanWithoutResultProtection() throws SQLException {
         WaveFixture fixture = insertCollectingWave();
         attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);
         callMapper.markSubmitted(fixture.call().getId(), "cmd-open", 1_000L);
@@ -92,7 +92,7 @@ class PullTaskPullWaveSettlementIntegrationTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
         PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
-        assertThat(saved.getNextRunAt()).isEqualTo(61_000L);
+        assertThat(saved.getNextRunAt()).isEqualTo(32_000L);
         assertThat(saved.getLockOwner()).isNull();
         assertThat(waveMapper.selectById(fixture.wave().getId()).getWaveStatus())
                 .isEqualTo(PullTaskPullWaveStatus.COLLECTING.code());
@@ -406,8 +406,14 @@ class PullTaskPullWaveSettlementIntegrationTest {
 
         @Bean PullTaskPullWaveSettlementTransactionService settlement(
                 PullTaskPullWaveSettlementResources resources,
-                PullTaskPullWavePlanningTransactionService planning) {
-            return new PullTaskPullWaveSettlementTransactionService(resources, planning);
+                PullTaskPullWavePlanningTransactionService planning,
+                PullTaskExecutionDispatchProperties properties) {
+            return new PullTaskPullWaveSettlementTransactionService(
+                    resources, planning, properties);
+        }
+
+        @Bean PullTaskExecutionDispatchProperties properties() {
+            return new PullTaskExecutionDispatchProperties();
         }
     }
 }

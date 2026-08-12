@@ -31,6 +31,16 @@
     ORDER BY role_seq ASC
   </select>
 
+  <select id="selectOccupiedByAccountAndRole"
+          resultType="com.armada.task.model.entity.PullTaskGroupAccount">
+    SELECT *
+    FROM pull_task_group_account
+    WHERE account_id = #{accountId}
+      AND role_type = #{roleType}
+      AND released_at IS NULL
+    ORDER BY id ASC
+  </select>
+
   <select id="selectPendingStationsByGuard"
           resultType="com.armada.task.model.entity.PullTaskGroupAccount">
     SELECT *

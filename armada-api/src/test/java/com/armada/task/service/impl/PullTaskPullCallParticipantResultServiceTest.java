@@ -137,6 +137,25 @@ class PullTaskPullCallParticipantResultServiceTest {
         assertThat(aggregate.target().activeAttemptId()).isNull();
     }
 
+    @Test
+    void explicitSuccessPersistsParticipantReasonForResultList() {
+        stubAttempt(PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                PullTaskParticipantExecutionState.STARTED,
+                false, "ALREADY_IN", "目标号码已在群内"))).isTrue();
+
+        PullTaskParticipantAggregateTransition aggregate =
+                capturedAggregate(PullTaskParticipantType.MATERIAL);
+        assertThat(aggregate.result().reasonCode()).isEqualTo("ALREADY_IN");
+        assertThat(aggregate.result().reasonMessage()).isEqualTo("目标号码已在群内");
+        assertThat(aggregate.result().resultJid()).isEqualTo(TARGET);
+    }
+
     @ParameterizedTest(name = "{0} explicit failure count {1}")
     @MethodSource("failureCases")
     void everyExplicitFailureConsumesOneCountAndOnlyFourthIsTerminal(
@@ -493,6 +512,27 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
+    void groupFullPersistsParticipantReasonAndTerminatesExecution() {
+        stubAccountFailure("GROUP_FULL");
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.FAILED,
+                PullTaskParticipantExecutionState.STARTED,
+                false, "GROUP_FULL", "群已满"))).isTrue();
+
+        PullTaskParticipantAggregateTransition aggregate =
+                capturedAggregate(PullTaskParticipantType.MATERIAL);
+        assertThat(aggregate.result().reasonCode()).isEqualTo("GROUP_FULL");
+        assertThat(aggregate.result().reasonMessage()).isEqualTo("群已满");
+        verify(groupFailure).terminate(
+                7L, 21L,
+                com.armada.task.model.enums.PullTaskExecutionReasonCode.GROUP_UNAVAILABLE,
+                5_000L);
+        verify(stickyPullers, never()).invalidateIfCurrent(
+                any(), any(), any(), anyLong());
+    }
+
+    @Test
     void rosterPresenceConfirmsUncertainAttemptAsSuccess() {
         PullTaskPullCallMemberAttempt attempt = stubAttempt(
                 PullTaskParticipantType.MATERIAL, 2L,
@@ -783,9 +823,19 @@ class PullTaskPullCallParticipantResultServiceTest {
             PullTaskParticipantExecutionState executionState,
             boolean retryable,
             String reasonCode) {
+        return callback(outcome, executionState, retryable, reasonCode, null);
+    }
+
+    private static PullTaskBatchParticipantCallback callback(
+            PullTaskBatchParticipantProtocolOutcome outcome,
+            PullTaskParticipantExecutionState executionState,
+            boolean retryable,
+            String reasonCode,
+            String reasonMessage) {
         return new PullTaskBatchParticipantCallback(
                 7L, 11L, 21L, 31L, 71L, "protocol-71", "cmd-call", 1,
-                TARGET, outcome, executionState, reasonCode, null, retryable, 5_000L);
+                TARGET, outcome, executionState,
+                reasonCode, reasonMessage, retryable, 5_000L);
     }
 
     private static PullTaskUncertainParticipantSettlement settlement(

@@ -438,8 +438,14 @@ class PullTaskPullWaveDispatchIntegrationTest {
 
         @Bean PullTaskPullWaveSettlementTransactionService settlement(
                 PullTaskPullWaveSettlementResources resources,
-                PullTaskPullWavePlanningTransactionService planning) {
-            return new PullTaskPullWaveSettlementTransactionService(resources, planning);
+                PullTaskPullWavePlanningTransactionService planning,
+                PullTaskExecutionDispatchProperties properties) {
+            return new PullTaskPullWaveSettlementTransactionService(
+                    resources, planning, properties);
+        }
+
+        @Bean PullTaskExecutionDispatchProperties properties() {
+            return new PullTaskExecutionDispatchProperties();
         }
 
         @Bean PullTaskPullExecutionDispatchResources dispatchResources(

@@ -41,6 +41,8 @@ public class PullTaskStickyPullerTransactionService {
             "ACCOUNT_NOT_FOUND",
             "ACCOUNT_NOT_ONLINE",
             "NEED_REAUTH",
+            "ACCOUNT_BANNED",
+            "ACCOUNT_UNBOUND",
             "ACCOUNT_REACHOUT_RESTRICTED",
             "RATE_LIMITED",
             "GROUP_PERMISSION_DENIED");
@@ -138,25 +140,76 @@ public class PullTaskStickyPullerTransactionService {
                 || call.getPullerAssignmentSeq() == null) {
             return false;
         }
+        return invalidate(execution, call.getPullerGroupAccountId(),
+                call.getPullerAssignmentSeq(), reasonCode, now);
+    }
+
+    /**
+     * 账号状态事件按当前角色身份读取最新代际并清空粘性拉手，不修改历史调用绑定。
+     *
+     * @param execution 角色所属执行行
+     * @param puller 发生账号状态变化的任务拉手角色
+     * @param reasonCode 归一化账号不可用原因码
+     * @param now 状态发生时间(epoch 毫秒)
+     * @return 是否成功清空当前粘性拉手
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean invalidateCurrentRole(
+            PullTaskGroupExecution execution,
+            PullTaskGroupAccount puller,
+            String reasonCode,
+            long now) {
+        if (!INVALIDATING_REASON_CODES.contains(reasonCode)
+                || execution == null || execution.getTenantId() == null
+                || puller == null || puller.getId() == null) {
+            return false;
+        }
         Long previousTenant = TenantContext.get();
         TenantContext.set(execution.getTenantId());
         try {
-            PullTaskStickyPullerInvalidation invalidation =
-                    new PullTaskStickyPullerInvalidation(
-                            execution.getId(),
-                            call.getPullerGroupAccountId(),
-                            call.getPullerAssignmentSeq(),
-                            reasonCode,
-                            now);
-            boolean invalidated = executionMapper.clearStickyPuller(invalidation) == 1;
-            if (invalidated) {
-                logStickyInvalidated(execution, call.getPullerGroupAccountId(),
-                        call.getPullerAssignmentSeq(), reasonCode);
+            PullTaskGroupExecution current = executionMapper.selectById(execution.getId());
+            if (current == null || current.getPullerAssignmentSeq() == null
+                    || !Objects.equals(
+                            current.getActivePullerGroupAccountId(), puller.getId())) {
+                return false;
             }
-            return invalidated;
+            return clearSticky(
+                    current, puller.getId(), current.getPullerAssignmentSeq(), reasonCode, now);
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private boolean invalidate(
+            PullTaskGroupExecution execution,
+            long pullerGroupAccountId,
+            long assignmentSeq,
+            String reasonCode,
+            long now) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(execution.getTenantId());
+        try {
+            return clearSticky(
+                    execution, pullerGroupAccountId, assignmentSeq, reasonCode, now);
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    private boolean clearSticky(
+            PullTaskGroupExecution execution,
+            long pullerGroupAccountId,
+            long assignmentSeq,
+            String reasonCode,
+            long now) {
+        PullTaskStickyPullerInvalidation invalidation = new PullTaskStickyPullerInvalidation(
+                execution.getId(), pullerGroupAccountId, assignmentSeq, reasonCode, now);
+        boolean invalidated = executionMapper.clearStickyPuller(invalidation) == 1;
+        if (invalidated) {
+            logStickyInvalidated(
+                    execution, pullerGroupAccountId, assignmentSeq, reasonCode);
+        }
+        return invalidated;
     }
 
     private PullerChoice choose(

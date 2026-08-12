@@ -60,6 +60,7 @@ public class PullTaskPullCallParticipantResultService {
             ProtocolErrorCode.GROUP_PERMISSION_DENIED.name();
     private static final String GROUP_UNAVAILABLE =
             ProtocolErrorCode.GROUP_UNAVAILABLE.name();
+    private static final String GROUP_FULL = "GROUP_FULL";
     private static final List<Integer> CALLBACK_CALL_STATUSES = List.of(
             PullTaskPullCallStatus.SUBMITTED.code(),
             PullTaskPullCallStatus.UNKNOWN.code(),
@@ -491,7 +492,7 @@ public class PullTaskPullCallParticipantResultService {
         if (reasonCode == null) {
             return;
         }
-        if (GROUP_UNAVAILABLE.equals(reasonCode)) {
+        if (GROUP_UNAVAILABLE.equals(reasonCode) || GROUP_FULL.equals(reasonCode)) {
             coordination.groupFailure().terminate(
                     callback.tenantId(), execution.getId(),
                     PullTaskExecutionReasonCode.GROUP_UNAVAILABLE,

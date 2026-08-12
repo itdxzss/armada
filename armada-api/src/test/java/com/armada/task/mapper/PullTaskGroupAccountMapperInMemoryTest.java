@@ -84,6 +84,25 @@ class PullTaskGroupAccountMapperInMemoryTest {
     }
 
     @Test
+    void accountStateLookupReturnsOnlyOccupiedPullerRole() {
+        PullTaskGroupAccount occupied =
+                role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
+        PullTaskGroupAccount released =
+                role(100L, EXEC_A, 901L, PullTaskGroupAccountRole.PULLER, 2);
+        mapper.insert(occupied);
+        mapper.insert(released);
+        mapper.releasePuller(released.getId(), 800L);
+        mapper.insert(role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.MANAGER, 1));
+
+        assertThat(mapper.selectOccupiedByAccountAndRole(
+                900L, PullTaskGroupAccountRole.PULLER.code()))
+                .extracting(PullTaskGroupAccount::getId)
+                .containsExactly(occupied.getId());
+        assertThat(mapper.selectOccupiedByAccountAndRole(
+                901L, PullTaskGroupAccountRole.PULLER.code())).isEmpty();
+    }
+
+    @Test
     void reoccupyFailsWhenAnotherTaskAlreadyTookTheAccount() {
         PullTaskGroupAccount first = role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
         mapper.insert(first);

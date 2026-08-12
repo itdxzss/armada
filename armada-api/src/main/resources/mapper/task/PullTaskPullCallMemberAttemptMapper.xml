@@ -142,14 +142,6 @@
                open="(" separator="," close=")">#{status}</foreach>
   </select>
 
-  <select id="selectEarliestSubmittedAtByWave" resultType="java.lang.Long">
-    SELECT MIN(submitted_at)
-    FROM pull_task_pull_call_member_attempt
-    WHERE pull_wave_id = #{pullWaveId}
-      AND lifecycle_status = #{submittedStatus}
-      AND submitted_at IS NOT NULL
-  </select>
-
   <update id="bindPlannedPullerByCall">
     UPDATE pull_task_pull_call_member_attempt
     SET puller_group_account_id = #{binding.target.pullerGroupAccountId},

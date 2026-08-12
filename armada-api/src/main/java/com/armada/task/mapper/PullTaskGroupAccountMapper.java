@@ -58,6 +58,11 @@ public interface PullTaskGroupAccountMapper {
             @Param("groupExecutionId") long groupExecutionId,
             @Param("roleType") int roleType);
 
+    /** 查询账号当前仍占用的指定任务角色，供账号状态事件同步任务内可用性。 */
+    List<PullTaskGroupAccount> selectOccupiedByAccountAndRole(
+            @Param("accountId") long accountId,
+            @Param("roleType") int roleType);
+
     /** 选择失败次数未达上限且没有活动 attempt 的待拉站台。 */
     List<PullTaskGroupAccount> selectPendingStationsByGuard(
             @Param("groupExecutionId") long groupExecutionId,

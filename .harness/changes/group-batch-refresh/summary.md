@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-08-12 / `feat/group-batch-refresh` / `/home/yanwenchao/ideaProject/armada`
 - 需求来源: `群组列表批量刷新与获取最新信息_产品需求文档_PRD_V1.1.docx` + `轻量需求卡_V1.0` + 独立交互原型 V1.0
-- 状态: 进行中
+- 状态: 已完成（待部署验证）
 
 ## 目标（一句话）
 
@@ -15,9 +15,9 @@
 - [x] Flyway V112：`group_batch_task` / `group_batch_task_item`
 - [x] 批量任务 entity / enums / Mapper + XML
 - [x] `GroupBatchTaskService`：提交校验与进度聚合
-- [ ] `GroupBatchTaskJob` + `GroupBatchTaskWorker` + `GroupBatchTaskSettlement`：两类任务执行器
-- [ ] Controller 三个端点
-- [ ] 前端：两个按钮 + 任务弹窗 + 轮询
+- [x] 执行器：`GroupBatchTaskSettlement` + `GroupBatchLinkRefreshWorker` + `GroupBatchInfoRefreshWorker` + `GroupBatchTaskJob`
+- [x] Controller 三个端点
+- [x] 前端：两个按钮 + 任务弹窗 + 轮询
 
 ## 关键设计决策
 
@@ -113,14 +113,14 @@ TDD 循环（均先观察到预期失败再实现）：
 | `selectGroupAdminExecutionAccountsEnforcesAdminRoleInsteadOfOnlyPreferringIt` | XML 中无强制 `is_admin` 过滤的 select |
 | `GroupBatchRefreshMigrationSqlTest`（4 个） | V112 迁移文件不存在 |
 
-## 下一步：执行器设计（已定，未落码）
+## 执行器设计（已落码）
 
 拆三个类，职责边界是「协议 I/O 绝不在事务里」+「逐项独立事务」：
 
 | 类 | 职责 | 事务 |
 |---|---|---|
-| `GroupBatchTaskJob` | `@Scheduled` 捞 PENDING/RUNNING 任务 → 逐个 `itemMapper.selectPending` → 交给 worker | 无 |
-| `GroupBatchTaskWorker` | 执行单项，产出一个已填好状态的 `GroupBatchTaskItem` | 无（含协议调用） |
+| `GroupBatchTaskJob` | `@Scheduled` 捞 PENDING/RUNNING 任务 → 投递到自有线程池 | 无 |
+| `GroupBatchLinkRefreshWorker` / `GroupBatchInfoRefreshWorker` | 执行单项，产出已填好状态的 `GroupBatchTaskItem` | 无（含协议调用） |
 | `GroupBatchTaskSettlement` | `finishItem` + `applyItemOutcome` | `@Transactional`，一项一事务 |
 
 `settle(GroupBatchTaskItem outcome)` 单参数即可——成功与否从 `outcome.getStatus()` 推导，避免超 5 参数限制：
@@ -157,13 +157,18 @@ else                                                                → 保持 P
 判定基线用「提交时刻」而非「提交时的 last_success_at」：提交后任一次同步成功都说明快照已刷新，
 语义等价但省掉提交阶段的 N 次查询。
 
-### 待写测试（TDD 入口）
+### 已写测试
 
 - `refreshLinkWithoutAvailableAdminFailsTheItemWithoutCallingTheProtocol`（验证 `verify(invitePort, never())`）
 - `refreshLinkPersistsFetchedInviteAndSettlesItemAsSuccess`
 - `refreshInfoSucceedsOnlyAfterSyncSucceededPastTheSubmittedBaseline`
 - `refreshInfoFailsWhenMetadataSyncReachedTerminalFailure`
-- `settlementSkipsSummaryWhenItemWasAlreadyFinished`（`finishItem` 返回 0 行）
+- `settlementSkipsSummaryWhenItemWasAlreadyFinished`（`finishItem` 返回 0 行；已由
+  `GroupBatchTaskItemMapperDbTest.finishItemIsRejectedOnSecondCall...` 在 SQL 层覆盖）
+- `runOnceOnlyDispatchesSoTheSharedSchedulerThreadIsNeverBlockedByProtocolCalls`
+- `inFlightTaskIsNotDispatchedAgainByTheNextRound`
+
+最终验证：`mvn -Dtest` 相关用例 **115 项通过**；前端 `pnpm typecheck` 本次改动 0 错误、`pnpm build` 通过。
 
 ### 调度线程池（全局审查发现，已修）
 

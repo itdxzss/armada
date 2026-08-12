@@ -60,6 +60,17 @@ public interface GroupLinkHealthMapper {
     List<Long> selectExistingGroupLinkIds(@Param("groupLinkIds") List<Long> groupLinkIds);
 
     /**
+     * 批量查询不允许刷新群邀请链接的群入口 ID。
+     *
+     * <p>与群组列表"群状态"列共用口径：封禁(is_banned=1)和不可用(health_status=3)均拦截；
+     * 链接失效(health_status=2)恰恰最需要刷新链接，必须放行。保证前端置灰的群与后端拒绝的群一致。</p>
+     *
+     * @param groupLinkIds 群入口 ID
+     * @return 其中状态异常、不允许刷新链接的群入口 ID
+     */
+    List<Long> selectLinkRefreshBlockedIds(@Param("groupLinkIds") List<Long> groupLinkIds);
+
+    /**
      * 更新账号群同步已存在的健康状态，避免存量行进入自增 INSERT 候选锁路径。
      * 已封禁行只刷新成员数和观测时间，不清除封禁事实。
      *

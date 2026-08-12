@@ -31,6 +31,16 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
+    void selectGroupAdminExecutionAccountsEnforcesAdminRoleInsteadOfOnlyPreferringIt() throws IOException {
+        String xml = mapperXml();
+        assertTrue(xml.contains("<select id=\"selectGroupAdminExecutionAccounts\""));
+        // 刷新群邀请链接必须由群管理员执行；只靠 ORDER BY 优先会在候选轮换时选中普通成员。
+        assertTrue(
+                xml.contains("AND m.is_admin = 1"),
+                "group admin selection must filter on is_admin, not merely order by it");
+    }
+
+    @Test
     void selectGroupExecutionAccountsSupportRotationAndFreshAdminPhones() throws IOException {
         String xml = mapperXml();
         assertTrue(xml.contains("<select id=\"selectGroupExecutionAccounts\""));

@@ -88,6 +88,18 @@
     ORDER BY group_link_id ASC
   </select>
 
+  <select id="selectLinkRefreshBlockedIds" resultType="long">
+    SELECT group_link_id
+    FROM group_link_health
+    <!-- 3=不可用。链接失效(2)不拦截：那正是最需要刷新邀请链接的场景。 -->
+    WHERE (is_banned = 1 OR health_status = 3)
+      AND group_link_id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+    ORDER BY group_link_id ASC
+  </select>
+
   <update id="updateFromAccountGroupSync">
     UPDATE group_link_health
     SET health_status = CASE WHEN COALESCE(is_banned, 0) = 1 THEN health_status ELSE #{healthStatus} END,

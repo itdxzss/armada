@@ -127,6 +127,27 @@ class GroupExecutionAccountSelectorTest {
                 7L, "120363group@g.us", 15L);
     }
 
+    @Test
+    void findAdminReturnsEmptyWhenGroupHasNoOnlineAdminSoCallerCanSkipTheProtocolCall() {
+        when(mapper.selectGroupAdminExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                .thenReturn(List.of());
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.findAdmin(10L)).isEmpty();
+    }
+
+    @Test
+    void findAdminSelectsTheGroupAdminCandidateReturnedByMapper() {
+        GroupExecutionAccount admin = account(7L, "923310000001", true);
+        when(mapper.selectGroupAdminExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                .thenReturn(List.of(admin));
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.findAdmin(10L)).contains(admin);
+    }
+
     private static GroupExecutionAccount account(long id, String phone, boolean admin) {
         return new GroupExecutionAccount(id, "WEB", "acc_" + phone, phone, admin);
     }

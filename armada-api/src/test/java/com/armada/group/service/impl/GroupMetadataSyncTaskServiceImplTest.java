@@ -211,7 +211,8 @@ class GroupMetadataSyncTaskServiceImplTest {
     }
 
     private GroupMetadataSyncTaskServiceImpl service() {
-        return new GroupMetadataSyncTaskServiceImpl(mapper, 2_000L, PERIODIC_REFRESH_MS);
+        return new GroupMetadataSyncTaskServiceImpl(
+                mapper, 2_000L, PERIODIC_REFRESH_MS);
     }
 
     private static GroupMetadataSyncTask runningTask(int attempts) {

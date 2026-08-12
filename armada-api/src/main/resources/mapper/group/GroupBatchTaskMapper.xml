@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupBatchTaskMapper">
+
+  <sql id="Columns">
+    id, tenant_id, task_type, status, total_count, success_count, failed_count,
+    request_id, created_by, created_at, completed_at
+  </sql>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_batch_task (
+      tenant_id, task_type, status, total_count, success_count, failed_count,
+      request_id, created_by, created_at
+    ) VALUES (
+      #{tenantId}, #{taskType}, #{status}, #{totalCount}, #{successCount}, #{failedCount},
+      #{requestId}, #{createdBy}, #{createdAt}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.group.model.entity.GroupBatchTask">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task
+    WHERE id = #{id}
+  </select>
+
+  <select id="selectByRequestId" resultType="com.armada.group.model.entity.GroupBatchTask">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task
+    WHERE request_id = #{requestId}
+  </select>
+
+  <select id="selectRunnableTasks" resultType="com.armada.group.model.entity.GroupBatchTask">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task
+    WHERE status IN
+    <foreach collection="statuses" item="status" open="(" separator="," close=")">
+      #{status}
+    </foreach>
+    ORDER BY id ASC
+    LIMIT #{limit}
+  </select>
+
+  <update id="applyItemOutcome">
+    UPDATE group_batch_task
+    SET
+      <!-- status 与 completed_at 必须排在计数列之前。MySQL 的 SET 子句按从左到右求值，
+           放到自增之后会读到已经加过 1 的计数，终态提前一项落下，最后一项再也无人聚合。 -->
+      status = CASE
+                 WHEN success_count + failed_count + 1 &gt;= total_count THEN #{completedStatus}
+                 ELSE #{runningStatus}
+               END,
+      completed_at = CASE
+                       WHEN success_count + failed_count + 1 &gt;= total_count THEN #{now}
+                       ELSE completed_at
+                     END,
+      success_count = success_count +
+        <choose><when test="success">1</when><otherwise>0</otherwise></choose>,
+      failed_count = failed_count +
+        <choose><when test="success">0</when><otherwise>1</otherwise></choose>
+    WHERE id = #{taskId}
+  </update>
+
+  <update id="cancelIfRunnable">
+    UPDATE group_batch_task
+    SET status = #{canceledStatus},
+        completed_at = #{now}
+    WHERE id = #{taskId}
+      <!-- 白名单挡住重复取消与覆盖已完成任务。 -->
+      AND status IN
+      <foreach collection="runnableStatuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+  </update>
+
+  <select id="selectStatusById" resultType="java.lang.Integer">
+    SELECT status
+    FROM group_batch_task
+    WHERE id = #{taskId}
+  </select>
+</mapper>

@@ -1,6 +1,7 @@
 package com.armada.group.controller;
 
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupBatchSubmitDTO;
 import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupFolderAssignDTO;
 import com.armada.group.model.dto.GroupIdsDTO;
@@ -14,6 +15,8 @@ import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.dto.GroupTimedMessageCommandDTO;
 import com.armada.group.model.dto.GroupSettingCommandDTO;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
+import com.armada.group.model.vo.GroupBatchTaskAcceptedVO;
+import com.armada.group.model.vo.GroupBatchTaskDetailVO;
 import com.armada.group.model.vo.GroupDetailVO;
 import com.armada.group.model.vo.GroupAvatarUpdateVO;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
@@ -23,13 +26,16 @@ import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.FileLinesExtractor;
+import com.armada.group.service.GroupBatchTaskService;
 import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.AuthPrincipal;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -55,15 +61,18 @@ public class GroupLinkController {
     private final GroupDetailService groupDetailService;
     private final GroupLinkImportService importService;
     private final FileLinesExtractor extractor;
+    private final GroupBatchTaskService batchTaskService;
 
     public GroupLinkController(GroupLinkService groupLinkService,
                                GroupDetailService groupDetailService,
                                GroupLinkImportService importService,
-                               FileLinesExtractor extractor) {
+                               FileLinesExtractor extractor,
+                               GroupBatchTaskService batchTaskService) {
         this.groupLinkService = groupLinkService;
         this.groupDetailService = groupDetailService;
         this.importService = importService;
         this.extractor = extractor;
+        this.batchTaskService = batchTaskService;
     }
 
     /**
@@ -285,6 +294,45 @@ public class GroupLinkController {
             @PathVariable Long id,
             @RequestBody GroupMemberBatchCommandDTO dto) {
         return ApiResponse.ok(groupDetailService.kickMembers(id, dto));
+    }
+
+    /**
+     * 批量刷新所选群的邀请链接。
+     *
+     * @param dto 已勾选群 ID 与前端幂等键
+     * @param principal 当前登录身份
+     * @return 任务受理结果;命中幂等键时返回已有任务
+     */
+    @PostMapping("/batch-refresh-links")
+    public ApiResponse<GroupBatchTaskAcceptedVO> batchRefreshLinks(
+            @RequestBody GroupBatchSubmitDTO dto,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        return ApiResponse.ok(batchTaskService.submitRefreshLinks(dto, principal.userId()));
+    }
+
+    /**
+     * 批量重新拉取并回填所选群的最新快照。
+     *
+     * @param dto 已勾选群 ID 与前端幂等键
+     * @param principal 当前登录身份
+     * @return 任务受理结果;命中幂等键时返回已有任务
+     */
+    @PostMapping("/batch-refresh-info")
+    public ApiResponse<GroupBatchTaskAcceptedVO> batchRefreshInfo(
+            @RequestBody GroupBatchSubmitDTO dto,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        return ApiResponse.ok(batchTaskService.submitRefreshInfo(dto, principal.userId()));
+    }
+
+    /**
+     * 查询批量任务进度与逐项结果,供任务弹窗轮询。
+     *
+     * @param taskId 批量任务 ID
+     * @return 汇总与已终结的逐项结果
+     */
+    @GetMapping("/batch-tasks/{taskId}")
+    public ApiResponse<GroupBatchTaskDetailVO> batchTaskDetail(@PathVariable Long taskId) {
+        return ApiResponse.ok(batchTaskService.detail(taskId));
     }
 
     /**

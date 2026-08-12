@@ -106,11 +106,14 @@
         (task.next_run_at IS NOT NULL AND task.next_run_at &lt;= #{now})
         OR (task.status = #{periodicStatus} AND task.next_run_at IS NULL)
       )
-    <!-- 1=PENDING；3/4/6=成员变化、metadata变化、手动刷新，保持原有实时吞吐。 -->
+    <!-- 1=PENDING；3/4/6=成员变化、metadata变化、手动刷新，保持原有实时吞吐。
+         8=群组列表批量刷新：整批多为从未同步过的群，必须先于 last_success_at 判定归入
+         独立档，否则一次勾选上千条会在 LIMIT 内占满候选，把实时刷新挤出候选列表。 -->
     ORDER BY CASE
+               WHEN task.trigger_source = 8 THEN 2
                WHEN task.last_success_at IS NULL THEN 0
                WHEN task.status = 1 AND task.trigger_source IN (3, 4, 6) THEN 1
-               ELSE 2
+               ELSE 3
              END ASC,
              task.next_run_at ASC,
              task.id ASC

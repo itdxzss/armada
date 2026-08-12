@@ -52,6 +52,30 @@ public final class GroupExecutionAccountSelector {
     }
 
     /**
+     * 选择必须具备群管理员角色的执行账号。
+     *
+     * <p>刷新群邀请链接是管理员专属操作。以 account_group_membership.is_admin 作为准入口径,
+     * 与群组列表"可用管理员"列一致;取不到时调用方直接判该项失败并给出"没有可用管理员账号",
+     * 不再发出注定被协议层拒绝的调用。角色快照过期的残余情况由协议层兜底拒绝。</p>
+     *
+     * @param groupLinkId 群入口 ID
+     * @return 最近在群的管理员账号;群内无在线管理员时为空
+     */
+    public Optional<GroupExecutionAccount> findAdmin(Long groupLinkId) {
+        if (groupLinkId == null) {
+            return Optional.empty();
+        }
+        List<GroupExecutionAccount> candidates = mapper.selectGroupAdminExecutionAccounts(
+                groupLinkId,
+                AccountLoginStateCode.ONLINE,
+                AccountStateCode.NORMAL,
+                1);
+        return candidates == null || candidates.isEmpty()
+                ? Optional.empty()
+                : Optional.of(candidates.get(0));
+    }
+
+    /**
      * 根据新鲜 metadata 已确认的管理员手机号选择在线在群账号。
      *
      * <p>只接受可规范化为数字的可信手机号；LID 不得作为手机号参与匹配。</p>

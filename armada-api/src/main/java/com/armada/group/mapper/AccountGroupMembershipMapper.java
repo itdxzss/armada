@@ -309,6 +309,24 @@ public interface AccountGroupMembershipMapper {
             @Param("limit") int limit);
 
     /**
+     * 选择一个当前在线、在群且群角色为管理员的账号,用于刷新群邀请链接等必须管理员权限的操作。
+     *
+     * <p>与 {@link #selectGroupExecutionAccounts} 的差别是 is_admin 参与过滤而非仅参与排序,
+     * 口径与群组列表"可用管理员"列一致,避免列表显示可用却选出普通成员执行。</p>
+     *
+     * @param groupLinkId 群链接 ID
+     * @param onlineLoginState 在线登录态码
+     * @param normalAccountState 正常账号态码
+     * @param limit 最大候选数
+     * @return 按最近在群时间稳定排序的管理员候选;无管理员时为空列表
+     */
+    List<GroupExecutionAccount> selectGroupAdminExecutionAccounts(
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("limit") int limit);
+
+    /**
      * 从新鲜 metadata 已确认的管理员手机号中选择在线在群账号。
      *
      * @param groupLinkId 群入口 ID

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupBatchTaskItemMapper">
+
+  <sql id="Columns">
+    id, tenant_id, task_id, group_link_id, group_jid, account_id, status,
+    error_code, description, baseline_synced_at, operated_at, created_at, updated_at
+  </sql>
+
+  <insert id="batchInsert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO group_batch_task_item (
+      tenant_id, task_id, group_link_id, group_jid, account_id, status,
+      baseline_synced_at, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (#{row.tenantId}, #{row.taskId}, #{row.groupLinkId}, #{row.groupJid},
+       #{row.accountId}, #{row.status}, #{row.baselineSyncedAt},
+       #{row.createdAt}, #{row.updatedAt})
+    </foreach>
+  </insert>
+
+  <select id="selectByTaskId" resultType="com.armada.group.model.entity.GroupBatchTaskItem">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task_item
+    WHERE task_id = #{taskId}
+    ORDER BY id ASC
+  </select>
+
+  <select id="selectDetailRowsByTaskId" resultType="com.armada.group.model.vo.GroupBatchTaskItemRow">
+    SELECT item.group_link_id AS groupLinkId,
+           item.group_jid AS groupJid,
+           acc.ws_phone AS accountPhone,
+           item.status AS status,
+           item.description AS description,
+           item.operated_at AS operatedAt
+    FROM group_batch_task_item item
+    LEFT JOIN account acc
+      ON acc.tenant_id = item.tenant_id
+     AND acc.id = item.account_id
+     AND acc.deleted_at IS NULL
+    WHERE item.task_id = #{taskId}
+    ORDER BY item.id ASC
+  </select>
+
+  <select id="selectPending" resultType="com.armada.group.model.entity.GroupBatchTaskItem">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task_item
+    WHERE task_id = #{taskId}
+      AND status = #{pendingStatus}
+    ORDER BY id ASC
+    LIMIT #{limit}
+  </select>
+
+  <update id="finishItem">
+    UPDATE group_batch_task_item
+    SET status = #{row.status},
+        account_id = COALESCE(#{row.accountId}, account_id),
+        group_jid = COALESCE(#{row.groupJid}, group_jid),
+        error_code = #{row.errorCode},
+        description = #{row.description},
+        operated_at = #{row.operatedAt},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      <!-- 只允许待执行 -> 终态。执行器重入或多实例竞争时第二次返回 0 行，
+           调用方据此跳过汇总递增，避免同一项被计入两次。 -->
+      AND status = #{pendingStatus}
+  </update>
+</mapper>

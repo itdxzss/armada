@@ -24,6 +24,7 @@ import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
 import com.armada.group.service.FileLinesExtractor;
+import com.armada.group.service.GroupBatchTaskService;
 import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
@@ -56,13 +57,16 @@ class GroupLinkControllerTest {
     @Mock
     private FileLinesExtractor extractor;
 
+    @Mock
+    private GroupBatchTaskService batchTaskService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new GroupLinkController(
-                        groupLinkService, groupDetailService, importService, extractor))
+                        groupLinkService, groupDetailService, importService, extractor, batchTaskService))
                 .build();
     }
 

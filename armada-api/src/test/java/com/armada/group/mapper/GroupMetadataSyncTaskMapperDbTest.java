@@ -276,6 +276,31 @@ class GroupMetadataSyncTaskMapperDbTest {
                 .containsExactly(newGroupLinkId, changedGroupLinkId, GROUP_LINK_ID);
     }
 
+    @Test
+    void dueCandidatesRankBatchRefreshBehindRealtimeRefreshEvenWithoutSnapshot() throws SQLException {
+        // 批量项多为从未同步过的群。若仍按 last_success_at IS NULL 排最前，一次勾选上千条
+        // 就会在 SQL 的 LIMIT 内占满候选，实时事件刷新连候选列表都进不来。
+        insertGroupLink("wa://group/batch-group@g.us", 4, "batch-group@g.us", null);
+        insertTask(TENANT_ID, pendingTask(GroupMetadataSyncTrigger.BATCH_REFRESH, 1_000L));
+
+        long changedGroupLinkId = 103L;
+        insertGroupLink(changedGroupLinkId, "wa://group/changed-group@g.us", 4,
+                "changed-group@g.us", "CHANGED-INVITE-CODE");
+        GroupMetadataSyncTask participantChanged = pendingTask(
+                GroupMetadataSyncTrigger.PARTICIPANT_CHANGED, 1_500L);
+        participantChanged.setGroupLinkId(changedGroupLinkId);
+        participantChanged.setLastSuccessAt(1_400L);
+        insertTask(TENANT_ID, participantChanged);
+
+        assertThat(mapper.selectDueCandidates(
+                java.util.List.of(
+                        GroupMetadataSyncStatus.PENDING.code(),
+                        GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 10))
+                .extracting(GroupMetadataSyncTask::getGroupLinkId)
+                .containsExactly(changedGroupLinkId, GROUP_LINK_ID);
+    }
+
     private static GroupMetadataSyncTask pendingTask(
             GroupMetadataSyncTrigger trigger,
             long now) {

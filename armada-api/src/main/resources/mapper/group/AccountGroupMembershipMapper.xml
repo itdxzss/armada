@@ -726,6 +726,15 @@
     LIMIT #{limit}
   </select>
 
+  <select id="selectGroupAdminExecutionAccounts"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <include refid="groupExecutionAccountColumnsAndJoins"/>
+      AND m.is_admin = 1
+    ORDER BY COALESCE(m.last_seen_at, 0) DESC,
+             m.id ASC
+    LIMIT #{limit}
+  </select>
+
   <select id="selectGroupExecutionAccountsByPhones"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <include refid="groupExecutionAccountColumnsAndJoins"/>

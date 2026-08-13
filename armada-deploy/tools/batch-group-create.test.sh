@@ -112,17 +112,19 @@ assert_equals 3306 "${BATCH_DB_PORT}" "explicit DB port"
 
 plan_accounts="${fixture}/plan-accounts.tsv"
 plan_ledger="${fixture}/plan-ledger.jsonl"
+rounds_plan_ledger="${fixture}/rounds-plan-ledger.jsonl"
 blocked_plan_ledger="${fixture}/blocked-plan-ledger.jsonl"
 reduced_plan_ledger="${fixture}/reduced-plan-ledger.jsonl"
 contact_evidence="${fixture}/contact-evidence.tsv"
 admin_block_evidence="${fixture}/admin-block-evidence.tsv"
 : >"${plan_accounts}"
 : >"${plan_ledger}"
+: >"${rounds_plan_ledger}"
 : >"${blocked_plan_ledger}"
 : >"${reduced_plan_ledger}"
 : >"${contact_evidence}"
 id=1
-while [ "${id}" -le 32 ]; do
+while [ "${id}" -le 27 ]; do
   readiness=READY
   [ "${id}" -gt 7 ] || readiness=LOGIN_STATE_0
   printf '148\t%s\tANDROID\tcreator-%s\t910000%04d\t%s\n' "$((1000 + id))" "${id}" "${id}" "${readiness}" >>"${plan_accounts}"
@@ -181,6 +183,8 @@ while [ "${fixture_creator}" -le 1010 ]; do
 done
 batch_make_plans "${plan_accounts}" "${plan_ledger}" single-round-test \
   'Armada Single Round Test' "${contact_evidence}"
+assert_equals 20 "$(jq -sr '[.[]|select(.recordType=="CONTACT_GATE")][0].candidates|length' "${plan_ledger}")" \
+  "only current READY creator-group members may enter gate candidates"
 assert_equals 15 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|length' "${plan_ledger}")" \
   "five rounds for every eligible creator"
 assert_equals 0 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN" and ((.adminAccountIds|length)!=2 or (.helperAccountIds|length)!=59 or .expectedParticipants!=61 or .expectedGroupSize!=62))]|length' "${plan_ledger}")" \
@@ -203,6 +207,19 @@ assert_equals 0 "$(jq -s '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mod
 assert_equals 15 "$(jq -s --argjson id "${selected_helper}" '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mode=="live")|.excludedHelpers[]|select(.accountId==$id)]|length' "${plan_ledger}")" \
   "offline helper exclusions must be recorded per plan"
 
+BATCH_GROUP_ROUNDS=200
+batch_make_plans "${plan_accounts}" "${rounds_plan_ledger}" two-hundred-round-test \
+  'Armada Two Hundred Round Test' "${contact_evidence}"
+assert_equals 600 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|length' "${rounds_plan_ledger}")" \
+  "configured rounds for every eligible creator"
+assert_equals 200 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|group_by(.creatorAccountId)|map(length)|max' "${rounds_plan_ledger}")" \
+  "configured groups per creator"
+assert_equals 0 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|group_by(.creatorAccountId)|map(select((map(.creatorSequence)|sort)!=[range(1;201)]))|length' "${rounds_plan_ledger}")" \
+  "configured creator sequences"
+assert_equals 200 "$(jq -sr '[.[]|select(.recordType=="CONTACT_GATE")][0].roundsPerCreator' "${rounds_plan_ledger}")" \
+  "configured rounds must be frozen in contact gate"
+BATCH_GROUP_ROUNDS=5
+
 stop_ledger="${fixture}/stop-ledger.jsonl"
 stop_tasks="${fixture}/stop-tasks.tsv"
 : >"${stop_ledger}"
@@ -220,9 +237,47 @@ batch_new_banned_creator_ids() {
   fi
 }
 batch_run_scheduler "${stop_tasks}" "${stop_ledger}" "${fixture}/stop-work"
-assert_equals 1 "$(jq -s '[.[]|select(.recordType=="GLOBAL_STOP")]|length' "${stop_ledger}")" \
-  "creator ban must trigger one global stop"
-assert_equals 2 "$(jq -s '[.[]|select(.recordType=="GROUP_ITEM_FINAL")]|length' "${stop_ledger}")" \
-  "global stop must leave queued items undispatched"
+assert_equals 0 "$(jq -s '[.[]|select(.recordType=="GLOBAL_STOP")]|length' "${stop_ledger}")" \
+  "creator ban must not trigger a global stop"
+assert_equals 1 "$(jq -s '[.[]|select(.recordType=="CREATOR_PAUSED" and .creatorAccountId==31 and .reasonClass=="CREATOR_BANNED")]|length' "${stop_ledger}")" \
+  "banned creator must be paused once"
+assert_equals 1 "$(jq -s '[.[]|select(.recordType=="GROUP_ITEM_FINAL" and .creatorAccountId==31)]|length' "${stop_ledger}")" \
+  "banned creator must leave its remaining queue undispatched"
+assert_equals 2 "$(jq -s '[.[]|select(.recordType=="GROUP_ITEM_FINAL" and .creatorAccountId==32)]|length' "${stop_ledger}")" \
+  "other creators must continue after one creator is banned"
+
+rate_ledger="${fixture}/rate-ledger.jsonl"
+rate_tasks="${fixture}/rate-tasks.tsv"
+: >"${rate_ledger}"
+cat >"${rate_tasks}" <<'TSV'
+201	41	ANDROID	Rate Test 201
+202	41	ANDROID	Rate Test 202
+203	42	ANDROID	Rate Test 203
+204	42	ANDROID	Rate Test 204
+TSV
+BATCH_GROUP_LEDGER_FILE="${rate_ledger}"
+batch_execute_item() {
+  local item_file="$1" result_file="$2" item_id creator_id
+  IFS=$'\t' read -r item_id creator_id _ _ <"${item_file}"
+  if [ "${creator_id}" -eq 41 ]; then
+    jq -nc --argjson itemId "${item_id}" --argjson creatorAccountId "${creator_id}" \
+      '{recordType:"GROUP_ITEM_FINAL",itemId:$itemId,creatorAccountId:$creatorAccountId,finalStatus:"FAILED",reasonClass:"RATE_LIMITED"}' \
+      >"${result_file}"
+  else
+    jq -nc --argjson itemId "${item_id}" --argjson creatorAccountId "${creator_id}" \
+      '{recordType:"GROUP_ITEM_FINAL",itemId:$itemId,creatorAccountId:$creatorAccountId,finalStatus:"SUCCESS",reasonClass:""}' \
+      >"${result_file}"
+  fi
+}
+batch_new_banned_creator_ids() {
+  return 0
+}
+batch_run_scheduler "${rate_tasks}" "${rate_ledger}" "${fixture}/rate-work"
+assert_equals 1 "$(jq -s '[.[]|select(.recordType=="CREATOR_PAUSED" and .creatorAccountId==41 and .reasonClass=="RATE_LIMITED")]|length' "${rate_ledger}")" \
+  "rate-limited creator must be paused once"
+assert_equals 1 "$(jq -s '[.[]|select(.recordType=="GROUP_ITEM_FINAL" and .creatorAccountId==41)]|length' "${rate_ledger}")" \
+  "rate-limited creator must leave its remaining queue undispatched"
+assert_equals 2 "$(jq -s '[.[]|select(.recordType=="GROUP_ITEM_FINAL" and .creatorAccountId==42)]|length' "${rate_ledger}")" \
+  "other creators must continue after one creator is rate limited"
 
 printf 'PASS batch-group-create tests\n'

@@ -453,6 +453,11 @@ test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
   assert_contains "${command_log}" "ssh -i '${ZHUAN_FIXTURE_KEY}'"
   assert_contains "${command_log}" "<--exclude=/.env>"
   assert_contains "${command_log}" "<--exclude=*.key>"
+  assert_contains "${command_log}" "<--exclude=/.codegraph/>"
+  assert_contains "${command_log}" "<--exclude=deploy/traffic-capture/>"
+  assert_contains "${command_log}" "<--exclude=deploy/traffic-capture-archive/>"
+  assert_contains "${command_log}" "<--exclude=deploy/rollback/>"
+  assert_contains "${command_log}" "<--exclude=deploy/certs/>"
   assert_contains "${command_log}" "<tester@127.0.0.1:/home/app/zhuan-safe/>"
   assert_contains "${payload_log}" 'sudo docker compose -f "${compose_file}" run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod'
   assert_contains "${payload_log}" 'sudo docker compose -f "${compose_file}" up -d --force-recreate whatsapp-android-zhuan'
@@ -1325,6 +1330,65 @@ test_armada_module_preserves_unauthenticated_response_body() {
   assert_contains "${module_content}" '(40101|40104|0|40001)'
 }
 
+test_deep_check_preserves_unauthenticated_response_body() {
+  local fake_bin fixture_root remote_dir
+  fixture_root="$(mktemp -d)"
+  fake_bin="${fixture_root}/bin"
+  remote_dir="${fixture_root}/remote"
+  mkdir -p "${fake_bin}" "${remote_dir}"
+  cat >"${remote_dir}/.env" <<'ENV'
+DB_URL=jdbc:mysql://db/armada_perf
+PROTOCOL_ANDROID_BASE_URL=http://android:8001
+PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC=armada.perf.protocol.android.lifecycle.commands.v1
+PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC=armada.perf.protocol.android.message.commands.v1
+PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC=armada.perf.protocol.android.group-join.commands.v1
+ARMADA_HTTP_PORT=18080
+ENV
+  cat >"${fake_bin}/docker" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *State.Status*) printf 'running\n' ;;
+  *Config.Env*)
+    cat <<'ENV'
+PROTOCOL_ANDROID_BASE_URL=http://android:8001
+PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC=armada.perf.protocol.android.lifecycle.commands.v1
+PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC=armada.perf.protocol.android.message.commands.v1
+PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC=armada.perf.protocol.android.group-join.commands.v1
+NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC=armada.perf.protocol.web.normal-group.commands.v1
+NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1
+NORMAL_GROUP_CREATION_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1
+NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-perf-api-normal-group-results
+ENV
+    ;;
+esac
+STUB
+  cat >"${fake_bin}/curl" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *api/account-groups*)
+    case " $* " in *' -f '*) exit 22 ;; esac
+    printf '%s\n' '{"code":40104}'
+    ;;
+  *) printf '%s\n' '<!doctype html>' ;;
+esac
+STUB
+  chmod +x "${fake_bin}/docker" "${fake_bin}/curl"
+
+  # shellcheck source=/dev/null
+  . "${SCRIPT_DIR}/lib/deep-check.sh"
+  PATH="${fake_bin}:${PATH}" bash -s -- \
+    "${remote_dir}" \
+    armada_perf \
+    http://android:8001 \
+    armada.perf.protocol.android. \
+    armada.perf.protocol.web.normal-group.commands.v1 \
+    armada.perf.protocol.android.normal-group.commands.v1 \
+    armada.perf.protocol.normal-group.events.v1 \
+    armada-perf-api-normal-group-results \
+    <<<"${deep_armada_check_payload}"
+  rm -rf "${fixture_root}"
+}
+
 test_main_orchestrator_uses_armada_module() {
   local script_content
   script_content="$(cat "${SCRIPT}")"
@@ -1473,6 +1537,7 @@ test_armada_perf_runtime_contract_checks_android_url_and_topics
 test_armada_start_applies_normal_group_environment_contract
 test_armada_module_checks_frontend_title_and_api_proxy
 test_armada_module_preserves_unauthenticated_response_body
+test_deep_check_preserves_unauthenticated_response_body
 test_main_orchestrator_uses_armada_module
 test_armada_compose_passes_android_base_url_to_backend
 test_armada_compose_passes_normal_group_kafka_config_to_backend

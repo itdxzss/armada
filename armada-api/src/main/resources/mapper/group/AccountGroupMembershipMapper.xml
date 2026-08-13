@@ -747,6 +747,24 @@
     LIMIT #{limit}
   </select>
 
+  <select id="selectControlledMembershipsByGroupLinkId"
+          resultType="com.armada.group.model.entity.AccountGroupMembership">
+    SELECT controlled_account.id AS accountId,
+           member.group_link_id AS groupLinkId,
+           member.group_jid AS groupJid,
+           MAX(member.is_admin) AS admin
+    FROM whatsapp_group_member_snapshot member
+    INNER JOIN account controlled_account
+      ON controlled_account.tenant_id = member.tenant_id
+     AND controlled_account.ws_phone = member.phone
+     AND controlled_account.deleted_at IS NULL
+    WHERE member.group_link_id = #{groupLinkId}
+      AND member.phone IS NOT NULL
+      AND TRIM(member.phone) &lt;&gt; ''
+    GROUP BY controlled_account.id, member.group_link_id, member.group_jid
+    ORDER BY controlled_account.id ASC
+  </select>
+
   <select id="selectMissingMembershipIds" resultType="long">
     SELECT id
     FROM account_group_membership

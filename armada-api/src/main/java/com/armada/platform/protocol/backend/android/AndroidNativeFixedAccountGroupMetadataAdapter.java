@@ -158,10 +158,21 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
     }
 
     private static Long positiveLong(JsonNode node) {
-        if (node == null || !node.isIntegralNumber() || !node.canConvertToLong()) {
+        if (node == null || node.isNull()) {
             return null;
         }
-        long value = node.longValue();
+        Long value;
+        if (node.isIntegralNumber() && node.canConvertToLong()) {
+            value = node.longValue();
+        } else if (node.isTextual()) {
+            try {
+                value = Long.valueOf(node.textValue().trim());
+            } catch (NumberFormatException exception) {
+                return null;
+            }
+        } else {
+            return null;
+        }
         return value > 0 ? value : null;
     }
 

@@ -1,11 +1,14 @@
 package com.armada.group.service.impl;
 
+import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
+import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import java.util.List;
@@ -16,9 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapshotPersistence {
 
+    private static final String SNAPSHOT_STATUS_SOURCE = "GROUP_SNAPSHOT";
+
     private final GroupLinkPreviewMapper previewMapper;
     private final WhatsappGroupMemberSnapshotMapper memberMapper;
     private final GroupLinkMapper groupLinkMapper;
+    private final AccountGroupMembershipMapper membershipMapper;
     private final GroupInviteLinkService inviteLinkService;
 
     /**
@@ -27,16 +33,19 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
      * @param previewMapper 群预览数据访问
      * @param memberMapper 群成员快照数据访问
      * @param groupLinkMapper 群入口数据访问
+     * @param membershipMapper 账号群关系数据访问
      * @param inviteLinkService 当前群邀请链接事实服务
      */
     public GroupMetadataSnapshotPersistenceImpl(
             GroupLinkPreviewMapper previewMapper,
             WhatsappGroupMemberSnapshotMapper memberMapper,
             GroupLinkMapper groupLinkMapper,
+            AccountGroupMembershipMapper membershipMapper,
             GroupInviteLinkService inviteLinkService) {
         this.previewMapper = previewMapper;
         this.memberMapper = memberMapper;
         this.groupLinkMapper = groupLinkMapper;
+        this.membershipMapper = membershipMapper;
         this.inviteLinkService = inviteLinkService;
     }
 
@@ -56,7 +65,27 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
         if (members != null && !members.isEmpty()) {
             memberMapper.insertBatch(members);
         }
+        reconcileControlledMemberships(preview);
         return true;
+    }
+
+    private void reconcileControlledMemberships(GroupLinkPreview preview) {
+        long observedAt = preview.getMetadataObservedAt() == null
+                ? preview.getUpdatedAt()
+                : preview.getMetadataObservedAt();
+        long writtenAt = preview.getUpdatedAt() == null ? observedAt : preview.getUpdatedAt();
+        for (AccountGroupMembership membership
+                : membershipMapper.selectControlledMembershipsByGroupLinkId(
+                        preview.getGroupLinkId())) {
+            membership.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
+            membership.setStatusSource(SNAPSHOT_STATUS_SOURCE);
+            membership.setStatusUpdatedAt(observedAt);
+            membership.setJoinedAt(observedAt);
+            membership.setLastSeenAt(observedAt);
+            membership.setCreatedAt(writtenAt);
+            membership.setUpdatedAt(writtenAt);
+            membershipMapper.upsertMembership(membership);
+        }
     }
 
     private void applyCurrentInvite(GroupLinkPreview preview) {

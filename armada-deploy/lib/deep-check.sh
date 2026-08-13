@@ -69,8 +69,8 @@ done
 port="$(env_value ARMADA_HTTP_PORT)"
 port="${port:-18080}"
 curl -fsS -m 8 "http://127.0.0.1:${port}/" >/dev/null
-body="$(curl -fsS -m 8 "http://127.0.0.1:${port}/api/account-groups" || true)"
-printf "%s" "${body}" | grep -Eq "\"code\"[[:space:]]*:[[:space:]]*(40101|0|40001)"
+body="$(curl -sS -m 8 "http://127.0.0.1:${port}/api/account-groups" || true)"
+printf "%s" "${body}" | grep -Eq "\"code\"[[:space:]]*:[[:space:]]*(40101|40104|0|40001)"
 '
 
 deep_protocol_check_payload='

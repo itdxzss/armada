@@ -8,6 +8,7 @@ BATCH_GROUP_ANDROID_CONCURRENCY="${BATCH_GROUP_ANDROID_CONCURRENCY:-6}"
 BATCH_GROUP_WEB_CONCURRENCY="${BATCH_GROUP_WEB_CONCURRENCY:-2}"
 BATCH_GROUP_INTERVAL_SECONDS="${BATCH_GROUP_INTERVAL_SECONDS:-10}"
 BATCH_GROUP_POLL_SECONDS="${BATCH_GROUP_POLL_SECONDS:-1}"
+BATCH_GROUP_ROUNDS="${BATCH_GROUP_ROUNDS:-5}"
 BATCH_GROUP_TRACE_FILE="${BATCH_GROUP_TRACE_FILE:-}"
 BATCH_GROUP_LEDGER_FILE="${BATCH_GROUP_LEDGER_FILE:-}"
 BATCH_CONTACT_148_149_BASE="${BATCH_CONTACT_148_149_BASE:-/tmp/armada-mutual-contacts-failures-20260813T014830Z.jsonl}"
@@ -76,15 +77,21 @@ BATCH_CURSOR=0
 
 batch_prepare_scheduler() {
   local tasks_file="$1" ledger_file="$2" work_dir="$3"
-  local terminal_file item_id creator_id protocol subject creator_protocol
+  local terminal_file paused_file item_id creator_id protocol subject creator_protocol
   mkdir "${work_dir}"
   mkdir "${work_dir}/queues" "${work_dir}/state" "${work_dir}/pids" "${work_dir}/running"
   terminal_file="${work_dir}/terminal.txt"
+  paused_file="${work_dir}/paused.txt"
   batch_terminal_item_ids "${ledger_file}" >"${terminal_file}"
+  jq -r 'select(.recordType=="CREATOR_PAUSED")|.creatorAccountId' "${ledger_file}" 2>/dev/null \
+    | sort -n -u >"${paused_file}"
   : >"${work_dir}/creators.tsv"
   while IFS=$'\t' read -r item_id creator_id protocol subject; do
     [ -n "${item_id}" ] || continue
     if grep -Fqx -- "${item_id}" "${terminal_file}"; then
+      continue
+    fi
+    if grep -Fqx -- "${creator_id}" "${paused_file}"; then
       continue
     fi
     batch_require_positive_integer "itemId" "${item_id}"
@@ -193,23 +200,26 @@ ORDER BY a.id;"
   }
 fi
 
-batch_check_global_stop() {
-  local work_dir="$1" ledger_file="$2" banned_ids
-  [ ! -e "${work_dir}/global-stop" ] || return 0
-  banned_ids="$(batch_new_banned_creator_ids | jq -Rsc 'split("\n")|map(select(length>0)|tonumber)')"
-  [ "$(jq 'length' <<<"${banned_ids}")" -eq 0 ] && return 1
-  : >"${work_dir}/global-stop"
-  jq -nc --argjson bannedCreatorAccountIds "${banned_ids}" --arg stoppedAt "$(batch_now)" \
-    '{recordType:"GLOBAL_STOP",reasonClass:"CREATOR_BANNED",bannedCreatorAccountIds:$bannedCreatorAccountIds,stoppedAt:$stoppedAt}' \
-    >>"${ledger_file}"
-  return 0
+batch_pause_banned_creators() {
+  local work_dir="$1" ledger_file="$2" creator_id queue_file pause_file
+  while IFS= read -r creator_id; do
+    [ -n "${creator_id}" ] || continue
+    queue_file="${work_dir}/queues/${creator_id}.tsv"
+    pause_file="${work_dir}/state/${creator_id}.paused"
+    [ -e "${queue_file}" ] || continue
+    : >"${queue_file}"
+    [ ! -e "${pause_file}" ] || continue
+    : >"${pause_file}"
+    jq -nc --argjson creatorAccountId "${creator_id}" --arg pausedAt "$(batch_now)" \
+      '{recordType:"CREATOR_PAUSED",creatorAccountId:$creatorAccountId,reasonClass:"CREATOR_BANNED",pausedAt:$pausedAt}' \
+      >>"${ledger_file}"
+  done < <(batch_new_banned_creator_ids)
 }
 
 batch_dispatch_ready() {
   local work_dir="$1" total index creator_id protocol queue_file next_at now dispatched=0
   total="${#BATCH_CREATOR_IDS[@]}"
   [ "${total}" -gt 0 ] || return 1
-  [ ! -e "${work_dir}/global-stop" ] || return 1
   now="$(date +%s)"
   index=0
   while [ "${index}" -lt "${total}" ]; do
@@ -233,12 +243,8 @@ batch_run_scheduler() {
   batch_prepare_scheduler "${tasks_file}" "${ledger_file}" "${work_dir}"
   while batch_scheduler_has_work "${work_dir}"; do
     batch_reap_finished "${work_dir}" "${ledger_file}"
-    batch_check_global_stop "${work_dir}" "${ledger_file}" || true
-    if [ -e "${work_dir}/global-stop" ]; then
-      [ "$(batch_active_count "${work_dir}" WEB)" -gt 0 ] || [ "$(batch_active_count "${work_dir}" ANDROID)" -gt 0 ] || break
-    else
-      batch_dispatch_ready "${work_dir}" || true
-    fi
+    batch_pause_banned_creators "${work_dir}" "${ledger_file}"
+    batch_dispatch_ready "${work_dir}" || true
     sleep "${BATCH_GROUP_POLL_SECONDS}"
   done
   batch_reap_finished "${work_dir}" "${ledger_file}"
@@ -432,7 +438,6 @@ batch_make_plans() {
   local accounts_file="$1" ledger_file="$2" operation_id="$3" subject_prefix="$4" evidence_file="$5"
   local creators admins helpers creator_id candidate_id protocol sequence item_no=0 admin_ids helper_ids
   local admin_count helper_count candidate_rows='' qualified_creators='' gate_candidates gate_status selected_creator_json
-  [ "$(awk -F '\t' '$1==148{n++}END{print n+0}' "${accounts_file}")" -eq 32 ] || { batch_fail "分组 148 必须是 32 个账号"; return 20; }
   while IFS= read -r candidate_id; do
     [ -n "${candidate_id}" ] || continue
     admin_count="$(batch_mutual_contact_ids "${accounts_file}" "${evidence_file}" "${candidate_id}" 149 | awk 'NF{n++}END{print n+0}')"
@@ -452,15 +457,16 @@ batch_make_plans() {
     gate_status=READY; selected_creator_json="${creators}"
   fi
   jq -nc --arg status "${gate_status}" --argjson candidates "${gate_candidates}" \
-    --argjson selectedCreatorAccountIds "${selected_creator_json}" --arg checkedAt "$(batch_now)" \
-    '{recordType:"CONTACT_GATE",status:$status,creatorSelection:"ALL_ELIGIBLE",roundsPerCreator:5,requiredAdmins:2,maxHelpers:59,candidates:$candidates,selectedCreatorAccountIds:$selectedCreatorAccountIds,checkedAt:$checkedAt}' \
+    --argjson selectedCreatorAccountIds "${selected_creator_json}" --argjson roundsPerCreator "${BATCH_GROUP_ROUNDS}" \
+    --arg checkedAt "$(batch_now)" \
+    '{recordType:"CONTACT_GATE",status:$status,creatorSelection:"ALL_ELIGIBLE",roundsPerCreator:$roundsPerCreator,requiredAdmins:2,maxHelpers:59,candidates:$candidates,selectedCreatorAccountIds:$selectedCreatorAccountIds,checkedAt:$checkedAt}' \
     >>"${ledger_file}"
   [ "${gate_status}" = READY ] || { batch_fail "没有满足在线状态和双向联系人门禁的建群号"; return 20; }
   while IFS= read -r creator_id; do
     protocol="$(awk -F '\t' -v id="${creator_id}" '$2==id{print $3;exit}' "${accounts_file}")"
     admins="$(batch_mutual_contact_ids "${accounts_file}" "${evidence_file}" "${creator_id}" 149)"
     helpers="$(batch_mutual_contact_ids "${accounts_file}" "${evidence_file}" "${creator_id}" 110)"
-    for sequence in 1 2 3 4 5; do
+    for ((sequence = 1; sequence <= BATCH_GROUP_ROUNDS; sequence++)); do
       item_no=$((item_no + 1))
       admin_ids="$(printf '%s\n' "${admins}" | while IFS= read -r admin_id; do
         printf '%s\t%s\n' "$(printf '%s' "${operation_id}:${item_no}:${admin_id}" | sha256sum | awk '{print $1}')" "${admin_id}"
@@ -636,16 +642,19 @@ batch_execute_item() {
 }
 
 batch_remote_main() {
-  local mode="" ledger_file="" operation_id="" subject_prefix="Armada Batch Group" confirmed=false
+  local mode="" ledger_file="" operation_id="" subject_prefix="Armada Batch Group" confirmed=false rounds="${BATCH_GROUP_ROUNDS}"
   local run_dir accounts_file contact_evidence plan_count planned_creators tasks_file work_dir total ready runnable blocked summary
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --mode) mode="$2"; shift 2 ;; --ledger) ledger_file="$2"; shift 2 ;;
       --operation-id) operation_id="$2"; shift 2 ;; --subject-prefix) subject_prefix="$2"; shift 2 ;;
+      --rounds) rounds="$2"; shift 2 ;;
       --yes) confirmed=true; shift ;; *) batch_fail "未知远端参数: $1"; return 2 ;;
     esac
   done
   case "${mode}" in dry-run|live) ;; *) batch_fail "mode 必须是 dry-run/live"; return 2 ;; esac
+  batch_require_positive_integer "轮数" "${rounds}"
+  BATCH_GROUP_ROUNDS="${rounds}"
   batch_validate_ledger "${ledger_file}"
   case "${operation_id}" in ''|*[!A-Za-z0-9._-]*) batch_fail "operation-id 非法"; return 2 ;; esac
   [[ "${subject_prefix}" =~ ^[A-Za-z][A-Za-z0-9._\ -]{0,80}$ ]] || { batch_fail "群名前缀非法"; return 2; }
@@ -662,16 +671,18 @@ batch_remote_main() {
     batch_make_plans "${accounts_file}" "${ledger_file}" "${operation_id}" "${subject_prefix}" "${contact_evidence}"
     plan_count="$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|length' "${ledger_file}")"
   fi
-  [ "${plan_count}" -gt 0 ] && [ $((plan_count % 5)) -eq 0 ] \
-    || { batch_fail "账本 GROUP_PLAN 必须按每个建群号 5 条生成"; return 2; }
-  planned_creators=$((plan_count / 5))
+  [ "${plan_count}" -gt 0 ] && [ $((plan_count % BATCH_GROUP_ROUNDS)) -eq 0 ] \
+    || { batch_fail "账本 GROUP_PLAN 数量与轮数不匹配"; return 2; }
+  planned_creators=$((plan_count / BATCH_GROUP_ROUNDS))
+  [ "$(jq -sr --argjson rounds "${BATCH_GROUP_ROUNDS}" '[.[]|select(.recordType=="CONTACT_GATE")][-1].roundsPerCreator==$rounds' "${ledger_file}")" = true ] \
+    || { batch_fail "账本轮数与 --rounds 不一致"; return 2; }
   [ "$(jq -sr '[.[]|select(.recordType=="GROUP_PLAN")]|map(.operationId)|unique|.[0]' "${ledger_file}")" = "${operation_id}" ] || { batch_fail "operation-id 与计划不一致"; return 2; }
   batch_validate_all_plan_contact_gates "${accounts_file}" "${ledger_file}" "${contact_evidence}" "${mode}"
   total="$(awk -F '\t' '$1==148{n++}END{print n+0}' "${accounts_file}")"; ready="$(awk -F '\t' '$1==148&&$6=="READY"{n++}END{print n+0}' "${accounts_file}")"; blocked=$((total-ready))
   runnable="$(jq -s --arg mode "${mode}" '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mode==$mode)]|group_by(.itemId)|map(.[-1])|map(select(.status=="READY"))|length' "${ledger_file}")"
   summary=DEGRADED; [ "${runnable}" -eq "${plan_count}" ] && summary=READY
-  jq -nc --arg mode "${mode}" --arg status "${summary}" --argjson creators "${total}" --argjson readyCreators "${ready}" --argjson blockedCreators "${blocked}" --argjson plannedCreators "${planned_creators}" --argjson plannedGroups "${plan_count}" --argjson runnableGroups "${runnable}" --argjson intervalSeconds "${BATCH_GROUP_INTERVAL_SECONDS}" --argjson androidConcurrency "${BATCH_GROUP_ANDROID_CONCURRENCY}" --argjson webConcurrency "${BATCH_GROUP_WEB_CONCURRENCY}" --arg checkedAt "$(batch_now)" '{recordType:"BATCH_PREFLIGHT",mode:$mode,status:$status,creators:$creators,readyCreators:$readyCreators,blockedCreators:$blockedCreators,plannedCreators:$plannedCreators,plannedGroups:$plannedGroups,runnableGroups:$runnableGroups,intervalSeconds:$intervalSeconds,androidConcurrency:$androidConcurrency,webConcurrency:$webConcurrency,checkedAt:$checkedAt}' >>"${ledger_file}"
-  printf 'PREFLIGHT status=%s creators=%s/%s plannedCreators=%s runnableGroups=%s/%s interval=%ss androidConcurrency=%s webConcurrency=%s\n' "${summary}" "${ready}" "${total}" "${planned_creators}" "${runnable}" "${plan_count}" "${BATCH_GROUP_INTERVAL_SECONDS}" "${BATCH_GROUP_ANDROID_CONCURRENCY}" "${BATCH_GROUP_WEB_CONCURRENCY}"
+  jq -nc --arg mode "${mode}" --arg status "${summary}" --argjson creators "${total}" --argjson readyCreators "${ready}" --argjson blockedCreators "${blocked}" --argjson plannedCreators "${planned_creators}" --argjson plannedGroups "${plan_count}" --argjson runnableGroups "${runnable}" --argjson roundsPerCreator "${BATCH_GROUP_ROUNDS}" --argjson intervalSeconds "${BATCH_GROUP_INTERVAL_SECONDS}" --argjson androidConcurrency "${BATCH_GROUP_ANDROID_CONCURRENCY}" --argjson webConcurrency "${BATCH_GROUP_WEB_CONCURRENCY}" --arg checkedAt "$(batch_now)" '{recordType:"BATCH_PREFLIGHT",mode:$mode,status:$status,creators:$creators,readyCreators:$readyCreators,blockedCreators:$blockedCreators,plannedCreators:$plannedCreators,plannedGroups:$plannedGroups,runnableGroups:$runnableGroups,roundsPerCreator:$roundsPerCreator,intervalSeconds:$intervalSeconds,androidConcurrency:$androidConcurrency,webConcurrency:$webConcurrency,checkedAt:$checkedAt}' >>"${ledger_file}"
+  printf 'PREFLIGHT status=%s creators=%s/%s plannedCreators=%s rounds=%s runnableGroups=%s/%s interval=%ss androidConcurrency=%s webConcurrency=%s\n' "${summary}" "${ready}" "${total}" "${planned_creators}" "${BATCH_GROUP_ROUNDS}" "${runnable}" "${plan_count}" "${BATCH_GROUP_INTERVAL_SECONDS}" "${BATCH_GROUP_ANDROID_CONCURRENCY}" "${BATCH_GROUP_WEB_CONCURRENCY}"
   if [ "${mode}" = dry-run ]; then printf 'DRY_RUN ledger=%s\n' "${ledger_file}"; return 0; fi
   jq -e 'select(.recordType=="BATCH_PREFLIGHT" and .mode=="dry-run")' "${ledger_file}" >/dev/null || { batch_fail "live 必须复用 dry-run 账本"; return 2; }
   tasks_file="${run_dir}/tasks.tsv"
@@ -686,27 +697,28 @@ batch_remote_main() {
 
 batch_usage() {
   cat <<'EOF'
-bash armada-deploy/tools/batch-group-create.sh --env test1 --mode dry-run --operation-id batch-20260813-001 --ledger /tmp/armada-batch-group-batch-20260813-001.jsonl
-bash armada-deploy/tools/batch-group-create.sh --env test1 --mode live --yes --operation-id batch-20260813-001 --ledger /tmp/armada-batch-group-batch-20260813-001.jsonl
+bash armada-deploy/tools/batch-group-create.sh --env test1 --mode dry-run --rounds 200 --operation-id batch-20260813-001 --ledger /tmp/armada-batch-group-batch-20260813-001.jsonl
+bash armada-deploy/tools/batch-group-create.sh --env test1 --mode live --rounds 200 --yes --operation-id batch-20260813-001 --ledger /tmp/armada-batch-group-batch-20260813-001.jsonl
 EOF
 }
 
 batch_local_main() {
-  local selected_env="" mode="" ledger_file="" operation_id="" subject_prefix="Armada Batch Group" confirmed=false
+  local selected_env="" mode="" ledger_file="" operation_id="" subject_prefix="Armada Batch Group" confirmed=false rounds="${BATCH_GROUP_ROUNDS}"
   local script_dir deploy_dir repo_root workspace_root profile_file ssh_key remote_command escaped
   local -a args
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --env) selected_env="$2"; shift 2 ;; --mode) mode="$2"; shift 2 ;; --ledger) ledger_file="$2"; shift 2 ;;
       --operation-id) operation_id="$2"; shift 2 ;; --subject-prefix) subject_prefix="$2"; shift 2 ;;
+      --rounds) rounds="$2"; shift 2 ;;
       --yes) confirmed=true; shift ;; -h|--help) batch_usage; return 0 ;; *) batch_fail "未知参数: $1"; return 2 ;;
     esac
   done
   [ "${selected_env}" = test1 ] || { batch_fail "只允许 test1"; return 2; }
   case "${mode}" in dry-run|live) ;; *) batch_fail "mode 必须是 dry-run/live"; return 2 ;; esac
-  batch_validate_ledger "${ledger_file}"; batch_require_positive_integer "间隔" "${BATCH_GROUP_INTERVAL_SECONDS}"
+  batch_validate_ledger "${ledger_file}"; batch_require_positive_integer "间隔" "${BATCH_GROUP_INTERVAL_SECONDS}"; batch_require_positive_integer "轮数" "${rounds}"
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; deploy_dir="$(cd "${script_dir}/.." && pwd)"; repo_root="$(cd "${deploy_dir}/.." && pwd)"; workspace_root="$(cd "${repo_root}/.." && pwd)"; profile_file="${deploy_dir}/envs/test1.conf"; . "${profile_file}"; ssh_key="${workspace_root}/${PROFILE_ARMADA_KEY_REL}"
-  args=(--remote --mode "${mode}" --ledger "${ledger_file}" --operation-id "${operation_id}" --subject-prefix "${subject_prefix}"); [ "${confirmed}" = true ] && args+=(--yes)
+  args=(--remote --mode "${mode}" --rounds "${rounds}" --ledger "${ledger_file}" --operation-id "${operation_id}" --subject-prefix "${subject_prefix}"); [ "${confirmed}" = true ] && args+=(--yes)
   remote_command='bash -s --'; for escaped in "${args[@]}"; do printf -v escaped '%q' "${escaped}"; remote_command+=" ${escaped}"; done
   ssh -T -i "${ssh_key}" -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "${PROFILE_ARMADA_USER}@${PROFILE_ARMADA_HOST}" "${remote_command}" <"${BASH_SOURCE[0]}"
 }

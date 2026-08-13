@@ -75,6 +75,37 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
     }
 
     @Test
+    void mapsNumericStringCreationToGroupCreationSeconds() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"安卓历史群",
+                          "GroupId":"120363001@g.us",
+                          "Creation":"1786639029",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.createdAtSeconds()).isEqualTo(1_786_639_029L);
+    }
+
+    @Test
+    void keepsNumericCreationAndIgnoresInvalidText() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope(metadataWithCreation("1786639029")))
+                .thenReturn(envelope(metadataWithCreation("\"not-a-number\"")));
+
+        GroupMetadataResult numeric = adapter().getMetadata(account(), "120363001@g.us");
+        GroupMetadataResult invalid = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(numeric.createdAtSeconds()).isEqualTo(1_786_639_029L);
+        assertThat(invalid.createdAtSeconds()).isNull();
+    }
+
+    @Test
     void mapsAnnounceOnlyGroupPermission() throws Exception {
         when(client.members("919000000001", "120363001@g.us"))
                 .thenReturn(envelope("""
@@ -168,5 +199,17 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
 
     private static AndroidResponseEnvelope envelope(String json) throws Exception {
         return new ObjectMapper().readValue(json, AndroidResponseEnvelope.class);
+    }
+
+    private static String metadataWithCreation(String creation) {
+        return """
+                {"Code":0,"Data":{
+                  "Subject":"安卓历史群",
+                  "GroupId":"120363001@g.us",
+                  "Creation":%s,
+                  "Count":0,
+                  "Participants":[]
+                },"Msg":"ok"}
+                """.formatted(creation);
     }
 }

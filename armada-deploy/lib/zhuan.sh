@@ -247,6 +247,7 @@ zhuan_sync_source() {
   armada_rsync "Zhuan source" -rltz --delete -e "${ZHUAN_RSYNC_SSH}" \
     --exclude='/.git/' \
     --exclude='/.idea/' \
+    --exclude='/.codegraph/' \
     --exclude='/.gocache/' \
     --exclude='/.gomodcache/' \
     --exclude='/docs/' \
@@ -259,6 +260,10 @@ zhuan_sync_source() {
     --exclude=deploy/configs/prod_configs.toml \
     --exclude=deploy/logs/ \
     --exclude=deploy/callback-logs/ \
+    --exclude=deploy/traffic-capture/ \
+    --exclude=deploy/traffic-capture-archive/ \
+    --exclude=deploy/rollback/ \
+    --exclude=deploy/certs/ \
     --exclude=logs/ \
     --exclude='/.env' \
     --exclude='/.env.*' \

@@ -344,6 +344,18 @@ public interface AccountGroupMembershipMapper {
             @Param("limit") int limit);
 
     /**
+     * 从最新完整成员快照解析当前租户已上控成员及其群角色。
+     *
+     * <p>仅按已确认手机号连接未软删账号；外部成员、号码未知成员和其他租户账号不会返回。
+     * 调用方使用现有时序保护 upsert，将完整 metadata 事实合并进账号群关系。</p>
+     *
+     * @param groupLinkId 群入口 ID
+     * @return 按账号 ID 稳定排序的上控成员关系事实
+     */
+    List<AccountGroupMembership> selectControlledMembershipsByGroupLinkId(
+            @Param("groupLinkId") Long groupLinkId);
+
+    /**
      * 普通一致性读选出本次完整快照中缺失的账号群关系 ID。
      *
      * @param accountId 账号 ID

@@ -211,7 +211,6 @@
   <update id="bindMembershipAttemptIfEligible">
     UPDATE pull_task_group_account
     SET pull_call_id = #{binding.pullCallId},
-        membership_status = #{guard.targetStatus},
         active_pull_attempt_id = #{binding.attemptId},
         membership_reason_code = NULL,
         membership_reason_message = NULL,
@@ -226,11 +225,13 @@
       AND membership_failure_count &lt; #{guard.maxFailureCount}
   </update>
 
-  <update id="markMembershipAttemptSubmitted">
+  <update id="markMembershipAttemptSubmittedIfStatus">
     UPDATE pull_task_group_account
-    SET last_puller_group_account_id = #{binding.pullerGroupAccountId},
+    SET membership_status = #{targetStatus},
+        last_puller_group_account_id = #{binding.pullerGroupAccountId},
         updated_at = #{binding.now}
     WHERE id = #{binding.participantId}
+      AND membership_status = #{expectedStatus}
       AND active_pull_attempt_id = #{binding.attemptId}
       AND pull_call_id = #{binding.pullCallId}
   </update>

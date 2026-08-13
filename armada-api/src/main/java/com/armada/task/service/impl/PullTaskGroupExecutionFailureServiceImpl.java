@@ -89,13 +89,13 @@ public class PullTaskGroupExecutionFailureServiceImpl
             long now) {
         resources.participants().materialMapper().cancelPlannedByExecution(
                 executionId,
-                PullTaskMaterialPullStatus.SUBMITTED.code(),
+                PullTaskMaterialPullStatus.UNCONSUMED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(), now);
         resources.participants().accountMapper().cancelPlannedStationMembershipByExecution(
                 executionId,
                 PullTaskGroupAccountRole.STATION.code(),
-                PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(), now);
         resources.attemptMapper().cancelPlannedByExecution(

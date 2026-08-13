@@ -225,7 +225,7 @@ class PullTaskStandardLifecycleServiceTest {
                 + "admin_required, pull_call_id, pull_status, active_pull_attempt_id, admin_status, admin_command_id, "
                 + "created_at, updated_at) VALUES "
                 + "(501, 7, 11, 1, 1, '861001', 0, NULL, 0, NULL, 0, NULL, 100, 100), "
-                + "(502, 7, 11, 2, 2, '861002', 0, 401, 1, 701, 0, NULL, 100, 100), "
+                + "(502, 7, 11, 2, 2, '861002', 0, 401, 0, 701, 0, NULL, 100, 100), "
                 + "(503, 7, 11, 3, 3, '861003', 0, 402, 1, 702, 0, NULL, 100, 100), "
                 + "(504, 7, 11, 4, 4, '861004', 1, NULL, 2, NULL, 1, NULL, 100, 100), "
                 + "(505, 7, 11, 5, 5, '861005', 1, NULL, 2, NULL, 2, 'cmd-admin', 100, 100), "
@@ -234,7 +234,7 @@ class PullTaskStandardLifecycleServiceTest {
                 + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, role_type, "
                 + "role_seq, membership_status, active_pull_attempt_id, pull_call_id, "
                 + "availability_status, created_at, updated_at) VALUES "
-                + "(111, 7, 1, 11, 701, '86701', 3, 1, 1, 704, 401, 1, 100, 100), "
+                + "(111, 7, 1, 11, 701, '86701', 3, 1, 0, 704, 401, 1, 100, 100), "
                 + "(112, 7, 1, 11, 702, '86702', 3, 2, 1, 705, 402, 1, 100, 100), "
                 + "(113, 7, 1, 11, 703, '86703', 3, 3, 1, 706, 403, 1, 100, 100)");
         execute("INSERT INTO pull_task_pull_call_member_attempt "

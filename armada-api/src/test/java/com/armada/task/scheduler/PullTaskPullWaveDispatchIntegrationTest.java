@@ -34,6 +34,7 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import com.armada.task.model.enums.PullTaskStandardStatus;
@@ -120,6 +121,14 @@ class PullTaskPullWaveDispatchIntegrationTest {
         assertThat(processor.process(first, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         TenantContext.set(7L);
+        assertThat(materialMapper.selectByExecution(executionId))
+                .extracting(PullTaskMaterialMember::getPullStatus)
+                .containsExactly(
+                        PullTaskMaterialPullStatus.SUBMITTED.code(),
+                        PullTaskMaterialPullStatus.UNCONSUMED.code(),
+                        PullTaskMaterialPullStatus.UNCONSUMED.code(),
+                        PullTaskMaterialPullStatus.UNCONSUMED.code(),
+                        PullTaskMaterialPullStatus.UNCONSUMED.code());
         PullTaskPullWave dispatching = waveMapper.selectActiveByExecution(
                 executionId, List.of(
                         PullTaskPullWaveStatus.DISPATCHING.code(),
@@ -151,6 +160,9 @@ class PullTaskPullWaveDispatchIntegrationTest {
                         PullTaskPullCallStatus.SUBMITTED.code());
         assertThat(calls).extracting(PullTaskPullCall::getSubmittedAt)
                 .containsExactly(1_000L, 11_000L, 21_000L, 31_000L, 41_000L);
+        assertThat(materialMapper.selectByExecution(executionId))
+                .extracting(PullTaskMaterialMember::getPullStatus)
+                .containsOnly(PullTaskMaterialPullStatus.SUBMITTED.code());
         PullTaskPullWave wave = waveMapper.selectActiveByExecution(
                 executionId, List.of(
                         PullTaskPullWaveStatus.DISPATCHING.code(),

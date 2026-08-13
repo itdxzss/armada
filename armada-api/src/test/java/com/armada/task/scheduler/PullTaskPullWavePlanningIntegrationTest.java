@@ -28,6 +28,7 @@ import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
@@ -119,6 +120,13 @@ class PullTaskPullWavePlanningIntegrationTest {
                 });
         assertThat(attemptsByWave(result.wave().getId())).hasSize(MATERIAL_COUNT)
                 .allSatisfy(attempt -> assertThat(attempt.getPullerGroupAccountId()).isNull());
+        assertThat(materialMapper.selectByExecution(executionId))
+                .allSatisfy(material -> {
+                    assertThat(material.getPullStatus())
+                            .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+                    assertThat(material.getPullCallId()).isNotNull();
+                    assertThat(material.getActivePullAttemptId()).isNotNull();
+                });
         assertThat(attemptMapper.countOpenByWave(
                 result.wave().getId(),
                 List.of(PullTaskParticipantAttemptStatus.PLANNED.code(),

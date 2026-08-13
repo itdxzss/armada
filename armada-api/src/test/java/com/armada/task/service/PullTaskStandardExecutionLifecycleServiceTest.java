@@ -244,14 +244,14 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         execute("INSERT INTO pull_task_material_member "
                 + "(id, tenant_id, group_execution_id, member_seq, source_line_no, normalized_phone, "
                 + "admin_required, pull_call_id, pull_status, active_pull_attempt_id, admin_status, created_at, updated_at) VALUES "
-                + "(501, 7, 11, 1, 1, '861001', 0, 401, 1, 701, 0, 100, 100), "
+                + "(501, 7, 11, 1, 1, '861001', 0, 401, 0, 701, 0, 100, 100), "
                 + "(502, 7, 11, 2, 2, '861002', 0, 402, 1, 703, 0, 100, 100), "
                 + "(503, 7, 12, 1, 1, '861003', 0, NULL, 0, NULL, 0, 100, 100)");
         execute("INSERT INTO pull_task_group_account "
                 + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, role_type, "
                 + "role_seq, membership_status, active_pull_attempt_id, pull_call_id, "
                 + "availability_status, created_at, updated_at) VALUES "
-                + "(111, 7, 1, 11, 701, '86701', 3, 1, 1, 702, 401, 1, 100, 100)");
+                + "(111, 7, 1, 11, 701, '86701', 3, 1, 0, 702, 401, 1, 100, 100)");
         execute("INSERT INTO pull_task_pull_call_member_attempt "
                 + "(id, tenant_id, task_id, group_execution_id, pull_call_id, participant_type, "
                 + "participant_ref_id, target_phone, target_jid, puller_group_account_id, "

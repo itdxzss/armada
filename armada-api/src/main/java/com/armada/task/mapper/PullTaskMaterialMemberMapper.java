@@ -114,9 +114,19 @@ public interface PullTaskMaterialMemberMapper {
                 binding.pullCallId(), binding.now()));
     }
 
-    /** 批次真实提交时记录最近执行拉手，必须仍由同一活动 attempt 持有。 */
-    int markPullAttemptSubmitted(
-            @Param("binding") PullTaskParticipantAttemptBinding binding);
+    /** 批次真实提交时原子推进状态并记录最近执行拉手。 */
+    int markPullAttemptSubmittedIfStatus(
+            @Param("binding") PullTaskParticipantAttemptBinding binding,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus);
+
+    /** 使用料子从未消费到已提交的固定状态流转。 */
+    default int markPullAttemptSubmitted(PullTaskParticipantAttemptBinding binding) {
+        return markPullAttemptSubmittedIfStatus(
+                binding,
+                PullTaskMaterialPullStatus.UNCONSUMED.code(),
+                PullTaskMaterialPullStatus.SUBMITTED.code());
+    }
 
     /** 只有当前活动 attempt 和精确失败计数都匹配时才推进聚合状态。 */
     int transitionPullAttempt(

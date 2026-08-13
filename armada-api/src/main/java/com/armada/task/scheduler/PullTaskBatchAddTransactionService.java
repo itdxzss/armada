@@ -8,8 +8,6 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
-import com.armada.task.model.dto.PullTaskFactResult;
-import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
 import com.armada.task.model.entity.PullTask;
@@ -22,7 +20,6 @@ import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
-import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantType;
@@ -147,8 +144,7 @@ public class PullTaskBatchAddTransactionService {
                 != scope.attempts().size()) {
             throw new IllegalStateException("批量拉人逐号码提交状态写入数量不一致");
         }
-        markParticipantPullers(scope.attempts(), call, now);
-        markStationsJoining(scope.stations(), now);
+        markParticipantsSubmitted(scope.attempts(), call, now);
     }
 
     private PullTaskPullWaveDispatchAdvance advanceDispatch(
@@ -224,7 +220,7 @@ public class PullTaskBatchAddTransactionService {
                 .findFirst().orElse(null);
     }
 
-    private void markParticipantPullers(
+    private void markParticipantsSubmitted(
             List<PullTaskPullCallMemberAttempt> attempts,
             PullTaskPullCall call,
             long now) {
@@ -236,24 +232,7 @@ public class PullTaskBatchAddTransactionService {
                     ? materialMapper.markPullAttemptSubmitted(binding)
                     : groupAccountMapper.markMembershipAttemptSubmitted(binding);
             if (changed != 1) {
-                throw new IllegalStateException("参与者最近执行拉手写入失败");
-            }
-        }
-    }
-
-    private void markStationsJoining(List<PullTaskGroupAccount> stations, long now) {
-        for (PullTaskGroupAccount station : stations) {
-            if (Objects.equals(station.getMembershipStatus(),
-                    PullTaskGroupAccountMembershipStatus.JOINING.code())) {
-                continue;
-            }
-            int changed = groupAccountMapper.transitionMembership(new PullTaskFactTransition(
-                    station.getId(),
-                    List.of(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code()),
-                    PullTaskGroupAccountMembershipStatus.JOINING.code(),
-                    PullTaskFactResult.empty(), now));
-            if (changed != 1) {
-                throw new IllegalStateException("站台等待批量拉人结果状态写入失败");
+                throw new IllegalStateException("参与者提交状态与最近执行拉手写入失败");
             }
         }
     }

@@ -266,9 +266,19 @@ public interface PullTaskGroupAccountMapper {
                 binding.pullCallId(), binding.now()));
     }
 
-    /** 批次真实提交时记录站台最近执行拉手。 */
-    int markMembershipAttemptSubmitted(
-            @Param("binding") PullTaskParticipantAttemptBinding binding);
+    /** 批次真实提交时原子推进站台入群状态并记录最近执行拉手。 */
+    int markMembershipAttemptSubmittedIfStatus(
+            @Param("binding") PullTaskParticipantAttemptBinding binding,
+            @Param("expectedStatus") int expectedStatus,
+            @Param("targetStatus") int targetStatus);
+
+    /** 使用站台从未入群到入群中的固定状态流转。 */
+    default int markMembershipAttemptSubmitted(PullTaskParticipantAttemptBinding binding) {
+        return markMembershipAttemptSubmittedIfStatus(
+                binding,
+                PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                PullTaskGroupAccountMembershipStatus.JOINING.code());
+    }
 
     /** 当前活动 attempt 与失败计数匹配时推进站台聚合状态。 */
     int transitionMembershipAttempt(

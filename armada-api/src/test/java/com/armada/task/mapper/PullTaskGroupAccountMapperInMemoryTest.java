@@ -338,6 +338,10 @@ class PullTaskGroupAccountMapperInMemoryTest {
             assertThat(mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
                     station.getId(), attemptId, callId, 701L, 100L + failure)))
                     .isEqualTo(1);
+            assertThat(mapper.markMembershipAttemptSubmitted(
+                    new PullTaskParticipantAttemptBinding(
+                            station.getId(), attemptId, callId, 701L, 100L + failure)))
+                    .isEqualTo(1);
             assertThat(mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
                     station.getId(), attemptId + 100L, callId + 100L, 702L, 150L + failure)))
                     .isZero();
@@ -387,6 +391,8 @@ class PullTaskGroupAccountMapperInMemoryTest {
         mapper.insert(station);
         mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
                 station.getId(), 1_001L, 2_001L, 701L, 100L));
+        mapper.markMembershipAttemptSubmitted(new PullTaskParticipantAttemptBinding(
+                station.getId(), 1_001L, 2_001L, 701L, 100L));
 
         assertThat(mapper.transitionMembershipAttempt(stationTransition(
                 station.getId(), 1_001L,
@@ -414,6 +420,8 @@ class PullTaskGroupAccountMapperInMemoryTest {
         mapper.insert(late);
         mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
                 direct.getId(), 1_001L, 2_001L, 701L, 100L));
+        mapper.markMembershipAttemptSubmitted(new PullTaskParticipantAttemptBinding(
+                direct.getId(), 1_001L, 2_001L, 701L, 100L));
         assertThat(mapper.promoteMembershipSuccess(stationTransition(
                 direct.getId(), 1_001L,
                 new PullTaskParticipantAggregateTransition.Expected(
@@ -430,6 +438,8 @@ class PullTaskGroupAccountMapperInMemoryTest {
                         1L, 2_001L, null)))).isZero();
 
         mapper.bindMembershipAttempt(new PullTaskParticipantAttemptBinding(
+                late.getId(), 1_010L, 2_010L, 701L, 110L));
+        mapper.markMembershipAttemptSubmitted(new PullTaskParticipantAttemptBinding(
                 late.getId(), 1_010L, 2_010L, 701L, 110L));
         mapper.transitionMembershipAttempt(stationTransition(
                 late.getId(), 1_010L,

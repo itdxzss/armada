@@ -1,6 +1,6 @@
 package com.armada.task.model.dto;
 
-/** 冻结波次计划时把参与者聚合绑定到调用和 attempt，不提前写真实拉手。 */
+/** 冻结波次计划时绑定调用和 attempt，不提前写已提交状态或真实拉手。 */
 public record PullTaskParticipantPlanBinding(
         long participantId,
         long attemptId,

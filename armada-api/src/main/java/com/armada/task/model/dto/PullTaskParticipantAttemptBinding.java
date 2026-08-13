@@ -16,7 +16,6 @@ public record PullTaskParticipantAttemptBinding(
     /** 绑定 CAS 的状态、失败上限以及站台角色守卫。 */
     public record Guard(
             int expectedStatus,
-            int targetStatus,
             long maxFailureCount,
             Integer participantRole,
             Integer availabilityStatus) {
@@ -26,7 +25,6 @@ public record PullTaskParticipantAttemptBinding(
     public static Guard materialGuard() {
         return new Guard(
                 PullTaskMaterialPullStatus.UNCONSUMED.code(),
-                PullTaskMaterialPullStatus.SUBMITTED.code(),
                 4L, null, null);
     }
 
@@ -34,7 +32,6 @@ public record PullTaskParticipantAttemptBinding(
     public static Guard stationGuard() {
         return new Guard(
                 PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
-                PullTaskGroupAccountMembershipStatus.JOINING.code(),
                 4L,
                 PullTaskGroupAccountRole.STATION.code(),
                 PullTaskGroupAccountAvailability.AVAILABLE.code());

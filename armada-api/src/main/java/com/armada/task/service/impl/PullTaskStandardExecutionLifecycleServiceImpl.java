@@ -207,12 +207,12 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
                 executionId, PullTaskMaterialPullStatus.UNCONSUMED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(), now);
         resources.pull().materialMapper().cancelPlannedByExecution(
-                executionId, PullTaskMaterialPullStatus.SUBMITTED.code(),
+                executionId, PullTaskMaterialPullStatus.UNCONSUMED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 PullTaskMaterialPullStatus.CANCELED.code(), now);
         resources.pull().accountMapper().cancelPlannedStationMembershipByExecution(
                 executionId, PullTaskGroupAccountRole.STATION.code(),
-                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
                 PullTaskPullCallStatus.PLANNED.code(),
                 com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
                 now);

@@ -274,6 +274,9 @@ class PullTaskMaterialMemberMapperInMemoryTest {
             assertThat(mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
                     material.getId(), attemptId, callId, 701L, 100L + failure)))
                     .isEqualTo(1);
+            assertThat(mapper.markPullAttemptSubmitted(new PullTaskParticipantAttemptBinding(
+                    material.getId(), attemptId, callId, 701L, 100L + failure)))
+                    .isEqualTo(1);
             assertThat(mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
                     material.getId(), attemptId + 100L, callId + 100L, 702L, 150L + failure)))
                     .isZero();
@@ -319,6 +322,8 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         PullTaskMaterialMember material = mapper.selectUnconsumed(EXECUTION, 1).get(0);
         mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
                 material.getId(), 1_001L, 2_001L, 701L, 100L));
+        mapper.markPullAttemptSubmitted(new PullTaskParticipantAttemptBinding(
+                material.getId(), 1_001L, 2_001L, 701L, 100L));
 
         assertThat(mapper.transitionPullAttempt(materialTransition(
                 material.getId(), 1_001L,
@@ -345,6 +350,8 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         PullTaskMaterialMember direct = rows.get(0);
         mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
                 direct.getId(), 1_001L, 2_001L, 701L, 100L));
+        mapper.markPullAttemptSubmitted(new PullTaskParticipantAttemptBinding(
+                direct.getId(), 1_001L, 2_001L, 701L, 100L));
         PullTaskParticipantAggregateTransition success = materialTransition(
                 direct.getId(), 1_001L,
                 new PullTaskParticipantAggregateTransition.Expected(
@@ -362,6 +369,8 @@ class PullTaskMaterialMemberMapperInMemoryTest {
 
         PullTaskMaterialMember late = rows.get(1);
         mapper.bindPullAttempt(new PullTaskParticipantAttemptBinding(
+                late.getId(), 1_010L, 2_010L, 701L, 110L));
+        mapper.markPullAttemptSubmitted(new PullTaskParticipantAttemptBinding(
                 late.getId(), 1_010L, 2_010L, 701L, 110L));
         mapper.transitionPullAttempt(materialTransition(
                 late.getId(), 1_010L,

@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-/** 拉手不可用事务提交后立即唤醒名单核实，避免继续等待全局 60 秒结果窗口。 */
+/** 拉手不可用事务提交后立即释放其仍占用的未知成员，避免等待全局结果窗口。 */
 @Component
 public class PullTaskPullerUnavailableReconciliationListener {
 

@@ -450,25 +450,36 @@ class PullTaskPullCallParticipantResultServiceTest {
                 7L, 21L, 61L, 5_000L));
     }
 
-    @Test
-    void rateLimitedMarksRiskCooldownAndInvalidatesOnlyTheCallGeneration() {
-        stubAccountFailure("RATE_LIMITED");
+    @ParameterizedTest
+    @MethodSource("accountRiskReasonCodes")
+    void uncertainAccountRiskReleasesMemberAndRotatesPullerWithoutRosterQuery(
+            String reasonCode) {
+        stubAccountFailure(reasonCode);
         PullTaskStandardSetting setting = new PullTaskStandardSetting();
         setting.setPullerRiskMinutes(5);
         when(settingMapper.selectByTaskId(11L)).thenReturn(setting);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
-                PullTaskParticipantExecutionState.NOT_STARTED,
-                true, "RATE_LIMITED"))).isTrue();
+                PullTaskParticipantExecutionState.UNCERTAIN,
+                true, reasonCode))).isTrue();
+
+        PullTaskParticipantAttemptTransition attempt = capturedAttempt();
+        assertThat(attempt.target().lifecycleStatus())
+                .isEqualTo(PullTaskParticipantAttemptStatus.RELEASED.code());
+        PullTaskParticipantAggregateTransition aggregate =
+                capturedAggregate(PullTaskParticipantType.MATERIAL);
+        assertThat(aggregate.target().status())
+                .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+        assertThat(aggregate.target().pullCallId()).isNull();
 
         verify(accountMapper).markUnavailable(
                 61L, PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
-                "RATE_LIMITED", 305_000L, 5_000L);
+                reasonCode, 305_000L, 5_000L);
         verify(stickyPullers).invalidateIfCurrent(
                 argThat(row -> row.getId() == 21L),
                 argThat(row -> row.getId() == 31L),
-                eq("RATE_LIMITED"), eq(5_000L));
+                eq(reasonCode), eq(5_000L));
     }
 
     @Test
@@ -727,6 +738,10 @@ class PullTaskPullCallParticipantResultServiceTest {
         return Stream.of(PullTaskParticipantType.values())
                 .flatMap(type -> IntStream.range(0, 4)
                         .mapToObj(count -> Arguments.of(type, (long) count)));
+    }
+
+    private static Stream<String> accountRiskReasonCodes() {
+        return Stream.of("RATE_LIMITED", "ACCOUNT_REACHOUT_RESTRICTED");
     }
 
     private static int pendingStatus(PullTaskParticipantType type) {

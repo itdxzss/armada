@@ -8,11 +8,22 @@ import static org.mockito.Mockito.when;
 import com.armada.group.service.GroupLinkHealthCheckService;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /** 群链接健康检查定时任务单测:只验调度开关和 service 调用。 */
 class GroupLinkHealthCheckJobTest {
 
     private final GroupLinkHealthCheckService service = Mockito.mock(GroupLinkHealthCheckService.class);
+
+    @Test
+    void properties_explicitDisabledBindingOverridesDefault() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(TestConfig.class)
+                .withPropertyValues("armada.group-link-health-check.enabled=false")
+                .run(context -> assertThat(context.getBean(GroupLinkHealthCheckJobProperties.class).enabled())
+                        .isFalse());
+    }
 
     @Test
     void runOnce_disabled_skipsServiceCall() {
@@ -40,5 +51,9 @@ class GroupLinkHealthCheckJobTest {
         assertThat(result.enqueued()).isEqualTo(8);
         assertThat(result.tenantBatches()).isEqualTo(2);
         verify(service).enqueueDueHealthChecks(200);
+    }
+
+    @EnableConfigurationProperties(GroupLinkHealthCheckJobProperties.class)
+    static class TestConfig {
     }
 }

@@ -1,6 +1,7 @@
 package com.armada.group.scheduler;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * 群链接健康检查定时任务配置。
@@ -14,12 +15,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties(prefix = "armada.group-link-health-check")
 public record GroupLinkHealthCheckJobProperties(
-        boolean enabled,
-        long fixedDelayMs,
-        int batchSize
+        @DefaultValue("true") boolean enabled,
+        @DefaultValue("180000") long fixedDelayMs,
+        @DefaultValue("200") int batchSize
 ) {
-
-    public GroupLinkHealthCheckJobProperties() {
-        this(true, 180_000L, 200);
-    }
 }

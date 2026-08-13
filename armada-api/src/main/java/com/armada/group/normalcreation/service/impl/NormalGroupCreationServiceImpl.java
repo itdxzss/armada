@@ -96,8 +96,9 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                 new ArrayList<>(strictOnlineGroupAccounts(validated.adminGroupId()));
         List<ProtocolAccountRef> members =
                 new ArrayList<>(strictOnlineGroupAccounts(validated.memberGroupId()));
-        List<ProtocolAccountRef> secondaryAdmins =
-                new ArrayList<>(strictOnlineGroupAccounts(validated.secondaryAdminGroupId()));
+        List<ProtocolAccountRef> secondaryAdmins = validated.secondaryAdminGroupId() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(strictOnlineGroupAccounts(validated.secondaryAdminGroupId()));
         creators.sort((left, right) -> left.armadaAccountId().compareTo(right.armadaAccountId()));
         Collections.shuffle(members, random);
         Collections.shuffle(secondaryAdmins, random);
@@ -433,13 +434,20 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw validation("请求不能为空");
         }
         if (request.adminAccountGroupId() == null
-                || request.secondaryAdminAccountGroupId() == null
                 || request.memberAccountGroupId() == null) {
-            throw validation("管理员分组、次管理员分组和成员分组不能为空");
+            throw validation("管理员分组和成员分组不能为空");
         }
         accountGroupService.requireExisting(request.adminAccountGroupId());
-        accountGroupService.requireExisting(request.secondaryAdminAccountGroupId());
         accountGroupService.requireExisting(request.memberAccountGroupId());
+        Long secondaryAdminGroupId = request.secondaryAdminAccountGroupId();
+        int secondaryAdminCount = 0;
+        if (secondaryAdminGroupId != null) {
+            accountGroupService.requireExisting(secondaryAdminGroupId);
+            secondaryAdminCount = positive(
+                    request.secondaryAdminCount(), "每群次管理员数量", MAX_SECONDARY_ADMIN_COUNT);
+        } else if (request.secondaryAdminCount() != null && request.secondaryAdminCount() != 0) {
+            throw validation("未选择次管理员分组时，每群次管理员数量必须为 0");
+        }
         if (request.folderId() != null) {
             groupFolderService.requireExisting(request.folderId());
         }
@@ -450,8 +458,6 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             accountGroupService.requireExisting(request.failedMigrationGroupId());
         }
         int groupCount = positive(request.groupCount(), "建群数量", MAX_GROUP_COUNT);
-        int secondaryAdminCount = positive(
-                request.secondaryAdminCount(), "每群次管理员数量", MAX_SECONDARY_ADMIN_COUNT);
         String source = textOrDefault(request.memberSource(), "CONTROLLED_GROUP")
                 .toUpperCase(Locale.ROOT);
         if (!source.equals("CONTROLLED_GROUP") && !source.equals("EMPTY_GROUP")) {
@@ -488,7 +494,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw validation("限时消息秒数不能小于 0");
         }
         return new ValidatedRequest(
-                request.adminAccountGroupId(), request.secondaryAdminAccountGroupId(),
+                request.adminAccountGroupId(), secondaryAdminGroupId,
                 secondaryAdminCount, request.memberAccountGroupId(),
                 memberCount, groupCount, nameTemplate, startNo, leavePolicy, speed,
                 request.folderId(), request.successMigrationGroupId(),

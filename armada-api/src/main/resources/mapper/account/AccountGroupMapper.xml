@@ -21,9 +21,22 @@
            g.system_builtin AS systemBuiltin,
            (SELECT COUNT(*) FROM account a WHERE a.account_group_id = g.id AND a.deleted_at IS NULL) AS accountCount,
            (SELECT COUNT(*)
-              FROM account a
+             FROM account a
               LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
              WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.login_state = 1) AS onlineCount,
+           <!-- 与 AccountMapper.selectOnlineNormalByGroupId 及严格协议解析保持同一可执行口径。 -->
+           (SELECT COUNT(*)
+              FROM account a
+              INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+             WHERE a.account_group_id = g.id
+               AND a.deleted_at IS NULL
+               AND s.account_state = 1
+               AND s.login_state = 1
+               AND a.ws_phone IS NOT NULL
+               AND TRIM(a.ws_phone) &lt;&gt; ''
+               AND a.protocol_account_id IS NOT NULL
+               AND TRIM(a.protocol_account_id) &lt;&gt; ''
+               AND UPPER(TRIM(a.protocol_id)) IN ('WEB', 'ANDROID')) AS executableOnlineCount,
            (SELECT COUNT(*)
               FROM account a
               LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id

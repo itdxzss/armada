@@ -228,11 +228,17 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
                 || !hasText(account.getWsPhone())) {
             return Optional.empty();
         }
-        return Optional.of(new ProtocolAccountRef(
-                account.getId(),
-                ProtocolBackend.fromExplicitProtocolId(account.getProtocolId()),
-                account.getProtocolAccountId(),
-                account.getWsPhone()));
+        try {
+            return Optional.of(new ProtocolAccountRef(
+                    account.getId(),
+                    ProtocolBackend.fromExplicitProtocolId(account.getProtocolId()),
+                    account.getProtocolAccountId(),
+                    account.getWsPhone()));
+        } catch (IllegalArgumentException ex) {
+            // 单个脏账号不能阻断整个分组选号；页面可用数 SQL 使用相同 WEB/ANDROID 口径排除它。
+            LOGGER.warn("严格协议选号跳过协议类型无效的账号 accountId={}", account.getId());
+            return Optional.empty();
+        }
     }
 
     private static boolean hasText(String value) {

@@ -11,6 +11,7 @@ import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.normalcreation.model.enums.NormalGroupCreationErrorMessage;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.group.service.GroupLinkRegistryService;
@@ -18,11 +19,21 @@ import com.armada.group.service.GroupLinkService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedSink;
+import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.GroupParticipantAction;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
+import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -42,6 +53,7 @@ public class NormalGroupCreationProtocolResultService
 
     private final NormalGroupCreationMapper mapper;
     private final NormalGroupCreationCommandDispatcher commandDispatcher;
+    private final GroupParticipantPort participantPort;
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupLinkService groupLinkService;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
@@ -52,6 +64,7 @@ public class NormalGroupCreationProtocolResultService
     public NormalGroupCreationProtocolResultService(
             NormalGroupCreationMapper mapper,
             NormalGroupCreationCommandDispatcher commandDispatcher,
+            GroupParticipantPort participantPort,
             GroupLinkRegistryService groupLinkRegistryService,
             GroupLinkService groupLinkService,
             GroupMetadataSyncTaskService metadataSyncTaskService,
@@ -60,6 +73,7 @@ public class NormalGroupCreationProtocolResultService
             AccountStateMapper accountStateMapper) {
         this.mapper = mapper;
         this.commandDispatcher = commandDispatcher;
+        this.participantPort = participantPort;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.groupLinkService = groupLinkService;
         this.metadataSyncTaskService = metadataSyncTaskService;
@@ -90,10 +104,10 @@ public class NormalGroupCreationProtocolResultService
                         event.tenantId(), event.itemId(), event.action(), event.commandId());
                 return;
             }
-            MemberWork member = validateActorAndCommand(item, event);
+            ContactTarget contactTarget = validateActorAndCommand(item, event);
             if ("CONTACT_PREPARE".equals(event.action())) {
-                if (member != null) {
-                    contactSettled(item, member, event);
+                if (contactTarget != null) {
+                    contactSettled(item, contactTarget, event);
                 }
                 return;
             }
@@ -112,34 +126,11 @@ public class NormalGroupCreationProtocolResultService
         }
     }
 
-    private MemberWork validateActorAndCommand(
+    private ContactTarget validateActorAndCommand(
             ItemWork item,
             ProtocolNormalGroupCreationResultReportedEvent event) {
         if ("CONTACT_PREPARE".equals(event.action())) {
-            MemberWork member = mapper.selectMemberWorkForUpdate(
-                    event.tenantId(), item.id(), event.memberId());
-            if (member == null) {
-                throw validation("联系人准备结果关联成员不存在");
-            }
-            boolean creatorDirection = "CREATOR_SAVE_MEMBER".equals(event.direction());
-            String expectedCommandId = creatorDirection
-                    ? member.creatorSaveCommandId() : member.memberSaveCommandId();
-            Long expectedAccountId = creatorDirection
-                    ? item.creatorAccountId() : member.memberAccountId();
-            String expectedProtocolAccountId = creatorDirection
-                    ? item.creatorProtocolAccountId() : member.memberProtocolAccountId();
-            String expectedBackend = creatorDirection
-                    ? item.creatorProtocolBackend() : member.memberProtocolBackend();
-            if (!Objects.equals(event.commandId(), expectedCommandId)) {
-                log.info("忽略已被重试替换的新建普群联系人结果 tenantId={} itemId={} memberId={} "
-                                + "direction={} commandId={}",
-                        event.tenantId(), event.itemId(), event.memberId(),
-                        event.direction(), event.commandId());
-                return null;
-            }
-            requireActor(event, expectedCommandId, expectedAccountId,
-                    expectedProtocolAccountId, expectedBackend);
-            return member;
+            return validateContactActor(item, event);
         }
         String expectedCommandId = switch (event.action()) {
             case "GROUP_CREATE" -> item.createCommandId();
@@ -150,6 +141,106 @@ public class NormalGroupCreationProtocolResultService
         requireActor(event, expectedCommandId, item.creatorAccountId(),
                 item.creatorProtocolAccountId(), item.creatorProtocolBackend());
         return null;
+    }
+
+    private ContactTarget validateContactActor(
+            ItemWork item,
+            ProtocolNormalGroupCreationResultReportedEvent event) {
+        MemberWork member = mapper.selectMemberWorkForUpdate(
+                event.tenantId(), item.id(), event.memberId());
+        String memberDirection = member == null ? null
+                : Objects.equals(event.commandId(), member.creatorSaveCommandId())
+                ? "CREATOR_SAVE_MEMBER"
+                : Objects.equals(event.commandId(), member.memberSaveCommandId())
+                ? "MEMBER_SAVE_CREATOR" : null;
+        if (memberDirection != null) {
+            requireProtocolDirection(event.direction(), memberDirection);
+            boolean creatorDirection = "CREATOR_SAVE_MEMBER".equals(memberDirection);
+            requireActor(
+                    event,
+                    event.commandId(),
+                    creatorDirection ? item.creatorAccountId() : member.memberAccountId(),
+                    creatorDirection
+                            ? item.creatorProtocolAccountId() : member.memberProtocolAccountId(),
+                    creatorDirection
+                            ? item.creatorProtocolBackend() : member.memberProtocolBackend());
+            return new ContactTarget(member, null, memberDirection);
+        }
+        SecondaryAdminWork secondary = mapper.selectSecondaryAdminWorkForUpdate(
+                event.tenantId(), item.id(), event.memberId());
+        if (secondary == null && member == null) {
+            throw validation("联系人准备结果关联普通成员或次管理员不存在");
+        }
+        if (secondary == null) {
+            logReplacedContactResult(event);
+            return null;
+        }
+        String internalDirection = Objects.equals(
+                event.commandId(), secondary.creatorSaveCommandId())
+                ? "CREATOR_SAVE_SECONDARY"
+                : Objects.equals(event.commandId(), secondary.secondarySaveCreatorCommandId())
+                ? "SECONDARY_SAVE_CREATOR"
+                : Objects.equals(event.commandId(), secondary.secondarySaveAnchorCommandId())
+                ? "SECONDARY_SAVE_ANCHOR"
+                : Objects.equals(event.commandId(), secondary.anchorSaveSecondaryCommandId())
+                ? "ANCHOR_SAVE_SECONDARY" : null;
+        if (internalDirection == null) {
+            logReplacedContactResult(event);
+            return null;
+        }
+        requireProtocolDirection(event.direction(), internalDirection);
+        Long expectedAccountId;
+        String expectedProtocolAccountId;
+        String expectedBackend;
+        switch (internalDirection) {
+            case "CREATOR_SAVE_SECONDARY" -> {
+                expectedAccountId = item.creatorAccountId();
+                expectedProtocolAccountId = item.creatorProtocolAccountId();
+                expectedBackend = item.creatorProtocolBackend();
+            }
+            case "SECONDARY_SAVE_CREATOR" -> {
+                expectedAccountId = secondary.secondaryAdminAccountId();
+                expectedProtocolAccountId = secondary.secondaryAdminProtocolAccountId();
+                expectedBackend = secondary.secondaryAdminProtocolBackend();
+            }
+            case "SECONDARY_SAVE_ANCHOR" -> {
+                expectedAccountId = secondary.secondaryAdminAccountId();
+                expectedProtocolAccountId = secondary.secondaryAdminProtocolAccountId();
+                expectedBackend = secondary.secondaryAdminProtocolBackend();
+            }
+            case "ANCHOR_SAVE_SECONDARY" -> {
+                expectedAccountId = secondary.anchorMemberAccountId();
+                expectedProtocolAccountId = secondary.anchorMemberProtocolAccountId();
+                expectedBackend = secondary.anchorMemberProtocolBackend();
+            }
+            default -> throw validation("新建普群联系人准备方向非法");
+        }
+        requireActor(event, event.commandId(), expectedAccountId,
+                expectedProtocolAccountId, expectedBackend);
+        return new ContactTarget(null, secondary, internalDirection);
+    }
+
+    private static void requireProtocolDirection(
+            String protocolDirection,
+            String internalDirection) {
+        String expected = switch (internalDirection) {
+            case "CREATOR_SAVE_MEMBER", "CREATOR_SAVE_SECONDARY", "SECONDARY_SAVE_ANCHOR" ->
+                    "CREATOR_SAVE_MEMBER";
+            case "MEMBER_SAVE_CREATOR", "SECONDARY_SAVE_CREATOR", "ANCHOR_SAVE_SECONDARY" ->
+                    "MEMBER_SAVE_CREATOR";
+            default -> throw validation("新建普群联系人准备方向非法");
+        };
+        if (!Objects.equals(protocolDirection, expected)) {
+            throw validation("新建普群联系人结果方向与命令不匹配");
+        }
+    }
+
+    private static void logReplacedContactResult(
+            ProtocolNormalGroupCreationResultReportedEvent event) {
+        log.info("忽略已被替换的新建普群联系人结果 tenantId={} itemId={} memberId={} "
+                        + "protocolDirection={} commandId={}",
+                event.tenantId(), event.itemId(), event.memberId(),
+                event.direction(), event.commandId());
     }
 
     private static void requireActor(
@@ -174,15 +265,24 @@ public class NormalGroupCreationProtocolResultService
      */
     private void contactSettled(
             ItemWork item,
-            MemberWork member,
+            ContactTarget target,
             ProtocolNormalGroupCreationResultReportedEvent event) {
         FailureDetails failure =
-                "SUCCESS".equals(event.outcome()) ? null : failureDetails(event);
+                "SUCCESS".equals(event.outcome())
+                        ? null : failureDetails(event, target.internalDirection());
         long now = System.currentTimeMillis();
-        if (mapper.applyContactResult(
-                member.id(), event.direction(), event.commandId(), event.outcome(),
+        int applied = target.member() != null
+                ? mapper.applyContactResult(
+                target.member().id(), target.internalDirection(),
+                event.commandId(), event.outcome(),
                 failure == null ? null : failure.code(),
-                failure == null ? null : failure.message(), now) == 0) {
+                failure == null ? null : failure.message(), now)
+                : mapper.applySecondaryContactResult(
+                target.secondaryAdmin().id(), target.internalDirection(),
+                event.commandId(), event.outcome(),
+                failure == null ? null : failure.code(),
+                failure == null ? null : failure.message(), now);
+        if (applied == 0) {
             return;
         }
         if (failure != null) {
@@ -211,15 +311,119 @@ public class NormalGroupCreationProtocolResultService
         } catch (IllegalArgumentException ex) {
             throw validation("建群成功回执中的群 JID 无法生成自动群名");
         }
+        long now = System.currentTimeMillis();
+        mapper.markParticipantsCreated(item.id(), now);
+        mapper.markSecondaryParticipantsCreated(item.id(), now);
+        List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id());
+        PromotionFailure promotionFailure = promoteSecondaryAdmins(
+                item, event.groupJid(), secondaryAdmins);
+        if (promotionFailure != null) {
+            // 先记录所有已入群账号的成功基线，再用逐成员失败目标覆盖，保留部分成功事实。
+            mapper.markSecondaryAdminsPromoted(item.id(), now);
+            mapper.markSecondaryAdminPromotionFailures(
+                    item.id(), promotionFailure.failedPhones(), promotionFailure.code(),
+                    promotionFailure.message(), now);
+            if (mapper.failProtocolAction(
+                    item.id(), "CREATING_GROUP", event.commandId(), "CREATED_PARTIAL",
+                    promotionFailure.code(), promotionFailure.message(), event.groupJid(),
+                    event.eventId() == null ? event.commandId() : event.eventId(), now) != 1) {
+                throw unavailable("次管理员设置失败后无法保存计划群状态");
+            }
+            migrateCreator(item.creatorAccountId(), item.successMigrationGroupId());
+            mapper.refreshTaskSummary(item.taskId(), now);
+            return;
+        }
+        mapper.markSecondaryAdminsPromoted(item.id(), now);
         String settingsCommandId =
                 commandDispatcher.enqueueCreatorAction(item, "GROUP_SETTINGS_APPLY");
-        long now = System.currentTimeMillis();
         if (mapper.startGroupSettings(
                 item.id(), event.commandId(), settingsCommandId, event.groupJid(),
                 finalSubject, now) != 1) {
-            throw unavailable("建群成功后无法推进权限阶段");
+            throw unavailable("次管理员设置成功后无法推进群权限设置阶段");
         }
-        mapper.markParticipantsCreated(item.id(), now);
+    }
+
+    /** 使用冻结的创群账号调用现有 Web/Android 成员端口，不新增协议动作或自动重试。 */
+    private PromotionFailure promoteSecondaryAdmins(
+            ItemWork item,
+            String groupJid,
+            List<SecondaryAdminWork> secondaryAdmins) {
+        if (secondaryAdmins.isEmpty()) {
+            return null;
+        }
+        List<String> targetJids = secondaryAdmins.stream()
+                .map(SecondaryAdminWork::secondaryAdminWsPhone)
+                .map(WhatsappJids::userJid)
+                .toList();
+        GroupParticipantBatchResult result;
+        try {
+            result = participantPort.updateParticipants(
+                    new ProtocolAccountRef(
+                            item.creatorAccountId(),
+                            ProtocolBackend.valueOf(item.creatorProtocolBackend()),
+                            item.creatorProtocolAccountId(),
+                            item.creatorWsPhone()),
+                    groupJid,
+                    targetJids,
+                    GroupParticipantAction.PROMOTE);
+        } catch (ProtocolException ex) {
+            String message = "群已创建，但次管理员设置失败：执行群主账号 "
+                    + item.creatorAccountId() + "，协议错误 " + ex.errorCode().name();
+            log.warn("新建普群调用现有成员提权接口失败 tenantId={} taskId={} itemId={} "
+                            + "creatorAccountId={} backend={} targetCount={} code={}",
+                    item.tenantId(), item.taskId(), item.id(), item.creatorAccountId(),
+                    item.creatorProtocolBackend(), secondaryAdmins.size(), ex.errorCode());
+            return new PromotionFailure(
+                    "SECONDARY_ADMIN_PROMOTION_FAILED",
+                    secondaryAdmins.stream()
+                            .map(SecondaryAdminWork::secondaryAdminWsPhone).toList(),
+                    message);
+        }
+        List<GroupParticipantBatchResult.Item> resultItems = result == null
+                || result.results() == null ? List.of() : result.results();
+        Map<String, GroupParticipantBatchResult.Item> byJid = resultItems.stream()
+                .filter(row -> row != null && row.jid() != null && !row.jid().isBlank())
+                .collect(Collectors.toMap(
+                        row -> WhatsappJids.userJid(row.jid()),
+                        Function.identity(),
+                        (left, right) -> left));
+        List<SecondaryAdminWork> failed = secondaryAdmins.stream()
+                .filter(row -> {
+                    GroupParticipantBatchResult.Item detail = byJid.get(
+                            WhatsappJids.userJid(row.secondaryAdminWsPhone()));
+                    return detail == null || !"OK".equalsIgnoreCase(detail.status());
+                })
+                .toList();
+        if (failed.isEmpty() && result != null && !result.partial()) {
+            log.info("新建普群次管理员设置完成 tenantId={} taskId={} itemId={} "
+                            + "creatorAccountId={} backend={} successCount={}",
+                    item.tenantId(), item.taskId(), item.id(), item.creatorAccountId(),
+                    item.creatorProtocolBackend(), secondaryAdmins.size());
+            return null;
+        }
+        List<String> failedPhones = (failed.isEmpty() ? secondaryAdmins : failed).stream()
+                .map(SecondaryAdminWork::secondaryAdminWsPhone)
+                .toList();
+        String details = (failed.isEmpty() ? secondaryAdmins : failed).stream()
+                .map(row -> {
+                    GroupParticipantBatchResult.Item detail = byJid.get(
+                            WhatsappJids.userJid(row.secondaryAdminWsPhone()));
+                    String status = detail == null
+                            ? "MISSING" : Objects.toString(detail.status(), "UNKNOWN");
+                    String rawStatus = detail == null
+                            ? "无逐成员回执" : Objects.toString(detail.rawStatus(), "无原始状态");
+                    return "账号 " + row.secondaryAdminAccountId() + "（协议状态 "
+                            + status + "，原始状态 " + rawStatus + "）";
+                })
+                .collect(Collectors.joining("；"));
+        String message = "群已创建，但次管理员设置失败：" + details;
+        log.warn("新建普群次管理员设置存在失败 tenantId={} taskId={} itemId={} "
+                        + "creatorAccountId={} backend={} targetCount={} failedCount={} partial={}",
+                item.tenantId(), item.taskId(), item.id(), item.creatorAccountId(),
+                item.creatorProtocolBackend(), secondaryAdmins.size(), failedPhones.size(),
+                result != null && result.partial());
+        return new PromotionFailure(
+                "SECONDARY_ADMIN_PROMOTION_FAILED", failedPhones, message);
     }
 
     private void settingsApplied(
@@ -242,21 +446,26 @@ public class NormalGroupCreationProtocolResultService
             String leaveStatus) {
         ItemWork item = mapper.selectItemWork(event.itemId());
         List<MemberWork> members = mapper.selectMemberWorks(item.id());
+        List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id());
         long now = System.currentTimeMillis();
         Long groupLinkId = groupLinkRegistryService.registerSelfBuiltGroup(
                 item.groupJid(), item.groupSubject(), item.creatorAccountId(),
-                item.creatorWsPhone(), members.size() + 1, now);
+                item.creatorWsPhone(), members.size() + secondaryAdmins.size() + 1, now);
         if (mapper.updateGroupLink(item.id(), groupLinkId, now) != 1) {
             throw unavailable("群组列表入口回写失败");
         }
         if (item.folderId() != null) {
             groupLinkService.assignFolder(List.of(groupLinkId), item.folderId());
         }
+        for (SecondaryAdminWork secondary : secondaryAdmins) {
+            groupLinkRegistryService.registerKnownMembership(
+                    groupLinkId, item.groupJid(), secondary.secondaryAdminAccountId(), true, now);
+        }
         for (int index = 0; index < members.size(); index++) {
             MemberWork member = members.get(index);
             groupLinkRegistryService.registerKnownMembership(
                     groupLinkId, item.groupJid(), member.memberAccountId(),
-                    "SUCCESS".equals(leaveStatus) && index == 0, now);
+                    secondaryAdmins.isEmpty() && "SUCCESS".equals(leaveStatus) && index == 0, now);
         }
         metadataSyncTaskService.enqueue(
                 groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, now);
@@ -365,11 +574,19 @@ public class NormalGroupCreationProtocolResultService
 
     private static FailureDetails failureDetails(
             ProtocolNormalGroupCreationResultReportedEvent event) {
+        return failureDetails(event, event.direction());
+    }
+
+    private static FailureDetails failureDetails(
+            ProtocolNormalGroupCreationResultReportedEvent event,
+            String internalDirection) {
         if (!ACCOUNT_NOT_ONLINE.equals(event.reasonCode())) {
             return new FailureDetails(event.reasonCode(), safeMessage(event));
         }
         if ("CONTACT_PREPARE".equals(event.action())
-                && "MEMBER_SAVE_CREATOR".equals(event.direction())) {
+                && List.of("MEMBER_SAVE_CREATOR", "SECONDARY_SAVE_CREATOR",
+                        "SECONDARY_SAVE_ANCHOR", "ANCHOR_SAVE_SECONDARY")
+                .contains(internalDirection)) {
             return new FailureDetails(
                     event.reasonCode(),
                     NormalGroupCreationErrorMessage.accountNotOnlineMessage(true));
@@ -427,5 +644,14 @@ public class NormalGroupCreationProtocolResultService
     }
 
     private record AccountFailureClassification(String code, String message) {
+    }
+
+    private record ContactTarget(
+            MemberWork member,
+            SecondaryAdminWork secondaryAdmin,
+            String internalDirection) {
+    }
+
+    private record PromotionFailure(String code, List<String> failedPhones, String message) {
     }
 }

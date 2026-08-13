@@ -22,6 +22,47 @@ import org.springframework.web.client.RestClient;
 class AndroidNativeGroupParticipantAdapterTest {
 
     @Test
+    void promotesEachMemberThroughExistingAndroidAdminContract() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://android.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupParticipantPort port = new AndroidNativeGroupParticipantAdapter(
+                new HttpAndroidNativeClient(new ProtocolHttpExecutor(builder.build())),
+                new AndroidResponseDecoder(),
+                new AndroidGroupOperationErrorMapper());
+
+        for (String participant : List.of(
+                "919000000002@s.whatsapp.net",
+                "919000000003@s.whatsapp.net")) {
+            server.expect(requestTo(
+                            "http://android.internal/ws/v1/groups/admin/set/919000000001"))
+                    .andExpect(method(HttpMethod.POST))
+                    .andExpect(content().json("""
+                            {
+                              "group_id":"120363001@g.us",
+                              "state":true,
+                              "participant":"%s"
+                            }
+                            """.formatted(participant)))
+                    .andRespond(withSuccess(
+                            "{\"Code\":0,\"Data\":\"设置管理员成功\",\"Msg\":\"\"}",
+                            MediaType.APPLICATION_JSON));
+        }
+
+        GroupParticipantBatchResult result = port.updateParticipants(
+                account(),
+                "120363001@g.us",
+                List.of(
+                        "919000000002@s.whatsapp.net",
+                        "919000000003@s.whatsapp.net"),
+                GroupParticipantAction.PROMOTE);
+
+        assertThat(result.partial()).isFalse();
+        assertThat(result.results()).extracting(GroupParticipantBatchResult.Item::status)
+                .containsExactly("OK", "OK");
+        server.verify();
+    }
+
+    @Test
     void removesEachMemberThroughAndroidNativeContractAndKeepsFailures() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://android.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

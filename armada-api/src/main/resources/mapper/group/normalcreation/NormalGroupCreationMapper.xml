@@ -25,14 +25,17 @@
 
   <insert id="insertTask">
     INSERT INTO normal_group_creation_task (
-      idempotency_key, admin_account_group_id, member_account_group_id, member_count,
+      idempotency_key, admin_account_group_id, secondary_admin_account_group_id,
+      secondary_admin_count, member_account_group_id, member_count,
       group_count, group_name_template, start_no, creator_leave_policy, speed, folder_id,
       success_migration_group_id, failed_migration_group_id, send_messages_allowed,
       edit_group_settings_allowed, add_members_allowed, join_approval_enabled,
       ephemeral_duration_seconds, status, total_count, created_by, created_at, updated_at
     ) VALUES (
-      #{row.idempotencyKey}, #{row.adminAccountGroupId}, #{row.memberAccountGroupId},
-      #{row.memberCount}, #{row.groupCount}, #{row.groupNameTemplate}, #{row.startNo},
+      #{row.idempotencyKey}, #{row.adminAccountGroupId},
+      #{row.secondaryAdminAccountGroupId}, #{row.secondaryAdminCount},
+      #{row.memberAccountGroupId}, #{row.memberCount}, #{row.groupCount},
+      #{row.groupNameTemplate}, #{row.startNo},
       #{row.creatorLeavePolicy}, #{row.speed}, #{row.folderId},
       #{row.successMigrationGroupId}, #{row.failedMigrationGroupId},
       #{row.sendMessagesAllowed}, #{row.editGroupSettingsAllowed},
@@ -93,6 +96,24 @@
       (#{row.taskId}, #{row.itemId}, #{row.memberOrder}, #{row.memberAccountId},
        #{row.memberProtocolAccountId}, #{row.memberProtocolBackend}, #{row.memberWsPhone},
        'PENDING', 'PENDING', 'PENDING', #{row.now}, #{row.now})
+    </foreach>
+  </insert>
+
+  <insert id="insertSecondaryAdmins">
+    INSERT INTO normal_group_creation_item_secondary_admin (
+      task_id, item_id, secondary_admin_order, secondary_admin_account_id,
+      secondary_admin_protocol_account_id, secondary_admin_protocol_backend,
+      secondary_admin_ws_phone, anchor_member_account_id,
+      creator_saved_secondary_status, secondary_saved_creator_status,
+      secondary_saved_anchor_status, anchor_saved_secondary_status,
+      participant_status, promotion_status, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (#{row.taskId}, #{row.itemId}, #{row.secondaryAdminOrder},
+       #{row.secondaryAdminAccountId}, #{row.secondaryAdminProtocolAccountId},
+       #{row.secondaryAdminProtocolBackend}, #{row.secondaryAdminWsPhone},
+       #{row.anchorMemberAccountId}, 'PENDING', 'PENDING', 'PENDING', 'PENDING',
+       'PENDING', 'PENDING', #{row.now}, #{row.now})
     </foreach>
   </insert>
 
@@ -167,6 +188,71 @@
     FROM normal_group_creation_item_member
     WHERE item_id = #{itemId}
     ORDER BY member_order ASC, id ASC
+  </select>
+
+  <select id="selectSecondaryAdminWorks"
+          resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$SecondaryAdminWork">
+    SELECT secondary.id,
+           secondary.secondary_admin_account_id,
+           secondary.secondary_admin_protocol_account_id,
+           secondary.secondary_admin_protocol_backend,
+           secondary.secondary_admin_ws_phone,
+           secondary.anchor_member_account_id,
+           anchor.member_protocol_account_id AS anchor_member_protocol_account_id,
+           anchor.member_protocol_backend AS anchor_member_protocol_backend,
+           anchor.member_ws_phone AS anchor_member_ws_phone,
+           secondary.creator_saved_secondary_status,
+           secondary.secondary_saved_creator_status,
+           secondary.secondary_saved_anchor_status,
+           secondary.anchor_saved_secondary_status,
+           secondary.creator_save_command_id,
+           secondary.secondary_save_creator_command_id,
+           secondary.secondary_save_anchor_command_id,
+           secondary.anchor_save_secondary_command_id,
+           secondary.participant_status,
+           secondary.promotion_status,
+           secondary.last_error_message
+    FROM normal_group_creation_item_secondary_admin secondary
+    INNER JOIN normal_group_creation_item_member anchor
+      ON anchor.tenant_id = secondary.tenant_id
+     AND anchor.item_id = secondary.item_id
+     AND anchor.member_account_id = secondary.anchor_member_account_id
+    WHERE secondary.item_id = #{itemId}
+    ORDER BY secondary.secondary_admin_order ASC, secondary.id ASC
+  </select>
+
+  <select id="selectSecondaryAdminWorkForUpdate"
+          resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$SecondaryAdminWork">
+    SELECT secondary.id,
+           secondary.secondary_admin_account_id,
+           secondary.secondary_admin_protocol_account_id,
+           secondary.secondary_admin_protocol_backend,
+           secondary.secondary_admin_ws_phone,
+           secondary.anchor_member_account_id,
+           anchor.member_protocol_account_id AS anchor_member_protocol_account_id,
+           anchor.member_protocol_backend AS anchor_member_protocol_backend,
+           anchor.member_ws_phone AS anchor_member_ws_phone,
+           secondary.creator_saved_secondary_status,
+           secondary.secondary_saved_creator_status,
+           secondary.secondary_saved_anchor_status,
+           secondary.anchor_saved_secondary_status,
+           secondary.creator_save_command_id,
+           secondary.secondary_save_creator_command_id,
+           secondary.secondary_save_anchor_command_id,
+           secondary.anchor_save_secondary_command_id,
+           secondary.participant_status,
+           secondary.promotion_status,
+           secondary.last_error_message
+    FROM normal_group_creation_item_secondary_admin secondary
+    INNER JOIN normal_group_creation_item_member anchor
+      ON anchor.tenant_id = secondary.tenant_id
+     AND anchor.item_id = secondary.item_id
+     AND anchor.member_account_id = secondary.anchor_member_account_id
+    WHERE secondary.tenant_id = #{tenantId}
+      AND secondary.item_id = #{itemId}
+      AND secondary.id = #{secondaryAdminId}
+    LIMIT 1
+    FOR UPDATE OF secondary
   </select>
 
   <select id="selectMemberAccountGroupId" resultType="long">
@@ -271,6 +357,44 @@
     </choose>
   </update>
 
+  <update id="bindSecondaryContactCommand">
+    UPDATE normal_group_creation_item_secondary_admin
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_SECONDARY'">
+        SET creator_save_command_id = #{commandId},
+            creator_saved_secondary_status = 'PENDING',
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_CREATOR'">
+        SET secondary_save_creator_command_id = #{commandId},
+            secondary_saved_creator_status = 'PENDING',
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_ANCHOR'">
+        SET secondary_save_anchor_command_id = #{commandId},
+            secondary_saved_anchor_status = 'PENDING',
+      </when>
+      <otherwise>
+        SET anchor_save_secondary_command_id = #{commandId},
+            anchor_saved_secondary_status = 'PENDING',
+      </otherwise>
+    </choose>
+        updated_at = #{now}
+    WHERE id = #{secondaryAdminId}
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_SECONDARY'">
+        AND creator_saved_secondary_status = #{expectedStatus}
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_CREATOR'">
+        AND secondary_saved_creator_status = #{expectedStatus}
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_ANCHOR'">
+        AND secondary_saved_anchor_status = #{expectedStatus}
+      </when>
+      <otherwise>
+        AND anchor_saved_secondary_status = #{expectedStatus}
+      </otherwise>
+    </choose>
+  </update>
+
   <update id="markContactPrepareSubmitted">
     UPDATE normal_group_creation_item
     SET status = 'RUNNING', dispatch_stage = 'CONTACT_PREPARE',
@@ -309,13 +433,62 @@
     </choose>
   </update>
 
+  <update id="applySecondaryContactResult">
+    UPDATE normal_group_creation_item_secondary_admin
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_SECONDARY'">
+        SET creator_saved_secondary_status = #{status},
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_CREATOR'">
+        SET secondary_saved_creator_status = #{status},
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_ANCHOR'">
+        SET secondary_saved_anchor_status = #{status},
+      </when>
+      <otherwise>
+        SET anchor_saved_secondary_status = #{status},
+      </otherwise>
+    </choose>
+        last_error_code = #{errorCode}, last_error_message = #{errorMessage},
+        updated_at = #{now}
+    WHERE id = #{secondaryAdminId}
+    <choose>
+      <when test="direction == 'CREATOR_SAVE_SECONDARY'">
+        AND creator_save_command_id = #{commandId}
+        AND creator_saved_secondary_status = 'PENDING'
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_CREATOR'">
+        AND secondary_save_creator_command_id = #{commandId}
+        AND secondary_saved_creator_status = 'PENDING'
+      </when>
+      <when test="direction == 'SECONDARY_SAVE_ANCHOR'">
+        AND secondary_save_anchor_command_id = #{commandId}
+        AND secondary_saved_anchor_status = 'PENDING'
+      </when>
+      <otherwise>
+        AND anchor_save_secondary_command_id = #{commandId}
+        AND anchor_saved_secondary_status = 'PENDING'
+      </otherwise>
+    </choose>
+  </update>
+
   <select id="countPendingContactDirections" resultType="int">
-    SELECT COALESCE(SUM(
-      (CASE WHEN creator_saved_member_status = 'PENDING' THEN 1 ELSE 0 END) +
-      (CASE WHEN member_saved_creator_status = 'PENDING' THEN 1 ELSE 0 END)
-    ), 0)
-    FROM normal_group_creation_item_member
-    WHERE item_id = #{itemId}
+    SELECT
+      (SELECT COALESCE(SUM(
+        (CASE WHEN creator_saved_member_status = 'PENDING' THEN 1 ELSE 0 END) +
+        (CASE WHEN member_saved_creator_status = 'PENDING' THEN 1 ELSE 0 END)
+      ), 0)
+      FROM normal_group_creation_item_member
+      WHERE item_id = #{itemId})
+      +
+      (SELECT COALESCE(SUM(
+        (CASE WHEN creator_saved_secondary_status = 'PENDING' THEN 1 ELSE 0 END) +
+        (CASE WHEN secondary_saved_creator_status = 'PENDING' THEN 1 ELSE 0 END) +
+        (CASE WHEN secondary_saved_anchor_status = 'PENDING' THEN 1 ELSE 0 END) +
+        (CASE WHEN anchor_saved_secondary_status = 'PENDING' THEN 1 ELSE 0 END)
+      ), 0)
+      FROM normal_group_creation_item_secondary_admin
+      WHERE item_id = #{itemId})
   </select>
 
   <update id="startGroupCreate">
@@ -329,6 +502,14 @@
             AND flagged.item_id = normal_group_creation_item.id
             AND (flagged.creator_saved_member_status &lt;&gt; 'SUCCESS'
               OR flagged.member_saved_creator_status &lt;&gt; 'SUCCESS')
+        ) OR EXISTS (
+          SELECT 1 FROM normal_group_creation_item_secondary_admin flagged_secondary
+          WHERE flagged_secondary.tenant_id = normal_group_creation_item.tenant_id
+            AND flagged_secondary.item_id = normal_group_creation_item.id
+            AND (flagged_secondary.creator_saved_secondary_status &lt;&gt; 'SUCCESS'
+              OR flagged_secondary.secondary_saved_creator_status &lt;&gt; 'SUCCESS'
+              OR flagged_secondary.secondary_saved_anchor_status &lt;&gt; 'SUCCESS'
+              OR flagged_secondary.anchor_saved_secondary_status &lt;&gt; 'SUCCESS')
         ) THEN 1 ELSE 0 END,
         updated_at = #{now}
     WHERE id = #{itemId}
@@ -340,6 +521,15 @@
           AND member.item_id = normal_group_creation_item.id
           AND (member.creator_saved_member_status = 'PENDING'
             OR member.member_saved_creator_status = 'PENDING')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM normal_group_creation_item_secondary_admin secondary
+        WHERE secondary.tenant_id = normal_group_creation_item.tenant_id
+          AND secondary.item_id = normal_group_creation_item.id
+          AND (secondary.creator_saved_secondary_status = 'PENDING'
+            OR secondary.secondary_saved_creator_status = 'PENDING'
+            OR secondary.secondary_saved_anchor_status = 'PENDING'
+            OR secondary.anchor_saved_secondary_status = 'PENDING')
       )
   </update>
 
@@ -357,9 +547,33 @@
       AND group_jid IS NULL
   </update>
 
+  <update id="markSecondaryAdminsPromoted">
+    UPDATE normal_group_creation_item_secondary_admin
+    SET participant_status = 'CONFIRMED', promotion_status = 'SUCCESS',
+        last_error_code = NULL, last_error_message = NULL, updated_at = #{now}
+    WHERE item_id = #{itemId}
+  </update>
+
+  <update id="markSecondaryAdminPromotionFailures">
+    UPDATE normal_group_creation_item_secondary_admin
+    SET promotion_status = 'FAILED', last_error_code = #{errorCode},
+        last_error_message = #{errorMessage}, updated_at = #{now}
+    WHERE item_id = #{itemId}
+      AND secondary_admin_ws_phone IN
+      <foreach collection="failedTargets" item="phone" open="(" separator="," close=")">
+        #{phone}
+      </foreach>
+  </update>
+
   <update id="markParticipantsCreated">
     UPDATE normal_group_creation_item_member
     SET participant_status = 'CONFIRMED', participant_raw_status = 'SUCCESS', updated_at = #{now}
+    WHERE item_id = #{itemId}
+  </update>
+
+  <update id="markSecondaryParticipantsCreated">
+    UPDATE normal_group_creation_item_secondary_admin
+    SET participant_status = 'CONFIRMED', updated_at = #{now}
     WHERE item_id = #{itemId}
   </update>
 
@@ -437,7 +651,8 @@
         create_attempt_count = create_attempt_count
           + CASE WHEN #{expectedStep} = 'CREATING_GROUP' THEN 1 ELSE 0 END,
         post_attempt_count = post_attempt_count
-          + CASE WHEN #{expectedStep} IN ('APPLYING_SETTINGS', 'LEAVING_GROUP') THEN 1 ELSE 0 END,
+          + CASE WHEN #{expectedStep} IN ('APPLYING_SETTINGS', 'LEAVING_GROUP')
+                 THEN 1 ELSE 0 END,
         last_event_id = NULL, last_error_code = NULL, last_error_message = NULL,
         updated_at = #{now}
     WHERE id = #{itemId}

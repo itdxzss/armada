@@ -123,6 +123,20 @@ class AccountProtocolLookupServiceTest {
                 301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
     }
 
+    @Test
+    void findOnlineNormalStrictByGroupIdSkipsUnsupportedProtocolRows() {
+        when(accountMapper.selectOnlineNormalByGroupId(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(
+                        account(51L, "WEB", "web-51", "9551"),
+                        account(52L, "DESKTOP", "desktop-52", "9552"),
+                        account(53L, "ANDROID", "android-53", "9553")));
+
+        assertThat(service.findOnlineNormalStrictByGroupId(301L)).containsExactly(
+                new ProtocolAccountRef(51L, ProtocolBackend.WEB, "web-51", "9551"),
+                new ProtocolAccountRef(53L, ProtocolBackend.ANDROID, "android-53", "9553"));
+    }
+
     private static Account account(Long id, String protocolId, String protocolAccountId, String wsPhone) {
         Account account = new Account();
         account.setId(id);

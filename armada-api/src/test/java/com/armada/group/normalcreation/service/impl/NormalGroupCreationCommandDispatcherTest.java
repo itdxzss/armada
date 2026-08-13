@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -19,6 +20,56 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class NormalGroupCreationCommandDispatcherTest {
+
+    @Test
+    void initialContactPrepareIncludesCreatorSecondaryAndSameGroupAnchorDirections() {
+        NormalGroupCreationMapper mapper = mock(NormalGroupCreationMapper.class);
+        ProtocolCommandOutboxService outbox = mock(ProtocolCommandOutboxService.class);
+        NormalGroupCreationCommandDispatcher dispatcher =
+                new NormalGroupCreationCommandDispatcher(mapper, outbox);
+        ItemWork item = item();
+        MemberWork member = new MemberWork(
+                31L, 383L, "member-android", "ANDROID", "922",
+                "PENDING", "PENDING", null, null, "PENDING");
+        SecondaryAdminWork secondary = new SecondaryAdminWork(
+                41L, 384L, "secondary-web", "WEB", "933",
+                383L, "member-android", "ANDROID", "922",
+                "PENDING", "PENDING", "PENDING", "PENDING",
+                null, null, null, null, "PENDING", "PENDING", null);
+        when(outbox.enqueueNormalGroupCreationCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null,
+                        List.of("c1", "c2", "c3", "c4", "c5", "c6"),
+                        6));
+        when(mapper.bindContactCommand(anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), anyLong())).thenReturn(1);
+        when(mapper.bindSecondaryContactCommand(anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), anyLong())).thenReturn(1);
+        when(mapper.markContactPrepareSubmitted(eq(21L), anyLong())).thenReturn(1);
+
+        dispatcher.enqueueContactPrepare(item, List.of(member), List.of(secondary));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolNormalGroupCreationCommandRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outbox).enqueueNormalGroupCreationCommands(captor.capture());
+        assertThat(captor.getValue())
+                .extracting(ProtocolNormalGroupCreationCommandRequest::direction)
+                .containsExactly(
+                        "CREATOR_SAVE_MEMBER",
+                        "MEMBER_SAVE_CREATOR",
+                        "CREATOR_SAVE_SECONDARY",
+                        "SECONDARY_SAVE_CREATOR",
+                        "SECONDARY_SAVE_ANCHOR",
+                        "ANCHOR_SAVE_SECONDARY");
+        assertThat(captor.getValue().get(4).actor().protocolAccountId())
+                .isEqualTo("secondary-web");
+        assertThat(captor.getValue().get(5).actor().protocolAccountId())
+                .isEqualTo("member-android");
+    }
 
     @Test
     void failedContactRetryOnlyReissuesFailedDirection() {
@@ -55,6 +106,15 @@ class NormalGroupCreationCommandDispatcherTest {
         });
         verify(mapper).bindContactCommand(
                 eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("FAILED"), eq("cmd-retry"), anyLong());
+    }
+
+    private static ItemWork item() {
+        return new ItemWork(
+                21L, 1L, 9L, "普群001", "普群{no}",
+                382L, "creator-web", "WEB", "911",
+                null, "FAILED", "PREPARING_CONTACTS", "NONE",
+                null, null, null, "KEEP", null, 91L, 92L,
+                true, false, true, false, 0);
     }
 
     @Test

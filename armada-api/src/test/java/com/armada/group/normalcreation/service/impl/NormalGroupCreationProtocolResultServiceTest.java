@@ -18,10 +18,16 @@ import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolNormalGroupCreationResultReportedEvent;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.GroupParticipantAction;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
+import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
@@ -34,6 +40,8 @@ class NormalGroupCreationProtocolResultServiceTest {
             org.mockito.Mockito.mock(NormalGroupCreationMapper.class);
     private final NormalGroupCreationCommandDispatcher dispatcher =
             org.mockito.Mockito.mock(NormalGroupCreationCommandDispatcher.class);
+    private final GroupParticipantPort participantPort =
+            org.mockito.Mockito.mock(GroupParticipantPort.class);
     private final GroupLinkRegistryService registry =
             org.mockito.Mockito.mock(GroupLinkRegistryService.class);
     private final GroupLinkService groupLinkService =
@@ -48,7 +56,7 @@ class NormalGroupCreationProtocolResultServiceTest {
             org.mockito.Mockito.mock(AccountStateMapper.class);
     private final NormalGroupCreationProtocolResultService service =
             new NormalGroupCreationProtocolResultService(
-                    mapper, dispatcher, registry, groupLinkService,
+                    mapper, dispatcher, participantPort, registry, groupLinkService,
                     metadataSyncTaskService, accountService, accountStateEventService,
                     accountStateMapper);
 
@@ -287,32 +295,99 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
-    void groupCreate_successPersistsGroupAndOnlyThenEnqueuesSettings() {
+    void groupCreate_promotesFrozenSecondaryAdminsThroughExistingParticipantPortThenStartsSettings() {
         ItemWork item = item(
                 "CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of(
+                secondaryAdmin(41L, 384L, "933")));
+        when(participantPort.updateParticipants(
+                eq(new ProtocolAccountRef(382L, ProtocolBackend.WEB, "creator-web", "911")),
+                eq("120363001@g.us"), eq(List.of("933@s.whatsapp.net")),
+                eq(GroupParticipantAction.PROMOTE)))
+                .thenReturn(new GroupParticipantBatchResult(false, List.of(
+                        new GroupParticipantBatchResult.Item(
+                                "933@s.whatsapp.net", "OK", "200"))));
         when(dispatcher.enqueueCreatorAction(item, "GROUP_SETTINGS_APPLY"))
                 .thenReturn("cmd-settings");
         when(mapper.startGroupSettings(
-                org.mockito.ArgumentMatchers.eq(21L),
-                org.mockito.ArgumentMatchers.eq("cmd-create"),
-                org.mockito.ArgumentMatchers.eq("cmd-settings"),
-                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
-                org.mockito.ArgumentMatchers.eq("普群001"), anyLong())).thenReturn(1);
+                eq(21L), eq("cmd-create"), eq("cmd-settings"),
+                eq("120363001@g.us"), eq("普群001"), anyLong())).thenReturn(1);
 
         service.handleNormalGroupCreationResult(event(
                 "GROUP_CREATE", "cmd-create", "SUCCESS",
                 382L, "creator-web", "WEB", null, null,
                 "120363001@g.us", null, null));
 
+        verify(participantPort).updateParticipants(
+                eq(new ProtocolAccountRef(382L, ProtocolBackend.WEB, "creator-web", "911")),
+                eq("120363001@g.us"), eq(List.of("933@s.whatsapp.net")),
+                eq(GroupParticipantAction.PROMOTE));
         verify(mapper).startGroupSettings(
-                org.mockito.ArgumentMatchers.eq(21L),
-                org.mockito.ArgumentMatchers.eq("cmd-create"),
-                org.mockito.ArgumentMatchers.eq("cmd-settings"),
-                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
-                org.mockito.ArgumentMatchers.eq("普群001"), anyLong());
-        verify(mapper).markParticipantsCreated(
-                org.mockito.ArgumentMatchers.eq(21L), anyLong());
+                eq(21L), eq("cmd-create"), eq("cmd-settings"),
+                eq("120363001@g.us"), eq("普群001"), anyLong());
+        verify(mapper).markParticipantsCreated(eq(21L), anyLong());
+        verify(mapper).markSecondaryParticipantsCreated(eq(21L), anyLong());
+        verify(mapper).markSecondaryAdminsPromoted(eq(21L), anyLong());
+    }
+
+    @Test
+    void secondaryContactResultMapsExistingProtocolDirectionBackToInternalDirection() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        SecondaryAdminWork secondary = secondaryAdmin(41L, 384L, "933");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectSecondaryAdminWorkForUpdate(1L, 21L, 41L)).thenReturn(secondary);
+        when(mapper.applySecondaryContactResult(
+                eq(41L), eq("SECONDARY_SAVE_ANCHOR"), eq("c3"), eq("SUCCESS"),
+                isNull(), isNull(), anyLong())).thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "c3", "SUCCESS",
+                384L, "acc_384", "WEB", 41L,
+                "CREATOR_SAVE_MEMBER", null, null, null));
+
+        verify(mapper).applySecondaryContactResult(
+                eq(41L), eq("SECONDARY_SAVE_ANCHOR"), eq("c3"), eq("SUCCESS"),
+                isNull(), isNull(), anyLong());
+    }
+
+    @Test
+    void groupCreate_secondaryAdminPromotionFailureKeepsCreatedGroupAndReturnsAccountReason() {
+        ItemWork item = item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "LEAVE");
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of(
+                secondaryAdmin(41L, 384L, "933")));
+        when(participantPort.updateParticipants(
+                org.mockito.ArgumentMatchers.any(ProtocolAccountRef.class),
+                eq("120363001@g.us"), eq(List.of("933@s.whatsapp.net")),
+                eq(GroupParticipantAction.PROMOTE)))
+                .thenReturn(new GroupParticipantBatchResult(true, List.of(
+                        new GroupParticipantBatchResult.Item(
+                                "933@s.whatsapp.net", "FAILED", "403"))));
+        when(mapper.failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"),
+                eq("CREATED_PARTIAL"), eq("SECONDARY_ADMIN_PROMOTION_FAILED"),
+                eq("群已创建，但次管理员设置失败：账号 384（协议状态 FAILED，原始状态 403）"),
+                eq("120363001@g.us"), eq("evt-1"), anyLong())).thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "SUCCESS",
+                382L, "creator-web", "WEB", null, null,
+                "120363001@g.us", null, null));
+
+        verify(mapper).markSecondaryAdminPromotionFailures(
+                eq(21L), eq(List.of("933")),
+                eq("SECONDARY_ADMIN_PROMOTION_FAILED"),
+                eq("群已创建，但次管理员设置失败：账号 384（协议状态 FAILED，原始状态 403）"),
+                anyLong());
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"),
+                eq("CREATED_PARTIAL"), eq("SECONDARY_ADMIN_PROMOTION_FAILED"),
+                eq("群已创建，但次管理员设置失败：账号 384（协议状态 FAILED，原始状态 403）"),
+                eq("120363001@g.us"), eq("evt-1"), anyLong());
+        verify(dispatcher, never()).enqueueCreatorAction(item, "GROUP_LEAVE");
     }
 
     @Test
@@ -508,6 +583,15 @@ class NormalGroupCreationProtocolResultServiceTest {
                 31L, 383L, "member-android", "ANDROID", "922",
                 "PENDING", "PENDING",
                 "cmd-contact-creator", "cmd-contact-member", "PENDING");
+    }
+
+    private static com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork
+            secondaryAdmin(Long id, Long accountId, String phone) {
+        return new com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork(
+                id, accountId, "acc_" + accountId, "WEB", phone,
+                383L, "member-android", "ANDROID", "922",
+                "SUCCESS", "SUCCESS", "SUCCESS", "SUCCESS",
+                "c1", "c2", "c3", "c4", "CONFIRMED", "PENDING", null);
     }
 
     private static ProtocolNormalGroupCreationResultReportedEvent event(

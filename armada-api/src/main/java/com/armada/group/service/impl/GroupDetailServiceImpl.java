@@ -45,6 +45,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -490,16 +493,18 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupParticipantAction action) {
         List<String> requestedJids = validatedMemberJids(dto);
         GroupTarget target = requireLiveTarget(id);
-        GroupExecutionAccount account = selector.require(id);
+        GroupExecutionAccount readAccount = selector.require(id);
         GroupMetadataResult metadata;
         try {
             metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolRef(), target.groupJid());
+                    readAccount.protocolRef(), target.groupJid());
         } catch (ProtocolException ex) {
             log.warn("群成员操作前读取元数据失败 groupLinkId={} accountId={} action={} code={}",
-                    id, account.accountId(), action, ex.errorCode());
+                    id, readAccount.accountId(), action, ex.errorCode());
             throw groupBusinessException(ex);
         }
+        GroupExecutionAccount account = requireCurrentAdministrator(
+                id, readAccount, metadata, requestedJids);
         Map<String, GroupParticipantResult> currentMembers = membersByJid(metadata);
         Map<String, GroupMemberOperationResultVO> fixedResults = new LinkedHashMap<>();
         List<String> actionable = new ArrayList<>();
@@ -569,6 +574,67 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 successCount,
                 result.partial());
         return result;
+    }
+
+    /**
+     * 根据本次实时 metadata 选择仍具备管理员权限、且不属于本次操作目标的执行账号。
+     *
+     * <p>数据库里的管理员标记可能晚于 WhatsApp 实际状态。尤其取消管理员后，如果继续让被
+     * 降权账号执行后续提权，WhatsApp 会明确返回 403。这里以本次协议回读为准，并排除所有
+     * 目标成员，避免账号对自己执行降权、移除后形成无法恢复的死路。</p>
+     */
+    private GroupExecutionAccount requireCurrentAdministrator(
+            Long groupLinkId,
+            GroupExecutionAccount readAccount,
+            GroupMetadataResult metadata,
+            List<String> targetJids) {
+        Set<String> targets = targetJids.stream()
+                .map(String::trim)
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        List<String> adminPhones = metadata.participants().stream()
+                .filter(member -> Boolean.TRUE.equals(member.admin())
+                        || Boolean.TRUE.equals(member.owner()))
+                .filter(member -> member.jid() != null
+                        && !targets.contains(member.jid().trim().toLowerCase(Locale.ROOT)))
+                .map(GroupParticipantResult::phone)
+                .map(GroupDetailServiceImpl::normalizedPhone)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        String readPhone = normalizedPhone(readAccount.wsPhone());
+        if (readPhone == null && readAccount.groupAdmin()) {
+            return readAccount;
+        }
+        if (readPhone != null && adminPhones.contains(readPhone)) {
+            return readAccount;
+        }
+        return selector.findAdminByPhones(groupLinkId, adminPhones, 0)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.GROUP_PERMISSION_DENIED,
+                        "没有其他在线群主或管理员可执行该成员操作"));
+    }
+
+    private static String normalizedPhone(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        int at = normalized.indexOf('@');
+        if (at >= 0 && !normalized.toLowerCase(Locale.ROOT).endsWith("@s.whatsapp.net")) {
+            return null;
+        }
+        String digits = normalized
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+                .replace("(", "")
+                .replace(")", "")
+                .replace("@s.whatsapp.net", "");
+        if (!digits.chars().allMatch(Character::isDigit)) {
+            return null;
+        }
+        return digits.isBlank() ? null : digits;
     }
 
     /**

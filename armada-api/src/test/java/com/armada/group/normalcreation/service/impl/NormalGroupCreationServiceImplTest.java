@@ -16,6 +16,8 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemIden
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationCreateDTO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationContactFailureVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
@@ -97,6 +99,8 @@ class NormalGroupCreationServiceImplTest {
                 .thenReturn(List.of(creator));
         when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
                 .thenReturn(List.of(onlineMember));
+        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+                .thenReturn(List.of(account(301L, ProtocolBackend.WEB)));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(new ItemIdentity(21L, 1)));
         when(mapper.selectItemWork(21L)).thenReturn(item());
@@ -108,7 +112,8 @@ class NormalGroupCreationServiceImplTest {
 
         verify(mapper).insertMembers(argThat(rows -> rows.size() == 1
                 && rows.get(0).memberAccountId().equals(201L)));
-        verify(commandDispatcher).enqueueContactPrepare(item(), List.of(onlineMemberWork));
+        verify(commandDispatcher).enqueueContactPrepare(
+                item(), List.of(onlineMemberWork), List.of());
     }
 
     @Test
@@ -130,6 +135,8 @@ class NormalGroupCreationServiceImplTest {
                 .thenReturn(creators);
         when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
                 .thenReturn(onlineMembers);
+        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+                .thenReturn(List.of(account(301L, ProtocolBackend.WEB)));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(
                 new ItemIdentity(21L, 1),
@@ -144,6 +151,100 @@ class NormalGroupCreationServiceImplTest {
 
         verify(mapper).insertMembers(argThat(rows -> rows.size() == 3
                 && rows.stream().map(row -> row.memberAccountId()).distinct().count() == 3));
+    }
+
+    @Test
+    void createRejectsWhenSecondaryAdminGroupHasFewerOnlineAccountsThanEachGroupNeeds() {
+        TenantContext.set(1L);
+        when(mapper.selectTaskIdByIdempotencyKey(1L, "create-secondary-shortage"))
+                .thenReturn(null);
+        when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
+                .thenReturn(List.of(account(100L, ProtocolBackend.WEB)));
+        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+                .thenReturn(List.of(account(200L, ProtocolBackend.ANDROID)));
+        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+                .thenReturn(List.of(account(300L, ProtocolBackend.WEB)));
+
+        assertThatThrownBy(() -> service().create(
+                "create-secondary-shortage", createRequest(1, 2), 9L))
+                .hasMessageContaining("次管理员分组当前状态正常且在线的账号不足")
+                .hasMessageContaining("每群需要 2 个")
+                .hasMessageContaining("实际 1 个");
+    }
+
+    @Test
+    void createReusesSecondaryAdminsAcrossGroupsButNeverDuplicatesWithinOneGroup() {
+        TenantContext.set(1L);
+        List<ProtocolAccountRef> creators = List.of(
+                account(100L, ProtocolBackend.WEB),
+                account(101L, ProtocolBackend.WEB));
+        List<ProtocolAccountRef> members = List.of(
+                account(200L, ProtocolBackend.ANDROID),
+                account(201L, ProtocolBackend.ANDROID));
+        List<ProtocolAccountRef> secondaryAdmins = List.of(
+                account(300L, ProtocolBackend.WEB),
+                account(301L, ProtocolBackend.ANDROID));
+        NormalGroupCreationTaskVO task =
+                new NormalGroupCreationTaskVO(9L, "PENDING", 2, 0, 0, 100L, 100L);
+        when(mapper.selectTaskIdByIdempotencyKey(1L, "create-secondary-reuse"))
+                .thenReturn(null, 9L);
+        when(accountLookupService.findOnlineNormalStrictByGroupId(10L)).thenReturn(creators);
+        when(accountLookupService.findOnlineNormalStrictByGroupId(20L)).thenReturn(members);
+        when(accountLookupService.findOnlineNormalStrictByGroupId(30L)).thenReturn(secondaryAdmins);
+        when(mapper.insertTask(any())).thenReturn(1);
+        when(mapper.selectItemIdentities(9L)).thenReturn(List.of(
+                new ItemIdentity(21L, 1), new ItemIdentity(22L, 2)));
+        when(mapper.selectItemWork(any())).thenReturn(item());
+        when(mapper.selectMemberWorks(any())).thenReturn(List.of());
+        when(mapper.selectSecondaryAdminWorks(any())).thenReturn(List.of());
+        when(mapper.selectTask(9L)).thenReturn(task);
+
+        assertThat(service().create("create-secondary-reuse", createRequest(2, 2), 9L))
+                .isEqualTo(task);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<SecondaryAdminInsert>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mapper).insertSecondaryAdmins(captor.capture());
+        assertThat(captor.getValue()).hasSize(4);
+        assertThat(captor.getValue().stream()
+                .collect(java.util.stream.Collectors.groupingBy(SecondaryAdminInsert::itemId))
+                .values())
+                .allSatisfy(rows -> assertThat(rows)
+                        .extracting(SecondaryAdminInsert::secondaryAdminAccountId)
+                        .doesNotHaveDuplicates()
+                        .hasSize(2));
+        assertThat(captor.getValue())
+                .extracting(SecondaryAdminInsert::secondaryAdminAccountId)
+                .containsOnly(300L, 301L);
+    }
+
+    @Test
+    void createAnchorsEverySecondaryAdminToAnActualMemberOfTheSameGroup() {
+        TenantContext.set(1L);
+        ProtocolAccountRef creator = account(100L, ProtocolBackend.WEB);
+        ProtocolAccountRef member = account(200L, ProtocolBackend.ANDROID);
+        ProtocolAccountRef secondaryAdmin = account(300L, ProtocolBackend.WEB);
+        NormalGroupCreationTaskVO task =
+                new NormalGroupCreationTaskVO(9L, "PENDING", 1, 0, 0, 100L, 100L);
+        when(mapper.selectTaskIdByIdempotencyKey(1L, "create-secondary-anchor"))
+                .thenReturn(null, 9L);
+        when(accountLookupService.findOnlineNormalStrictByGroupId(10L)).thenReturn(List.of(creator));
+        when(accountLookupService.findOnlineNormalStrictByGroupId(20L)).thenReturn(List.of(member));
+        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+                .thenReturn(List.of(secondaryAdmin));
+        when(mapper.insertTask(any())).thenReturn(1);
+        when(mapper.selectItemIdentities(9L)).thenReturn(List.of(new ItemIdentity(21L, 1)));
+        when(mapper.selectItemWork(21L)).thenReturn(item());
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of());
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of());
+        when(mapper.selectTask(9L)).thenReturn(task);
+
+        service().create("create-secondary-anchor", createRequest(1, 1), 9L);
+
+        verify(mapper).insertSecondaryAdmins(argThat(rows -> rows.size() == 1
+                && rows.get(0).secondaryAdminAccountId().equals(300L)
+                && rows.get(0).anchorMemberAccountId().equals(200L)
+                && rows.get(0).itemId().equals(21L)));
     }
 
     @Test
@@ -226,8 +327,14 @@ class NormalGroupCreationServiceImplTest {
     }
 
     private static NormalGroupCreationCreateDTO createRequest(int groupCount) {
+        return createRequest(groupCount, 1);
+    }
+
+    private static NormalGroupCreationCreateDTO createRequest(
+            int groupCount, int secondaryAdminCount) {
         return new NormalGroupCreationCreateDTO(
-                10L, "KEEP", "CONTROLLED_GROUP", 20L, 1,
+                10L, 30L, secondaryAdminCount,
+                "KEEP", "CONTROLLED_GROUP", 20L, 1,
                 null, "测试普群", groupCount, 1, "NORMAL", null, null, null);
     }
 

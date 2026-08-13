@@ -24,6 +24,7 @@ class AccountConverterTest {
         row.setSystemBuiltin(0);
         row.setAccountCount(7L);
         row.setOnlineCount(3L);
+        row.setExecutableOnlineCount(2L);
         row.setRiskCount(2L);
         row.setBannedCount(1L);
 
@@ -31,6 +32,7 @@ class AccountConverterTest {
 
         assertThat(vo.accountCount()).isEqualTo(7L);
         assertThat(vo.onlineCount()).isEqualTo(3L);
+        assertThat(vo.executableOnlineCount()).isEqualTo(2L);
         assertThat(vo.riskCount()).isEqualTo(2L);
         assertThat(vo.bannedCount()).isEqualTo(1L);
     }

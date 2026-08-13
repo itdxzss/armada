@@ -22,6 +22,7 @@ public class AccountGroupVoRow {
     private Integer systemBuiltin;
     private long accountCount;
     private long onlineCount;
+    private long executableOnlineCount;
     private long riskCount;
     private long restrictedCount;
     private long bannedCount;
@@ -98,6 +99,14 @@ public class AccountGroupVoRow {
 
     public void setOnlineCount(long onlineCount) {
         this.onlineCount = onlineCount;
+    }
+
+    public long getExecutableOnlineCount() {
+        return executableOnlineCount;
+    }
+
+    public void setExecutableOnlineCount(long executableOnlineCount) {
+        this.executableOnlineCount = executableOnlineCount;
     }
 
     public long getRiskCount() {

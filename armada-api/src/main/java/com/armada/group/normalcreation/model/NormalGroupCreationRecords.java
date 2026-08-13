@@ -10,6 +10,8 @@ public final class NormalGroupCreationRecords {
     public record TaskInsert(
             String idempotencyKey,
             Long adminAccountGroupId,
+            Long secondaryAdminAccountGroupId,
+            int secondaryAdminCount,
             Long memberAccountGroupId,
             int memberCount,
             int groupCount,
@@ -54,6 +56,19 @@ public final class NormalGroupCreationRecords {
             String memberProtocolAccountId,
             String memberProtocolBackend,
             String memberWsPhone,
+            long now) {
+    }
+
+    /** 计划群次管理员插入行；好友锚点必须是同一计划群已冻结的普通成员。 */
+    public record SecondaryAdminInsert(
+            Long taskId,
+            Long itemId,
+            int secondaryAdminOrder,
+            Long secondaryAdminAccountId,
+            String secondaryAdminProtocolAccountId,
+            String secondaryAdminProtocolBackend,
+            String secondaryAdminWsPhone,
+            Long anchorMemberAccountId,
             long now) {
     }
 
@@ -110,6 +125,30 @@ public final class NormalGroupCreationRecords {
             String creatorSaveCommandId,
             String memberSaveCommandId,
             String participantStatus) {
+    }
+
+    /** 次管理员、同群好友锚点及联系人/提权状态的冻结执行事实。 */
+    public record SecondaryAdminWork(
+            Long id,
+            Long secondaryAdminAccountId,
+            String secondaryAdminProtocolAccountId,
+            String secondaryAdminProtocolBackend,
+            String secondaryAdminWsPhone,
+            Long anchorMemberAccountId,
+            String anchorMemberProtocolAccountId,
+            String anchorMemberProtocolBackend,
+            String anchorMemberWsPhone,
+            String creatorSavedSecondaryStatus,
+            String secondarySavedCreatorStatus,
+            String secondarySavedAnchorStatus,
+            String anchorSavedSecondaryStatus,
+            String creatorSaveCommandId,
+            String secondarySaveCreatorCommandId,
+            String secondarySaveAnchorCommandId,
+            String anchorSaveSecondaryCommandId,
+            String participantStatus,
+            String promotionStatus,
+            String lastErrorMessage) {
     }
 
     /** 待补偿发布的小页。 */

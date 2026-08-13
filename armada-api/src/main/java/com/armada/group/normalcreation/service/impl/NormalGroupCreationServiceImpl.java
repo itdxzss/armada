@@ -9,6 +9,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationCreateDTO;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationSettingsDTO;
@@ -45,6 +46,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
 
     private static final int MAX_GROUP_COUNT = 1_000;
     private static final int MAX_MEMBER_COUNT = 1_024;
+    private static final int MAX_SECONDARY_ADMIN_COUNT = 1_024;
     private static final int MAX_SNAPSHOT_ROWS = 10_000;
     private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 64;
     private static final int MEMBER_INSERT_BATCH_SIZE = 500;
@@ -94,8 +96,11 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                 new ArrayList<>(strictOnlineGroupAccounts(validated.adminGroupId()));
         List<ProtocolAccountRef> members =
                 new ArrayList<>(strictOnlineGroupAccounts(validated.memberGroupId()));
+        List<ProtocolAccountRef> secondaryAdmins =
+                new ArrayList<>(strictOnlineGroupAccounts(validated.secondaryAdminGroupId()));
         creators.sort((left, right) -> left.armadaAccountId().compareTo(right.armadaAccountId()));
         Collections.shuffle(members, random);
+        Collections.shuffle(secondaryAdmins, random);
         if (creators.size() < validated.groupCount()) {
             throw validation("管理员分组当前可执行在线账号不足，需要 " + validated.groupCount()
                     + " 个，实际 " + creators.size() + " 个");
@@ -104,17 +109,27 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw validation("成员分组当前可执行在线账号不足，每群需要 "
                     + validated.memberCount() + " 个，实际 " + members.size() + " 个");
         }
+        if (secondaryAdmins.size() < validated.secondaryAdminCount()) {
+            throw validation("次管理员分组当前状态正常且在线的账号不足，每群需要 "
+                    + validated.secondaryAdminCount() + " 个，实际 "
+                    + secondaryAdmins.size() + " 个");
+        }
 
         List<FrozenGroup> groups = new ArrayList<>(validated.groupCount());
         for (int index = 0; index < validated.groupCount(); index++) {
             ProtocolAccountRef creator = creators.get(index);
+            List<ProtocolAccountRef> groupMembers = selectMembers(
+                    members, creator.armadaAccountId(), validated.memberCount(), index);
+            List<ProtocolAccountRef> groupSecondaryAdmins = selectSecondaryAdmins(
+                    secondaryAdmins, creator, groupMembers,
+                    validated.secondaryAdminCount(), index);
             groups.add(new FrozenGroup(
                     index + 1,
                     subject(validated.groupNameTemplate(), validated.startNo() + index,
-                            validated.groupCount()),
+                    validated.groupCount()),
                     creator,
-                    selectMembers(members, creator.armadaAccountId(),
-                            validated.memberCount(), index)));
+                    groupMembers,
+                    groupSecondaryAdmins));
         }
 
         admissionGuard.lockAndCheckCapacity(tenantId, validated.groupCount());
@@ -123,6 +138,8 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         TaskInsert task = new TaskInsert(
                 normalizedKey,
                 validated.adminGroupId(),
+                validated.secondaryAdminGroupId(),
+                validated.secondaryAdminCount(),
                 validated.memberGroupId(),
                 validated.memberCount(),
                 validated.groupCount(),
@@ -179,6 +196,8 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
 
         List<MemberInsert> memberRows = new ArrayList<>(
                 validated.groupCount() * validated.memberCount());
+        List<SecondaryAdminInsert> secondaryAdminRows = new ArrayList<>(
+                validated.groupCount() * validated.secondaryAdminCount());
         List<Long> dispatchItemIds = new ArrayList<>(validated.groupCount());
         for (FrozenGroup group : groups) {
             Long itemId = itemIds.get(group.itemNo());
@@ -197,18 +216,39 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                         member.wsPhone(),
                         now));
             }
+            for (int adminIndex = 0; adminIndex < group.secondaryAdmins().size(); adminIndex++) {
+                ProtocolAccountRef secondaryAdmin = group.secondaryAdmins().get(adminIndex);
+                ProtocolAccountRef anchor = group.members().get(adminIndex % group.members().size());
+                secondaryAdminRows.add(new SecondaryAdminInsert(
+                        taskId,
+                        itemId,
+                        adminIndex + 1,
+                        secondaryAdmin.armadaAccountId(),
+                        secondaryAdmin.protocolAccountId(),
+                        secondaryAdmin.backend().name(),
+                        secondaryAdmin.wsPhone(),
+                        anchor.armadaAccountId(),
+                        now));
+            }
             dispatchItemIds.add(itemId);
         }
         for (int from = 0; from < memberRows.size(); from += MEMBER_INSERT_BATCH_SIZE) {
             int to = Math.min(from + MEMBER_INSERT_BATCH_SIZE, memberRows.size());
             mapper.insertMembers(memberRows.subList(from, to));
         }
+        for (int from = 0; from < secondaryAdminRows.size(); from += MEMBER_INSERT_BATCH_SIZE) {
+            int to = Math.min(from + MEMBER_INSERT_BATCH_SIZE, secondaryAdminRows.size());
+            mapper.insertSecondaryAdmins(secondaryAdminRows.subList(from, to));
+        }
         for (Long itemId : dispatchItemIds) {
             ItemWork item = mapper.selectItemWork(itemId);
             if (item == null) {
                 throw unavailable();
             }
-            commandDispatcher.enqueueContactPrepare(item, mapper.selectMemberWorks(item.id()));
+            commandDispatcher.enqueueContactPrepare(
+                    item,
+                    mapper.selectMemberWorks(item.id()),
+                    mapper.selectSecondaryAdminWorks(item.id()));
         }
         mapper.refreshTaskSummary(taskId, System.currentTimeMillis());
         return mapper.selectTask(taskId);
@@ -392,10 +432,13 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         if (request == null) {
             throw validation("请求不能为空");
         }
-        if (request.adminAccountGroupId() == null || request.memberAccountGroupId() == null) {
-            throw validation("管理员分组和成员分组不能为空");
+        if (request.adminAccountGroupId() == null
+                || request.secondaryAdminAccountGroupId() == null
+                || request.memberAccountGroupId() == null) {
+            throw validation("管理员分组、次管理员分组和成员分组不能为空");
         }
         accountGroupService.requireExisting(request.adminAccountGroupId());
+        accountGroupService.requireExisting(request.secondaryAdminAccountGroupId());
         accountGroupService.requireExisting(request.memberAccountGroupId());
         if (request.folderId() != null) {
             groupFolderService.requireExisting(request.folderId());
@@ -407,6 +450,8 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             accountGroupService.requireExisting(request.failedMigrationGroupId());
         }
         int groupCount = positive(request.groupCount(), "建群数量", MAX_GROUP_COUNT);
+        int secondaryAdminCount = positive(
+                request.secondaryAdminCount(), "每群次管理员数量", MAX_SECONDARY_ADMIN_COUNT);
         String source = textOrDefault(request.memberSource(), "CONTROLLED_GROUP")
                 .toUpperCase(Locale.ROOT);
         if (!source.equals("CONTROLLED_GROUP") && !source.equals("EMPTY_GROUP")) {
@@ -414,7 +459,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
         }
         int memberCount = source.equals("EMPTY_GROUP")
                 ? 1 : positive(request.memberCount(), "每群成员数量", MAX_MEMBER_COUNT);
-        long snapshotRows = (long) groupCount * memberCount;
+        long snapshotRows = (long) groupCount * (memberCount + secondaryAdminCount);
         if (snapshotRows > MAX_SNAPSHOT_ROWS) {
             throw validation("本次计划群成员快照共 " + snapshotRows
                     + " 条，超过单任务上限 " + MAX_SNAPSHOT_ROWS + " 条，请拆分任务");
@@ -443,10 +488,34 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             throw validation("限时消息秒数不能小于 0");
         }
         return new ValidatedRequest(
-                request.adminAccountGroupId(), request.memberAccountGroupId(),
+                request.adminAccountGroupId(), request.secondaryAdminAccountGroupId(),
+                secondaryAdminCount, request.memberAccountGroupId(),
                 memberCount, groupCount, nameTemplate, startNo, leavePolicy, speed,
                 request.folderId(), request.successMigrationGroupId(),
                 request.failedMigrationGroupId(), settings);
+    }
+
+    private List<ProtocolAccountRef> selectSecondaryAdmins(
+            List<ProtocolAccountRef> candidates,
+            ProtocolAccountRef creator,
+            List<ProtocolAccountRef> members,
+            int count,
+            int offset) {
+        Set<String> reservedPhones = new HashSet<>();
+        reservedPhones.add(creator.wsPhone());
+        members.stream().map(ProtocolAccountRef::wsPhone).forEach(reservedPhones::add);
+        List<ProtocolAccountRef> result = new ArrayList<>(count);
+        for (int step = 0; step < candidates.size() && result.size() < count; step++) {
+            ProtocolAccountRef candidate = candidates.get((offset + step) % candidates.size());
+            if (reservedPhones.add(candidate.wsPhone())) {
+                result.add(candidate);
+            }
+        }
+        if (result.size() < count) {
+            throw validation("次管理员分组排除本群创群账号和目标成员后可用账号不足，每群需要 "
+                    + count + " 个，实际可分配 " + result.size() + " 个");
+        }
+        return List.copyOf(result);
     }
 
     private List<ProtocolAccountRef> selectMembers(
@@ -516,11 +585,14 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
             int itemNo,
             String subject,
             ProtocolAccountRef creator,
-            List<ProtocolAccountRef> members) {
+            List<ProtocolAccountRef> members,
+            List<ProtocolAccountRef> secondaryAdmins) {
     }
 
     private record ValidatedRequest(
             Long adminGroupId,
+            Long secondaryAdminGroupId,
+            int secondaryAdminCount,
             Long memberGroupId,
             int memberCount,
             int groupCount,

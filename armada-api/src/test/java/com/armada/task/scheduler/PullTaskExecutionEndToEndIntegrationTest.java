@@ -653,10 +653,9 @@ class PullTaskExecutionEndToEndIntegrationTest {
         @Bean PullTaskPullerInviteResultService pullerInviteResultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
-                PullTaskGroupExecutionMapper executionMapper,
-                PullTaskPullerInviteDelayPolicy delayPolicy) {
+                PullTaskGroupExecutionMapper executionMapper) {
             return new PullTaskPullerInviteResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, delayPolicy);
+                    actionMapper, accountMapper, executionMapper);
         }
 
         @Bean PullTaskManagerPullerContactProcessor managerPullerContactProcessor(
@@ -884,10 +883,6 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {
             return new PullTaskOperationDelayPolicy(() -> 4_000L);
-        }
-
-        @Bean PullTaskPullerInviteDelayPolicy pullerInviteDelayPolicy() {
-            return new PullTaskPullerInviteDelayPolicy(() -> 7_000L);
         }
 
         @Bean PullTaskExecutionStageRouter stageRouter(

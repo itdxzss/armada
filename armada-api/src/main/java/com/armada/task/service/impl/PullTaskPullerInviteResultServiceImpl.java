@@ -18,7 +18,6 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
-import com.armada.task.scheduler.PullTaskPullerInviteDelayPolicy;
 import com.armada.task.service.PullTaskPullerInviteResultService;
 import java.util.List;
 import java.util.Objects;
@@ -38,18 +37,14 @@ public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInvi
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
-    private final PullTaskPullerInviteDelayPolicy delayPolicy;
-
     /** 创建邀请结果状态机。 */
     public PullTaskPullerInviteResultServiceImpl(
             PullTaskAccountActionMapper actionMapper,
             PullTaskGroupAccountMapper accountMapper,
-            PullTaskGroupExecutionMapper executionMapper,
-            PullTaskPullerInviteDelayPolicy delayPolicy) {
+            PullTaskGroupExecutionMapper executionMapper) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
-        this.delayPolicy = delayPolicy;
     }
 
     /** {@inheritDoc} */
@@ -90,7 +85,7 @@ public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInvi
                     PullTaskExecutionStatus.EXECUTING.code(),
                     PullTaskExecutionStage.PULLER_INVITE.code(),
                     PullTaskExecutionStage.PULLER_INVITE.code(),
-                    null, delayPolicy.nextInviteAt(callback.occurredAt()),
+                    null, 0L,
                     callback.occurredAt()));
             if (executionWrite != 1
                     && (actionWrite == WriteResult.UPDATED

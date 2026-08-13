@@ -30,20 +30,20 @@ class ProxyFailedRecoveryCoordinatorTest {
     }
 
     @Test
-    void recover_releasesExactFailedProxyBeforeStartingIndependentReonlineTransaction() {
+    void recover_marksExactFailedProxyUnavailableBeforeStartingIndependentReonlineTransaction() {
         ProxyFailedRecoveryCoordinator coordinator = coordinator();
 
         coordinator.recover(1L, 100L, "oa_failed_1", 7L);
 
         InOrder inOrder = inOrder(ipProxyService, onlineCommandService);
-        inOrder.verify(ipProxyService).releaseFailedProxyBinding(100L, 7L);
+        inOrder.verify(ipProxyService).markFailedProxyUnavailable(100L, 7L);
         inOrder.verify(onlineCommandService).reonlineAfterProxyFailure(100L, "oa_failed_1", 7L);
     }
 
     @Test
-    void recover_releaseFailureDoesNotPreventReonlineOrEscapeToKafkaConsumer() {
+    void recover_markUnavailableFailureDoesNotPreventReonlineOrEscapeToKafkaConsumer() {
         doThrow(new IllegalStateException("release failed"))
-                .when(ipProxyService).releaseFailedProxyBinding(100L, 7L);
+                .when(ipProxyService).markFailedProxyUnavailable(100L, 7L);
 
         assertThatCode(() -> coordinator().recover(1L, 100L, "oa_failed_1", 7L))
                 .doesNotThrowAnyException();

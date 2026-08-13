@@ -186,6 +186,17 @@ public interface IpProxyMapper {
                                 @Param("usingStatus") int usingStatus,
                                 @Param("updatedAt") long updatedAt);
 
+    /**
+     * 将协议判定失败的指定账号代理置为不可用并解绑。
+     *
+     * <p>同时匹配代理 ID、账号 ID 与 IN_USE 状态，避免旧状态事件误伤其它账号或后续新绑定。
+     * 失败检测快照由 entity 承载，失败次数在 SQL 中原子递增。</p>
+     */
+    int markFailedProxyUnavailable(@Param("accountId") Long accountId,
+                                   @Param("proxyId") Long proxyId,
+                                   @Param("usingStatus") int usingStatus,
+                                   @Param("entity") IpProxy entity);
+
     /** 将已锁定的空闲代理标记为推广配对专用占用。 */
     int reserveForPairing(@Param("proxyId") Long proxyId,
                           @Param("pairingSessionId") Long pairingSessionId,

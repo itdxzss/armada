@@ -13,8 +13,8 @@ import org.springframework.stereotype.Component;
 /**
  * 不可用 IP 定时重检任务。
  *
- * <p>真实代理检测失败会把 IP 标记为不可用。本任务周期性重检这些 IP，检测成功后恢复为空闲；
- * 协议 PROXY_FAILED 不再把代理置为不可用，也不进入这条链路。</p>
+ * <p>真实代理检测失败或协议上报 PROXY_FAILED 会把 IP 标记为不可用。本任务周期性重检这些 IP，
+ * 检测成功后恢复为空闲，检测失败则继续保留为不可用。</p>
  */
 @Component
 @EnableConfigurationProperties(IpProxyUnavailableRecheckJobProperties.class)

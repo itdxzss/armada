@@ -1194,16 +1194,21 @@ class IpProxyServiceImplTest {
     }
 
     @Test
-    void releaseFailedProxyBinding_returnsExactFailedBindingToIdlePool() {
-        when(mapper.releaseOnlineAllocation(
-                eq(100L), eq(10L), eq(IpProxyStatus.IDLE.code()),
-                eq(IpProxyStatus.IN_USE.code()), anyLong())).thenReturn(1);
+    void markFailedProxyUnavailable_marksExactFailedBindingUnavailable() {
+        when(mapper.markFailedProxyUnavailable(
+                eq(100L), eq(10L), eq(IpProxyStatus.IN_USE.code()), any(IpProxy.class))).thenReturn(1);
 
-        service.releaseFailedProxyBinding(100L, 10L);
+        service.markFailedProxyUnavailable(100L, 10L);
 
-        verify(mapper).releaseOnlineAllocation(
-                eq(100L), eq(10L), eq(IpProxyStatus.IDLE.code()),
-                eq(IpProxyStatus.IN_USE.code()), anyLong());
+        ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
+        verify(mapper).markFailedProxyUnavailable(
+                eq(100L), eq(10L), eq(IpProxyStatus.IN_USE.code()), updateCaptor.capture());
+        IpProxy update = updateCaptor.getValue();
+        assertThat(update.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
+        assertThat(update.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(update.getWhatsappCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
+        assertThat(update.getLastCheckError()).contains("PROXY_FAILED");
+        assertThat(update.getWhatsappCheckError()).contains("PROXY_FAILED");
     }
 
     @Test

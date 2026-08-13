@@ -552,6 +552,31 @@
           AND status = #{usingStatus}
     </update>
 
+    <update id="markFailedProxyUnavailable">
+        UPDATE ip_proxy
+        SET status = #{entity.status},
+            bound_account_id = NULL,
+            bound_at = NULL,
+            last_sample_check_at = #{entity.lastSampleCheckAt},
+            detected_country_code = NULL,
+            outbound_ip = NULL,
+            detected_location = NULL,
+            detected_isp = NULL,
+            detected_latitude = NULL,
+            detected_longitude = NULL,
+            check_fail_count = COALESCE(check_fail_count, 0) + 1,
+            last_check_error = #{entity.lastCheckError},
+            check_status = #{entity.checkStatus},
+            whatsapp_check_status = #{entity.whatsappCheckStatus},
+            whatsapp_http_status = #{entity.whatsappHttpStatus},
+            whatsapp_check_error = #{entity.whatsappCheckError},
+            updated_at = #{entity.updatedAt}
+        WHERE id = #{proxyId}
+          AND bound_account_id = #{accountId}
+          AND deleted_at IS NULL
+          AND status = #{usingStatus}
+    </update>
+
     <update id="reserveForPairing">
         UPDATE ip_proxy
         SET status = #{pairingStatus},

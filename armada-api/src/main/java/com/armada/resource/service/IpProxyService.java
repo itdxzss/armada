@@ -191,14 +191,15 @@ public interface IpProxyService {
     void releaseOnlineAllocation(Long accountId, Long proxyId);
 
     /**
-     * 精确释放协议本次判定失败的旧代理绑定。
+     * 将协议本次判定失败的旧代理精确标记为不可用并解绑。
      *
-     * <p>只命中 {@code proxyId + accountId + IN_USE}，不把代理标记为不可用；未命中按幂等成功处理。</p>
+     * <p>只命中 {@code proxyId + accountId + IN_USE}，避免迟到事件误伤其它绑定；标记后的代理由
+     * 不可用 IP 定时重检任务探测，恢复后重新进入空闲池。未命中按幂等成功处理。</p>
      *
      * @param accountId 账号主键
      * @param proxyId   协议状态事件携带的失败代理主键
      */
-    void releaseFailedProxyBinding(Long accountId, Long proxyId);
+    void markFailedProxyUnavailable(Long accountId, Long proxyId);
 
     /**
      * 批量释放账号上线过程中本次分配的代理。

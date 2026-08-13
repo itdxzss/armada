@@ -501,8 +501,18 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void releaseFailedProxyBinding(Long accountId, Long proxyId) {
-        releaseExactBinding(accountId, proxyId, "IP代理失败绑定释放");
+    public void markFailedProxyUnavailable(Long accountId, Long proxyId) {
+        if (accountId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
+        }
+        if (proxyId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "代理 ID 不能为空");
+        }
+        long now = System.currentTimeMillis();
+        IpProxy update = protocolFailureUpdate(now);
+        int marked = mapper.markFailedProxyUnavailable(
+                accountId, proxyId, IpProxyStatus.IN_USE.code(), update);
+        log.info("IP代理失败标记不可用 accountId={} proxyId={} marked={}", accountId, proxyId, marked);
     }
 
     private void releaseExactBinding(Long accountId, Long proxyId, String logAction) {
@@ -520,6 +530,20 @@ public class IpProxyServiceImpl implements IpProxyService {
                 IpProxyStatus.IN_USE.code(),
                 System.currentTimeMillis());
         log.info("{} accountId={} proxyId={} released={}", logAction, accountId, proxyId, released);
+    }
+
+    private IpProxy protocolFailureUpdate(long occurredAt) {
+        String message = "协议层上报当前代理不可用: PROXY_FAILED";
+        IpProxy update = new IpProxy();
+        update.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        update.setLastSampleCheckAt(occurredAt);
+        update.setLastCheckError(message);
+        update.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        update.setWhatsappHttpStatus(null);
+        update.setWhatsappCheckError(message);
+        update.setUpdatedAt(occurredAt);
+        return update;
     }
 
     private static void requirePairingSessionId(Long pairingSessionId) {

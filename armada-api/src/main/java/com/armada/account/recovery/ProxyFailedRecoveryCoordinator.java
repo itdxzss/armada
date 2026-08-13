@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 /**
  * 在账号状态事务提交后编排 PROXY_FAILED 的 B/C 两个独立事务。
  *
- * <p>本类故意不启事务。B 精确释放失败代理，C 条件抢占恢复资格并换 IP 写 outbox；
+ * <p>本类故意不启事务。B 精确标记失败代理不可用并解绑，C 条件抢占恢复资格并换 IP 写 outbox；
  * 两步任一失败都只记录，不能反向回滚已提交的状态，也不能把有效 Kafka 状态事件送入 DLT。</p>
  */
 @Service
@@ -38,22 +38,22 @@ public class ProxyFailedRecoveryCoordinator {
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(tenantId);
-            releaseFailedBinding(accountId, failedProxyId);
+            markFailedProxyUnavailable(accountId, failedProxyId);
             reonline(accountId, failedOnlineAttemptId, failedProxyId);
         } finally {
             restoreTenant(previousTenant);
         }
     }
 
-    private void releaseFailedBinding(Long accountId, Long failedProxyId) {
+    private void markFailedProxyUnavailable(Long accountId, Long failedProxyId) {
         if (failedProxyId == null) {
-            log.warn("账号代理失败精确释放跳过,事件未携带 proxyId accountId={}", accountId);
+            log.warn("账号代理失败标记不可用跳过,事件未携带 proxyId accountId={}", accountId);
             return;
         }
         try {
-            ipProxyService.releaseFailedProxyBinding(accountId, failedProxyId);
+            ipProxyService.markFailedProxyUnavailable(accountId, failedProxyId);
         } catch (RuntimeException ex) {
-            log.error("账号代理失败精确释放异常,保留状态等待补偿 accountId={} failedProxyId={}",
+            log.error("账号代理失败标记不可用异常,保留状态等待补偿 accountId={} failedProxyId={}",
                     accountId, failedProxyId, ex);
         }
     }

@@ -1452,7 +1452,13 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         Long tenantId = TenantContext.get();
         Set<String> actions = Set.of(
                 "CONTACT_PREPARE", "GROUP_CREATE", "GROUP_SETTINGS_APPLY", "GROUP_LEAVE");
-        Set<String> directions = Set.of("CREATOR_SAVE_MEMBER", "MEMBER_SAVE_CREATOR");
+        Set<String> directions = Set.of(
+                "CREATOR_SAVE_MEMBER",
+                "MEMBER_SAVE_CREATOR",
+                "CREATOR_SAVE_SECONDARY",
+                "SECONDARY_SAVE_CREATOR",
+                "SECONDARY_SAVE_ANCHOR",
+                "ANCHOR_SAVE_SECONDARY");
         for (ProtocolNormalGroupCreationCommandRequest command : commands) {
             boolean contactPrepare = command != null && "CONTACT_PREPARE".equals(command.action());
             if (command == null

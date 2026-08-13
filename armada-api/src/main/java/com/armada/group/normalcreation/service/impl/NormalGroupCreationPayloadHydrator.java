@@ -3,6 +3,7 @@ package com.armada.group.normalcreation.service.impl;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationReference;
@@ -14,6 +15,7 @@ import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
@@ -56,25 +58,24 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
                 throw validation("新建普群命令关联计划群不存在");
             }
             List<MemberWork> members = mapper.selectMemberWorks(item.id());
-            MemberWork member = contactMember(reference, members);
-            validateCommandBinding(row, reference, item, member);
-            String contact = null;
-            String name = null;
-            if (member != null && "CREATOR_SAVE_MEMBER".equals(reference.direction())) {
-                contact = member.memberWsPhone();
-                name = member.memberWsPhone();
-            } else if (member != null) {
-                contact = item.creatorWsPhone();
-                name = item.creatorWsPhone();
-            }
-            List<String> participants = members.stream().map(MemberWork::memberWsPhone).toList();
+            List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id());
+            ContactWork contactWork = contactWork(reference, members, secondaryAdmins);
+            validateCommandBinding(row, reference, item, contactWork);
+            LinkedHashSet<String> participantPhones = new LinkedHashSet<>();
+            secondaryAdmins.stream()
+                    .map(SecondaryAdminWork::secondaryAdminWsPhone)
+                    .forEach(participantPhones::add);
+            members.stream().map(MemberWork::memberWsPhone).forEach(participantPhones::add);
+            List<String> participants = List.copyOf(participantPhones);
             String promoteCandidate = participants.isEmpty() ? null : participants.get(0);
             return objectMapper.valueToTree(new WirePayload(
                     reference.tenantId(), reference.taskId(), reference.itemId(),
-                    reference.memberId(), reference.direction(), actorAccountId(reference, item, member),
-                    row.getProtocolAccountId(), actorPhone(reference, item, member),
+                    reference.memberId(), protocolDirection(reference.direction()),
+                    actorAccountId(item, contactWork),
+                    row.getProtocolAccountId(), actorPhone(item, contactWork),
                     row.getProtocolBackend(), reference.action(), 1, reference.source(),
-                    contact, name, item.groupSubject(),
+                    contactWork == null ? null : contactWork.contactPhone(),
+                    contactWork == null ? null : contactWork.contactPhone(), item.groupSubject(),
                     NormalGroupCreationSubject.isAutomatic(item.groupNameTemplate()),
                     participants, item.groupJid(),
                     Boolean.TRUE.equals(item.sendMessagesAllowed()),
@@ -114,26 +115,71 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
         return "WEB".equals(value) || "ANDROID".equals(value);
     }
 
-    private static MemberWork contactMember(
+    /**
+     * 内部四个次管理员联系人方向映射为协议层既有的两个方向值。
+     * 协议执行只使用 actor/contact 保存联系人，并原样回传 direction，无需升级协议仓。
+     */
+    private static String protocolDirection(String internalDirection) {
+        if (internalDirection == null) {
+            return null;
+        }
+        return switch (internalDirection) {
+            case "CREATOR_SAVE_MEMBER", "CREATOR_SAVE_SECONDARY", "SECONDARY_SAVE_ANCHOR" ->
+                    "CREATOR_SAVE_MEMBER";
+            case "MEMBER_SAVE_CREATOR", "SECONDARY_SAVE_CREATOR", "ANCHOR_SAVE_SECONDARY" ->
+                    "MEMBER_SAVE_CREATOR";
+            default -> throw validation("新建普群联系人准备方向非法");
+        };
+    }
+
+    private static ContactWork contactWork(
             ProtocolNormalGroupCreationReference reference,
-            List<MemberWork> members) {
+            List<MemberWork> members,
+            List<SecondaryAdminWork> secondaryAdmins) {
         if (!"CONTACT_PREPARE".equals(reference.action())) {
             return null;
         }
-        return members.stream()
+        if (List.of("CREATOR_SAVE_MEMBER", "MEMBER_SAVE_CREATOR")
+                .contains(reference.direction())) {
+            MemberWork member = members.stream()
+                    .filter(row -> Objects.equals(row.id(), reference.memberId()))
+                    .findFirst()
+                    .orElseThrow(() -> validation("新建普群联系人命令关联普通成员不存在"));
+            return "CREATOR_SAVE_MEMBER".equals(reference.direction())
+                    ? new ContactWork(member.creatorSaveCommandId(), null, null,
+                    member.memberWsPhone())
+                    : new ContactWork(member.memberSaveCommandId(), member.memberAccountId(),
+                    member.memberWsPhone(), null);
+        }
+        SecondaryAdminWork secondary = secondaryAdmins.stream()
                 .filter(row -> Objects.equals(row.id(), reference.memberId()))
                 .findFirst()
-                .orElseThrow(() -> validation("新建普群联系人命令关联成员不存在"));
+                .orElseThrow(() -> validation("新建普群联系人命令关联次管理员不存在"));
+        return switch (reference.direction()) {
+            case "CREATOR_SAVE_SECONDARY" -> new ContactWork(
+                    secondary.creatorSaveCommandId(), null, null,
+                    secondary.secondaryAdminWsPhone());
+            case "SECONDARY_SAVE_CREATOR" -> new ContactWork(
+                    secondary.secondarySaveCreatorCommandId(),
+                    secondary.secondaryAdminAccountId(), secondary.secondaryAdminWsPhone(), null);
+            case "SECONDARY_SAVE_ANCHOR" -> new ContactWork(
+                    secondary.secondarySaveAnchorCommandId(),
+                    secondary.secondaryAdminAccountId(), secondary.secondaryAdminWsPhone(),
+                    secondary.anchorMemberWsPhone());
+            case "ANCHOR_SAVE_SECONDARY" -> new ContactWork(
+                    secondary.anchorSaveSecondaryCommandId(), secondary.anchorMemberAccountId(),
+                    secondary.anchorMemberWsPhone(), secondary.secondaryAdminWsPhone());
+            default -> throw validation("新建普群联系人准备方向非法");
+        };
     }
 
-    private static void validateCommandBinding(
+    private void validateCommandBinding(
             ProtocolCommandOutbox row,
             ProtocolNormalGroupCreationReference reference,
             ItemWork item,
-            MemberWork member) {
+            ContactWork contactWork) {
         String bound = switch (reference.action()) {
-            case "CONTACT_PREPARE" -> "CREATOR_SAVE_MEMBER".equals(reference.direction())
-                    ? member.creatorSaveCommandId() : member.memberSaveCommandId();
+            case "CONTACT_PREPARE" -> contactWork.commandId();
             case "GROUP_CREATE" -> item.createCommandId();
             case "GROUP_SETTINGS_APPLY" -> item.settingsCommandId();
             case "GROUP_LEAVE" -> item.leaveCommandId();
@@ -144,20 +190,14 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
         }
     }
 
-    private static String actorPhone(
-            ProtocolNormalGroupCreationReference reference,
-            ItemWork item,
-            MemberWork member) {
-        return "MEMBER_SAVE_CREATOR".equals(reference.direction())
-                ? member.memberWsPhone() : item.creatorWsPhone();
+    private static String actorPhone(ItemWork item, ContactWork contactWork) {
+        return contactWork != null && contactWork.actorPhone() != null
+                ? contactWork.actorPhone() : item.creatorWsPhone();
     }
 
-    private static Long actorAccountId(
-            ProtocolNormalGroupCreationReference reference,
-            ItemWork item,
-            MemberWork member) {
-        return "MEMBER_SAVE_CREATOR".equals(reference.direction())
-                ? member.memberAccountId() : item.creatorAccountId();
+    private static Long actorAccountId(ItemWork item, ContactWork contactWork) {
+        return contactWork != null && contactWork.actorAccountId() != null
+                ? contactWork.actorAccountId() : item.creatorAccountId();
     }
 
     private static boolean positive(Long value) {
@@ -202,5 +242,13 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
             int ephemeralDurationSeconds,
             String promoteCandidate
     ) {
+    }
+
+    /** 单个联系人准备方向的冻结执行账号、命令和目标号码。 */
+    private record ContactWork(
+            String commandId,
+            Long actorAccountId,
+            String actorPhone,
+            String contactPhone) {
     }
 }

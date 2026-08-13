@@ -6,6 +6,8 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationContactFailureVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
@@ -54,6 +56,9 @@ public interface NormalGroupCreationMapper {
     /** 批量插入计划群成员。 */
     int insertMembers(@Param("rows") List<MemberInsert> rows);
 
+    /** 批量插入计划群次管理员快照。 */
+    int insertSecondaryAdmins(@Param("rows") List<SecondaryAdminInsert> rows);
+
     /** 查询任务摘要。 */
     NormalGroupCreationTaskVO selectTask(@Param("taskId") Long taskId);
 
@@ -77,6 +82,16 @@ public interface NormalGroupCreationMapper {
     /** 查询一个计划群的冻结成员。 */
     List<MemberWork> selectMemberWorks(@Param("itemId") Long itemId);
 
+    /** 查询一个计划群冻结的次管理员及其同群好友锚点。 */
+    List<SecondaryAdminWork> selectSecondaryAdminWorks(@Param("itemId") Long itemId);
+
+    /** 锁定一条次管理员冻结事实，用于严格校验联系人方向回执。 */
+    @InterceptorIgnore(tenantLine = "true")
+    SecondaryAdminWork selectSecondaryAdminWorkForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("itemId") Long itemId,
+            @Param("secondaryAdminId") Long secondaryAdminId);
+
     /** 明确失败的联系人准备重试前，替换一个当前不可执行的成员账号。 */
     int replaceMember(@Param("row") MemberReplacement row);
 
@@ -93,6 +108,13 @@ public interface NormalGroupCreationMapper {
                            @Param("commandId") String commandId,
                            @Param("now") long now);
 
+    /** 绑定次管理员相关联系人准备方向的真实 Outbox commandId。 */
+    int bindSecondaryContactCommand(@Param("secondaryAdminId") Long secondaryAdminId,
+                                    @Param("direction") String direction,
+                                    @Param("expectedStatus") String expectedStatus,
+                                    @Param("commandId") String commandId,
+                                    @Param("now") long now);
+
     /** 全部联系人命令入库后把计划群置为运行中。 */
     int markContactPrepareSubmitted(@Param("itemId") Long itemId, @Param("now") long now);
 
@@ -104,6 +126,16 @@ public interface NormalGroupCreationMapper {
                            @Param("errorCode") String errorCode,
                            @Param("errorMessage") String errorMessage,
                            @Param("now") long now);
+
+    /** 按 commandId 幂等应用次管理员联系人准备方向结果。 */
+    int applySecondaryContactResult(
+            @Param("secondaryAdminId") Long secondaryAdminId,
+            @Param("direction") String direction,
+            @Param("commandId") String commandId,
+            @Param("status") String status,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage,
+            @Param("now") long now);
 
     /** 查询尚未回执的联系人方向数；加好友是尽力而为动作，FAILED/UNKNOWN 也算已落定。 */
     int countPendingContactDirections(@Param("itemId") Long itemId);
@@ -121,8 +153,23 @@ public interface NormalGroupCreationMapper {
                            @Param("groupSubject") String groupSubject,
                            @Param("now") long now);
 
+    /** 把本群全部冻结次管理员标记为已确认管理员。 */
+    int markSecondaryAdminsPromoted(@Param("itemId") Long itemId, @Param("now") long now);
+
+    /** 保存协议统一核实后仍未成为管理员的目标及可展示失败原因。 */
+    int markSecondaryAdminPromotionFailures(
+            @Param("itemId") Long itemId,
+            @Param("failedTargets") List<String> failedTargets,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage,
+            @Param("now") long now);
+
     /** 建群成功时把冻结成员统一标记为已在群内。 */
     int markParticipantsCreated(@Param("itemId") Long itemId, @Param("now") long now);
+
+    /** 建群成功时把冻结次管理员标记为已在群内，管理员权限仍等待协议确认。 */
+    int markSecondaryParticipantsCreated(@Param("itemId") Long itemId,
+                                         @Param("now") long now);
 
     /** 权限成功后绑定退群命令并推进阶段。 */
     int startGroupLeave(@Param("itemId") Long itemId,

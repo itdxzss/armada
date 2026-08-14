@@ -6,7 +6,7 @@
 
 ## 目标（一句话）
 
-用 WhatsApp promote/demote 事件实时维护受控管理员事实，并在普通拉群本地无管理员时异步查询一次当前成员角色后重新选号。
+用 WhatsApp promote/demote 事件实时维护受控管理员事实，在普通拉群本地无管理员时异步查询一次当前成员角色后重新选号，并停止成功群的固定周期 metadata 轮询。
 
 ## 缺口拆解 / 任务清单
 
@@ -15,6 +15,7 @@
 - [x] 核对现有异步 `group.members.query.requested/result_reported` 复用边界。
 - [ ] 用户确认书面设计。
 - [ ] 编写实施计划并按 TDD 实现协议事件载荷与 metadata 触发收窄。
+- [ ] 按 TDD 删除 `SUCCEEDED` 群的周期候选，保留首次快照、事件、重试和手动刷新调度。
 - [ ] 按 TDD 实现后端角色事实消费、成员状态与账号群关系对齐。
 - [ ] 按 TDD 实现 `MANAGER_ADMIN_DISCOVERY` 异步兜底和历史等待行唤醒。
 - [ ] 完成聚焦回归、构建、XML/Flyway 校验和 test1 验收准备。
@@ -23,10 +24,11 @@
 
 - `group.participant_changed` 是唯一实时管理员事实入口；任务动作回执不双写全局关系。
 - 只取消 promote/demote 引发的完整 metadata 请求；add/remove 和 groups.update 保持原行为。
+- 删除成功群默认 60 秒再次到期的后台查询；保留同步 Job 处理首次建档、事件、重试和手动刷新。
 - 复用 `whatsapp_group_member_state` 和 `account_group_membership.is_admin`，不新增管理员镜像列。
 - 拉群兜底复用现有异步成员查询框架，正常派发线程不等待网络。
 - 不静态回填旧成员快照；Flyway 只唤醒符合条件的活动等待执行行。
-- Android 没有同等角色事件时，由任务定点查询和既有 metadata 对账补齐。
+- Android 没有同等角色事件时，由任务定点查询按业务需要补齐管理员事实，不依赖全群周期轮询。
 
 ## 验证（evidence-before-done）
 

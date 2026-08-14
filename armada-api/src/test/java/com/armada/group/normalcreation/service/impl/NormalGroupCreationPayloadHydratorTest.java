@@ -77,6 +77,42 @@ class NormalGroupCreationPayloadHydratorTest {
     }
 
     @Test
+    void createPayloadOnlyContainsAccountsWithMutualCreatorContacts() {
+        ProtocolCommandOutbox row = outbox("cmd-create");
+        ItemWork item = new ItemWork(
+                21L, 1L, 9L, "测试普群", "测试普群",
+                382L, "creator-web", "WEB", "911",
+                null, "RUNNING", "CREATING_GROUP", "SENT",
+                "cmd-create", null, null, "KEEP", null, 91L, 92L,
+                true, false, true, false, 0);
+        when(mapper.selectItemWork(21L)).thenReturn(item);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(
+                new MemberWork(
+                        31L, 383L, "member-1", "ANDROID", "922",
+                        "SUCCESS", "SUCCESS", "m1", "m2", "PENDING"),
+                new MemberWork(
+                        32L, 384L, "member-2", "ANDROID", "923",
+                        "FAILED", "SUCCESS", "m3", "m4", "PENDING"),
+                new MemberWork(
+                        33L, 385L, "member-3", "WEB", "924",
+                        "SUCCESS", "FAILED", "m5", "m6", "PENDING")));
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of(
+                secondaryAdmin(41L, 386L, "933"),
+                new SecondaryAdminWork(
+                        42L, 387L, "acc_387", "WEB", "944",
+                        383L, "member-1", "ANDROID", "922",
+                        "FAILED", "SUCCESS", "SUCCESS", "SUCCESS",
+                        "s1", "s2", "s3", "s4", "PENDING", "PENDING", null)));
+        JsonNode reference = objectMapper.valueToTree(new ProtocolNormalGroupCreationReference(
+                1L, 9L, 21L, null, null, "GROUP_CREATE", "normal_group_creation"));
+
+        JsonNode payload = hydrator.hydrate(row, reference);
+
+        assertThat(payload.path("participants").toString())
+                .isEqualTo("[\"933\",\"922\"]");
+    }
+
+    @Test
     void secondaryContactPayloadMapsInternalDirectionToExistingProtocolDirection() {
         ProtocolCommandOutbox row = outbox("c3");
         row.setProtocolAccountId("acc_384");

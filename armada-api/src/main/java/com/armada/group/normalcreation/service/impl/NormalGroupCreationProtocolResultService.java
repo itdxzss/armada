@@ -13,6 +13,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.normalcreation.model.enums.NormalGroupCreationErrorMessage;
+import com.armada.group.normalcreation.support.NormalGroupCreationParticipantEligibility;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
@@ -261,7 +262,7 @@ public class NormalGroupCreationProtocolResultService
      * 落定一个联系人方向的最终结果。
      *
      * <p>加好友是尽力而为的前置动作：SUCCESS、FAILED、UNKNOWN 都只写回成员行，不再让整条
-     * 计划群失败。双向结果全部落定后照常下发建群命令，加好友结果不影响后续建群和成员名单。</p>
+     * 计划群失败。双向结果全部落定后照常下发建群命令，建群名单只保留与群主双向成功的账号。</p>
      */
     private void contactSettled(
             ItemWork item,
@@ -314,7 +315,11 @@ public class NormalGroupCreationProtocolResultService
         long now = System.currentTimeMillis();
         mapper.markParticipantsCreated(item.id(), now);
         mapper.markSecondaryParticipantsCreated(item.id(), now);
-        List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id());
+        List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id())
+                .stream()
+                .filter(NormalGroupCreationParticipantEligibility
+                        ::secondaryAdminHasMutualCreatorContact)
+                .toList();
         PromotionFailure promotionFailure = promoteSecondaryAdmins(
                 item, event.groupJid(), secondaryAdmins);
         if (promotionFailure != null) {

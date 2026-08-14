@@ -4,6 +4,7 @@ import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
+import com.armada.group.normalcreation.support.NormalGroupCreationParticipantEligibility;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationReference;
@@ -64,9 +65,15 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
             validateCommandBinding(row, reference, item, contactWork);
             LinkedHashSet<String> participantPhones = new LinkedHashSet<>();
             secondaryAdmins.stream()
+                    .filter(NormalGroupCreationParticipantEligibility
+                            ::secondaryAdminHasMutualCreatorContact)
                     .map(SecondaryAdminWork::secondaryAdminWsPhone)
                     .forEach(participantPhones::add);
-            members.stream().map(MemberWork::memberWsPhone).forEach(participantPhones::add);
+            members.stream()
+                    .filter(NormalGroupCreationParticipantEligibility
+                            ::memberHasMutualCreatorContact)
+                    .map(MemberWork::memberWsPhone)
+                    .forEach(participantPhones::add);
             List<String> participants = List.copyOf(participantPhones);
             String promoteCandidate = participants.isEmpty() ? null : participants.get(0);
             return objectMapper.valueToTree(new WirePayload(

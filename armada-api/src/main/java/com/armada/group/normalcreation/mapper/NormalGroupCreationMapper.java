@@ -153,7 +153,7 @@ public interface NormalGroupCreationMapper {
                            @Param("groupSubject") String groupSubject,
                            @Param("now") long now);
 
-    /** 把本群全部冻结次管理员标记为已确认管理员。 */
+    /** 把本群已确认入群的次管理员标记为提权成功。 */
     int markSecondaryAdminsPromoted(@Param("itemId") Long itemId, @Param("now") long now);
 
     /** 保存协议统一核实后仍未成为管理员的目标及可展示失败原因。 */
@@ -164,10 +164,10 @@ public interface NormalGroupCreationMapper {
             @Param("errorMessage") String errorMessage,
             @Param("now") long now);
 
-    /** 建群成功时把冻结成员统一标记为已在群内。 */
+    /** 建群成功时把与群主双向联系人准备成功的普通成员标记为已在群内。 */
     int markParticipantsCreated(@Param("itemId") Long itemId, @Param("now") long now);
 
-    /** 建群成功时把冻结次管理员标记为已在群内，管理员权限仍等待协议确认。 */
+    /** 建群成功时把与群主双向联系人准备成功的次管理员标记为已在群内。 */
     int markSecondaryParticipantsCreated(@Param("itemId") Long itemId,
                                          @Param("now") long now);
 

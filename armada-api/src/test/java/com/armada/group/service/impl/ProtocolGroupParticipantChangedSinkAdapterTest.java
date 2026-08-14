@@ -7,7 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.GroupParticipantObservation;
-import com.armada.group.model.enums.GroupParticipantObservationSource;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantChangedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantIdentity;
@@ -55,7 +55,7 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
         assertThat(captor.getValue()).containsExactly(new GroupParticipantObservation(
                 7L, 901L, "120363group@g.us", "919000000001@s.whatsapp.net",
                 "123456789012345@lid", "919000000001@s.whatsapp.net",
-                true, false, GroupParticipantObservationSource.ROLE_DEMOTE,
+                true, false, WhatsappGroupMemberStateSource.ROLE_EVENT,
                 5_000L, "role-event-1:123456789012345@lid"));
         assertThat(TenantContext.get()).isNull();
     }

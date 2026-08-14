@@ -2,7 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.GroupParticipantObservation;
-import com.armada.group.model.enums.GroupParticipantObservationSource;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantChangedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantChangedSink;
@@ -47,12 +47,9 @@ public class ProtocolGroupParticipantChangedSinkAdapter
                         event.tenantId(), event.accountId(), event.eventId());
                 return;
             }
-            GroupParticipantObservationSource source = "promote".equals(event.action())
-                    ? GroupParticipantObservationSource.ROLE_PROMOTE
-                    : GroupParticipantObservationSource.ROLE_DEMOTE;
-            boolean admin = source == GroupParticipantObservationSource.ROLE_PROMOTE;
+            boolean admin = "promote".equals(event.action());
             List<GroupParticipantObservation> observations = event.participants().stream()
-                    .map(participant -> observation(event, participant, source, admin))
+                    .map(participant -> observation(event, participant, admin))
                     .toList();
             observationService.apply(observations);
         } finally {
@@ -75,13 +72,13 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     private static GroupParticipantObservation observation(
             ProtocolGroupParticipantChangedEvent event,
             ProtocolGroupParticipantIdentity participant,
-            GroupParticipantObservationSource source,
             boolean admin) {
         String participantJid = firstText(participant.lid(), participant.id(), participant.phoneNumber());
         String targetJid = firstText(participant.phoneNumber(), participant.id(), participant.lid());
         return new GroupParticipantObservation(
                 event.tenantId(), event.accountId(), event.groupJid(), targetJid,
-                participantJid, participant.phoneNumber(), true, admin, source,
+                participantJid, participant.phoneNumber(), true, admin,
+                WhatsappGroupMemberStateSource.ROLE_EVENT,
                 event.occurredAt(), event.eventId() + ":" + participantJid);
     }
 

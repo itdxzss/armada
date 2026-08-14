@@ -16,7 +16,7 @@ import org.mockito.ArgumentCaptor;
 class ProtocolGroupMembersResultAdapterTest {
 
     @Test
-    void mapsEnvelopeEventIdAndDiscoveryPurposeIntoTaskCallback() {
+    void mapsDiscoveryPurposeIntoTaskCallback() {
         PullTaskMemberQueryResultService resultService =
                 mock(PullTaskMemberQueryResultService.class);
         ProtocolGroupMembersResultAdapter adapter =
@@ -32,7 +32,6 @@ class ProtocolGroupMembersResultAdapterTest {
         ArgumentCaptor<PullTaskMemberQueryCallback> callback =
                 ArgumentCaptor.forClass(PullTaskMemberQueryCallback.class);
         verify(resultService).apply(callback.capture());
-        assertThat(callback.getValue().eventId()).isEqualTo("event-701");
         assertThat(callback.getValue().purpose())
                 .isEqualTo(PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY);
         assertThat(callback.getValue().members()).singleElement().satisfies(fact -> {

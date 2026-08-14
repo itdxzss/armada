@@ -1,11 +1,12 @@
 package com.armada.task.scheduler;
 
 import com.armada.task.model.dto.PullTaskManagerAdminWork;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 
 /** 管理员设置事务准备结果：提权工作、管理员定点发现或已在事务内收敛。 */
 public record PullTaskManagerAdminPreparation(
         PullTaskManagerAdminWork work,
-        PullTaskManagerAdminDiscoveryWork discovery,
+        PullTaskMemberQueryRequest discoveryRequest,
         PullTaskExecutionDispatchResult result) {
 
     /** @return 创建可继续实时核验的准备结果 */
@@ -15,8 +16,8 @@ public record PullTaskManagerAdminPreparation(
 
     /** @return 创建需要定点发现现有管理员的准备结果 */
     public static PullTaskManagerAdminPreparation discovery(
-            PullTaskManagerAdminDiscoveryWork discovery) {
-        return new PullTaskManagerAdminPreparation(null, discovery, null);
+            PullTaskMemberQueryRequest discoveryRequest) {
+        return new PullTaskManagerAdminPreparation(null, discoveryRequest, null);
     }
 
     /** @return 创建已收敛的准备结果 */
@@ -30,8 +31,4 @@ public record PullTaskManagerAdminPreparation(
         return work != null;
     }
 
-    /** @return 是否需要执行管理员定点发现 */
-    public boolean discoveryReady() {
-        return discovery != null;
-    }
 }

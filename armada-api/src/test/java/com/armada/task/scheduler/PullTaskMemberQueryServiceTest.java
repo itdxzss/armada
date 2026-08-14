@@ -165,7 +165,7 @@ class PullTaskMemberQueryServiceTest {
                 ProtocolAccountRef.legacyWeb("changed-907"), "123@g.us",
                 List.of("907@s.whatsapp.net", "906@s.whatsapp.net"));
 
-        PullTaskMemberQueryResult result = service.requestOrReadFrozen(changed, 1_000L);
+        PullTaskMemberQueryResult result = service.requestOrRead(changed, 1_000L);
 
         assertThat(result.state()).isEqualTo(PullTaskMemberQueryResult.State.AVAILABLE);
         verify(commandService, never()).create(any());

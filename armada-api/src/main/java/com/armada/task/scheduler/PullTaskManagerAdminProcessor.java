@@ -40,8 +40,8 @@ public class PullTaskManagerAdminProcessor {
             String lockOwner,
             long now,
             PullTaskManagerAdminPreparation preparation) {
-        if (preparation.discoveryReady()) {
-            return discoverAdmin(candidate, lockOwner, now, preparation.discovery());
+        if (preparation.discoveryRequest() != null) {
+            return discoverAdmin(candidate, lockOwner, now, preparation.discoveryRequest());
         }
         if (!preparation.ready()) {
             return preparation.result();
@@ -91,23 +91,19 @@ public class PullTaskManagerAdminProcessor {
             PullTaskGroupExecution candidate,
             String lockOwner,
             long now,
-            PullTaskManagerAdminDiscoveryWork work) {
-        PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDeferFrozen(
-                work.tenantId(), new PullTaskMemberQueryRequest(
-                        work.taskId(), work.executionId(), work.businessKey(),
-                        PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY,
-                        work.actor(), work.groupJid(), work.targetJids()),
-                work.expectedVersion(), work.lockOwner(),
+            PullTaskMemberQueryRequest request) {
+        PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDefer(
+                candidate.getTenantId(), request, candidate.getVersion(), lockOwner,
                 PullTaskExecutionStage.MANAGER_ADMIN.code(), now);
         if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
             return PullTaskExecutionDispatchResult.DEFERRED;
         }
         if (query.state() == PullTaskMemberQueryResult.State.FAILED) {
-            return transactions.deferDiscovery(work, now);
+            return transactions.deferDiscovery(candidate, lockOwner, now);
         }
         PullTaskManagerAdminPreparation refreshed =
                 transactions.prepareAfterDiscovery(candidate, lockOwner, now);
-        if (refreshed.discoveryReady()) {
+        if (refreshed.discoveryRequest() != null) {
             throw new IllegalStateException("管理员定点查询结果不得重复创建 discovery");
         }
         return processPreparation(candidate, lockOwner, now, refreshed);

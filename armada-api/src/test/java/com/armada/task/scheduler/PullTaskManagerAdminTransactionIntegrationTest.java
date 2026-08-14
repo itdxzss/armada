@@ -183,11 +183,11 @@ class PullTaskManagerAdminTransactionIntegrationTest {
         PullTaskManagerAdminPreparation preparation =
                 service.prepare(candidate, "worker-1", 600L);
 
-        assertThat(preparation.discoveryReady()).isTrue();
-        PullTaskManagerAdminDiscoveryWork discovery = preparation.discovery();
-        assertThat(discovery.businessKey()).startsWith("manager-admin-discovery:");
-        assertThat(discovery.actor().armadaAccountId()).isEqualTo(906L);
-        assertThat(discovery.targetJids()).containsExactly(
+        assertThat(preparation.discoveryRequest()).isNotNull();
+        assertThat(preparation.discoveryRequest().businessKey())
+                .startsWith("manager-admin-discovery:");
+        assertThat(preparation.discoveryRequest().actor().armadaAccountId()).isEqualTo(906L);
+        assertThat(preparation.discoveryRequest().targetJids()).containsExactly(
                 "8613800000906@s.whatsapp.net", "8613800000907@s.whatsapp.net");
         assertThat(accountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.PROMOTER.code())).isEmpty();

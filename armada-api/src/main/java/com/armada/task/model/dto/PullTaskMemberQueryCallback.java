@@ -6,7 +6,6 @@ import java.util.List;
 
 /** 普通拉群异步成员查询的强关联协议回调。 */
 public record PullTaskMemberQueryCallback(
-        String eventId,
         long tenantId,
         long pullTaskId,
         long groupExecutionId,

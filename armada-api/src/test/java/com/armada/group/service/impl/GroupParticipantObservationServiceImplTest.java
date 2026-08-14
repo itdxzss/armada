@@ -17,7 +17,7 @@ import com.armada.group.model.dto.WhatsappGroupMemberStateWrite;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
-import com.armada.group.model.enums.GroupParticipantObservationSource;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
@@ -49,7 +49,7 @@ class GroupParticipantObservationServiceImplTest {
     void promoteUsesWinningMemberStateToUpdateSnapshotAndControlledMembership() {
         GroupParticipantObservation input = observation(
                 "123456789012345@lid", "+1 555 000 0001", true, true,
-                GroupParticipantObservationSource.ROLE_PROMOTE, 1_000L, "event-1");
+                WhatsappGroupMemberStateSource.ROLE_EVENT, 1_000L, "event-1");
         when(memberStateMapper.selectStatesByParticipantJids(
                 7L, "120363-test@g.us", List.of("123456789012345@lid")))
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
@@ -100,7 +100,7 @@ class GroupParticipantObservationServiceImplTest {
     void stalePromoteAppliesNewerWinningDemoteInsteadOfInput() {
         GroupParticipantObservation input = observation(
                 "15550000001@s.whatsapp.net", "15550000001", true, true,
-                GroupParticipantObservationSource.ROLE_PROMOTE, 1_000L, "old-promote");
+                WhatsappGroupMemberStateSource.ROLE_EVENT, 1_000L, "old-promote");
         when(memberStateMapper.selectStatesByParticipantJids(
                 7L, "120363-test@g.us", List.of("15550000001@s.whatsapp.net")))
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
@@ -131,7 +131,7 @@ class GroupParticipantObservationServiceImplTest {
     void memberQueryNotInGroupDeletesSnapshotAndPreservesExistingExitStatus() {
         GroupParticipantObservation input = observation(
                 null, null, false, false,
-                GroupParticipantObservationSource.MEMBER_QUERY, 3_000L, "query-1");
+                WhatsappGroupMemberStateSource.MEMBER_QUERY, 3_000L, "query-1");
         when(memberStateMapper.selectStatesByParticipantJids(
                 7L, "120363-test@g.us", List.of("15550000001@s.whatsapp.net")))
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
@@ -164,7 +164,7 @@ class GroupParticipantObservationServiceImplTest {
     void unresolvedLidStoresMemberFactWithoutCreatingControlledMembership() {
         GroupParticipantObservation input = observation(
                 "123456789012345@lid", null, true, true,
-                GroupParticipantObservationSource.ROLE_PROMOTE, 1_000L, "event-lid");
+                WhatsappGroupMemberStateSource.ROLE_EVENT, 1_000L, "event-lid");
         when(memberStateMapper.selectStatesByParticipantJids(
                 7L, "120363-test@g.us", List.of("123456789012345@lid")))
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
@@ -189,7 +189,7 @@ class GroupParticipantObservationServiceImplTest {
             String phone,
             boolean inGroup,
             boolean admin,
-            GroupParticipantObservationSource source,
+            WhatsappGroupMemberStateSource source,
             long observedAt,
             String eventId) {
         return new GroupParticipantObservation(

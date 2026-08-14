@@ -10,6 +10,7 @@ import com.armada.task.model.dto.PullTaskMemberQueryCreateRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.entity.PullTaskMemberQuery;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskMemberQueryStatus;
 import com.armada.task.service.impl.PullTaskMemberQueryCommandService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -54,6 +55,9 @@ public class PullTaskMemberQueryService {
         if (latest == null) {
             return create(request, now);
         }
+        if (request.purpose() == PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY) {
+            request = frozenRequest(request, latest);
+        }
         validateIdentity(request, latest);
         if (Objects.equals(latest.getQueryStatus(), PullTaskMemberQueryStatus.PENDING.code())) {
             if (latest.getDeadlineAt() != null && latest.getDeadlineAt() > now) {
@@ -73,21 +77,10 @@ public class PullTaskMemberQueryService {
         return resolveExisting(request, latest, now);
     }
 
-    /**
-     * 对稳定业务键复用首次冻结的 actor 和目标，再读取结果或按原身份重试。
-     *
-     * <p>管理员 discovery 的在线候选顺序可能在回调前变化；已有行存在时不能用新顺序
-     * 冲击身份校验，更不能据此创建第二条逻辑查询。</p>
-     */
-    public PullTaskMemberQueryResult requestOrReadFrozen(
+    /** discovery 直接复用首次持久化身份，候选变化不会产生第二条逻辑查询。 */
+    private PullTaskMemberQueryRequest frozenRequest(
             PullTaskMemberQueryRequest proposed,
-            long now) {
-        validateRequest(proposed, now);
-        PullTaskMemberQuery existing = mapper.selectLatestByBusinessKey(
-                proposed.groupExecutionId(), proposed.businessKey());
-        if (existing == null) {
-            return requestOrRead(proposed, now);
-        }
+            PullTaskMemberQuery existing) {
         if (!Objects.equals(existing.getTaskId(), proposed.taskId())
                 || !Objects.equals(existing.getPurpose(), proposed.purpose().name())
                 || !Objects.equals(existing.getGroupJid(), proposed.groupJid().trim())) {
@@ -106,7 +99,7 @@ public class PullTaskMemberQueryService {
         PullTaskMemberQueryRequest frozen = new PullTaskMemberQueryRequest(
                 existing.getTaskId(), existing.getGroupExecutionId(), existing.getBusinessKey(),
                 proposed.purpose(), actor, existing.getGroupJid(), readTargets(existing));
-        return requestOrRead(frozen, now);
+        return frozen;
     }
 
     /**

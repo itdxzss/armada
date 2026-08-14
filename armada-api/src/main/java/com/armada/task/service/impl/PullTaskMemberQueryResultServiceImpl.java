@@ -1,7 +1,7 @@
 package com.armada.task.service.impl;
 
 import com.armada.group.model.dto.GroupParticipantObservation;
-import com.armada.group.model.enums.GroupParticipantObservationSource;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -198,8 +198,7 @@ public class PullTaskMemberQueryResultServiceImpl implements PullTaskMemberQuery
     }
 
     private static void validateCallback(PullTaskMemberQueryCallback callback) {
-        if (callback == null || !hasText(callback.eventId())
-                || callback.tenantId() <= 0 || callback.pullTaskId() <= 0
+        if (callback == null || callback.tenantId() <= 0 || callback.pullTaskId() <= 0
                 || callback.groupExecutionId() <= 0 || callback.queryId() <= 0
                 || callback.purpose() == null || callback.accountId() <= 0
                 || !hasText(callback.protocolAccountId()) || !hasText(callback.protocolBackend())
@@ -216,8 +215,8 @@ public class PullTaskMemberQueryResultServiceImpl implements PullTaskMemberQuery
                 .map(fact -> new GroupParticipantObservation(
                         callback.tenantId(), callback.accountId(), callback.groupJid(),
                         fact.targetJid(), fact.participantJid(), fact.phoneNumber(),
-                        fact.inGroup(), fact.admin(), GroupParticipantObservationSource.MEMBER_QUERY,
-                        callback.occurredAt(), callback.eventId() + ":" + fact.targetJid()))
+                        fact.inGroup(), fact.admin(), WhatsappGroupMemberStateSource.MEMBER_QUERY,
+                        callback.occurredAt(), callback.commandId() + ":" + fact.targetJid()))
                 .toList();
     }
 

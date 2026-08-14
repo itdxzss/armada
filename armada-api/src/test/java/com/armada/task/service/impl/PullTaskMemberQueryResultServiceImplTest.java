@@ -106,7 +106,7 @@ class PullTaskMemberQueryResultServiceImplTest {
         when(queryMapper.selectById(701L)).thenReturn(row);
         PullTaskMemberQueryResultServiceImpl service = service();
         PullTaskMemberQueryCallback callback = new PullTaskMemberQueryCallback(
-                "event-701", 7L, 100L, 11L, 701L, PullTaskMemberQueryPurpose.MANAGER_ADMIN_MEMBERSHIP,
+                7L, 100L, 11L, 701L, PullTaskMemberQueryPurpose.MANAGER_ADMIN_MEMBERSHIP,
                 901L, "manager-901", "WEB", "cmd-query-2", 2,
                 PullTaskMemberQueryOutcome.SUCCESS, "120363group@g.us",
                 List.of(new PullTaskMemberFact(
@@ -139,7 +139,7 @@ class PullTaskMemberQueryResultServiceImplTest {
             assertThat(fact.admin()).isTrue();
             assertThat(fact.source().name()).isEqualTo("MEMBER_QUERY");
             assertThat(fact.sourceEventId())
-                    .isEqualTo("event-701:8613800000902@s.whatsapp.net");
+                    .isEqualTo("cmd-query-2:8613800000902@s.whatsapp.net");
         });
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(
                 observationService, executionMapper);
@@ -179,7 +179,7 @@ class PullTaskMemberQueryResultServiceImplTest {
             PullTaskMemberQueryOutcome outcome,
             PullTaskMemberQueryPurpose purpose) {
         return new PullTaskMemberQueryCallback(
-                "event-701", 7L, 100L, 11L, 701L, purpose,
+                7L, 100L, 11L, 701L, purpose,
                 901L, "manager-901", "WEB", "cmd-query-2", 2, outcome,
                 "120363group@g.us",
                 outcome == PullTaskMemberQueryOutcome.SUCCESS

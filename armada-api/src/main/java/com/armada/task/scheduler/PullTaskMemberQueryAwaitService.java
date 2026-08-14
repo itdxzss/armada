@@ -34,37 +34,10 @@ public class PullTaskMemberQueryAwaitService {
             String lockOwner,
             int expectedStage,
             long now) {
-        return readOrDefer(tenantId, request, expectedVersion, lockOwner,
-                expectedStage, now, false);
-    }
-
-    /** discovery 使用首次持久化的 actor/targets 读取，候选顺序变化不会重复发命令。 */
-    @Transactional(rollbackFor = Exception.class)
-    public PullTaskMemberQueryResult readOrDeferFrozen(
-            long tenantId,
-            PullTaskMemberQueryRequest request,
-            int expectedVersion,
-            String lockOwner,
-            int expectedStage,
-            long now) {
-        return readOrDefer(tenantId, request, expectedVersion, lockOwner,
-                expectedStage, now, true);
-    }
-
-    private PullTaskMemberQueryResult readOrDefer(
-            long tenantId,
-            PullTaskMemberQueryRequest request,
-            int expectedVersion,
-            String lockOwner,
-            int expectedStage,
-            long now,
-            boolean frozen) {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
-            PullTaskMemberQueryResult result = frozen
-                    ? queryService.requestOrReadFrozen(request, now)
-                    : queryService.requestOrRead(request, now);
+            PullTaskMemberQueryResult result = queryService.requestOrRead(request, now);
             if (result.state() != PullTaskMemberQueryResult.State.PENDING) {
                 return result;
             }

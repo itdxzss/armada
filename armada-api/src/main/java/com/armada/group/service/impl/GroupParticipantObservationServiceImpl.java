@@ -11,7 +11,6 @@ import com.armada.group.model.dto.WhatsappGroupMemberStateWrite;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
-import com.armada.group.model.enums.GroupParticipantObservationSource;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
@@ -301,14 +300,8 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
                 hasText(value.participantJid()) ? value.participantJid() : value.targetJid(), phone);
         return new NormalizedObservation(
                 value.tenantId(), value.observerAccountId(), groupJid, participantJid, phone,
-                value.inGroup(), value.admin(), stateSource(value.source()), value.observedAt(),
+                value.inGroup(), value.admin(), value.source().name(), value.observedAt(),
                 value.sourceEventId().trim());
-    }
-
-    private static String stateSource(GroupParticipantObservationSource source) {
-        return source == GroupParticipantObservationSource.MEMBER_QUERY
-                ? WhatsappGroupMemberStateSource.MEMBER_QUERY.name()
-                : WhatsappGroupMemberStateSource.ROLE_EVENT.name();
     }
 
     private static String canonicalGroupJid(String value) {

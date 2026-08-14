@@ -10,6 +10,7 @@ import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.dto.PullTaskManagerAdminWork;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -23,6 +24,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
@@ -38,7 +40,6 @@ public class PullTaskManagerAdminTransactionService {
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
-    private static final int MAX_DISCOVERY_TARGETS = 500;
     private static final List<Integer> OBSERVABLE_ACTION_STATUSES = List.of(
             PullTaskActionStatus.PENDING.code(),
             PullTaskActionStatus.SUBMITTED.code(),
@@ -116,10 +117,9 @@ public class PullTaskManagerAdminTransactionService {
                     .orElse(null);
             if (selected == null) {
                 if (allowDiscovery && (candidates == null || candidates.isEmpty())) {
-                    PullTaskManagerAdminDiscoveryWork discovery = discoveryWork(
-                            candidate, manager, lockOwner);
-                    if (discovery != null) {
-                        return PullTaskManagerAdminPreparation.discovery(discovery);
+                    PullTaskMemberQueryRequest request = discoveryRequest(candidate, manager);
+                    if (request != null) {
+                        return PullTaskManagerAdminPreparation.discovery(request);
                     }
                 }
                 PullTaskExecutionReasonCode reason = candidates == null || candidates.isEmpty()
@@ -145,13 +145,13 @@ public class PullTaskManagerAdminTransactionService {
     /** 成员查询失败时沿用统一退避，保留 MANAGER_ADMIN 阶段等待同业务键重试。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult deferDiscovery(
-            PullTaskManagerAdminDiscoveryWork work, long now) {
-        return withTenant(work.tenantId(), () -> {
+            PullTaskGroupExecution candidate, String lockOwner, long now) {
+        return withTenant(candidate.getTenantId(), () -> {
             PullTaskGroupExecution update = baseTransition(
-                    work.executionId(), work.expectedVersion(), work.lockOwner(), now);
+                    candidate.getId(), candidate.getVersion(), lockOwner, now);
             update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
             update.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
-            update.setGroupJid(work.groupJid());
+            update.setGroupJid(candidate.getGroupJid());
             update.setNextRunAt(now + resources.properties().getRetryDelayMs());
             update.setReasonCode(PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.name());
             update.setReasonMessage(PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.message());
@@ -162,10 +162,9 @@ public class PullTaskManagerAdminTransactionService {
         });
     }
 
-    private PullTaskManagerAdminDiscoveryWork discoveryWork(
+    private PullTaskMemberQueryRequest discoveryRequest(
             PullTaskGroupExecution candidate,
-            PullTaskGroupAccount manager,
-            String lockOwner) {
+            PullTaskGroupAccount manager) {
         List<GroupExecutionAccount> discovered =
                 resources.promoterSelector().findPullTaskAdminDiscoveryCandidates(
                         candidate.getTenantId(), candidate.getGroupJid(), manager.getAccountId());
@@ -175,9 +174,6 @@ public class PullTaskManagerAdminTransactionService {
         GroupExecutionAccount actor = null;
         java.util.LinkedHashSet<String> targetJids = new java.util.LinkedHashSet<>();
         for (GroupExecutionAccount account : discovered) {
-            if (targetJids.size() >= MAX_DISCOVERY_TARGETS) {
-                break;
-            }
             if (account == null) {
                 continue;
             }
@@ -195,10 +191,11 @@ public class PullTaskManagerAdminTransactionService {
         if (actor == null || targetJids.isEmpty()) {
             return null;
         }
-        return new PullTaskManagerAdminDiscoveryWork(
-                candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
-                candidate.getVersion(), lockOwner, candidate.getGroupJid(), manager.getId(),
-                actor.protocolRef(), List.copyOf(targetJids));
+        return new PullTaskMemberQueryRequest(
+                candidate.getTaskId(), candidate.getId(),
+                "manager-admin-discovery:" + manager.getId(),
+                PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY,
+                actor.protocolRef(), candidate.getGroupJid(), List.copyOf(targetJids));
     }
 
     /** 根据成功回执或兜底成员事实确认权限，并推进到管理—拉手联系人阶段。 */

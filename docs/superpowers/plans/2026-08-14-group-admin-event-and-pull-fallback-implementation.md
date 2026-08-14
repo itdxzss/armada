@@ -79,7 +79,6 @@ git commit -m "fix: 停止成功群周期元数据轮询"
 **Files:**
 
 - Create: `armada-api/src/main/java/com/armada/group/model/dto/GroupParticipantObservation.java`
-- Create: `armada-api/src/main/java/com/armada/group/model/enums/GroupParticipantObservationSource.java`
 - Create: `armada-api/src/main/java/com/armada/group/service/GroupParticipantObservationService.java`
 - Create: `armada-api/src/main/java/com/armada/group/service/impl/GroupParticipantObservationServiceImpl.java`
 - Modify: `armada-api/src/main/java/com/armada/group/mapper/WhatsappGroupMemberCacheMapper.java`
@@ -124,19 +123,13 @@ public record GroupParticipantObservation(
         String phone,
         boolean inGroup,
         boolean admin,
-        GroupParticipantObservationSource source,
+        WhatsappGroupMemberStateSource source,
         long observedAt,
         String sourceEventId) {
 }
 ```
 
-```java
-public enum GroupParticipantObservationSource {
-    ROLE_PROMOTE,
-    ROLE_DEMOTE,
-    MEMBER_QUERY
-}
-```
+来源直接复用已有 `WhatsappGroupMemberStateSource.ROLE_EVENT/MEMBER_QUERY`，不新增重复枚举。
 
 服务入口固定为批量事务方法：
 
@@ -159,9 +152,9 @@ REMOVE/LEAVE > ROLE_EVENT > ADD_EVENT > MEMBER_QUERY/FULL_SNAPSHOT
 先按群链接读取现有详情快照，以 participant JID 或规范化 phone 找到实际快照行；再调用现有角色更新 SQL。只用当前租户的有效账号 phone 建立关系。`status_source` 使用：
 
 ```text
-ROLE_PROMOTE -> WGP2_PROMOTE
-ROLE_DEMOTE  -> WGP2_DEMOTE
-MEMBER_QUERY -> GROUP_MEMBER_QUERY
+ROLE_EVENT + admin=true  -> WGP2_PROMOTE
+ROLE_EVENT + admin=false -> WGP2_DEMOTE
+MEMBER_QUERY             -> GROUP_MEMBER_QUERY
 ```
 
 `AccountGroupMembershipMapper.xml` 的同时间来源优先级统一为：
@@ -240,7 +233,7 @@ String source;
 
 - [ ] **Step 4: 在 adapter 中规范化 PN/LID 并调用统一事实服务**
 
-promote 映射 `ROLE_PROMOTE/admin=true`，demote 映射 `ROLE_DEMOTE/admin=false`，两者均为 `inGroup=true`。`sourceEventId` 使用 `<eventId>:<targetJid>`，保证同批不同成员独立幂等。
+promote 映射 `ROLE_EVENT/admin=true`，demote 映射 `ROLE_EVENT/admin=false`，两者均为 `inGroup=true`。`sourceEventId` 使用 `<eventId>:<targetJid>`，保证同批不同成员独立幂等。
 
 - [ ] **Step 5: 运行 consumer 与事实服务回归测试**
 
@@ -402,7 +395,6 @@ git commit -m "feat: 发布安卓群管理员角色事件"
 - Modify: `armada-api/src/main/resources/mapper/group/AccountGroupMembershipMapper.xml`
 - Modify: `armada-api/src/main/java/com/armada/group/service/GroupExecutionAccountSelector.java`
 - Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerAdminPreparation.java`
-- Create: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerAdminDiscoveryWork.java`
 - Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerAdminTransactionService.java`
 - Modify: `armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerAdminProcessor.java`
 - Modify: `armada-api/src/test/java/com/armada/group/service/GroupExecutionAccountSelectorDbTest.java`
@@ -447,7 +439,7 @@ MANAGER_ADMIN_DISCOVERY(false)
 manager-admin-discovery:<managerRoleId>
 ```
 
-若该键已有成员查询记录，必须从记录重建 actor、protocol ref 和 targetJids，再调用 `PullTaskMemberQueryAwaitService.readOrDefer`；不得因在线候选排序变化重新组装请求，避免 `validateIdentity` 冲突。只有尚无记录时才冻结本轮候选。
+若该键已有成员查询记录，`PullTaskMemberQueryService.requestOrRead` 直接从记录重建 actor、protocol ref 和 targetJids；不得因在线候选排序变化重新组装请求。Preparation 直接携带已有 `PullTaskMemberQueryRequest`，不再新增 discovery work 类型和专用 await API。
 
 - [ ] **Step 5: 扩展 preparation 与 processor**
 
@@ -463,10 +455,10 @@ AVAILABLE -> rerun strict admin preparation
 
 - [ ] **Step 6: 查询结果事务先落事实再唤醒**
 
-给 `PullTaskMemberQueryCallback` 传递协议 `eventId`。当 purpose 为 `MANAGER_ADMIN_DISCOVERY` 且结果 SUCCESS 时，把每个 fact 映射为 `MEMBER_QUERY` observation：
+当 purpose 为 `MANAGER_ADMIN_DISCOVERY` 且结果 SUCCESS 时，把每个 fact 映射为 `MEMBER_QUERY` observation；直接复用成员查询已有的唯一 `commandId`，不扩展 callback：
 
 ```java
-sourceEventId = callback.eventId() + ":" + fact.targetJid();
+sourceEventId = callback.commandId() + ":" + fact.targetJid();
 ```
 
 在同一 `@Transactional` 回调内先 CAS settle pending，再调用 `GroupParticipantObservationService.apply`，最后 wake；事实写入失败会回滚 settle，因此下一次 prepare 一定读到新关系。

@@ -31,12 +31,14 @@
 - 拉群兜底复用现有异步成员查询框架，正常派发线程不等待网络。
 - 不静态回填旧成员快照；Flyway 只唤醒符合条件的活动等待执行行。
 - Android 放行 WGP2 `promote/demote` 并发布同契约增量事件；既有定点查询继续作为任务缺失兜底。
+- 复核后删除专用 discovery work、frozen await API 和重复角色来源枚举；Preparation 直接携带成员查询请求，稳定身份复用内聚到原查询服务，净减少 104 行。
 
 ## 验证（evidence-before-done）
 
 ### 后端 `armada/armada-api`
 
 - 以下相关回归测试退出码 `0`：metadata 停止周期调度、角色事实、Web/Android 事件消费、成员查询 adapter、管理员 discovery 状态机、拉群端到端、资源恢复、V114/Flyway 合同。
+- 瘦身后同一组 `109` 个测试重新执行通过，随后 `mvn -q -DskipTests package` 与 `git diff --check` 退出码均为 `0`。
 
 ```bash
 mvn -q -DargLine='-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading' \
@@ -72,7 +74,7 @@ env GOCACHE=/private/tmp/armada-admin-fix-go-cache go test ./...
 
 ### 提交边界
 
-- 后端提交：`b2235541`、`55b70a95`、`f649bb5d`、`f6ad164f`、`04b3bbd3`。
+- 后端提交：`b2235541`、`55b70a95`、`f649bb5d`、`f6ad164f`、`04b3bbd3`、`f8351e04`。
 - Web 协议提交：`81485da`。
 - Android 协议提交：`8c6480d`。
 - 三个仓库 `git diff --check` 均通过；未把 `armada` 的 `.claude/worktrees`、批处理脚本或 `armada-protocol/.codegraph` 纳入本任务提交。
@@ -92,6 +94,6 @@ env GOCACHE=/private/tmp/armada-admin-fix-go-cache go test ./...
 
 ## 回滚点
 
-- 后端从新到旧回退：`04b3bbd3`（一次性唤醒）、`f6ad164f`（定点发现）、`f649bb5d`（事件消费）、`55b70a95`（统一事实）、`b2235541`（停止周期轮询）。V114 已执行后的状态唤醒属于数据状态变化，代码回滚不会自动恢复等待原因。
+- 后端从新到旧回退：`f8351e04`（瘦身）、`04b3bbd3`（一次性唤醒）、`f6ad164f`（定点发现）、`f649bb5d`（事件消费）、`55b70a95`（统一事实）、`b2235541`（停止周期轮询）。V114 已执行后的状态唤醒属于数据状态变化，代码回滚不会自动恢复等待原因。
 - Web 协议回退：`81485da`。
 - Android 协议回退：`8c6480d`。

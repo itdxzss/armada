@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationReference;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -100,6 +101,69 @@ class NormalGroupCreationPayloadHydratorTest {
         assertThat(payload.path("contact").asText()).isEqualTo("922");
     }
 
+    @Test
+    void contactPayloadMapsActorAndTargetForEveryDirection() {
+        ItemWork item = new ItemWork(
+                21L, 1L, 9L, "测试普群", "测试普群",
+                382L, "creator-web", "WEB", "911",
+                null, "RUNNING", "PREPARING_CONTACTS", "SENT",
+                null, null, null, "KEEP", null, 91L, 92L,
+                true, false, true, false, 0);
+        when(mapper.selectItemWork(21L)).thenReturn(item);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(
+                new MemberWork(
+                        31L, 383L, "member-android", "ANDROID", "922",
+                        "PENDING", "PENDING", "member-c1", "member-c2", "PENDING")));
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of(
+                secondaryAdmin(41L, 384L, "933")));
+        List<ContactDirectionCase> cases = List.of(
+                new ContactDirectionCase(
+                        31L, "CREATOR_SAVE_MEMBER", "member-c1",
+                        382L, "creator-web", "WEB", "911", "922", "CREATOR_SAVE_MEMBER"),
+                new ContactDirectionCase(
+                        31L, "MEMBER_SAVE_CREATOR", "member-c2",
+                        383L, "member-android", "ANDROID", "922", "911", "MEMBER_SAVE_CREATOR"),
+                new ContactDirectionCase(
+                        41L, "CREATOR_SAVE_SECONDARY", "c1",
+                        382L, "creator-web", "WEB", "911", "933", "CREATOR_SAVE_MEMBER"),
+                new ContactDirectionCase(
+                        41L, "SECONDARY_SAVE_CREATOR", "c2",
+                        384L, "acc_384", "WEB", "933", "911", "MEMBER_SAVE_CREATOR"),
+                new ContactDirectionCase(
+                        41L, "SECONDARY_SAVE_ANCHOR", "c3",
+                        384L, "acc_384", "WEB", "933", "922", "CREATOR_SAVE_MEMBER"),
+                new ContactDirectionCase(
+                        41L, "ANCHOR_SAVE_SECONDARY", "c4",
+                        383L, "member-android", "ANDROID", "922", "933", "MEMBER_SAVE_CREATOR"));
+
+        for (ContactDirectionCase testCase : cases) {
+            ProtocolCommandOutbox row = outbox(testCase.commandId());
+            row.setProtocolAccountId(testCase.protocolAccountId());
+            row.setProtocolBackend(testCase.protocolBackend());
+            JsonNode reference = objectMapper.valueToTree(new ProtocolNormalGroupCreationReference(
+                    1L, 9L, 21L, testCase.memberId(), testCase.internalDirection(),
+                    "CONTACT_PREPARE", "normal_group_creation"));
+
+            JsonNode payload = hydrator.hydrate(row, reference);
+
+            assertThat(payload.path("direction").asText())
+                    .as(testCase.internalDirection())
+                    .isEqualTo(testCase.protocolDirection());
+            assertThat(payload.path("accountId").asLong())
+                    .as(testCase.internalDirection())
+                    .isEqualTo(testCase.actorAccountId());
+            assertThat(payload.path("wsPhone").asText())
+                    .as(testCase.internalDirection())
+                    .isEqualTo(testCase.actorPhone());
+            assertThat(payload.path("contact").asText())
+                    .as(testCase.internalDirection())
+                    .isEqualTo(testCase.contactPhone());
+            assertThat(payload.path("name").asText())
+                    .as(testCase.internalDirection())
+                    .isEqualTo(testCase.contactPhone());
+        }
+    }
+
     private static SecondaryAdminWork secondaryAdmin(Long id, Long accountId, String phone) {
         return new SecondaryAdminWork(
                 id, accountId, "acc_" + accountId, "WEB", phone,
@@ -122,5 +186,17 @@ class NormalGroupCreationPayloadHydratorTest {
         row.setProtocolAccountId("creator-web");
         row.setProtocolBackend("WEB");
         return row;
+    }
+
+    private record ContactDirectionCase(
+            Long memberId,
+            String internalDirection,
+            String commandId,
+            Long actorAccountId,
+            String protocolAccountId,
+            String protocolBackend,
+            String actorPhone,
+            String contactPhone,
+            String protocolDirection) {
     }
 }

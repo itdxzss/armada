@@ -14,9 +14,13 @@
 协议层同时把成员变化退化成不含目标和动作的 metadata 同步请求，后端只能等待完整群 metadata
 查询后间接修复管理员事实。
 
+Android Zhuan 已能解析 WGP2 群通知和 PN/LID 成员身份，但当前解析器只放行 `add/remove/leave`，
+`promote/demote` 被过滤；后续群快照协调器也没有角色事件发布分支。Android 已有
+`group.members.query.requested/result_reported` 定点成员查询，无需新增查询接口。
+
 本次已确认以下口径：
 
-1. `group.participant_changed` 是管理员角色的实时增量事实入口。
+1. Web 与 Android 都通过 `group.participant_changed` 提供管理员角色实时增量事实。
 2. `group.action_result_reported` 只负责拉群任务动作状态，不额外双写全局管理员事实。
 3. `promote/demote` 事件不再触发常规完整 metadata 查询；本地找不到管理员时，拉群任务才异步查询一次当前群成员事实作为兜底。
 4. 已成功群不再按固定周期自动查询完整 metadata；群资料同步改为首次建档、事件和人工操作按需触发。
@@ -25,8 +29,8 @@
 
 ### 2.1 目标
 
-- Web 观察到 `promote` 时，把对应受控账号关系更新为 `is_admin=1`。
-- Web 观察到 `demote` 时，把对应受控账号关系更新为 `is_admin=0`。
+- Web 或 Android 观察到 `promote` 时，把对应受控账号关系更新为 `is_admin=1`。
+- Web 或 Android 观察到 `demote` 时，把对应受控账号关系更新为 `is_admin=0`。
 - 同步更新现有 `whatsapp_group_member_state` 和群详情成员快照，避免列表、详情和任务选号继续分歧。
 - 拉群任务本地找不到管理员时，复用现有 Outbox + Kafka 异步成员查询，查询所有当前在线、正常、在群的受控账号角色，基于新鲜结果更新关系后重新选号。
 - 移除 `SUCCEEDED` 群默认 60 秒再次到期的后台轮询，避免受控群规模扩大后持续消耗协议流量。
@@ -38,7 +42,7 @@
 - 不让 `group.action_result_reported` 写 `account_group_membership`，避免命令回执和 WhatsApp 观察事件形成两条实时写入口。
 - 不对历史成员快照执行静态批量回填；旧快照可能晚于真实降权或退群，不能直接作为当前事实。
 - 不删除新群首次快照、`add/remove`、`groups.update`、用户手动刷新等按需 metadata 同步能力。
-- 不改变 Android 协议事件契约；没有 Web 角色事件的群在拉群需要管理员时由定点查询修复，群资料可由现有手动刷新入口按需更新。
+- 不让 Android 角色事件触发全量群快照；Android 与 Web 一样只发布本次变化成员的增量事实。
 - 不新增同步 HTTP 查询，不增加拉群派发线程数。
 
 ## 3. 总体数据流
@@ -47,8 +51,9 @@
 
 ```text
 WhatsApp GROUP_PARTICIPANT_PROMOTE / DEMOTE
-  -> Baileys group-participants.update
-  -> protocol group.participant_changed
+  -> Web: Baileys group-participants.update
+     Android: WGP2 notification promote/demote
+  -> protocol group.participant_changed（统一契约）
        tenantId / accountId / protocolAccountId / protocolBackend
        groupJid / action / participants(PN/LID) / operator / source
   -> Armada ProtocolGroupEventConsumer
@@ -58,9 +63,9 @@ WhatsApp GROUP_PARTICIPANT_PROMOTE / DEMOTE
   -> account_group_membership.is_admin
 ```
 
-协议层只对 `promote/demote` 停止发布 `account.group_metadata_sync_requested`；`add/remove` 仍沿用现有
-metadata 刷新，避免本次管理员修复顺带改变成员列表维护口径。`groups.update` 的群名、设置和邀请链接
-处理也保持不变。
+Web 只对 `promote/demote` 停止发布 `account.group_metadata_sync_requested`；`add/remove` 仍沿用现有
+metadata 刷新。Android 解析器新增 `promote/demote`，群快照协调器发布统一角色事件后立即返回，不安排
+`GetAllGroup(true)`。`groups.update` 的群名、设置和邀请链接处理保持不变。
 
 ### 3.2 拉群本地缺失兜底
 
@@ -100,7 +105,7 @@ MANAGER_ADMIN 阶段本地管理员候选为空
 
 ## 4. 协议事件契约
 
-`group.participant_changed` 保持现有事件名和 group topic，数据补齐业务关联：
+`group.participant_changed` 保持现有事件名和 group topic，Web/Android 使用同一正文；以下以 Web 为例：
 
 ```json
 {
@@ -125,13 +130,21 @@ MANAGER_ADMIN 阶段本地管理员候选为空
 后端校验：
 
 - envelope `accountId` 必须等于 `data.protocolAccountId`；
-- `tenantId/accountId` 必须为正数，`protocolBackend` 固定为 `WEB`；
+- `tenantId/accountId` 必须为正数，`protocolBackend` 只接受 `WEB/ANDROID`；
 - `groupJid` 必须以 `@g.us` 结尾；
 - `action` 接受 Baileys 现役集合，但只有 `promote/demote` 写管理员事实；
 - participants 最多 500 个，每项至少包含合法 `id/lid/phoneNumber` 之一；
 - 事实时间使用 envelope `occurredAt`，事件 ID 用于同时间确定性裁决和日志关联。
 
 协议层仍可靠投递该事件；事件发布失败沿用现有 producer 重试与 DLQ，不阻塞 Baileys 事件循环。
+
+两端生产规则：
+
+- Web 复用现有 event bridge，补齐 socket 绑定的租户、Armada 账号和协议账号上下文；
+- Android WGP2 解析器放行 `promote/demote`，复用现有 PN/LID resolver，保留通知 ID、发生时间和可选操作人；
+- Android 群快照协调器通过已维护的 `phone -> CommandContext` 映射补齐业务上下文，写入
+  `protocol.group.events.v1`；无法关联在线业务上下文时不发布，等待任务定点查询兜底；
+- 两端角色事件都不触发完整 metadata 或全量群列表查询。
 
 ## 5. 群成员与账号群关系事实
 
@@ -189,8 +202,8 @@ MANAGER_ADMIN 阶段本地管理员候选为空
 
 ## 8. 错误、并发与性能
 
-- 多个 Web 账号可能观察到同一次角色变化；数据库按成员、群和事实时间幂等收敛。
-- 不依赖“被提权账号本人一定在线并收到事件”；任一携带完整业务关联的 Web 观察者都可以更新目标。
+- 多个 Web/Android 账号可能观察到同一次角色变化；数据库按成员、群和事实时间幂等收敛。
+- 不依赖“被提权账号本人一定在线并收到事件”；任一携带完整业务关联的 Web/Android 观察者都可以更新目标。
 - LID 暂不可解析不是消费失败，保存成员状态后正常确认 Kafka；避免毒消息阻塞同 topic。
 - 不存在可查询账号时不创建 Outbox，执行行进入资源等待。
 - 定点查询沿用账号级群操作闸门和现有超时/退避；同一执行行同时最多一个发现查询。
@@ -204,15 +217,19 @@ MANAGER_ADMIN 阶段本地管理员候选为空
 
 ### 9.1 协议层
 
-- `promote/demote` 发布含租户、Armada 账号、协议账号、PN/LID 和来源的完整事件；
-- `promote/demote` 不再发布 metadata 同步请求；
+- Web `promote/demote` 发布含租户、Armada 账号、协议账号、PN/LID 和来源的完整事件；
+- Web `promote/demote` 不再发布 metadata 同步请求；
 - `add/remove` 仍发布原 metadata 同步请求；
 - 无业务引用、旧 socket generation 和 terminating socket 不发布业务事件；
-- Kafka 路由仍为 group topic 且保持可靠投递。
+- Android WGP2 解析器放行 `promote/demote`，保留 PN/LID、通知 ID、时间和可选操作人；
+- Android 协调器发布 `protocolBackend=ANDROID` 的同契约事件且不安排全量群快照；
+- Android 无账号业务上下文时安全跳过；原有 `add/remove/leave` 群快照与成员事件不回归；
+- 两端 Kafka 路由均为 group topic 且保持可靠投递。
 
 ### 9.2 后端事件与群事实
 
-- consumer 拒绝账号关联不一致、非法群 JID、空身份和超限 participants；
+- consumer 拒绝账号关联不一致、非法协议后端、非法群 JID、空身份和超限 participants；
+- Web/Android 同契约事件分别通过并落到同一群事实服务；
 - promote/demote 分别更新成员状态、详情快照和受控账号关系；
 - 外部号码不创建账号群关系；
 - LID 可复用已有 phone 映射；无法解析的 LID 安全保存且不误绑账号；
@@ -249,8 +266,9 @@ MANAGER_ADMIN 阶段本地管理员候选为空
 
 ## 10. 部署与回滚
 
-部署顺序：先部署协议层完整事件载荷，再部署后端事件 consumer、群事实服务和拉群兜底，最后由 Flyway
-唤醒历史等待行。后端 consumer 必须兼容部署窗口内缺少业务关联的旧事件：记录并跳过，不能阻塞 topic。
+部署顺序：先部署后端事件 consumer、群事实服务、拉群兜底及 Flyway。Flyway 唤醒的历史任务可以立即
+使用两端已经存在的成员定点查询，不依赖新角色事件；再部署 Web 与 Android 的完整事件生产。后端先兼容
+`WEB/ANDROID` 并跳过缺少业务关联的旧事件，因此新协议事件开始发布时已有消费者接收。
 
 回滚时先停止新版本调度器，再回滚后端和协议层应用。回滚到旧后端会恢复 `SUCCEEDED` 群的周期
 metadata 查询，需在确认协议流量可接受后执行。迁移只把符合条件的等待行恢复为可执行；旧版本会
@@ -261,5 +279,6 @@ metadata 查询，需在确认协议流量可接受后执行。迁移只把符�
 - 否决“命令成功回调同时写全局管理员”：会形成两条实时写入口，且无法覆盖手机端或其他管理员操作。
 - 否决“每个角色事件后查询完整 metadata”：网络成本高，并会再次制造 metadata 队列积压。
 - 否决“所有成功群固定周期查询 metadata”：一万群规模下持续耗费流量，且限流后数据仍会过期数小时甚至数天。
+- 否决“Android 只靠拉群时点查”：任务可以自愈，但普通群列表和后续任务仍会长期持有旧管理员事实。
 - 否决“直接回填全部历史快照”：旧快照可能复活已降权或已退群关系。
 - 采用“事件增量主链 + 业务按需 metadata + 拉群缺失时异步点查”：正常路径最轻，同时给活跃业务提供新鲜事实修复能力。

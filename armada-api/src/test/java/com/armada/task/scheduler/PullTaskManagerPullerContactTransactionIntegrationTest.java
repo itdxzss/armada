@@ -34,6 +34,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
@@ -145,6 +146,29 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         assertThat(saved.getGroupJid()).isEqualTo("120363group@g.us");
         assertThat(saved.getNextRunAt()).isEqualTo(60_610L);
         assertThat(saved.getLockOwner()).isNull();
+    }
+
+    @Test
+    void linkJoinSettingSelectsPullerWithLinkEntryModeBeforeSavingContacts()
+            throws SQLException {
+        execute("UPDATE pull_task_standard_setting SET is_puller_join_by_link=1 "
+                + "WHERE task_id=100");
+        seedProtocolAccounts();
+        when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-contact-link-puller"), 1));
+
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                executionId(), PullTaskGroupAccountRole.PULLER.code()))
+                .singleElement()
+                .extracting(PullTaskGroupAccount::getEntryMode)
+                .isEqualTo(PullTaskAccountEntryMode.JOIN_BY_LINK.code());
+        assertThat(actionMapper.selectByExecutionAndType(
+                executionId(), PullTaskAccountActionType.SAVE_CONTACT.code()))
+                .hasSize(2);
     }
 
     @Test

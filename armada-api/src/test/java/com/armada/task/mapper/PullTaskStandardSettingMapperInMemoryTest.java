@@ -58,6 +58,7 @@ class PullTaskStandardSettingMapperInMemoryTest {
         assertThat(saved.getMaterialAdminTiming()).isEqualTo(1);
         assertThat(saved.getPullerSyncMode()).isEqualTo(2);
         assertThat(saved.getClearExistingMembers()).isEqualTo(1);
+        assertThat(saved.getPullerJoinByLink()).isEqualTo(1);
         assertThat(saved.getPullCountMin()).isEqualTo(3);
         assertThat(saved.getPullCountMax()).isEqualTo(8);
         assertThat(saved.getPullIntervalSeconds()).isEqualTo(30);
@@ -134,6 +135,9 @@ class PullTaskStandardSettingMapperInMemoryTest {
         row.setMaterialAdminTiming(1);
         row.setPullerSyncMode(2);
         row.setClearExistingMembers(1);
+        row.setPullerJoinByLink(1);
+        row.setEarlyPullCount(1);
+        row.setEarlyPullCallCount(2);
         row.setPullCountMin(3);
         row.setPullCountMax(8);
         row.setPullIntervalSeconds(30);

@@ -16,6 +16,7 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskManagerJoinCallback;
 import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
+import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -224,12 +225,47 @@ class PullTaskManagerJoinResultServiceImplTest {
         assertThat(TenantContext.get()).isNull();
     }
 
+    @Test
+    void pullerLinkJoinWritesFactsAndWakesPullerInviteStage() {
+        PullTaskAccountAction action = action();
+        action.setActorGroupAccountId(502L);
+        action.setTargetGroupAccountId(502L);
+        PullTaskGroupAccount puller = manager();
+        puller.setId(502L);
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        PullTaskGroupExecution execution = execution();
+        execution.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action);
+        when(accountMapper.selectById(502L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(execution);
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1",
+                PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L))).isTrue();
+
+        ArgumentCaptor<PullTaskExecutionResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
+        verify(executionMapper).transitionProtocolResult(transition.capture());
+        assertThat(transition.getValue().expectedStage())
+                .isEqualTo(PullTaskExecutionStage.PULLER_INVITE.code());
+        assertThat(transition.getValue().targetStage())
+                .isEqualTo(PullTaskExecutionStage.PULLER_INVITE.code());
+        assertThat(transition.getValue().nextRunAt()).isZero();
+        verify(executionMapper, never()).transitionManagerJoinResult(any());
+        verify(inviteLinkService, never()).bindGroupJid(anyLong(), any(), anyLong());
+    }
+
     private static PullTaskAccountAction action() {
         PullTaskAccountAction row = new PullTaskAccountAction();
         row.setId(601L);
         row.setTaskId(100L);
         row.setGroupExecutionId(11L);
         row.setTargetGroupAccountId(501L);
+        row.setActorGroupAccountId(501L);
         row.setActionType(PullTaskAccountActionType.JOIN_BY_LINK.code());
         row.setActionStatus(PullTaskActionStatus.SUBMITTED.code());
         row.setCommandId("cmd-pull-1");

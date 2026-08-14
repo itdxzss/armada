@@ -50,6 +50,7 @@ public class PullTaskStandardSettingWriter {
         setting.setMaterialAdminTiming(request.materialAdminTiming());
         setting.setPullerSyncMode(request.pullerSyncMode().code());
         setting.setClearExistingMembers(Boolean.TRUE.equals(request.clearExistingMembers()) ? 1 : 0);
+        setting.setPullerJoinByLink(Boolean.TRUE.equals(request.pullerJoinByLink()) ? 1 : 0);
         setting.setEarlyPullCount(request.earlyPullCount());
         setting.setEarlyPullCallCount(request.earlyPullCallCount());
         setting.setPullCountMin(request.pullCountMin());

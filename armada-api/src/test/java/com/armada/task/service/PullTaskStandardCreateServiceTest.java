@@ -408,7 +408,7 @@ class PullTaskStandardCreateServiceTest {
     private static PullTaskStandardCreateDTO validRequest(long taskId) {
         return new PullTaskStandardCreateDTO(
                 taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
-                1, false, 1, 2, 3, 8, 30, 2, 2, 1,
+                1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, validGroupSetting());
     }
 
@@ -432,7 +432,8 @@ class PullTaskStandardCreateServiceTest {
                                                            int min, int max) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
+                base.earlyPullCount(),
                 base.earlyPullCallCount(), min, max,
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
@@ -444,7 +445,8 @@ class PullTaskStandardCreateServiceTest {
             PullTaskStandardCreateDTO base, int earlyPullCount, int earlyPullCallCount) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), earlyPullCount,
+                base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
+                earlyPullCount,
                 earlyPullCallCount, base.pullCountMin(), base.pullCountMax(),
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
@@ -463,7 +465,8 @@ class PullTaskStandardCreateServiceTest {
                                                               long managerGroupId) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
+                base.earlyPullCount(),
                 base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
@@ -475,7 +478,8 @@ class PullTaskStandardCreateServiceTest {
                                                             int autoStart) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), autoStart, base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
+                base.earlyPullCount(),
                 base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
@@ -488,7 +492,8 @@ class PullTaskStandardCreateServiceTest {
         return new PullTaskStandardCreateDTO(
                 base.draftTaskId(), base.taskName(), base.remark(),
                 base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
+                base.earlyPullCount(),
                 base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 stationCount, base.concurrentGroupCount(),
@@ -501,7 +506,8 @@ class PullTaskStandardCreateServiceTest {
         return new PullTaskStandardCreateDTO(
                 base.draftTaskId(), base.taskName(), base.remark(),
                 base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
+                base.earlyPullCount(),
                 base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),

@@ -23,7 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
-/** 从普通拉群冻结事实补全管理员踩链接 Kafka payload。 */
+/** 从普通拉群冻结事实补全账号踩链接 Kafka payload。 */
 @Component
 public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadHydrator {
 
@@ -184,7 +184,7 @@ public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadH
         return new BusinessException(ErrorCode.VALIDATION, message);
     }
 
-    /** 普通拉群管理员踩链接的 Kafka wire payload。 */
+    /** 普通拉群账号踩链接的 Kafka wire payload。 */
     private record PullTaskGroupJoinWirePayload(
             Long tenantId,
             Long pullTaskId,

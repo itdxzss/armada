@@ -15,6 +15,7 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -44,7 +45,6 @@ public class PullTaskManagerPullerContactTransactionService {
     private static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
-    private static final int MANAGER_INVITE_ENTRY = 2;
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
@@ -239,7 +239,7 @@ public class PullTaskManagerPullerContactTransactionService {
                 continue;
             }
             try {
-                insertPuller(candidate, account, nextSeq++, now);
+                insertPuller(candidate, account, nextSeq++, pullerEntryMode(setting), now);
                 existingIds.add(account.armadaAccountId());
                 activeCount++;
             } catch (DuplicateKeyException ignored) {
@@ -313,6 +313,7 @@ public class PullTaskManagerPullerContactTransactionService {
             PullTaskGroupExecution candidate,
             ProtocolAccountRef account,
             int roleSeq,
+            int entryMode,
             long now) {
         PullTaskGroupAccount row = new PullTaskGroupAccount();
         row.setTaskId(candidate.getTaskId());
@@ -323,7 +324,7 @@ public class PullTaskManagerPullerContactTransactionService {
         row.setRoleSeq(roleSeq);
         row.setSourceType(INITIAL_SOURCE);
         row.setSelectionMode(AUTOMATIC_SELECTION);
-        row.setEntryMode(MANAGER_INVITE_ENTRY);
+        row.setEntryMode(entryMode);
         row.setOccupiedAt(now);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
@@ -331,6 +332,12 @@ public class PullTaskManagerPullerContactTransactionService {
             throw new IllegalStateException("拉手角色行写入失败");
         }
         return row;
+    }
+
+    private static int pullerEntryMode(PullTaskStandardSetting setting) {
+        return Integer.valueOf(1).equals(setting.getPullerJoinByLink())
+                ? PullTaskAccountEntryMode.JOIN_BY_LINK.code()
+                : PullTaskAccountEntryMode.MANAGER_INVITE.code();
     }
 
     private void createContactActions(

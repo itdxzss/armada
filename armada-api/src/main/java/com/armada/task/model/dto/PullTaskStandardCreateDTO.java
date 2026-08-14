@@ -18,6 +18,7 @@ public record PullTaskStandardCreateDTO(
         PullTaskPullerSyncMode pullerSyncMode,
         Integer materialAdminTiming,
         Boolean clearExistingMembers,
+        Boolean pullerJoinByLink,
         Integer earlyPullCount,
         Integer earlyPullCallCount,
         Integer pullCountMin,

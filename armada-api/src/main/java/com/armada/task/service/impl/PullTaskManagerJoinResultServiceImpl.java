@@ -7,6 +7,7 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskManagerJoinCallback;
 import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
@@ -32,7 +33,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 以命令 ID 和执行行版本 CAS 收敛管理员踩链接结果。 */
+/** 以命令 ID 和执行行版本 CAS 收敛普通拉群账号踩链接结果。 */
 @Service
 public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoinResultService {
 
@@ -103,27 +104,45 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             if (!matches(action, callback)) {
                 return false;
             }
-            PullTaskGroupAccount manager = accountMapper.selectById(action.getTargetGroupAccountId());
+            PullTaskGroupAccount account = accountMapper.selectById(action.getTargetGroupAccountId());
             PullTaskGroupExecution execution = executionMapper.selectById(callback.groupExecutionId());
-            if (!matches(manager, execution, callback)) {
+            if (!matches(action, account, execution, callback)) {
                 return false;
             }
-            ResultKind kind = classify(callback);
+            boolean puller = Objects.equals(
+                    account.getRoleType(), PullTaskGroupAccountRole.PULLER.code());
+            ResultKind kind = puller ? classifyPuller(callback) : classify(callback);
             String reasonMessage = safeReasonMessage(callback, kind);
             WriteResult actionWrite = writeAction(action, callback, kind, reasonMessage);
             if (actionWrite == WriteResult.REJECTED) {
                 return false;
             }
             WriteResult membershipWrite = writeMembership(
-                    manager, callback, kind, reasonMessage);
+                    account, callback, kind, reasonMessage);
             if (membershipWrite == WriteResult.REJECTED) {
                 if (actionWrite == WriteResult.UPDATED) {
-                    throw new IllegalStateException("管理员进群事实写入不完整");
+                    throw new IllegalStateException(
+                            puller ? "拉手进群事实写入不完整" : "管理员进群事实写入不完整");
                 }
                 return false;
             }
             if (actionWrite == WriteResult.ALREADY_TARGET
                     && membershipWrite == WriteResult.ALREADY_TARGET) {
+                return true;
+            }
+            if (puller) {
+                int executionWrite = executionMapper.transitionProtocolResult(
+                        new PullTaskExecutionResultTransition(
+                                execution.getId(), execution.getTaskId(), execution.getVersion(),
+                                PullTaskExecutionStatus.EXECUTING.code(),
+                                PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.PULLER_INVITE.code(),
+                                null, 0L, callback.occurredAt()));
+                if (executionWrite != 1
+                        && (actionWrite == WriteResult.UPDATED
+                        || membershipWrite == WriteResult.UPDATED)) {
+                    throw new IllegalStateException("拉手踩链接执行行唤醒 CAS 失败");
+                }
                 return true;
             }
             long nextRunAt = nextRunAt(callback, kind, properties.getRetryDelayMs());
@@ -180,7 +199,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
     }
 
     private WriteResult writeMembership(
-            PullTaskGroupAccount manager,
+            PullTaskGroupAccount account,
             PullTaskManagerJoinCallback callback,
             ResultKind kind,
             String reasonMessage) {
@@ -190,12 +209,12 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             case UNKNOWN -> PullTaskGroupAccountMembershipStatus.UNKNOWN.code();
             case PENDING_APPROVAL -> PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code();
         };
-        if (Objects.equals(manager.getMembershipStatus(), target)) {
+        if (Objects.equals(account.getMembershipStatus(), target)) {
             return WriteResult.ALREADY_TARGET;
         }
         Long joinedAt = kind == ResultKind.SUCCESS ? callback.occurredAt() : null;
         int updated = accountMapper.transitionMembership(new PullTaskFactTransition(
-                manager.getId(), MEMBERSHIP_OPEN, target,
+                account.getId(), MEMBERSHIP_OPEN, target,
                 new PullTaskFactResult(callback.reasonCode(), reasonMessage,
                         null, joinedAt), callback.occurredAt()));
         return updated == 1 ? WriteResult.UPDATED : WriteResult.REJECTED;
@@ -269,6 +288,18 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         return ResultKind.UNKNOWN;
     }
 
+    private static ResultKind classifyPuller(PullTaskManagerJoinCallback callback) {
+        if (callback.outcome() == PullTaskManagerJoinProtocolOutcome.JOINED
+                || callback.outcome() == PullTaskManagerJoinProtocolOutcome.ALREADY_JOINED) {
+            return ResultKind.SUCCESS;
+        }
+        return switch (classify(callback)) {
+            case SUCCESS -> ResultKind.SUCCESS;
+            case MANAGER_FAILED, EXECUTION_FAILED -> ResultKind.MANAGER_FAILED;
+            case PENDING_APPROVAL, UNKNOWN -> ResultKind.UNKNOWN;
+        };
+    }
+
     private static boolean matches(
             PullTaskAccountAction action,
             PullTaskManagerJoinCallback callback) {
@@ -281,13 +312,17 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
     }
 
     private static boolean matches(
-            PullTaskGroupAccount manager,
+            PullTaskAccountAction action,
+            PullTaskGroupAccount account,
             PullTaskGroupExecution execution,
             PullTaskManagerJoinCallback callback) {
-        return manager != null && execution != null
-                && Objects.equals(manager.getRoleType(), PullTaskGroupAccountRole.MANAGER.code())
-                && Objects.equals(manager.getTaskId(), callback.pullTaskId())
-                && Objects.equals(manager.getGroupExecutionId(), callback.groupExecutionId())
+        return account != null && execution != null
+                && (Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.MANAGER.code())
+                || Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.PULLER.code()))
+                && Objects.equals(action.getActorGroupAccountId(), account.getId())
+                && Objects.equals(action.getTargetGroupAccountId(), account.getId())
+                && Objects.equals(account.getTaskId(), callback.pullTaskId())
+                && Objects.equals(account.getGroupExecutionId(), callback.groupExecutionId())
                 && Objects.equals(execution.getId(), callback.groupExecutionId())
                 && Objects.equals(execution.getTaskId(), callback.pullTaskId());
     }

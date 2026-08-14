@@ -68,6 +68,7 @@ public final class PullTaskNormalLinkSchema {
                 material_admin_timing TINYINT NOT NULL,
                 puller_sync_mode TINYINT NOT NULL DEFAULT 1,
                 is_clear_existing_members TINYINT NOT NULL DEFAULT 0,
+                is_puller_join_by_link TINYINT NOT NULL DEFAULT 0,
                 early_pull_count INT NOT NULL DEFAULT 1,
                 early_pull_call_count INT NOT NULL DEFAULT 0,
                 pull_count_min INT NOT NULL,

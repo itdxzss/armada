@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,6 +30,7 @@ import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -187,6 +189,37 @@ class PullTaskPullerInviteTransactionIntegrationTest {
 
         PullTaskAccountAction action = inviteActions().get(0);
         assertInvite(action, 901L, 904L, "cmd-invite-1");
+    }
+
+    @Test
+    void linkEntryPullerSubmitsGroupJoinWithItsOwnAccount() throws SQLException {
+        execute("UPDATE pull_task_group_account SET entry_mode="
+                + PullTaskAccountEntryMode.JOIN_BY_LINK.code()
+                + " WHERE group_execution_id=" + executionId
+                + " AND role_type=" + PullTaskGroupAccountRole.PULLER.code());
+        when(outboxService.enqueuePullTaskGroupJoinCommands(anyList()))
+                .thenReturn(enqueued("cmd-puller-link-1"));
+
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        assertThat(service.prepare(candidate, "worker-1", 610L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        PullTaskAccountAction action = actionMapper.selectByExecutionAndType(
+                executionId, PullTaskAccountActionType.JOIN_BY_LINK.code()).get(0);
+        PullTaskGroupAccount puller = groupAccountMapper.selectById(
+                action.getTargetGroupAccountId());
+        assertThat(action.getActorGroupAccountId()).isEqualTo(action.getTargetGroupAccountId());
+        assertThat(action.getActionStatus()).isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+        assertThat(action.getCommandId()).isEqualTo("cmd-puller-link-1");
+        assertThat(puller.getAccountId()).isEqualTo(902L);
+        assertThat(puller.getMembershipStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
+        verify(outboxService).enqueuePullTaskGroupJoinCommands(argThat(commands ->
+                commands.size() == 1
+                        && commands.get(0).actionId().equals(action.getId())
+                        && commands.get(0).account().armadaAccountId().equals(902L)));
+        verify(outboxService, never()).enqueuePullTaskPullerInviteCommands(anyList());
     }
 
     @Test

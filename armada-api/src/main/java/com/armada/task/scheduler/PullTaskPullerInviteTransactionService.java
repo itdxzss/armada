@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.shared.tenant.TenantContext;
@@ -12,6 +13,7 @@ import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -32,7 +34,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** EX-04 管理员轮询与单人邀请 Outbox 提交事务。 */
+/** EX-04 拉手按冻结进群方式提交单人入群 Outbox 的事务。 */
 @Service
 public class PullTaskPullerInviteTransactionService {
 
@@ -60,7 +62,7 @@ public class PullTaskPullerInviteTransactionService {
         this.resources = resources;
     }
 
-    /** 在短事务内选下一位管理员和未产生邀请动作的拉手，并预写单人邀请。 */
+    /** 在短事务内按拉手冻结的进群方式预写并提交一条入群动作。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult prepare(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
@@ -75,12 +77,31 @@ public class PullTaskPullerInviteTransactionService {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskExecutionDispatchResult.LOST;
             }
+            List<PullTaskGroupAccount> pullers = availablePullers(candidate.getId());
+            List<PullTaskAccountAction> linkActions = linkActions(candidate.getId());
+            if (!pullers.isEmpty() && hasSubmitted(linkActions)) {
+                return deferLinkSubmitted(candidate, linkActions, pullers, now);
+            }
+            PullerSelection linkSelection = nextLinkPuller(
+                    pullers, linkActions, candidate.getNextPullerIndex());
+            if (linkSelection != null) {
+                ProtocolAccountRef pullerRef = activePullerRef(linkSelection.puller());
+                if (pullerRef == null) {
+                    return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
+                            PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
+                }
+                return submitLink(candidate, linkSelection, pullerRef, now);
+            }
+            boolean hasManagerInvitePuller = pullers.stream()
+                    .anyMatch(PullTaskPullerInviteTransactionService::requiresManagerInvite);
+            if (!pullers.isEmpty() && !hasManagerInvitePuller) {
+                return finishInvites(candidate, pullers, now);
+            }
             ManagerPool managerPool = managerPool(candidate.getId());
             if (managerPool.managers().isEmpty()) {
                 return waitForResource(candidate, PullTaskWaitResourceType.MANAGER,
                         PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
             }
-            List<PullTaskGroupAccount> pullers = availablePullers(candidate.getId());
             if (pullers.isEmpty()) {
                 return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
                         PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
@@ -170,12 +191,43 @@ public class PullTaskPullerInviteTransactionService {
         return PullTaskExecutionDispatchResult.DEFERRED;
     }
 
+    private PullTaskExecutionDispatchResult submitLink(
+            PullTaskGroupExecution candidate,
+            PullerSelection selection,
+            ProtocolAccountRef account,
+            long now) {
+        PullTaskGroupAccount target = selection.puller();
+        PullTaskAccountAction action = insertLinkAction(candidate, target.getId(), now);
+        ProtocolCommandOutboxEnqueueResult enqueued = resources.outboxService()
+                .enqueuePullTaskGroupJoinCommands(List.of(
+                        new ProtocolPullTaskGroupJoinCommandRequest(
+                                candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
+                                action.getId(), account)));
+        String commandId = singleCommandId(enqueued);
+        if (actionMapper.markSubmitted(action.getId(), commandId, now) != 1
+                || groupAccountMapper.updateMembership(target.getId(),
+                PullTaskGroupAccountMembershipStatus.JOINING.code(), null, now) != 1) {
+            throw new IllegalStateException("拉手踩链接提交状态已变化");
+        }
+        PullTaskGroupExecution update = transition(candidate, now);
+        update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setNextPullerIndex((selection.index() + 1) % selection.poolSize());
+        update.setNextRunAt(Math.addExact(
+                now, resources.properties().getResultReconciliationDelayMs()));
+        if (resources.executionMapper().transitionClaimed(
+                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+            throw new IllegalStateException("拉手踩链接提交后执行行租约已变化");
+        }
+        return PullTaskExecutionDispatchResult.DEFERRED;
+    }
+
     private static String singleCommandId(ProtocolCommandOutboxEnqueueResult enqueued) {
         if (enqueued == null || enqueued.inserted() != 1
                 || enqueued.commandIds() == null || enqueued.commandIds().size() != 1
                 || enqueued.commandIds().get(0) == null
                 || enqueued.commandIds().get(0).isBlank()) {
-            throw new IllegalStateException("拉手邀请 Outbox 写入结果不完整");
+            throw new IllegalStateException("拉手入群 Outbox 写入结果不完整");
         }
         return enqueued.commandIds().get(0);
     }
@@ -199,6 +251,33 @@ public class PullTaskPullerInviteTransactionService {
         return row;
     }
 
+    private PullTaskAccountAction insertLinkAction(
+            PullTaskGroupExecution candidate,
+            long pullerId,
+            long now) {
+        PullTaskAccountAction row = new PullTaskAccountAction();
+        row.setTaskId(candidate.getTaskId());
+        row.setGroupExecutionId(candidate.getId());
+        row.setActionType(PullTaskAccountActionType.JOIN_BY_LINK.code());
+        row.setActorGroupAccountId(pullerId);
+        row.setTargetGroupAccountId(pullerId);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        if (actionMapper.insertIfAbsent(row) != 1 || row.getId() == null) {
+            throw new IllegalStateException("拉手踩链接动作已存在或写入失败");
+        }
+        return row;
+    }
+
+    private ProtocolAccountRef activePullerRef(PullTaskGroupAccount puller) {
+        return resources.accountLookup().findActiveProtocolRefs(List.of(puller.getAccountId()))
+                .stream()
+                .filter(Objects::nonNull)
+                .filter(ref -> Objects.equals(ref.armadaAccountId(), puller.getAccountId()))
+                .findFirst()
+                .orElse(null);
+    }
+
     private PullTaskExecutionDispatchResult deferSubmitted(
             PullTaskGroupExecution candidate,
             List<PullTaskAccountAction> actions,
@@ -211,6 +290,27 @@ public class PullTaskPullerInviteTransactionService {
                 actions, managers, candidate.getNextManagerIndex()));
         update.setNextPullerIndex(nextPullerAfterLastAction(
                 actions, availablePullers(candidate.getId()), candidate.getNextPullerIndex()));
+        update.setNextRunAt(Math.addExact(
+                now, resources.properties().getResultReconciliationDelayMs()));
+        if (resources.executionMapper().transitionClaimed(
+                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+            return PullTaskExecutionDispatchResult.LOST;
+        }
+        return PullTaskExecutionDispatchResult.DEFERRED;
+    }
+
+    private PullTaskExecutionDispatchResult deferLinkSubmitted(
+            PullTaskGroupExecution candidate,
+            List<PullTaskAccountAction> actions,
+            List<PullTaskGroupAccount> pullers,
+            long now) {
+        PullTaskGroupExecution update = transition(candidate, now);
+        update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        if (!pullers.isEmpty()) {
+            update.setNextPullerIndex(nextPullerAfterLastAction(
+                    actions, pullers, candidate.getNextPullerIndex()));
+        }
         update.setNextRunAt(Math.addExact(
                 now, resources.properties().getResultReconciliationDelayMs()));
         if (resources.executionMapper().transitionClaimed(
@@ -312,6 +412,32 @@ public class PullTaskPullerInviteTransactionService {
                 executionId, PullTaskAccountActionType.INVITE_TO_GROUP.code());
     }
 
+    private List<PullTaskAccountAction> linkActions(long executionId) {
+        return actionMapper.selectByExecutionAndType(
+                executionId, PullTaskAccountActionType.JOIN_BY_LINK.code());
+    }
+
+    private static PullerSelection nextLinkPuller(
+            List<PullTaskGroupAccount> pullers,
+            List<PullTaskAccountAction> actions,
+            Integer storedIndex) {
+        if (pullers.isEmpty()) {
+            return null;
+        }
+        Set<Long> attemptedIds = new HashSet<>();
+        actions.stream().map(PullTaskAccountAction::getTargetGroupAccountId)
+                .forEach(attemptedIds::add);
+        int start = Math.floorMod(storedIndex == null ? 0 : storedIndex, pullers.size());
+        for (int offset = 0; offset < pullers.size(); offset++) {
+            int index = (start + offset) % pullers.size();
+            PullTaskGroupAccount puller = pullers.get(index);
+            if (requiresLinkJoin(puller) && !attemptedIds.contains(puller.getId())) {
+                return new PullerSelection(puller, index, pullers.size());
+            }
+        }
+        return null;
+    }
+
     private static PullerSelection nextUninvitedPuller(
             List<PullTaskGroupAccount> pullers,
             List<PullTaskAccountAction> actions,
@@ -351,7 +477,13 @@ public class PullTaskPullerInviteTransactionService {
         return !Objects.equals(row.getMembershipStatus(),
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code())
                 && !Objects.equals(row.getEntryMode(),
-                com.armada.task.model.enums.PullTaskAccountEntryMode.JOIN_BY_LINK.code());
+                PullTaskAccountEntryMode.JOIN_BY_LINK.code());
+    }
+
+    private static boolean requiresLinkJoin(PullTaskGroupAccount row) {
+        return !Objects.equals(row.getMembershipStatus(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code())
+                && Objects.equals(row.getEntryMode(), PullTaskAccountEntryMode.JOIN_BY_LINK.code());
     }
 
     private static boolean hasSubmitted(List<PullTaskAccountAction> actions) {

@@ -54,6 +54,7 @@ class PullTaskStandardSettingWriterTest {
         assertThat(saved.getSourceGroupFolderName()).isEqualTo("印度群");
         assertThat(saved.getPullerSyncMode()).isEqualTo(2);
         assertThat(saved.getClearExistingMembers()).isEqualTo(1);
+        assertThat(saved.getPullerJoinByLink()).isEqualTo(1);
         assertThat(saved.getEarlyPullCount()).isEqualTo(1);
         assertThat(saved.getEarlyPullCallCount()).isEqualTo(2);
         assertThat(saved.getManagerGroupName()).isEqualTo("管理组");
@@ -73,6 +74,19 @@ class PullTaskStandardSettingWriterTest {
         verify(mapper, never()).insert(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void omittedLinkJoinSettingKeepsLegacyManagerInviteBehavior() {
+        PullTaskStandardCreateDTO request = request(0, null);
+        when(request.pullerJoinByLink()).thenReturn(null);
+
+        writer.insert(request, 9L);
+
+        ArgumentCaptor<PullTaskStandardSetting> captor =
+                ArgumentCaptor.forClass(PullTaskStandardSetting.class);
+        verify(mapper).insert(captor.capture());
+        assertThat(captor.getValue().getPullerJoinByLink()).isZero();
+    }
+
     private PullTaskStandardCreateDTO request(int stationCount, Long stationGroupId) {
         PullTaskStandardCreateDTO request = mock(PullTaskStandardCreateDTO.class);
         when(request.autoStart()).thenReturn(0);
@@ -80,6 +94,7 @@ class PullTaskStandardSettingWriterTest {
         when(request.pullerSyncMode()).thenReturn(PullTaskPullerSyncMode.BATCH);
         when(request.materialAdminTiming()).thenReturn(1);
         when(request.clearExistingMembers()).thenReturn(true);
+        when(request.pullerJoinByLink()).thenReturn(true);
         when(request.earlyPullCount()).thenReturn(1);
         when(request.earlyPullCallCount()).thenReturn(2);
         when(request.pullCountMin()).thenReturn(3);

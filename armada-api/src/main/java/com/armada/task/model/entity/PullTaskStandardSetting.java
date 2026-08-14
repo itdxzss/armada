@@ -11,6 +11,7 @@ public class PullTaskStandardSetting {
     private Integer materialAdminTiming;
     private Integer pullerSyncMode;
     private Integer clearExistingMembers;
+    private Integer pullerJoinByLink;
     private Integer earlyPullCount;
     private Integer earlyPullCallCount;
     private Integer pullCountMin;
@@ -50,6 +51,8 @@ public class PullTaskStandardSetting {
     public void setPullerSyncMode(Integer pullerSyncMode) { this.pullerSyncMode = pullerSyncMode; }
     public Integer getClearExistingMembers() { return clearExistingMembers; }
     public void setClearExistingMembers(Integer value) { this.clearExistingMembers = value; }
+    public Integer getPullerJoinByLink() { return pullerJoinByLink; }
+    public void setPullerJoinByLink(Integer value) { this.pullerJoinByLink = value; }
     public Integer getEarlyPullCount() { return earlyPullCount; }
     public void setEarlyPullCount(Integer value) { this.earlyPullCount = value; }
     public Integer getEarlyPullCallCount() { return earlyPullCallCount; }

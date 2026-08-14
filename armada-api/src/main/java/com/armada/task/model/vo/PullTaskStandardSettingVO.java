@@ -10,6 +10,8 @@ public record PullTaskStandardSettingVO(
         PullTaskPullerSyncMode pullerSyncMode,
         int materialAdminTiming,
         boolean clearExistingMembers,
+        int earlyPullCount,
+        int earlyPullCallCount,
         int pullCountMin,
         int pullCountMax,
         int pullIntervalSeconds,

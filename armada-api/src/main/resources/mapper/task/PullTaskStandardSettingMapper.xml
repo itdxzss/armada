@@ -13,6 +13,7 @@
     INSERT INTO pull_task_standard_setting (
       task_id, auto_start, source_group_folder_id, source_group_folder_name,
       material_admin_timing, puller_sync_mode, is_clear_existing_members,
+      early_pull_count, early_pull_call_count,
       pull_count_min, pull_count_max,
       pull_interval_seconds, puller_count_per_group, station_count_per_call,
       concurrent_group_count, puller_risk_minutes, required_manager_count,
@@ -24,6 +25,7 @@
     ) VALUES (
       #{taskId}, #{autoStart}, #{sourceGroupFolderId}, #{sourceGroupFolderName},
       #{materialAdminTiming}, #{pullerSyncMode}, #{clearExistingMembers},
+      #{earlyPullCount}, #{earlyPullCallCount},
       #{pullCountMin}, #{pullCountMax},
       #{pullIntervalSeconds}, #{pullerCountPerGroup}, #{stationCountPerCall},
       #{concurrentGroupCount}, #{pullerRiskMinutes}, #{requiredManagerCount},

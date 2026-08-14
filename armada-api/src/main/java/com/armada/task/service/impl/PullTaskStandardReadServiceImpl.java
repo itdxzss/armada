@@ -251,7 +251,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 value(row.getAutoStart()), row.getSourceGroupFolderId(),
                 row.getSourceGroupFolderName(), PullTaskPullerSyncMode.fromCode(
                         value(row.getPullerSyncMode())), value(row.getMaterialAdminTiming()),
-                enabled(row.getClearExistingMembers()), value(row.getPullCountMin()),
+                enabled(row.getClearExistingMembers()), value(row.getEarlyPullCount()),
+                value(row.getEarlyPullCallCount()), value(row.getPullCountMin()),
                 value(row.getPullCountMax()), value(row.getPullIntervalSeconds()),
                 value(row.getPullerCountPerGroup()), value(row.getStationCountPerCall()),
                 value(row.getConcurrentGroupCount()),

@@ -141,7 +141,10 @@ class PullTaskStandardCreateServiceTest {
                     assertThat(row.getExecutionStatus()).isEqualTo(1);
                     assertThat(row.getGroupLinkId()).isNotNull();
                 });
-        assertThat(settingMapper.selectByTaskId(taskId).getRequiredManagerCount()).isZero();
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getEarlyPullCount()).isEqualTo(1);
+        assertThat(setting.getEarlyPullCallCount()).isEqualTo(2);
+        assertThat(setting.getRequiredManagerCount()).isZero();
         assertThat(groupSettingMapper.selectByTaskId(taskId).getGroupName()).isEqualTo("客户群");
     }
 
@@ -242,6 +245,16 @@ class PullTaskStandardCreateServiceTest {
         assertThatThrownBy(() -> service.create(
                 withPullCount(validRequest(taskId), 9, 3), CREATOR))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void rejectsNonPositiveEarlyPullConfiguration() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+
+        assertThatThrownBy(() -> service.create(
+                withEarlyPull(validRequest(taskId), 0, 2), CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("前期拉人");
     }
 
     @Test
@@ -395,7 +408,7 @@ class PullTaskStandardCreateServiceTest {
     private static PullTaskStandardCreateDTO validRequest(long taskId) {
         return new PullTaskStandardCreateDTO(
                 taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
-                1, false, 3, 8, 30, 2, 2, 1,
+                1, false, 1, 2, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, validGroupSetting());
     }
 
@@ -419,7 +432,20 @@ class PullTaskStandardCreateServiceTest {
                                                            int min, int max) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), min, max,
+                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.earlyPullCallCount(), min, max,
+                base.pullIntervalSeconds(), base.pullerCountPerGroup(),
+                base.stationCountPerCall(), base.concurrentGroupCount(),
+                base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+    }
+
+    private static PullTaskStandardCreateDTO withEarlyPull(
+            PullTaskStandardCreateDTO base, int earlyPullCount, int earlyPullCallCount) {
+        return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
+                base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
+                base.materialAdminTiming(), base.clearExistingMembers(), earlyPullCount,
+                earlyPullCallCount, base.pullCountMin(), base.pullCountMax(),
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
@@ -437,7 +463,8 @@ class PullTaskStandardCreateServiceTest {
                                                               long managerGroupId) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 managerGroupId, base.pullerGroupId(), base.stationGroupId(),
@@ -448,7 +475,8 @@ class PullTaskStandardCreateServiceTest {
                                                             int autoStart) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), autoStart, base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
@@ -460,7 +488,8 @@ class PullTaskStandardCreateServiceTest {
         return new PullTaskStandardCreateDTO(
                 base.draftTaskId(), base.taskName(), base.remark(),
                 base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 stationCount, base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), stationGroupId,
@@ -472,7 +501,8 @@ class PullTaskStandardCreateServiceTest {
         return new PullTaskStandardCreateDTO(
                 base.draftTaskId(), base.taskName(), base.remark(),
                 base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
-                base.materialAdminTiming(), base.clearExistingMembers(), base.pullCountMin(),
+                base.materialAdminTiming(), base.clearExistingMembers(), base.earlyPullCount(),
+                base.earlyPullCallCount(), base.pullCountMin(),
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),

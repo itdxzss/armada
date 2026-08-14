@@ -111,6 +111,8 @@ class PullTaskStandardReadServiceTest {
         assertThat(service.task(100L).summary().successfulMemberCount()).isEqualTo(1);
         assertThat(service.task(100L).standardSetting().pullerSyncMode().name())
                 .isEqualTo("BATCH");
+        assertThat(service.task(100L).standardSetting().earlyPullCount()).isEqualTo(1);
+        assertThat(service.task(100L).standardSetting().earlyPullCallCount()).isEqualTo(2);
         assertThat(service.task(100L).standardSetting().groupFolderName()).isEqualTo("印度群");
         assertThat(service.task(100L).groupSetting().settingTiming().name())
                 .isEqualTo("AFTER_PULL");
@@ -312,6 +314,8 @@ class PullTaskStandardReadServiceTest {
         row.setPullerSyncMode(2);
         row.setMaterialAdminTiming(1);
         row.setClearExistingMembers(1);
+        row.setEarlyPullCount(1);
+        row.setEarlyPullCallCount(2);
         row.setPullCountMin(3);
         row.setPullCountMax(8);
         row.setPullIntervalSeconds(30);

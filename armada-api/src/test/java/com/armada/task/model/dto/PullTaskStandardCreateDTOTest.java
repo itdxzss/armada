@@ -26,6 +26,7 @@ public class PullTaskStandardCreateDTOTest {
                 + "\"remark\":\"备注\",\"autoStart\":0,"
                 + "\"groupFolderId\":18,\"pullerSyncMode\":\"BATCH\","
                 + "\"materialAdminTiming\":1,\"clearExistingMembers\":true,"
+                + "\"earlyPullCount\":1,\"earlyPullCallCount\":2,"
                 + "\"pullCountMin\":3,\"pullCountMax\":8,\"pullIntervalSeconds\":30,"
                 + "\"pullerCountPerGroup\":2,\"stationCountPerCall\":0,"
                 + "\"concurrentGroupCount\":1,"
@@ -50,7 +51,7 @@ public class PullTaskStandardCreateDTOTest {
                 PullTaskDisappearingMessageMode.SEVEN_DAYS);
         return new PullTaskStandardCreateDTO(
                 1L, "任务", "备注", 0, 18L, PullTaskPullerSyncMode.BATCH,
-                1, true, 3, 8, 30, 2, 0, 1,
+                1, true, 1, 2, 3, 8, 30, 2, 0, 1,
                 11L, 12L, null, 14L, 15L, groupSetting);
     }
 }

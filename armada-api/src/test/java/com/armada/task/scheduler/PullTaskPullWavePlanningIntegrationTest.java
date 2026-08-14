@@ -100,7 +100,7 @@ class PullTaskPullWavePlanningIntegrationTest {
     }
 
     @Test
-    void freezesAllInitialCallsBeforeReturningTheFirstCall() {
+    void freezesEarlyCallsBeforeTheStandardRangeCalls() {
         PullTaskPullWavePreparation result = service.prepare(
                 claim("worker-1", 600L, 900L), "worker-1", 610L);
 
@@ -108,10 +108,10 @@ class PullTaskPullWavePlanningIntegrationTest {
         assertThat(result.ready()).isTrue();
         assertThat(result.call().getWaveCallSeq()).isEqualTo(1);
         assertThat(waveMapper.selectById(result.wave().getId()).getPlannedCallCount())
-                .isEqualTo(5);
+                .isEqualTo(6);
         assertThat(callMapper.selectByExecution(executionId))
                 .extracting(PullTaskPullCall::getPlannedMaterialCount)
-                .containsExactly(5, 5, 5, 5, 1);
+                .containsExactly(2, 2, 2, 5, 5, 5);
         assertThat(callMapper.selectByExecution(executionId))
                 .allSatisfy(call -> {
                     assertThat(call.getPullWaveId()).isEqualTo(result.wave().getId());
@@ -144,7 +144,7 @@ class PullTaskPullWavePlanningIntegrationTest {
         TenantContext.set(7L);
         assertThat(second.wave().getId()).isEqualTo(first.wave().getId());
         assertThat(second.call().getId()).isEqualTo(first.call().getId());
-        assertThat(callMapper.selectByExecution(executionId)).hasSize(5);
+        assertThat(callMapper.selectByExecution(executionId)).hasSize(6);
         assertThat(attemptsByWave(first.wave().getId())).hasSize(MATERIAL_COUNT);
     }
 
@@ -163,7 +163,7 @@ class PullTaskPullWavePlanningIntegrationTest {
         assertThat(attemptsByWave(first.wave().getId()))
                 .filteredOn(row -> row.getParticipantRefId().equals(attempt.getParticipantRefId()))
                 .hasSize(1);
-        assertThat(callMapper.selectByExecution(executionId)).hasSize(5);
+        assertThat(callMapper.selectByExecution(executionId)).hasSize(6);
     }
 
     @Test
@@ -242,7 +242,8 @@ class PullTaskPullWavePlanningIntegrationTest {
     void stationAndMaterialCandidatesKeepStableOrder() throws SQLException {
         execute("UPDATE pull_task_standard_setting SET station_count_per_call=1 WHERE task_id=100");
         when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(
-                station(911L), station(912L), station(913L), station(914L), station(915L)));
+                station(911L), station(912L), station(913L), station(914L), station(915L),
+                station(916L)));
 
         PullTaskPullWavePreparation result = service.prepare(
                 claim("worker-1", 600L, 900L), "worker-1", 610L);
@@ -259,15 +260,15 @@ class PullTaskPullWavePlanningIntegrationTest {
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.STATION.code()))
                 .extracting(row -> row.getAccountId())
-                .containsExactly(911L, 912L, 913L, 914L, 915L);
-        assertThat(result.wave().getPlannedCallCount()).isEqualTo(5);
+                .containsExactly(911L, 912L, 913L, 914L, 915L, 916L);
+        assertThat(result.wave().getPlannedCallCount()).isEqualTo(6);
     }
 
     @Test
     void insufficientStationsRollBackTheWholeWaveAndEnterStationWait() throws SQLException {
         execute("UPDATE pull_task_standard_setting SET station_count_per_call=1 WHERE task_id=100");
         when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(
-                station(911L), station(912L), station(913L), station(914L)));
+                station(911L), station(912L), station(913L), station(914L), station(915L)));
 
         PullTaskPullWavePreparation result = service.prepare(
                 claim("worker-1", 600L, 900L), "worker-1", 610L);
@@ -339,11 +340,12 @@ class PullTaskPullWavePlanningIntegrationTest {
                 + "(100, 7, 'STANDARD', 'task', 'NORMAL_LINK', 'EXECUTING', '{}', 100, 100)");
         execute("INSERT INTO pull_task_standard_setting "
                 + "(tenant_id, task_id, auto_start, material_admin_timing, pull_count_min, "
-                + "pull_count_max, pull_interval_seconds, puller_count_per_group, "
+                + "early_pull_count, early_pull_call_count, pull_count_max, "
+                + "pull_interval_seconds, puller_count_per_group, "
                 + "station_count_per_call, concurrent_group_count, puller_risk_minutes, "
                 + "required_manager_count, manager_group_id, puller_group_id, station_group_id, "
                 + "manager_group_name, puller_group_name, station_group_name, created_at, updated_at) "
-                + "VALUES (7, 100, 1, 1, 5, 5, 10, 1, 0, 1, 0, 1, 88, 89, 90, "
+                + "VALUES (7, 100, 1, 1, 5, 2, 3, 5, 10, 1, 0, 1, 0, 1, 88, 89, 90, "
                 + "'manager', 'puller', 'station', 100, 100)");
     }
 

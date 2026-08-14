@@ -103,6 +103,10 @@ public class PullTaskStandardCreateTransactionService {
     }
 
     private void validateRanges(PullTaskStandardCreateDTO request) {
+        if (request.earlyPullCount() == null || request.earlyPullCount() < 1
+                || request.earlyPullCallCount() == null || request.earlyPullCallCount() < 1) {
+            throw new BusinessException(ErrorCode.VALIDATION, "前期拉人数量或执行次数不合法");
+        }
         if (request.pullCountMin() == null || request.pullCountMax() == null
                 || request.pullCountMin() < 1 || request.pullCountMin() > request.pullCountMax()) {
             throw new BusinessException(ErrorCode.VALIDATION, "单次拉人料子人数区间不合法");

@@ -4,7 +4,7 @@ package com.armada.task.mapper;
  * 普通群链接执行域在 H2 MySQL 模式下的建表语句。
  *
  * <p>Flyway 脚本不在 H2 上执行，因此这里手工维护与
- * {@code V093__pull_task_normal_link_execution.sql} 新增的 6 张表等价的 DDL。
+ * {@code V093__pull_task_normal_link_execution.sql} 新增的 6 张表及其后续增量迁移等价的 DDL。
  * {@code pull_task} 本身不是由 {@code V093} 创建的——它只在 {@code V093} 里被
  * {@code ALTER TABLE} 增加 {@code started_at}/{@code finished_at}/{@code version}
  * 三列；{@code pull_task} 块镜像的是 {@code V078}/{@code V088}/{@code V093} 三个
@@ -21,7 +21,7 @@ package com.armada.task.mapper;
  *       文本足以覆盖现有断言。</li>
  * </ul>
  *
- * <p>改动 V093 新增表的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
+ * <p>改动 V093 新增表或后续增量迁移的列时必须同步改这里，否则 Mapper 测试会以过期结构通过。</p>
  */
 public final class PullTaskNormalLinkSchema {
 
@@ -68,6 +68,8 @@ public final class PullTaskNormalLinkSchema {
                 material_admin_timing TINYINT NOT NULL,
                 puller_sync_mode TINYINT NOT NULL DEFAULT 1,
                 is_clear_existing_members TINYINT NOT NULL DEFAULT 0,
+                early_pull_count INT NOT NULL DEFAULT 1,
+                early_pull_call_count INT NOT NULL DEFAULT 0,
                 pull_count_min INT NOT NULL,
                 pull_count_max INT NOT NULL,
                 pull_interval_seconds INT NOT NULL,

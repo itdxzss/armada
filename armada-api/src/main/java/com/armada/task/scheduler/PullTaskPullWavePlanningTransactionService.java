@@ -204,7 +204,7 @@ public class PullTaskPullWavePlanningTransactionService {
             PullTaskStandardSetting setting,
             List<PullTaskPullWaveCandidate> candidates) {
         List<List<PullTaskPullWaveCandidate>> materialBatches =
-                partitionMaterials(setting, candidates);
+                partitionInitialMaterials(setting, candidates);
         List<PlannedBatch> batches = new ArrayList<>(materialBatches.size());
         Set<Long> selectedStationIds = new HashSet<>();
         for (List<PullTaskPullWaveCandidate> materials : materialBatches) {
@@ -233,6 +233,25 @@ public class PullTaskPullWavePlanningTransactionService {
                     candidates.size() - offset);
             batches.add(List.copyOf(candidates.subList(offset, offset + size)));
             offset += size;
+        }
+        return List.copyOf(batches);
+    }
+
+    private List<List<PullTaskPullWaveCandidate>> partitionInitialMaterials(
+            PullTaskStandardSetting setting,
+            List<PullTaskPullWaveCandidate> candidates) {
+        List<List<PullTaskPullWaveCandidate>> batches = new ArrayList<>();
+        int offset = 0;
+        for (int call = 0;
+             call < setting.getEarlyPullCallCount() && offset < candidates.size();
+             call++) {
+            int size = Math.min(setting.getEarlyPullCount(), candidates.size() - offset);
+            batches.add(List.copyOf(candidates.subList(offset, offset + size)));
+            offset += size;
+        }
+        if (offset < candidates.size()) {
+            batches.addAll(partitionMaterials(
+                    setting, candidates.subList(offset, candidates.size())));
         }
         return List.copyOf(batches);
     }

@@ -54,6 +54,8 @@ class PullTaskStandardSettingWriterTest {
         assertThat(saved.getSourceGroupFolderName()).isEqualTo("印度群");
         assertThat(saved.getPullerSyncMode()).isEqualTo(2);
         assertThat(saved.getClearExistingMembers()).isEqualTo(1);
+        assertThat(saved.getEarlyPullCount()).isEqualTo(1);
+        assertThat(saved.getEarlyPullCallCount()).isEqualTo(2);
         assertThat(saved.getManagerGroupName()).isEqualTo("管理组");
         assertThat(saved.getPullerGroupName()).isEqualTo("拉手组");
         assertThat(saved.getStationGroupId()).isNull();
@@ -78,6 +80,8 @@ class PullTaskStandardSettingWriterTest {
         when(request.pullerSyncMode()).thenReturn(PullTaskPullerSyncMode.BATCH);
         when(request.materialAdminTiming()).thenReturn(1);
         when(request.clearExistingMembers()).thenReturn(true);
+        when(request.earlyPullCount()).thenReturn(1);
+        when(request.earlyPullCallCount()).thenReturn(2);
         when(request.pullCountMin()).thenReturn(3);
         when(request.pullCountMax()).thenReturn(8);
         when(request.pullIntervalSeconds()).thenReturn(30);

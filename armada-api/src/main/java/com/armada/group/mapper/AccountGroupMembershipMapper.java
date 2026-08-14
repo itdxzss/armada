@@ -327,7 +327,10 @@ public interface AccountGroupMembershipMapper {
             @Param("limit") int limit);
 
     /**
-     * 从新鲜 metadata 已确认的管理员手机号中选择在线在群账号。
+     * 从新鲜 metadata 已确认的管理员手机号中选择当前群租户的在线正常账号。
+     *
+     * <p>完整 metadata 是本次实时群成员事实；首次同步时账号群关系可能尚未写入，
+     * 因此本查询不能把旧关系行作为准入条件。</p>
      *
      * @param groupLinkId 群入口 ID
      * @param phones 新鲜 metadata 确认的管理员手机号

@@ -76,9 +76,11 @@ public final class GroupExecutionAccountSelector {
     }
 
     /**
-     * 根据新鲜 metadata 已确认的管理员手机号选择在线在群账号。
+     * 根据新鲜 metadata 已确认的管理员手机号选择在线正常账号。
      *
-     * <p>只接受可规范化为数字的可信手机号；LID 不得作为手机号参与匹配。</p>
+     * <p>本轮完整 metadata 已经证明这些号码属于当前管理员，因此不要求账号群关系先落库；
+     * 这能覆盖新群首次同步中“先读邀请码、后写关系快照”的时序。只接受可规范化为数字的
+     * 可信手机号；LID 不得作为手机号参与匹配。</p>
      *
      * @param groupLinkId 群入口 ID
      * @param adminPhones 新鲜 metadata 确认的管理员手机号

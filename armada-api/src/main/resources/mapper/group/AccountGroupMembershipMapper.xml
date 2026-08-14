@@ -737,13 +737,38 @@
 
   <select id="selectGroupExecutionAccountsByPhones"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
-    <include refid="groupExecutionAccountColumnsAndJoins"/>
+    SELECT a.id AS accountId,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           a.ws_phone AS wsPhone,
+           TRUE AS groupAdmin
+    FROM group_link g
+    INNER JOIN account a
+      ON a.tenant_id = g.tenant_id
+     AND a.deleted_at IS NULL
+     AND a.protocol_account_id IS NOT NULL
+     AND a.protocol_account_id != ''
+     AND a.ws_phone IS NOT NULL
+     AND a.ws_phone != ''
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+     AND s.login_state = #{onlineLoginState}
+     AND s.account_state = #{normalAccountState}
+    LEFT JOIN account_group_membership m
+      ON m.tenant_id = g.tenant_id
+     AND m.group_link_id = g.id
+     AND m.account_id = a.id
+     AND m.deleted_at IS NULL
+     AND m.membership_status = 1
+    WHERE g.id = #{groupLinkId}
+      AND g.deleted_at IS NULL
       AND a.ws_phone IN
       <foreach collection="phones" item="phone" open="(" separator="," close=")">
         #{phone}
       </foreach>
     ORDER BY COALESCE(m.last_seen_at, 0) DESC,
-             m.id ASC
+             a.id ASC
     LIMIT #{limit}
   </select>
 

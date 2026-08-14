@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -11,6 +12,7 @@ import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
@@ -70,11 +72,37 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                                 302L, 201L, "120363snapshot@g.us", false));
     }
 
+    @Test
+    void selectsFreshMetadataAdminBeforeMembershipSnapshotIsPersisted() {
+        assertThat(mapper.selectGroupExecutionAccountsByPhones(
+                201L, List.of("1001", "1002", "1003", "1004"), 1, 2, 4))
+                .containsExactly(new GroupExecutionAccount(
+                        301L, "WEB", "acc_1001", "1001", true));
+    }
+
     private void createSchema() throws SQLException {
         execute("""
                 CREATE TABLE account (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, ws_phone VARCHAR(32) NOT NULL,
+                  protocol_id VARCHAR(32), protocol_account_id VARCHAR(64),
                   deleted_at BIGINT
+                )
+                """, """
+                CREATE TABLE account_state (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  account_id BIGINT NOT NULL, login_state TINYINT NOT NULL,
+                  account_state TINYINT NOT NULL
+                )
+                """, """
+                CREATE TABLE account_group_membership (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  account_id BIGINT NOT NULL, group_link_id BIGINT NOT NULL,
+                  membership_status TINYINT NOT NULL, is_admin TINYINT,
+                  last_seen_at BIGINT, deleted_at BIGINT
+                )
+                """, """
+                CREATE TABLE group_link (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, deleted_at BIGINT
                 )
                 """, """
                 CREATE TABLE whatsapp_group_member_snapshot (
@@ -88,11 +116,25 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
 
     private void insertFixtures() throws SQLException {
         execute("""
-                INSERT INTO account (id, tenant_id, ws_phone, deleted_at) VALUES
-                  (301, 7, '1001', NULL),
-                  (302, 7, '1002', NULL),
-                  (303, 7, '1003', 999),
-                  (401, 8, '1004', NULL)
+                INSERT INTO account
+                  (id, tenant_id, ws_phone, protocol_id, protocol_account_id, deleted_at)
+                VALUES
+                  (301, 7, '1001', 'WEB', 'acc_1001', NULL),
+                  (302, 7, '1002', 'ANDROID', 'acc_1002', NULL),
+                  (303, 7, '1003', 'WEB', 'acc_1003', 999),
+                  (401, 8, '1004', 'WEB', 'acc_1004', NULL)
+                """, """
+                INSERT INTO account_state
+                  (tenant_id, account_id, login_state, account_state)
+                VALUES
+                  (7, 301, 1, 2),
+                  (7, 302, 2, 2),
+                  (7, 303, 1, 2),
+                  (8, 401, 1, 2)
+                """, """
+                INSERT INTO group_link (id, tenant_id, deleted_at) VALUES
+                  (201, 7, NULL),
+                  (202, 8, NULL)
                 """, """
                 INSERT INTO whatsapp_group_member_snapshot
                   (tenant_id, group_link_id, group_jid, participant_jid, phone, is_admin)

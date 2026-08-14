@@ -370,67 +370,62 @@ batch_build_contact_evidence() {
   sort -n -k1,1 -k2,2 -u "${unsorted}" >"${output_file}"
 }
 
-batch_validate_plan_contact_gate() {
-  local accounts_file="$1" ledger_file="$2" evidence_file="$3" mode="$4" item_id="${5:-}"
-  local plan creator_id member_id readiness failures='[]' excluded_helpers='[]' effective_helpers='[]' status=READY
-  local planned_helper_count expected_participants expected_size
-  plan="$(jq -sc --argjson itemId "${item_id:-0}" '[.[]|select(.recordType=="GROUP_PLAN" and (.itemId==$itemId or $itemId==0))][0]' "${ledger_file}")"
-  creator_id="$(jq -r '.creatorAccountId // 0' <<<"${plan}")"
-  if [ "$(awk -F '\t' -v id="${creator_id}" '$1==148 && $2==id{print $6;exit}' "${accounts_file}")" != READY ]; then
-    failures="$(jq -nc --argjson accountId "${creator_id}" '[{role:"CREATOR",accountId:$accountId,reason:"NOT_READY_OR_GROUP_MISMATCH"}]')"
-  fi
-  while IFS= read -r member_id; do
-    [ -n "${member_id}" ] || continue
-    readiness="$(awk -F '\t' -v id="${member_id}" '$1==149 && $2==id{print $6;exit}' "${accounts_file}")"
-    if [ "${readiness}" != READY ]; then
-      failures="$(jq -nc --argjson current "${failures}" --argjson accountId "${member_id}" '$current+[{role:"ADMIN",accountId:$accountId,reason:"NOT_READY_OR_GROUP_MISMATCH"}]')"
-    elif ! batch_contact_pair_succeeded "${evidence_file}" "${creator_id}" "${member_id}" \
-        || ! batch_contact_pair_succeeded "${evidence_file}" "${member_id}" "${creator_id}"; then
-      failures="$(jq -nc --argjson current "${failures}" --argjson accountId "${member_id}" '$current+[{role:"ADMIN",accountId:$accountId,reason:"CONTACT_NOT_MUTUAL"}]')"
-    fi
-  done < <(jq -r '.adminAccountIds[]' <<<"${plan}")
-  while IFS= read -r member_id; do
-    [ -n "${member_id}" ] || continue
-    readiness="$(awk -F '\t' -v id="${member_id}" '$1==110 && $2==id{print $6;exit}' "${accounts_file}")"
-    if [ "${readiness}" != READY ]; then
-      excluded_helpers="$(jq -nc --argjson current "${excluded_helpers}" --argjson accountId "${member_id}" '$current+[{accountId:$accountId,reason:"NOT_READY_OR_GROUP_MISMATCH"}]')"
-    elif ! batch_contact_pair_succeeded "${evidence_file}" "${creator_id}" "${member_id}" \
-        || ! batch_contact_pair_succeeded "${evidence_file}" "${member_id}" "${creator_id}"; then
-      excluded_helpers="$(jq -nc --argjson current "${excluded_helpers}" --argjson accountId "${member_id}" '$current+[{accountId:$accountId,reason:"CONTACT_NOT_MUTUAL"}]')"
-    else
-      effective_helpers="$(jq -nc --argjson current "${effective_helpers}" --argjson accountId "${member_id}" '$current+[$accountId]')"
-    fi
-  done < <(jq -r '.helperAccountIds[]' <<<"${plan}")
-  planned_helper_count="$(jq '.helperAccountIds|length' <<<"${plan}")"
-  [ "$(jq '.adminAccountIds|length' <<<"${plan}")" -eq 2 ] \
-    && [ "$(jq '.adminAccountIds|unique|length' <<<"${plan}")" -eq 2 ] \
-    && [ "${planned_helper_count}" -le 59 ] \
-    && [ "$(jq '.helperAccountIds|unique|length' <<<"${plan}")" -eq "${planned_helper_count}" ] \
-    && [ "$(jq '.expectedParticipants' <<<"${plan}")" -eq "$((planned_helper_count + 2))" ] \
-    && [ "$(jq '.expectedGroupSize' <<<"${plan}")" -eq "$((planned_helper_count + 3))" ] \
-    || failures="$(jq -nc --argjson current "${failures}" '$current+[{role:"PLAN",accountId:0,reason:"MEMBER_COUNT_INVALID"}]')"
-  [ "$(jq 'length' <<<"${failures}")" -eq 0 ] || status=BLOCKED
-  expected_participants=$((2 + $(jq 'length' <<<"${effective_helpers}")))
-  expected_size=$((expected_participants + 1))
-  jq -nc --arg mode "${mode}" --arg status "${status}" --argjson itemId "$(jq '.itemId' <<<"${plan}")" --argjson creatorAccountId "${creator_id}" \
-    --argjson failures "${failures}" --argjson excludedHelpers "${excluded_helpers}" \
-    --argjson effectiveHelperAccountIds "${effective_helpers}" \
-    --argjson expectedParticipants "${expected_participants}" --argjson expectedGroupSize "${expected_size}" \
-    --arg checkedAt "$(batch_now)" \
-    '{recordType:"CONTACT_GATE_CHECK",mode:$mode,status:$status,itemId:$itemId,creatorAccountId:$creatorAccountId,failures:$failures,excludedHelpers:$excludedHelpers,effectiveHelperAccountIds:$effectiveHelperAccountIds,expectedParticipants:$expectedParticipants,expectedGroupSize:$expectedGroupSize,checkedAt:$checkedAt}' \
-    >>"${ledger_file}"
-  [ "${status}" = READY ] || { batch_fail "联系人硬门禁未通过"; return 20; }
-}
-
 batch_validate_all_plan_contact_gates() {
   local accounts_file="$1" ledger_file="$2" evidence_file="$3" mode="$4"
-  local item_id ready_count=0
-  while IFS= read -r item_id; do
-    [ -n "${item_id}" ] || continue
-    if batch_validate_plan_contact_gate "${accounts_file}" "${ledger_file}" "${evidence_file}" "${mode}" "${item_id}"; then
-      ready_count=$((ready_count + 1))
-    fi
-  done < <(jq -r 'select(.recordType=="GROUP_PLAN")|.itemId' "${ledger_file}")
+  local run_dir accounts_json evidence_json output_file ready_count
+  run_dir="$(mktemp -d /tmp/armada-contact-gate.XXXXXX)"
+  accounts_json="${run_dir}/accounts.json"
+  evidence_json="${run_dir}/evidence.json"
+  output_file="${run_dir}/checks.jsonl"
+  jq -Rn '[inputs|split("\t")|{groupId:(.[0]|tonumber),accountId:(.[1]|tonumber),readiness:.[5]}]' \
+    <"${accounts_file}" >"${accounts_json}"
+  jq -Rn 'reduce (inputs|split("\t")) as $pair ({}; .[($pair[0]+":"+$pair[1])]=true)' \
+    <"${evidence_file}" >"${evidence_json}"
+  jq -nc --arg mode "${mode}" --arg checkedAt "$(batch_now)" \
+    --slurpfile records "${ledger_file}" --slurpfile accounts "${accounts_json}" \
+    --slurpfile evidence "${evidence_json}" '
+      def account($id; $group): first($accounts[0][]|select(.accountId==$id and .groupId==$group));
+      def ready($id; $group): (account($id; $group).readiness // "") == "READY";
+      def mutual($left; $right):
+        ($evidence[0][(($left|tostring)+":"+($right|tostring))] == true)
+        and ($evidence[0][(($right|tostring)+":"+($left|tostring))] == true);
+      $records[]
+      | select(.recordType=="GROUP_PLAN")
+      | . as $plan
+      | ([if ready($plan.creatorAccountId;148) then empty else
+            {role:"CREATOR",accountId:$plan.creatorAccountId,reason:"NOT_READY_OR_GROUP_MISMATCH"}
+          end]
+         + [$plan.adminAccountIds[] as $id
+            | if (ready($id;149)|not) then
+                {role:"ADMIN",accountId:$id,reason:"NOT_READY_OR_GROUP_MISMATCH"}
+              elif (mutual($plan.creatorAccountId;$id)|not) then
+                {role:"ADMIN",accountId:$id,reason:"CONTACT_NOT_MUTUAL"}
+              else empty end]
+         + [if (($plan.adminAccountIds|length)==2
+                  and ($plan.adminAccountIds|unique|length)==2
+                  and ($plan.helperAccountIds|length)<=59
+                  and ($plan.helperAccountIds|unique|length)==($plan.helperAccountIds|length)
+                  and $plan.expectedParticipants==(($plan.helperAccountIds|length)+2)
+                  and $plan.expectedGroupSize==(($plan.helperAccountIds|length)+3))
+              then empty else {role:"PLAN",accountId:0,reason:"MEMBER_COUNT_INVALID"} end]) as $failures
+      | ([$plan.helperAccountIds[] as $id
+          | if (ready($id;110)|not) then
+              {accountId:$id,reason:"NOT_READY_OR_GROUP_MISMATCH"}
+            elif (mutual($plan.creatorAccountId;$id)|not) then
+              {accountId:$id,reason:"CONTACT_NOT_MUTUAL"}
+            else empty end]) as $excluded
+      | ([$plan.helperAccountIds[] as $id
+          | select(ready($id;110) and mutual($plan.creatorAccountId;$id)) | $id]) as $effective
+      | {recordType:"CONTACT_GATE_CHECK",mode:$mode,
+         status:(if ($failures|length)==0 then "READY" else "BLOCKED" end),
+         itemId:$plan.itemId,creatorAccountId:$plan.creatorAccountId,failures:$failures,
+         excludedHelpers:$excluded,effectiveHelperAccountIds:$effective,
+         expectedParticipants:(2+($effective|length)),expectedGroupSize:(3+($effective|length)),
+         checkedAt:$checkedAt}
+    ' | jq -c . >"${output_file}"
+  ready_count="$(jq -s '[.[]|select(.status=="READY")]|length' "${output_file}")"
+  cat "${output_file}" >>"${ledger_file}"
+  rm -rf -- "${run_dir}"
   [ "${ready_count}" -gt 0 ] || { batch_fail "没有通过联系人硬门禁的计划群"; return 20; }
 }
 

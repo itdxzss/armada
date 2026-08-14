@@ -143,6 +143,34 @@ class PullTaskMemberQueryServiceTest {
         verify(commandService, never()).create(any());
     }
 
+    @Test
+    void frozenReadReusesPersistedActorAndTargetsWhenCandidateOrderChanges() {
+        PullTaskMemberQueryMapper mapper = mock(PullTaskMemberQueryMapper.class);
+        PullTaskMemberQueryCommandService commandService =
+                mock(PullTaskMemberQueryCommandService.class);
+        PullTaskMemberQuery row = row(PullTaskMemberQueryStatus.SUCCEEDED, 2_000L);
+        row.setPurpose(PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY.name());
+        row.setBusinessKey("manager-admin-discovery:501");
+        row.setAccountId(906L);
+        row.setProtocolAccountId("frozen-906");
+        row.setWsPhone("906");
+        row.setTargetJidsJson("[\"906@s.whatsapp.net\",\"907@s.whatsapp.net\"]");
+        row.setResultJson("[]");
+        when(mapper.selectLatestByBusinessKey(11L, "manager-admin-discovery:501"))
+                .thenReturn(row);
+        PullTaskMemberQueryService service = service(mapper, commandService);
+        PullTaskMemberQueryRequest changed = new PullTaskMemberQueryRequest(
+                9L, 11L, "manager-admin-discovery:501",
+                PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY,
+                ProtocolAccountRef.legacyWeb("changed-907"), "123@g.us",
+                List.of("907@s.whatsapp.net", "906@s.whatsapp.net"));
+
+        PullTaskMemberQueryResult result = service.requestOrRead(changed, 1_000L);
+
+        assertThat(result.state()).isEqualTo(PullTaskMemberQueryResult.State.AVAILABLE);
+        verify(commandService, never()).create(any());
+    }
+
     private static PullTaskMemberQueryService service(
             PullTaskMemberQueryMapper mapper,
             PullTaskMemberQueryCommandService commandService) {

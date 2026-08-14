@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 public final class GroupExecutionAccountSelector {
 
     private static final int MAX_RETRY_CANDIDATES = 4;
+    private static final int MAX_ADMIN_DISCOVERY_CANDIDATES = 500;
 
     private final AccountGroupMembershipMapper mapper;
 
@@ -135,6 +136,18 @@ public final class GroupExecutionAccountSelector {
             Long tenantId, String groupJid, Long managerAccountId) {
         return mapper.selectPullTaskAdminPromoterCandidatesByTenant(
                 tenantId, groupJid, managerAccountId);
+    }
+
+    /** 返回不依赖本地管理员标记的定点查询候选，始终限制为协议单次上限。 */
+    public List<GroupExecutionAccount> findPullTaskAdminDiscoveryCandidates(
+            Long tenantId, String groupJid, Long managerAccountId) {
+        List<GroupExecutionAccount> candidates =
+                mapper.selectPullTaskAdminDiscoveryCandidatesByTenant(
+                        tenantId, groupJid, managerAccountId,
+                        MAX_ADMIN_DISCOVERY_CANDIDATES);
+        return candidates == null ? List.of() : candidates.stream()
+                .limit(MAX_ADMIN_DISCOVERY_CANDIDATES)
+                .toList();
     }
 
     private static Optional<GroupExecutionAccount> candidateAt(

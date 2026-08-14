@@ -5,10 +5,12 @@
 
     <sql id="incomingSourcePriority">
         CASE incoming.state_source
-            WHEN 'UNKNOWN_EXIT_EVENT' THEN 4
-            WHEN 'LEAVE_EVENT' THEN 4
-            WHEN 'REMOVE_EVENT' THEN 4
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
+            WHEN 'LEAVE_EVENT' THEN 5
+            WHEN 'REMOVE_EVENT' THEN 5
+            WHEN 'ROLE_EVENT' THEN 4
             WHEN 'ADD_EVENT' THEN 3
+            WHEN 'MEMBER_QUERY' THEN 2
             WHEN 'FULL_SNAPSHOT' THEN 2
             WHEN 'SNAPSHOT_ABSENT' THEN 2
             ELSE 0
@@ -17,10 +19,12 @@
 
     <sql id="storedSourcePriority">
         CASE whatsapp_group_member_state.state_source
-            WHEN 'UNKNOWN_EXIT_EVENT' THEN 4
-            WHEN 'LEAVE_EVENT' THEN 4
-            WHEN 'REMOVE_EVENT' THEN 4
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
+            WHEN 'LEAVE_EVENT' THEN 5
+            WHEN 'REMOVE_EVENT' THEN 5
+            WHEN 'ROLE_EVENT' THEN 4
             WHEN 'ADD_EVENT' THEN 3
+            WHEN 'MEMBER_QUERY' THEN 2
             WHEN 'FULL_SNAPSHOT' THEN 2
             WHEN 'SNAPSHOT_ABSENT' THEN 2
             ELSE 0
@@ -116,6 +120,26 @@
             state_updated_at = GREATEST(
                 incoming.state_updated_at, whatsapp_group_member_state.state_updated_at)
     </insert>
+
+    <select id="selectStatesByParticipantJids"
+            resultType="com.armada.group.model.vo.WhatsappGroupMemberStateVO">
+        SELECT participant_jid AS participantJid,
+               phone,
+               is_admin AS admin,
+               is_owner AS owner,
+               role,
+               is_in_group AS inGroup,
+               state_source AS stateSource,
+               state_updated_at AS stateUpdatedAt
+        FROM whatsapp_group_member_state
+        WHERE tenant_id = #{tenantId}
+          AND group_jid = #{groupJid}
+          AND participant_jid IN
+        <foreach collection="participantJids" item="participantJid" open="(" separator="," close=")">
+            #{participantJid}
+        </foreach>
+        ORDER BY participant_jid ASC
+    </select>
 
     <update id="markSnapshotMissing">
         UPDATE whatsapp_group_member_state

@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskMemberQueryMapper;
@@ -8,6 +10,7 @@ import com.armada.task.model.dto.PullTaskMemberQueryCreateRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.entity.PullTaskMemberQuery;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import com.armada.task.model.enums.PullTaskMemberQueryStatus;
 import com.armada.task.service.impl.PullTaskMemberQueryCommandService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -52,6 +55,9 @@ public class PullTaskMemberQueryService {
         if (latest == null) {
             return create(request, now);
         }
+        if (request.purpose() == PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY) {
+            request = frozenRequest(request, latest);
+        }
         validateIdentity(request, latest);
         if (Objects.equals(latest.getQueryStatus(), PullTaskMemberQueryStatus.PENDING.code())) {
             if (latest.getDeadlineAt() != null && latest.getDeadlineAt() > now) {
@@ -69,6 +75,31 @@ public class PullTaskMemberQueryService {
             return resolveExisting(request, concurrent, now);
         }
         return resolveExisting(request, latest, now);
+    }
+
+    /** discovery 直接复用首次持久化身份，候选变化不会产生第二条逻辑查询。 */
+    private PullTaskMemberQueryRequest frozenRequest(
+            PullTaskMemberQueryRequest proposed,
+            PullTaskMemberQuery existing) {
+        if (!Objects.equals(existing.getTaskId(), proposed.taskId())
+                || !Objects.equals(existing.getPurpose(), proposed.purpose().name())
+                || !Objects.equals(existing.getGroupJid(), proposed.groupJid().trim())) {
+            throw conflict("成员查询业务键冻结身份不一致 businessKey="
+                    + proposed.businessKey());
+        }
+        ProtocolAccountRef actor;
+        try {
+            actor = new ProtocolAccountRef(
+                    existing.getAccountId(),
+                    ProtocolBackend.fromExplicitProtocolId(existing.getProtocolBackend()),
+                    existing.getProtocolAccountId(), existing.getWsPhone());
+        } catch (IllegalArgumentException exception) {
+            throw validation("成员查询冻结 actor 非法 queryId=" + existing.getId());
+        }
+        PullTaskMemberQueryRequest frozen = new PullTaskMemberQueryRequest(
+                existing.getTaskId(), existing.getGroupExecutionId(), existing.getBusinessKey(),
+                proposed.purpose(), actor, existing.getGroupJid(), readTargets(existing));
+        return frozen;
     }
 
     /**

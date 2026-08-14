@@ -1,5 +1,8 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.model.dto.GroupParticipantObservation;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
+import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -39,18 +42,21 @@ public class PullTaskMemberQueryResultServiceImpl implements PullTaskMemberQuery
     private final ObjectMapper objectMapper;
     private final PullTaskExecutionDispatchTrigger dispatchTrigger;
     private final PullTaskUnknownResultReconciliationScheduler reconciliationScheduler;
+    private final GroupParticipantObservationService observationService;
 
     public PullTaskMemberQueryResultServiceImpl(
             PullTaskMemberQueryMapper queryMapper,
             PullTaskGroupExecutionMapper executionMapper,
             ObjectMapper objectMapper,
             PullTaskExecutionDispatchTrigger dispatchTrigger,
-            PullTaskUnknownResultReconciliationScheduler reconciliationScheduler) {
+            PullTaskUnknownResultReconciliationScheduler reconciliationScheduler,
+            GroupParticipantObservationService observationService) {
         this.queryMapper = queryMapper;
         this.executionMapper = executionMapper;
         this.objectMapper = objectMapper;
         this.dispatchTrigger = dispatchTrigger;
         this.reconciliationScheduler = reconciliationScheduler;
+        this.observationService = observationService;
     }
 
     @Override
@@ -87,6 +93,10 @@ public class PullTaskMemberQueryResultServiceImpl implements PullTaskMemberQuery
                     callback.occurredAt());
             if (queryMapper.settlePending(settlement) != 1) {
                 return false;
+            }
+            if (callback.outcome() == PullTaskMemberQueryOutcome.SUCCESS
+                    && callback.purpose() == PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY) {
+                observationService.apply(discoveryObservations(callback));
             }
             if (callback.purpose().reconciliation()) {
                 reconciliationAfterCommit();
@@ -178,7 +188,8 @@ public class PullTaskMemberQueryResultServiceImpl implements PullTaskMemberQuery
         return switch (purpose) {
             case MANAGER_JOIN_MEMBERSHIP, SUPPLEMENT_MANAGER_MEMBERSHIP ->
                     PullTaskExecutionStage.MANAGER_JOIN.code();
-            case MANAGER_ADMIN_MEMBERSHIP -> PullTaskExecutionStage.MANAGER_ADMIN.code();
+            case MANAGER_ADMIN_MEMBERSHIP, MANAGER_ADMIN_DISCOVERY ->
+                    PullTaskExecutionStage.MANAGER_ADMIN.code();
             case SUPPLEMENT_PULLER_MEMBERSHIP ->
                     PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code();
             case PULL_CALL_RECONCILIATION, UNKNOWN_RESULT_RECONCILIATION ->
@@ -196,6 +207,17 @@ public class PullTaskMemberQueryResultServiceImpl implements PullTaskMemberQuery
                 || callback.members() == null || callback.occurredAt() <= 0) {
             throw validation("成员查询结果参数非法");
         }
+    }
+
+    private static List<GroupParticipantObservation> discoveryObservations(
+            PullTaskMemberQueryCallback callback) {
+        return callback.members().stream()
+                .map(fact -> new GroupParticipantObservation(
+                        callback.tenantId(), callback.accountId(), callback.groupJid(),
+                        fact.targetJid(), fact.participantJid(), fact.phoneNumber(),
+                        fact.inGroup(), fact.admin(), WhatsappGroupMemberStateSource.MEMBER_QUERY,
+                        callback.occurredAt(), callback.commandId() + ":" + fact.targetJid()))
+                .toList();
     }
 
     private static String safe(String value, int maxLength) {

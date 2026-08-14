@@ -32,6 +32,17 @@ public class PullTaskManagerAdminProcessor {
             PullTaskGroupExecution candidate, String lockOwner, long now) {
         PullTaskManagerAdminPreparation preparation =
                 transactions.prepare(candidate, lockOwner, now);
+        return processPreparation(candidate, lockOwner, now, preparation);
+    }
+
+    private PullTaskExecutionDispatchResult processPreparation(
+            PullTaskGroupExecution candidate,
+            String lockOwner,
+            long now,
+            PullTaskManagerAdminPreparation preparation) {
+        if (preparation.discoveryRequest() != null) {
+            return discoverAdmin(candidate, lockOwner, now, preparation.discoveryRequest());
+        }
         if (!preparation.ready()) {
             return preparation.result();
         }
@@ -74,6 +85,28 @@ public class PullTaskManagerAdminProcessor {
             return transactions.rejectPromoter(work, now);
         }
         return transactions.submitOrDefer(work, now);
+    }
+
+    private PullTaskExecutionDispatchResult discoverAdmin(
+            PullTaskGroupExecution candidate,
+            String lockOwner,
+            long now,
+            PullTaskMemberQueryRequest request) {
+        PullTaskMemberQueryResult query = memberQueryAwaitService.readOrDefer(
+                candidate.getTenantId(), request, candidate.getVersion(), lockOwner,
+                PullTaskExecutionStage.MANAGER_ADMIN.code(), now);
+        if (query.state() == PullTaskMemberQueryResult.State.PENDING) {
+            return PullTaskExecutionDispatchResult.DEFERRED;
+        }
+        if (query.state() == PullTaskMemberQueryResult.State.FAILED) {
+            return transactions.deferDiscovery(candidate, lockOwner, now);
+        }
+        PullTaskManagerAdminPreparation refreshed =
+                transactions.prepareAfterDiscovery(candidate, lockOwner, now);
+        if (refreshed.discoveryRequest() != null) {
+            throw new IllegalStateException("管理员定点查询结果不得重复创建 discovery");
+        }
+        return processPreparation(candidate, lockOwner, now, refreshed);
     }
 
     private static boolean hasAdmin(

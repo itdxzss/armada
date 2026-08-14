@@ -19,6 +19,18 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
+    void membershipRoleAndQuerySourcesHaveDeterministicPriority() throws IOException {
+        String xml = mapperXml();
+        assertTrue(xml.contains("WHEN 'WGP2_REMOVE' THEN 5"));
+        assertTrue(xml.contains("WHEN 'WGP2_LEAVE' THEN 5"));
+        assertTrue(xml.contains("WHEN 'WGP2_PROMOTE' THEN 4"));
+        assertTrue(xml.contains("WHEN 'WGP2_DEMOTE' THEN 4"));
+        assertTrue(xml.contains("WHEN 'WGP2_ADD' THEN 3"));
+        assertTrue(xml.contains("WHEN 'GROUP_MEMBER_QUERY' THEN 2"));
+        assertTrue(xml.contains("WHEN 'GROUP_SNAPSHOT' THEN 1"));
+    }
+
+    @Test
     void upsertMembership_preservesLatestExactExitAfterAccountRejoins() throws IOException {
         String xml = mapperXml();
         assertTrue(xml.contains("last_exit_type, last_exited_at"));
@@ -77,6 +89,28 @@ class AccountGroupMembershipMapperSqlTest {
         assertTrue(query.contains("COALESCE(m.last_seen_at, 0) DESC"));
         assertFalse(query.contains("account_group_id = #{accountGroupId}"));
         assertFalse(query.contains("LIMIT 1"));
+    }
+
+    @Test
+    void pullTaskAdminDiscoveryRequiresInGroupHealthButNotAdminFlag() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf(
+                "<select id=\"selectPullTaskAdminDiscoveryCandidatesByTenant\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("a.tenant_id = #{tenantId}"));
+        assertTrue(query.contains("m.group_jid = #{groupJid}"));
+        assertTrue(query.contains("m.membership_status = #{inGroupStatus}"));
+        assertTrue(query.contains("a.id &lt;&gt; #{managerAccountId}"));
+        assertTrue(query.contains("s.login_state = #{onlineLoginState}"));
+        assertTrue(query.contains("s.account_state = #{normalAccountState}"));
+        assertTrue(query.contains("(s.risk_status IS NULL OR s.risk_status = 1)"));
+        assertTrue(query.contains("s.mute_status IS NULL"));
+        assertTrue(query.contains("ORDER BY a.id ASC"));
+        assertTrue(query.contains("LIMIT #{limit}"));
+        assertFalse(query.contains("m.is_admin = 1"));
     }
 
     @Test

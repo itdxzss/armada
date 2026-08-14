@@ -10,7 +10,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.task.model.dto.PullTaskMemberFact;
+import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
 import com.armada.task.model.dto.PullTaskManagerAdminWork;
 import com.armada.task.model.entity.PullTaskAccountAction;
@@ -20,6 +22,7 @@ import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskMemberQueryPurpose;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -129,6 +132,58 @@ class PullTaskManagerAdminProcessorTest {
         verifyNoInteractions(memberQueryAwaitService);
     }
 
+    @Test
+    void discoveryPendingDefersLeaseWithoutPromotionWork() {
+        PullTaskGroupExecution candidate = executionAtManagerAdmin();
+        PullTaskMemberQueryRequest discovery = discoveryRequest();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerAdminPreparation.discovery(discovery));
+        when(memberQueryAwaitService.readOrDefer(
+                eq(7L), org.mockito.ArgumentMatchers.any(), eq(2), eq("worker-1"), eq(3), eq(1_000L)))
+                .thenReturn(PullTaskMemberQueryResult.pending(801L, 31_000L));
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(transactions, never()).prepareAfterDiscovery(candidate, "worker-1", 1_000L);
+    }
+
+    @Test
+    void discoveryAvailableWithoutAdminWaitsWithoutIssuingAnotherQuery() {
+        PullTaskGroupExecution candidate = executionAtManagerAdmin();
+        PullTaskMemberQueryRequest discovery = discoveryRequest();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerAdminPreparation.discovery(discovery));
+        when(memberQueryAwaitService.readOrDefer(
+                eq(7L), org.mockito.ArgumentMatchers.any(), eq(2), eq("worker-1"), eq(3), eq(1_000L)))
+                .thenReturn(PullTaskMemberQueryResult.available(
+                        801L, List.of(member("906", false))));
+        when(transactions.prepareAfterDiscovery(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerAdminPreparation.completed(
+                        PullTaskExecutionDispatchResult.DEFERRED));
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(memberQueryAwaitService).readOrDefer(
+                eq(7L), org.mockito.ArgumentMatchers.any(), eq(2), eq("worker-1"), eq(3), eq(1_000L));
+    }
+
+    @Test
+    void discoveryFailureUsesExistingMemberQueryBackoff() {
+        PullTaskGroupExecution candidate = executionAtManagerAdmin();
+        PullTaskMemberQueryRequest discovery = discoveryRequest();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerAdminPreparation.discovery(discovery));
+        when(memberQueryAwaitService.readOrDefer(
+                eq(7L), org.mockito.ArgumentMatchers.any(), eq(2), eq("worker-1"), eq(3), eq(1_000L)))
+                .thenReturn(PullTaskMemberQueryResult.failed(801L, "MEMBER_QUERY_FAILED", "failed"));
+        when(transactions.deferDiscovery(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(transactions).deferDiscovery(candidate, "worker-1", 1_000L);
+    }
+
     private static PullTaskManagerAdminWork work(
             PullTaskActionStatus status, boolean retryable) {
         PullTaskGroupAccount manager = account(501L, 15L, "15", PullTaskGroupAccountRole.MANAGER);
@@ -174,6 +229,15 @@ class PullTaskManagerAdminProcessorTest {
         row.setVersion(2);
         row.setLockOwner("worker-1");
         return row;
+    }
+
+    private static PullTaskMemberQueryRequest discoveryRequest() {
+        return new PullTaskMemberQueryRequest(
+                100L, 11L, "manager-admin-discovery:501",
+                PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY,
+                ProtocolAccountRef.legacyWeb("candidate-906"),
+                "120363group@g.us",
+                List.of("906@s.whatsapp.net"));
     }
 
     private void queryReturns(PullTaskMemberFact... facts) {

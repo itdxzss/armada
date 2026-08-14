@@ -23,6 +23,43 @@ batch_new_banned_creator_ids() {
 fixture="$(mktemp -d)"
 trap 'rm -rf -- "${fixture}"' EXIT
 
+BATCH_TARGETED_CONTACT_DIR="${fixture}/targeted-contacts"
+mkdir -p "${BATCH_TARGETED_CONTACT_DIR}"
+printf '%s\n' \
+  '{"type":"targeted_contact_attempt","actorAccountId":976,"targetAccountId":3001,"outcome":"SUCCESS"}' \
+  '{"type":"targeted_contact_attempt","actorAccountId":976,"targetAccountId":3002,"outcome":"FAILED"}' \
+  >"${BATCH_TARGETED_CONTACT_DIR}/armada-mutual-contacts-976-to-110-test.jsonl"
+printf '%s\n' \
+  '{"type":"targeted_contact_attempt","actorAccountId":3001,"targetAccountId":976,"outcome":"SUCCESS"}' \
+  >"${BATCH_TARGETED_CONTACT_DIR}/armada-mutual-contacts-110-to-976-test.jsonl"
+targeted_evidence="${fixture}/targeted-evidence.tsv"
+: >"${targeted_evidence}"
+batch_append_targeted_contact_evidence "${targeted_evidence}"
+assert_equals 2 "$(wc -l <"${targeted_evidence}" | tr -d ' ')" \
+  "only successful targeted contacts become evidence"
+grep -Fqx -- "$(printf '976\t3001')" "${targeted_evidence}" \
+  || fail "targeted creator-to-helper success was not imported"
+grep -Fqx -- "$(printf '3001\t976')" "${targeted_evidence}" \
+  || fail "targeted helper-to-creator success was not imported"
+
+selected_accounts="${fixture}/selected-accounts.tsv"
+printf '%b\n' \
+  '148\t974\tANDROID\tcreator-974\t9100000974\tREADY' \
+  '148\t975\tANDROID\tcreator-975\t9100000975\tREADY' \
+  '148\t976\tANDROID\tcreator-976\t9100000976\tACCOUNT_STATE_6' \
+  '149\t2001\tANDROID\tadmin-1\t9200000001\tREADY' \
+  >"${selected_accounts}"
+batch_creator_protocol_online() {
+  [ "$2" -eq 975 ] || [ "$2" -eq 976 ]
+}
+batch_select_creators "${selected_accounts}" '975 976'
+assert_equals READY "$(awk -F '\t' '$2==976{print $6}' "${selected_accounts}")" \
+  "selected realtime-online creator readiness"
+assert_equals READY "$(awk -F '\t' '$2==975{print $6}' "${selected_accounts}")" \
+  "second selected creator readiness"
+assert_equals NOT_SELECTED "$(awk -F '\t' '$2==974{print $6}' "${selected_accounts}")" \
+  "unselected creator readiness"
+
 BATCH_GROUP_INTERVAL_SECONDS=1
 BATCH_GROUP_ANDROID_CONCURRENCY=2
 BATCH_GROUP_WEB_CONCURRENCY=1
@@ -115,6 +152,7 @@ plan_ledger="${fixture}/plan-ledger.jsonl"
 rounds_plan_ledger="${fixture}/rounds-plan-ledger.jsonl"
 blocked_plan_ledger="${fixture}/blocked-plan-ledger.jsonl"
 reduced_plan_ledger="${fixture}/reduced-plan-ledger.jsonl"
+no_helper_plan_ledger="${fixture}/no-helper-plan-ledger.jsonl"
 contact_evidence="${fixture}/contact-evidence.tsv"
 admin_block_evidence="${fixture}/admin-block-evidence.tsv"
 : >"${plan_accounts}"
@@ -122,6 +160,7 @@ admin_block_evidence="${fixture}/admin-block-evidence.tsv"
 : >"${rounds_plan_ledger}"
 : >"${blocked_plan_ledger}"
 : >"${reduced_plan_ledger}"
+: >"${no_helper_plan_ledger}"
 : >"${contact_evidence}"
 id=1
 while [ "${id}" -le 27 ]; do
@@ -164,6 +203,15 @@ fi
 assert_equals 0 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|length' "${blocked_plan_ledger}")" \
   "blocked contact gate plan count"
 
+awk -F '\t' '$1>=2001 && $1<=2004 || $2>=2001 && $2<=2004' \
+  "${contact_evidence}" >"${fixture}/admin-only-evidence.tsv"
+if batch_make_plans "${plan_accounts}" "${no_helper_plan_ledger}" no-helper-gate-test \
+    'Armada No Helper Gate Test' "${fixture}/admin-only-evidence.tsv"; then
+  fail "zero mutual-contact helpers must block plan creation"
+fi
+assert_equals 0 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|length' "${no_helper_plan_ledger}")" \
+  "zero-helper contact gate plan count"
+
 batch_make_plans "${plan_accounts}" "${reduced_plan_ledger}" reduced-helper-test \
   'Armada Reduced Helper Test' "${contact_evidence}"
 assert_equals 15 "$(jq -s '[.[]|select(.recordType=="GROUP_PLAN")]|length' "${reduced_plan_ledger}")" \
@@ -202,10 +250,10 @@ selected_helper="$(jq -sr '[.[]|select(.recordType=="GROUP_PLAN")][0].helperAcco
 awk -F '\t' -v id="${selected_helper}" 'BEGIN{OFS="\t"}{$6=($2==id?"LOGIN_STATE_0":$6);print}' \
   "${plan_accounts}" >"${plan_accounts}.offline"
 batch_validate_all_plan_contact_gates "${plan_accounts}.offline" "${plan_ledger}" "${contact_evidence}" live
-assert_equals 0 "$(jq -s '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mode=="live" and (.status!="READY" or (.effectiveHelperAccountIds|length)!=58))]|length' "${plan_ledger}")" \
-  "offline frozen helper must be excluded from every plan"
-assert_equals 15 "$(jq -s --argjson id "${selected_helper}" '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mode=="live")|.excludedHelpers[]|select(.accountId==$id)]|length' "${plan_ledger}")" \
-  "offline helper exclusions must be recorded per plan"
+assert_equals 0 "$(jq -s '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mode=="live" and (.status!="READY" or (.effectiveHelperAccountIds|length)!=59))]|length' "${plan_ledger}")" \
+  "offline usable helper must remain in every plan"
+assert_equals 0 "$(jq -s --argjson id "${selected_helper}" '[.[]|select(.recordType=="CONTACT_GATE_CHECK" and .mode=="live")|.excludedHelpers[]|select(.accountId==$id)]|length' "${plan_ledger}")" \
+  "offline usable helper must not be excluded"
 
 BATCH_GROUP_ROUNDS=200
 batch_make_plans "${plan_accounts}" "${rounds_plan_ledger}" two-hundred-round-test \

@@ -46,13 +46,17 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink;
 
+    @Mock
+    private ProtocolGroupParticipantChangedSink participantChangedSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
         consumer = new ProtocolGroupEventConsumer(
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
-                batchParticipantResultSink, membersResultSink, inviteLinkChangedSink);
+                batchParticipantResultSink, membersResultSink, inviteLinkChangedSink,
+                participantChangedSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -126,6 +130,100 @@ class ProtocolGroupEventConsumerTest {
                         "120363group@g.us", "NewInviteCode_2026",
                         "919000000002@s.whatsapp.net", "wgp2_notification",
                         1786341600000L, "android-worker"));
+    }
+
+    @Test
+    void onMessage_participantPromoteDispatchesCompleteRoleFact() {
+        onMessage("""
+                {
+                  "eventId":"acc-901:group.participant_changed:promote-1",
+                  "event":"group.participant_changed",
+                  "accountId":"acc-901",
+                  "occurredAt":"2026-08-10T06:00:00Z",
+                  "workerId":"web-worker",
+                  "data":{
+                    "tenantId":7,"accountId":901,"protocolAccountId":"acc-901",
+                    "protocolBackend":"WEB","groupJid":"120363group@g.us",
+                    "action":"promote",
+                    "participants":[{
+                      "id":"123456789012345@lid",
+                      "lid":"123456789012345@lid",
+                      "phoneNumber":"919000000001@s.whatsapp.net"
+                    }],
+                    "operator":"919000000002@s.whatsapp.net",
+                    "source":"wa_group_participants_update"
+                  }
+                }
+                """);
+
+        verify(participantChangedSink).handleParticipantChanged(
+                new ProtocolGroupParticipantChangedEvent(
+                        "acc-901:group.participant_changed:promote-1",
+                        7L, 901L, "acc-901", "WEB", "120363group@g.us", "promote",
+                        java.util.List.of(new ProtocolGroupParticipantIdentity(
+                                "123456789012345@lid", "123456789012345@lid",
+                                "919000000001@s.whatsapp.net")),
+                        "919000000002@s.whatsapp.net", "wa_group_participants_update",
+                        1786341600000L, "web-worker"));
+    }
+
+    @Test
+    void onMessage_participantRoleRejectsInvalidBindingBackendGroupAndIdentity() {
+        assertThatThrownBy(() -> onMessage(participantRoleJson(
+                "other-account", "WEB", "120363group@g.us", "promote",
+                "[{\"id\":\"919000000001@s.whatsapp.net\"}]")))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(participantRoleJson(
+                "acc-901", "DESKTOP", "120363group@g.us", "promote",
+                "[{\"id\":\"919000000001@s.whatsapp.net\"}]")))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(participantRoleJson(
+                "acc-901", "ANDROID", "919000000001@s.whatsapp.net", "demote",
+                "[{\"id\":\"919000000001@s.whatsapp.net\"}]")))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(participantRoleJson(
+                "acc-901", "ANDROID", "120363group@g.us", "demote", "[{}]")))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(participantChangedSink);
+    }
+
+    @Test
+    void onMessage_participantRoleRejectsMoreThanFiveHundredIdentities() {
+        String participants = "[" + java.util.stream.IntStream.range(0, 501)
+                .mapToObj(index -> "{\"id\":\"919000%06d@s.whatsapp.net\"}".formatted(index))
+                .collect(java.util.stream.Collectors.joining(",")) + "]";
+
+        assertThatThrownBy(() -> onMessage(participantRoleJson(
+                "acc-901", "ANDROID", "120363group@g.us", "promote", participants)))
+                .isInstanceOf(BusinessException.class);
+        verifyNoInteractions(participantChangedSink);
+    }
+
+    @Test
+    void onMessage_nonRoleParticipantChangeRemainsIgnoredForRollingUpgrade() {
+        onMessage("""
+                {"eventId":"legacy-add","event":"group.participant_changed",
+                 "accountId":"acc-901","occurredAt":"2026-08-10T06:00:00Z",
+                 "data":{"groupJid":"120363group@g.us","action":"add",
+                         "participants":["919000000001@s.whatsapp.net"]}}
+                """);
+
+        verifyNoInteractions(participantChangedSink);
+    }
+
+    private static String participantRoleJson(
+            String envelopeAccountId,
+            String backend,
+            String groupJid,
+            String action,
+            String participants) {
+        return """
+                {"eventId":"role-1","event":"group.participant_changed",
+                 "accountId":"%s","occurredAt":"2026-08-10T06:00:00Z","data":{
+                   "tenantId":7,"accountId":901,"protocolAccountId":"acc-901",
+                   "protocolBackend":"%s","groupJid":"%s","action":"%s",
+                   "participants":%s,"source":"android_wgp2"}}
+                """.formatted(envelopeAccountId, backend, groupJid, action, participants);
     }
 
     @Test

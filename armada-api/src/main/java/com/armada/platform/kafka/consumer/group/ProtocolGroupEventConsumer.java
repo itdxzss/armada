@@ -50,6 +50,9 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 统一群邀请链接变更事件类型。 */
     public static final String EVENT_GROUP_INVITE_LINK_CHANGED = "group.invite_link_changed";
 
+    /** Web/Android 统一群成员变化事件类型；当前只落 promote/demote 角色事实。 */
+    public static final String EVENT_GROUP_PARTICIPANT_CHANGED = "group.participant_changed";
+
     /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
     private static final Set<String> SUPPORTED_JOIN_OUTCOMES = Set.of(
             "JOINED", "ALREADY_JOINED", "PENDING_APPROVAL", "FAILED");
@@ -73,6 +76,13 @@ public class ProtocolGroupEventConsumer {
     /** 成员查询事件只能由当前接入的两种协议后端发出。 */
     private static final Set<String> SUPPORTED_PROTOCOL_BACKENDS = Set.of("WEB", "ANDROID");
 
+    /** Baileys/WGP2 当前会发布的群成员动作。 */
+    private static final Set<String> SUPPORTED_PARTICIPANT_ACTIONS = Set.of(
+            "add", "remove", "promote", "demote");
+
+    /** 单条角色事件允许携带的最大成员数。 */
+    private static final int MAX_PARTICIPANT_IDENTITIES = 500;
+
     /** Kafka 事件 JSON 解析器。 */
     private final ObjectMapper objectMapper;
 
@@ -94,6 +104,9 @@ public class ProtocolGroupEventConsumer {
     /** 群邀请链接变更下游处理边界。 */
     private final ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink;
 
+    /** 群成员角色变化下游处理边界。 */
+    private final ProtocolGroupParticipantChangedSink participantChangedSink;
+
     /**
      * 创建协议群组事件 consumer。
      *
@@ -110,7 +123,8 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolPullTaskBatchParticipantResultReportedSink
                                               batchParticipantResultReportedSink,
                                       ProtocolGroupMembersResultReportedSink membersResultReportedSink,
-                                      ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink) {
+                                      ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink,
+                                      ProtocolGroupParticipantChangedSink participantChangedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
@@ -118,6 +132,7 @@ public class ProtocolGroupEventConsumer {
         this.batchParticipantResultReportedSink = batchParticipantResultReportedSink;
         this.membersResultReportedSink = membersResultReportedSink;
         this.inviteLinkChangedSink = inviteLinkChangedSink;
+        this.participantChangedSink = participantChangedSink;
     }
 
     /**
@@ -150,9 +165,116 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_ACTION_RESULT_REPORTED -> handleActionResultReported(envelope, eventId);
             case EVENT_GROUP_MEMBERS_RESULT_REPORTED -> handleMembersResultReported(envelope, eventId);
             case EVENT_GROUP_INVITE_LINK_CHANGED -> handleInviteLinkChanged(envelope, eventId);
+            case EVENT_GROUP_PARTICIPANT_CHANGED -> handleParticipantChanged(envelope, eventId);
             default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
         }
+    }
+
+    /** 兼容忽略 add/remove，只对 promote/demote 校验完整业务关联并写角色事实。 */
+    private void handleParticipantChanged(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        String action = requiredText(
+                data, "action", "协议群成员事件缺少 data.action").toLowerCase(Locale.ROOT);
+        if (!SUPPORTED_PARTICIPANT_ACTIONS.contains(action)) {
+            throw validation("协议群成员事件 action 非法");
+        }
+        if (!"promote".equals(action) && !"demote".equals(action)) {
+            log.debug("协议群成员非角色事件沿用既有链路 eventId={} action={}", eventId, action);
+            return;
+        }
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群成员角色事件缺少 data.protocolAccountId");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) {
+            throw validation("协议群成员角色事件账号关联不一致");
+        }
+        String protocolBackend = requiredText(
+                data, "protocolBackend", "协议群成员角色事件缺少 data.protocolBackend")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_PROTOCOL_BACKENDS.contains(protocolBackend)) {
+            throw validation("协议群成员角色事件 protocolBackend 非法");
+        }
+        String groupJid = requiredText(
+                data, "groupJid", "协议群成员角色事件缺少 data.groupJid")
+                .trim().toLowerCase(Locale.ROOT);
+        if (!groupJid.endsWith("@g.us")) {
+            throw validation("协议群成员角色事件 groupJid 非法");
+        }
+        long occurredAt = requiredOccurredAt(envelope, data);
+        ProtocolGroupParticipantChangedEvent event = new ProtocolGroupParticipantChangedEvent(
+                requiredText(envelope, "eventId", "协议群成员角色事件缺少 eventId"),
+                requiredLong(data, "tenantId"),
+                requiredLong(data, "accountId"),
+                protocolAccountId,
+                protocolBackend,
+                groupJid,
+                action,
+                participantIdentities(data.path("participants")),
+                text(data, "operator"),
+                requiredText(data, "source", "协议群成员角色事件缺少 data.source"),
+                occurredAt,
+                text(envelope, "workerId"));
+        log.info("协议群成员角色事件收到 eventId={} tenantId={} accountId={} backend={} action={} count={}",
+                event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend(),
+                event.action(), event.participants().size());
+        participantChangedSink.handleParticipantChanged(event);
+    }
+
+    private static long requiredOccurredAt(JsonNode envelope, JsonNode data) {
+        Long occurredAt = checkedAt(envelope, data);
+        if (occurredAt == null || occurredAt <= 0) {
+            throw validation("协议群成员角色事件 occurredAt 非法");
+        }
+        return occurredAt;
+    }
+
+    private static List<ProtocolGroupParticipantIdentity> participantIdentities(JsonNode node) {
+        if (!node.isArray() || node.isEmpty() || node.size() > MAX_PARTICIPANT_IDENTITIES) {
+            throw validation("协议群成员角色事件 participants 数量非法");
+        }
+        List<ProtocolGroupParticipantIdentity> participants = new ArrayList<>(node.size());
+        for (JsonNode participant : node) {
+            if (!participant.isObject()) {
+                throw validation("协议群成员角色事件 participant 非对象");
+            }
+            String id = normalizedIdentity(text(participant, "id"), false);
+            String lid = normalizedIdentity(text(participant, "lid"), true);
+            String phoneNumber = normalizedPhoneIdentity(text(participant, "phoneNumber"));
+            if (id == null && lid == null && phoneNumber == null) {
+                throw validation("协议群成员角色事件 participant 缺少身份");
+            }
+            participants.add(new ProtocolGroupParticipantIdentity(id, lid, phoneNumber));
+        }
+        return List.copyOf(participants);
+    }
+
+    private static String normalizedIdentity(String value, boolean lidOnly) {
+        if (!hasText(value)) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        boolean valid = lidOnly
+                ? normalized.endsWith("@lid")
+                : normalized.endsWith("@lid") || normalized.endsWith("@s.whatsapp.net");
+        if (!valid) {
+            throw validation("协议群成员角色事件 participant JID 非法");
+        }
+        return normalized;
+    }
+
+    private static String normalizedPhoneIdentity(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.endsWith("@s.whatsapp.net")) {
+            return normalized;
+        }
+        String digits = normalized.replaceAll("[^0-9]", "");
+        if (digits.length() < 5 || digits.length() > 20) {
+            throw validation("协议群成员角色事件 participant phoneNumber 非法");
+        }
+        return digits;
     }
 
     /** 校验当前邀请码事件并交给 group 域按租户和群 JID 幂等保存。 */

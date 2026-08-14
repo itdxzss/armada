@@ -104,6 +104,20 @@ class NormalGroupCreationItemVOTest {
     }
 
     @Test
+    void localizesContactRateLimitStopsForDisplay() {
+        NormalGroupCreationContactFailureVO failure =
+                new NormalGroupCreationContactFailureVO(
+                        21L, 1, 301L, "WEB",
+                        "FAILED", "CONTACT_RATE_LIMITED", "rate-overlimit",
+                        "FAILED", "CONTACT_SKIPPED_AFTER_RATE_LIMIT", "skipped");
+
+        assertThat(failure.creatorSaveErrorMessage())
+                .isEqualTo("该账号保存联系人触发 WhatsApp 限流，已停止其剩余联系人操作并继续建群");
+        assertThat(failure.memberSaveErrorMessage())
+                .isEqualTo("该账号后续联系人操作已在首次限流后停止");
+    }
+
+    @Test
     void distinguishesCreatorAndMemberOfflineFailuresForDisplay() {
         assertThat(item(
                 "ACCOUNT_NOT_ONLINE",
@@ -161,6 +175,7 @@ class NormalGroupCreationItemVOTest {
         NormalGroupCreationItemVO item = item(null, null, "DONE");
 
         assertThat(item.lastErrorMessage()).isNull();
+        assertThat(item.creatorWsPhone()).isEqualTo("919000000001");
     }
 
     private static NormalGroupCreationItemVO item(
@@ -172,6 +187,7 @@ class NormalGroupCreationItemVOTest {
                 1,
                 "测试群",
                 243L,
+                "919000000001",
                 "WEB",
                 "120363000000000@g.us",
                 null,

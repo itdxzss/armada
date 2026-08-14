@@ -81,6 +81,22 @@ class PullTaskMemberQueryAwaitServiceTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    @Test
+    void readOrDeferFrozen_pendingUsesFrozenReadAndAtomicallyReleasesLease() {
+        when(queryService.requestOrReadFrozen(any(), anyLong()))
+                .thenReturn(PullTaskMemberQueryResult.pending(801L, 41_000L));
+        when(executionMapper.deferForMemberQuery(any())).thenReturn(1);
+        PullTaskMemberQueryAwaitService service =
+                new PullTaskMemberQueryAwaitService(queryService, executionMapper);
+
+        PullTaskMemberQueryResult result = service.readOrDeferFrozen(
+                7L, request(), 4, "worker-1", 3, 1_000L);
+
+        assertThat(result.state()).isEqualTo(PullTaskMemberQueryResult.State.PENDING);
+        verify(queryService).requestOrReadFrozen(any(), anyLong());
+        verify(executionMapper).deferForMemberQuery(any());
+    }
+
     private static PullTaskMemberQueryRequest request() {
         return new PullTaskMemberQueryRequest(
                 100L, 11L, "manager-admin:601",

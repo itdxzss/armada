@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.boot.config.MyBatisConfig;
@@ -109,6 +111,8 @@ class PullTaskManagerAdminTransactionIntegrationTest {
                 service.prepare(candidate, "worker-1", 600L);
 
         assertThat(preparation.ready()).isTrue();
+        verify(promoterSelector, never()).findPullTaskAdminDiscoveryCandidates(
+                7L, "120363group@g.us", 901L);
         assertThat(service.submitOrDefer(preparation.work(), 610L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
@@ -162,6 +166,51 @@ class PullTaskManagerAdminTransactionIntegrationTest {
         assertThat(saved.getVersion()).isEqualTo(candidate.getVersion());
         assertThat(saved.getLockOwner()).isEqualTo("worker-1");
         assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+    }
+
+    @Test
+    void missingStrictAdminReturnsDiscoveryWithoutCreatingPromoterAction() {
+        when(promoterSelector.findPullTaskAdminPromoterCandidates(
+                7L, "120363group@g.us", 901L)).thenReturn(List.of());
+        when(promoterSelector.findPullTaskAdminDiscoveryCandidates(
+                7L, "120363group@g.us", 901L)).thenReturn(List.of(
+                new GroupExecutionAccount(
+                        906L, "web", "candidate-906", "8613800000906", false),
+                new GroupExecutionAccount(
+                        907L, "android", "candidate-907", "8613800000907", false)));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L);
+
+        PullTaskManagerAdminPreparation preparation =
+                service.prepare(candidate, "worker-1", 600L);
+
+        assertThat(preparation.discoveryReady()).isTrue();
+        PullTaskManagerAdminDiscoveryWork discovery = preparation.discovery();
+        assertThat(discovery.businessKey()).startsWith("manager-admin-discovery:");
+        assertThat(discovery.actor().armadaAccountId()).isEqualTo(906L);
+        assertThat(discovery.targetJids()).containsExactly(
+                "8613800000906@s.whatsapp.net", "8613800000907@s.whatsapp.net");
+        assertThat(accountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PROMOTER.code())).isEmpty();
+        assertThat(actionMapper.selectByExecutionAndType(
+                executionId, PullTaskAccountActionType.PROMOTE_MANAGER.code())).isEmpty();
+    }
+
+    @Test
+    void missingDiscoveryActorKeepsExistingUnavailableReason() {
+        when(promoterSelector.findPullTaskAdminPromoterCandidates(
+                7L, "120363group@g.us", 901L)).thenReturn(List.of());
+        when(promoterSelector.findPullTaskAdminDiscoveryCandidates(
+                7L, "120363group@g.us", 901L)).thenReturn(List.of());
+        PullTaskGroupExecution candidate = claim("worker-1", 600L);
+
+        assertThat(service.prepare(candidate, "worker-1", 600L).result())
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(executionId);
+        assertThat(saved.getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(saved.getReasonCode()).isEqualTo("MANAGER_ADMIN_ACTOR_UNAVAILABLE");
     }
 
     private PullTaskGroupExecution claim(String owner, long now) {

@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskMemberQueryMapper;
@@ -69,6 +71,42 @@ public class PullTaskMemberQueryService {
             return resolveExisting(request, concurrent, now);
         }
         return resolveExisting(request, latest, now);
+    }
+
+    /**
+     * 对稳定业务键复用首次冻结的 actor 和目标，再读取结果或按原身份重试。
+     *
+     * <p>管理员 discovery 的在线候选顺序可能在回调前变化；已有行存在时不能用新顺序
+     * 冲击身份校验，更不能据此创建第二条逻辑查询。</p>
+     */
+    public PullTaskMemberQueryResult requestOrReadFrozen(
+            PullTaskMemberQueryRequest proposed,
+            long now) {
+        validateRequest(proposed, now);
+        PullTaskMemberQuery existing = mapper.selectLatestByBusinessKey(
+                proposed.groupExecutionId(), proposed.businessKey());
+        if (existing == null) {
+            return requestOrRead(proposed, now);
+        }
+        if (!Objects.equals(existing.getTaskId(), proposed.taskId())
+                || !Objects.equals(existing.getPurpose(), proposed.purpose().name())
+                || !Objects.equals(existing.getGroupJid(), proposed.groupJid().trim())) {
+            throw conflict("成员查询业务键冻结身份不一致 businessKey="
+                    + proposed.businessKey());
+        }
+        ProtocolAccountRef actor;
+        try {
+            actor = new ProtocolAccountRef(
+                    existing.getAccountId(),
+                    ProtocolBackend.fromExplicitProtocolId(existing.getProtocolBackend()),
+                    existing.getProtocolAccountId(), existing.getWsPhone());
+        } catch (IllegalArgumentException exception) {
+            throw validation("成员查询冻结 actor 非法 queryId=" + existing.getId());
+        }
+        PullTaskMemberQueryRequest frozen = new PullTaskMemberQueryRequest(
+                existing.getTaskId(), existing.getGroupExecutionId(), existing.getBusinessKey(),
+                proposed.purpose(), actor, existing.getGroupJid(), readTargets(existing));
+        return requestOrRead(frozen, now);
     }
 
     /**

@@ -157,6 +157,22 @@ public interface AccountGroupMembershipMapper {
             @Param("managerAccountId") Long managerAccountId);
 
     /**
+     * 返回管理员事实待确认的在线在群受控账号，供一次定点成员查询使用。
+     *
+     * @param tenantId 当前租户 ID
+     * @param groupJid 目标 WhatsApp 群 JID
+     * @param managerAccountId 待提权任务管理员账号 ID
+     * @param limit 最大候选数量
+     * @return 按账号 ID 稳定排序的候选
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupExecutionAccount> selectPullTaskAdminDiscoveryCandidatesByTenant(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJid") String groupJid,
+            @Param("managerAccountId") Long managerAccountId,
+            @Param("limit") int limit);
+
+    /**
      * 查询账号群 baseline 状态。
      *
      * @param accountId 账号 ID

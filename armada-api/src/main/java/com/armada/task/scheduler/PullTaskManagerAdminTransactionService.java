@@ -1,8 +1,10 @@
 package com.armada.task.scheduler;
 
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -36,6 +38,7 @@ public class PullTaskManagerAdminTransactionService {
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
+    private static final int MAX_DISCOVERY_TARGETS = 500;
     private static final List<Integer> OBSERVABLE_ACTION_STATUSES = List.of(
             PullTaskActionStatus.PENDING.code(),
             PullTaskActionStatus.SUBMITTED.code(),
@@ -67,6 +70,19 @@ public class PullTaskManagerAdminTransactionService {
     @Transactional(rollbackFor = Exception.class)
     public PullTaskManagerAdminPreparation prepare(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
+        return prepare(candidate, lockOwner, now, true);
+    }
+
+    /** discovery 已有结果时只重选严格管理员，仍为空则进入资源等待。 */
+    @Transactional(rollbackFor = Exception.class)
+    public PullTaskManagerAdminPreparation prepareAfterDiscovery(
+            PullTaskGroupExecution candidate, String lockOwner, long now) {
+        return prepare(candidate, lockOwner, now, false);
+    }
+
+    private PullTaskManagerAdminPreparation prepare(
+            PullTaskGroupExecution candidate, String lockOwner, long now,
+            boolean allowDiscovery) {
         if (!hasIdentity(candidate)) {
             return PullTaskManagerAdminPreparation.completed(PullTaskExecutionDispatchResult.LOST);
         }
@@ -99,6 +115,13 @@ public class PullTaskManagerAdminTransactionService {
                     .select(candidates, roles, actions, manager.getId())
                     .orElse(null);
             if (selected == null) {
+                if (allowDiscovery && (candidates == null || candidates.isEmpty())) {
+                    PullTaskManagerAdminDiscoveryWork discovery = discoveryWork(
+                            candidate, manager, lockOwner);
+                    if (discovery != null) {
+                        return PullTaskManagerAdminPreparation.discovery(discovery);
+                    }
+                }
                 PullTaskExecutionReasonCode reason = candidates == null || candidates.isEmpty()
                         ? PullTaskExecutionReasonCode.MANAGER_ADMIN_ACTOR_UNAVAILABLE
                         : PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED;
@@ -117,6 +140,65 @@ public class PullTaskManagerAdminTransactionService {
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    /** 成员查询失败时沿用统一退避，保留 MANAGER_ADMIN 阶段等待同业务键重试。 */
+    @Transactional(rollbackFor = Exception.class)
+    public PullTaskExecutionDispatchResult deferDiscovery(
+            PullTaskManagerAdminDiscoveryWork work, long now) {
+        return withTenant(work.tenantId(), () -> {
+            PullTaskGroupExecution update = baseTransition(
+                    work.executionId(), work.expectedVersion(), work.lockOwner(), now);
+            update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+            update.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
+            update.setGroupJid(work.groupJid());
+            update.setNextRunAt(now + resources.properties().getRetryDelayMs());
+            update.setReasonCode(PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.name());
+            update.setReasonMessage(PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED.message());
+            return resources.executionMapper().transitionClaimed(
+                    update, PullTaskExecutionStage.MANAGER_ADMIN.code()) == 1
+                    ? PullTaskExecutionDispatchResult.DEFERRED
+                    : PullTaskExecutionDispatchResult.LOST;
+        });
+    }
+
+    private PullTaskManagerAdminDiscoveryWork discoveryWork(
+            PullTaskGroupExecution candidate,
+            PullTaskGroupAccount manager,
+            String lockOwner) {
+        List<GroupExecutionAccount> discovered =
+                resources.promoterSelector().findPullTaskAdminDiscoveryCandidates(
+                        candidate.getTenantId(), candidate.getGroupJid(), manager.getAccountId());
+        if (discovered == null || discovered.isEmpty()) {
+            return null;
+        }
+        GroupExecutionAccount actor = null;
+        java.util.LinkedHashSet<String> targetJids = new java.util.LinkedHashSet<>();
+        for (GroupExecutionAccount account : discovered) {
+            if (targetJids.size() >= MAX_DISCOVERY_TARGETS) {
+                break;
+            }
+            if (account == null) {
+                continue;
+            }
+            try {
+                String targetJid = WhatsappJids.userJid(account.wsPhone());
+                if (actor == null) {
+                    account.protocolRef();
+                    actor = account;
+                }
+                targetJids.add(targetJid);
+            } catch (IllegalArgumentException | ProtocolException ignored) {
+                // 单条历史账号身份不完整时跳过；不得阻断其他有效定点候选。
+            }
+        }
+        if (actor == null || targetJids.isEmpty()) {
+            return null;
+        }
+        return new PullTaskManagerAdminDiscoveryWork(
+                candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
+                candidate.getVersion(), lockOwner, candidate.getGroupJid(), manager.getId(),
+                actor.protocolRef(), List.copyOf(targetJids));
     }
 
     /** 根据成功回执或兜底成员事实确认权限，并推进到管理—拉手联系人阶段。 */

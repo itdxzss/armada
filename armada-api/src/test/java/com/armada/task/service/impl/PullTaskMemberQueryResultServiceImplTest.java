@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMemberQueryMapper;
@@ -35,6 +36,7 @@ class PullTaskMemberQueryResultServiceImplTest {
     @Mock private PullTaskGroupExecutionMapper executionMapper;
     @Mock private PullTaskExecutionDispatchTrigger dispatchTrigger;
     @Mock private PullTaskUnknownResultReconciliationScheduler reconciliationScheduler;
+    @Mock private GroupParticipantObservationService observationService;
 
     @AfterEach
     void clearTenant() {
@@ -104,7 +106,7 @@ class PullTaskMemberQueryResultServiceImplTest {
         when(queryMapper.selectById(701L)).thenReturn(row);
         PullTaskMemberQueryResultServiceImpl service = service();
         PullTaskMemberQueryCallback callback = new PullTaskMemberQueryCallback(
-                7L, 100L, 11L, 701L, PullTaskMemberQueryPurpose.MANAGER_ADMIN_MEMBERSHIP,
+                "event-701", 7L, 100L, 11L, 701L, PullTaskMemberQueryPurpose.MANAGER_ADMIN_MEMBERSHIP,
                 901L, "manager-901", "WEB", "cmd-query-2", 2,
                 PullTaskMemberQueryOutcome.SUCCESS, "120363group@g.us",
                 List.of(new PullTaskMemberFact(
@@ -115,10 +117,40 @@ class PullTaskMemberQueryResultServiceImplTest {
         verify(queryMapper, never()).settlePending(any());
     }
 
+    @Test
+    void discoverySuccessWritesGlobalFactsBeforeWakingManagerAdmin() {
+        PullTaskMemberQuery row = row(PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY);
+        when(queryMapper.selectById(701L)).thenReturn(row);
+        when(queryMapper.settlePending(any())).thenReturn(1);
+        when(executionMapper.wakeForMemberQuery(any())).thenReturn(1);
+        PullTaskMemberQueryResultServiceImpl service = service();
+
+        assertThat(service.apply(callback(
+                PullTaskMemberQueryOutcome.SUCCESS,
+                PullTaskMemberQueryPurpose.MANAGER_ADMIN_DISCOVERY))).isTrue();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<com.armada.group.model.dto.GroupParticipantObservation>> facts =
+                ArgumentCaptor.forClass(List.class);
+        verify(observationService).apply(facts.capture());
+        assertThat(facts.getValue()).singleElement().satisfies(fact -> {
+            assertThat(fact.observerAccountId()).isEqualTo(901L);
+            assertThat(fact.groupJid()).isEqualTo("120363group@g.us");
+            assertThat(fact.admin()).isTrue();
+            assertThat(fact.source().name()).isEqualTo("MEMBER_QUERY");
+            assertThat(fact.sourceEventId())
+                    .isEqualTo("event-701:8613800000902@s.whatsapp.net");
+        });
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(
+                observationService, executionMapper);
+        order.verify(observationService).apply(any());
+        order.verify(executionMapper).wakeForMemberQuery(any());
+    }
+
     private PullTaskMemberQueryResultServiceImpl service() {
         return new PullTaskMemberQueryResultServiceImpl(
                 queryMapper, executionMapper, new ObjectMapper(), dispatchTrigger,
-                reconciliationScheduler);
+                reconciliationScheduler, observationService);
     }
 
     private static PullTaskMemberQuery row(PullTaskMemberQueryPurpose purpose) {
@@ -147,7 +179,7 @@ class PullTaskMemberQueryResultServiceImplTest {
             PullTaskMemberQueryOutcome outcome,
             PullTaskMemberQueryPurpose purpose) {
         return new PullTaskMemberQueryCallback(
-                7L, 100L, 11L, 701L, purpose,
+                "event-701", 7L, 100L, 11L, 701L, purpose,
                 901L, "manager-901", "WEB", "cmd-query-2", 2, outcome,
                 "120363group@g.us",
                 outcome == PullTaskMemberQueryOutcome.SUCCESS

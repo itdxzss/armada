@@ -67,9 +67,10 @@ public class ProtocolGroupEventConsumer {
     /** 成员查询只允许成功或明确失败。 */
     private static final Set<String> SUPPORTED_MEMBER_QUERY_OUTCOMES = Set.of("SUCCESS", "FAILED");
 
-    /** 成员查询只允许当前普通拉群状态机实际使用的六类用途。 */
+    /** 成员查询只允许当前普通拉群状态机实际使用的用途。 */
     private static final Set<String> SUPPORTED_MEMBER_QUERY_PURPOSES = Set.of(
             "MANAGER_JOIN_MEMBERSHIP", "MANAGER_ADMIN_MEMBERSHIP",
+            "MANAGER_ADMIN_DISCOVERY",
             "SUPPLEMENT_PULLER_MEMBERSHIP", "SUPPLEMENT_MANAGER_MEMBERSHIP",
             "PULL_CALL_RECONCILIATION", "UNKNOWN_RESULT_RECONCILIATION");
 

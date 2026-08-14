@@ -22,7 +22,8 @@ public class ProtocolGroupMembersResultAdapter implements ProtocolGroupMembersRe
     @Override
     public void handleMembersResultReported(ProtocolGroupMembersResultReportedEvent event) {
         resultService.apply(new PullTaskMemberQueryCallback(
-                event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.queryId(),
+                event.eventId(), event.tenantId(), event.pullTaskId(),
+                event.groupExecutionId(), event.queryId(),
                 PullTaskMemberQueryPurpose.valueOf(event.purpose()), event.accountId(),
                 event.protocolAccountId(), event.protocolBackend(), event.commandId(),
                 event.attemptNo(), PullTaskMemberQueryOutcome.valueOf(event.outcome()),

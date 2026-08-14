@@ -4,6 +4,7 @@ package com.armada.task.model.enums;
 public enum PullTaskMemberQueryPurpose {
     MANAGER_JOIN_MEMBERSHIP(false),
     MANAGER_ADMIN_MEMBERSHIP(false),
+    MANAGER_ADMIN_DISCOVERY(false),
     SUPPLEMENT_PULLER_MEMBERSHIP(false),
     SUPPLEMENT_MANAGER_MEMBERSHIP(false),
     PULL_CALL_RECONCILIATION(true),

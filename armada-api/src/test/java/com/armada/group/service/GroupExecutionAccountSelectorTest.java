@@ -128,6 +128,20 @@ class GroupExecutionAccountSelectorTest {
     }
 
     @Test
+    void pullTaskAdminDiscoveryCandidatesAreCappedAtFiveHundred() {
+        List<GroupExecutionAccount> candidates = java.util.stream.LongStream.rangeClosed(1, 501)
+                .mapToObj(id -> new GroupExecutionAccount(
+                        id, "web", "acc-" + id, Long.toString(900_000L + id), false))
+                .toList();
+        when(mapper.selectPullTaskAdminDiscoveryCandidatesByTenant(
+                7L, "120363group@g.us", 15L, 500)).thenReturn(candidates);
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.findPullTaskAdminDiscoveryCandidates(
+                7L, "120363group@g.us", 15L)).hasSize(500);
+    }
+
+    @Test
     void findAdminReturnsEmptyWhenGroupHasNoOnlineAdminSoCallerCanSkipTheProtocolCall() {
         when(mapper.selectGroupAdminExecutionAccounts(
                 10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))

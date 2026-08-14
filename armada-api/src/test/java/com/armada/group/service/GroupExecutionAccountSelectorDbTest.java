@@ -47,11 +47,11 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
         Optional<GroupExecutionAccount> selected = selector.find(groupLinkId, 0);
 
         assertThat(selected).contains(new GroupExecutionAccount(
-                adminAccountId, null, "acc_923310000002", "923310000002", true));
+                adminAccountId, "web", "acc_923310000002", "923310000002", true));
         assertThat(selector.findAdminByPhones(
                 groupLinkId, java.util.List.of("923310000001"), 0))
                 .contains(new GroupExecutionAccount(
-                        ordinaryAccountId, null, "acc_923310000001", "923310000001", false));
+                        ordinaryAccountId, "web", "acc_923310000001", "923310000001", false));
 
         try {
             TenantContext.set(2L);
@@ -59,6 +59,25 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
         } finally {
             TenantContext.set(TEST_TENANT_ID);
         }
+    }
+
+    @Test
+    void pullTaskAdminDiscoveryUsesOnlineInGroupAccountsWithoutRequiringAdminFlag() {
+        long now = System.currentTimeMillis();
+        long groupLinkId = seedGroupLink(now);
+        long unknownRoleAccountId = seedAccount("923310000011", 1, now);
+        long managerAccountId = seedAccount("923310000012", 1, now);
+        long offlineAccountId = seedAccount("923310000013", 2, now);
+        seedMembership(unknownRoleAccountId, groupLinkId, false, now, null);
+        seedMembership(managerAccountId, groupLinkId, false, now, null);
+        seedMembership(offlineAccountId, groupLinkId, false, now, null);
+        jdbc.update("UPDATE account_group_membership SET is_admin=NULL WHERE account_id=?",
+                unknownRoleAccountId);
+
+        assertThat(selector.findPullTaskAdminDiscoveryCandidates(
+                TEST_TENANT_ID, "120363selector@g.us", managerAccountId))
+                .containsExactly(new GroupExecutionAccount(
+                        unknownRoleAccountId, "web", "acc_923310000011", "923310000011", false));
     }
 
     private long seedGroupLink(long now) {
@@ -77,9 +96,9 @@ class GroupExecutionAccountSelectorDbTest extends DbTestBase {
     private long seedAccount(String phone, int loginState, long now) {
         long accountId = insertAndReturnId("""
                 INSERT INTO account
-                    (tenant_id, ws_phone, account_type, ownership, protocol_account_id,
+                    (tenant_id, ws_phone, account_type, ownership, protocol_id, protocol_account_id,
                      priority, created_at, updated_at)
-                VALUES (?, ?, 1, 1, ?, 0, ?, ?)
+                VALUES (?, ?, 1, 1, 'web', ?, 0, ?, ?)
                 """, ps -> {
             ps.setLong(1, TEST_TENANT_ID);
             ps.setString(2, phone);

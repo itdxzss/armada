@@ -237,7 +237,7 @@ class ProtocolGroupEventConsumerTest {
                   "data":{
                     "source":"pull_task_member_query",
                     "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"queryId":701,
-                    "purpose":"MANAGER_ADMIN_MEMBERSHIP",
+                    "purpose":"MANAGER_ADMIN_DISCOVERY",
                     "accountId":901,"protocolAccountId":"manager-901","protocolBackend":"WEB",
                     "commandId":"cmd-query-1","attemptNo":2,"outcome":"SUCCESS",
                     "groupJid":"120363group@g.us",
@@ -259,7 +259,7 @@ class ProtocolGroupEventConsumerTest {
         verify(membersResultSink).handleMembersResultReported(captor.capture());
         assertThat(captor.getValue()).isEqualTo(new ProtocolGroupMembersResultReportedEvent(
                 "manager-901:group.members.result_reported:cmd-query-1",
-                7L, 100L, 11L, 701L, "MANAGER_ADMIN_MEMBERSHIP",
+                7L, 100L, 11L, 701L, "MANAGER_ADMIN_DISCOVERY",
                 901L, "manager-901", "WEB", "cmd-query-1", 2, "SUCCESS",
                 "120363group@g.us",
                 java.util.List.of(new ProtocolGroupMemberFact(

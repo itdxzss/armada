@@ -22,6 +22,16 @@ public enum NormalGroupCreationErrorMessage {
             "CONTACT_PREPARE_REJECTED",
             "好友准备失败，请检查账号状态后重试"),
 
+    /** WhatsApp 首次返回联系人限流，当前账号剩余联系人动作已停止。 */
+    CONTACT_RATE_LIMITED(
+            "CONTACT_RATE_LIMITED",
+            "该账号保存联系人触发 WhatsApp 限流，已停止其剩余联系人操作并继续建群"),
+
+    /** 同一任务下该账号在首次限流后的联系人动作被主动跳过。 */
+    CONTACT_SKIPPED_AFTER_RATE_LIMIT(
+            "CONTACT_SKIPPED_AFTER_RATE_LIMIT",
+            "该账号后续联系人操作已在首次限流后停止"),
+
     /** Android 新建普群执行器不可用。 */
     SENDER_UNAVAILABLE(
             "SENDER_UNAVAILABLE",

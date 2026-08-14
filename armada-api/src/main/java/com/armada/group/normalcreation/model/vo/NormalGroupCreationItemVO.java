@@ -14,6 +14,7 @@ public record NormalGroupCreationItemVO(
         Integer itemNo,
         String groupSubject,
         Long creatorAccountId,
+        String creatorWsPhone,
         String creatorProtocolBackend,
         String groupJid,
         Long groupLinkId,

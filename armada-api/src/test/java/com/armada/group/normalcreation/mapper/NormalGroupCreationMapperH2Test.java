@@ -1,13 +1,16 @@
 package com.armada.group.normalcreation.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.groups.Tuple.tuple;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemIdentity;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberReplacement;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -587,6 +590,49 @@ class NormalGroupCreationMapperH2Test {
             assertThat(row.participantStatus()).isEqualTo("CONFIRMED");
             assertThat(row.promotionStatus()).isEqualTo("SUCCESS");
         });
+    }
+
+    @Test
+    void groupCreateOnlyConfirmsMutualContactParticipants() throws SQLException {
+        mapper.insertItems(List.of(
+                new ItemInsert(99L, 1, "群-1", 11L, "acc_11", "WEB", "10011", 100L)));
+        Long itemId = mapper.selectItemIdentities(99L).get(0).id();
+        mapper.insertMembers(List.of(
+                new MemberInsert(99L, itemId, 1, 21L, "acc_21", "ANDROID", "10021", 100L),
+                new MemberInsert(99L, itemId, 2, 22L, "acc_22", "ANDROID", "10022", 100L)));
+        mapper.insertSecondaryAdmins(List.of(
+                new SecondaryAdminInsert(
+                        99L, itemId, 1, 31L, "acc_31", "WEB", "10031", 21L, 100L),
+                new SecondaryAdminInsert(
+                        99L, itemId, 2, 32L, "acc_32", "WEB", "10032", 21L, 100L)));
+        execute("UPDATE normal_group_creation_item_member "
+                + "SET creator_saved_member_status = 'SUCCESS', "
+                + "member_saved_creator_status = 'SUCCESS' WHERE member_account_id = 21");
+        execute("UPDATE normal_group_creation_item_member "
+                + "SET creator_saved_member_status = 'FAILED', "
+                + "member_saved_creator_status = 'SUCCESS' WHERE member_account_id = 22");
+        execute("UPDATE normal_group_creation_item_secondary_admin "
+                + "SET creator_saved_secondary_status = 'SUCCESS', "
+                + "secondary_saved_creator_status = 'SUCCESS' WHERE secondary_admin_account_id = 31");
+        execute("UPDATE normal_group_creation_item_secondary_admin "
+                + "SET creator_saved_secondary_status = 'FAILED', "
+                + "secondary_saved_creator_status = 'SUCCESS' WHERE secondary_admin_account_id = 32");
+
+        assertThat(mapper.markParticipantsCreated(itemId, 200L)).isEqualTo(1);
+        assertThat(mapper.selectMemberWorks(itemId))
+                .extracting(MemberWork::memberAccountId, MemberWork::participantStatus)
+                .containsExactly(
+                        tuple(21L, "CONFIRMED"),
+                        tuple(22L, "PENDING"));
+        assertThat(mapper.markSecondaryParticipantsCreated(itemId, 210L)).isEqualTo(1);
+        assertThat(mapper.markSecondaryAdminsPromoted(itemId, 220L)).isEqualTo(1);
+        assertThat(mapper.selectSecondaryAdminWorks(itemId))
+                .extracting(SecondaryAdminWork::secondaryAdminAccountId,
+                        SecondaryAdminWork::participantStatus,
+                        SecondaryAdminWork::promotionStatus)
+                .containsExactly(
+                        tuple(31L, "CONFIRMED", "SUCCESS"),
+                        tuple(32L, "PENDING", "PENDING"));
     }
 
     @Test

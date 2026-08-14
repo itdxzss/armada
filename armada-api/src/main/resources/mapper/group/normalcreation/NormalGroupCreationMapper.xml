@@ -128,7 +128,8 @@
 
   <select id="selectItems"
           resultType="com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO">
-    SELECT id, item_no, group_subject, creator_account_id, creator_protocol_backend,
+    SELECT id, item_no, group_subject, creator_account_id, creator_ws_phone,
+           creator_protocol_backend,
            group_jid, group_link_id, status, current_step, settings_status,
            creator_leave_status, last_error_code, last_error_message, updated_at,
            contact_prepare_failed
@@ -552,6 +553,7 @@
     SET participant_status = 'CONFIRMED', promotion_status = 'SUCCESS',
         last_error_code = NULL, last_error_message = NULL, updated_at = #{now}
     WHERE item_id = #{itemId}
+      AND participant_status = 'CONFIRMED'
   </update>
 
   <update id="markSecondaryAdminPromotionFailures">
@@ -569,12 +571,16 @@
     UPDATE normal_group_creation_item_member
     SET participant_status = 'CONFIRMED', participant_raw_status = 'SUCCESS', updated_at = #{now}
     WHERE item_id = #{itemId}
+      AND creator_saved_member_status = 'SUCCESS'
+      AND member_saved_creator_status = 'SUCCESS'
   </update>
 
   <update id="markSecondaryParticipantsCreated">
     UPDATE normal_group_creation_item_secondary_admin
     SET participant_status = 'CONFIRMED', updated_at = #{now}
     WHERE item_id = #{itemId}
+      AND creator_saved_secondary_status = 'SUCCESS'
+      AND secondary_saved_creator_status = 'SUCCESS'
   </update>
 
   <update id="startGroupLeave">

@@ -89,12 +89,14 @@ public enum NormalGroupCreationErrorMessage {
 
     private static final String TIMEOUT_CODE = "TIMEOUT";
     private static final String UNCONFIRMED_CODE = "PROTOCOL_RESULT_UNCONFIRMED";
+    private static final String ACCOUNT_REACHOUT_RESTRICTED_CODE = "ACCOUNT_REACHOUT_RESTRICTED";
     private static final String PREPARING_CONTACTS = "PREPARING_CONTACTS";
     private static final String CREATING_GROUP = "CREATING_GROUP";
     private static final String APPLYING_SETTINGS = "APPLYING_SETTINGS";
     private static final String LEAVING_GROUP = "LEAVING_GROUP";
 
     private static final String INTEGRITY_BLOCK_REASON = "blocked-integrity-enforcement";
+    private static final String RATE_OVERLIMIT_REASON = "rate-overlimit";
     private static final String APP_STATE_KEY_MISSING_REASON = "app state key not present";
     private static final String APP_STATE_DEVICE_UNSUPPORTED_REASON =
             "current web credential is not a supported companion device";
@@ -111,6 +113,7 @@ public enum NormalGroupCreationErrorMessage {
             "WhatsApp 风控拦截了建群操作，请更换健康账号或稍后重试";
     private static final String APP_STATE_KEY_MISSING_MESSAGE =
             "Web 协议设备缺少联系人同步密钥，请重新同步账号后重试";
+    private static final String GROUP_CREATE_RATE_LIMIT_MESSAGE = "WhatsApp 建群限流";
 
     private final String code;
     private final String message;
@@ -140,6 +143,9 @@ public enum NormalGroupCreationErrorMessage {
         if (protocolSpecificMessage.isPresent()) {
             return protocolSpecificMessage.get();
         }
+        if (isGroupCreateRateLimit(errorCode, normalizedMessage, currentStep)) {
+            return GROUP_CREATE_RATE_LIMIT_MESSAGE;
+        }
         if (UNCONFIRMED_CODE.equals(errorCode)) {
             return unconfirmedMessage(currentStep);
         }
@@ -160,6 +166,18 @@ public enum NormalGroupCreationErrorMessage {
             return originalMessage;
         }
         return fallbackMessage(currentStep);
+    }
+
+    private static boolean isGroupCreateRateLimit(
+            String errorCode,
+            String normalizedMessage,
+            String currentStep) {
+        if (!CREATING_GROUP.equals(currentStep)) {
+            return false;
+        }
+        return ACCOUNT_REACHOUT_RESTRICTED_CODE.equals(errorCode)
+                || (UNCONFIRMED_CODE.equals(errorCode)
+                && normalizedMessage.contains(RATE_OVERLIMIT_REASON));
     }
 
     /** 返回联系人准备方向对应的账号离线运营提示。 */

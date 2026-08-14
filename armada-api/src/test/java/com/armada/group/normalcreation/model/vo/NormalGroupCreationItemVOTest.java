@@ -30,6 +30,20 @@ class NormalGroupCreationItemVOTest {
     }
 
     @Test
+    void localizesWhatsappGroupCreateRateLimitForDisplay() {
+        assertThat(item(
+                "ACCOUNT_REACHOUT_RESTRICTED",
+                "rate-overlimit",
+                "CREATING_GROUP").lastErrorMessage())
+                .isEqualTo("WhatsApp 建群限流");
+        assertThat(item(
+                "PROTOCOL_RESULT_UNCONFIRMED",
+                "rate-overlimit",
+                "CREATING_GROUP").lastErrorMessage())
+                .isEqualTo("WhatsApp 建群限流");
+    }
+
+    @Test
     void localizesMissingAppStateKeyForDisplay() {
         NormalGroupCreationItemVO item = item(
                 "CONTACT_PREPARE_REJECTED",

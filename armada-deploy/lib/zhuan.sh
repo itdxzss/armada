@@ -128,7 +128,7 @@ zhuan_deploy_selected() {
   case "${ZHUAN_DEPLOY_MODE}" in
     fleet)
       info "并发部署 Zhuan fleet: coordinator + ${ZHUAN_FLEET_EXPECTED_NODES} 台 node..."
-      armada_capture_docker_build_output "Zhuan fleet" zhuan_fleet_run all
+      zhuan_fleet_run all
       info "检查 coordinator 和 ${ZHUAN_FLEET_EXPECTED_NODES} 台 Zhuan 节点..."
       zhuan_verify_fleet_health
       ;;

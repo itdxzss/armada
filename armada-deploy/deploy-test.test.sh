@@ -206,8 +206,11 @@ CONF
   cat >"${ZHUAN_FIXTURE_DIR}/deploy/fleet/deploy-local.sh" <<'STUB'
 #!/usr/bin/env bash
 set -eu
+stdout_pipe=0
+[ -p /dev/stdout ] && stdout_pipe=1
 {
-  printf 'FLEET <REPO=%s> <KEYS_DIR=%s> <NODES_CONF=%s>' "${REPO}" "${KEYS_DIR}" "${NODES_CONF}"
+  printf 'FLEET <REPO=%s> <KEYS_DIR=%s> <NODES_CONF=%s> <STDOUT_PIPE=%s>' \
+    "${REPO}" "${KEYS_DIR}" "${NODES_CONF}" "${stdout_pipe}"
   for arg in "$@"; do
     printf ' <%s>' "${arg}"
   done
@@ -484,6 +487,7 @@ test_zhuan_dry_run_invokes_no_external_commands() {
   [ ! -s "${ZHUAN_FIXTURE_COMMAND_LOG}" ] || fail "dry-run unexpectedly invoked ssh or rsync"
   assert_contains "${out}" "Zhuan 模式"
   assert_contains "${out}" "fleet / coordinator + 3 nodes"
+  assert_contains "${out}" "四台目标并行预构建镜像"
   assert_contains "${out}" "并发部署 coordinator + 3 台 node"
   assert_not_contains "${out}" "whatsapp-migrate -env prod"
   cleanup_zhuan_command_fixture
@@ -503,6 +507,17 @@ test_test1_zhuan_uses_lightweight_fleet_connectivity_check() {
   assert_contains "${command_log}" "<all>"
   assert_not_contains "${command_log}" "<--dry-run> <all>"
   assert_not_contains "${command_log}" "RSYNC <--stats> <-rltz>"
+}
+
+test_test1_zhuan_fleet_deployment_is_not_wrapped_in_output_pipeline() {
+  local command_log
+  setup_zhuan_command_fixture
+  run_zhuan_with_command_stubs --env test1 --zhuan -y >/dev/null
+  command_log="$(cat "${ZHUAN_FIXTURE_COMMAND_LOG}")"
+  cleanup_zhuan_command_fixture
+
+  assert_contains "${command_log}" "<STDOUT_PIPE=0> <all>"
+  assert_not_contains "${command_log}" "<STDOUT_PIPE=1> <all>"
 }
 
 test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint() {
@@ -1488,6 +1503,7 @@ test_deployment_metrics_handles_zero_docker_steps
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload
 test_zhuan_dry_run_invokes_no_external_commands
 test_test1_zhuan_uses_lightweight_fleet_connectivity_check
+test_test1_zhuan_fleet_deployment_is_not_wrapped_in_output_pipeline
 test_test1_zhuan_fleet_dry_run_matches_windows_entrypoint
 test_windows_help_loads_profile
 test_zhuan_remote_failure_stops_before_health_check

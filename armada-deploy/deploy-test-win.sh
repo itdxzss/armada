@@ -918,7 +918,7 @@ if [ "${DRY_RUN}" = 1 ]; then
   fi
   if [ "${BUILD_ZHUAN}" = 1 ]; then
     if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
-      info "[dry-run] 将只构建一次镜像，并发部署 coordinator + ${ZHUAN_FLEET_EXPECTED_NODES} 台 node"
+      info "[dry-run] 将在四台目标并行预构建镜像，再并发部署 coordinator + ${ZHUAN_FLEET_EXPECTED_NODES} 台 node"
       info "[dry-run] 将保留各节点 .env、configs、certs、logs 和 data"
       info "[dry-run] 将在四机并发部署前检查旧 lifecycle Stream 已排空"
       info "[dry-run] 将验证 ${ZHUAN_FLEET_EXPECTED_NODES} 台协议节点全部 online"

@@ -42,7 +42,7 @@ verify(mapper).markSucceeded(taskId, lockOwner, null, now);
 - [ ] **Step 2: 运行目标测试确认先失败**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupMetadataSyncTaskServiceImplTest test
+cd armada-api && mvn -Dtest=GroupMetadataSyncTaskServiceImplTest test
 ```
 
 Expected: 旧实现仍把 `SUCCEEDED` 加入后台候选，且成功后写入 `now + periodicRefreshMs`。
@@ -60,7 +60,7 @@ Expected: 旧实现仍把 `SUCCEEDED` 加入后台候选，且成功后写入 `n
 - [ ] **Step 4: 运行 metadata 测试**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupMetadataSyncTaskServiceImplTest,GroupMetadataSyncTaskMapperDbTest,GroupMetadataSyncJobTest test
+cd armada-api && mvn -Dtest=GroupMetadataSyncTaskServiceImplTest,GroupMetadataSyncTaskMapperDbTest,GroupMetadataSyncJobTest test
 ```
 
 Expected: 全部 PASS。
@@ -107,7 +107,7 @@ git commit -m "fix: 停止成功群周期元数据轮询"
 - [ ] **Step 2: 运行新增服务与 Mapper 测试确认先失败**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupParticipantObservationServiceImplTest,WhatsappGroupMemberCacheMapperH2Test,AccountGroupMembershipMapperSqlTest test
+cd armada-api && mvn -Dtest=GroupParticipantObservationServiceImplTest,WhatsappGroupMemberCacheMapperH2Test,AccountGroupMembershipMapperSqlTest test
 ```
 
 Expected: 新类型/方法尚不存在或新优先级断言失败。
@@ -177,7 +177,7 @@ GROUP_SNAPSHOT = 1
 - [ ] **Step 6: 运行 H2 与真实 MySQL Mapper 验证**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupParticipantObservationServiceImplTest,WhatsappGroupMemberCacheMapperH2Test,WhatsappGroupMemberCacheMapperMysqlTest,AccountGroupMembershipMapperSqlTest test
+cd armada-api && mvn -Dtest=GroupParticipantObservationServiceImplTest,WhatsappGroupMemberCacheMapperH2Test,WhatsappGroupMemberCacheMapperMysqlTest,AccountGroupMembershipMapperSqlTest test
 ```
 
 Expected: 全部 PASS；如果 Docker 不可用，只记录 MySQL Testcontainers 的环境阻塞，H2 与单测必须通过。
@@ -217,7 +217,7 @@ git commit -m "feat: 收敛群管理员角色事实"
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-mvn -pl armada-api -Dtest=ProtocolGroupEventConsumerTest,ProtocolGroupParticipantChangedSinkAdapterTest test
+cd armada-api && mvn -Dtest=ProtocolGroupEventConsumerTest,ProtocolGroupParticipantChangedSinkAdapterTest test
 ```
 
 - [ ] **Step 3: 增加事件 record、解析和 sink 路由**
@@ -245,7 +245,7 @@ promote 映射 `ROLE_PROMOTE/admin=true`，demote 映射 `ROLE_DEMOTE/admin=fals
 - [ ] **Step 5: 运行 consumer 与事实服务回归测试**
 
 ```bash
-mvn -pl armada-api -Dtest=ProtocolGroupEventConsumerTest,ProtocolGroupParticipantChangedSinkAdapterTest,GroupParticipantObservationServiceImplTest test
+cd armada-api && mvn -Dtest=ProtocolGroupEventConsumerTest,ProtocolGroupParticipantChangedSinkAdapterTest,GroupParticipantObservationServiceImplTest test
 ```
 
 - [ ] **Step 6: 提交本任务**
@@ -426,7 +426,7 @@ git commit -m "feat: 发布安卓群管理员角色事件"
 - [ ] **Step 2: 运行目标测试确认失败**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupExecutionAccountSelectorDbTest,PullTaskManagerAdminTransactionIntegrationTest,PullTaskManagerAdminProcessorTest,PullTaskMemberQueryResultServiceImplTest test
+cd armada-api && mvn -Dtest=GroupExecutionAccountSelectorDbTest,PullTaskManagerAdminTransactionIntegrationTest,PullTaskManagerAdminProcessorTest,PullTaskMemberQueryResultServiceImplTest test
 ```
 
 - [ ] **Step 3: 添加 purpose 与候选查询**
@@ -474,7 +474,7 @@ sourceEventId = callback.eventId() + ":" + fact.targetJid();
 - [ ] **Step 7: 运行拉群与查询回归测试**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupExecutionAccountSelectorDbTest,PullTaskManagerAdminTransactionIntegrationTest,PullTaskManagerAdminProcessorTest,PullTaskMemberQueryResultServiceImplTest,ProtocolGroupEventConsumerTest test
+cd armada-api && mvn -Dtest=GroupExecutionAccountSelectorDbTest,PullTaskManagerAdminTransactionIntegrationTest,PullTaskManagerAdminProcessorTest,PullTaskMemberQueryResultServiceImplTest,ProtocolGroupEventConsumerTest test
 ```
 
 - [ ] **Step 8: 提交本任务**
@@ -501,7 +501,7 @@ git commit -m "fix: 拉群缺少管理员时定点查询"
 - [ ] **Step 2: 运行迁移测试确认失败**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupAdminEventAndPullFallbackMigrationSqlTest,FlywayMigrationVersionContractTest test
+cd armada-api && mvn -Dtest=GroupAdminEventAndPullFallbackMigrationSqlTest,FlywayMigrationVersionContractTest test
 ```
 
 - [ ] **Step 3: 实现 V114 状态迁移**
@@ -511,7 +511,7 @@ mvn -pl armada-api -Dtest=GroupAdminEventAndPullFallbackMigrationSqlTest,FlywayM
 - [ ] **Step 4: 运行 Flyway 契约与拉群迁移测试**
 
 ```bash
-mvn -pl armada-api -Dtest=GroupAdminEventAndPullFallbackMigrationSqlTest,FlywayMigrationSqlContractTest,FlywayMigrationVersionContractTest,PullTaskManagerAdminStageMigrationSqlTest test
+cd armada-api && mvn -Dtest=GroupAdminEventAndPullFallbackMigrationSqlTest,FlywayMigrationSqlContractTest,FlywayMigrationVersionContractTest,PullTaskManagerAdminStageMigrationSqlTest test
 ```
 
 - [ ] **Step 5: 提交迁移**
@@ -535,8 +535,8 @@ git commit -m "fix: 唤醒管理员缺失的拉群执行"
 - [ ] **Step 1: 后端完整验证**
 
 ```bash
-cd /Users/daishuaishuai/IdeaProjects/armada
-mvn -pl armada-api test
+cd /Users/daishuaishuai/IdeaProjects/armada/armada-api
+mvn test
 ```
 
 - [ ] **Step 2: Web 协议完整验证**
@@ -583,4 +583,3 @@ git commit -m "docs: 记录群管理员修复验证结果"
 - [ ] **Step 6: 部署授权后才执行 test1 验收**
 
 部署属于独立外部变更，必须先确认 test1 目标和部署范围。获授权后验证：执行行 169 被 V114 唤醒；只产生一次 `MANAGER_ADMIN_DISCOVERY`；结果先更新受控管理员关系；下一轮生成 `PROMOTE_MANAGER`；任务 #122 继续推进；空闲成功群不再产生周期 metadata 命令。
-

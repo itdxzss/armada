@@ -19,6 +19,18 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
+    void membershipRoleAndQuerySourcesHaveDeterministicPriority() throws IOException {
+        String xml = mapperXml();
+        assertTrue(xml.contains("WHEN 'WGP2_REMOVE' THEN 5"));
+        assertTrue(xml.contains("WHEN 'WGP2_LEAVE' THEN 5"));
+        assertTrue(xml.contains("WHEN 'WGP2_PROMOTE' THEN 4"));
+        assertTrue(xml.contains("WHEN 'WGP2_DEMOTE' THEN 4"));
+        assertTrue(xml.contains("WHEN 'WGP2_ADD' THEN 3"));
+        assertTrue(xml.contains("WHEN 'GROUP_MEMBER_QUERY' THEN 2"));
+        assertTrue(xml.contains("WHEN 'GROUP_SNAPSHOT' THEN 1"));
+    }
+
+    @Test
     void upsertMembership_preservesLatestExactExitAfterAccountRejoins() throws IOException {
         String xml = mapperXml();
         assertTrue(xml.contains("last_exit_type, last_exited_at"));

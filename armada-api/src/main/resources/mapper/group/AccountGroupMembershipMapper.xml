@@ -448,6 +448,43 @@
     WHERE group_link_id = #{groupLinkId}
   </update>
 
+  <sql id="incomingMembershipSourcePriorityForUpsert">
+    CASE VALUES(status_source)
+      WHEN 'WGP2_REMOVE' THEN 5
+      WHEN 'WGP2_LEAVE' THEN 5
+      WHEN 'WGP2_PROMOTE' THEN 4
+      WHEN 'WGP2_DEMOTE' THEN 4
+      WHEN 'WGP2_ADD' THEN 3
+      WHEN 'GROUP_MEMBER_QUERY' THEN 2
+      WHEN 'GROUP_SNAPSHOT' THEN 1
+      ELSE 0
+    END
+  </sql>
+
+  <sql id="storedMembershipSourcePriorityForUpsert">
+    CASE account_group_membership.status_source
+      WHEN 'WGP2_REMOVE' THEN 5
+      WHEN 'WGP2_LEAVE' THEN 5
+      WHEN 'WGP2_PROMOTE' THEN 4
+      WHEN 'WGP2_DEMOTE' THEN 4
+      WHEN 'WGP2_ADD' THEN 3
+      WHEN 'GROUP_MEMBER_QUERY' THEN 2
+      WHEN 'GROUP_SNAPSHOT' THEN 1
+      ELSE 0
+    END
+  </sql>
+
+  <sql id="incomingMembershipStatusWinsForUpsert">
+    (
+      VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
+      OR (
+        VALUES(status_updated_at) = account_group_membership.status_updated_at
+        AND <include refid="incomingMembershipSourcePriorityForUpsert"/>
+            &gt; <include refid="storedMembershipSourcePriorityForUpsert"/>
+      )
+    )
+  </sql>
+
   <insert id="upsertMembership">
     INSERT INTO account_group_membership (
       account_id, group_link_id, group_jid, is_admin,
@@ -463,26 +500,7 @@
     ON DUPLICATE KEY UPDATE
       group_link_id = VALUES(group_link_id),
       joined_at = CASE
-        WHEN (
-          VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
-          OR (
-            VALUES(status_updated_at) = account_group_membership.status_updated_at
-            AND CASE VALUES(status_source)
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-                &gt; CASE account_group_membership.status_source
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-          )
-        )
+        WHEN <include refid="incomingMembershipStatusWinsForUpsert"/>
         AND VALUES(membership_status) = 1
         AND account_group_membership.membership_status IN (3, 4, 5)
           THEN VALUES(joined_at)
@@ -492,93 +510,23 @@
         ELSE account_group_membership.joined_at
       END,
       is_admin = CASE
-        WHEN VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
-          OR (
-            VALUES(status_updated_at) = account_group_membership.status_updated_at
-            AND CASE VALUES(status_source)
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-                &gt; CASE account_group_membership.status_source
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-          )
+        WHEN <include refid="incomingMembershipStatusWinsForUpsert"/>
           THEN COALESCE(VALUES(is_admin), account_group_membership.is_admin)
         ELSE account_group_membership.is_admin
       END,
       last_seen_at = CASE
-        WHEN (
-          VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
-          OR (
-            VALUES(status_updated_at) = account_group_membership.status_updated_at
-            AND CASE VALUES(status_source)
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-                &gt; CASE account_group_membership.status_source
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-          )
-        )
+        WHEN <include refid="incomingMembershipStatusWinsForUpsert"/>
              AND VALUES(membership_status) = 1
           THEN COALESCE(VALUES(last_seen_at), account_group_membership.last_seen_at)
         ELSE account_group_membership.last_seen_at
       END,
       membership_status = CASE
-        WHEN VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
-          OR (
-            VALUES(status_updated_at) = account_group_membership.status_updated_at
-            AND CASE VALUES(status_source)
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-                &gt; CASE account_group_membership.status_source
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-          )
+        WHEN <include refid="incomingMembershipStatusWinsForUpsert"/>
           THEN VALUES(membership_status)
         ELSE account_group_membership.membership_status
       END,
       status_source = CASE
-        WHEN VALUES(status_updated_at) &gt; account_group_membership.status_updated_at
-          OR (
-            VALUES(status_updated_at) = account_group_membership.status_updated_at
-            AND CASE VALUES(status_source)
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-                &gt; CASE account_group_membership.status_source
-                  WHEN 'WGP2_REMOVE' THEN 3
-                  WHEN 'WGP2_LEAVE' THEN 3
-                  WHEN 'WGP2_ADD' THEN 2
-                  WHEN 'GROUP_SNAPSHOT' THEN 1
-                  ELSE 0
-                END
-          )
+        WHEN <include refid="incomingMembershipStatusWinsForUpsert"/>
           THEN VALUES(status_source)
         ELSE account_group_membership.status_source
       END,
@@ -622,16 +570,22 @@
       OR (
         #{statusUpdatedAt} = status_updated_at
         AND CASE #{statusSource}
-              WHEN 'WGP2_REMOVE' THEN 3
-              WHEN 'WGP2_LEAVE' THEN 3
-              WHEN 'WGP2_ADD' THEN 2
+              WHEN 'WGP2_REMOVE' THEN 5
+              WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4
+              WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END
             &gt; CASE status_source
-              WHEN 'WGP2_REMOVE' THEN 3
-              WHEN 'WGP2_LEAVE' THEN 3
-              WHEN 'WGP2_ADD' THEN 2
+              WHEN 'WGP2_REMOVE' THEN 5
+              WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4
+              WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END

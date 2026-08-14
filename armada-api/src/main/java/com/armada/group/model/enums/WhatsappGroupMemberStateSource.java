@@ -4,7 +4,9 @@ package com.armada.group.model.enums;
 public enum WhatsappGroupMemberStateSource {
     SNAPSHOT_ABSENT,
     FULL_SNAPSHOT,
+    MEMBER_QUERY,
     ADD_EVENT,
+    ROLE_EVENT,
     REMOVE_EVENT,
     LEAVE_EVENT,
     UNKNOWN_EXIT_EVENT

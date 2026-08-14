@@ -72,6 +72,17 @@ class WhatsappGroupMemberCacheMapperMysqlTest {
     }
 
     @Test
+    void sameTimeRoleEventWinsAddAndSnapshotButExactExitWinsRole() throws Exception {
+        mapper.upsertStates(List.of(state(true, "FULL_SNAPSHOT", 100L, "snapshot-z", "v1")), 1_000L);
+        mapper.upsertStates(List.of(state(true, "ADD_EVENT", 100L, "add-z", null)), 2_000L);
+        mapper.upsertStates(List.of(state(true, "ROLE_EVENT", 100L, "promote-a", null)), 3_000L);
+        assertThat(row()).isEqualTo(new Row(true, "ROLE_EVENT", 100L, "promote-a"));
+
+        mapper.upsertStates(List.of(state(false, "LEAVE_EVENT", 100L, "leave-a", null)), 4_000L);
+        assertThat(row()).isEqualTo(new Row(false, "LEAVE_EVENT", 100L, "leave-a"));
+    }
+
+    @Test
     void sameTimeSnapshotsUseVersionOrderRegardlessOfArrivalOrder() throws Exception {
         String first = "15550000001@s.whatsapp.net";
         mapper.upsertStates(List.of(stateFor(

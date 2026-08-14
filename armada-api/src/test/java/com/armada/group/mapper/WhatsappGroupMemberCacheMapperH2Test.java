@@ -107,6 +107,31 @@ class WhatsappGroupMemberCacheMapperH2Test {
     }
 
     @Test
+    void selectStatesByParticipantJidsDoesNotRequireCacheHeader() throws SQLException {
+        executeSql("""
+                INSERT INTO whatsapp_group_member_state
+                    (tenant_id, group_jid, participant_jid, phone, is_admin, is_owner, role,
+                     is_in_group, state_source, state_updated_at, source_event_id,
+                     snapshot_version, observer_account_id, created_at, updated_at)
+                VALUES
+                    (7, '120363-test@g.us', '123456789012345@lid', '15550000001',
+                     1, 0, 'admin', 1, 'ROLE_EVENT', 2000, 'promote-1', NULL, 10, 2000, 2000),
+                    (8, '120363-test@g.us', '123456789012345@lid', '15550000002',
+                     0, 0, 'member', 1, 'ROLE_EVENT', 3000, 'other-tenant', NULL, 11, 3000, 3000)
+                """);
+
+        assertThat(mapper.selectStatesByParticipantJids(
+                7L, "120363-test@g.us", java.util.List.of("123456789012345@lid")))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.phone()).isEqualTo("15550000001");
+                    assertThat(row.admin()).isTrue();
+                    assertThat(row.stateSource()).isEqualTo("ROLE_EVENT");
+                    assertThat(row.stateUpdatedAt()).isEqualTo(2_000L);
+                });
+    }
+
+    @Test
     void mysqlUpsertUsesEventOrderingAndSnapshotMissingGuard() throws Exception {
         String xml;
         try (var input = getClass().getResourceAsStream(
@@ -118,13 +143,16 @@ class WhatsappGroupMemberCacheMapperH2Test {
                 .contains("ON DUPLICATE KEY UPDATE")
                 .contains("AS incoming")
                 .contains("WHEN 'ADD_EVENT' THEN 3")
-                .contains("WHEN 'LEAVE_EVENT' THEN 4")
-                .contains("WHEN 'UNKNOWN_EXIT_EVENT' THEN 4")
+                .contains("WHEN 'LEAVE_EVENT' THEN 5")
+                .contains("WHEN 'UNKNOWN_EXIT_EVENT' THEN 5")
+                .contains("WHEN 'ROLE_EVENT' THEN 4")
+                .contains("WHEN 'MEMBER_QUERY' THEN 2")
                 .contains("WHEN 'SNAPSHOT_ABSENT' THEN 2")
                 .contains("NULLIF(TRIM(whatsapp_group_member_state.phone), '')")
                 .contains("NULLIF(TRIM(incoming.phone), '')")
                 .contains("state_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')")
                 .contains("CAST(#{snapshotVersion} AS BINARY)")
+                .contains("<select id=\"selectStatesByParticipantJids\"")
                 .contains("WHERE cache.tenant_id = #{tenantId}");
         assertThat(xml.indexOf("source_event_id = IF"))
                 .isLessThan(xml.indexOf("state_source = IF"));

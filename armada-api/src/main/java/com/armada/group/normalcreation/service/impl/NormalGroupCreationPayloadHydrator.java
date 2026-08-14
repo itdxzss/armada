@@ -59,7 +59,8 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
             }
             List<MemberWork> members = mapper.selectMemberWorks(item.id());
             List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id());
-            ContactWork contactWork = contactWork(reference, members, secondaryAdmins);
+            ContactWork contactWork = contactWork(
+                    reference, members, secondaryAdmins, item.creatorWsPhone());
             validateCommandBinding(row, reference, item, contactWork);
             LinkedHashSet<String> participantPhones = new LinkedHashSet<>();
             secondaryAdmins.stream()
@@ -135,7 +136,8 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
     private static ContactWork contactWork(
             ProtocolNormalGroupCreationReference reference,
             List<MemberWork> members,
-            List<SecondaryAdminWork> secondaryAdmins) {
+            List<SecondaryAdminWork> secondaryAdmins,
+            String creatorPhone) {
         if (!"CONTACT_PREPARE".equals(reference.action())) {
             return null;
         }
@@ -149,7 +151,7 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
                     ? new ContactWork(member.creatorSaveCommandId(), null, null,
                     member.memberWsPhone())
                     : new ContactWork(member.memberSaveCommandId(), member.memberAccountId(),
-                    member.memberWsPhone(), null);
+                    member.memberWsPhone(), creatorPhone);
         }
         SecondaryAdminWork secondary = secondaryAdmins.stream()
                 .filter(row -> Objects.equals(row.id(), reference.memberId()))
@@ -161,7 +163,8 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
                     secondary.secondaryAdminWsPhone());
             case "SECONDARY_SAVE_CREATOR" -> new ContactWork(
                     secondary.secondarySaveCreatorCommandId(),
-                    secondary.secondaryAdminAccountId(), secondary.secondaryAdminWsPhone(), null);
+                    secondary.secondaryAdminAccountId(), secondary.secondaryAdminWsPhone(),
+                    creatorPhone);
             case "SECONDARY_SAVE_ANCHOR" -> new ContactWork(
                     secondary.secondarySaveAnchorCommandId(),
                     secondary.secondaryAdminAccountId(), secondary.secondaryAdminWsPhone(),

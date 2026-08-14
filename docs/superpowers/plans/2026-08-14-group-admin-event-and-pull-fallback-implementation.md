@@ -274,7 +274,7 @@ git commit -m "feat: 消费群管理员角色事件"
 
 ```bash
 cd /Users/daishuaishuai/IdeaProjects/armada-protocol/protocol-layer
-npm test -- --run src/worker/event-bridge.test.ts src/worker/account-manager.heartbeat.test.ts
+npm test -- --runInBand src/worker/event-bridge.test.ts src/worker/account-manager.heartbeat.test.ts
 ```
 
 - [ ] **Step 3: 给 event bridge 注入当前 socket 的业务引用**
@@ -302,8 +302,8 @@ source: "wa_group_participants_update"
 
 ```bash
 cd /Users/daishuaishuai/IdeaProjects/armada-protocol/protocol-layer
-npm test -- --run src/worker/event-bridge.test.ts src/worker/account-manager.heartbeat.test.ts
-npm run typecheck
+npm test -- --runInBand src/worker/event-bridge.test.ts src/worker/account-manager.heartbeat.test.ts
+npm run lint
 ```
 
 - [ ] **Step 6: 仅提交本任务文件**
@@ -469,7 +469,7 @@ AVAILABLE -> rerun strict admin preparation
 sourceEventId = callback.eventId() + ":" + fact.targetJid();
 ```
 
-在同一 `@Transactional` 回调内先调用 `GroupParticipantObservationService.apply`，再 settle pending 和 wake；因此下一次 prepare 一定读到新关系。
+在同一 `@Transactional` 回调内先 CAS settle pending，再调用 `GroupParticipantObservationService.apply`，最后 wake；事实写入失败会回滚 settle，因此下一次 prepare 一定读到新关系。
 
 - [ ] **Step 7: 运行拉群与查询回归测试**
 
@@ -506,7 +506,7 @@ cd armada-api && mvn -Dtest=GroupAdminEventAndPullFallbackMigrationSqlTest,Flywa
 
 - [ ] **Step 3: 实现 V114 状态迁移**
 
-迁移不改 schema、不读旧成员快照、不批量更新成功 metadata 任务。只把符合条件的执行行恢复为 `EXECUTING`，清除 `wait_resource_type/reason_code/reason_message/lock_owner/lock_until`，并立刻可调度。
+迁移不改 schema、不读旧成员快照、不批量更新成功 metadata 任务。只把符合条件的执行行恢复为 `EXECUTING`，清除 `wait_resource_type/reason_code/reason_message/lock_owner/lock_expires_at`，并立刻可调度。
 
 - [ ] **Step 4: 运行 Flyway 契约与拉群迁移测试**
 
@@ -543,8 +543,8 @@ mvn test
 
 ```bash
 cd /Users/daishuaishuai/IdeaProjects/armada-protocol/protocol-layer
-npm test -- --run
-npm run typecheck
+npm test -- --runInBand
+npm run lint
 ```
 
 - [ ] **Step 3: Android 协议完整验证**

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -236,6 +237,77 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         assertThat(count("wa_account_group_binding")).isEqualTo(1);
     }
 
+    @Test
+    void preciseSelfMembershipDualWriteKeepsClassificationAndExitMeaning() throws Exception {
+        seedCapturedAccount(104L, "923300000104", List.of(groupJid(0)));
+
+        writeSelfMembership(
+                104L, groupJid(1), AccountGroupMembershipStatus.IN_GROUP,
+                2_000L, "wgp2-add", "WGP2_ADD");
+        assertThat(jdbc.queryForMap("""
+                SELECT p.presence_status, p.presence_source, p.last_joined_at,
+                       b.was_in_initial_baseline, b.membership_active_since_at,
+                       b.first_post_control_observed_at
+                FROM wa_group_participant p
+                JOIN wa_account_group_binding b ON b.participant_id = p.id
+                JOIN wa_group g ON g.id = p.group_id
+                WHERE b.account_id = 104 AND g.group_jid = ?
+                """, groupJid(1)))
+                .containsEntry("presence_status", 1)
+                .containsEntry("presence_source", "WGP2_ADD")
+                .containsEntry("last_joined_at", 2_000L)
+                .containsEntry("was_in_initial_baseline", 0)
+                .containsEntry("membership_active_since_at", 2_000L)
+                .containsEntry("first_post_control_observed_at", 2_000L);
+
+        writeSelfMembership(
+                104L, groupJid(1), AccountGroupMembershipStatus.NOT_IN_GROUP,
+                3_000L, "wgp2-remove", "WGP2_REMOVE");
+        assertThat(jdbc.queryForMap("""
+                SELECT p.presence_status, p.presence_source, p.last_exit_type,
+                       p.last_exited_at, b.was_in_initial_baseline,
+                       b.first_post_control_observed_at
+                FROM wa_group_participant p
+                JOIN wa_account_group_binding b ON b.participant_id = p.id
+                JOIN wa_group g ON g.id = p.group_id
+                WHERE b.account_id = 104 AND g.group_jid = ?
+                """, groupJid(1)))
+                .containsEntry("presence_status", 2)
+                .containsEntry("presence_source", "WGP2_REMOVE")
+                .containsEntry("last_exit_type", "UNKNOWN")
+                .containsEntry("last_exited_at", 3_000L)
+                .containsEntry("was_in_initial_baseline", 0)
+                .containsEntry("first_post_control_observed_at", 2_000L);
+    }
+
+    @Test
+    void delayedAddDoesNotOverrideNewerPreciseRemoveOrCreatePostControlClassification()
+            throws Exception {
+        seedCapturedAccount(105L, "923300000105", List.of(groupJid(0)));
+
+        writeSelfMembership(
+                105L, groupJid(1), AccountGroupMembershipStatus.NOT_IN_GROUP,
+                4_000L, "wgp2-remove-new", "WGP2_REMOVE");
+        writeSelfMembership(
+                105L, groupJid(1), AccountGroupMembershipStatus.IN_GROUP,
+                3_000L, "wgp2-add-old", "WGP2_ADD");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT p.presence_status, p.presence_source,
+                       b.membership_active_since_at, b.was_in_initial_baseline,
+                       b.first_post_control_observed_at
+                FROM wa_group_participant p
+                JOIN wa_account_group_binding b ON b.participant_id = p.id
+                JOIN wa_group g ON g.id = p.group_id
+                WHERE b.account_id = 105 AND g.group_jid = ?
+                """, groupJid(1)))
+                .containsEntry("presence_status", 2)
+                .containsEntry("presence_source", "WGP2_REMOVE")
+                .containsEntry("membership_active_since_at", null)
+                .containsEntry("was_in_initial_baseline", null)
+                .containsEntry("first_post_control_observed_at", null);
+    }
+
     private static void writeSnapshot(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
@@ -246,6 +318,23 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         try {
             transactionTemplate.executeWithoutResult(status -> persistence.replaceVisibleGroups(
                     accountId, groups, complete, syncAt, eventId));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeSelfMembership(
+            Long accountId,
+            String groupJid,
+            AccountGroupMembershipStatus status,
+            long occurredAt,
+            String eventId,
+            String source) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    persistence.applySelfMembershipChanged(
+                            accountId, groupJid, status, occurredAt, eventId, source));
         } finally {
             TenantContext.clear();
         }

@@ -59,6 +59,26 @@
     ORDER BY g.group_jid ASC
   </select>
 
+  <select id="selectSelfMembershipExisting"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
+    SELECT g.group_jid AS groupJid,
+           g.id AS groupId,
+           p.id AS participantId,
+           p.presence_status AS presenceStatus,
+           p.presence_source AS presenceSource,
+           p.presence_observed_at AS presenceObservedAt,
+           b.id AS bindingId
+    FROM wa_group g
+    LEFT JOIN wa_group_participant p
+      ON p.group_id = g.id
+     AND p.pn_jid = #{pnJid}
+    LEFT JOIN wa_account_group_binding b
+      ON b.account_id = #{accountId}
+     AND b.group_id = g.id
+    WHERE g.group_jid = #{groupJid}
+    LIMIT 1
+  </select>
+
   <insert id="insertMissingGroups">
     <!-- 普通读已筛出 missing；并发 winner 由后续 G current-read 收敛，禁止先 UPDATE 缺失键。 -->
     INSERT INTO wa_group (
@@ -224,6 +244,93 @@
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
 
+  <insert id="upsertSelfParticipant">
+    INSERT INTO wa_group_participant (
+      group_id, pn_jid, phone,
+      presence_status, presence_source, presence_observed_at, presence_event_id,
+      last_joined_at, last_join_event_at, last_join_source_event_id,
+      last_exited_at, last_exit_type, last_exit_event_at,
+      last_exit_source_event_id, last_exit_source_type,
+      created_at, updated_at
+    ) VALUES (
+      #{row.groupId}, #{row.pnJid}, #{row.phone},
+      #{row.presenceStatus}, #{row.presenceSource}, #{row.occurredAt}, #{row.eventId},
+      #{row.lastJoinedAt}, #{row.lastJoinedAt},
+      CASE WHEN #{row.lastJoinedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
+      #{row.lastExitedAt}, #{row.lastExitType}, #{row.lastExitedAt},
+      CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
+      CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE 'WGP2_NOTIFICATION' END,
+      #{row.now}, #{row.now}
+    )
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(VALUES(phone), phone),
+      presence_status = CASE
+        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_status)
+        ELSE presence_status
+      END,
+      presence_source = CASE
+        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_source)
+        ELSE presence_source
+      END,
+      presence_event_id = CASE
+        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_event_id)
+        ELSE presence_event_id
+      END,
+      presence_observed_at = GREATEST(
+        COALESCE(presence_observed_at, VALUES(presence_observed_at)),
+        VALUES(presence_observed_at)
+      ),
+      last_joined_at = CASE
+        WHEN VALUES(last_join_event_at) IS NOT NULL
+         AND (last_join_event_at IS NULL OR VALUES(last_join_event_at) &gt;= last_join_event_at)
+          THEN VALUES(last_joined_at)
+        ELSE last_joined_at
+      END,
+      last_join_source_event_id = CASE
+        WHEN VALUES(last_join_event_at) IS NOT NULL
+         AND (last_join_event_at IS NULL OR VALUES(last_join_event_at) &gt;= last_join_event_at)
+          THEN VALUES(last_join_source_event_id)
+        ELSE last_join_source_event_id
+      END,
+      last_join_event_at = CASE
+        WHEN VALUES(last_join_event_at) IS NOT NULL
+         AND (last_join_event_at IS NULL OR VALUES(last_join_event_at) &gt;= last_join_event_at)
+          THEN VALUES(last_join_event_at)
+        ELSE last_join_event_at
+      END,
+      last_exited_at = CASE
+        WHEN VALUES(last_exit_event_at) IS NOT NULL
+         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
+          THEN VALUES(last_exited_at)
+        ELSE last_exited_at
+      END,
+      last_exit_type = CASE
+        WHEN VALUES(last_exit_event_at) IS NOT NULL
+         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
+          THEN VALUES(last_exit_type)
+        ELSE last_exit_type
+      END,
+      last_exit_source_event_id = CASE
+        WHEN VALUES(last_exit_event_at) IS NOT NULL
+         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
+          THEN VALUES(last_exit_source_event_id)
+        ELSE last_exit_source_event_id
+      END,
+      last_exit_source_type = CASE
+        WHEN VALUES(last_exit_event_at) IS NOT NULL
+         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
+          THEN VALUES(last_exit_source_type)
+        ELSE last_exit_source_type
+      END,
+      last_exit_event_at = CASE
+        WHEN VALUES(last_exit_event_at) IS NOT NULL
+         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
+          THEN VALUES(last_exit_event_at)
+        ELSE last_exit_event_at
+      END,
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
   <update id="markMissingParticipants">
     UPDATE wa_group_participant
     SET presence_status = 2,
@@ -298,6 +405,61 @@
           THEN VALUES(membership_active_since_at)
         ELSE wa_account_group_binding.membership_active_since_at
       END,
+      last_observed_at = GREATEST(
+        COALESCE(wa_account_group_binding.last_observed_at, VALUES(last_observed_at)),
+        VALUES(last_observed_at)
+      ),
+      first_post_control_observed_at = COALESCE(
+        wa_account_group_binding.first_post_control_observed_at,
+        VALUES(first_post_control_observed_at)
+      ),
+      updated_at = GREATEST(wa_account_group_binding.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="upsertSelfBinding">
+    INSERT INTO wa_account_group_binding (
+      tenant_id, account_id, group_id, participant_id,
+      was_in_initial_baseline, baseline_subject_snapshot,
+      membership_active_since_at, last_observed_at,
+      first_post_control_observed_at, created_at, updated_at
+    )
+    SELECT #{tenantId}, #{accountId}, #{row.groupId}, participant.id,
+           CASE WHEN participant.presence_status = #{row.presenceStatus}
+                  AND participant.presence_source = #{row.presenceSource}
+                  AND participant.presence_observed_at = #{row.occurredAt}
+                THEN #{row.wasInInitialBaseline} ELSE NULL END,
+           CASE WHEN participant.presence_status = #{row.presenceStatus}
+                  AND participant.presence_source = #{row.presenceSource}
+                  AND participant.presence_observed_at = #{row.occurredAt}
+                THEN #{row.baselineSubjectSnapshot} ELSE NULL END,
+           CASE WHEN participant.presence_status = 1
+                  AND participant.presence_source = #{row.presenceSource}
+                  AND participant.presence_observed_at = #{row.occurredAt}
+                THEN #{row.membershipActiveSinceAt} ELSE NULL END,
+           #{row.occurredAt},
+           CASE WHEN participant.presence_status = 1
+                  AND participant.presence_source = #{row.presenceSource}
+                  AND participant.presence_observed_at = #{row.occurredAt}
+                THEN #{row.firstPostControlObservedAt} ELSE NULL END,
+           #{row.now}, #{row.now}
+    FROM wa_group_participant participant FORCE INDEX (uq_wa_group_participant_pn)
+    WHERE participant.tenant_id = #{tenantId}
+      AND participant.group_id = #{row.groupId}
+      AND participant.pn_jid = #{row.pnJid}
+    ON DUPLICATE KEY UPDATE
+      participant_id = VALUES(participant_id),
+      was_in_initial_baseline = COALESCE(
+        wa_account_group_binding.was_in_initial_baseline,
+        VALUES(was_in_initial_baseline)
+      ),
+      baseline_subject_snapshot = COALESCE(
+        wa_account_group_binding.baseline_subject_snapshot,
+        VALUES(baseline_subject_snapshot)
+      ),
+      membership_active_since_at = COALESCE(
+        VALUES(membership_active_since_at),
+        wa_account_group_binding.membership_active_since_at
+      ),
       last_observed_at = GREATEST(
         COALESCE(wa_account_group_binding.last_observed_at, VALUES(last_observed_at)),
         VALUES(last_observed_at)

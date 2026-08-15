@@ -47,19 +47,25 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
     /** 历史群与上控后群固化分类服务。 */
     private final GroupClassificationService classificationService;
 
+    /** V117 新表精确关系事实写入入口。 */
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
+
     /**
      * 创建账号群关系状态服务。
      *
      * @param membershipMapper 账号群关系 Mapper
      * @param groupLinkRegistryService 群组池登记服务
      * @param classificationService 历史群与上控后群分类服务
+     * @param currentPersistence V117 新表精确关系事实写入入口
      */
     public AccountGroupMembershipStatusServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                    GroupLinkRegistryService groupLinkRegistryService,
-                                                   GroupClassificationService classificationService) {
+                                                   GroupClassificationService classificationService,
+                                                   AccountGroupCurrentSnapshotPersistenceImpl currentPersistence) {
         this.membershipMapper = membershipMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.classificationService = classificationService;
+        this.currentPersistence = currentPersistence;
     }
 
     /**
@@ -147,6 +153,13 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             membership.setCreatedAt(now);
             membership.setUpdatedAt(now);
             membershipMapper.upsertMembership(membership);
+            currentPersistence.applySelfMembershipChanged(
+                    event.accountId(),
+                    event.groupJid().trim(),
+                    transition.status(),
+                    event.occurredAt(),
+                    event.eventId(),
+                    transition.source());
             log.info("账号群关系事件已应用 eventId={} accountId={} action={} status={} source={}",
                     event.eventId(), event.accountId(), event.action(), transition.status().apiValue(),
                     transition.source());

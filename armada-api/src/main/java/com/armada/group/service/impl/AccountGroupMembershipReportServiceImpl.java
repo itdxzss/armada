@@ -32,8 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 账号当前群列表回报落库服务实现。
  *
  * <p>Kafka listener 线程没有 HTTP 租户上下文,本服务按事件中的 {@code tenantId}
- * 临时重建 {@link TenantContext}。baseline 仅保留首次历史快照,每次回报都把协议返回的
- * 当前全部群交给 membership 快照服务。</p>
+ * 临时重建 {@link TenantContext}。baseline 仅保留首次历史快照,每次回报都先保持旧表写入，
+ * 再在同一事务写入新的群组当前事实表。</p>
  */
 @Service
 public class AccountGroupMembershipReportServiceImpl implements AccountGroupMembershipReportService {
@@ -75,8 +75,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
     /**
      * 应用协议层 {@code account.groups_reported} 回报事件。
      *
-     * <p>待拍账号先保存首次 baseline，随后与其他账号一样把本次可见群写入 membership 快照；
-     * 只有确认完整的快照才会校准缺失关系，baseline 不再参与当前群筛选。</p>
+     * <p>待拍账号先保存首次 baseline，随后按同一完整性判断写入旧表与新的群组当前事实表；
+     * 只有确认完整的快照才会校准缺失关系，旧表结果继续决定当前营销行为。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)

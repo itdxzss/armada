@@ -5,9 +5,11 @@ import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SelfMembershipWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
@@ -31,7 +33,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 将当前 v1 账号群快照集合化写入 V117 的 S/G/P/M/B 五表。 */
+/** 将当前账号群快照和账号自身精确进退群事实写入 V117 新表。 */
 @Service
 public class AccountGroupCurrentSnapshotPersistenceImpl {
 
@@ -59,7 +61,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     }
 
     /**
-     * 替换单账号当前可见群。当前阶段未接入事件入口，只提供可真实验证的五表批量写能力。
+     * 替换单账号当前可见群。
      */
     @Transactional(rollbackFor = Exception.class)
     public void replaceVisibleGroups(
@@ -180,6 +182,110 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         mapper.upsertSyncState(syncState(context, baseline, snapshotComplete, syncAt, now));
     }
 
+    /**
+     * 双写账号自身的精确进群、离群或不在群事实。
+     *
+     * <p>调用方已经完成租户、账号协议句柄和动作校验。本方法只更新新模型，不产生营销等业务副作用。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void applySelfMembershipChanged(
+            Long accountId,
+            String groupJid,
+            AccountGroupMembershipStatus status,
+            long occurredAt,
+            String eventId,
+            String presenceSource) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        Context context = mapper.selectContext(accountId);
+        if (context == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型精确关系事件找不到活跃账号");
+        }
+        WhatsappJids.OwnerIdentity self = WhatsappJids.ownerIdentity(context.wsPhone(), "pn");
+        if (self.kind() != OwnerIdentityKind.PN
+                || self.ownerJid() == null
+                || self.ownerPhone() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号手机号无法构造 self PN JID");
+        }
+        boolean inGroup = status == AccountGroupMembershipStatus.IN_GROUP;
+        if (!inGroup
+                && status != AccountGroupMembershipStatus.NOT_IN_GROUP
+                && status != AccountGroupMembershipStatus.LEFT) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型不支持该账号群关系状态");
+        }
+
+        String normalizedGroupJid = normalizeJid(groupJid);
+        String normalizedSource = blankToNull(presenceSource);
+        if (normalizedGroupJid == null || normalizedSource == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型精确关系事件缺少群或来源");
+        }
+        Existing existing = mapper.selectSelfMembershipExisting(
+                accountId, self.ownerJid(), normalizedGroupJid);
+        boolean accepted = presenceWins(existing, occurredAt, normalizedSource);
+        BaselineEvidence baseline = baselineEvidenceForPreciseEvent(context);
+        Classification classification = inGroup
+                ? classification(normalizedGroupJid, baseline, accepted, occurredAt)
+                : Classification.unknown();
+        Long activeSince = accepted && inGroup
+                && (existing == null || existing.presenceStatus() == null
+                || existing.presenceStatus() != PRESENCE_IN_GROUP)
+                ? occurredAt : null;
+        long now = System.currentTimeMillis();
+        String normalizedEventId = clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH);
+        SelfMembershipWrite row = new SelfMembershipWrite(
+                existing == null ? null : existing.groupId(),
+                normalizedGroupJid,
+                self.ownerJid(),
+                self.ownerPhone(),
+                inGroup ? 1 : 2,
+                normalizedSource,
+                normalizedEventId,
+                occurredAt,
+                now,
+                inGroup ? occurredAt : null,
+                status == AccountGroupMembershipStatus.LEFT ? "LEFT"
+                        : inGroup ? null : "UNKNOWN",
+                inGroup ? null : occurredAt,
+                classification.wasInInitialBaseline(),
+                classification.baselineSubjectSnapshot(),
+                activeSince,
+                classification.firstPostControlObservedAt());
+
+        if (row.groupId() == null) {
+            mapper.insertMissingGroups(tenantId, List.of(new Write(
+                    null, normalizedGroupJid, normalizedGroupJid, null,
+                    null, null, null, null, self.ownerJid(), self.ownerPhone(),
+                    0, normalizedEventId, occurredAt, now, null, null, null, null)));
+            List<GroupId> groupIds = mapper.selectGroupIds(
+                    tenantId, List.of(normalizedGroupJid));
+            if (groupIds.size() != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析精确关系事件的 groupId");
+            }
+            row = row.withGroupId(groupIds.get(0).groupId());
+        }
+        mapper.upsertSelfParticipant(row);
+        mapper.upsertSelfBinding(tenantId, accountId, row);
+    }
+
+    private BaselineEvidence baselineEvidenceForPreciseEvent(Context context) {
+        try {
+            return baselineEvidence(context);
+        } catch (BusinessException exception) {
+            log.warn("账号 baseline 不完整，精确关系事件在新模型中保留未知分类 accountId={}",
+                    context.accountId());
+            return new BaselineEvidence(
+                    AccountGroupBaselineStateCode.PENDING,
+                    0,
+                    null,
+                    null,
+                    Set.of(),
+                    Map.of(),
+                    false);
+        }
+    }
+
     private SyncStateWrite syncState(
             Context context,
             BaselineEvidence baseline,
@@ -284,13 +390,17 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     }
 
     private static boolean snapshotWins(Existing existing, long syncAt) {
+        return presenceWins(existing, syncAt, SNAPSHOT_SOURCE);
+    }
+
+    private static boolean presenceWins(Existing existing, long observedAt, String source) {
         if (existing == null || existing.presenceObservedAt() == null) {
             return true;
         }
-        if (syncAt != existing.presenceObservedAt()) {
-            return syncAt > existing.presenceObservedAt();
+        if (observedAt != existing.presenceObservedAt()) {
+            return observedAt > existing.presenceObservedAt();
         }
-        return sourcePriority(SNAPSHOT_SOURCE) > sourcePriority(existing.presenceSource());
+        return sourcePriority(source) > sourcePriority(existing.presenceSource());
     }
 
     private static int sourcePriority(String source) {

@@ -28,9 +28,11 @@ class AccountGroupMembershipStatusServiceImplTest {
     private final GroupLinkRegistryService registryService = Mockito.mock(GroupLinkRegistryService.class);
     private final GroupClassificationService classificationService =
             Mockito.mock(GroupClassificationService.class);
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentPersistence =
+            Mockito.mock(AccountGroupCurrentSnapshotPersistenceImpl.class);
     private final AccountGroupMembershipStatusServiceImpl service =
             new AccountGroupMembershipStatusServiceImpl(
-                    mapper, registryService, classificationService);
+                    mapper, registryService, classificationService, currentPersistence);
 
     @AfterEach
     void clearTenantContext() {
@@ -71,6 +73,13 @@ class AccountGroupMembershipStatusServiceImplTest {
         assertThat(membership.getValue().getLastExitedAt()).isEqualTo(2000L);
         assertThat(membership.getValue().getJoinedAt()).isNull();
         Mockito.verifyNoInteractions(classificationService);
+        verify(currentPersistence).applySelfMembershipChanged(
+                10L,
+                "120363001@g.us",
+                AccountGroupMembershipStatus.NOT_IN_GROUP,
+                2000L,
+                "event-remove-10",
+                "WGP2_REMOVE");
     }
 
     @Test
@@ -105,6 +114,13 @@ class AccountGroupMembershipStatusServiceImplTest {
                 Mockito.eq(2_000L),
                 Mockito.anyLong());
         order.verify(mapper).upsertMembership(Mockito.any(AccountGroupMembership.class));
+        verify(currentPersistence).applySelfMembershipChanged(
+                10L,
+                "120363001@g.us",
+                AccountGroupMembershipStatus.IN_GROUP,
+                2_000L,
+                "event-add-10",
+                "WGP2_ADD");
     }
 
     @Test

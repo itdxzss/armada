@@ -252,6 +252,9 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), anyLong(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 eq(ProtocolBackend.ANDROID));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), anyLong(),
+                org.mockito.ArgumentMatchers.any());
 
         AccountGroupBaselineRow web = baseline(11L, AccountGroupBaselineStateCode.CAPTURED);
         web.setProtocolId("WEB");
@@ -264,6 +267,9 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq(11L), org.mockito.ArgumentMatchers.any(), eq(true), anyLong(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 eq(ProtocolBackend.WEB));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(11L), org.mockito.ArgumentMatchers.any(), eq(true), anyLong(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -288,6 +294,10 @@ class AccountGroupMembershipReportServiceImplTest {
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(3000L),
                 eq("evt-skipped"), eq("android_groups_dirty"), eq(ProtocolBackend.ANDROID));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(2000L), eq("evt-false"));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(3000L), eq("evt-skipped"));
     }
 
     @Test
@@ -305,6 +315,9 @@ class AccountGroupMembershipReportServiceImplTest {
         verify(snapshotService).replaceVisibleGroups(
                 eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(4000L),
                 eq("evt-web-skipped"), eq("wa_groups_dirty"), eq(ProtocolBackend.WEB));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(10L), org.mockito.ArgumentMatchers.any(), eq(false), eq(4000L),
+                eq("evt-web-skipped"));
     }
 
     @Test

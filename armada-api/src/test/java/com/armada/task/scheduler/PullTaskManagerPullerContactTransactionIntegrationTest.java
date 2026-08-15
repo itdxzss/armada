@@ -21,7 +21,6 @@ import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
-import com.armada.task.model.dto.PullTaskMemberAddPermissionWork;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -172,38 +171,45 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
-    void permissionPreparationResolvesManagerWithoutAllocatingPuller() {
+    void groupSettingsGateSubmitsMemberAddCommandWithoutAllocatingPuller() {
         ProtocolAccountRef manager = new ProtocolAccountRef(
                 901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
         when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-member-add-1"), 1));
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
 
-        PullTaskMemberAddPermissionPreparation preparation =
-                service.prepareMemberAddPermission(candidate, "worker-1", 610L);
+        PullTaskGroupSettingsGate gate =
+                service.ensureGroupSettings(candidate, "worker-1", 610L);
 
-        assertThat(preparation.ready()).isTrue();
-        assertThat(preparation.work().manager()).isEqualTo(manager);
-        assertThat(preparation.work().groupJid()).isEqualTo("120363group@g.us");
+        // 加人权限尚未确认，门必须关着：拉手与联系人动作一个都不能提前产生。
+        assertThat(gate.satisfied()).isFalse();
         TenantContext.set(7L);
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code())).isEmpty();
         assertThat(actionMapper.selectByExecutionAndType(
                 candidate.getId(), PullTaskAccountActionType.SAVE_CONTACT.code())).isEmpty();
+        List<PullTaskAccountAction> memberAdd = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        assertThat(memberAdd).hasSize(1);
+        assertThat(memberAdd.get(0).getCommandId()).isEqualTo("cmd-member-add-1");
+        assertThat(memberAdd.get(0).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
     }
 
     @Test
-    void unconfirmedPermissionDefersCurrentStageWithoutAllocatingPuller() {
+    void groupSettingsGateDefersCurrentStageWithoutAllocatingPuller() {
         ProtocolAccountRef manager = new ProtocolAccountRef(
                 901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
         when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-member-add-2"), 1));
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
-        PullTaskMemberAddPermissionWork work = service.prepareMemberAddPermission(
-                candidate, "worker-1", 610L).work();
 
-        PullTaskExecutionDispatchResult result = service.deferMemberAddPermission(
-                work,
-                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED,
-                620L);
+        PullTaskExecutionDispatchResult result =
+                service.ensureGroupSettings(candidate, "worker-1", 620L).result();
 
         assertThat(result).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         TenantContext.set(7L);

@@ -6,19 +6,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.platform.protocol.exception.ProtocolErrorCode;
-import com.armada.platform.protocol.exception.ProtocolException;
-import com.armada.platform.protocol.model.command.ProtocolAccountRef;
-import com.armada.platform.protocol.model.enums.ProtocolBackend;
-import com.armada.platform.protocol.model.result.GroupMetadataResult;
-import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
-import com.armada.platform.protocol.port.GroupSettingsPort;
-import com.armada.task.model.dto.PullTaskMemberAddPermissionWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
-import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
-import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class PullTaskManagerPullerContactProcessorTest {
@@ -27,142 +18,55 @@ class PullTaskManagerPullerContactProcessorTest {
             mock(PullTaskManagerPullerContactTransactionService.class);
     private final PullTaskSupplementPullerProcessor supplementProcessor =
             mock(PullTaskSupplementPullerProcessor.class);
-    private final FixedAccountGroupMetadataPort metadataPort =
-            mock(FixedAccountGroupMetadataPort.class);
-    private final GroupSettingsPort settingsPort = mock(GroupSettingsPort.class);
     private final PullTaskManagerPullerContactProcessor processor =
-            new PullTaskManagerPullerContactProcessor(
-                    transactions, supplementProcessor, metadataPort, settingsPort);
+            new PullTaskManagerPullerContactProcessor(transactions, supplementProcessor);
 
     @Test
-    void supplementLinkJoinRunsBeforeInitialContactPreparation() {
+    @DisplayName("补充拉手指令优先，不触发群设置")
+    void supplementLinkJoinRunsBeforeGroupSettings() {
         PullTaskGroupExecution candidate = candidate();
         when(supplementProcessor.processIfPresent(candidate, "worker-1", 1_000L))
                 .thenReturn(Optional.of(PullTaskExecutionDispatchResult.DEFERRED));
-        when(transactions.prepareMemberAddPermission(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskMemberAddPermissionPreparation.completed(
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        verify(transactions, never()).ensureGroupSettings(candidate, "worker-1", 1_000L);
+        verify(transactions, never()).prepare(candidate, "worker-1", 1_000L);
+    }
+
+    @Test
+    @DisplayName("加人权限尚未确认时返回等待，绝不提前占用拉手")
+    void unsatisfiedGroupSettingsDefersBeforePullerAllocation() {
+        PullTaskGroupExecution candidate = candidate();
+        when(supplementProcessor.processIfPresent(candidate, "worker-1", 1_000L))
+                .thenReturn(Optional.empty());
+        when(transactions.ensureGroupSettings(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskGroupSettingsGate.waiting(
                         PullTaskExecutionDispatchResult.DEFERRED));
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
-        verify(transactions, never()).prepareMemberAddPermission(
-                candidate, "worker-1", 1_000L);
+        // 拉手是稀缺资源，权限没放开就占号会把拉手锁在一条注定失败的执行行上。
         verify(transactions, never()).prepare(candidate, "worker-1", 1_000L);
     }
 
     @Test
-    void alreadyAllowedPermissionSkipsMutationAndPreparesContacts() {
+    @DisplayName("加人权限已确认后才准备管理—拉手联系人")
+    void satisfiedGroupSettingsProceedsToContactPreparation() {
         PullTaskGroupExecution candidate = candidate();
-        PullTaskMemberAddPermissionWork work = permissionWork();
-        when(transactions.prepareMemberAddPermission(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskMemberAddPermissionPreparation.ready(work));
-        when(metadataPort.getMetadata(work.manager(), work.groupJid()))
-                .thenReturn(metadata(true));
         when(supplementProcessor.processIfPresent(candidate, "worker-1", 1_000L))
                 .thenReturn(Optional.empty());
+        when(transactions.ensureGroupSettings(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskGroupSettingsGate.open());
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
-        verify(settingsPort, never()).setAddMembersAllowed(
-                work.manager(), work.groupJid(), true);
         verify(transactions).prepare(candidate, "worker-1", 1_000L);
-    }
-
-    @Test
-    void enablesPermissionAndConfirmsItBeforePreparingContacts() {
-        PullTaskGroupExecution candidate = candidate();
-        PullTaskMemberAddPermissionWork work = permissionWork();
-        when(transactions.prepareMemberAddPermission(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskMemberAddPermissionPreparation.ready(work));
-        when(metadataPort.getMetadata(work.manager(), work.groupJid()))
-                .thenReturn(metadata(false), metadata(true));
-        when(supplementProcessor.processIfPresent(candidate, "worker-1", 1_000L))
-                .thenReturn(Optional.empty());
-        when(transactions.prepare(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
-
-        assertThat(processor.process(candidate, "worker-1", 1_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-
-        verify(settingsPort).setAddMembersAllowed(work.manager(), work.groupJid(), true);
-        verify(transactions).prepare(candidate, "worker-1", 1_000L);
-    }
-
-    @Test
-    void unconfirmedPermissionDefersBeforePullerAllocation() {
-        PullTaskGroupExecution candidate = candidate();
-        PullTaskMemberAddPermissionWork work = permissionWork();
-        when(transactions.prepareMemberAddPermission(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskMemberAddPermissionPreparation.ready(work));
-        when(metadataPort.getMetadata(work.manager(), work.groupJid()))
-                .thenReturn(metadata(false), metadata(null));
-        when(transactions.deferMemberAddPermission(
-                work,
-                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED,
-                1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
-
-        assertThat(processor.process(candidate, "worker-1", 1_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-
-        verify(transactions, never()).prepare(candidate, "worker-1", 1_000L);
-    }
-
-    @Test
-    void permissionDeniedUsesExplicitReasonAndStopsContacts() {
-        PullTaskGroupExecution candidate = candidate();
-        PullTaskMemberAddPermissionWork work = permissionWork();
-        when(transactions.prepareMemberAddPermission(candidate, "worker-1", 1_000L))
-                .thenReturn(PullTaskMemberAddPermissionPreparation.ready(work));
-        when(metadataPort.getMetadata(work.manager(), work.groupJid()))
-                .thenThrow(new ProtocolException(
-                        ProtocolErrorCode.GROUP_PERMISSION_DENIED, "denied"));
-        when(transactions.deferMemberAddPermission(
-                work,
-                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_DENIED,
-                1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
-
-        assertThat(processor.process(candidate, "worker-1", 1_000L))
-                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-
-        verify(transactions, never()).prepare(candidate, "worker-1", 1_000L);
-    }
-
-    private static PullTaskMemberAddPermissionWork permissionWork() {
-        return new PullTaskMemberAddPermissionWork(
-                7L,
-                11L,
-                4,
-                "worker-1",
-                "120363group@g.us",
-                new ProtocolAccountRef(
-                        901L, ProtocolBackend.ANDROID, "android-901", "919000000001"));
-    }
-
-    private static GroupMetadataResult metadata(Boolean memberAddMode) {
-        return new GroupMetadataResult(
-                "120363group@g.us",
-                "group",
-                null,
-                null,
-                null,
-                true,
-                false,
-                null,
-                memberAddMode,
-                null,
-                null,
-                null,
-                false,
-                "unsupported",
-                false,
-                true,
-                List.of());
     }
 
     private static PullTaskGroupExecution candidate() {

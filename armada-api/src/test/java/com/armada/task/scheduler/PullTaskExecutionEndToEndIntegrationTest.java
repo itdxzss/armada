@@ -670,16 +670,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerPullerContactTransactionService transactions =
                     new PullTaskManagerPullerContactTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
-            FixedAccountGroupMetadataPort metadataPort =
-                    mock(FixedAccountGroupMetadataPort.class);
-            GroupMetadataResult metadata = mock(GroupMetadataResult.class);
-            when(metadata.memberAddMode()).thenReturn(true);
-            when(metadataPort.getMetadata(any(), any())).thenReturn(metadata);
+            // 群设置改为异步命令后本阶段不再有事务外协议调用，无需再注入元数据与设置端口。
             return new PullTaskManagerPullerContactProcessor(
                     transactions,
-                    mock(PullTaskSupplementPullerProcessor.class),
-                    metadataPort,
-                    mock(GroupSettingsPort.class));
+                    mock(PullTaskSupplementPullerProcessor.class));
         }
 
         @Bean PullTaskPullerInviteProcessor pullerInviteProcessor(

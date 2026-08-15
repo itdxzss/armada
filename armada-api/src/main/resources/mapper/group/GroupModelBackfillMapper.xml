@@ -9,6 +9,8 @@
       ON preview.tenant_id = link.tenant_id
      AND preview.group_link_id = link.id
     WHERE preview.group_jid IS NOT NULL
+      <!-- -1 是 TenantContext 无上下文时的 fail-closed 哨兵，不是业务租户。 -->
+      AND preview.tenant_id &lt;&gt; -1
       AND (
         link.id IS NULL
         OR TRIM(preview.group_jid) = ''
@@ -69,11 +71,7 @@
     FROM (
       SELECT state.id
       FROM whatsapp_group_member_state state
-      LEFT JOIN wa_group resolved_group
-        ON state.tenant_id = resolved_group.tenant_id
-       AND LOWER(TRIM(state.group_jid)) = resolved_group.group_jid
-      WHERE resolved_group.id IS NULL
-         OR LOWER(TRIM(state.group_jid)) NOT LIKE '%@g.us'
+      WHERE LOWER(TRIM(state.group_jid)) NOT LIKE '%@g.us'
          OR (
            LOWER(TRIM(state.participant_jid)) NOT LIKE '%@s.whatsapp.net'
            AND LOWER(TRIM(state.participant_jid)) NOT LIKE '%@lid'
@@ -83,10 +81,7 @@
 
       SELECT join_fact.id
       FROM whatsapp_group_member_join_fact join_fact
-      LEFT JOIN wa_group resolved_group
-        ON join_fact.tenant_id = resolved_group.tenant_id
-       AND LOWER(TRIM(join_fact.group_jid)) = resolved_group.group_jid
-      WHERE resolved_group.id IS NULL
+      WHERE LOWER(TRIM(join_fact.group_jid)) NOT LIKE '%@g.us'
          OR (
            LOWER(TRIM(join_fact.participant_jid)) NOT LIKE '%@s.whatsapp.net'
            AND LOWER(TRIM(join_fact.participant_jid)) NOT LIKE '%@lid'
@@ -96,10 +91,7 @@
 
       SELECT exit_fact.id
       FROM whatsapp_group_departed_member exit_fact
-      LEFT JOIN wa_group resolved_group
-        ON exit_fact.tenant_id = resolved_group.tenant_id
-       AND LOWER(TRIM(exit_fact.group_jid)) = resolved_group.group_jid
-      WHERE resolved_group.id IS NULL
+      WHERE LOWER(TRIM(exit_fact.group_jid)) NOT LIKE '%@g.us'
          OR (
            LOWER(TRIM(exit_fact.participant_jid)) NOT LIKE '%@s.whatsapp.net'
            AND LOWER(TRIM(exit_fact.participant_jid)) NOT LIKE '%@lid'
@@ -109,13 +101,10 @@
 
       SELECT preview.id
       FROM group_link_preview preview
-      LEFT JOIN wa_group resolved_group
-        ON resolved_group.tenant_id = preview.tenant_id
-       AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
       WHERE preview.owner_phone IS NOT NULL
         AND TRIM(preview.owner_phone) &lt;&gt; ''
         AND (
-          resolved_group.id IS NULL
+          LOWER(TRIM(preview.group_jid)) NOT LIKE '%@g.us'
           OR NULLIF(REGEXP_REPLACE(preview.owner_phone, '[^0-9]', ''), '') IS NULL
         )
     ) participant_conflict
@@ -129,15 +118,24 @@
       LEFT JOIN account account
         ON account.tenant_id = membership.tenant_id
        AND account.id = membership.account_id
-       AND account.deleted_at IS NULL
-      LEFT JOIN wa_group resolved_group
-        ON resolved_group.tenant_id = membership.tenant_id
-       AND resolved_group.group_jid = LOWER(TRIM(membership.group_jid))
+      LEFT JOIN group_link source_link
+        ON source_link.tenant_id = membership.tenant_id
+       AND source_link.id = membership.group_link_id
+      LEFT JOIN group_link_preview source_preview
+        ON source_preview.tenant_id = membership.tenant_id
+       AND source_preview.group_link_id = membership.group_link_id
+       AND LOWER(TRIM(source_preview.group_jid)) = LOWER(TRIM(membership.group_jid))
       WHERE membership.deleted_at IS NULL
         AND (
           account.id IS NULL
-          OR resolved_group.id IS NULL
-          OR TRIM(account.ws_phone) NOT REGEXP '^[0-9]+$'
+          OR (
+            account.deleted_at IS NULL
+            AND (
+              source_link.id IS NULL
+              OR source_preview.id IS NULL
+              OR TRIM(account.ws_phone) NOT REGEXP '^[0-9]+$'
+            )
+          )
         )
 
       UNION ALL
@@ -155,7 +153,13 @@
             AND (
               baseline.id IS NULL
               OR JSON_TYPE(baseline.baseline_group_jids) &lt;&gt; 'ARRAY'
-              OR JSON_LENGTH(baseline.baseline_group_jids) = 0
+              OR (
+                JSON_LENGTH(baseline.baseline_group_jids) = 0
+                AND (
+                  baseline.last_group_sync_requested_at IS NOT NULL
+                  OR baseline.captured_at = baseline.created_at
+                )
+              )
               OR baseline.group_count &lt;&gt; JSON_LENGTH(baseline.baseline_group_jids)
               OR baseline.captured_at IS NULL
               OR baseline.captured_at &lt; 0
@@ -188,11 +192,14 @@
           AND account.group_baseline_state = 2
           AND JSON_TYPE(baseline.baseline_group_jids) = 'ARRAY'
       ) baseline_group
-      LEFT JOIN wa_group resolved_group
-        ON resolved_group.tenant_id = baseline_group.tenant_id
-       AND resolved_group.group_jid = baseline_group.group_jid
+      LEFT JOIN group_link_preview source_preview
+        ON source_preview.tenant_id = baseline_group.tenant_id
+       AND LOWER(TRIM(source_preview.group_jid)) = baseline_group.group_jid
+      LEFT JOIN group_link source_link
+        ON source_link.tenant_id = source_preview.tenant_id
+       AND source_link.id = source_preview.group_link_id
       WHERE baseline_group.group_jid NOT LIKE '%@g.us'
-         OR resolved_group.id IS NULL
+         OR source_link.id IS NULL
 
       UNION ALL
 

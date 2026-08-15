@@ -99,7 +99,7 @@ class ProtocolCommandDispatchTriggerTest {
     }
 
     @Test
-    void dispatchAfterCommit_dispatchesSynchronouslyWhenExecutorRejectsTask() {
+    void dispatchAfterCommit_leavesRowsToTheFallbackScannerWhenExecutorRejectsTask() {
         ProtocolCommandDispatcher dispatcher = dispatcher();
         Executor rejectingExecutor = command -> {
             throw new RejectedExecutionException("queue full");
@@ -110,8 +110,11 @@ class ProtocolCommandDispatchTriggerTest {
                 new ProtocolCommandDispatcherProperties(),
                 scheduler);
 
+        // 队列满时不能改用当前线程发送：调用方通常是拉群调度线程，
+        // 同步发送会把整个调度轮次连同 Kafka 往返一起阻塞。
+        // 行已提交为 PENDING，交给周期兜底扫描即可。
         assertThatCode(() -> trigger.dispatchAfterCommit(rows)).doesNotThrowAnyException();
-        verify(dispatcher).dispatchInsertedRows(rows);
+        verify(dispatcher, never()).dispatchInsertedRows(rows);
     }
 
     @Test

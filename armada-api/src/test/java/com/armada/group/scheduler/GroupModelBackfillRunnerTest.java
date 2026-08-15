@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.armada.group.mapper.GroupModelBackfillMapper;
 import com.armada.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,6 +30,10 @@ class GroupModelBackfillRunnerTest {
         assertThat(condition.havingValue()).isEqualTo("true");
         assertThat(GroupModelBackfillRunner.class.getDeclaredMethods())
                 .noneMatch(method -> method.isAnnotationPresent(Scheduled.class));
+        assertThat(GroupModelBackfillRunner.class.getConstructors())
+                .singleElement()
+                .satisfies(constructor -> assertThat(
+                        constructor.isAnnotationPresent(Autowired.class)).isTrue());
     }
 
     @Test
@@ -40,7 +45,7 @@ class GroupModelBackfillRunnerTest {
         assertThatThrownBy(runner::backfillAll)
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("非法群来源");
-        verify(mapper, never()).backfillGroups(500);
+        verify(mapper, never()).backfillGroups(5_000);
     }
 
     @Test
@@ -52,7 +57,7 @@ class GroupModelBackfillRunnerTest {
         assertThatThrownBy(runner::backfillAll)
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("重复群 JID");
-        verify(mapper, never()).backfillGroups(500);
+        verify(mapper, never()).backfillGroups(5_000);
     }
 
     @Test
@@ -64,9 +69,9 @@ class GroupModelBackfillRunnerTest {
         assertThatThrownBy(runner::backfillAll)
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("邀请冲突");
-        verify(mapper, never()).backfillGroups(500);
-        verify(mapper, never()).backfillProfiles(500);
-        verify(mapper, never()).backfillInvites(500);
+        verify(mapper, never()).backfillGroups(5_000);
+        verify(mapper, never()).backfillProfiles(5_000);
+        verify(mapper, never()).backfillInvites(5_000);
     }
 
     @Test
@@ -78,8 +83,8 @@ class GroupModelBackfillRunnerTest {
         assertThatThrownBy(runner::backfillAll)
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("成员身份冲突");
-        verify(mapper, never()).backfillGroups(500);
-        verify(mapper, never()).backfillParticipants(500);
+        verify(mapper, never()).backfillGroups(5_000);
+        verify(mapper, never()).backfillParticipants(5_000);
     }
 
     @Test
@@ -91,25 +96,25 @@ class GroupModelBackfillRunnerTest {
         assertThatThrownBy(runner::backfillAll)
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("baseline 冲突");
-        verify(mapper, never()).backfillGroups(500);
-        verify(mapper, never()).backfillAccountGroupBindings(500);
+        verify(mapper, never()).backfillGroups(5_000);
+        verify(mapper, never()).backfillAccountGroupBindings(5_000);
     }
 
     @Test
     void manualRunUsesBoundedBatchesUntilNoDataRemains() {
         GroupModelBackfillMapper mapper = mock(GroupModelBackfillMapper.class);
-        when(mapper.backfillGroups(500)).thenReturn(500, 37, 0);
-        when(mapper.backfillProfiles(500)).thenReturn(20, 0);
-        when(mapper.backfillMemberSnapshotHeaders(500)).thenReturn(2, 0);
-        when(mapper.backfillInvites(500)).thenReturn(10, 0);
-        when(mapper.backfillCurrentInvitePointers(500)).thenReturn(8, 0);
-        when(mapper.backfillProfileOwners(500)).thenReturn(1, 0);
-        when(mapper.backfillParticipants(500)).thenReturn(40, 0);
-        when(mapper.backfillAccountParticipants(500)).thenReturn(5, 0);
-        when(mapper.backfillParticipantJoinFacts(500)).thenReturn(4, 0);
-        when(mapper.backfillParticipantExitFacts(500)).thenReturn(3, 0);
-        when(mapper.backfillAccountGroupBindings(500)).thenReturn(6, 0);
-        when(mapper.backfillAccountGroupSyncStates(500)).thenReturn(2, 0);
+        when(mapper.backfillGroups(5_000)).thenReturn(500, 37, 0);
+        when(mapper.backfillProfiles(5_000)).thenReturn(20, 0);
+        when(mapper.backfillMemberSnapshotHeaders(5_000)).thenReturn(2, 0);
+        when(mapper.backfillInvites(5_000)).thenReturn(10, 0);
+        when(mapper.backfillCurrentInvitePointers(5_000)).thenReturn(8, 0);
+        when(mapper.backfillProfileOwners(5_000)).thenReturn(1, 0);
+        when(mapper.backfillParticipants(5_000)).thenReturn(40, 0);
+        when(mapper.backfillAccountParticipants(5_000)).thenReturn(5, 0);
+        when(mapper.backfillParticipantJoinFacts(5_000)).thenReturn(4, 0);
+        when(mapper.backfillParticipantExitFacts(5_000)).thenReturn(3, 0);
+        when(mapper.backfillAccountGroupBindings(5_000)).thenReturn(6, 0);
+        when(mapper.backfillAccountGroupSyncStates(5_000)).thenReturn(2, 0);
         GroupModelBackfillRunner runner = runner(mapper);
 
         GroupModelBackfillRunner.BackfillResult result = runner.backfillAll();
@@ -117,21 +122,23 @@ class GroupModelBackfillRunnerTest {
         assertThat(runner).isInstanceOf(ApplicationRunner.class);
         assertThat(result.batches()).isEqualTo(13);
         assertThat(result.affectedRows()).isEqualTo(638);
-        verify(mapper, times(25)).countDuplicateGroupJids();
-        verify(mapper, times(25)).countParticipantConflicts();
-        verify(mapper, times(25)).countBindingConflicts();
-        verify(mapper, times(3)).backfillGroups(500);
-        verify(mapper, times(2)).backfillProfiles(500);
-        verify(mapper, times(2)).backfillMemberSnapshotHeaders(500);
-        verify(mapper, times(2)).backfillInvites(500);
-        verify(mapper, times(2)).backfillCurrentInvitePointers(500);
-        verify(mapper, times(2)).backfillProfileOwners(500);
-        verify(mapper, times(2)).backfillParticipants(500);
-        verify(mapper, times(2)).backfillAccountParticipants(500);
-        verify(mapper, times(2)).backfillParticipantJoinFacts(500);
-        verify(mapper, times(2)).backfillParticipantExitFacts(500);
-        verify(mapper, times(2)).backfillAccountGroupBindings(500);
-        verify(mapper, times(2)).backfillAccountGroupSyncStates(500);
+        verify(mapper, times(2)).countInvalidGroupSources();
+        verify(mapper, times(2)).countDuplicateGroupJids();
+        verify(mapper, times(2)).countInviteConflicts();
+        verify(mapper, times(2)).countParticipantConflicts();
+        verify(mapper, times(2)).countBindingConflicts();
+        verify(mapper, times(3)).backfillGroups(5_000);
+        verify(mapper, times(2)).backfillProfiles(5_000);
+        verify(mapper, times(2)).backfillMemberSnapshotHeaders(5_000);
+        verify(mapper, times(2)).backfillInvites(5_000);
+        verify(mapper, times(2)).backfillCurrentInvitePointers(5_000);
+        verify(mapper, times(2)).backfillProfileOwners(5_000);
+        verify(mapper, times(2)).backfillParticipants(5_000);
+        verify(mapper, times(2)).backfillAccountParticipants(5_000);
+        verify(mapper, times(2)).backfillParticipantJoinFacts(5_000);
+        verify(mapper, times(2)).backfillParticipantExitFacts(5_000);
+        verify(mapper, times(2)).backfillAccountGroupBindings(5_000);
+        verify(mapper, times(2)).backfillAccountGroupSyncStates(5_000);
     }
 
     private static GroupModelBackfillRunner runner(GroupModelBackfillMapper mapper) {

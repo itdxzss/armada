@@ -614,7 +614,8 @@ class AccountGroupSyncMySqlConcurrencyTest {
         factoryBean.setMapperLocations(
                 new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
                 new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
-                new ClassPathResource("mapper/group/GroupLinkHealthMapper.xml"));
+                new ClassPathResource("mapper/group/GroupLinkHealthMapper.xml"),
+                new ClassPathResource("mapper/group/GroupLinkPreviewMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         if (factory == null) {
             throw new IllegalStateException("MySQL 并发测试无法创建 SqlSessionFactory");
@@ -654,6 +655,7 @@ class AccountGroupSyncMySqlConcurrencyTest {
                   member_size INT DEFAULT NULL,
                   owner_phone VARCHAR(32) DEFAULT NULL,
                   announce_only TINYINT(1) DEFAULT NULL,
+                  group_created_at BIGINT DEFAULT NULL,
                   avatar_url VARCHAR(512) DEFAULT NULL,
                   last_preview_at BIGINT DEFAULT NULL,
                   created_at BIGINT NOT NULL,
@@ -691,6 +693,8 @@ class AccountGroupSyncMySqlConcurrencyTest {
                   membership_status TINYINT NOT NULL DEFAULT 1,
                   status_source VARCHAR(64) DEFAULT NULL,
                   status_updated_at BIGINT NOT NULL,
+                  last_exit_type TINYINT DEFAULT NULL,
+                  last_exited_at BIGINT DEFAULT NULL,
                   joined_at BIGINT DEFAULT NULL,
                   last_seen_at BIGINT DEFAULT NULL,
                   created_at BIGINT NOT NULL,

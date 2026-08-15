@@ -10,7 +10,11 @@ public enum PullTaskAccountActionType {
     /** 踩链接入群：账号自行通过群链接进入，actor 写目标账号自身 ID。 */
     JOIN_BY_LINK(3),
     /** 设置任务管理员：群内既有管理员把任务管理员提升为群管理员。 */
-    PROMOTE_MANAGER(4);
+    PROMOTE_MANAGER(4),
+    /** 放开加人权限：任务管理员把群设置为全体成员可添加成员，是拉手拉料子的硬前置。 */
+    OPEN_MEMBER_ADD(5),
+    /** 关闭进群审核：任务管理员关闭群的管理员入群审批，失败不阻断执行行。 */
+    CLOSE_JOIN_APPROVAL(6);
 
     private final int code;
 

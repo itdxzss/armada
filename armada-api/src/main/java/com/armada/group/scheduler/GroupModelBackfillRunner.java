@@ -6,6 +6,7 @@ import com.armada.shared.exception.ErrorCode;
 import java.util.function.IntSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -23,7 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class GroupModelBackfillRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(GroupModelBackfillRunner.class);
-    private static final int BATCH_SIZE = 500;
+    private static final int BATCH_SIZE = 5_000;
 
     private final GroupModelBackfillMapper mapper;
     private final TransactionOperations transactions;
@@ -34,6 +35,7 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
      * @param mapper 回填数据访问
      * @param transactionManager 事务管理器
      */
+    @Autowired
     public GroupModelBackfillRunner(
             GroupModelBackfillMapper mapper,
             PlatformTransactionManager transactionManager) {
@@ -61,6 +63,7 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
      * @return 实际执行的非空批次数和数据库影响行数
      */
     public BackfillResult backfillAll() {
+        validateSources();
         BackfillResult groups = backfillStage(() -> mapper.backfillGroups(BATCH_SIZE));
         BackfillResult profiles = backfillStage(() -> mapper.backfillProfiles(BATCH_SIZE));
         BackfillResult memberSnapshotHeaders = backfillStage(
@@ -82,6 +85,7 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
                 () -> mapper.backfillAccountGroupBindings(BATCH_SIZE));
         BackfillResult syncStates = backfillStage(
                 () -> mapper.backfillAccountGroupSyncStates(BATCH_SIZE));
+        validateSources();
         return new BackfillResult(
                 groups.batches() + profiles.batches() + memberSnapshotHeaders.batches()
                         + invites.batches() + invitePointers.batches()
@@ -121,6 +125,11 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
     }
 
     private int backfillBatchInTransaction(IntSupplier writer) {
+        return writer.getAsInt();
+    }
+
+    /** 回填前后各校验一次来源，避免每个批次重复扫描全部旧表。 */
+    private void validateSources() {
         int invalidSources = mapper.countInvalidGroupSources();
         if (invalidSources > 0) {
             throw new BusinessException(
@@ -151,7 +160,6 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
                     ErrorCode.CONFLICT,
                     "群模型回填发现账号关系或 baseline 冲突，已停止写入: " + bindingConflicts);
         }
-        return writer.getAsInt();
     }
 
     /** 一次人工回填结果。 */

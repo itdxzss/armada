@@ -28,6 +28,36 @@ public interface ProtocolCommandOutboxMapper {
     int batchInsertPending(@Param("rows") List<ProtocolCommandOutbox> rows);
 
     /**
+     * 按保留期硬删已发送命令,单批有上限,调用方据返回值判断是否继续下一批。
+     *
+     * <p>删除条件只看创建时间,不记录清理进度,因此停机或漏跑不会积压无法回收的行:
+     * 下一次运行仍会选中全部超期行。已发送行落地后不再被任何链路读取——结果回调按
+     * {@code command_id} 查的是业务表而非 outbox;死信与已取消量小且有诊断价值,不在清理范围。</p>
+     *
+     * @param createdBefore 保留期起点,创建时间早于该值的行可删(epoch 毫秒)
+     * @param limit         单批最大删除行数
+     * @return 实际删除行数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    default int deleteSentBefore(long createdBefore, int limit) {
+        return deleteSentBeforeInternal(
+                ProtocolCommandOutboxStatus.SENT.code(), createdBefore, limit);
+    }
+
+    /**
+     * 已发送命令清理的底层入口;业务状态由 Java 参数传入,不写死在 XML。
+     *
+     * @param sentStatus    已发送状态码
+     * @param createdBefore 保留期起点(epoch 毫秒)
+     * @param limit         单批最大删除行数
+     * @return 实际删除行数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int deleteSentBeforeInternal(@Param("sentStatus") int sentStatus,
+                                 @Param("createdBefore") long createdBefore,
+                                 @Param("limit") int limit);
+
+    /**
      * 按状态和可重试时间扫描可发送命令。
      *
      * <p>publisher 后台任务跨租户扫描,不读取 {@code TenantContext};后续发送前仍可通过行内

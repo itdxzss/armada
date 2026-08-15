@@ -54,12 +54,12 @@ final class GroupCurrentSnapshotMySqlTestSupport {
                 """);
     }
 
-    static void executeV117(DataSource dataSource) throws Exception {
+    static void executeV120(DataSource dataSource) throws Exception {
         String sql;
         try (var stream = GroupCurrentSnapshotMySqlTestSupport.class.getResourceAsStream(
-                "/db/migration/V117__group_data_model_foundation.sql")) {
+                "/db/migration/V120__group_data_model_foundation.sql")) {
             if (stream == null) {
-                throw new IllegalStateException("找不到 V117 新群模型迁移");
+                throw new IllegalStateException("找不到 V120 新群模型迁移");
             }
             sql = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }

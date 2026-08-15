@@ -39,7 +39,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 将账号群快照及现有精确进退群事实写入 V117 新表。 */
+/** 将账号群快照及现有精确进退群事实写入 V120 新表。 */
 @Service
 public class AccountGroupCurrentSnapshotPersistenceImpl {
 

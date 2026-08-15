@@ -79,6 +79,19 @@ public interface AndroidNativeClient {
             boolean membersCanSend);
 
     /**
+     * 使用 Android 原生接口设置新成员进群是否需要管理员审核。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param groupJid 带 {@code @g.us} 的 WhatsApp 群 JID
+     * @param approvalRequired 进群是否需要管理员审核
+     * @return Android 原生响应包
+     */
+    AndroidResponseEnvelope setGroupJoinApproval(
+            String wsPhone,
+            String groupJid,
+            boolean approvalRequired);
+
+    /**
      * 使用 Android 原生接口设置普通成员是否可以添加群成员。
      *
      * @param wsPhone 不带加号的纯数字 WhatsApp 手机号

@@ -4,7 +4,7 @@
 - 分支：`armada` 与 `wheel-saas-pure-web` 已从各自 `1.0.3-snapshot` 创建并推送 `1.0.3-group`，均已跟踪各自 `origin/1.0.3-group`
 - 需求来源：以六张权威表重建群组当前事实模型，完整排查群组依赖；仅删除已指定的列表展开详情，不改变主列表、业务逻辑或协议合同
 - 设计文档：`docs/superpowers/specs/2026-08-15-group-data-model-rebuild-design.md`
-- 状态：六表最小 additive DDL（V117）、现有写入口双写、只读回填门禁、六表人工分批回填和新表列表影子 Mapper 均已完成本地实现；旧表仍决定列表、营销和全部业务结果，影子 Mapper 尚未接入 Service，回填入口默认不注册且未在任何环境执行，真实 MySQL 回填/列表验证、切换读取、迁移和部署尚未进行
+- 状态：六表最小 additive DDL（V120）、现有写入口双写、只读回填门禁、六表人工分批回填和新表列表影子 Mapper 均已完成本地实现；旧表仍决定列表、营销和全部业务结果，影子 Mapper 尚未接入 Service，回填入口默认不注册且未在任何环境执行；本地临时 MySQL 8 已完成列表代表性数据对照，test1 固定水位全量对照、切换读取、迁移和部署尚未进行
 
 ## 目标
 
@@ -35,8 +35,8 @@
 - [x] 固化 400 群账号快照 SQL `<=10` 门禁
 - [x] 将前端 typed/capability、新 API、V2 topic/schema、binding token、Android spool 等移出本期
 - [x] 将当前 Web null-complete 兼容判断和 Android 现有完整性字段固定为本期 Adapter 口径
-- [x] 新增仅包含六张表的 V117 最小建表迁移；不含旧表 DML/ALTER、回填、outbox 或协议设施
-- [x] 在真实 MySQL 8.4.8 上验证 V117 可执行、可重入和关键 CHECK/排序规则
+- [x] 新增仅包含六张表的 V120 最小建表迁移；不含旧表 DML/ALTER、回填、outbox 或协议设施
+- [x] 在真实 MySQL 8.4.8 上验证 V120 可执行、可重入和关键 CHECK/排序规则
 - [x] 新增未接事件入口的账号群快照五表批量持久化底座；不写 invite、旧表或副作用表
 - [x] 真实 MySQL 8.4.8 验证 400 群 `<=10`、完整空快照、重放和 M-before-B
 - [x] 复用现有账号群报告事件的租户校验、过期句柄过滤、完整性判断和事务，同步写入新表；旧表结果继续驱动营销
@@ -57,8 +57,9 @@
 - [x] 在同一人工入口增加 `wa_group_participant`、`wa_account_group_binding`、`account_group_sync_state` 的保守集合回填；旧 `joined_at` 只进 `membership_active_since_at`，baseline 只迁 1/NULL，回填 SQL 不写 first-post，成员当前态与最近进退群事实按各自水位写入
 - [x] 补齐旧预览群主号码/国家到 `wa_group_participant` 的保守回填；只写 role=群主及其观察水位，不虚构在群态
 - [x] 新增未接业务入口的群列表影子 Mapper；复用现有 `GroupLinkQuery` / `GroupLinkVoRow`，count 不聚合成员，page 先分页 legacy 行句柄、再仅对本页从六表补齐当前事实，显式租户连接且不加锁
-- [ ] 在容器环境执行最后三表的真实 MySQL 回填、幂等和门禁用例
-- [ ] 在真实 MySQL 固定水位数据上对比旧/新列表的总数、行集合、字段、排序、分页和全部筛选
+- [x] 在本地临时 MySQL 8 执行六表回填、幂等和门禁用例
+- [x] 在本地临时 MySQL 8 代表性固定数据上对比旧/新列表的总数、行集合、字段、排序、分页和组合筛选
+- [ ] 在 test1 固定水位数据上对比旧/新列表的总数、行集合、字段、排序、分页和全部筛选
 - [ ] 用户评审六表字段和迁移/切换方案
 - [ ] 任何环境写入、切读或部署前再次取得用户确认
 
@@ -113,7 +114,7 @@
 
 ### 数据库
 
-当前代码新增 V117 六表建表迁移，并已把账号群报告、账号自身进退群、普通成员进退群、完整成员和群资料快照、当前邀请码、公开邀请预览、健康回报、已确认群名/权限、本地资料、分组及删除/恢复入口接入新表双写；没有修改旧表结构或切流。新增的人工回填入口没有定时器，默认不存在于 Spring 容器；只允许在一个已确认的应用实例用 `--armada.group-model-backfill.run-once=true` 启动，当前按群身份、资料、成员快照头、邀请、成员、账号关系和同步状态的固定顺序执行 500 行集合回填，未在 test1 或其他环境执行。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
+当前代码新增 V120 六表建表迁移，并已把账号群报告、账号自身进退群、普通成员进退群、完整成员和群资料快照、当前邀请码、公开邀请预览、健康回报、已确认群名/权限、本地资料、分组及删除/恢复入口接入新表双写；没有修改旧表结构或切流。新增的人工回填入口没有定时器，默认不存在于 Spring 容器；只允许在一个已确认的应用实例用 `--armada.group-model-backfill.run-once=true` 启动，当前按群身份、资料、成员快照头、邀请、成员、账号关系和同步状态的固定顺序执行 500 行集合回填，未在 test1 或其他环境执行。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
 
 ### API / 前端
 
@@ -125,7 +126,7 @@
 
 ## 验证记录
 
-本次新增 V117 六表最小建表迁移和迁移合同测试；只在 Testcontainers 临时 MySQL 中执行了 DDL，没有对 test1、其他远程数据库或协议环境执行 DDL/DML、迁移或部署。
+本次新增 V120 六表最小建表迁移和迁移合同测试；只在 Testcontainers 临时 MySQL 中执行了 DDL，没有对 test1、其他远程数据库或协议环境执行 DDL/DML、迁移或部署。
 
 本轮前端验证：
 
@@ -135,10 +136,13 @@
 本轮六表回填验证：
 
 - `mvn -q -Dtest=GroupModelBackfillRunnerTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：10 个测试通过，0 失败、0 错误、0 跳过；覆盖人工启动参数、无定时器、各阶段 500 行循环批次、群 JID/邀请码/成员身份/账号 baseline 冲突先阻断、显式租户连接、自然键排序、NULL 与回填水位保护，以及无 `FOR UPDATE`；账号关系回填 SQL 明确不包含 first-post 字段。
-- `mvn -q -Dtest=GroupListCurrentMapperSqlShapeTest,GroupModelBackfillRunnerTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：12 个测试通过，0 失败、0 错误、0 跳过；新增覆盖群主迁移阶段、列表 count/page 共用现有筛选、MyBatis 动态 SQL 实际解析、显式租户条件、page-first、本页成员聚合，以及不读取三张旧事实大表和不使用 `FOR UPDATE`。列表 SQL 尚未在真实 MySQL 执行，不能据此声称新旧结果一致。
+- `mvn -q -Dtest=GroupListCurrentMapperSqlShapeTest,GroupModelBackfillRunnerTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：12 个测试通过，0 失败、0 错误、0 跳过；新增覆盖群主迁移阶段、列表 count/page 共用现有筛选、MyBatis 动态 SQL 实际解析、显式租户条件、page-first、本页成员聚合，以及不读取三张旧事实大表和不使用 `FOR UPDATE`。
+- `mvn -q -Dtest=GroupLinkControlledAdminMapperInMemoryTest,GroupListCurrentMapperSqlShapeTest test`：6 个测试通过，0 失败、0 错误、0 跳过；H2 实际执行覆盖组合筛选 count 与租户隔离，动态 SQL 测试覆盖分页 SQL 形态。
+- `DOCKER_HOST=... mvn -q -Dtest=GroupListCurrentMapperMySqlTest test`：本地临时 MySQL 8.4.8，1 个端到端对照测试通过；覆盖已解析群、未解析邀请、总数、全部返回字段、排序、两页分页、租户隔离和组合筛选。该结果只证明固定代表性数据一致，不替代 test1 固定水位全量对照。
+- `DOCKER_HOST=... mvn -q -Dtest=GroupListCurrentMapperMySqlTest,GroupLinkControlledAdminMapperInMemoryTest,GroupListCurrentMapperSqlShapeTest,GroupModelBackfillRunnerTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：本阶段 16 个相关测试通过，0 失败、0 错误、0 跳过。
 - `mvn -q -DskipTests package`、`xmllint --noout armada-api/src/main/resources/mapper/group/GroupModelBackfillMapper.xml`、`git diff --check`：均通过。
 - `mvn -q test`：已尝试全量测试，但仓库既有 `PromotionCapiEventOutboxSchemaDbTest` 持续等待本地数据库连接，未进入完整测试集；为避免无效等待手动停止，退出码 130，不计为代码测试失败或全量通过。
-- `GroupCurrentLocalWriteMySqlTest` 已增加群身份、已解析/未解析邀请、群资料、成员快照头、成员当前态与进退群事实、账号关系、baseline、同步状态、幂等、重复 JID/code 和不覆盖较新实时双写用例；本轮因本机容器执行额度限制未运行，不能计为真实 MySQL 通过，执行环境恢复后补跑。
+- `DOCKER_HOST=... mvn -q -Dtest=GroupCurrentLocalWriteMySqlTest,AccountGroupSyncMySqlConcurrencyTest test`：本地临时 MySQL 8.4.8 共 22 个测试通过；其中 17 个覆盖群身份、已解析/未解析邀请、群资料、成员快照头、成员当前态与进退群事实、账号关系、baseline、同步状态、幂等、冲突门禁和不覆盖较新实时双写，5 个覆盖旧交叉写死锁复现、可重复读下排序写入无死锁及旧账号关系更新优先级。0 失败、0 错误、0 跳过。
 
 此前聚焦验证：
 
@@ -157,11 +161,11 @@
 - `DOCKER_HOST=... mvn -q -Dtest=AccountGroupCurrentSnapshotPersistenceMySqlTest test`：本轮最终共 13 个真实 MySQL 8.4.8 测试通过；公开预览、导入 label、健康字段及单字段 confirmed metadata 均已落新表，0 失败、0 错误、0 跳过。
 - `DOCKER_HOST=... mvn -q -Dtest=GroupCurrentLocalWriteMySqlTest test`：真实 MySQL 8.4.8，7 个测试通过；覆盖已解析群/未解析邀请本地名称、备注、头像，详情及 metadata 名称/头像旁路，导入链接分组、已解析群组分组，以及已解析群不误写未绑定邀请，0 失败、0 错误、0 跳过。
 - `DOCKER_HOST=... mvn -q -Dtest=GroupCurrentLocalWriteMySqlTest,GroupLinkServiceImplTest,GroupDetailServiceImplTest,GroupMetadataSnapshotPersistenceImplTest test`：75 个测试通过，其中 7 个使用真实 MySQL 8.4.8，0 失败、0 错误、0 跳过。
-- `DOCKER_HOST=... mvn -q -Dtest=GroupCurrentLocalWriteMySqlTest#... test`：真实 MySQL 8.4.8 聚焦验证链接最后一条真实群 alias 删除、运营分组清空及资料恢复共 4 条测试通过；邀请池不被普通 UI 删除退役、标签/运营分组恢复及账号快照/邀请重新观察的完整 MySQL 复跑因本机容器执行额度限制待补。
+- `DOCKER_HOST=... mvn -q -Dtest=GroupCurrentLocalWriteMySqlTest#... test`：真实 MySQL 8.4.8 聚焦验证链接最后一条真实群 alias 删除、运营分组清空及资料恢复共 4 条测试通过；随后已由上述 17 条完整 MySQL 用例覆盖邀请池、标签/运营分组恢复及账号快照/邀请重新观察。
 - `mvn -q -Dtest='GroupLinkServiceImplTest,GroupLinkLabelServiceImplTest,GroupFolderServiceImplTest,GroupDetailServiceImplTest,GroupMetadataSnapshotPersistenceImplTest' test`：本轮 93 个相关单元测试通过，0 失败、0 错误、0 跳过。
 - `mvn -q -DskipTests package`：通过；`git diff --check`：通过。新增重点生产类和 MySQL 测试类非注释行分别为 798、800，未超过红线。
 - `mvn -q -Dtest=AccountGroupMembershipSnapshotServiceImplTest test`：12 个测试通过，0 失败、0 错误、0 跳过。
-- `mvn -q -Dtest=AccountGroupSyncMySqlConcurrencyTest test`：本机无 Docker socket，5 个测试全部 skipped；不计为 MySQL 门禁通过。
+- `DOCKER_HOST=... mvn -q -Dtest=AccountGroupSyncMySqlConcurrencyTest test`：本地临时 MySQL 8.4.8，5 个测试通过，0 失败、0 错误、0 跳过；旧交叉写的 supremum 死锁可稳定复现，当前一致性读、自然键排序和批量写路径连续并发完成。
 
 只读证据：
 
@@ -180,6 +184,6 @@
 
 - 当前 test1 无多 alias/属性冲突，迁移期继续保留旧 `group_link` 作为外部 ID 兼容；不新增 alias 业务表，后续若门禁发现冲突则停止迁移并重新评审。
 - 六表字段、索引、迁移规则和业务 parity 评审通过。
-- 账号群报告、账号自身及普通成员进退群、完整成员/群资料快照、当前邀请码、公开预览、健康回报、群名/权限命令回读、本地资料、详情/metadata 列表镜像、分组及真实群 alias 级删除/恢复入口已接新表双写；未解析邀请继续由兼容 alias 保持 UI 删除语义，不滥用邀请系统退役字段。切换读取前仍须完成本轮新增 MySQL 恢复测试和真实可重复读并发门禁，本轮不新增重试框架。
+- 账号群报告、账号自身及普通成员进退群、完整成员/群资料快照、当前邀请码、公开预览、健康回报、群名/权限命令回读、本地资料、详情/metadata 列表镜像、分组及真实群 alias 级删除/恢复入口已接新表双写；未解析邀请继续由兼容 alias 保持 UI 删除语义，不滥用邀请系统退役字段。本地 MySQL 恢复与可重复读并发门禁已通过，切换前仍须在 test1 固定水位做全量对账与性能验收；本轮不新增重试框架。
 - 后端列表 API/DTO 与全业务 shadow diff 为 0；前端另验收 DOM 不再渲染展开区。
 - 旧表 drop 必须单独发布、恢复演练并再次取得用户确认。

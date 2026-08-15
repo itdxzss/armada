@@ -75,5 +75,22 @@ class GroupModelBackfillMapperSqlShapeTest {
         assertThat(bindingSql)
                 .contains("membership.joined_at AS membership_active_since_at")
                 .doesNotContain("first_post_control_observed_at");
+
+        String participantPreflightSql = xml.substring(
+                xml.indexOf("<select id=\"countParticipantConflicts\""),
+                xml.indexOf("<select id=\"countBindingConflicts\""));
+        assertThat(participantPreflightSql)
+                .contains("LOWER(TRIM(state.group_jid)) NOT LIKE '%@g.us'")
+                .contains("LOWER(TRIM(join_fact.group_jid)) NOT LIKE '%@g.us'")
+                .contains("LOWER(TRIM(exit_fact.group_jid)) NOT LIKE '%@g.us'")
+                .doesNotContain("JOIN group_link_preview", "JOIN group_link source_link");
+
+        String preflightSql = xml.substring(
+                xml.indexOf("<select id=\"countBindingConflicts\""),
+                xml.indexOf("<insert id=\"backfillGroups\""));
+        assertThat(preflightSql)
+                .contains("LEFT JOIN group_link_preview source_preview")
+                .contains("LEFT JOIN group_link source_link")
+                .doesNotContain("LEFT JOIN wa_group resolved_group");
     }
 }

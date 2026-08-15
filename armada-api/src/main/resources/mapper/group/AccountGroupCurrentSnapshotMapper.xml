@@ -101,7 +101,7 @@
     ORDER BY incoming.group_jid ASC
     ON DUPLICATE KEY UPDATE
       deleted_at = NULL,
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(wa_group.updated_at, VALUES(updated_at))
   </insert>
 
   <select id="selectGroupIds"

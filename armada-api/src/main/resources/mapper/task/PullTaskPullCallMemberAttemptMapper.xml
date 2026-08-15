@@ -93,7 +93,7 @@
   </update>
 
   <!-- 状态码与 V106 台账合同一致：3关闭、4释放；聚合成功码均为2。 -->
-  <select id="selectRetryCandidatesByWave"
+  <select id="selectRetryCandidatesByWaveInternal"
           resultType="com.armada.task.model.dto.PullTaskPullWaveCandidate">
     SELECT attempt_row.participant_type,
            attempt_row.participant_ref_id,
@@ -120,7 +120,10 @@
       AND ((attempt_row.participant_type = 1 AND material_row.pull_status &lt;&gt; 2)
         OR (attempt_row.participant_type = 2 AND station_row.membership_status &lt;&gt; 2))
       AND ((attempt_row.lifecycle_status = 3
-            AND attempt_row.protocol_outcome = 'FAILED')
+            AND attempt_row.protocol_outcome = 'FAILED'
+            AND attempt_row.reason_code IN
+            <foreach collection="retryableFailureReasonCodes" item="reasonCode"
+                     open="(" separator="," close=")">#{reasonCode}</foreach>)
         OR (attempt_row.lifecycle_status = 4
             AND attempt_row.protocol_outcome = 'UNKNOWN'
             AND attempt_row.execution_state = 'NOT_STARTED')

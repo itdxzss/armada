@@ -73,7 +73,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         rawDataSource.setPassword(MYSQL.getPassword());
         jdbc = new JdbcTemplate(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.createLegacyContextSchema(jdbc);
-        GroupCurrentSnapshotMySqlTestSupport.executeV117(rawDataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV120(rawDataSource);
 
         recordingDataSource = new RecordingDataSource(rawDataSource);
         DataSourceTransactionManager transactionManager =

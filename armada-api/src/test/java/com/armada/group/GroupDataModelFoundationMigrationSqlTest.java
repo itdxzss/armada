@@ -11,11 +11,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
-/** 群组模型 V117 只建立六张权威表，不夹带迁移、切流或过程设施。 */
+/** 群组模型 V120 只建立六张权威表，不夹带迁移、切流或过程设施。 */
 class GroupDataModelFoundationMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V117__group_data_model_foundation.sql");
+            "src/main/resources/db/migration/V120__group_data_model_foundation.sql");
     private static final Pattern CREATE_TABLE = Pattern.compile(
             "(?i)CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+([a-z0-9_]+)");
     private static final Set<String> EXPECTED_TABLES = Set.of(

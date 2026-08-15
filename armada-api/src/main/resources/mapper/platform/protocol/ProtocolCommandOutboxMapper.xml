@@ -39,6 +39,15 @@
     LIMIT #{limit}
   </select>
 
+  <!-- 保留期清理:只删已发送行,按创建时间硬删,单批受 limit 约束。
+       删除条件不依赖清理进度,漏跑或停机后下一次运行仍会选中全部超期行。 -->
+  <delete id="deleteSentBeforeInternal">
+    DELETE FROM protocol_command_outbox
+    WHERE status = #{sentStatus}
+      AND created_at &lt; #{createdBefore}
+    LIMIT #{limit}
+  </delete>
+
   <!-- 并发抢占兜底:只有仍是 PENDING 的行能更新为 LOCKED。 -->
   <update id="markLockedInternal">
     UPDATE protocol_command_outbox

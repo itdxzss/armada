@@ -731,7 +731,11 @@ I-only、同 JID 多 legacy 行、sourceFileName、labelId、status 和所有 nu
 | account.group_baseline_state | sync_state.baseline_filter_enabled / baseline_state | state=3 是过滤策略关闭，不代表账号未绑定；迁后从 account 删除 |
 | account_group_baseline.last_group_sync_requested_at | sync_state.last_sync_requested_at | 迁值后随 Phase 6 删除 account_group_baseline |
 
+软删账号遗留的未软删 membership 不属于当前账号关系，影子回填按现有账号过滤跳过并记录审计；账号行真正缺失、未删除账号无法解析群入口或账号手机号非法仍是硬冲突。
+
 迁移以 account.group_baseline_state 为主值，不能以 account_group_baseline row 是否存在判断 CAPTURED。现有 markGroupSyncRequested 会为没有 baseline row 的 state=2/3 账号插入 `JSON_ARRAY()/count=0/captured_at=requestedAt` 只为保存同步水位，而且后续请求只更新 last_group_sync_requested_at/updated_at；因此时间相等式只能提示 placeholder，不能永久、确定地区分“真实空 baseline”。WATERMARK_ONLY 必须有创建版本、审计/binlog或调用链证据；state=2 的空数组若无正向 provenance 一律记 AMBIGUOUS_EMPTY_BASELINE，人工签字，不能自动当真实空集合。确定性矩阵如下：
+
+本期影子回填只接受一种现有调用链可解释的空集合证据：账号未删除、state=2、JSON 为合法空数组、`last_group_sync_requested_at IS NULL`，且协议捕获时间 `captured_at` 与落库 `created_at` 不同。它对应 `capturePendingAccountGroupBaseline(syncAt, now)` 的真实捕获形态；水位占位路径会同时写请求时间且两个时间相等。该证据只允许写 `CAPTURED/LEGACY_UNKNOWN/count=0`，不创建 baseline binding、不写 first-post，也不代表最终 writer/read cut 已获批准；不满足该形态的空集合继续阻断。
 
 现有 `AccountGroupMembershipSnapshotServiceImpl.membershipRow` 每次都把本次 `syncAt` 赋给 `joined_at`；`AccountGroupMembershipMapper.xml` 又会在新行、旧值为 NULL，或退群后再回到在群时改写它。所以该列是“快照首次建行/最近回群观察时间”的混合值，不是 WhatsApp 首次入群事实，也无法单独证明发生在 baseline 之后。该值仅原样迁入 `membership_active_since_at` 以保持现有营销截止和导出；本期输入集的 was 只可能是 1/NULL，first-post 实际回填一律 NULL。不允许用 `COALESCE`、行存在性或“JSON 未列出”推导 was=0。
 
@@ -762,6 +766,8 @@ state=3 的非空 JSON 进入异常报告并在 drop 前导出 / 签字处置，
 | whatsapp_group_member_state | participant | 旧表只有共享 state_updated_at，不能假装存在两个独立时钟；按下述 source 白名单拆维度 |
 | whatsapp_group_member_join_fact | participant.last_join_* | 每成员现有最新事实可无损折叠 |
 | whatsapp_group_departed_member | participant.last_exit_* | 每成员现有最新事实可无损折叠 |
+
+旧成员事实若没有任何旧群入口、账号关系或 baseline 引用，则不属于旧列表可达数据：只进入迁移审计，六表影子回填按内连接跳过，不能凭成员缓存凭空创建一个运营群。
 
 `whatsapp_group_member_state` 的 presence/role 虽拆到不同列，回填值必须复现旧表当前可见结果；不能把旧 promote/demote 顺带形成的 `is_in_group` 在迁移时擅自改成 UNKNOWN。`state_source/source_event_id` 只用于冲突报告和以后治理，本期 golden/shadow parity 优先；迁移时间不得使用 now() 覆盖实时事实。
 
@@ -910,7 +916,7 @@ member_count 的迁移必须先按当前列表/详情使用的优先级得到兼
 
 ### Phase 1：只扩展，不切流
 
-当前已批准的首个实施切片仅为 `V117__group_data_model_foundation.sql` 中六张表的最小字段集。本文其余 `field_version_keys`、`*_version_key`、`membership_epoch`、`pool_hidden_at`、`group_status`、新 outbox 等候选设计均不进入本切片，也不得据此补入 V117；只有后续代码出现当前字段无法承载的可复现问题时，才单独举证评审。
+当前已批准的首个实施切片仅为 `V120__group_data_model_foundation.sql` 中六张表的最小字段集。本文其余 `field_version_keys`、`*_version_key`、`membership_epoch`、`pool_hidden_at`、`group_status`、新 outbox 等候选设计均不进入本切片，也不得据此补入 V120；只有后续代码出现当前字段无法承载的可复现问题时，才单独举证评审。
 
 - 用一组按部署边界拆开的 additive Flyway 版本创建六表、约束、索引和兼容列；不把数据回填塞进 migration。
 - 增加六表内部 canonical ID、Reducer/Mapper、只读对账服务、legacy handle 和仅供账号快照使用的 `group_snapshot_effect_outbox`。把仍会创建/修改 account_group_baseline 的旧入口登记到 writer 清单；不修改 account 绑定模型，不建设 V2 admission、binding history 或新生命周期 Service。

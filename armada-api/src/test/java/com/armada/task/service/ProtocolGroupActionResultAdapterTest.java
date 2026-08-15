@@ -9,7 +9,9 @@ import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
+import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
 import com.armada.task.model.dto.PullTaskManagerAdminCallback;
+import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
@@ -27,9 +29,32 @@ class ProtocolGroupActionResultAdapterTest {
             mock(PullTaskManagerAdminResultService.class);
     private final PullTaskProtocolResultCallbackService callbackService =
             mock(PullTaskProtocolResultCallbackService.class);
+    private final PullTaskGroupSettingsResultService groupSettingsResultService =
+            mock(PullTaskGroupSettingsResultService.class);
     private final ProtocolGroupActionResultAdapter adapter =
             new ProtocolGroupActionResultAdapter(
-                    service, inviteService, managerAdminResultService, callbackService);
+                    service, inviteService, managerAdminResultService,
+                    groupSettingsResultService, callbackService);
+
+    @Test
+    void groupSettingsEventRoutesToGroupSettingsStateMachine() {
+        // 群设置结果没有 targetJid：它改的是群属性，不针对任何成员。
+        ProtocolGroupActionResultReportedEvent event = new ProtocolGroupActionResultReportedEvent(
+                "event-9", 7L, 100L, 11L, 811L,
+                "pull_task_group_settings", "GROUP_SETTINGS_APPLY", 901L, "manager-901",
+                "cmd-settings-1", 2, "FAILED", null,
+                "GROUP_PERMISSION_DENIED", "denied", false, 5_000L, "worker-a");
+
+        adapter.handleActionResultReported(event);
+
+        ArgumentCaptor<PullTaskGroupSettingsCallback> captor =
+                ArgumentCaptor.forClass(PullTaskGroupSettingsCallback.class);
+        verify(groupSettingsResultService).apply(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new PullTaskGroupSettingsCallback(
+                7L, 100L, 11L, 811L, 901L, "manager-901", "cmd-settings-1", 2,
+                PullTaskGroupSettingsProtocolOutcome.FAILED,
+                "GROUP_PERMISSION_DENIED", "denied", 5_000L));
+    }
 
     @Test
     void contactSaveUnknownEventRoutesToStronglyTypedCallback() {

@@ -31,6 +31,186 @@
     ) duplicate_group
   </select>
 
+  <select id="countInviteConflicts" resultType="int">
+    SELECT COUNT(*)
+    FROM (
+      SELECT preview.tenant_id, TRIM(preview.invite_code) AS invite_code
+      FROM group_link_preview preview
+      INNER JOIN group_link link
+        ON preview.tenant_id = link.tenant_id
+       AND preview.group_link_id = link.id
+      WHERE preview.invite_code IS NOT NULL
+        AND TRIM(preview.invite_code) &lt;&gt; ''
+      GROUP BY preview.tenant_id, TRIM(preview.invite_code)
+      HAVING COUNT(*) &gt; 1
+
+      UNION ALL
+
+      SELECT preview.tenant_id, TRIM(preview.invite_code) AS invite_code
+      FROM group_link_preview preview
+      INNER JOIN group_link link
+        ON preview.tenant_id = link.tenant_id
+       AND preview.group_link_id = link.id
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = preview.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
+      INNER JOIN wa_group_invite invite
+        ON invite.tenant_id = preview.tenant_id
+       AND invite.invite_code = TRIM(preview.invite_code)
+      WHERE preview.invite_code IS NOT NULL
+        AND TRIM(preview.invite_code) &lt;&gt; ''
+        AND invite.group_id IS NOT NULL
+        AND invite.group_id &lt;&gt; resolved_group.id
+    ) invite_conflict
+  </select>
+
+  <select id="countParticipantConflicts" resultType="int">
+    SELECT COUNT(*)
+    FROM (
+      SELECT state.id
+      FROM whatsapp_group_member_state state
+      LEFT JOIN wa_group resolved_group
+        ON state.tenant_id = resolved_group.tenant_id
+       AND LOWER(TRIM(state.group_jid)) = resolved_group.group_jid
+      WHERE resolved_group.id IS NULL
+         OR LOWER(TRIM(state.group_jid)) NOT LIKE '%@g.us'
+         OR (
+           LOWER(TRIM(state.participant_jid)) NOT LIKE '%@s.whatsapp.net'
+           AND LOWER(TRIM(state.participant_jid)) NOT LIKE '%@lid'
+         )
+
+      UNION ALL
+
+      SELECT join_fact.id
+      FROM whatsapp_group_member_join_fact join_fact
+      LEFT JOIN wa_group resolved_group
+        ON join_fact.tenant_id = resolved_group.tenant_id
+       AND LOWER(TRIM(join_fact.group_jid)) = resolved_group.group_jid
+      WHERE resolved_group.id IS NULL
+         OR (
+           LOWER(TRIM(join_fact.participant_jid)) NOT LIKE '%@s.whatsapp.net'
+           AND LOWER(TRIM(join_fact.participant_jid)) NOT LIKE '%@lid'
+         )
+
+      UNION ALL
+
+      SELECT exit_fact.id
+      FROM whatsapp_group_departed_member exit_fact
+      LEFT JOIN wa_group resolved_group
+        ON exit_fact.tenant_id = resolved_group.tenant_id
+       AND LOWER(TRIM(exit_fact.group_jid)) = resolved_group.group_jid
+      WHERE resolved_group.id IS NULL
+         OR (
+           LOWER(TRIM(exit_fact.participant_jid)) NOT LIKE '%@s.whatsapp.net'
+           AND LOWER(TRIM(exit_fact.participant_jid)) NOT LIKE '%@lid'
+         )
+    ) participant_conflict
+  </select>
+
+  <select id="countBindingConflicts" resultType="int">
+    SELECT COUNT(*)
+    FROM (
+      SELECT membership.id
+      FROM account_group_membership membership
+      LEFT JOIN account account
+        ON account.tenant_id = membership.tenant_id
+       AND account.id = membership.account_id
+       AND account.deleted_at IS NULL
+      LEFT JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = membership.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(membership.group_jid))
+      WHERE membership.deleted_at IS NULL
+        AND (
+          account.id IS NULL
+          OR resolved_group.id IS NULL
+          OR TRIM(account.ws_phone) NOT REGEXP '^[0-9]+$'
+        )
+
+      UNION ALL
+
+      SELECT account.id
+      FROM account account
+      LEFT JOIN account_group_baseline baseline
+        ON baseline.tenant_id = account.tenant_id
+       AND baseline.account_id = account.id
+      WHERE account.deleted_at IS NULL
+        AND (
+          account.group_baseline_state NOT IN (1, 2, 3)
+          OR (
+            account.group_baseline_state = 2
+            AND (
+              baseline.id IS NULL
+              OR JSON_TYPE(baseline.baseline_group_jids) &lt;&gt; 'ARRAY'
+              OR JSON_LENGTH(baseline.baseline_group_jids) = 0
+              OR baseline.group_count &lt;&gt; JSON_LENGTH(baseline.baseline_group_jids)
+              OR baseline.captured_at IS NULL
+              OR baseline.captured_at &lt; 0
+              OR TRIM(account.ws_phone) NOT REGEXP '^[0-9]+$'
+            )
+          )
+          OR (
+            account.group_baseline_state IN (1, 3)
+            AND baseline.id IS NOT NULL
+            AND JSON_LENGTH(baseline.baseline_group_jids) &gt; 0
+          )
+        )
+
+      UNION ALL
+
+      SELECT baseline_group.account_id
+      FROM (
+        SELECT account.tenant_id,
+               account.id AS account_id,
+               LOWER(TRIM(group_row.group_jid)) AS group_jid
+        FROM account account
+        INNER JOIN account_group_baseline baseline
+          ON baseline.tenant_id = account.tenant_id
+         AND baseline.account_id = account.id
+        INNER JOIN JSON_TABLE(
+          baseline.baseline_group_jids,
+          '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+        ) group_row
+        WHERE account.deleted_at IS NULL
+          AND account.group_baseline_state = 2
+          AND JSON_TYPE(baseline.baseline_group_jids) = 'ARRAY'
+      ) baseline_group
+      LEFT JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = baseline_group.tenant_id
+       AND resolved_group.group_jid = baseline_group.group_jid
+      WHERE baseline_group.group_jid NOT LIKE '%@g.us'
+         OR resolved_group.id IS NULL
+
+      UNION ALL
+
+      SELECT duplicate_baseline.account_id
+      FROM (
+        SELECT account.tenant_id,
+               account.id AS account_id,
+               LOWER(TRIM(group_row.group_jid)) AS group_jid
+        FROM account account
+        INNER JOIN account_group_baseline baseline
+          ON baseline.tenant_id = account.tenant_id
+         AND baseline.account_id = account.id
+        INNER JOIN JSON_TABLE(
+          baseline.baseline_group_jids,
+          '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+        ) group_row
+        WHERE account.deleted_at IS NULL
+          AND account.group_baseline_state = 2
+          AND JSON_TYPE(baseline.baseline_group_jids) = 'ARRAY'
+        GROUP BY account.tenant_id, account.id, LOWER(TRIM(group_row.group_jid))
+        HAVING COUNT(*) &gt; 1
+      ) duplicate_baseline
+
+      UNION ALL
+
+      SELECT binding.id
+      FROM wa_account_group_binding binding
+      WHERE binding.was_in_initial_baseline = 1
+        AND binding.first_post_control_observed_at IS NOT NULL
+    ) binding_conflict
+  </select>
+
   <insert id="backfillGroups">
     <!-- 普通读筛选后按完整自然键排序执行 IODKU；禁止对缺失键先做 UPDATE。 -->
     INSERT INTO wa_group (
@@ -116,6 +296,1280 @@
       END,
       created_at = LEAST(wa_group.created_at, VALUES(created_at)),
       updated_at = GREATEST(wa_group.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillProfiles">
+    INSERT INTO wa_group_profile (
+      tenant_id, group_id, subject, description, member_count, wa_created_at,
+      announce_only, admin_only_edit_info, member_add_mode, join_approval_mode,
+      ephemeral_duration_seconds, metadata_observed_at, created_at, updated_at
+    )
+    SELECT source.tenant_id, source.group_id, source.subject, source.description,
+           source.member_count, source.wa_created_at, source.announce_only,
+           source.admin_only_edit_info, source.member_add_mode,
+           source.join_approval_mode, source.ephemeral_duration_seconds,
+           source.metadata_observed_at, source.created_at, source.updated_at
+    FROM (
+      SELECT preview.tenant_id,
+             resolved_group.id AS group_id,
+             NULLIF(TRIM(preview.wa_subject), '') AS subject,
+             preview.wa_description AS description,
+             COALESCE(health.current_count, preview.member_size) AS member_count,
+             CASE
+               WHEN preview.group_created_at &gt; 0 THEN preview.group_created_at * 1000
+               ELSE NULL
+             END AS wa_created_at,
+             preview.announce_only,
+             preview.admin_only_edit_info,
+             preview.member_add_mode,
+             preview.join_approval_mode,
+             preview.ephemeral_duration_seconds,
+             COALESCE(preview.metadata_observed_at, preview.last_preview_at)
+               AS metadata_observed_at,
+             preview.created_at,
+             GREATEST(
+               preview.updated_at,
+               COALESCE(health.updated_at, preview.updated_at)
+             ) AS updated_at
+      FROM group_link_preview preview
+      INNER JOIN group_link link
+        ON preview.tenant_id = link.tenant_id
+       AND preview.group_link_id = link.id
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = preview.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
+      LEFT JOIN group_link_health health
+        ON health.tenant_id = preview.tenant_id
+       AND health.group_link_id = preview.group_link_id
+    ) source
+    LEFT JOIN wa_group_profile target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR (
+         (
+           COALESCE(source.metadata_observed_at, 0)
+             &gt;= COALESCE(target.metadata_observed_at, 0)
+           OR (target.subject IS NULL AND source.subject IS NOT NULL)
+           OR (target.description IS NULL AND source.description IS NOT NULL)
+           OR (target.wa_created_at IS NULL AND source.wa_created_at IS NOT NULL)
+           OR (target.announce_only IS NULL AND source.announce_only IS NOT NULL)
+           OR (target.admin_only_edit_info IS NULL
+               AND source.admin_only_edit_info IS NOT NULL)
+           OR (target.member_add_mode IS NULL AND source.member_add_mode IS NOT NULL)
+           OR (target.join_approval_mode IS NULL
+               AND source.join_approval_mode IS NOT NULL)
+           OR (target.ephemeral_duration_seconds IS NULL
+               AND source.ephemeral_duration_seconds IS NOT NULL)
+         )
+         AND (
+           (source.subject IS NOT NULL AND NOT (target.subject &lt;=&gt; source.subject))
+           OR (source.description IS NOT NULL
+               AND NOT (target.description &lt;=&gt; source.description))
+           OR (source.wa_created_at IS NOT NULL
+               AND NOT (target.wa_created_at &lt;=&gt; source.wa_created_at))
+           OR (source.announce_only IS NOT NULL
+               AND NOT (target.announce_only &lt;=&gt; source.announce_only))
+           OR (source.admin_only_edit_info IS NOT NULL
+               AND NOT (target.admin_only_edit_info &lt;=&gt; source.admin_only_edit_info))
+           OR (source.member_add_mode IS NOT NULL
+               AND NOT (target.member_add_mode &lt;=&gt; source.member_add_mode))
+           OR (source.join_approval_mode IS NOT NULL
+               AND NOT (target.join_approval_mode &lt;=&gt; source.join_approval_mode))
+           OR (source.ephemeral_duration_seconds IS NOT NULL
+               AND NOT (target.ephemeral_duration_seconds
+                         &lt;=&gt; source.ephemeral_duration_seconds))
+         )
+       )
+       OR (
+         source.member_count IS NOT NULL
+         AND (target.member_snapshot_at IS NULL
+              OR source.updated_at &gt;= target.member_snapshot_at)
+         AND (source.updated_at &gt;= target.updated_at OR target.member_count IS NULL)
+         AND NOT (target.member_count &lt;=&gt; source.member_count)
+       )
+    ORDER BY source.tenant_id ASC, source.group_id ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      subject = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.subject IS NULL
+          THEN COALESCE(VALUES(subject), wa_group_profile.subject)
+        ELSE wa_group_profile.subject
+      END,
+      description = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.description IS NULL
+          THEN COALESCE(VALUES(description), wa_group_profile.description)
+        ELSE wa_group_profile.description
+      END,
+      wa_created_at = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.wa_created_at IS NULL
+          THEN COALESCE(VALUES(wa_created_at), wa_group_profile.wa_created_at)
+        ELSE wa_group_profile.wa_created_at
+      END,
+      announce_only = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.announce_only IS NULL
+          THEN COALESCE(VALUES(announce_only), wa_group_profile.announce_only)
+        ELSE wa_group_profile.announce_only
+      END,
+      admin_only_edit_info = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.admin_only_edit_info IS NULL
+          THEN COALESCE(VALUES(admin_only_edit_info), wa_group_profile.admin_only_edit_info)
+        ELSE wa_group_profile.admin_only_edit_info
+      END,
+      member_add_mode = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.member_add_mode IS NULL
+          THEN COALESCE(VALUES(member_add_mode), wa_group_profile.member_add_mode)
+        ELSE wa_group_profile.member_add_mode
+      END,
+      join_approval_mode = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.join_approval_mode IS NULL
+          THEN COALESCE(VALUES(join_approval_mode), wa_group_profile.join_approval_mode)
+        ELSE wa_group_profile.join_approval_mode
+      END,
+      ephemeral_duration_seconds = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.ephemeral_duration_seconds IS NULL
+          THEN COALESCE(
+            VALUES(ephemeral_duration_seconds),
+            wa_group_profile.ephemeral_duration_seconds
+          )
+        ELSE wa_group_profile.ephemeral_duration_seconds
+      END,
+      member_count = CASE
+        WHEN (
+          wa_group_profile.member_snapshot_at IS NULL
+          OR VALUES(updated_at) &gt;= wa_group_profile.member_snapshot_at
+        ) AND (
+          VALUES(updated_at) &gt;= wa_group_profile.updated_at
+          OR wa_group_profile.member_count IS NULL
+        )
+          THEN COALESCE(VALUES(member_count), wa_group_profile.member_count)
+        ELSE wa_group_profile.member_count
+      END,
+      metadata_observed_at = CASE
+        WHEN VALUES(metadata_observed_at) IS NULL
+          THEN wa_group_profile.metadata_observed_at
+        WHEN wa_group_profile.metadata_observed_at IS NULL
+          THEN VALUES(metadata_observed_at)
+        ELSE GREATEST(
+          wa_group_profile.metadata_observed_at, VALUES(metadata_observed_at)
+        )
+      END,
+      created_at = LEAST(wa_group_profile.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_profile.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillMemberSnapshotHeaders">
+    INSERT INTO wa_group_profile (
+      tenant_id, group_id, member_count, member_snapshot_at,
+      member_snapshot_version, created_at, updated_at
+    )
+    SELECT cache.tenant_id,
+           resolved_group.id,
+           SUM(CASE
+             WHEN state.snapshot_version = cache.snapshot_version
+              AND state.is_in_group = 1 THEN 1 ELSE 0
+           END) AS member_count,
+           cache.snapshot_at AS member_snapshot_at,
+           cache.snapshot_version AS member_snapshot_version,
+           cache.created_at,
+           cache.updated_at
+    FROM whatsapp_group_member_cache cache
+    INNER JOIN wa_group resolved_group
+      ON resolved_group.tenant_id = cache.tenant_id
+     AND resolved_group.group_jid = LOWER(TRIM(cache.group_jid))
+    LEFT JOIN whatsapp_group_member_state state
+      ON state.tenant_id = cache.tenant_id
+     AND LOWER(TRIM(state.group_jid)) = resolved_group.group_jid
+    LEFT JOIN wa_group_profile target
+      ON target.tenant_id = cache.tenant_id
+     AND target.group_id = resolved_group.id
+    WHERE target.id IS NULL
+       OR cache.snapshot_at &gt; COALESCE(target.member_snapshot_at, -1)
+       OR (
+         cache.snapshot_at = target.member_snapshot_at
+         AND CAST(cache.snapshot_version AS BINARY)
+             &gt; CAST(COALESCE(target.member_snapshot_version, '') AS BINARY)
+       )
+    GROUP BY cache.tenant_id, resolved_group.id, cache.snapshot_at,
+             cache.snapshot_version, cache.created_at, cache.updated_at
+    ORDER BY cache.tenant_id ASC, resolved_group.id ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      member_count = CASE
+        WHEN VALUES(member_snapshot_at)
+               &gt; COALESCE(wa_group_profile.member_snapshot_at, -1)
+          OR (
+            VALUES(member_snapshot_at) = wa_group_profile.member_snapshot_at
+            AND CAST(VALUES(member_snapshot_version) AS BINARY)
+                &gt; CAST(COALESCE(wa_group_profile.member_snapshot_version, '') AS BINARY)
+          )
+          THEN VALUES(member_count)
+        ELSE wa_group_profile.member_count
+      END,
+      member_snapshot_version = CASE
+        WHEN VALUES(member_snapshot_at)
+               &gt; COALESCE(wa_group_profile.member_snapshot_at, -1)
+          OR (
+            VALUES(member_snapshot_at) = wa_group_profile.member_snapshot_at
+            AND CAST(VALUES(member_snapshot_version) AS BINARY)
+                &gt; CAST(COALESCE(wa_group_profile.member_snapshot_version, '') AS BINARY)
+          )
+          THEN VALUES(member_snapshot_version)
+        ELSE wa_group_profile.member_snapshot_version
+      END,
+      member_snapshot_at = CASE
+        WHEN wa_group_profile.member_snapshot_at IS NULL
+          THEN VALUES(member_snapshot_at)
+        ELSE GREATEST(wa_group_profile.member_snapshot_at, VALUES(member_snapshot_at))
+      END,
+      created_at = LEAST(wa_group_profile.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_profile.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillInvites">
+    INSERT INTO wa_group_invite (
+      tenant_id, group_id, invite_code, label_id, display_name, avatar_url, remark,
+      origin, preview_subject, preview_observed_at,
+      health_status, banned, checked_member_count, last_checked_at,
+      last_error_code, failure_count, created_at, updated_at, deleted_at
+    )
+    SELECT source.tenant_id, source.group_id, source.invite_code, source.label_id,
+           source.display_name, source.avatar_url, source.remark, source.origin,
+           source.preview_subject, source.preview_observed_at,
+           source.health_status, source.banned, source.checked_member_count,
+           source.last_checked_at, source.last_error_code, source.failure_count,
+           source.created_at, source.updated_at, NULL
+    FROM (
+      SELECT preview.tenant_id,
+             resolved_group.id AS group_id,
+             TRIM(preview.invite_code) AS invite_code,
+             link.label_id,
+             CASE WHEN resolved_group.id IS NULL
+               THEN NULLIF(TRIM(link.group_name), '') ELSE NULL END AS display_name,
+             CASE WHEN resolved_group.id IS NULL
+               THEN NULLIF(TRIM(preview.avatar_url), '') ELSE NULL END AS avatar_url,
+             CASE WHEN resolved_group.id IS NULL THEN link.remark ELSE NULL END AS remark,
+             link.origin,
+             CASE WHEN resolved_group.id IS NULL
+               THEN NULLIF(TRIM(preview.wa_subject), '') ELSE NULL END AS preview_subject,
+             CASE WHEN resolved_group.id IS NULL THEN preview.last_preview_at ELSE NULL END
+               AS preview_observed_at,
+             health.health_status,
+             health.is_banned AS banned,
+             health.current_count AS checked_member_count,
+             health.last_check_at AS last_checked_at,
+             LEFT(health.last_health_error, 64) AS last_error_code,
+             COALESCE(health.health_failure_count, 0) AS failure_count,
+             LEAST(link.created_at, preview.created_at) AS created_at,
+             GREATEST(
+               link.updated_at,
+               preview.updated_at,
+               COALESCE(health.updated_at, preview.updated_at)
+             ) AS updated_at
+      FROM group_link_preview preview
+      INNER JOIN group_link link
+        ON preview.tenant_id = link.tenant_id
+       AND preview.group_link_id = link.id
+      LEFT JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = preview.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
+      LEFT JOIN group_link_health health
+        ON health.tenant_id = preview.tenant_id
+       AND health.group_link_id = preview.group_link_id
+      WHERE preview.invite_code IS NOT NULL
+        AND TRIM(preview.invite_code) &lt;&gt; ''
+    ) source
+    LEFT JOIN wa_group_invite target
+      ON target.tenant_id = source.tenant_id
+     AND target.invite_code = source.invite_code
+    WHERE target.id IS NULL
+       OR (target.group_id IS NULL AND source.group_id IS NOT NULL)
+       OR target.created_at &gt; source.created_at
+       OR (
+         (
+           source.updated_at &gt;= target.updated_at
+           OR target.label_id IS NULL
+           OR target.display_name IS NULL
+           OR target.avatar_url IS NULL
+           OR target.remark IS NULL
+         ) AND (
+           (source.label_id IS NOT NULL AND NOT (target.label_id &lt;=&gt; source.label_id))
+           OR (source.display_name IS NOT NULL
+               AND NOT (target.display_name &lt;=&gt; source.display_name))
+           OR (source.avatar_url IS NOT NULL
+               AND NOT (target.avatar_url &lt;=&gt; source.avatar_url))
+           OR (source.remark IS NOT NULL AND NOT (target.remark &lt;=&gt; source.remark))
+         )
+       )
+       OR (
+         source.preview_observed_at IS NOT NULL
+         AND source.preview_observed_at &gt;= COALESCE(target.preview_observed_at, 0)
+         AND source.preview_subject IS NOT NULL
+         AND NOT (target.preview_subject &lt;=&gt; source.preview_subject)
+       )
+       OR (
+         source.last_checked_at IS NOT NULL
+         AND source.last_checked_at &gt;= COALESCE(target.last_checked_at, 0)
+         AND (
+           NOT (target.health_status &lt;=&gt; source.health_status)
+           OR NOT (target.banned &lt;=&gt; source.banned)
+           OR (source.checked_member_count IS NOT NULL
+               AND NOT (target.checked_member_count &lt;=&gt; source.checked_member_count))
+           OR NOT (target.last_error_code &lt;=&gt; source.last_error_code)
+           OR target.failure_count &lt;&gt; source.failure_count
+         )
+       )
+    ORDER BY source.tenant_id ASC, source.invite_code ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      group_id = COALESCE(wa_group_invite.group_id, VALUES(group_id)),
+      label_id = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group_invite.updated_at
+          OR VALUES(created_at) &lt; wa_group_invite.created_at
+          OR wa_group_invite.label_id IS NULL
+          THEN COALESCE(VALUES(label_id), wa_group_invite.label_id)
+        ELSE wa_group_invite.label_id
+      END,
+      display_name = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group_invite.updated_at
+          OR VALUES(created_at) &lt; wa_group_invite.created_at
+          OR wa_group_invite.display_name IS NULL
+          THEN COALESCE(VALUES(display_name), wa_group_invite.display_name)
+        ELSE wa_group_invite.display_name
+      END,
+      avatar_url = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group_invite.updated_at
+          OR VALUES(created_at) &lt; wa_group_invite.created_at
+          OR wa_group_invite.avatar_url IS NULL
+          THEN COALESCE(VALUES(avatar_url), wa_group_invite.avatar_url)
+        ELSE wa_group_invite.avatar_url
+      END,
+      remark = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group_invite.updated_at
+          OR VALUES(created_at) &lt; wa_group_invite.created_at
+          OR wa_group_invite.remark IS NULL
+          THEN COALESCE(VALUES(remark), wa_group_invite.remark)
+        ELSE wa_group_invite.remark
+      END,
+      preview_subject = CASE
+        WHEN VALUES(preview_observed_at)
+               &gt;= COALESCE(wa_group_invite.preview_observed_at, 0)
+          THEN COALESCE(VALUES(preview_subject), wa_group_invite.preview_subject)
+        ELSE wa_group_invite.preview_subject
+      END,
+      preview_observed_at = CASE
+        WHEN VALUES(preview_observed_at) IS NULL
+          THEN wa_group_invite.preview_observed_at
+        WHEN wa_group_invite.preview_observed_at IS NULL
+          THEN VALUES(preview_observed_at)
+        ELSE GREATEST(
+          wa_group_invite.preview_observed_at, VALUES(preview_observed_at)
+        )
+      END,
+      health_status = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(wa_group_invite.last_checked_at, 0)
+          THEN VALUES(health_status)
+        ELSE wa_group_invite.health_status
+      END,
+      banned = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(wa_group_invite.last_checked_at, 0)
+          THEN VALUES(banned)
+        ELSE wa_group_invite.banned
+      END,
+      checked_member_count = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(wa_group_invite.last_checked_at, 0)
+          THEN COALESCE(
+            VALUES(checked_member_count), wa_group_invite.checked_member_count
+          )
+        ELSE wa_group_invite.checked_member_count
+      END,
+      last_error_code = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(wa_group_invite.last_checked_at, 0)
+          THEN VALUES(last_error_code)
+        ELSE wa_group_invite.last_error_code
+      END,
+      failure_count = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(wa_group_invite.last_checked_at, 0)
+          THEN VALUES(failure_count)
+        ELSE wa_group_invite.failure_count
+      END,
+      last_checked_at = CASE
+        WHEN VALUES(last_checked_at) IS NULL THEN wa_group_invite.last_checked_at
+        WHEN wa_group_invite.last_checked_at IS NULL THEN VALUES(last_checked_at)
+        ELSE GREATEST(wa_group_invite.last_checked_at, VALUES(last_checked_at))
+      END,
+      origin = CASE
+        WHEN VALUES(created_at) &lt; wa_group_invite.created_at THEN VALUES(origin)
+        ELSE wa_group_invite.origin
+      END,
+      created_at = LEAST(wa_group_invite.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_invite.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillCurrentInvitePointers">
+    INSERT INTO wa_group_profile (
+      tenant_id, group_id, current_invite_id, current_invite_observed_at,
+      created_at, updated_at
+    )
+    SELECT profile.tenant_id,
+           profile.group_id,
+           invite.id,
+           COALESCE(
+             preview.invite_code_observed_at,
+             preview.last_preview_at,
+             preview.updated_at
+           ) AS invite_observed_at,
+           profile.created_at,
+           GREATEST(profile.updated_at, preview.updated_at)
+    FROM wa_group_profile profile
+    INNER JOIN wa_group resolved_group
+      ON resolved_group.tenant_id = profile.tenant_id
+     AND resolved_group.id = profile.group_id
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = resolved_group.tenant_id
+     AND LOWER(TRIM(preview.group_jid)) = resolved_group.group_jid
+    INNER JOIN group_link link
+      ON link.tenant_id = preview.tenant_id
+     AND link.id = preview.group_link_id
+    INNER JOIN wa_group_invite invite
+      ON invite.tenant_id = preview.tenant_id
+     AND invite.invite_code = TRIM(preview.invite_code)
+     AND invite.group_id = profile.group_id
+    WHERE preview.invite_code IS NOT NULL
+      AND TRIM(preview.invite_code) &lt;&gt; ''
+      AND COALESCE(
+            preview.invite_code_observed_at,
+            preview.last_preview_at,
+            preview.updated_at
+          ) &gt;= COALESCE(profile.current_invite_observed_at, 0)
+      AND (
+        profile.current_invite_id IS NULL
+        OR profile.current_invite_id &lt;&gt; invite.id
+        OR profile.current_invite_observed_at IS NULL
+      )
+    ORDER BY profile.tenant_id ASC, profile.group_id ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      current_invite_id = CASE
+        WHEN VALUES(current_invite_observed_at)
+               &gt;= COALESCE(wa_group_profile.current_invite_observed_at, 0)
+          THEN VALUES(current_invite_id)
+        ELSE wa_group_profile.current_invite_id
+      END,
+      current_invite_observed_at = GREATEST(
+        COALESCE(wa_group_profile.current_invite_observed_at, 0),
+        VALUES(current_invite_observed_at)
+      ),
+      updated_at = CASE
+        WHEN VALUES(current_invite_observed_at)
+               &gt;= COALESCE(wa_group_profile.current_invite_observed_at, 0)
+          THEN GREATEST(wa_group_profile.updated_at, VALUES(updated_at))
+        ELSE wa_group_profile.updated_at
+      END
+  </insert>
+
+  <insert id="backfillParticipants">
+    INSERT INTO wa_group_participant (
+      tenant_id, group_id, pn_jid, lid_jid, phone,
+      presence_status, presence_source, presence_observed_at, presence_event_id,
+      role, role_source, role_observed_at, role_event_id, last_snapshot_version,
+      created_at, updated_at
+    )
+    SELECT source.tenant_id, source.group_id, source.pn_jid, source.lid_jid,
+           source.phone, source.presence_status, source.presence_source,
+           source.presence_observed_at, source.presence_event_id,
+           source.role, source.role_source, source.role_observed_at,
+           source.role_event_id, source.last_snapshot_version,
+           source.created_at, source.updated_at
+    FROM (
+      SELECT state.tenant_id,
+             resolved_group.id AS group_id,
+             CASE WHEN LOWER(TRIM(state.participant_jid)) LIKE '%@s.whatsapp.net'
+               THEN LOWER(TRIM(state.participant_jid)) ELSE NULL END AS pn_jid,
+             CASE WHEN LOWER(TRIM(state.participant_jid)) LIKE '%@lid'
+               THEN LOWER(TRIM(state.participant_jid)) ELSE NULL END AS lid_jid,
+             COALESCE(
+               NULLIF(REGEXP_REPLACE(COALESCE(state.phone, ''), '[^0-9]', ''), ''),
+               CASE WHEN LOWER(TRIM(state.participant_jid)) LIKE '%@s.whatsapp.net'
+                 THEN SUBSTRING_INDEX(LOWER(TRIM(state.participant_jid)), '@', 1)
+                 ELSE NULL END
+             ) AS phone,
+             CASE WHEN state.is_in_group = 1 THEN 1 ELSE 2 END AS presence_status,
+             state.state_source AS presence_source,
+             state.state_updated_at AS presence_observed_at,
+             state.source_event_id AS presence_event_id,
+             CASE
+               WHEN state.is_owner = 1 THEN 3
+               WHEN state.is_admin = 1 THEN 2
+               WHEN state.is_admin = 0 OR NULLIF(TRIM(state.role), '') IS NOT NULL THEN 1
+               ELSE 0
+             END AS role,
+             state.state_source AS role_source,
+             state.state_updated_at AS role_observed_at,
+             state.source_event_id AS role_event_id,
+             state.snapshot_version AS last_snapshot_version,
+             state.created_at,
+             state.updated_at
+      FROM whatsapp_group_member_state state
+      INNER JOIN wa_group resolved_group
+        ON state.tenant_id = resolved_group.tenant_id
+       AND LOWER(TRIM(state.group_jid)) = resolved_group.group_jid
+    ) source
+    LEFT JOIN wa_group_participant target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+     AND (
+       (source.pn_jid IS NOT NULL AND target.pn_jid = source.pn_jid)
+       OR (source.lid_jid IS NOT NULL AND target.lid_jid = source.lid_jid)
+     )
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR (target.phone IS NULL AND source.phone IS NOT NULL)
+       OR (
+         source.presence_observed_at &gt; COALESCE(target.presence_observed_at, -1)
+         AND (
+           target.presence_status &lt;&gt; source.presence_status
+           OR NOT (target.presence_source &lt;=&gt; source.presence_source)
+           OR NOT (target.presence_event_id &lt;=&gt; source.presence_event_id)
+         )
+       )
+       OR (
+         source.role_observed_at &gt; COALESCE(target.role_observed_at, -1)
+         AND (
+           target.role &lt;&gt; source.role
+           OR NOT (target.role_source &lt;=&gt; source.role_source)
+           OR NOT (target.role_event_id &lt;=&gt; source.role_event_id)
+         )
+       )
+       OR (target.last_snapshot_version IS NULL
+           AND source.last_snapshot_version IS NOT NULL)
+    ORDER BY source.tenant_id ASC, source.group_id ASC,
+             COALESCE(source.pn_jid, source.lid_jid) ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(wa_group_participant.phone, VALUES(phone)),
+      presence_status = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN VALUES(presence_status)
+        ELSE wa_group_participant.presence_status
+      END,
+      presence_source = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN VALUES(presence_source)
+        ELSE wa_group_participant.presence_source
+      END,
+      presence_event_id = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN VALUES(presence_event_id)
+        ELSE wa_group_participant.presence_event_id
+      END,
+      last_snapshot_version = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN COALESCE(
+            VALUES(last_snapshot_version), wa_group_participant.last_snapshot_version
+          )
+        ELSE COALESCE(
+          wa_group_participant.last_snapshot_version, VALUES(last_snapshot_version)
+        )
+      END,
+      presence_observed_at = CASE
+        WHEN wa_group_participant.presence_observed_at IS NULL
+          THEN VALUES(presence_observed_at)
+        ELSE GREATEST(
+          wa_group_participant.presence_observed_at, VALUES(presence_observed_at)
+        )
+      END,
+      role = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role)
+        ELSE wa_group_participant.role
+      END,
+      role_source = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role_source)
+        ELSE wa_group_participant.role_source
+      END,
+      role_event_id = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role_event_id)
+        ELSE wa_group_participant.role_event_id
+      END,
+      role_observed_at = CASE
+        WHEN wa_group_participant.role_observed_at IS NULL THEN VALUES(role_observed_at)
+        ELSE GREATEST(wa_group_participant.role_observed_at, VALUES(role_observed_at))
+      END,
+      created_at = LEAST(wa_group_participant.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_participant.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillAccountParticipants">
+    INSERT INTO wa_group_participant (
+      tenant_id, group_id, pn_jid, phone,
+      presence_status, presence_source, presence_observed_at, presence_event_id,
+      role, role_source, role_observed_at, role_event_id,
+      last_exited_at, last_exit_type, last_exit_event_at,
+      last_exit_source_event_id, created_at, updated_at
+    )
+    SELECT source.tenant_id, source.group_id, source.pn_jid, source.phone,
+           source.presence_status, source.presence_source,
+           source.presence_observed_at, source.presence_event_id,
+           source.role, source.role_source, source.role_observed_at,
+           source.role_event_id, source.last_exited_at, source.last_exit_type,
+           source.last_exit_event_at, source.last_exit_source_event_id,
+           source.created_at, source.updated_at
+    FROM (
+      SELECT ranked.*
+      FROM (
+        SELECT candidate.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY candidate.tenant_id, candidate.group_id, candidate.pn_jid
+                 ORDER BY candidate.source_priority DESC,
+                          candidate.presence_observed_at DESC,
+                          candidate.source_id DESC
+               ) AS source_rank
+        FROM (
+          SELECT membership.tenant_id,
+                 resolved_group.id AS group_id,
+                 CONCAT(TRIM(account.ws_phone), '@s.whatsapp.net') AS pn_jid,
+                 TRIM(account.ws_phone) AS phone,
+                 CASE
+                   WHEN membership.membership_status = 1 THEN 1
+                   WHEN membership.membership_status IN (3, 4, 5) THEN 2
+                   ELSE 0
+                 END AS presence_status,
+                 COALESCE(membership.status_source, 'LEGACY_MEMBERSHIP')
+                   AS presence_source,
+                 membership.status_updated_at AS presence_observed_at,
+                 CONCAT('membership:', membership.id) AS presence_event_id,
+                 CASE
+                   WHEN membership.is_admin = 1 THEN 2
+                   WHEN membership.is_admin = 0 THEN 1
+                   ELSE 0
+                 END AS role,
+                 COALESCE(membership.status_source, 'LEGACY_MEMBERSHIP') AS role_source,
+                 membership.status_updated_at AS role_observed_at,
+                 CONCAT('membership:', membership.id) AS role_event_id,
+                 membership.last_exited_at,
+                 CASE membership.last_exit_type
+                   WHEN 3 THEN 'REMOVED'
+                   WHEN 4 THEN 'LEFT'
+                   ELSE NULL
+                 END AS last_exit_type,
+                 membership.last_exited_at AS last_exit_event_at,
+                 CASE WHEN membership.last_exited_at IS NOT NULL
+                   THEN CONCAT('membership-exit:', membership.id) ELSE NULL END
+                   AS last_exit_source_event_id,
+                 membership.created_at,
+                 membership.updated_at,
+                 2 AS source_priority,
+                 membership.id AS source_id
+          FROM account_group_membership membership
+          INNER JOIN account account
+            ON account.tenant_id = membership.tenant_id
+           AND account.id = membership.account_id
+           AND account.deleted_at IS NULL
+          INNER JOIN wa_group resolved_group
+            ON resolved_group.tenant_id = membership.tenant_id
+           AND resolved_group.group_jid = LOWER(TRIM(membership.group_jid))
+          WHERE membership.deleted_at IS NULL
+
+          UNION ALL
+
+          SELECT account.tenant_id,
+                 resolved_group.id AS group_id,
+                 CONCAT(TRIM(account.ws_phone), '@s.whatsapp.net') AS pn_jid,
+                 TRIM(account.ws_phone) AS phone,
+                 0 AS presence_status,
+                 NULL AS presence_source,
+                 NULL AS presence_observed_at,
+                 NULL AS presence_event_id,
+                 0 AS role,
+                 NULL AS role_source,
+                 NULL AS role_observed_at,
+                 NULL AS role_event_id,
+                 NULL AS last_exited_at,
+                 NULL AS last_exit_type,
+                 NULL AS last_exit_event_at,
+                 NULL AS last_exit_source_event_id,
+                 LEAST(account.created_at, baseline.created_at) AS created_at,
+                 GREATEST(account.updated_at, baseline.updated_at) AS updated_at,
+                 1 AS source_priority,
+                 account.id AS source_id
+          FROM account account
+          INNER JOIN account_group_baseline baseline
+            ON baseline.tenant_id = account.tenant_id
+           AND baseline.account_id = account.id
+          INNER JOIN JSON_TABLE(
+            baseline.baseline_group_jids,
+            '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+          ) baseline_group
+          INNER JOIN wa_group resolved_group
+            ON resolved_group.tenant_id = account.tenant_id
+           AND resolved_group.group_jid = LOWER(TRIM(baseline_group.group_jid))
+          WHERE account.deleted_at IS NULL
+            AND account.group_baseline_state = 2
+        ) candidate
+      ) ranked
+      WHERE ranked.source_rank = 1
+    ) source
+    LEFT JOIN wa_group_participant target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+     AND target.pn_jid = source.pn_jid
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR target.phone IS NULL
+       OR (
+         source.presence_observed_at &gt; COALESCE(target.presence_observed_at, -1)
+         AND target.presence_status &lt;&gt; source.presence_status
+       )
+       OR (
+         source.role_observed_at &gt; COALESCE(target.role_observed_at, -1)
+         AND target.role &lt;&gt; source.role
+       )
+       OR (
+         source.last_exit_event_at IS NOT NULL
+         AND source.last_exit_event_at &gt; COALESCE(target.last_exit_event_at, -1)
+       )
+    ORDER BY source.tenant_id ASC, source.group_id ASC, source.pn_jid ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(wa_group_participant.phone, VALUES(phone)),
+      presence_status = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN VALUES(presence_status)
+        ELSE wa_group_participant.presence_status
+      END,
+      presence_source = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN VALUES(presence_source)
+        ELSE wa_group_participant.presence_source
+      END,
+      presence_event_id = CASE
+        WHEN VALUES(presence_observed_at)
+               &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+          THEN VALUES(presence_event_id)
+        ELSE wa_group_participant.presence_event_id
+      END,
+      presence_observed_at = CASE
+        WHEN wa_group_participant.presence_observed_at IS NULL
+          THEN VALUES(presence_observed_at)
+        ELSE GREATEST(
+          wa_group_participant.presence_observed_at, VALUES(presence_observed_at)
+        )
+      END,
+      role = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role)
+        ELSE wa_group_participant.role
+      END,
+      role_source = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role_source)
+        ELSE wa_group_participant.role_source
+      END,
+      role_event_id = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role_event_id)
+        ELSE wa_group_participant.role_event_id
+      END,
+      role_observed_at = CASE
+        WHEN wa_group_participant.role_observed_at IS NULL THEN VALUES(role_observed_at)
+        ELSE GREATEST(wa_group_participant.role_observed_at, VALUES(role_observed_at))
+      END,
+      last_exited_at = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          THEN VALUES(last_exited_at)
+        ELSE wa_group_participant.last_exited_at
+      END,
+      last_exit_type = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          THEN VALUES(last_exit_type)
+        ELSE wa_group_participant.last_exit_type
+      END,
+      last_exit_source_event_id = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          THEN VALUES(last_exit_source_event_id)
+        ELSE wa_group_participant.last_exit_source_event_id
+      END,
+      last_exit_event_at = CASE
+        WHEN VALUES(last_exit_event_at) IS NULL
+          THEN wa_group_participant.last_exit_event_at
+        WHEN wa_group_participant.last_exit_event_at IS NULL
+          THEN VALUES(last_exit_event_at)
+        ELSE GREATEST(
+          wa_group_participant.last_exit_event_at, VALUES(last_exit_event_at)
+        )
+      END,
+      created_at = LEAST(wa_group_participant.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_participant.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillParticipantJoinFacts">
+    INSERT INTO wa_group_participant (
+      tenant_id, group_id, pn_jid, lid_jid, phone,
+      last_joined_at, last_join_event_at, last_join_source_event_id,
+      created_at, updated_at
+    )
+    SELECT source.tenant_id, source.group_id, source.pn_jid, source.lid_jid,
+           source.phone, source.last_joined_at, source.last_join_event_at,
+           source.last_join_source_event_id, source.created_at, source.updated_at
+    FROM (
+      SELECT join_fact.tenant_id,
+             resolved_group.id AS group_id,
+             CASE WHEN LOWER(TRIM(join_fact.participant_jid)) LIKE '%@s.whatsapp.net'
+               THEN LOWER(TRIM(join_fact.participant_jid)) ELSE NULL END AS pn_jid,
+             CASE WHEN LOWER(TRIM(join_fact.participant_jid)) LIKE '%@lid'
+               THEN LOWER(TRIM(join_fact.participant_jid)) ELSE NULL END AS lid_jid,
+             NULLIF(REGEXP_REPLACE(COALESCE(join_fact.phone, ''), '[^0-9]', ''), '')
+               AS phone,
+             join_fact.joined_at AS last_joined_at,
+             join_fact.event_at AS last_join_event_at,
+             join_fact.source_event_id AS last_join_source_event_id,
+             join_fact.created_at,
+             join_fact.updated_at
+      FROM whatsapp_group_member_join_fact join_fact
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = join_fact.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(join_fact.group_jid))
+    ) source
+    LEFT JOIN wa_group_participant target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+     AND (
+       (source.pn_jid IS NOT NULL AND target.pn_jid = source.pn_jid)
+       OR (source.lid_jid IS NOT NULL AND target.lid_jid = source.lid_jid)
+     )
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR (target.phone IS NULL AND source.phone IS NOT NULL)
+       OR source.last_join_event_at &gt; COALESCE(target.last_join_event_at, -1)
+       OR (
+         source.last_join_event_at = target.last_join_event_at
+         AND CAST(source.last_join_source_event_id AS BINARY)
+             &gt; CAST(COALESCE(target.last_join_source_event_id, '') AS BINARY)
+       )
+    ORDER BY source.tenant_id ASC, source.group_id ASC,
+             COALESCE(source.pn_jid, source.lid_jid) ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(wa_group_participant.phone, VALUES(phone)),
+      last_joined_at = CASE
+        WHEN VALUES(last_join_event_at)
+               &gt; COALESCE(wa_group_participant.last_join_event_at, -1)
+          OR (
+            VALUES(last_join_event_at) = wa_group_participant.last_join_event_at
+            AND CAST(VALUES(last_join_source_event_id) AS BINARY)
+                &gt; CAST(COALESCE(
+                  wa_group_participant.last_join_source_event_id, ''
+                ) AS BINARY)
+          )
+          THEN VALUES(last_joined_at)
+        ELSE wa_group_participant.last_joined_at
+      END,
+      last_join_source_event_id = CASE
+        WHEN VALUES(last_join_event_at)
+               &gt; COALESCE(wa_group_participant.last_join_event_at, -1)
+          OR (
+            VALUES(last_join_event_at) = wa_group_participant.last_join_event_at
+            AND CAST(VALUES(last_join_source_event_id) AS BINARY)
+                &gt; CAST(COALESCE(
+                  wa_group_participant.last_join_source_event_id, ''
+                ) AS BINARY)
+          )
+          THEN VALUES(last_join_source_event_id)
+        ELSE wa_group_participant.last_join_source_event_id
+      END,
+      last_join_event_at = CASE
+        WHEN wa_group_participant.last_join_event_at IS NULL
+          THEN VALUES(last_join_event_at)
+        ELSE GREATEST(
+          wa_group_participant.last_join_event_at, VALUES(last_join_event_at)
+        )
+      END,
+      created_at = LEAST(wa_group_participant.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_participant.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillParticipantExitFacts">
+    INSERT INTO wa_group_participant (
+      tenant_id, group_id, pn_jid, lid_jid, phone,
+      last_exited_at, last_exit_type, last_exit_event_at,
+      last_exit_source_event_id, last_exit_source_type,
+      created_at, updated_at
+    )
+    SELECT source.tenant_id, source.group_id, source.pn_jid, source.lid_jid,
+           source.phone, source.last_exited_at, source.last_exit_type,
+           source.last_exit_event_at, source.last_exit_source_event_id,
+           source.last_exit_source_type, source.created_at, source.updated_at
+    FROM (
+      SELECT exit_fact.tenant_id,
+             resolved_group.id AS group_id,
+             CASE WHEN LOWER(TRIM(exit_fact.participant_jid)) LIKE '%@s.whatsapp.net'
+               THEN LOWER(TRIM(exit_fact.participant_jid)) ELSE NULL END AS pn_jid,
+             CASE WHEN LOWER(TRIM(exit_fact.participant_jid)) LIKE '%@lid'
+               THEN LOWER(TRIM(exit_fact.participant_jid)) ELSE NULL END AS lid_jid,
+             NULLIF(REGEXP_REPLACE(COALESCE(exit_fact.phone, ''), '[^0-9]', ''), '')
+               AS phone,
+             exit_fact.exited_at AS last_exited_at,
+             exit_fact.exit_type AS last_exit_type,
+             exit_fact.event_at AS last_exit_event_at,
+             exit_fact.source_event_id AS last_exit_source_event_id,
+             exit_fact.source_type AS last_exit_source_type,
+             exit_fact.created_at,
+             exit_fact.updated_at
+      FROM whatsapp_group_departed_member exit_fact
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = exit_fact.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(exit_fact.group_jid))
+    ) source
+    LEFT JOIN wa_group_participant target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+     AND (
+       (source.pn_jid IS NOT NULL AND target.pn_jid = source.pn_jid)
+       OR (source.lid_jid IS NOT NULL AND target.lid_jid = source.lid_jid)
+     )
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR (target.phone IS NULL AND source.phone IS NOT NULL)
+       OR source.last_exit_event_at &gt; COALESCE(target.last_exit_event_at, -1)
+       OR (
+         source.last_exit_event_at = target.last_exit_event_at
+         AND target.last_exit_source_type IS NULL
+       )
+    ORDER BY source.tenant_id ASC, source.group_id ASC,
+             COALESCE(source.pn_jid, source.lid_jid) ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(wa_group_participant.phone, VALUES(phone)),
+      last_exited_at = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          OR (
+            VALUES(last_exit_event_at) = wa_group_participant.last_exit_event_at
+            AND wa_group_participant.last_exit_source_type IS NULL
+          )
+          THEN VALUES(last_exited_at)
+        ELSE wa_group_participant.last_exited_at
+      END,
+      last_exit_type = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          OR (
+            VALUES(last_exit_event_at) = wa_group_participant.last_exit_event_at
+            AND wa_group_participant.last_exit_source_type IS NULL
+          )
+          THEN VALUES(last_exit_type)
+        ELSE wa_group_participant.last_exit_type
+      END,
+      last_exit_source_event_id = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          OR (
+            VALUES(last_exit_event_at) = wa_group_participant.last_exit_event_at
+            AND wa_group_participant.last_exit_source_type IS NULL
+          )
+          THEN VALUES(last_exit_source_event_id)
+        ELSE wa_group_participant.last_exit_source_event_id
+      END,
+      last_exit_source_type = CASE
+        WHEN VALUES(last_exit_event_at)
+               &gt; COALESCE(wa_group_participant.last_exit_event_at, -1)
+          OR (
+            VALUES(last_exit_event_at) = wa_group_participant.last_exit_event_at
+            AND wa_group_participant.last_exit_source_type IS NULL
+          )
+          THEN VALUES(last_exit_source_type)
+        ELSE wa_group_participant.last_exit_source_type
+      END,
+      last_exit_event_at = CASE
+        WHEN wa_group_participant.last_exit_event_at IS NULL
+          THEN VALUES(last_exit_event_at)
+        ELSE GREATEST(
+          wa_group_participant.last_exit_event_at, VALUES(last_exit_event_at)
+        )
+      END,
+      created_at = LEAST(wa_group_participant.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_participant.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillAccountGroupBindings">
+    INSERT INTO wa_account_group_binding (
+      tenant_id, account_id, group_id, participant_id,
+      was_in_initial_baseline, baseline_subject_snapshot,
+      membership_active_since_at, last_observed_at,
+      created_at, updated_at
+    )
+    SELECT source.tenant_id, source.account_id, source.group_id, participant.id,
+           source.was_in_initial_baseline, source.baseline_subject_snapshot,
+           source.membership_active_since_at, source.last_observed_at,
+           source.created_at, source.updated_at
+    FROM (
+      SELECT membership.tenant_id,
+             membership.account_id,
+             resolved_group.id AS group_id,
+             CONCAT(TRIM(account.ws_phone), '@s.whatsapp.net') AS pn_jid,
+             CASE WHEN account.group_baseline_state = 2
+                       AND baseline.id IS NOT NULL
+                       AND EXISTS (
+                         SELECT 1
+                         FROM JSON_TABLE(
+                           baseline.baseline_group_jids,
+                           '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+                         ) baseline_match
+                         WHERE LOWER(TRIM(baseline_match.group_jid))
+                               = LOWER(TRIM(membership.group_jid))
+                       )
+               THEN 1 ELSE NULL END AS was_in_initial_baseline,
+             CASE WHEN account.group_baseline_state = 2
+                       AND baseline.id IS NOT NULL
+                       AND baseline.baseline_group_subjects IS NOT NULL
+               THEN NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(
+                 baseline.baseline_group_subjects,
+                 CONCAT(
+                   '$.&quot;',
+                   REPLACE(LOWER(TRIM(membership.group_jid)), '&quot;', '\\&quot;'),
+                   '&quot;'
+                 )
+               ))), '')
+               ELSE NULL END AS baseline_subject_snapshot,
+             membership.joined_at AS membership_active_since_at,
+             COALESCE(
+               membership.last_seen_at,
+               membership.status_updated_at,
+               membership.updated_at
+             ) AS last_observed_at,
+             membership.created_at,
+             membership.updated_at
+      FROM account_group_membership membership
+      INNER JOIN account account
+        ON account.tenant_id = membership.tenant_id
+       AND account.id = membership.account_id
+       AND account.deleted_at IS NULL
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = membership.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(membership.group_jid))
+      LEFT JOIN account_group_baseline baseline
+        ON baseline.tenant_id = account.tenant_id
+       AND baseline.account_id = account.id
+      WHERE membership.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT account.tenant_id,
+             account.id AS account_id,
+             resolved_group.id AS group_id,
+             CONCAT(TRIM(account.ws_phone), '@s.whatsapp.net') AS pn_jid,
+             1 AS was_in_initial_baseline,
+             CASE WHEN baseline.baseline_group_subjects IS NOT NULL
+               THEN NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(
+                 baseline.baseline_group_subjects,
+                 CONCAT(
+                   '$.&quot;',
+                   REPLACE(LOWER(TRIM(baseline_group.group_jid)), '&quot;', '\\&quot;'),
+                   '&quot;'
+                 )
+               ))), '')
+               ELSE NULL END AS baseline_subject_snapshot,
+             NULL AS membership_active_since_at,
+             baseline.captured_at AS last_observed_at,
+             LEAST(account.created_at, baseline.created_at) AS created_at,
+             GREATEST(account.updated_at, baseline.updated_at) AS updated_at
+      FROM account account
+      INNER JOIN account_group_baseline baseline
+        ON baseline.tenant_id = account.tenant_id
+       AND baseline.account_id = account.id
+      INNER JOIN JSON_TABLE(
+        baseline.baseline_group_jids,
+        '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+      ) baseline_group
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = account.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(baseline_group.group_jid))
+      LEFT JOIN account_group_membership membership
+        ON membership.tenant_id = account.tenant_id
+       AND membership.account_id = account.id
+       AND LOWER(TRIM(membership.group_jid))
+           = LOWER(TRIM(baseline_group.group_jid))
+       AND membership.deleted_at IS NULL
+      WHERE account.deleted_at IS NULL
+        AND account.group_baseline_state = 2
+        AND membership.id IS NULL
+    ) source
+    INNER JOIN wa_group_participant participant
+      ON participant.tenant_id = source.tenant_id
+     AND participant.group_id = source.group_id
+     AND participant.pn_jid = source.pn_jid
+    LEFT JOIN wa_account_group_binding target
+      ON target.tenant_id = source.tenant_id
+     AND target.account_id = source.account_id
+     AND target.group_id = source.group_id
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR (
+         source.last_observed_at &gt; COALESCE(target.last_observed_at, -1)
+         AND target.participant_id &lt;&gt; participant.id
+       )
+       OR (target.was_in_initial_baseline IS NULL
+           AND source.was_in_initial_baseline = 1)
+       OR (target.baseline_subject_snapshot IS NULL
+           AND source.baseline_subject_snapshot IS NOT NULL)
+       OR (target.membership_active_since_at IS NULL
+           AND source.membership_active_since_at IS NOT NULL)
+    ORDER BY source.tenant_id ASC, source.account_id ASC, source.group_id ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      participant_id = CASE
+        WHEN VALUES(last_observed_at)
+               &gt; COALESCE(wa_account_group_binding.last_observed_at, -1)
+          THEN VALUES(participant_id)
+        ELSE wa_account_group_binding.participant_id
+      END,
+      was_in_initial_baseline = COALESCE(
+        wa_account_group_binding.was_in_initial_baseline,
+        VALUES(was_in_initial_baseline)
+      ),
+      baseline_subject_snapshot = COALESCE(
+        wa_account_group_binding.baseline_subject_snapshot,
+        VALUES(baseline_subject_snapshot)
+      ),
+      membership_active_since_at = COALESCE(
+        wa_account_group_binding.membership_active_since_at,
+        VALUES(membership_active_since_at)
+      ),
+      last_observed_at = CASE
+        WHEN wa_account_group_binding.last_observed_at IS NULL
+          THEN VALUES(last_observed_at)
+        ELSE GREATEST(
+          wa_account_group_binding.last_observed_at, VALUES(last_observed_at)
+        )
+      END,
+      created_at = LEAST(wa_account_group_binding.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_account_group_binding.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillAccountGroupSyncStates">
+    INSERT INTO account_group_sync_state (
+      tenant_id, account_id, baseline_state, baseline_completeness,
+      baseline_captured_at, baseline_group_count, last_sync_requested_at,
+      last_reported_at, last_snapshot_complete, last_complete_at,
+      created_at, updated_at
+    )
+    SELECT source.tenant_id, source.account_id, source.baseline_state,
+           source.baseline_completeness, source.baseline_captured_at,
+           source.baseline_group_count, source.last_sync_requested_at,
+           NULL, 0, NULL, source.created_at, source.updated_at
+    FROM (
+      SELECT account.tenant_id,
+             account.id AS account_id,
+             account.group_baseline_state AS baseline_state,
+             CASE WHEN account.group_baseline_state = 2 THEN 2 ELSE 0 END
+               AS baseline_completeness,
+             CASE WHEN account.group_baseline_state = 2
+               THEN baseline.captured_at ELSE NULL END AS baseline_captured_at,
+             CASE WHEN account.group_baseline_state = 2
+               THEN baseline.group_count ELSE NULL END AS baseline_group_count,
+             baseline.last_group_sync_requested_at AS last_sync_requested_at,
+             CASE WHEN baseline.id IS NULL
+               THEN account.created_at
+               ELSE LEAST(account.created_at, baseline.created_at)
+             END AS created_at,
+             CASE WHEN baseline.id IS NULL
+               THEN account.updated_at
+               ELSE GREATEST(account.updated_at, baseline.updated_at)
+             END AS updated_at
+      FROM account account
+      LEFT JOIN account_group_baseline baseline
+        ON baseline.tenant_id = account.tenant_id
+       AND baseline.account_id = account.id
+      WHERE account.deleted_at IS NULL
+    ) source
+    LEFT JOIN account_group_sync_state target
+      ON target.tenant_id = source.tenant_id
+     AND target.account_id = source.account_id
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR (
+         source.last_sync_requested_at IS NOT NULL
+         AND source.last_sync_requested_at
+             &gt; COALESCE(target.last_sync_requested_at, -1)
+       )
+       OR (
+         target.baseline_completeness = 0
+         AND source.baseline_completeness = 2
+       )
+    ORDER BY source.tenant_id ASC, source.account_id ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      baseline_state = CASE
+        WHEN account_group_sync_state.baseline_completeness = 0
+         AND VALUES(baseline_completeness) = 2
+          THEN VALUES(baseline_state)
+        ELSE account_group_sync_state.baseline_state
+      END,
+      baseline_captured_at = CASE
+        WHEN account_group_sync_state.baseline_completeness = 0
+         AND VALUES(baseline_completeness) = 2
+          THEN VALUES(baseline_captured_at)
+        ELSE account_group_sync_state.baseline_captured_at
+      END,
+      baseline_group_count = CASE
+        WHEN account_group_sync_state.baseline_completeness = 0
+         AND VALUES(baseline_completeness) = 2
+          THEN VALUES(baseline_group_count)
+        ELSE account_group_sync_state.baseline_group_count
+      END,
+      baseline_completeness = CASE
+        WHEN account_group_sync_state.baseline_completeness = 0
+         AND VALUES(baseline_completeness) = 2
+          THEN 2
+        ELSE account_group_sync_state.baseline_completeness
+      END,
+      last_sync_requested_at = CASE
+        WHEN VALUES(last_sync_requested_at) IS NULL
+          THEN account_group_sync_state.last_sync_requested_at
+        WHEN account_group_sync_state.last_sync_requested_at IS NULL
+          THEN VALUES(last_sync_requested_at)
+        ELSE GREATEST(
+          account_group_sync_state.last_sync_requested_at,
+          VALUES(last_sync_requested_at)
+        )
+      END,
+      created_at = LEAST(account_group_sync_state.created_at, VALUES(created_at)),
+      updated_at = GREATEST(account_group_sync_state.updated_at, VALUES(updated_at))
   </insert>
 
 </mapper>

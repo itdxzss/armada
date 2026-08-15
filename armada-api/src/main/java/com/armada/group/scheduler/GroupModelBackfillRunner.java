@@ -3,6 +3,7 @@ package com.armada.group.scheduler;
 import com.armada.group.mapper.GroupModelBackfillMapper;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import java.util.function.IntSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -13,7 +14,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** 人工显式启动的新群模型一次性回填；当前只实现 wa_group 阶段。 */
+/** 人工显式启动的新群模型一次性回填。 */
 @Component
 @ConditionalOnProperty(
         prefix = "armada.group-model-backfill",
@@ -60,10 +61,44 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
      * @return 实际执行的非空批次数和数据库影响行数
      */
     public BackfillResult backfillAll() {
+        BackfillResult groups = backfillStage(() -> mapper.backfillGroups(BATCH_SIZE));
+        BackfillResult profiles = backfillStage(() -> mapper.backfillProfiles(BATCH_SIZE));
+        BackfillResult memberSnapshotHeaders = backfillStage(
+                () -> mapper.backfillMemberSnapshotHeaders(BATCH_SIZE));
+        BackfillResult invites = backfillStage(() -> mapper.backfillInvites(BATCH_SIZE));
+        BackfillResult invitePointers = backfillStage(
+                () -> mapper.backfillCurrentInvitePointers(BATCH_SIZE));
+        BackfillResult participants = backfillStage(
+                () -> mapper.backfillParticipants(BATCH_SIZE));
+        BackfillResult accountParticipants = backfillStage(
+                () -> mapper.backfillAccountParticipants(BATCH_SIZE));
+        BackfillResult joinFacts = backfillStage(
+                () -> mapper.backfillParticipantJoinFacts(BATCH_SIZE));
+        BackfillResult exitFacts = backfillStage(
+                () -> mapper.backfillParticipantExitFacts(BATCH_SIZE));
+        BackfillResult bindings = backfillStage(
+                () -> mapper.backfillAccountGroupBindings(BATCH_SIZE));
+        BackfillResult syncStates = backfillStage(
+                () -> mapper.backfillAccountGroupSyncStates(BATCH_SIZE));
+        return new BackfillResult(
+                groups.batches() + profiles.batches() + memberSnapshotHeaders.batches()
+                        + invites.batches() + invitePointers.batches()
+                        + participants.batches() + accountParticipants.batches()
+                        + joinFacts.batches() + exitFacts.batches()
+                        + bindings.batches() + syncStates.batches(),
+                groups.affectedRows() + profiles.affectedRows()
+                        + memberSnapshotHeaders.affectedRows()
+                        + invites.affectedRows() + invitePointers.affectedRows()
+                        + participants.affectedRows() + accountParticipants.affectedRows()
+                        + joinFacts.affectedRows() + exitFacts.affectedRows()
+                        + bindings.affectedRows() + syncStates.affectedRows());
+    }
+
+    private BackfillResult backfillStage(IntSupplier writer) {
         int batches = 0;
         long affectedRows = 0;
         while (true) {
-            int currentRows = backfillBatch();
+            int currentRows = backfillBatch(writer);
             if (currentRows == 0) {
                 return new BackfillResult(batches, affectedRows);
             }
@@ -72,15 +107,16 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
         }
     }
 
-    private int backfillBatch() {
-        Integer affectedRows = transactions.execute(status -> backfillBatchInTransaction());
+    private int backfillBatch(IntSupplier writer) {
+        Integer affectedRows = transactions.execute(
+                status -> backfillBatchInTransaction(writer));
         if (affectedRows == null) {
             throw new IllegalStateException("群模型回填事务未返回影响行数");
         }
         return affectedRows;
     }
 
-    private int backfillBatchInTransaction() {
+    private int backfillBatchInTransaction(IntSupplier writer) {
         int invalidSources = mapper.countInvalidGroupSources();
         if (invalidSources > 0) {
             throw new BusinessException(
@@ -93,7 +129,25 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
                     ErrorCode.CONFLICT,
                     "群模型回填发现租户内重复群 JID，已停止写入: " + conflicts);
         }
-        return mapper.backfillGroups(BATCH_SIZE);
+        int inviteConflicts = mapper.countInviteConflicts();
+        if (inviteConflicts > 0) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "群模型回填发现邀请冲突，已停止写入: " + inviteConflicts);
+        }
+        int participantConflicts = mapper.countParticipantConflicts();
+        if (participantConflicts > 0) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "群模型回填发现成员身份冲突，已停止写入: " + participantConflicts);
+        }
+        int bindingConflicts = mapper.countBindingConflicts();
+        if (bindingConflicts > 0) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "群模型回填发现账号关系或 baseline 冲突，已停止写入: " + bindingConflicts);
+        }
+        return writer.getAsInt();
     }
 
     /** 一次人工回填结果。 */

@@ -100,9 +100,20 @@ class GroupCurrentLocalWriteMySqlTest {
 
     @BeforeEach
     void resetData() {
+        jdbc.update("DELETE FROM wa_account_group_binding");
+        jdbc.update("DELETE FROM account_group_sync_state");
+        jdbc.update("DELETE FROM wa_group_participant");
         jdbc.update("DELETE FROM wa_group_invite");
         jdbc.update("DELETE FROM wa_group_profile");
         jdbc.update("DELETE FROM wa_group");
+        jdbc.update("DELETE FROM whatsapp_group_departed_member");
+        jdbc.update("DELETE FROM whatsapp_group_member_join_fact");
+        jdbc.update("DELETE FROM whatsapp_group_member_state");
+        jdbc.update("DELETE FROM whatsapp_group_member_cache");
+        jdbc.update("DELETE FROM account_group_membership");
+        jdbc.update("DELETE FROM account_group_baseline");
+        jdbc.update("DELETE FROM account");
+        jdbc.update("DELETE FROM group_link_health");
         jdbc.update("DELETE FROM group_link_preview");
         jdbc.update("DELETE FROM group_link");
         TenantContext.set(TENANT_ID);
@@ -529,6 +540,296 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("updated_at", 400L);
     }
 
+    @Test
+    void profileAndInviteBackfillAreIdempotentAndKeepFieldOwnership() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, group_name, label_id, origin,
+                  membership_state, remark, created_at, updated_at
+                ) VALUES
+                  (55, 7, 'https://chat.whatsapp.com/ResolvedCode', '已解析本地名', 6, 1,
+                   2, '群备注', 100, 200),
+                  (56, 7, 'https://chat.whatsapp.com/UnresolvedCode', '未解析本地名', 8, 1,
+                   1, '邀请备注', 120, 220)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, invite_code,
+                  invite_code_observed_at, wa_subject, wa_description, member_size,
+                  announce_only, admin_only_edit_info, member_add_mode, join_approval_mode,
+                  ephemeral_duration_seconds, group_created_at, avatar_url,
+                  last_preview_at, metadata_observed_at, created_at, updated_at
+                ) VALUES
+                  (7, 55, '120363-PROFILE@g.us', 'ResolvedCode', 350,
+                   'WhatsApp群名', '群描述', 41, 1, 1, 1, 0, 86400, 123,
+                   'https://cdn.example/resolved.jpg', 300, 320, 110, 330),
+                  (7, 56, NULL, 'UnresolvedCode', 360,
+                   '公开预览名', NULL, 33, NULL, NULL, NULL, NULL, NULL, NULL,
+                   'https://cdn.example/unresolved.jpg', 310, NULL, 130, 340)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_health (
+                  tenant_id, group_link_id, health_status, is_banned, current_count,
+                  last_check_at, last_health_error, health_failure_count, created_at, updated_at
+                ) VALUES
+                  (7, 55, 1, 0, 42, 340, NULL, 0, 120, 340),
+                  (7, 56, 2, 0, 34, 345, 'LINK_INVALID', 2, 140, 345)
+                """);
+
+        assertThat(backfillMapper.countInviteConflicts()).isZero();
+        assertThat(backfillMapper.backfillGroups(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillGroups(500)).isZero();
+        assertThat(backfillMapper.backfillProfiles(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillProfiles(500)).isZero();
+        assertThat(backfillMapper.backfillInvites(500)).isEqualTo(2);
+        assertThat(backfillMapper.backfillInvites(500)).isZero();
+        assertThat(backfillMapper.backfillCurrentInvitePointers(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillCurrentInvitePointers(500)).isZero();
+
+        Long groupId = jdbc.queryForObject("""
+                SELECT id FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-profile@g.us'
+                """, Long.class);
+        Long resolvedInviteId = jdbc.queryForObject("""
+                SELECT id FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'ResolvedCode'
+                """, Long.class);
+        assertThat(jdbc.queryForMap("""
+                SELECT subject, description, member_count, wa_created_at,
+                       announce_only, admin_only_edit_info, member_add_mode,
+                       join_approval_mode, ephemeral_duration_seconds,
+                       metadata_observed_at, current_invite_id, current_invite_observed_at
+                FROM wa_group_profile
+                WHERE tenant_id = 7 AND group_id = ?
+                """, groupId))
+                .containsEntry("subject", "WhatsApp群名")
+                .containsEntry("description", "群描述")
+                .containsEntry("member_count", 42)
+                .containsEntry("wa_created_at", 123000L)
+                .containsEntry("announce_only", 1)
+                .containsEntry("admin_only_edit_info", 1)
+                .containsEntry("member_add_mode", 1)
+                .containsEntry("join_approval_mode", 0)
+                .containsEntry("ephemeral_duration_seconds", 86400)
+                .containsEntry("metadata_observed_at", 320L)
+                .containsEntry("current_invite_id", resolvedInviteId)
+                .containsEntry("current_invite_observed_at", 350L);
+        assertThat(jdbc.queryForMap("""
+                SELECT group_id, label_id, display_name, avatar_url, remark,
+                       preview_subject, health_status, banned, checked_member_count,
+                       last_checked_at, last_error_code, failure_count
+                FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'ResolvedCode'
+                """))
+                .containsEntry("group_id", groupId)
+                .containsEntry("label_id", 6L)
+                .containsEntry("display_name", null)
+                .containsEntry("avatar_url", null)
+                .containsEntry("remark", null)
+                .containsEntry("preview_subject", null)
+                .containsEntry("health_status", 1)
+                .containsEntry("banned", 0)
+                .containsEntry("checked_member_count", 42)
+                .containsEntry("last_checked_at", 340L)
+                .containsEntry("last_error_code", null)
+                .containsEntry("failure_count", 0);
+        assertThat(jdbc.queryForMap("""
+                SELECT group_id, label_id, display_name, avatar_url, remark,
+                       preview_subject, preview_observed_at, health_status,
+                       checked_member_count, last_error_code, failure_count
+                FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'UnresolvedCode'
+                """))
+                .containsEntry("group_id", null)
+                .containsEntry("label_id", 8L)
+                .containsEntry("display_name", "未解析本地名")
+                .containsEntry("avatar_url", "https://cdn.example/unresolved.jpg")
+                .containsEntry("remark", "邀请备注")
+                .containsEntry("preview_subject", "公开预览名")
+                .containsEntry("preview_observed_at", 310L)
+                .containsEntry("health_status", 2)
+                .containsEntry("checked_member_count", 34)
+                .containsEntry("last_error_code", "LINK_INVALID")
+                .containsEntry("failure_count", 2);
+    }
+
+    @Test
+    void inviteBackfillReportsDuplicateCodeWithinTenant() {
+        seedInviteAlias(57L, "https://chat.whatsapp.com/DuplicateOne", "SameCode");
+        seedInviteAlias(58L, "https://chat.whatsapp.com/DuplicateTwo", "SameCode");
+
+        assertThat(backfillMapper.countInviteConflicts()).isEqualTo(1);
+    }
+
+    @Test
+    void participantBindingAndSyncBackfillPreserveLegacyBaselineMeaning() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, group_name, origin, membership_state,
+                  created_at, updated_at
+                ) VALUES
+                  (60, 7, 'wa://group/120363-history@g.us', '历史群', 5, 2, 100, 100),
+                  (61, 7, 'wa://group/120363-current@g.us', '当前群', 5, 2, 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, wa_subject,
+                  created_at, updated_at
+                ) VALUES
+                  (7, 60, '120363-history@g.us', '历史群', 100, 100),
+                  (7, 61, '120363-current@g.us', '当前群', 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO account (
+                  id, tenant_id, ws_phone, group_baseline_state,
+                  created_at, updated_at
+                ) VALUES (100, 7, '923300000001', 2, 50, 3000)
+                """);
+        jdbc.update("""
+                INSERT INTO account_group_baseline (
+                  tenant_id, account_id, baseline_group_jids,
+                  baseline_group_subjects, group_count, captured_at,
+                  last_group_sync_requested_at, created_at, updated_at
+                ) VALUES (
+                  7, 100, JSON_ARRAY('120363-history@g.us'),
+                  JSON_OBJECT('120363-history@g.us', '历史群快照'),
+                  1, 1000, 900, 1000, 1000
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO account_group_membership (
+                  id, tenant_id, account_id, group_link_id, group_jid,
+                  is_admin, membership_status, status_source, status_updated_at,
+                  joined_at, last_seen_at, created_at, updated_at
+                ) VALUES (
+                  200, 7, 100, 61, '120363-current@g.us',
+                  1, 1, 'ACCOUNT_SNAPSHOT', 3000,
+                  2000, 3000, 2000, 3000
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO whatsapp_group_member_cache (
+                  tenant_id, group_jid, subject, announce_only,
+                  snapshot_at, snapshot_version, observer_account_id,
+                  created_at, updated_at
+                ) VALUES (
+                  7, '120363-current@g.us', '当前群', 0,
+                  2500, 'snapshot-v1', 100, 2500, 2500
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO whatsapp_group_member_state (
+                  tenant_id, group_jid, participant_jid, phone,
+                  is_admin, is_owner, role, is_in_group, state_source,
+                  state_updated_at, source_event_id, snapshot_version,
+                  observer_account_id, created_at, updated_at
+                ) VALUES (
+                  7, '120363-current@g.us', '923300000099@s.whatsapp.net',
+                  '923300000099', 1, 1, 'superadmin', 1, 'FULL_SNAPSHOT',
+                  2500, 'snapshot-v1:owner', 'snapshot-v1', 100, 2500, 2500
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO whatsapp_group_member_join_fact (
+                  tenant_id, group_jid, participant_jid, phone,
+                  joined_at, event_at, source_event_id, observer_account_id,
+                  created_at, updated_at
+                ) VALUES (
+                  7, '120363-current@g.us', '923300000098@s.whatsapp.net',
+                  '923300000098', 1800, 1800, 'join-98', 100, 1800, 1800
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO whatsapp_group_departed_member (
+                  tenant_id, group_jid, participant_jid, phone,
+                  exited_at, exit_type, event_at, source_event_id, source_type,
+                  created_at, updated_at
+                ) VALUES (
+                  7, '120363-current@g.us', '923300000097@s.whatsapp.net',
+                  '923300000097', 1700, 'LEFT', 1700, 'exit-97',
+                  'WGP2_NOTIFICATION', 1700, 1700
+                )
+                """);
+
+        assertThat(backfillMapper.backfillGroups(500)).isEqualTo(2);
+        assertThat(backfillMapper.countParticipantConflicts()).isZero();
+        assertThat(backfillMapper.countBindingConflicts()).isZero();
+        assertThat(backfillMapper.backfillProfiles(500)).isEqualTo(2);
+        assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillParticipants(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillAccountParticipants(500)).isEqualTo(2);
+        assertThat(backfillMapper.backfillParticipantJoinFacts(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillParticipantExitFacts(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillAccountGroupBindings(500)).isEqualTo(2);
+        assertThat(backfillMapper.backfillAccountGroupSyncStates(500)).isEqualTo(1);
+
+        assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isZero();
+        assertThat(backfillMapper.backfillParticipants(500)).isZero();
+        assertThat(backfillMapper.backfillAccountParticipants(500)).isZero();
+        assertThat(backfillMapper.backfillParticipantJoinFacts(500)).isZero();
+        assertThat(backfillMapper.backfillParticipantExitFacts(500)).isZero();
+        assertThat(backfillMapper.backfillAccountGroupBindings(500)).isZero();
+        assertThat(backfillMapper.backfillAccountGroupSyncStates(500)).isZero();
+
+        Long historyGroupId = jdbc.queryForObject("""
+                SELECT id FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-history@g.us'
+                """, Long.class);
+        Long currentGroupId = jdbc.queryForObject("""
+                SELECT id FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-current@g.us'
+                """, Long.class);
+        assertThat(jdbc.queryForMap("""
+                SELECT was_in_initial_baseline, baseline_subject_snapshot,
+                       membership_active_since_at, first_post_control_observed_at
+                FROM wa_account_group_binding
+                WHERE tenant_id = 7 AND account_id = 100 AND group_id = ?
+                """, historyGroupId))
+                .containsEntry("was_in_initial_baseline", 1)
+                .containsEntry("baseline_subject_snapshot", "历史群快照")
+                .containsEntry("membership_active_since_at", null)
+                .containsEntry("first_post_control_observed_at", null);
+        assertThat(jdbc.queryForMap("""
+                SELECT was_in_initial_baseline, membership_active_since_at,
+                       first_post_control_observed_at
+                FROM wa_account_group_binding
+                WHERE tenant_id = 7 AND account_id = 100 AND group_id = ?
+                """, currentGroupId))
+                .containsEntry("was_in_initial_baseline", null)
+                .containsEntry("membership_active_since_at", 2000L)
+                .containsEntry("first_post_control_observed_at", null);
+        assertThat(jdbc.queryForMap("""
+                SELECT member_count, member_snapshot_at, member_snapshot_version
+                FROM wa_group_profile
+                WHERE tenant_id = 7 AND group_id = ?
+                """, currentGroupId))
+                .containsEntry("member_count", 1)
+                .containsEntry("member_snapshot_at", 2500L)
+                .containsEntry("member_snapshot_version", "snapshot-v1");
+        assertThat(jdbc.queryForMap("""
+                SELECT presence_status, role, last_snapshot_version
+                FROM wa_group_participant
+                WHERE tenant_id = 7 AND group_id = ?
+                  AND pn_jid = '923300000099@s.whatsapp.net'
+                """, currentGroupId))
+                .containsEntry("presence_status", 1)
+                .containsEntry("role", 3)
+                .containsEntry("last_snapshot_version", "snapshot-v1");
+        assertThat(jdbc.queryForMap("""
+                SELECT baseline_state, baseline_completeness,
+                       baseline_captured_at, baseline_group_count,
+                       last_sync_requested_at, last_reported_at
+                FROM account_group_sync_state
+                WHERE tenant_id = 7 AND account_id = 100
+                """))
+                .containsEntry("baseline_state", 2)
+                .containsEntry("baseline_completeness", 2)
+                .containsEntry("baseline_captured_at", 1000L)
+                .containsEntry("baseline_group_count", 1)
+                .containsEntry("last_sync_requested_at", 900L)
+                .containsEntry("last_reported_at", null);
+    }
+
     private static GroupLinkServiceImpl service() {
         return service(mock(GroupFolderMapper.class), mock(GroupLinkLabelMapper.class));
     }
@@ -635,6 +936,7 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     private static void createLegacySchema() {
+        GroupCurrentSnapshotMySqlTestSupport.createLegacyContextSchema(jdbc);
         jdbc.execute("""
                 CREATE TABLE group_link (
                   id BIGINT NOT NULL,
@@ -653,17 +955,145 @@ class GroupCurrentLocalWriteMySqlTest {
                 ) ENGINE=InnoDB
                 """);
         jdbc.execute("""
+                CREATE TABLE account_group_membership (
+                  id BIGINT NOT NULL,
+                  tenant_id BIGINT NOT NULL,
+                  account_id BIGINT NOT NULL,
+                  group_link_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL,
+                  is_admin TINYINT DEFAULT NULL,
+                  membership_status TINYINT NOT NULL,
+                  status_source VARCHAR(64) DEFAULT NULL,
+                  status_updated_at BIGINT NOT NULL,
+                  last_exit_type TINYINT DEFAULT NULL,
+                  last_exited_at BIGINT DEFAULT NULL,
+                  joined_at BIGINT DEFAULT NULL,
+                  last_seen_at BIGINT DEFAULT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  deleted_at BIGINT DEFAULT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_membership_active
+                    (tenant_id, account_id, group_jid, deleted_at)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE whatsapp_group_member_cache (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL,
+                  subject VARCHAR(255) DEFAULT NULL,
+                  announce_only TINYINT DEFAULT NULL,
+                  snapshot_at BIGINT NOT NULL,
+                  snapshot_version VARCHAR(64) NOT NULL,
+                  observer_account_id BIGINT NOT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_member_cache (tenant_id, group_jid)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE whatsapp_group_member_state (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL,
+                  participant_jid VARCHAR(191) NOT NULL,
+                  phone VARCHAR(32) DEFAULT NULL,
+                  is_admin TINYINT DEFAULT NULL,
+                  is_owner TINYINT DEFAULT NULL,
+                  role VARCHAR(32) DEFAULT NULL,
+                  is_in_group TINYINT NOT NULL,
+                  state_source VARCHAR(32) NOT NULL,
+                  state_updated_at BIGINT NOT NULL,
+                  source_event_id VARCHAR(255) NOT NULL,
+                  snapshot_version VARCHAR(64) DEFAULT NULL,
+                  observer_account_id BIGINT DEFAULT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_member_state
+                    (tenant_id, group_jid, participant_jid)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE whatsapp_group_member_join_fact (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL,
+                  participant_jid VARCHAR(191) NOT NULL,
+                  phone VARCHAR(32) DEFAULT NULL,
+                  joined_at BIGINT NOT NULL,
+                  event_at BIGINT NOT NULL,
+                  source_event_id VARCHAR(255) NOT NULL,
+                  observer_account_id BIGINT NOT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_member_join
+                    (tenant_id, group_jid, participant_jid)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE whatsapp_group_departed_member (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL,
+                  participant_jid VARCHAR(191) NOT NULL,
+                  phone VARCHAR(32) DEFAULT NULL,
+                  exited_at BIGINT NOT NULL,
+                  exit_type VARCHAR(16) NOT NULL,
+                  event_at BIGINT NOT NULL,
+                  source_event_id VARCHAR(255) NOT NULL,
+                  source_type VARCHAR(32) NOT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_departed_member
+                    (tenant_id, group_jid, participant_jid)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
                 CREATE TABLE group_link_preview (
                   id BIGINT NOT NULL AUTO_INCREMENT,
                   tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL,
                   group_jid VARCHAR(128) DEFAULT NULL,
                   invite_code VARCHAR(128) DEFAULT NULL,
+                  invite_code_observed_at BIGINT DEFAULT NULL,
+                  wa_subject VARCHAR(255) DEFAULT NULL,
+                  wa_description VARCHAR(1024) DEFAULT NULL,
+                  member_size INT DEFAULT NULL,
+                  announce_only TINYINT DEFAULT NULL,
+                  admin_only_edit_info TINYINT DEFAULT NULL,
+                  member_add_mode TINYINT DEFAULT NULL,
+                  join_approval_mode TINYINT DEFAULT NULL,
+                  ephemeral_duration_seconds INT DEFAULT NULL,
+                  group_created_at BIGINT DEFAULT NULL,
                   avatar_url VARCHAR(512) DEFAULT NULL,
+                  last_preview_at BIGINT DEFAULT NULL,
+                  metadata_observed_at BIGINT DEFAULT NULL,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,
                   PRIMARY KEY (id),
                   UNIQUE KEY uq_preview_link (tenant_id, group_link_id)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE group_link_health (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_link_id BIGINT NOT NULL,
+                  health_status TINYINT DEFAULT NULL,
+                  is_banned TINYINT DEFAULT NULL,
+                  current_count INT DEFAULT NULL,
+                  last_check_at BIGINT DEFAULT NULL,
+                  last_health_error VARCHAR(64) DEFAULT NULL,
+                  health_failure_count INT NOT NULL DEFAULT 0,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_health_link (tenant_id, group_link_id)
                 ) ENGINE=InnoDB
                 """);
     }

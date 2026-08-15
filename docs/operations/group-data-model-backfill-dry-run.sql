@@ -31,6 +31,25 @@ FROM (
     HAVING COUNT(*) > 1
 ) duplicate_invites;
 
+-- wa_group 和 wa_group_invite 已有双写数据时执行；同一 code 不得指向另一个群。
+SELECT 'invite_group_conflict' AS gate_name,
+       COUNT(*) AS violation_count,
+       0 AS expected_count
+FROM group_link_preview preview
+INNER JOIN group_link link
+  ON preview.tenant_id = link.tenant_id
+ AND preview.group_link_id = link.id
+INNER JOIN wa_group resolved_group
+  ON resolved_group.tenant_id = preview.tenant_id
+ AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
+INNER JOIN wa_group_invite invite
+  ON invite.tenant_id = preview.tenant_id
+ AND invite.invite_code = TRIM(preview.invite_code)
+WHERE preview.invite_code IS NOT NULL
+  AND TRIM(preview.invite_code) <> ''
+  AND invite.group_id IS NOT NULL
+  AND invite.group_id <> resolved_group.id;
+
 SELECT 'invalid_group_jid' AS gate_name,
        COUNT(*) AS violation_count,
        0 AS expected_count
@@ -67,6 +86,54 @@ LEFT JOIN wa_group wa_group
  AND wa_group.group_jid = LOWER(TRIM(membership.group_jid))
 WHERE wa_group.id IS NULL;
 
+SELECT 'unresolved_member_group' AS gate_name,
+       COUNT(*) AS violation_count,
+       0 AS expected_count
+FROM (
+    SELECT state.tenant_id, state.group_jid
+    FROM whatsapp_group_member_state state
+    UNION ALL
+    SELECT join_fact.tenant_id, join_fact.group_jid
+    FROM whatsapp_group_member_join_fact join_fact
+    UNION ALL
+    SELECT exit_fact.tenant_id, exit_fact.group_jid
+    FROM whatsapp_group_departed_member exit_fact
+) member_source
+LEFT JOIN wa_group wa_group
+  ON wa_group.tenant_id = member_source.tenant_id
+ AND wa_group.group_jid = LOWER(TRIM(member_source.group_jid))
+WHERE wa_group.id IS NULL;
+
+SELECT 'invalid_participant_jid' AS gate_name,
+       COUNT(*) AS violation_count,
+       0 AS expected_count
+FROM (
+    SELECT participant_jid FROM whatsapp_group_member_state
+    UNION ALL
+    SELECT participant_jid FROM whatsapp_group_member_join_fact
+    UNION ALL
+    SELECT participant_jid FROM whatsapp_group_departed_member
+) member_source
+WHERE LOWER(TRIM(member_source.participant_jid)) NOT LIKE '%@s.whatsapp.net'
+  AND LOWER(TRIM(member_source.participant_jid)) NOT LIKE '%@lid';
+
+SELECT 'invalid_binding_account_phone' AS gate_name,
+       COUNT(*) AS violation_count,
+       0 AS expected_count
+FROM account account
+WHERE account.deleted_at IS NULL
+  AND TRIM(account.ws_phone) NOT REGEXP '^[0-9]+$'
+  AND (
+    account.group_baseline_state = 2
+    OR EXISTS (
+      SELECT 1
+      FROM account_group_membership membership
+      WHERE membership.tenant_id = account.tenant_id
+        AND membership.account_id = account.id
+        AND membership.deleted_at IS NULL
+    )
+  );
+
 SELECT 'ambiguous_empty_baseline' AS gate_name,
        COUNT(*) AS violation_count,
        0 AS expected_count
@@ -91,7 +158,52 @@ WHERE account.group_baseline_state = 2
   AND (
       JSON_TYPE(baseline.baseline_group_jids) <> 'ARRAY'
       OR baseline.group_count <> JSON_LENGTH(baseline.baseline_group_jids)
+      OR baseline.captured_at IS NULL
+      OR baseline.captured_at &lt; 0
   );
+
+SELECT 'unresolved_baseline_target' AS gate_name,
+       COUNT(*) AS violation_count,
+       0 AS expected_count
+FROM account account
+INNER JOIN account_group_baseline baseline
+  ON baseline.tenant_id = account.tenant_id
+ AND baseline.account_id = account.id
+INNER JOIN JSON_TABLE(
+  baseline.baseline_group_jids,
+  '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+) baseline_group
+LEFT JOIN wa_group wa_group
+  ON wa_group.tenant_id = account.tenant_id
+ AND wa_group.group_jid = LOWER(TRIM(baseline_group.group_jid))
+WHERE account.deleted_at IS NULL
+  AND account.group_baseline_state = 2
+  AND (
+    LOWER(TRIM(baseline_group.group_jid)) NOT LIKE '%@g.us'
+    OR wa_group.id IS NULL
+  );
+
+SELECT 'duplicate_baseline_group' AS gate_name,
+       COUNT(*) AS violation_count,
+       0 AS expected_count
+FROM (
+    SELECT account.tenant_id,
+           account.id AS account_id,
+           LOWER(TRIM(baseline_group.group_jid)) AS group_jid
+    FROM account account
+    INNER JOIN account_group_baseline baseline
+      ON baseline.tenant_id = account.tenant_id
+     AND baseline.account_id = account.id
+    INNER JOIN JSON_TABLE(
+      baseline.baseline_group_jids,
+      '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
+    ) baseline_group
+    WHERE account.deleted_at IS NULL
+      AND account.group_baseline_state = 2
+    GROUP BY account.tenant_id, account.id,
+             LOWER(TRIM(baseline_group.group_jid))
+    HAVING COUNT(*) &gt; 1
+) duplicate_baseline;
 
 SELECT 'pending_with_baseline_data' AS gate_name,
        COUNT(*) AS violation_count,

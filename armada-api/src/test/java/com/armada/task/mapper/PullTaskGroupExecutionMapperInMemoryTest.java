@@ -384,6 +384,34 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     }
 
     @Test
+    void claimDueLetsWaitStartRowsStarveDueExecutingRows() throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        // 三行待启动：insertDraft 固定写入 next_run_at = 0，freezeDraftRows 不会改它。
+        mapper.insertDraft(draft(100L, 1, LINK, 1));
+        mapper.insertDraft(draft(100L, 2, "chat.whatsapp.com/BBBB", 2));
+        mapper.insertDraft(draft(100L, 3, "chat.whatsapp.com/CCCC", 3));
+        // 两行已在执行且已到期：next_run_at = 500 < now = 600。
+        mapper.insertDraft(draft(100L, 4, "chat.whatsapp.com/DDDD", 4));
+        mapper.insertDraft(draft(100L, 5, "chat.whatsapp.com/EEEE", 5));
+        mapper.freezeDraftRows(100L, 500L);
+        executeRaw("UPDATE pull_task_group_execution SET execution_status = 2, stage = 6, "
+                + "next_run_at = 500 WHERE seq IN (4, 5)");
+
+        TenantContext.clear();
+        // 批量上限小于待启动行数，模拟单任务群数超过 batchSize 的真实场景。
+        assertThat(mapper.claimDue(claimCriteria(3, 600L, "worker-1", 660L))).isEqualTo(3);
+
+        List<PullTaskGroupExecution> claimed = mapper.selectClaimed("worker-1", 600L);
+        // ORDER BY next_run_at ASC 让 next_run_at = 0 的待启动行永远排在已到期执行行之前，
+        // 已到期的 seq 4/5 一个都抢不到；抢不到并发槽位时 releaseLock 又不推后 next_run_at，
+        // 下一轮仍是同样三行，执行中的行因此不再被推进。
+        assertThat(claimed).extracting(PullTaskGroupExecution::getSeq)
+                .containsExactly(1, 2, 3);
+        assertThat(claimed).extracting(PullTaskGroupExecution::getExecutionStatus)
+                .containsOnly(PullTaskExecutionStatus.WAIT_START.code());
+    }
+
+    @Test
     void claimDueUsesCallerSuppliedBusinessConditions() throws SQLException {
         executeRaw("INSERT INTO pull_task "
                 + "(id, tenant_id, task_type, task_name, mode, status, config_json, "

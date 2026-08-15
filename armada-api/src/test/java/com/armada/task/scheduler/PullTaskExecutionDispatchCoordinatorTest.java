@@ -3,15 +3,18 @@ package com.armada.task.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
+import com.armada.task.model.dto.PullTaskExecutionClaimState;
 import com.armada.task.model.dto.PullTaskExecutionLease;
 import com.armada.task.model.dto.PullTaskExecutionWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
 import java.util.List;
 import java.util.Optional;
@@ -42,30 +45,35 @@ class PullTaskExecutionDispatchCoordinatorTest {
 
         coordinator.dispatchOnce(1_000L);
 
+        // 分池之后阶段覆盖必须完整：推进池与启动池合起来仍是原来的三组状态。
         ArgumentCaptor<PullTaskExecutionClaimCriteria> captor =
                 ArgumentCaptor.forClass(PullTaskExecutionClaimCriteria.class);
-        verify(mapper).claimDue(captor.capture());
-        assertThat(captor.getValue().eligibleStates())
-                .flatExtracting(state -> state.stages())
+        verify(mapper, times(2)).claimDue(captor.capture());
+        List<PullTaskExecutionClaimState> allStates = captor.getAllValues().stream()
+                .flatMap(criteria -> criteria.eligibleStates().stream())
+                .toList();
+
+        assertThat(allStates)
+                .flatExtracting(PullTaskExecutionClaimState::stages)
                 .contains(PullTaskExecutionStage.MANAGER_ADMIN.code(),
                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                         PullTaskExecutionStage.PULLER_INVITE.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code(),
                         PullTaskExecutionStage.CLOSING.code());
-        assertThat(captor.getValue().eligibleStates())
+        assertThat(allStates)
                 .filteredOn(state -> state.executionStatus()
-                        == com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_START.code())
+                        == PullTaskExecutionStatus.WAIT_START.code())
                 .singleElement()
-                .extracting(state -> state.stages())
+                .extracting(PullTaskExecutionClaimState::stages)
                 .asList()
                 .containsExactly(PullTaskExecutionStage.LINK_VALIDATION.code(),
                         PullTaskExecutionStage.MANAGER_JOIN.code());
-        assertThat(captor.getValue().eligibleStates())
+        assertThat(allStates)
                 .filteredOn(state -> state.executionStatus()
-                        == com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_RESOURCE.code())
+                        == PullTaskExecutionStatus.WAIT_RESOURCE.code())
                 .singleElement()
-                .extracting(state -> state.stages())
+                .extracting(PullTaskExecutionClaimState::stages)
                 .asList()
                 .containsExactly(
                         PullTaskExecutionStage.MANAGER_JOIN.code(),
@@ -74,16 +82,58 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         PullTaskExecutionStage.PULLER_INVITE.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code());
-        assertThat(captor.getValue().eligibleStates())
+        assertThat(allStates)
                 .filteredOn(state -> state.executionStatus()
-                        == com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_RESOURCE.code())
+                        == PullTaskExecutionStatus.WAIT_RESOURCE.code())
                 .singleElement()
-                .extracting(state -> state.waitResourceTypes())
+                .extracting(PullTaskExecutionClaimState::waitResourceTypes)
                 .asList()
                 .containsExactly(
                         PullTaskWaitResourceType.MANAGER.code(),
                         PullTaskWaitResourceType.PULLER.code(),
                         PullTaskWaitResourceType.STATION.code());
+    }
+
+    @Test
+    void dispatchOnceClaimsAdvancingRowsBeforeStartingNewGroups() {
+        PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
+        when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(2);
+        when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of());
+
+        emptyCoordinator(mapper).dispatchOnce(1_000L);
+
+        ArgumentCaptor<PullTaskExecutionClaimCriteria> captor =
+                ArgumentCaptor.forClass(PullTaskExecutionClaimCriteria.class);
+        verify(mapper, times(2)).claimDue(captor.capture());
+
+        // 第一池只推进已开始的行，可以吃满整批：待启动行的 next_run_at 恒为 0，
+        // 与执行中行放在同一次 ORDER BY next_run_at 里会把后者永久挤出窗口。
+        PullTaskExecutionClaimCriteria advancing = captor.getAllValues().get(0);
+        assertThat(advancing.eligibleStates())
+                .extracting(PullTaskExecutionClaimState::executionStatus)
+                .containsExactlyInAnyOrder(
+                        PullTaskExecutionStatus.EXECUTING.code(),
+                        PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(advancing.lease().limit()).isEqualTo(3);
+
+        // 第二池只启动新群，且只用第一池剩下的名额。
+        PullTaskExecutionClaimCriteria starting = captor.getAllValues().get(1);
+        assertThat(starting.eligibleStates())
+                .extracting(PullTaskExecutionClaimState::executionStatus)
+                .containsExactly(PullTaskExecutionStatus.WAIT_START.code());
+        assertThat(starting.lease().limit()).isEqualTo(1);
+    }
+
+    @Test
+    void dispatchOnceSkipsStartingClaimWhenAdvancingRowsFillBatch() {
+        PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
+        // 第一池吃满 batchSize=3，本轮没有名额启动新群。
+        when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(3);
+        when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of());
+
+        emptyCoordinator(mapper).dispatchOnce(1_000L);
+
+        verify(mapper, times(1)).claimDue(any(PullTaskExecutionClaimCriteria.class));
     }
 
     @Test
@@ -189,6 +239,19 @@ class PullTaskExecutionDispatchCoordinatorTest {
 
         assertThat(coordinator.dispatchOnce(1_000L).advanced()).isEqualTo(1);
         verify(recovery).recover(candidate, "worker-fixed", 1_000L, 2_000L);
+    }
+
+    /** 只关心 claim 行为的用例：所有阶段处理器都是 mock，本轮不会读回任何行。 */
+    private static PullTaskExecutionDispatchCoordinator emptyCoordinator(
+            PullTaskGroupExecutionMapper mapper) {
+        return new PullTaskExecutionDispatchCoordinator(
+                mapper,
+                stageRouter(
+                        mock(PullTaskLinkValidationProcessor.class),
+                        mock(PullTaskManagerJoinProcessor.class)),
+                mock(PullTaskResourceRecoveryTransactionService.class),
+                properties(),
+                "worker-fixed");
     }
 
     private static PullTaskExecutionDispatchProperties properties() {

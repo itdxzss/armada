@@ -77,7 +77,17 @@ public class PullTaskExecutionDispatchCoordinator {
      */
     public PullTaskExecutionDispatchStats dispatchOnce(long now) {
         long lockExpiresAt = Math.addExact(now, properties.getLeaseMs());
-        executionMapper.claimDue(claimCriteria(now, lockExpiresAt));
+        int batchSize = properties.getBatchSize();
+        // 分两池抢占：待启动行的 next_run_at 恒为 0，与执行中行放在同一次
+        // ORDER BY next_run_at 里会把后者永久挤出窗口，导致并发槽位填满后整个任务停止推进。
+        // 因此先让已开始的行吃满整批，待启动行只使用剩余名额。
+        int advancing = executionMapper.claimDue(
+                claimCriteria(advancingStates(), batchSize, now, lockExpiresAt));
+        int startingLimit = batchSize - advancing;
+        if (startingLimit > 0) {
+            executionMapper.claimDue(
+                    claimCriteria(startingStates(), startingLimit, now, lockExpiresAt));
+        }
         List<PullTaskGroupExecution> claimed = executionMapper.selectClaimed(lockOwner, now);
         PullTaskExecutionDispatchStats stats =
                 PullTaskExecutionDispatchStats.empty().withClaimed(claimed.size());
@@ -90,37 +100,50 @@ public class PullTaskExecutionDispatchCoordinator {
         return stats;
     }
 
-    private PullTaskExecutionClaimCriteria claimCriteria(long now, long lockExpiresAt) {
+    /** 已开始的执行行：本轮优先推进，可以吃满整批。 */
+    private static List<PullTaskExecutionClaimState> advancingStates() {
+        return List.of(
+                new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.EXECUTING.code(),
+                        List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                                PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.PULL_EXECUTION.code(),
+                                PullTaskExecutionStage.MATERIAL_ADMIN.code(),
+                                PullTaskExecutionStage.CLOSING.code())),
+                new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.WAIT_RESOURCE.code(),
+                        List.of(PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                                PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.PULL_EXECUTION.code(),
+                                PullTaskExecutionStage.MATERIAL_ADMIN.code()),
+                        List.of(
+                                PullTaskWaitResourceType.MANAGER.code(),
+                                PullTaskWaitResourceType.PULLER.code(),
+                                PullTaskWaitResourceType.STATION.code())));
+    }
+
+    /** 尚未启动的执行行：只使用第一池剩余的名额。 */
+    private static List<PullTaskExecutionClaimState> startingStates() {
+        return List.of(
+                new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.WAIT_START.code(),
+                        List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                PullTaskExecutionStage.MANAGER_JOIN.code())));
+    }
+
+    private PullTaskExecutionClaimCriteria claimCriteria(
+            List<PullTaskExecutionClaimState> eligibleStates,
+            int limit,
+            long now,
+            long lockExpiresAt) {
         return new PullTaskExecutionClaimCriteria(
-                new PullTaskExecutionClaimCriteria.Lease(
-                        properties.getBatchSize(), now, lockOwner, lockExpiresAt),
-                List.of(
-                        new PullTaskExecutionClaimState(
-                                PullTaskExecutionStatus.WAIT_START.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                        PullTaskExecutionStage.MANAGER_JOIN.code())),
-                        new PullTaskExecutionClaimState(
-                                PullTaskExecutionStatus.EXECUTING.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                        PullTaskExecutionStage.MANAGER_JOIN.code(),
-                                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                                        PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
-                                        PullTaskExecutionStage.PULLER_INVITE.code(),
-                                        PullTaskExecutionStage.PULL_EXECUTION.code(),
-                                        PullTaskExecutionStage.MATERIAL_ADMIN.code(),
-                                        PullTaskExecutionStage.CLOSING.code())),
-                        new PullTaskExecutionClaimState(
-                                PullTaskExecutionStatus.WAIT_RESOURCE.code(),
-                                List.of(PullTaskExecutionStage.MANAGER_JOIN.code(),
-                                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                                        PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
-                                        PullTaskExecutionStage.PULLER_INVITE.code(),
-                                        PullTaskExecutionStage.PULL_EXECUTION.code(),
-                                        PullTaskExecutionStage.MATERIAL_ADMIN.code()),
-                                List.of(
-                                        PullTaskWaitResourceType.MANAGER.code(),
-                                        PullTaskWaitResourceType.PULLER.code(),
-                                        PullTaskWaitResourceType.STATION.code()))),
+                new PullTaskExecutionClaimCriteria.Lease(limit, now, lockOwner, lockExpiresAt),
+                eligibleStates,
                 new PullTaskExecutionClaimCriteria.Parent(
                         PullTaskType.STANDARD.name(), NORMAL_LINK_MODE,
                         PullTaskStandardStatus.EXECUTING.name()),

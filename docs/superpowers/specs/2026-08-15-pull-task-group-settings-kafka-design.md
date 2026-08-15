@@ -1,7 +1,7 @@
 # 普通群链接拉群群设置异步化与关闭进群审核设计
 
 日期：2026-08-15
-状态：待评审
+状态：已实现
 
 ## 1. 背景与问题
 
@@ -284,20 +284,30 @@ ALTER TABLE pull_task_account_action
 | `PullTaskAccountActionType` | 新增 `OPEN_MEMBER_ADD(5)`、`CLOSE_JOIN_APPROVAL(6)` |
 | `ProtocolCommandOutboxServiceImpl` | 新增 `COMMAND_TYPE_GROUP_SETTINGS_REQUESTED` 常量与 `enqueuePullTaskGroupSettingsCommands`，topic 路由复用 `backend == ANDROID ? groupActionTopic : masterTopic` |
 | `ProtocolCommandOutboxService` | 新增接口方法 |
-| `ProtocolCommandOutboxServiceImpl.cancelPendingPullTaskCommands` | 覆盖新命令类型 |
 | `ProtocolGroupEventConsumer` | `handleActionResultReported` 增加 `pull_task_group_settings` 分支 |
 | `PullTaskManagerPullerContactProcessor` | 删除 `ensureMemberAddPermission` 与 `memberAddAllowed`，并去掉 `FixedAccountGroupMetadataPort`、`GroupSettingsPort` 两个构造依赖——本阶段不再有任何事务外协议调用 |
 | `PullTaskManagerPullerContactTransactionService` | 新增 `ensureGroupSettings`（查动作事实 → 未确认则写动作行 + outbox → 返回等待，全在一个短事务内）；`deferMemberAddPermission` 改名 `deferGroupSettings`；删除 `prepareMemberAddPermission` |
 | `PullTaskGroupSettingsGate`（新增） | 门控结果；`open()` 表示加人权限已确认可继续占拉手，`waiting(result)` 表示本轮到此为止 |
 | `PullTaskMemberAddPermissionWork` / `PullTaskMemberAddPermissionPreparation` | 随同步路径一并删除，不再有调用方 |
 | `PullTaskExecutionReasonCode` | 保留 `GROUP_MEMBER_ADD_PERMISSION_DENIED` / `_UNCONFIRMED`；新增 `GROUP_JOIN_APPROVAL_CLOSE_FAILED`，仅写动作行 `reason_code`，不进执行行 |
-| `PullTaskUnknownResultReconciliationService` | 纳入两类群设置动作的未知结果兜底；关闭审核的未知不得阻断执行行 |
 | `AndroidNativeClient` | 新增 `setGroupJoinApproval(wsPhone, groupJid, enabled)` |
 | `HttpAndroidNativeClient` | 实现之，`GROUP_JOIN_APPROVAL_URI_PREFIX = "/ws/v1/groups/settings/approval/"`，复用 `GroupPermissionRequest` |
 | `AndroidNativeGroupSettingsAdapter` | `setJoinApprovalEnabled` 由 `throw unsupported` 改为真实调用 |
 
 `AndroidNativeGroupSettingsAdapter` 的补齐虽然拉群改异步后不再走它，但群详情页手工设置仍用该端口，
 Android 账号目前在那里不可用，一并补上。
+
+### 7.2.1 两处经核对后确认不需要改动
+
+**`ProtocolCommandOutboxServiceImpl.cancelPendingPullTaskCommands`。**
+它按 `aggregate_type` 过滤而非 `command_type`，群设置命令用的就是 `PULL_TASK_ACCOUNT_ACTION`，
+任务结束时自动被一并取消，无需登记新命令类型。
+
+**`PullTaskUnknownResultReconciliationService`。**
+该服务靠实时成员快照观察动作效果：邀请和踩链接看目标是否在群内，提权看目标是否成为管理员。
+群设置改的是群属性，效果在成员列表里根本观察不到，纳入它没有任何可用判据。
+
+群设置的 `UNKNOWN` 由重发处理，见 7.4，比兜底扫描更直接。
 
 ### 7.3 结果收敛语义
 
@@ -331,6 +341,22 @@ Android 账号目前在那里不可用，一并补上。
 
 该分支必须对「执行行已推进到 `PULLER_INVITE` 甚至更后阶段」保持可写。它不读也不 CAS 执行行，
 因此结果何时到达都能正常落库。
+
+### 7.4 UNKNOWN 与 FAILED 的重发
+
+`UNKNOWN` 表示协议层无法确认结果。群设置没有可观察的快照可兜底，因此它和 `FAILED` 走同一条路：
+下一轮调度时重发命令。两条 IQ（`member_add_mode`、`membership_approval_mode`）都是幂等的，
+重复设置无副作用。
+
+`ensureGroupSettings` 只把 `SUBMITTED` 视为命令在途。把 `UNKNOWN` 也算作在途会让执行行永远
+退避空转，永不重发。
+
+重发复用同一行动作，通过 `PullTaskAccountActionMapper.submitAttempt` 从
+`{PENDING, FAILED, UNKNOWN}` CAS 到 `SUBMITTED`，同时递增 `attempt_no` 并清空上一轮原因。
+不可使用 `markSubmitted`——它只接受 `PENDING` 前置态，重发时会写入失败。
+
+`attempt_no` 递增使新旧尝试在动作行上可区分；迟到的旧结果按 `commandId` 已经定位不到该行，
+会被收敛器直接拒绝。
 
 ## 8. protocol-layer 侧改造
 
@@ -488,6 +514,9 @@ armada 回滚到旧版本后，同步 HTTP 路径恢复，已写入但未消费�
 
 - `PullTaskGroupSettingsPayloadHydratorTest`：`OPEN_MEMBER_ADD` 补出 `memberAdd/true`，
   `CLOSE_JOIN_APPROVAL` 补出 `joinApproval/false`；动作行与冻结事实不一致时抛校验异常；租户上下文正确恢复
+- `PullTaskManagerPullerContactTransactionIntegrationTest`：加人权限命令提交后动作行为 SUBMITTED
+  且带真实 commandId；`UNKNOWN` 与 `FAILED` 下一轮重发新命令并递增 `attempt_no`，且复用同一行动作
+- `PullTaskExecutionEndToEndIntegrationTest`：整条链路穿过异步群设置步骤跑到 `COMPLETED`
 - `PullTaskGroupSettingsResultServiceTest`
   - 加人权限成功：动作行 SUCCESS、追加关闭审核动作行与 outbox 行、执行行被唤醒
   - 加人权限 `GROUP_PERMISSION_DENIED`：映射 DENIED 原因码、退避、不追加关闭审核动作

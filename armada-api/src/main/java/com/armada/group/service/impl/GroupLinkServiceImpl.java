@@ -482,7 +482,9 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (ids == null || ids.isEmpty() || ids.size() > BATCH_MAX) {
             throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
         }
-        int n = groupLinkMapper.softDeleteByIds(ids, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        int n = groupLinkMapper.softDeleteByIds(ids, now);
+        currentLocalPersistence.applyLegacyDeletion(ids, now);
         log.info("群链接批量删除 count={} ids={}", n, ids);
         return n;
     }

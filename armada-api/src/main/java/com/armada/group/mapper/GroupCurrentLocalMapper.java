@@ -31,4 +31,19 @@ public interface GroupCurrentLocalMapper {
             @Param("folderId") Long folderId,
             @Param("updatedAt") long updatedAt);
 
+    int softDeleteGroupsWithoutActiveAlias(
+            @Param("tenantId") Long tenantId,
+            @Param("groupLinkIds") List<Long> groupLinkIds,
+            @Param("deletedAt") long deletedAt);
+
+    int softDeleteGroupsWithoutActiveAliasByLabel(
+            @Param("tenantId") Long tenantId,
+            @Param("labelIds") List<Long> labelIds,
+            @Param("deletedAt") long deletedAt);
+
+    int clearGroupFolders(
+            @Param("tenantId") Long tenantId,
+            @Param("folderIds") List<Long> folderIds,
+            @Param("updatedAt") long updatedAt);
+
 }

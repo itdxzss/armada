@@ -27,7 +27,8 @@ public final class AccountGroupCurrentSnapshotRows {
             Integer presenceStatus,
             String presenceSource,
             Long presenceObservedAt,
-            Long bindingId) {
+            Long bindingId,
+            Long deletedAt) {
     }
 
     /** 群 JID 到新模型群主键。 */

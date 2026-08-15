@@ -30,12 +30,15 @@ public class GroupFolderServiceImpl implements GroupFolderService {
 
     private final GroupFolderMapper folderMapper;
     private final GroupLinkMapper groupLinkMapper;
+    private final GroupCurrentLocalPersistence currentLocalPersistence;
 
     public GroupFolderServiceImpl(
             GroupFolderMapper folderMapper,
-            GroupLinkMapper groupLinkMapper) {
+            GroupLinkMapper groupLinkMapper,
+            GroupCurrentLocalPersistence currentLocalPersistence) {
         this.folderMapper = folderMapper;
         this.groupLinkMapper = groupLinkMapper;
+        this.currentLocalPersistence = currentLocalPersistence;
     }
 
     /** {@inheritDoc} */
@@ -125,6 +128,7 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         if (cleared != groupCount) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组分组关系已变化，请刷新后重试");
         }
+        currentLocalPersistence.applyLegacyFolderDeletion(normalizedIds, now);
         int deleted = folderMapper.softDeleteByIds(normalizedIds, now);
         if (deleted != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组分组状态已变化，请刷新后重试");

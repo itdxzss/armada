@@ -19,6 +19,7 @@ import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.vo.GroupLinkLabelVO;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.service.impl.GroupLinkLabelServiceImpl;
+import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -45,6 +46,9 @@ class GroupLinkLabelServiceImplTest {
 
     @Mock
     private GroupConverter converter;
+
+    @Mock
+    private GroupCurrentLocalPersistence currentLocalPersistence;
 
     @InjectMocks
     private GroupLinkLabelServiceImpl service;

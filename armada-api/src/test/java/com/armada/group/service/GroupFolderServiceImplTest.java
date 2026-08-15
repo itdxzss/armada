@@ -19,6 +19,7 @@ import com.armada.group.model.vo.GroupFolderDeleteVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.service.impl.GroupFolderServiceImpl;
+import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -40,11 +41,15 @@ class GroupFolderServiceImplTest {
     @Mock
     private GroupLinkMapper groupLinkMapper;
 
+    @Mock
+    private GroupCurrentLocalPersistence currentLocalPersistence;
+
     private GroupFolderServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new GroupFolderServiceImpl(folderMapper, groupLinkMapper);
+        service = new GroupFolderServiceImpl(
+                folderMapper, groupLinkMapper, currentLocalPersistence);
     }
 
     @Test

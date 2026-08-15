@@ -149,7 +149,10 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
 
         if (!rows.isEmpty()) {
             List<Write> missingGroupRows = rows.stream()
-                    .filter(row -> !existingByJid.containsKey(row.groupJid()))
+                    .filter(row -> {
+                        Existing existing = existingByJid.get(row.groupJid());
+                        return existing == null || existing.deletedAt() != null;
+                    })
                     .toList();
             if (!missingGroupRows.isEmpty()) {
                 mapper.insertMissingGroups(tenantId, missingGroupRows);
@@ -268,11 +271,13 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 activeSince,
                 classification.firstPostControlObservedAt());
 
-        if (row.groupId() == null) {
+        if (row.groupId() == null || (inGroup && existing.deletedAt() != null)) {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
                     0, normalizedEventId, occurredAt, now, null, null, null, null)));
+        }
+        if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
                     tenantId, List.of(normalizedGroupJid));
             if (groupIds.size() != 1) {

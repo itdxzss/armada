@@ -11,6 +11,7 @@ import com.armada.group.mapper.GroupCurrentLocalMapper;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
@@ -121,8 +122,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 """);
         jdbc.update("""
                 INSERT INTO wa_group (
-                  tenant_id, group_jid, origin, created_at, updated_at
-                ) VALUES (7, '120363-local-fields@g.us', 1, 100, 100)
+                  tenant_id, group_jid, origin, created_at, updated_at, deleted_at
+                ) VALUES (7, '120363-local-fields@g.us', 1, 100, 100, 150)
                 """);
         jdbc.update("""
                 INSERT INTO wa_group_invite (
@@ -141,6 +142,10 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("display_name", "新名称")
                 .containsEntry("remark", "新备注")
                 .containsEntry("avatar_url", "https://cdn.example.test/new.jpg");
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-local-fields@g.us'
+                """, Long.class)).isNull();
         assertThat(jdbc.queryForMap("""
                 SELECT display_name, remark, avatar_url
                 FROM wa_group_invite
@@ -167,8 +172,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 """);
         jdbc.update("""
                 INSERT INTO wa_group_invite (
-                  tenant_id, invite_code, origin, created_at, updated_at
-                ) VALUES (7, 'UnresolvedFields', 1, 100, 100)
+                  tenant_id, invite_code, origin, created_at, updated_at, deleted_at
+                ) VALUES (7, 'UnresolvedFields', 1, 100, 100, 150)
                 """);
 
         service().updateProfile(11L, new GroupLinkProfileDTO(
@@ -182,6 +187,10 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("display_name", "邀请名称")
                 .containsEntry("remark", "邀请备注")
                 .containsEntry("avatar_url", "https://cdn.example.test/invite.jpg");
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'UnresolvedFields'
+                """, Long.class)).isNull();
     }
 
     @Test
@@ -199,8 +208,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 """);
         jdbc.update("""
                 INSERT INTO wa_group_invite (
-                  tenant_id, invite_code, label_id, origin, created_at, updated_at
-                ) VALUES (7, 'MoveLabel', 1, 1, 100, 100)
+                  tenant_id, invite_code, label_id, origin, created_at, updated_at, deleted_at
+                ) VALUES (7, 'MoveLabel', 1, 1, 100, 100, 150)
                 """);
         GroupLinkLabelMapper labelMapper = mock(GroupLinkLabelMapper.class);
         GroupLinkLabel label = new GroupLinkLabel();
@@ -213,6 +222,10 @@ class GroupCurrentLocalWriteMySqlTest {
                 SELECT label_id FROM wa_group_invite
                 WHERE tenant_id = 7 AND invite_code = 'MoveLabel'
                 """, Long.class)).isEqualTo(9L);
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'MoveLabel'
+                """, Long.class)).isNull();
     }
 
     @Test
@@ -230,8 +243,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 """);
         jdbc.update("""
                 INSERT INTO wa_group (
-                  tenant_id, group_jid, origin, created_at, updated_at
-                ) VALUES (7, '120363-folder@g.us', 5, 100, 100)
+                  tenant_id, group_jid, origin, created_at, updated_at, deleted_at
+                ) VALUES (7, '120363-folder@g.us', 5, 100, 100, 150)
                 """);
         GroupFolderMapper folderMapper = mock(GroupFolderMapper.class);
         GroupFolder folder = new GroupFolder();
@@ -246,6 +259,10 @@ class GroupCurrentLocalWriteMySqlTest {
                 SELECT folder_id FROM wa_group
                 WHERE tenant_id = 7 AND group_jid = '120363-folder@g.us'
                 """, Long.class)).isEqualTo(8L);
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-folder@g.us'
+                """, Long.class)).isNull();
     }
 
     @Test
@@ -321,6 +338,103 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("avatar_url", "https://pps.whatsapp.net/metadata-new.jpg");
     }
 
+    @Test
+    void batchDeleteSoftDeletesGroupOnlyAfterLastActiveAlias() {
+        seedGroupAlias(17L, "https://chat.whatsapp.com/GroupAliasOne", "120363-alias@g.us");
+        seedGroupAlias(18L, "https://chat.whatsapp.com/GroupAliasTwo", "120363-alias@g.us");
+        jdbc.update("""
+                INSERT INTO wa_group (
+                  tenant_id, group_jid, origin, created_at, updated_at
+                ) VALUES (7, '120363-alias@g.us', 1, 100, 100)
+                """);
+
+        service().batchDelete(java.util.List.of(17L));
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-alias@g.us'
+                """, Long.class)).isNull();
+
+        service().batchDelete(java.util.List.of(18L));
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-alias@g.us'
+                """, Long.class)).isNotNull();
+    }
+
+    @Test
+    void batchDeleteDoesNotRetireInvitePoolRow() {
+        seedInviteAlias(19L, "https://chat.whatsapp.com/InviteAliasOne", "SharedInvite");
+        seedInviteAlias(20L, "https://chat.whatsapp.com/InviteAliasTwo", "SharedInvite");
+        jdbc.update("""
+                INSERT INTO wa_group_invite (
+                  tenant_id, invite_code, origin, created_at, updated_at
+                ) VALUES (7, 'SharedInvite', 1, 100, 100)
+                """);
+
+        service().batchDelete(java.util.List.of(19L));
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'SharedInvite'
+                """, Long.class)).isNull();
+
+        service().batchDelete(java.util.List.of(20L));
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'SharedInvite'
+                """, Long.class)).isNull();
+    }
+
+    @Test
+    void labelDeleteDoesNotRetireInvitePoolRow() {
+        seedInviteAlias(21L, "https://chat.whatsapp.com/LabelAliasOne", "LabelShared");
+        seedInviteAlias(22L, "https://chat.whatsapp.com/LabelAliasTwo", "LabelShared");
+        jdbc.update("UPDATE group_link SET label_id = 30 WHERE id = 21");
+        jdbc.update("UPDATE group_link SET label_id = 31 WHERE id = 22");
+        jdbc.update("""
+                INSERT INTO wa_group_invite (
+                  tenant_id, invite_code, origin, created_at, updated_at
+                ) VALUES (7, 'LabelShared', 1, 100, 100)
+                """);
+
+        labelService().batchDelete(java.util.List.of(30L));
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'LabelShared'
+                """, Long.class)).isNull();
+
+        labelService().batchDelete(java.util.List.of(31L));
+        assertThat(jdbc.queryForObject("""
+                SELECT deleted_at FROM wa_group_invite
+                WHERE tenant_id = 7 AND invite_code = 'LabelShared'
+                """, Long.class)).isNull();
+    }
+
+    @Test
+    void folderDeleteAlsoClearsResolvedGroupFolder() {
+        seedResolvedGroup(23L, "120363-folder-delete@g.us", "FolderDelete");
+        jdbc.update("UPDATE group_link SET folder_id = 40 WHERE id = 23");
+        jdbc.update("""
+                UPDATE wa_group SET folder_id = 40
+                WHERE tenant_id = 7 AND group_jid = '120363-folder-delete@g.us'
+                """);
+        GroupFolderMapper folderMapper = mock(GroupFolderMapper.class);
+        GroupFolder folder = new GroupFolder();
+        folder.setId(40L);
+        org.mockito.Mockito.when(folderMapper.selectActiveByIdsForUpdate(java.util.List.of(40L)))
+                .thenReturn(java.util.List.of(folder));
+        org.mockito.Mockito.when(folderMapper.softDeleteByIds(
+                org.mockito.ArgumentMatchers.eq(java.util.List.of(40L)),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+
+        new GroupFolderServiceImpl(folderMapper, groupLinkMapper, currentLocalPersistence)
+                .batchDelete(java.util.List.of(40L));
+
+        assertThat(jdbc.queryForObject("""
+                SELECT folder_id FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-folder-delete@g.us'
+                """, Long.class)).isNull();
+    }
+
     private static GroupLinkServiceImpl service() {
         return service(mock(GroupFolderMapper.class), mock(GroupLinkLabelMapper.class));
     }
@@ -338,6 +452,19 @@ class GroupCurrentLocalWriteMySqlTest {
                 mock(AccountMapper.class),
                 mock(GroupPreviewPort.class),
                 mock(GroupProfilePort.class),
+                currentLocalPersistence);
+    }
+
+    private static GroupLinkLabelServiceImpl labelService() {
+        GroupLinkLabelMapper labelMapper = mock(GroupLinkLabelMapper.class);
+        org.mockito.Mockito.when(labelMapper.softDeleteByIds(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+        return new GroupLinkLabelServiceImpl(
+                labelMapper,
+                groupLinkMapper,
+                mock(GroupLinkImportBatchMapper.class),
+                mock(GroupConverter.class),
                 currentLocalPersistence);
     }
 
@@ -385,6 +512,32 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at
                 ) VALUES (7, ?, 5, 100, 100)
                 """, groupJid);
+    }
+
+    private static void seedGroupAlias(long groupLinkId, String linkUrl, String groupJid) {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, origin, membership_state, created_at, updated_at
+                ) VALUES (?, 7, ?, 1, 1, 100, 100)
+                """, groupLinkId, linkUrl);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, created_at, updated_at
+                ) VALUES (7, ?, ?, 100, 100)
+                """, groupLinkId, groupJid);
+    }
+
+    private static void seedInviteAlias(long groupLinkId, String linkUrl, String inviteCode) {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, origin, membership_state, created_at, updated_at
+                ) VALUES (?, 7, ?, 1, 1, 100, 100)
+                """, groupLinkId, linkUrl);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, invite_code, created_at, updated_at
+                ) VALUES (7, ?, ?, 100, 100)
+                """, groupLinkId, inviteCode);
     }
 
     private static void createLegacySchema() {

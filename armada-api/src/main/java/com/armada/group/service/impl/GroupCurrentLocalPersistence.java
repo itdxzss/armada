@@ -32,6 +32,20 @@ public class GroupCurrentLocalPersistence {
         mapper.updateGroupFolder(requiredTenantId(), groupLinkIds, folderId, updatedAt);
     }
 
+    public void applyLegacyDeletion(List<Long> groupLinkIds, long deletedAt) {
+        Long tenantId = requiredTenantId();
+        mapper.softDeleteGroupsWithoutActiveAlias(tenantId, groupLinkIds, deletedAt);
+    }
+
+    public void applyLegacyLabelDeletion(List<Long> labelIds, long deletedAt) {
+        Long tenantId = requiredTenantId();
+        mapper.softDeleteGroupsWithoutActiveAliasByLabel(tenantId, labelIds, deletedAt);
+    }
+
+    public void applyLegacyFolderDeletion(List<Long> folderIds, long updatedAt) {
+        mapper.clearGroupFolders(requiredTenantId(), folderIds, updatedAt);
+    }
+
     private static Long requiredTenantId() {
         Long tenantId = TenantContext.get();
         if (tenantId == null) {

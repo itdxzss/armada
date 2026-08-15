@@ -19,6 +19,7 @@
           WHEN #{row.avatarObserved} THEN #{row.avatarUrl}
           ELSE wa_group.avatar_url
         END,
+        wa_group.deleted_at = NULL,
         wa_group.updated_at = GREATEST(wa_group.updated_at, #{row.updatedAt})
     WHERE wa_group.tenant_id = #{tenantId}
       AND preview.group_link_id = #{row.groupLinkId}
@@ -41,6 +42,7 @@
           WHEN #{row.avatarObserved} THEN #{row.avatarUrl}
           ELSE invite.avatar_url
         END,
+        invite.deleted_at = NULL,
         invite.updated_at = GREATEST(invite.updated_at, #{row.updatedAt})
     WHERE invite.tenant_id = #{tenantId}
       AND invite.group_id IS NULL
@@ -59,6 +61,7 @@
       ON preview.tenant_id = invite.tenant_id
      AND preview.invite_code = invite.invite_code
     SET invite.label_id = #{labelId},
+        invite.deleted_at = NULL,
         invite.updated_at = GREATEST(invite.updated_at, #{updatedAt})
     WHERE invite.tenant_id = #{tenantId}
       AND preview.group_link_id IN
@@ -73,11 +76,86 @@
       ON preview.tenant_id = wa_group.tenant_id
      AND preview.group_jid = wa_group.group_jid
     SET wa_group.folder_id = #{folderId},
+        wa_group.deleted_at = NULL,
         wa_group.updated_at = GREATEST(wa_group.updated_at, #{updatedAt})
     WHERE wa_group.tenant_id = #{tenantId}
       AND preview.group_link_id IN
     <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
       #{groupLinkId}
+    </foreach>
+  </update>
+
+  <update id="softDeleteGroupsWithoutActiveAlias">
+    UPDATE wa_group wa_group
+    INNER JOIN (
+      SELECT DISTINCT preview.tenant_id, preview.group_jid
+      FROM group_link_preview preview
+      WHERE preview.tenant_id = #{tenantId}
+        AND preview.group_link_id IN
+      <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+        #{groupLinkId}
+      </foreach>
+        AND preview.group_jid IS NOT NULL
+    ) deleted_alias
+      ON deleted_alias.tenant_id = wa_group.tenant_id
+     AND deleted_alias.group_jid = wa_group.group_jid
+    SET wa_group.deleted_at = #{deletedAt},
+        wa_group.updated_at = GREATEST(wa_group.updated_at, #{deletedAt})
+    WHERE wa_group.tenant_id = #{tenantId}
+      AND wa_group.deleted_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM group_link active_link
+        INNER JOIN group_link_preview active_preview
+          ON active_preview.tenant_id = active_link.tenant_id
+         AND active_preview.group_link_id = active_link.id
+        WHERE active_link.tenant_id = wa_group.tenant_id
+          AND active_link.deleted_at IS NULL
+          AND active_preview.group_jid = wa_group.group_jid
+      )
+  </update>
+
+  <update id="softDeleteGroupsWithoutActiveAliasByLabel">
+    UPDATE wa_group wa_group
+    INNER JOIN (
+      SELECT DISTINCT deleted_link.tenant_id, preview.group_jid
+      FROM group_link deleted_link
+      INNER JOIN group_link_preview preview
+        ON preview.tenant_id = deleted_link.tenant_id
+       AND preview.group_link_id = deleted_link.id
+      WHERE deleted_link.tenant_id = #{tenantId}
+        AND deleted_link.label_id IN
+      <foreach collection="labelIds" item="labelId" open="(" separator="," close=")">
+        #{labelId}
+      </foreach>
+        AND preview.group_jid IS NOT NULL
+    ) deleted_alias
+      ON deleted_alias.tenant_id = wa_group.tenant_id
+     AND deleted_alias.group_jid = wa_group.group_jid
+    SET wa_group.deleted_at = #{deletedAt},
+        wa_group.updated_at = GREATEST(wa_group.updated_at, #{deletedAt})
+    WHERE wa_group.tenant_id = #{tenantId}
+      AND wa_group.deleted_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM group_link active_link
+        INNER JOIN group_link_preview active_preview
+          ON active_preview.tenant_id = active_link.tenant_id
+         AND active_preview.group_link_id = active_link.id
+        WHERE active_link.tenant_id = wa_group.tenant_id
+          AND active_link.deleted_at IS NULL
+          AND active_preview.group_jid = wa_group.group_jid
+      )
+  </update>
+
+  <update id="clearGroupFolders">
+    UPDATE wa_group
+    SET folder_id = NULL,
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE tenant_id = #{tenantId}
+      AND folder_id IN
+    <foreach collection="folderIds" item="folderId" open="(" separator="," close=")">
+      #{folderId}
     </foreach>
   </update>
 

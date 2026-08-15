@@ -220,6 +220,19 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
+    void visibleSnapshotRestoresSoftDeletedGroup() throws Exception {
+        seedCapturedAccount(115L, "923300000115", List.of(groupJid(15)));
+        writeSnapshot(115L, groups(15, 16), true, 2_000L, "snapshot-before-delete");
+        jdbc.update("UPDATE wa_group SET deleted_at = 2500 WHERE group_jid = ?", groupJid(15));
+
+        writeSnapshot(115L, groups(15, 16), true, 3_000L, "snapshot-after-delete");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted_at FROM wa_group WHERE group_jid = ?",
+                Long.class, groupJid(15))).isNull();
+    }
+
+    @Test
     void emptyCompleteSnapshotMarksAllPreviouslyBoundParticipantsMissing() throws Exception {
         seedCapturedAccount(103L, "923300000103", List.of(groupJid(0)));
         writeSnapshot(103L, groups(0, 1), true, 2_000L, "snapshot-visible");
@@ -590,18 +603,23 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         + "JOIN wa_group wa_group ON wa_group.id = invite.group_id "
                         + "WHERE wa_group.group_jid = ?", Integer.class, groupJid(13))).isEqualTo(2);
 
-        jdbc.update("UPDATE wa_group_invite SET health_status = 3, banned = 1, "
+        jdbc.update("UPDATE wa_group_invite SET health_status = 3, banned = 1, deleted_at = 2500, "
                 + "last_error_code = 'BANNED', failure_count = 4, last_checked_at = 2500 "
                 + "WHERE invite_code = 'invite-b'");
+        jdbc.update("UPDATE wa_group SET deleted_at = 2500 WHERE group_jid = ?", groupJid(13));
         writeCurrentInvite(groupJid(13), "invite-b", 3_000L);
         assertThat(jdbc.queryForMap(
-                "SELECT health_status, banned, last_error_code, failure_count, last_checked_at "
+                "SELECT health_status, banned, last_error_code, failure_count, last_checked_at, deleted_at "
                         + "FROM wa_group_invite WHERE invite_code = 'invite-b'"))
                 .containsEntry("health_status", 3)
                 .containsEntry("banned", 1)
                 .containsEntry("last_error_code", "BANNED")
                 .containsEntry("failure_count", 4)
-                .containsEntry("last_checked_at", 3_000L);
+                .containsEntry("last_checked_at", 3_000L)
+                .containsEntry("deleted_at", null);
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted_at FROM wa_group WHERE group_jid = ?",
+                Long.class, groupJid(13))).isNull();
     }
 
     @Test
@@ -632,6 +650,29 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         assertThat(jdbc.queryForMap("SELECT member_add_mode, metadata_observed_at FROM wa_group_profile"))
                 .containsEntry("member_add_mode", 1)
                 .containsEntry("metadata_observed_at", 2_500L);
+    }
+
+    @Test
+    void publicPreviewRestoresSoftDeletedInvite() {
+        GroupLinkPreview publicPreview = metadataPreview(null, 900L, 900L);
+        publicPreview.setInviteCode("invite-restored");
+        publicPreview.setWaSubject("重新导入群");
+        publicPreview.setLastPreviewAt(900L);
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    currentInvitePersistence.applyPublicPreview(publicPreview, 8L));
+            jdbc.update("UPDATE wa_group_invite SET deleted_at = 950 "
+                    + "WHERE invite_code = 'invite-restored'");
+            transactionTemplate.executeWithoutResult(transaction ->
+                    currentInvitePersistence.applyPublicPreview(publicPreview, 8L));
+        } finally {
+            TenantContext.clear();
+        }
+
+        assertThat(jdbc.queryForObject(
+                "SELECT deleted_at FROM wa_group_invite WHERE invite_code = 'invite-restored'",
+                Long.class)).isNull();
     }
 
     private static void writeSnapshot(

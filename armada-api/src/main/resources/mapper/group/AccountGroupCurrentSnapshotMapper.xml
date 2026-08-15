@@ -35,7 +35,8 @@
            p.presence_status AS presenceStatus,
            p.presence_source AS presenceSource,
            p.presence_observed_at AS presenceObservedAt,
-           b.id AS bindingId
+           b.id AS bindingId,
+           g.deleted_at AS deletedAt
     FROM wa_group g
     LEFT JOIN wa_group_participant p
       ON p.group_id = g.id
@@ -67,7 +68,8 @@
            p.presence_status AS presenceStatus,
            p.presence_source AS presenceSource,
            p.presence_observed_at AS presenceObservedAt,
-           b.id AS bindingId
+           b.id AS bindingId,
+           g.deleted_at AS deletedAt
     FROM wa_group g
     LEFT JOIN wa_group_participant p
       ON p.group_id = g.id
@@ -97,7 +99,9 @@
       </foreach>
     ) incoming
     ORDER BY incoming.group_jid ASC
-    ON DUPLICATE KEY UPDATE id = wa_group.id
+    ON DUPLICATE KEY UPDATE
+      deleted_at = NULL,
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
 
   <select id="selectGroupIds"

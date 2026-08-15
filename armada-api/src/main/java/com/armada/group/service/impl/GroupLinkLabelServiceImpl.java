@@ -36,15 +36,18 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkImportBatchMapper importBatchMapper;
     private final GroupConverter converter;
+    private final GroupCurrentLocalPersistence currentLocalPersistence;
 
     public GroupLinkLabelServiceImpl(GroupLinkLabelMapper labelMapper,
                                      GroupLinkMapper groupLinkMapper,
                                      GroupLinkImportBatchMapper importBatchMapper,
-                                     GroupConverter converter) {
+                                     GroupConverter converter,
+                                     GroupCurrentLocalPersistence currentLocalPersistence) {
         this.labelMapper = labelMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.importBatchMapper = importBatchMapper;
         this.converter = converter;
+        this.currentLocalPersistence = currentLocalPersistence;
     }
 
     /**
@@ -168,6 +171,7 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         // 级联软删:群链接 → 导入批次 → 分组
         long now = System.currentTimeMillis();
         groupLinkMapper.softDeleteByLabelIds(ids, now);
+        currentLocalPersistence.applyLegacyLabelDeletion(ids, now);
         importBatchMapper.softDeleteByLabelIds(ids, now);
         int n = labelMapper.softDeleteByIds(ids, now);
         log.info("WS链接分组批量删除 count={} ids={}", n, ids);
